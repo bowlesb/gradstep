@@ -1,6 +1,6 @@
 # Mathpix processing and durable reader artifacts
 
-Status: reviewed implementation direction, 2026-10-03. The transport adapter and eleven isolated tests exist. No paid submission, acquisition worker, quote/consent route, durable result collector or reader-artifact publication is deployed. The final reader requires this pipeline; original PDF delivery alone does not complete it.
+Status: reviewed implementation direction, 2026-10-03. The transport adapter and eleven isolated tests exist. A bounded archive-container validator also passes eleven tests in both Node and local Deno. No paid submission, acquisition worker, quote/consent route, durable result collector or reader-artifact publication is deployed. The final reader requires this pipeline; original PDF delivery alone does not complete it.
 
 ## Separate acquisition from paid processing
 
@@ -39,6 +39,10 @@ Before submission intent, funding cancellation fences the worker, settles zero, 
 Wait for document status `completed`; 100% page progress is insufficient. Wait separately for the `mmd.zip` conversion's own completed status. Retain MMD, line/equation data and the original archive in controlled storage. Validate archive paths, duplicate names, expanded bytes, entry count, image formats/dimensions and every referenced asset before publication. ZIP signatures and basic output JSON validation in the transport adapter do not establish a usable bundle.
 
 A raw-result manifest identifies every required object by immutable ID, role, bytes and checksum. No temporary provider image URL may be required for durable reading. A pinned renderer emits sanitized offline HTML, stable block/equation/figure anchors, SVG math with LaTeX/assistive MathML, and bundled styles/fonts. Artifact publication validates the entire manifest, not just its JSON object. [Mathpix renderer source](https://github.com/Mathpix/mathpix-markdown-it)
+
+`_shared/archive.ts` implements the `reader-zip-v1` container boundary: up to 32 MiB compressed and expanded, 16 MiB per file, 512 entries, and bounded ASCII relative paths. It rejects duplicate/case-colliding names, file/directory conflicts, symlinks, encryption, ZIP64, unsupported methods/extra fields, noncontiguous records and inconsistent local/directory/data-descriptor identities. It owns input before yielding and validates every actual expanded size and CRC before returning any result. This is a deliberately restricted profile, not general ZIP compatibility. Image contents, dimensions, MMD references and complete reader manifests still require separate validation. [ZIP specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+
+Extraction uses `node:zlib`'s bounded output and engine-info APIs, with exact compressed-byte consumption checked. Local Node and Deno regressions verify truncated streams, trailing data, invalid stored-block lengths and dishonest expanded sizes. The first decoder failed the trailing/block probes, and local Deno's `DecompressionStream` accepted a truncated raw stream, so API availability alone is insufficient evidence. Keep these strict-rejection cases in the deployed-runtime admission check. Cancellation is cooperative between bounded entries; the hosted CPU/memory envelope and real Mathpix bundle compatibility remain unverified. [Node zlib API](https://nodejs.org/api/zlib.html)
 
 Native integration must preserve generated stable heading IDs, resolve figures through verified bundle-scoped resources, and derive selected-equation source from the same parser nodes. Do not copy the archival blanket removal of pre-abstract figures, generic adjacent-div merging or ordinal regex equation association. Evaluate equation-heavy papers, tables, diagrams and offline transitions in the actual reader.
 
