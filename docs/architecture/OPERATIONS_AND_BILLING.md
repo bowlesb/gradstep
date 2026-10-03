@@ -54,6 +54,45 @@ Use atomic work-key claims so two users cannot both fund/submit the same shared 
 
 If this funding rule proves confusing in the benchmark, propose a platform-funded shared conversion allowance with per-user new-page quotas before publishing the rate card. Do not silently change the rule after charging subscribers.
 
+### Import cancellation and retry contract — designed, not implemented
+
+This 2026-10-03 review extends the intended behavior; it does not claim deployed import, cancellation, or retry APIs. The [data contract](DATA_MODEL.md#discovery-and-import-contract--designed-not-implemented) separates account import/membership from shared work. Migrations 001–009 remain immutable. Review lock order, operation identity, quotas, compatibility, and recovery in additive 010+ migrations before enabling provider traffic.
+
+A quote binds verified page count, document/options, rate version, credit ceiling, service spend ceiling, and expiry. Record the user's authorization before a new paid operation is reserved. Final authorization rechecks current cache/work state atomically: an already-ready result or concurrent existing job cannot create another OCR charge. Display saved/imported membership separately from readable/artifact-ready status.
+
+| Situation | Durable behavior and cost rule |
+|---|---|
+| Ready eligible exact-byte conversion | Attach account membership to the compatible verified artifact; no OCR reservation |
+| Existing active shared conversion | Attach an account request as a waiter; no second funding operation or paid submission |
+| New conversion | Atomically choose the consenting funding requester, reserve both balances, and enqueue durable work |
+| Waiter cancels/removes | Detach its interest and preserve its later membership revision; do not cancel another account's work |
+| Funding requester cancels before submission | Serialize cancellation against submission, release its unspent hold, and pause unsubmitted work; if waiters remain, require fresh funding authorization before continuing |
+| Cancellation/removal after submission | Keep cost reconciliation and shared result collection alive; disclose that removing a paper does not prove provider cancellation or eliminate incurred cost |
+| Submission outcome uncertain | Keep the reservation and quarantine; reconcile provider identity before any further submission |
+| Download, metadata, or rendering failure | Resume only the failed stage from verified durable inputs; metadata/render retries cannot rerun OCR |
+| Terminal OCR failure/cancellation | Explicit retry transition with a new attempt identity; reconcile/settle the prior operation, and obtain fresh authorization/reservation if another paid submission is required |
+
+An exact request replay returns its current state. It must not recreate removed membership or turn a terminal job into a new paid attempt. Late workers are fenced by both job lease and import/membership revision. Define attempt-to-operation relationships before schema changes: the current one-job/one-operation representation cannot by itself express every terminal retry or replacement funding case.
+
+Search, feed refresh, metadata classification, downloads, and paper assets need their own rate, storage/egress, concurrency, and retention limits. Cache eligible public metadata; coalesce equivalent refreshes and bound provider retries. A user refresh does not bypass global limits. Report actual last successful refresh and partial-source failures. Classification uses source/version/input/classifier identity and a separate budgeted operation; it is not an unmetered tail of every OCR request.
+
+### Discovery and import failure schedules required
+
+These are executable tests to build, not passed evidence. Use deterministic provider/network stubs first; run the same observable contract fixtures against native and browser clients. Record workflow screenshots, transition outcomes, timings, and credit/submission counts without logging private content.
+
+- Double-add, add from two devices, and simultaneous adds by two accounts: one eligible OCR submission, one funding operation, no duplicate account membership.
+- Resolve arXiv/DOI aliases to equal bytes, then use a different revision or annotated PDF: reuse only the authorized exact file.
+- Restart during upload, download, submission, collection, and classification: resume the checkpoint without losing the row or repeating paid work.
+- Remove/cancel, then deliver earlier add/worker responses: membership stays removed. Explicitly add again: one deliberate restoration.
+- Cancel the funding requester while waiters remain, including a race with submission: no silent charge transfer, premature release, or unreserved submission.
+- Time out after provider acceptance without returning its ID: quarantine; repeated refresh/retry cannot resubmit. Restore from backup with the same ambiguity and reconcile before resuming work.
+- Fail topic generation or rendering after successful OCR: preserve the readable/verified work that exists and retry only the failed stage. A missing asset/checksum prevents an offline-ready claim.
+- Search A then B, switch source/account, and deliver responses out of order: only current results apply. Preserve cached results when a source fails; distinguish partial results from no matches.
+- Page more than 500 papers with equal sort values and concurrent adds/removals: deterministic continuation and reconciliation lose no membership and display no duplicates.
+- Concurrent encrypted tag add/remove/rename on two devices, including an older client: follow the documented merge and compatibility rules without exposing labels or discarding pending events.
+
+Exercise optional/long metadata, missing PDFs, slow/offline networks, quota exhaustion, accessibility text sizes, and browser keyboard navigation at the transitions above. Adding from discovery must leave existing reading usable, preserve query/scroll state, and show durable progress beside the library. A visual walkthrough complements assertions; it is not proof of billing or restart correctness.
+
 ## Subscription lifecycle
 
 Use StoreKit subscriptions with server verification of signed transactions and Apple server notifications. Validate bundle/app identity, environment, ownership mapping, expiration, revocation/refund state, and signed data. Never accept a client-written `is_pro` or balance.

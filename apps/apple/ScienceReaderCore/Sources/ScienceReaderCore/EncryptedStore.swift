@@ -10,6 +10,17 @@ public struct RemoteEvent: Sendable {
     public init(cursor: Int64, envelope: EventEnvelope, digest: Data) { self.cursor = cursor; self.envelope = envelope; self.digest = digest }
 }
 
+/// A coherent view of one committed local generation. Generation is local to
+/// this account's store; it is neither a cloud cursor nor a message timestamp.
+public struct LocalStoreSnapshot: Equatable, Sendable {
+    public let state: PrivateState
+    public let generation: Int64
+    public let pendingCount: Int
+    public init(state: PrivateState, generation: Int64, pendingCount: Int) {
+        self.state = state; self.generation = generation; self.pendingCount = pendingCount
+    }
+}
+
 private struct LocalMetadata: Codable, Equatable {
     var format: Int
     let accountID: UUID
@@ -131,27 +142,50 @@ public actor EncryptedStore {
     public func state() -> PrivateState { reduced }
     public func cursor() -> Int64 { metadata.cursor }
     public func pending() -> [EventEnvelope] { metadata.outbox.compactMap { pendingEnvelopes[$0] } }
+    public func snapshot() -> LocalStoreSnapshot {
+        LocalStoreSnapshot(state: reduced, generation: metadata.generation, pendingCount: metadata.outbox.count)
+    }
 
     @discardableResult
     public func append(_ event: PrivateEvent, deviceID: UUID, id: UUID = UUID()) throws -> EventEnvelope {
-        var event = event
-        event.parents = event.parents.map { reduced.resolvedEventID($0) }
-        guard event.parents.allSatisfy({ reduced.events[$0] != nil }) else { throw ReaderError.invalidEvent }
-        let resolvedID = reduced.resolvedEventID(id)
-        if let existing = try lookup(resolvedID) {
-            var expected = event; expected.parents = expected.parents.map { reduced.resolvedEventID($0) }
-            guard (existing.deviceID == deviceID || resolvedID != id), try ReaderCrypto.open(existing, keys: keys) == expected else { throw ReaderError.eventConflict }
-            return existing
+        try appendBatch([(id: id, event: event)], deviceID: deviceID)[0]
+    }
+
+    /// Append dependent events as one local transaction. The caller allocates
+    /// stable IDs before saving and places parents before their children. Exact
+    /// retries return the original envelopes without adding them to the outbox.
+    @discardableResult
+    public func appendBatch(_ events: [(id: UUID, event: PrivateEvent)], deviceID: UUID) throws -> [EventEnvelope] {
+        guard !events.isEmpty, events.count <= 200, Set(events.map(\.id)).count == events.count else { throw ReaderError.invalidEvent }
+        var state = reduced, next = metadata
+        var results: [EventEnvelope] = [], additions: [EventEnvelope] = []
+        var resolvedIDs = Set<UUID>()
+        var pendingBytes = pendingEnvelopes.values.reduce(0) { $0 + $1.ciphertext.count }
+        for input in events {
+            var event = input.event
+            event.parents = event.parents.map { state.resolvedEventID($0) }
+            guard event.parents.allSatisfy({ state.events[$0] != nil }) else { throw ReaderError.invalidEvent }
+            let resolvedID = state.resolvedEventID(input.id)
+            guard resolvedIDs.insert(resolvedID).inserted else { throw ReaderError.invalidEvent }
+            if let existing = try lookup(resolvedID) {
+                guard (existing.deviceID == deviceID || resolvedID != input.id),
+                      try ReaderCrypto.open(existing, keys: keys) == event else { throw ReaderError.eventConflict }
+                results.append(existing)
+                continue
+            }
+            guard next.outbox.count < Self.maximumPending else { throw ReaderError.localCapacityExceeded }
+            let envelope = try ReaderCrypto.seal(event, id: input.id, deviceID: deviceID, keys: keys)
+            pendingBytes += envelope.ciphertext.count
+            guard pendingBytes <= Self.maximumPendingBytes else { throw ReaderError.localCapacityExceeded }
+            try state.apply(AppliedEvent(id: envelope.id, deviceID: deviceID, payload: event))
+            next.outbox.append(envelope.id)
+            additions.append(envelope); results.append(envelope)
         }
-        guard metadata.outbox.count < Self.maximumPending else { throw ReaderError.localCapacityExceeded }
-        let envelope = try ReaderCrypto.seal(event, id: id, deviceID: deviceID, keys: keys)
-        guard pendingEnvelopes.values.reduce(envelope.ciphertext.count, { $0 + $1.ciphertext.count }) <= Self.maximumPendingBytes else { throw ReaderError.localCapacityExceeded }
-        var state = reduced
-        try state.apply(AppliedEvent(id: envelope.id, deviceID: deviceID, payload: event))
-        var next = metadata; next.outbox.append(envelope.id)
-        try commit(records: [envelope], next: &next)
-        metadata = next; reduced = state; pendingEnvelopes[envelope.id] = envelope
-        return envelope
+        guard !additions.isEmpty else { return results }
+        try commit(records: additions, next: &next)
+        metadata = next; reduced = state
+        for envelope in additions { pendingEnvelopes[envelope.id] = envelope }
+        return results
     }
 
     public func acknowledge(_ envelope: EventEnvelope) throws {

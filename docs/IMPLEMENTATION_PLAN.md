@@ -42,9 +42,13 @@ Create/sign the Science Reader app identity and internal build using the user's 
 
 Exit: installed TestFlight app points to the intended backend, shows correct environment/build, completes the core workflow, and can send a report that the developer reads/replies to and the tester sees in-app. Backend/admin deployments and restore instructions are documented.
 
-## 6. Public release preparation
+## 6. Browser reader
 
-Resolve beta reports, finalize subscription allowances/copy, validate privacy disclosures and provider terms for the exact deployment, prepare listing/screenshots/support URLs, and present the release candidate for the agreed user review. A browser reader is included here only if selected for launch; otherwise preserve protocol compatibility without promising a delivered web reader.
+The user authorized building and deploying the browser reader after the iOS delivery, including if they are away (2026-10-03). Reuse the reviewed catalog/import, metering, encrypted-event, and recovery contracts, plus the same workflow fixtures. Build against the dedicated backend; the archived NAS application is reference material, not a deployable shortcut. Test WebCrypto interoperability, OAuth redirects, browser key storage/recovery, two-surface sync, accessibility, offline assets, and deployment before claiming delivery. Hosting credentials/destination and costs remain to be verified within the agreed budget.
+
+## 7. Public release preparation
+
+Resolve beta reports, finalize subscription allowances/copy, validate privacy disclosures and provider terms for the exact deployment, prepare listing/screenshots/support URLs, and present the release candidate for the agreed user review. Browser deployment authorization does not replace the agreed review before public App Store release.
 
 ## Work intentionally absent
 

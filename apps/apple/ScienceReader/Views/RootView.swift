@@ -15,6 +15,15 @@ struct RootView: View {
                         ForEach(ReaderTab.allCases) { tab in
                             Button {
                                 model.tab = tab
+                                // Keep the selected destination when an iPad
+                                // rotates from tabs into the wider layout.
+                                switch tab {
+                                case .feed: model.wideMode = .feed
+                                case .library: model.wideMode = .library
+                                case .paper: model.wideMode = .reader
+                                case .chat: model.wideMode = model.generalChat ? .chat : .reader
+                                case .settings: break
+                                }
                             } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: tab.symbol).font(.system(size: 20))
@@ -31,6 +40,9 @@ struct RootView: View {
                         }
                     }
                     .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
+                }
+                .onChange(of: model.generalChat) { _, general in
+                    if model.tab == .chat { model.wideMode = general ? .chat : .reader }
                 }
             }
         }
@@ -54,12 +66,6 @@ struct RootView: View {
         .alert("Science Reader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
-        .confirmationDialog("Use cloud AI in this session?", isPresented: $model.showCloudConsent, titleVisibility: .visible) {
-            Button("Allow cloud processing") { model.cloudConsent = true; Task { await model.sendMessage() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Until you sign out, messages you send may include the selected paper text and conversation context for our AI service. Saved history is encrypted with your device-held keys. The provider can read requests while processing them and may retain them under its policy.")
-        }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.synchronize() } } }
     }
 
@@ -119,19 +125,37 @@ struct LibraryView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if model.email == nil {
-                    HStack {
-                        Image(systemName: "lock.icloud")
-                        Text("Sign in to sync your library").font(.subheadline)
-                        Spacer()
-                        Button("Sign in") { model.showSignIn = true }.font(.subheadline.weight(.semibold))
-                    }.padding(14).background(Color.accentColor.opacity(0.06))
+                    Button { model.showSignIn = true } label: {
+                        HStack {
+                            Image(systemName: "lock.icloud").font(.system(size: 20))
+                            Text("Sign in to sync").font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold))
+                        }.frame(minHeight: 44).contentShape(Rectangle())
+                    }.padding(.horizontal, 16).padding(.vertical, 4).background(Color.accentColor.opacity(0.06))
                 }
                 HStack {
                     Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }.pickerStyle(.segmented).frame(maxWidth: 220)
                     Spacer()
-                    Menu { Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") } } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 44, height: 44) }.accessibilityLabel("Sort papers")
+                    Menu { Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") } } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 18)).frame(width: 44, height: 44) }.accessibilityLabel("Sort papers")
+                        .disabled(model.searchExternal)
+                    Menu {
+                        Toggle("Abstracts", isOn: $model.showAbstracts)
+                        Toggle("Topics", isOn: $model.showTopics)
+                    } label: { Image(systemName: "text.alignleft").font(.system(size: 18)).frame(width: 44, height: 44) }.accessibilityLabel("Result details").disabled(model.searchExternal)
                 }.padding(.horizontal, 16).padding(.vertical, 10)
-                if model.filteredPapers.isEmpty {
+                if model.searchExternal {
+                    ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
+                        .accessibilityIdentifier("search.external.unavailable")
+                } else if model.filteredPapers.isEmpty && !model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView {
+                        Label("No matching papers", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Try a different title, author, or topic.")
+                    } actions: {
+                        Button("Clear search") { model.libraryQuery = "" }.accessibilityIdentifier("search.clear")
+                    }
+                } else if model.filteredPapers.isEmpty {
                     ContentUnavailableView {
                         Label(model.searchExternal ? "Find papers" : "Your library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
                     } description: {
@@ -141,13 +165,14 @@ struct LibraryView: View {
                     }
                 } else {
                     List(model.filteredPapers) { paper in
-                        Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id) }
+                        Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, showAbstract: model.showAbstracts, showTopics: model.showTopics) }
                             .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+                            .accessibilityIdentifier("paper.\(paper.id.wire)")
                     }.listStyle(.plain)
                 }
             }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $model.libraryQuery, prompt: "Title, author, or topic")
+            .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: model.searchExternal ? "Search arXiv" : "Search your library")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -165,6 +190,8 @@ struct LibraryView: View {
 struct PaperRow: View {
     let paper: Paper
     var selected = false
+    var showAbstract = true
+    var showTopics = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -173,13 +200,12 @@ struct PaperRow: View {
                 Spacer(minLength: 8)
                 if paper.fileURL != nil { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
             }
-            Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-            if !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-            HStack {
-                if let year = paper.year { Text(String(year)).font(.caption2).foregroundStyle(.secondary) }
-                ForEach(paper.keywords.prefix(3), id: \.self) { Text($0).font(.caption2).padding(.horizontal, 7).padding(.vertical, 3).background(Color.accentColor.opacity(0.08), in: Capsule()) }
-            }
-        }.accessibilityElement(children: .combine)
+            if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
+            if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+            let metadata = paper.year.map { [String($0)] } ?? []
+            let topics = showTopics ? Array(paper.keywords.prefix(3)) : []
+            if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 }
 
@@ -196,53 +222,88 @@ struct FeedView: View {
 struct ChatView: View {
     @Bindable var model: ReaderModel
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    @FocusState private var composerFocused: Bool
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Context", selection: $model.generalChat) {
-                    Text("Paper chat").tag(false)
-                    Text("General chat").tag(true)
-                }.pickerStyle(.segmented).padding(12)
-                if !model.generalChat, let paper = model.selectedPaper {
-                    Text(paper.title).font(.caption).foregroundStyle(.secondary).lineLimit(2).padding(.horizontal).padding(.bottom, 10)
-                }
-                if model.chatBranches.count > 1 {
-                    Picker("Conversation branch", selection: $model.activeBranchID) {
-                        ForEach(model.chatBranches, id: \.head) { branch in
-                            Text(String((branch.messages.last?.payload.text ?? "Continuation").prefix(60))).tag(Optional(branch.head))
-                        }
-                    }.pickerStyle(.menu).padding(.horizontal).accessibilityLabel("Conversation branch")
-                }
-                if !model.chatContextComplete {
-                    Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        if model.chatMessages.isEmpty {
-                            ContentUnavailableView(model.generalChat ? "Explore an idea" : "Ask about this paper", systemImage: "bubble.left.and.bubble.right", description: Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question."))
-                        }
-                        ForEach(model.chatMessages, id: \.id) { message in
-                            HStack {
-                                if message.payload.role == .user { Spacer(minLength: 30) }
-                                Text(.init(message.payload.text ?? "")).font(.system(size: model.chatFontSize * bodySize / 17)).textSelection(.enabled)
-                                    .padding(12).background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
-                                if message.payload.role != .user { Spacer(minLength: 30) }
+            GeometryReader { available in
+                // Reserve reading and editing space as text grows or a keyboard
+                // reduces the pane. The transcript/composer retain their identity.
+                let compact = available.size.height < bodySize * 20
+                VStack(spacing: 0) {
+                    contextHeader(compact: compact)
+                    if model.chatBranches.count > 1 {
+                        Picker("Conversation branch", selection: $model.activeBranchID) {
+                            ForEach(model.chatBranches, id: \.head) { branch in
+                                Text(String((branch.messages.last?.payload.text ?? "Continuation").prefix(60))).tag(Optional(branch.head))
                             }
+                        }.pickerStyle(.menu).padding(.horizontal).accessibilityLabel("Conversation branch")
+                    }
+                    if !model.chatContextComplete && !model.chatWasDeleted {
+                        Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                    }
+                    ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17)
+                    Text("AI replies aren’t available in this build.").font(.caption).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Ask a question…", text: $model.chatInput, axis: .vertical)
+                            .focused($composerFocused).accessibilityIdentifier("chat.composer")
+                            .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+                            .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                        if composerFocused {
+                            Button { composerFocused = false } label: {
+                                Image(systemName: "keyboard.chevron.compact.down").font(.body).frame(width: 44, height: 44)
+                            }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
+                                .keyboardShortcut(.cancelAction)
                         }
-                    }.padding()
+                        Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
+                            .disabled(model.isGenerating || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Save message").accessibilityIdentifier("chat.send")
+                    }.padding(12)
+                    if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
+                    else if model.email != nil || model.chatHasSaved { Text(model.syncStatus).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
                 }
-                HStack(alignment: .bottom, spacing: 12) {
-                    TextField("Ask a question…", text: $model.chatInput, axis: .vertical).lineLimit(1...6).padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                    Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                        .disabled(model.isGenerating || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send message")
-                }.padding(12)
-                if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
-                else { Text(model.syncStatus).font(.caption2).foregroundStyle(.secondary).padding(.bottom, 5) }
             }
-            .navigationTitle("Chat").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { model.showAllChats = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("Chat history") }
-                ToolbarItem(placement: .topBarTrailing) { Button { model.newChat(general: model.generalChat) } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New chat") }
+                ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; model.showAllChats = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("Chat history") }
+                ToolbarItem(placement: .topBarTrailing) { Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New chat") }
+            }
+        }
+    }
+
+    private func contextPicker(compact: Bool) -> some View {
+        Picker("Context", selection: Binding(get: { model.generalChat }, set: { if $0 || model.canUsePaperChat { model.generalChat = $0 } })) {
+            Text(compact ? "Paper" : "Paper chat").accessibilityLabel("Paper chat").tag(false).disabled(!model.canUsePaperChat)
+            Text(compact ? "General" : "General chat").accessibilityLabel("General chat").tag(true)
+        }.pickerStyle(.segmented)
+    }
+
+    @ViewBuilder private func contextHeader(compact: Bool) -> some View {
+        if compact {
+            HStack(spacing: 8) {
+                contextPicker(compact: true)
+                returnToPaper(compact: true)
+            }.padding(.horizontal, 12).padding(.vertical, 4)
+        } else {
+            VStack(spacing: 0) {
+                contextPicker(compact: false).padding(12)
+                returnToPaper(compact: false)
+            }
+        }
+    }
+
+    @ViewBuilder private func returnToPaper(compact: Bool) -> some View {
+        if !model.generalChat {
+            if let paper = model.chatPaper {
+                Button { composerFocused = false; model.select(paper) } label: {
+                    if compact {
+                        Image(systemName: "doc.text").font(.body).frame(width: 44, height: 44).contentShape(Rectangle())
+                    } else {
+                        Label(paper.title, systemImage: "doc.text").font(.caption).lineLimit(2).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()).padding(.horizontal, 16)
+                    }
+                }.accessibilityLabel("Return to paper: \(paper.title)").accessibilityIdentifier("chat.returnToPaper")
+                    .accessibilityShowsLargeContentViewer { Label(paper.title, systemImage: "doc.text") }
+            } else if model.canUsePaperChat {
+                Text("Paper unavailable in this library").font(.caption).foregroundStyle(.secondary).padding(.bottom, compact ? 0 : 10)
             }
         }
     }
@@ -257,6 +318,7 @@ struct SettingsView: View {
                 Section("Account") {
                     if let email = model.email {
                         Label(email, systemImage: "person.crop.circle"); LabeledContent("Sync", value: model.syncStatus)
+                        if let issue = model.syncIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
                         Button("Sign out") { Task { await model.signOut() } }
                         Text("Encrypted pending work stays on this device for your next sign-in.").font(.footnote).foregroundStyle(.secondary)
                     }
@@ -271,7 +333,7 @@ struct SettingsView: View {
                 Section("Your research") {
                     Button("All chats") { model.showAllChats = true }
                     Button("All diagrams") { model.showDiagrams = true }
-                    Button("Sync now") { Task { await model.synchronize() } }.disabled(model.email == nil)
+                    Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }.disabled(model.email == nil)
                 }
                 Section("Privacy") {
                     Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.").font(.footnote).foregroundStyle(.secondary)
@@ -296,11 +358,32 @@ struct HistoryView: View {
     var body: some View {
         NavigationStack {
             let entities = model.privateState.entities(kind: diagrams ? .diagram : .conversation)
-            List(entities, id: \.self) { id in
-                if let event = model.privateState.revisions(for: id).first {
-                    Button(event.payload.text ?? "Untitled") { model.openConversation(id); dismiss() }
+            let drafts = diagrams ? [] : model.unsentDrafts
+            List {
+                if !drafts.isEmpty {
+                    Section {
+                        ForEach(drafts) { draft in
+                            Button { model.openUnsentDraft(draft.id); dismiss() } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(draft.text).lineLimit(2)
+                                    Text(draft.failed ? "Not saved" : (draft.context == "general" ? "General chat" : "Paper chat"))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.accessibilityIdentifier("chat.draft.\(draft.id.wire)")
+                                .swipeActions(allowsFullSwipe: false) {
+                                    Button("Discard", role: .destructive) { model.discardUnsentDraft(draft.id) }
+                                }
+                        }
+                    } header: { Text("Unsent drafts") } footer: { Text("Kept for this session.") }
                 }
-            }.overlay { if entities.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
+                Section {
+                    ForEach(entities, id: \.self) { id in
+                        if let event = model.privateState.revisions(for: id).first {
+                            Button(event.payload.text ?? "Untitled") { model.openConversation(id); dismiss() }
+                        }
+                    }
+                } header: { if !drafts.isEmpty { Text("Saved conversations") } }
+            }.overlay { if entities.isEmpty && drafts.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
                 .navigationTitle(diagrams ? "All diagrams" : "All chats").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
@@ -365,14 +448,12 @@ struct RecoveryView: View {
 struct ImportPaperView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
-    @State private var link = ""
     var body: some View {
         NavigationStack {
             Form {
                 Section("Paper link") {
-                    TextField("https://arxiv.org/abs/…", text: $link).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Text("New conversions show their maximum credit cost before processing. Eligible existing conversions are reused.").font(.footnote).foregroundStyle(.secondary)
-                    Button("Continue") { model.error = "Paper import is waiting for the deployed processing service." }.disabled(link.isEmpty)
+                    Text("Paper import is not connected in this build.").font(.subheadline)
+                    Text("The offline sample is available while processing is being connected.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section { Button("Open offline reader sample") { model.openSample(); dismiss() } }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)

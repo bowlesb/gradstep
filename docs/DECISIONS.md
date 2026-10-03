@@ -9,8 +9,8 @@ Last updated: 2026-10-03. Requirements below come from the current user conversa
 | Audience | Individual ML researchers and engineers |
 | Native surfaces | iPhone and iPad |
 | Sign-in | Apple and Google following TextBrain's interaction pattern; email one-time code fallback selected under the user's delegated choice; no usernames/passwords in launch customer UX |
-| Public name | Timestep is the user's first choice, conditional on availability; name investigation in progress and no public rename yet |
-| Reader launch scope | iPhone/iPad first; browser reader deferred; admin website included |
+| Public name | Timestep is the user's first choice; review found existing App Store and AI/software uses, so qualified-title availability and clearance remain unresolved; no public rename yet |
+| Reader launch scope | iPhone/iPad first; admin website included; user additionally authorized building and deploying the browser reader after iOS, including while they are away |
 | Key custody | Device-held keys; recovery requires an approved device or saved recovery code |
 | Business model | Subscription with included AI/OCR allowance; tiers and credits supported |
 | Price exploration | Benchmark $9.99/month and $19.99/month; final allowances follow measured workloads |
@@ -20,7 +20,7 @@ Last updated: 2026-10-03. Requirements below come from the current user conversa
 | Private user data | Each person owns their library state, notes, highlights, and conversations |
 | Admin | Private usage/cost dashboard with spending and account controls |
 | Testing | Internal/admin app experience: screenshot, note, upload, replies, and fix-build tracking |
-| UX | Preserve original screen arrangement and navigation; subtle styling refinements are authorized |
+| UX | Preserve successful original screen arrangement and navigation; polish speed, reliability, spacing, metadata density, transitions, and accessibility using complete workflow simulations and independent reviews of complex designs |
 | Existing NAS data | No migration needed |
 | Initial delivery | Backend, admin dashboard, and TestFlight; public release after user review |
 | Infrastructure discipline | Plan data ownership, failure behavior, evolution, and operations before choosing tables/deploying |

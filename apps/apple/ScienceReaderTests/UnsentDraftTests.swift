@@ -1,0 +1,91 @@
+import Foundation
+import XCTest
+@testable import ScienceReader
+
+@MainActor
+final class UnsentDraftTests: XCTestCase {
+    func testFailedFirstSaveAndNewerDraftBothRemainReachable() throws {
+        var workspace = ChatWorkspace()
+        workspace.setDraft("Original question", in: "general")
+        let failed = try XCTUnwrap(workspace.beginSubmission(in: "general"))
+        workspace.select(nil, in: "general")
+        workspace.setDraft("Newer question", in: "general")
+        let newer = try XCTUnwrap(workspace.composerID(in: "general"))
+        workspace.fail(failed)
+
+        XCTAssertEqual(Set(workspace.unsentDrafts.map(\.id)), [failed.composerID, newer])
+        XCTAssertTrue(try XCTUnwrap(workspace.unsentDrafts.first { $0.id == failed.composerID }).failed)
+        XCTAssertEqual(workspace.composerID(in: "general"), newer)
+        XCTAssertEqual(workspace.selectDraft(failed.composerID), "general")
+        XCTAssertEqual(workspace.draft(in: "general"), "Original question")
+        XCTAssertEqual(workspace.selectDraft(newer), "general")
+        XCTAssertEqual(workspace.draft(in: "general"), "Newer question")
+
+        _ = workspace.selectDraft(failed.composerID)
+        let retry = try XCTUnwrap(workspace.beginSubmission(in: "general"))
+        _ = workspace.selectDraft(newer)
+        workspace.complete(retry)
+        XCTAssertEqual(workspace.composerID(in: "general"), newer)
+        XCTAssertEqual(workspace.unsentDrafts.map(\.id), [newer])
+        workspace.select(retry.conversationID, in: "general")
+        XCTAssertEqual(workspace.draft(in: "general"), "")
+    }
+
+    func testPendingAndSavedConversationsAreNotDuplicatedAsUnsentChats() throws {
+        var workspace = ChatWorkspace()
+        workspace.setDraft(" \n ", in: "general")
+        XCTAssertTrue(workspace.unsentDrafts.isEmpty)
+        workspace.setDraft("A question", in: "general")
+        let saving = try XCTUnwrap(workspace.beginSubmission(in: "general"))
+        XCTAssertTrue(workspace.unsentDrafts.isEmpty)
+        workspace.discardDraft(saving.composerID)
+        XCTAssertTrue(workspace.isSaving(in: "general"))
+        workspace.complete(saving)
+        workspace.setDraft("Follow-up retained by history", in: "general")
+        XCTAssertTrue(workspace.unsentDrafts.isEmpty)
+        workspace.select(nil, in: "general")
+        workspace.select(saving.conversationID, in: "general")
+        XCTAssertEqual(workspace.draft(in: "general"), "Follow-up retained by history")
+    }
+
+    func testDiscardedFailedDraftCannotReturnThroughLateCompletion() throws {
+        var workspace = ChatWorkspace()
+        workspace.setDraft("Discard this failed save", in: "general")
+        let failed = try XCTUnwrap(workspace.beginSubmission(in: "general"))
+        workspace.fail(failed)
+        workspace.discardDraft(failed.composerID)
+        workspace.complete(failed)
+        workspace.fail(failed)
+        XCTAssertTrue(workspace.unsentDrafts.isEmpty)
+        XCTAssertNil(workspace.composerID(in: "general"))
+        XCTAssertNil(workspace.selectDraft(failed.composerID))
+    }
+
+    func testReopeningDraftRestoresItsPaperOrGeneralContext() throws {
+        let model = ReaderModel(configuration: nil)
+        model.openSample()
+        let paper = try XCTUnwrap(model.selectedPaper)
+        model.chatInput = "Question for this paper"
+        let paperDraft = try XCTUnwrap(model.chatComposerID)
+        model.newChat(general: true)
+        model.chatInput = "A general research question"
+        let generalDraft = try XCTUnwrap(model.chatComposerID)
+
+        model.openUnsentDraft(paperDraft)
+        XCTAssertFalse(model.generalChat)
+        XCTAssertEqual(model.chatPaperID, paper.id)
+        XCTAssertEqual(model.chatInput, "Question for this paper")
+        XCTAssertEqual(model.tab, .chat)
+        model.openUnsentDraft(generalDraft)
+        XCTAssertTrue(model.generalChat)
+        XCTAssertEqual(model.chatInput, "A general research question")
+        model.papers = []
+        model.openUnsentDraft(paperDraft)
+        XCTAssertFalse(model.generalChat)
+        XCTAssertEqual(model.chatPaperID, paper.id)
+        XCTAssertNil(model.selectedPaper)
+        XCTAssertEqual(model.chatInput, "Question for this paper")
+        model.discardUnsentDraft(paperDraft)
+        XCTAssertEqual(model.unsentDrafts.map(\.id), [generalDraft])
+    }
+}
