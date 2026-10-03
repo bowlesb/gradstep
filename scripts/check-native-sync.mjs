@@ -27,7 +27,7 @@ try {
   assert.match(log,/testTwoDeviceRecoveryOfflineEditsAndLostAcknowledgment.*passed/,'Native sync check did not run');
   const rows=await sql(`select count(*)::int as devices,min(acknowledged_cursor)::int as acknowledged from app_private.devices where account_id='${account}'`);
   assert.equal(rows[0].devices,2);assert.equal(rows[0].acknowledged,7);
-  console.log('PASS hosted native two-device key recovery, concurrent offline edits, exact ciphertext replay, missed acknowledgment recovery, byte-bounded pagination, and durable device cursors');
+  console.log('PASS hosted native v2 library baseline/catch-up, two-device key recovery, concurrent offline edits, exact ciphertext replay, missed acknowledgment recovery, byte-bounded pagination, and durable device cursors');
 } finally {
   if(account){
     // This check creates no immutable rotation/billing/audit events. Such future

@@ -24,6 +24,18 @@ final class LiveSyncTests: XCTestCase {
         let clients = try environments.map { try BackendClient(configuration: BackendConfiguration(url: bundled.url, anonKey: bundled.anonKey, environment: $0)) }
         print("Native sync phase: sign in two clients")
         for client in clients { let user = try await client.signIn(email: email, password: password); XCTAssertEqual(user.id, account) }
+        print("Native sync phase: v2 library baseline and repeated catch-up")
+        for client in clients {
+            let scope = LibraryScope(accountID: account, readerSessionID: UUID())
+            let library = LibraryService(scope: scope, transport: client)
+            let first = try await library.refresh()
+            XCTAssertEqual(first.scope, scope); XCTAssertEqual(first.committedCursor, 0)
+            XCTAssertEqual(first.generation, 1); XCTAssertTrue(first.entries.isEmpty)
+            let next = try await library.refresh()
+            XCTAssertEqual(next.committedCursor, 0); XCTAssertEqual(next.generation, 2); XCTAssertTrue(next.entries.isEmpty)
+            await library.invalidate()
+            let retired = await library.snapshot(); XCTAssertNil(retired)
+        }
         print("Native sync phase: bootstrap first device")
         let managerA = try DeviceKeys(backend: clients[0], accountID: account, environment: environments[0])
         guard case .saveRecoveryCode(let code) = try await managerA.prepare() else { return XCTFail("New account must bootstrap device keys") }
