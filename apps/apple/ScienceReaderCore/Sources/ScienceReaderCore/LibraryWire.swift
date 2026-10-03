@@ -487,8 +487,8 @@ public struct LibraryChangesPage: Decodable, Equatable, Sendable {
     }
 }
 
-public struct LibraryCommandResult: Decodable, Equatable, Sendable {
-    public enum Status: String, Decodable, Sendable { case applied; case revisionConflict = "revision_conflict" }
+public struct LibraryCommandResult: Codable, Equatable, Sendable {
+    public enum Status: String, Codable, Sendable { case applied; case revisionConflict = "revision_conflict" }
     public let status: Status
     public let kind: LibraryEntryKind
     /// A conflict against an absent item has a null id and revision zero.

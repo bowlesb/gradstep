@@ -25,6 +25,7 @@ Last updated: 2026-10-03. Requirements below come from the current user conversa
 | Existing NAS data | No migration needed |
 | Initial delivery | Backend, admin dashboard, and TestFlight; public release after user review |
 | Infrastructure discipline | Plan data ownership, failure behavior, evolution, and operations before choosing tables/deploying |
+| Delivery quality | User explicitly prioritizes careful, maintainable implementation over speed; resolve structural issues and verify complete workflows before enabling them, without hacks or shortcuts |
 
 ## Product decision checkpoint
 

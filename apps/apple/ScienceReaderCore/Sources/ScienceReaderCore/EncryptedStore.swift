@@ -34,7 +34,13 @@ private struct LocalMetadata: Codable, Equatable {
     // Optional only for decoding formats 2/3. Format 4 requires this bounded
     // authenticated manifest, including empty coordination rows and tombstones.
     var drafts: [String: Data]?
-    init(accountID: UUID) { self.format = 4; self.accountID = accountID; self.drafts = [:] }
+    var libraryCommands: [String: Data]?
+    var libraryCommandSequence: Int64?
+    var libraryCommandScope: LibraryCommandScope?
+    init(accountID: UUID) {
+        self.format = 5; self.accountID = accountID; self.drafts = [:]
+        self.libraryCommands = [:]; self.libraryCommandSequence = 0
+    }
 }
 
 private struct DraftReceipt: Codable, Equatable {
@@ -86,6 +92,8 @@ public actor EncryptedStore {
     private var reduced: PrivateState
     private var localDrafts: [UUID: StoredDraft]
     private var draftBytes: [UUID: Int]
+    private var libraryJournal: LibraryCommandJournal
+    private let libraryWriterID = UUID()
     private var needsReopen = false
     private static let maximumPending = 1_000
     private static let maximumPendingBytes = 16 * 1024 * 1024
@@ -126,7 +134,7 @@ public actor EncryptedStore {
         database = try SQLiteConnection(url: url)
         try database.execute("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;")
         if !exists {
-            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=3;")
+            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=4;")
             do {
                 let sealed = try Self.sealMetadata(LocalMetadata(accountID: accountID), key: symmetricKey)
                 try database.update("INSERT INTO metadata(id,sealed) VALUES(1,?)", values: [.blob(sealed)])
@@ -135,12 +143,12 @@ public actor EncryptedStore {
         }
         try database.execute("BEGIN")
         var loaded = try Self.readMetadata(database, key: symmetricKey, accountID: accountID)
-        guard [2, 3, 4].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
+        guard [2, 3, 4, 5].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
         let schemaVersion = try database.statement("PRAGMA user_version") { statement -> Int32 in
             guard sqlite3_step(statement) == SQLITE_ROW else { throw ReaderError.corruptData }
             return sqlite3_column_int(statement, 0)
         }
-        guard schemaVersion == (loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
+        guard schemaVersion == (loaded.format == 5 ? 4 : loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
         guard loaded.cursor >= 0, loaded.count >= 0, loaded.generation >= 0, loaded.chain.count == 32,
               loaded.outbox.count <= Self.maximumPending, Set(loaded.outbox).count == loaded.outbox.count else { throw ReaderError.corruptData }
         var count: Int64 = 0; var chain = Data(repeating: 0, count: 32)
@@ -169,7 +177,7 @@ public actor EncryptedStore {
         }
         guard count == loaded.count, chain == loaded.chain, pending.count == loaded.outbox.count else { throw ReaderError.corruptData }
         var drafts: [UUID: StoredDraft] = [:], sizes: [UUID: Int] = [:]
-        if loaded.format == 4 {
+        if loaded.format >= 4 {
             guard let manifest = loaded.drafts, manifest.count <= Self.maximumDraftRows else { throw ReaderError.corruptData }
             try database.statement("SELECT id,sealed FROM local_drafts") { statement in
                 while true {
@@ -190,13 +198,44 @@ public actor EncryptedStore {
         } else {
             guard loaded.drafts == nil else { throw ReaderError.corruptData }
         }
+        var commands = LibraryCommandJournal()
+        if loaded.format == 5 {
+            guard let manifest = loaded.libraryCommands, manifest.count <= LibraryCommandJournal.maximumRows,
+                  let sequence = loaded.libraryCommandSequence, sequence >= 0 else { throw ReaderError.corruptData }
+            commands.scope = loaded.libraryCommandScope; commands.sequence = sequence
+            if let scope = commands.scope { try scope.validate(); guard scope.accountID == accountID else { throw ReaderError.wrongAccount } }
+            var bytes = 0
+            try database.statement("SELECT id,sealed FROM local_library_commands") { statement in
+                while true {
+                    let result = sqlite3_step(statement)
+                    if result == SQLITE_DONE { break }
+                    guard result == SQLITE_ROW else { throw DatabaseFailure(code: result) }
+                    let name = try SQLiteConnection.text(statement, 0)
+                    guard let id = UUID(uuidString: name), id.wire == name, commands.rows[id] == nil,
+                          let scope = commands.scope else { throw ReaderError.corruptData }
+                    let sealed = try SQLiteConnection.blob(statement, 1)
+                    guard sealed.count <= LibraryCommandJournal.maximumRowBytes,
+                          manifest[name] == Data(SHA256.hash(data: sealed)) else { throw ReaderError.corruptData }
+                    let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: symmetricKey,
+                                                 authenticating: Self.libraryCommandAAD(id: id, scope: scope))
+                    let row = try JSONDecoder().decode(LocalLibraryCommand.self, from: plain)
+                    guard row.id == id else { throw ReaderError.corruptData }
+                    commands.rows[id] = row; bytes += sealed.count
+                }
+            }
+            guard commands.rows.count == manifest.count, bytes <= LibraryCommandJournal.maximumBytes else { throw ReaderError.corruptData }
+            try commands.validate()
+        } else {
+            guard loaded.libraryCommands == nil, loaded.libraryCommandSequence == nil,
+                  loaded.libraryCommandScope == nil else { throw ReaderError.corruptData }
+        }
         try database.execute("COMMIT")
 
         // Only a fresh store owner may collect coordination rows. Its metadata
         // generation change fences any previous actor still holding callbacks.
         // Ordinary same-account activation reuses this actor and never prunes.
         let pruned = drafts.filter { $0.value.discarded || $0.value.draft.text.isEmpty }.map(\.key)
-        if loaded.format < 4 || !pruned.isEmpty {
+        if loaded.format < 5 || !pruned.isEmpty || !commands.rows.isEmpty {
             guard loaded.generation < Int64.max else { throw ReaderError.storageUnavailable }
             var migrated = loaded
             try database.execute("BEGIN IMMEDIATE")
@@ -206,12 +245,23 @@ public actor EncryptedStore {
                     try database.execute("CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL)")
                     migrated.drafts = [:]
                 }
+                if loaded.format < 5 {
+                    try database.execute("CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL)")
+                    migrated.libraryCommands = [:]; migrated.libraryCommandSequence = 0
+                }
+                let previousCommands = commands
+                try commands.reopen()
+                for row in commands.rows.values where previousCommands.rows[row.id] != row {
+                    let sealed = try Self.sealLibraryCommand(row, key: symmetricKey)
+                    try database.update("UPDATE local_library_commands SET sealed=? WHERE id=?", values: [.blob(sealed), .text(row.id.wire)])
+                    migrated.libraryCommands?[row.id.wire] = Data(SHA256.hash(data: sealed))
+                }
                 for id in pruned {
                     try database.update("DELETE FROM local_drafts WHERE id=?", values: [.text(id.wire)])
                     migrated.drafts?.removeValue(forKey: id.wire)
                 }
-                migrated.format = 4; migrated.generation += 1
-                try database.execute("PRAGMA user_version=3")
+                migrated.format = 5; migrated.generation += 1
+                try database.execute("PRAGMA user_version=4")
                 try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(migrated, key: symmetricKey))])
                 try database.execute("COMMIT")
             } catch { if database.inTransaction { try? database.execute("ROLLBACK") }; throw error }
@@ -220,6 +270,7 @@ public actor EncryptedStore {
         }
         metadata = loaded; pendingEnvelopes = pending; reduced = state
         localDrafts = drafts; draftBytes = sizes
+        libraryJournal = commands
     }
 
     public func state() -> PrivateState { reduced }
@@ -230,6 +281,136 @@ public actor EncryptedStore {
             .map { canonicalDraft($0.draft) }
             .sorted { $0.editedAt == $1.editedAt ? $0.id.wire < $1.id.wire : $0.editedAt > $1.editedAt }
         return LocalStoreSnapshot(state: reduced, generation: metadata.generation, pendingCount: metadata.outbox.count, drafts: drafts)
+    }
+
+    public func libraryCommandSnapshot(scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        try validateLibraryAuthority()
+        return LocalLibraryCommandSnapshot(generation: metadata.generation,
+            commands: libraryJournal.rows.values.sorted { $0.handle.localSequence < $1.handle.localSequence })
+    }
+
+    @discardableResult
+    public func enqueueLibraryCommand(scope: LibraryCommandScope, mutation: LibraryMutation,
+                                      display: String? = nil) throws -> LocalLibraryCommandHandle {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        next.prune()
+        let handle = try next.enqueue(mutation, scope: scope, display: display)
+        try persistLibraryJournal(next)
+        return handle
+    }
+
+    @discardableResult
+    public func holdLibrarySuccessor(_ successor: LibrarySuccessor, after handle: LocalLibraryCommandHandle,
+                                     scope: LibraryCommandScope, display: String? = nil) throws -> LocalLibraryCommandHandle {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        let child = try next.hold(successor, after: handle, display: display)
+        try persistLibraryJournal(next)
+        return child
+    }
+
+    public func beginLibraryAttempt(_ handle: LocalLibraryCommandHandle, scope: LibraryCommandScope) throws -> LibraryCommandAttempt {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        let attempt = try next.begin(handle, writerID: libraryWriterID)
+        try persistLibraryJournal(next)
+        return attempt
+    }
+
+    @discardableResult
+    public func cancelLibraryCommand(_ handle: LocalLibraryCommandHandle,
+                                      scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        try next.cancel(handle)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
+    @discardableResult
+    public func recordLibraryReceipt(_ response: LibraryCommandResponse, for attempt: LibraryCommandAttempt) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(attempt.scope, accountID: accountID)
+        var next = libraryJournal
+        try next.receive(response, for: attempt, writerID: libraryWriterID)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: attempt.scope)
+    }
+
+    @discardableResult
+    public func recordLibraryFailure(_ failure: LibraryCommandFailure, for attempt: LibraryCommandAttempt) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(attempt.scope, accountID: accountID)
+        var next = libraryJournal
+        try next.failed(failure, for: attempt, writerID: libraryWriterID)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: attempt.scope)
+    }
+
+    @discardableResult
+    public func discardUnissuedLibraryIntent(_ handle: LocalLibraryCommandHandle, expectedRevision: Int64,
+                                             scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        try next.discard(handle, revision: expectedRevision)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
+    /// Caller guarantees a complete pull begun after these exact receipts.
+    /// Core also validates account, sequence floor, targets and revisions.
+    @discardableResult
+    public func reconcileLibraryCommands(_ receipts: [LibraryCommandReconciliation],
+                                         observation: LibraryCompleteObservation,
+                                         scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        guard observation.accountID == accountID else { throw ReaderError.wrongAccount }
+        var next = libraryJournal
+        try next.reconcile(receipts, observation: observation)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
+    @discardableResult
+    public func dismissLibraryCommand(_ handle: LocalLibraryCommandHandle, expectedRevision: Int64,
+                                      scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        try next.dismiss(handle, revision: expectedRevision)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
+    @discardableResult
+    public func pruneLibraryCommands(scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal; next.prune()
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
+    private func persistLibraryJournal(_ journal: LibraryCommandJournal) throws {
+        try journal.validate()
+        try validateLibraryAuthority()
+        guard journal != libraryJournal else { return }
+        var sealed: [UUID: Data] = [:]
+        for row in journal.rows.values where libraryJournal.rows[row.id] != row {
+            sealed[row.id] = try Self.sealLibraryCommand(row, key: localKey)
+        }
+        var next = metadata
+        do { try commit(records: [], next: &next, library: (journal, sealed)) }
+        catch { if error as? ReaderError == .storeChanged { needsReopen = true }; throw error }
+        metadata = next; libraryJournal = journal
+    }
+
+    private func validateLibraryAuthority() throws {
+        guard !needsReopen else { throw ReaderError.storageUnavailable }
+        // Even an exact/no-op command checks disk authority before allowing a
+        // caller to rely on the queue. Snapshots use the same check so a safely
+        // rolled-back storage failure can resume, but a stale actor cannot.
+        guard try Self.readMetadata(database, key: localKey, accountID: accountID) == metadata else {
+            needsReopen = true; throw ReaderError.storeChanged
+        }
     }
 
     @discardableResult
@@ -613,7 +794,8 @@ public actor EncryptedStore {
     }
 
     private func commit(records: [EventEnvelope], next: inout LocalMetadata, replacement: ReplacementMarker? = nil,
-                        draft: (row: StoredDraft, sealed: Data)? = nil) throws {
+                        draft: (row: StoredDraft, sealed: Data)? = nil,
+                        library: (journal: LibraryCommandJournal, sealed: [UUID: Data])? = nil) throws {
         guard !needsReopen, metadata.generation < Int64.max else { throw ReaderError.storageUnavailable }
         try database.execute("BEGIN IMMEDIATE")
         do {
@@ -627,7 +809,20 @@ public actor EncryptedStore {
                                     values: [.text(draft.row.draft.id.wire), .blob(draft.sealed)])
                 next.drafts?[draft.row.draft.id.wire] = Data(SHA256.hash(data: draft.sealed))
             }
-            next.format = 4
+            if let library {
+                for id in libraryJournal.rows.keys where library.journal.rows[id] == nil {
+                    try database.update("DELETE FROM local_library_commands WHERE id=?", values: [.text(id.wire)])
+                    next.libraryCommands?.removeValue(forKey: id.wire)
+                }
+                for (id, sealed) in library.sealed {
+                    try database.update("INSERT INTO local_library_commands(id,sealed) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET sealed=excluded.sealed",
+                                        values: [.text(id.wire), .blob(sealed)])
+                    next.libraryCommands?[id.wire] = Data(SHA256.hash(data: sealed))
+                }
+                next.libraryCommandScope = library.journal.scope
+                next.libraryCommandSequence = library.journal.sequence
+            }
+            next.format = 5
             next.generation += 1
             try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(next, key: localKey))])
             try database.execute("COMMIT")
@@ -658,6 +853,17 @@ public actor EncryptedStore {
         let aad = Data("science-reader/local-metadata/v2/\(metadata.accountID.wire)".utf8)
         guard let bytes = try AES.GCM.seal(ReaderCrypto.encode(metadata), using: key, authenticating: aad).combined else { throw ReaderError.corruptData }
         return bytes
+    }
+
+    private static func libraryCommandAAD(id: UUID, scope: LibraryCommandScope) -> Data {
+        Data("science-reader/local-library-command/v1\n\(scope.accountID.wire)\n\(scope.deploymentID)\n\(id.wire)\n".utf8)
+    }
+
+    private static func sealLibraryCommand(_ row: LocalLibraryCommand, key: SymmetricKey) throws -> Data {
+        guard let sealed = try AES.GCM.seal(ReaderCrypto.encode(row), using: key,
+                                           authenticating: libraryCommandAAD(id: row.id, scope: row.scope)).combined,
+              sealed.count <= LibraryCommandJournal.maximumRowBytes else { throw LibraryCommandError.capacityExceeded }
+        return sealed
     }
 
     private static func readMetadata(_ database: SQLiteConnection, key: SymmetricKey, accountID: UUID) throws -> LocalMetadata {

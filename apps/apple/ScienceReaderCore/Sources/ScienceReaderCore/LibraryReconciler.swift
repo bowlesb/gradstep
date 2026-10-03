@@ -30,6 +30,18 @@ public struct LibraryCommandTicket: Equatable, Sendable {
     }
 }
 
+/// Proof of a complete, coherent pull, never manufactured from a command's seq.
+/// The coordinator additionally owns freshness relative to the receipt.
+public struct LibraryCompleteObservation: Equatable, Sendable {
+    public let accountID: UUID
+    public let sessionID: UUID
+    public let committedCursor: Int64
+    public let entries: [LibraryEntryID: LibraryEntry]
+    fileprivate init(accountID: UUID, sessionID: UUID, committedCursor: Int64, entries: [LibraryEntryID: LibraryEntry]) {
+        self.accountID = accountID; self.sessionID = sessionID; self.committedCursor = committedCursor; self.entries = entries
+    }
+}
+
 public struct LibraryMergeResult: Equatable, Sendable {
     public let disposition: Disposition
     public let insertedOrUpdated: Int
@@ -102,6 +114,17 @@ public struct LibraryReconciler: Equatable, Sendable {
 
     public func commandTicket(operationID: UUID) -> LibraryCommandTicket {
         LibraryCommandTicket(accountID: accountID, sessionID: sessionID, operationID: operationID)
+    }
+
+    public func completeObservation() throws -> LibraryCompleteObservation {
+        guard phase == .ready, inFlightRequest == nil, let cursor = committedCursor,
+              entries.values.allSatisfy({ $0.stateSequence <= cursor }) else { throw LibraryCommandError.incompleteObservation }
+        for entry in entries.values {
+            guard case .import(let value) = entry, let id = value.libraryItemID else { continue }
+            guard case .item(let item) = entries[.init(kind: .item, entityID: id)],
+                  item.documentID == value.documentID else { throw LibraryCommandError.incompleteObservation }
+        }
+        return LibraryCompleteObservation(accountID: accountID, sessionID: sessionID, committedCursor: cursor, entries: entries)
     }
 
     /// Only a resync error belonging to the active pull can clear this session.

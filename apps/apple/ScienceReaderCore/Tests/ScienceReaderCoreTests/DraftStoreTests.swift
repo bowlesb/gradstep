@@ -65,8 +65,10 @@ import Testing
         let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: current), using: key, authenticating: aad)
         var fields = try #require(JSONSerialization.jsonObject(with: plain) as? [String: Any])
         fields["format"] = format; fields.removeValue(forKey: "drafts")
+        fields.removeValue(forKey: "libraryCommands"); fields.removeValue(forKey: "libraryCommandSequence")
+        fields.removeValue(forKey: "libraryCommandScope")
         let sealed = try #require(AES.GCM.seal(JSONSerialization.data(withJSONObject: fields), using: key, authenticating: aad).combined)
-        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_drafts; PRAGMA user_version=2")
+        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_drafts; DROP TABLE local_library_commands; PRAGMA user_version=2")
         try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(sealed)])
         try database.execute("COMMIT")
         return sealed
