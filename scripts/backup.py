@@ -22,6 +22,7 @@ import urllib.request
 import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from migration_ledger import source_ledger, verify_applied_prefix
 
 ROOT = Path(__file__).resolve().parents[1]
 PG_BIN = Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
@@ -125,9 +126,7 @@ def backup(environment, output):
     try:
         snapshot = Snapshot(env)
         versions = snapshot.query("select coalesce(jsonb_object_agg(version,sha256),'{}') from science_reader_migrations.versions")
-        source_versions = {p.name.split('_', 1)[0]: hashlib.sha256(p.read_bytes()).hexdigest() for p in (ROOT/'supabase/migrations').glob('*.sql')}
-        if versions != source_versions:
-            raise RuntimeError('Migration ledger differs from local source')
+        verify_applied_prefix(versions, source_ledger(ROOT/'supabase/migrations'))
         metadata = snapshot.query("select jsonb_build_object('server_version',current_setting('server_version'),'captured_at',now(),'roles',(select jsonb_agg(rolname order by rolname) from pg_roles where rolname !~ '^pg_'),'tables',(select jsonb_agg(jsonb_build_object('schema',schemaname,'table',tablename) order by schemaname,tablename) from pg_tables where schemaname in ('app_private','auth','storage','science_reader_migrations','public')))")
         counts = []
         for table in metadata['tables']:

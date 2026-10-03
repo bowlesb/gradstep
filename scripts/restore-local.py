@@ -17,6 +17,7 @@ import tempfile
 import time
 import uuid
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+from migration_ledger import source_ledger, verify_applied_prefix
 
 ROOT = Path(__file__).resolve().parents[1]
 PG_BIN = Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
@@ -85,9 +86,7 @@ def restore(checkpoint, environment, fixture=None):
         config = json.loads((ROOT/'infra/account.json').read_text())
         if manifest['format'] != 1 or manifest['environment'] != environment or manifest['project_ref'] != config['projects'][environment]['id']:
             raise RuntimeError('Backup identity mismatch')
-        sources = {p.name.split('_',1)[0]:hashlib.sha256(p.read_bytes()).hexdigest() for p in (ROOT/'supabase/migrations').glob('*.sql')}
-        if any(sources.get(version) != value for version,value in manifest['migrations'].items()):
-            raise RuntimeError('Restore source is missing or differs from backed-up migrations')
+        verify_applied_prefix(manifest['migrations'], source_ledger(ROOT/'supabase/migrations'))
         archives = [manifest['database'],*[item['archive'] for item in manifest['objects']]]
         if len(archives)>20001 or sum(item['bytes'] for item in archives)>4*1024**3:
             raise RuntimeError('Restore exceeds manual drill limits')
@@ -115,6 +114,9 @@ def restore(checkpoint, environment, fixture=None):
             run('createdb',[db]); created = True
             sql('drop schema public;')  # Empty template schema in this newly created local DB only.
             run('pg_restore',['--exit-on-error','--single-transaction','--no-owner','--dbname',db,str(work/'database.dump')])
+            restored_migrations = json.loads(sql("select coalesce(jsonb_object_agg(version,sha256),'{}') from science_reader_migrations.versions;"))
+            if restored_migrations != manifest['migrations']:
+                raise RuntimeError('Restored migration ledger differs from signed manifest')
             for identity,count in manifest['metadata']['table_counts'].items():
                 if not re.fullmatch(r'[a-z_][a-z_0-9]*\.[a-z_][a-z_0-9]*',identity):
                     raise RuntimeError('Unsafe table identity')
