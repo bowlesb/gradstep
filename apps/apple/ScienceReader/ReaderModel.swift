@@ -21,6 +21,20 @@ struct Paper: Identifiable, Sendable {
     let fileURL: URL?
     let artifactID: UUID?
     var isSample = false
+    var sourceID: String?
+    var sourceRevision: Int?
+    var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
+}
+
+enum LibraryListEntry: Identifiable {
+    case paper(Paper)
+    case pending(LibraryImportRecord)
+    var id: String {
+        switch self { case .paper(let paper): "paper/\(paper.id.wire)"; case .pending(let item): "import/\(item.id.wire)" }
+    }
+    var title: String {
+        switch self { case .paper(let paper): paper.title; case .pending(let item): item.metadata?.title ?? "arXiv \(item.sourceID)" }
+    }
 }
 
 struct ReaderDocumentScope: Hashable {
@@ -40,6 +54,14 @@ final class ReaderModel {
     var tab: ReaderTab = .library
     var wideMode: WideMode = .library
     var papers: [Paper] = []
+    private(set) var libraryImports: [LibraryImportRecord] = []
+    private(set) var libraryRefreshing = false
+    private(set) var libraryIssue: String?
+    private(set) var libraryHasSnapshot = false
+    private var libraryService: LibraryService?
+    private var libraryPublicationGeneration: UInt64 = 0
+    private var libraryRefreshAttempt: UUID?
+    private var libraryCreationSequences: [UUID: Int64] = [:]
     var selectedPaper: Paper? {
         didSet {
             if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL {
@@ -129,7 +151,7 @@ final class ReaderModel {
     var needsRecovery = false
     var email: String?
     var isBusy = false
-    var headings: [String] = []
+    var headings: [PaperHeading] = []
     @ObservationIgnored var paperLocations: [String: PaperReadingLocation] = [:]
     var paperJump: PaperJumpRequest?
     var selectedQuote = ""
@@ -165,10 +187,32 @@ final class ReaderModel {
     var filteredPapers: [Paper] {
         let terms = libraryQuery.split(whereSeparator: \.isWhitespace).map(String.init)
         let matching = papers.filter { paper in
-            let fields = [paper.title, paper.authors, paper.abstract] + paper.keywords
+            let fields = [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords
             return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
         }
         return librarySort == "Title" ? matching.sorted { $0.title.localizedCompare($1.title) == .orderedAscending } : matching
+    }
+    var libraryRows: [LibraryListEntry] {
+        let terms = libraryQuery.split(whereSeparator: \.isWhitespace).map(String.init)
+        let imports = libraryImports.filter { item in
+            let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
+            let fields = [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
+                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? [])
+            return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
+        }
+        let rows = filteredPapers.map(LibraryListEntry.paper) + imports.map(LibraryListEntry.pending)
+        func sequence(_ row: LibraryListEntry) -> Int64 {
+            switch row { case .paper(let paper): libraryCreationSequences[paper.id] ?? Int64.max
+            case .pending(let item): item.createdSequence }
+        }
+        return rows.enumerated().sorted { lhs, rhs in
+            if librarySort == "Title" {
+                let comparison = lhs.element.title.localizedCompare(rhs.element.title)
+                return comparison == .orderedSame ? lhs.element.id < rhs.element.id : comparison == .orderedAscending
+            }
+            let left = sequence(lhs.element), right = sequence(rhs.element)
+            return left == right ? lhs.offset < rhs.offset : left > right
+        }.map(\.element)
     }
     var chatBranches: [ConversationBranch] {
         guard let conversation = activeConversation, !chatWasDeleted else { return [] }
@@ -266,7 +310,7 @@ final class ReaderModel {
         keys = manager
         if let cached = try manager.cachedDevice() {
             try await activate(cached, scope: scope)
-            try await loadLibrary(accountID: user.id, scope: scope)
+            await loadLibrary(accountID: user.id, scope: scope)
             return
         }
         let preparation = try await manager.prepare()
@@ -276,7 +320,7 @@ final class ReaderModel {
         case .saveRecoveryCode(let code): recoveryCode = code; needsRecovery = false; showRecovery = true
         case .recoveryRequired: recoveryCode = nil; needsRecovery = true; showRecovery = true
         }
-        try await loadLibrary(accountID: user.id, scope: scope)
+        await loadLibrary(accountID: user.id, scope: scope)
     }
 
     func finishRecovery(code: String? = nil) async {
@@ -389,6 +433,10 @@ final class ReaderModel {
 
     private func clearAccountView() {
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
+        let oldLibrary = libraryService; libraryService = nil
+        Task { await oldLibrary?.invalidate() }
+        libraryImports = []; libraryCreationSequences = [:]; libraryPublicationGeneration = 0
+        libraryRefreshAttempt = nil; libraryRefreshing = false; libraryHasSnapshot = false; libraryIssue = nil
         publishedGeneration = -1; publishedPendingCount = 0
         support?.cancel(); support = nil
         draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
@@ -406,13 +454,62 @@ final class ReaderModel {
         syncIssue = nil
     }
 
-    private func loadLibrary(accountID: UUID, scope: UUID) async throws {
-        guard let backend else { return }
-        struct Row: Decodable, Sendable { let document_id: UUID; let title: String?; let authors: [String]?; let abstract: String?; let publication_year: Int?; let artifact_id: UUID? }
-        let rows: [Row] = try await backend.rpc("v1_library", params: EmptyResponse(), accountID: accountID)
-        guard sessionID == scope, self.accountID == accountID else { throw BackendError.signInRequired }
-        papers = rows.map { Paper(id: $0.document_id, title: $0.title ?? "Untitled paper", authors: ($0.authors ?? []).joined(separator: ", "), year: $0.publication_year,
-                                  abstract: $0.abstract ?? "", keywords: [], fileURL: nil, artifactID: $0.artifact_id) }
+    func refreshLibrary() async {
+        guard let accountID else { return }
+        await loadLibrary(accountID: accountID, scope: sessionID)
+    }
+
+    private func loadLibrary(accountID: UUID, scope: UUID) async {
+        guard let backend, sessionID == scope, self.accountID == accountID else { return }
+        let libraryScope = LibraryScope(accountID: accountID, readerSessionID: scope)
+        let service: LibraryService
+        if let existing = libraryService { service = existing }
+        else {
+            service = LibraryService(scope: libraryScope, transport: backend)
+            libraryService = service
+        }
+        let attempt = UUID()
+        libraryRefreshAttempt = attempt; libraryRefreshing = true
+        defer {
+            if sessionID == scope, libraryService === service, libraryRefreshAttempt == attempt { libraryRefreshing = false }
+        }
+        do {
+            let snapshot = try await service.refresh()
+            guard sessionID == scope, self.accountID == accountID, libraryService === service,
+                  snapshot.scope == libraryScope else { return }
+            if snapshot.generation > libraryPublicationGeneration {
+                let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                let items = snapshot.items.filter(\.visible)
+                let next = items.map { item in
+                    let cached = previous[item.documentID]
+                    let file = item.canReadStructured && cached?.artifactID == item.artifactID ? cached?.fileURL : nil
+                    return Paper(id: item.documentID, title: item.metadata?.title ?? "Untitled paper",
+                                 authors: item.metadata?.authors.joined(separator: ", ") ?? "",
+                                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
+                                 abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [],
+                                 fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision)
+                }
+                let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
+                // Samples have no server membership. Preserve the local sample
+                // without letting it replace a real document-backed item.
+                papers = next + samples
+                libraryImports = snapshot.imports.filter(\.visible)
+                libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.documentID, $0.createdSequence) })
+                libraryPublicationGeneration = snapshot.generation; libraryHasSnapshot = true
+                if let selectedPaper, !selectedPaper.isSample {
+                    self.selectedPaper = papers.first { $0.id == selectedPaper.id }
+                    if self.selectedPaper == nil {
+                        if tab == .paper { tab = .library }
+                        if wideMode == .reader || wideMode == .browse { wideMode = .library }
+                    }
+                }
+            }
+            if libraryRefreshAttempt == attempt { libraryIssue = nil }
+        } catch {
+            guard sessionID == scope, self.accountID == accountID, libraryService === service,
+                  libraryRefreshAttempt == attempt, !(error is CancellationError) else { return }
+            libraryIssue = libraryHasSnapshot ? "Couldn’t refresh your library. Showing the last complete update." : "Couldn’t load your library."
+        }
     }
 
     func select(_ paper: Paper) { selectedPaper = paper; chatPaperID = paper.id; tab = .paper; if wideMode != .browse { wideMode = .reader }; generalChat = false }

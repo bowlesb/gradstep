@@ -69,7 +69,11 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             Task {
                 await model.flushDrafts()
-                if phase == .active { await model.synchronize() }
+                if phase == .active {
+                    async let history: Void = model.synchronize()
+                    async let library: Void = model.refreshLibrary()
+                    _ = await (history, library)
+                }
             }
         }
     }
@@ -149,10 +153,22 @@ struct LibraryView: View {
                         Toggle("Topics", isOn: $model.showTopics)
                     } label: { Image(systemName: "text.alignleft").font(.system(size: 18)).frame(width: 44, height: 44) }.accessibilityLabel("Result details").disabled(model.searchExternal)
                 }.padding(.horizontal, 16).padding(.vertical, 10)
+                if !model.searchExternal, let issue = model.libraryIssue {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(issue).font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        Button("Retry") { Task { await model.refreshLibrary() } }.font(.caption.weight(.semibold))
+                            .disabled(model.libraryRefreshing)
+                    }.padding(.horizontal, 16).padding(.bottom, 10).accessibilityIdentifier("library.refreshIssue")
+                }
                 if model.searchExternal {
                     ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
                         .accessibilityIdentifier("search.external.unavailable")
-                } else if model.filteredPapers.isEmpty && !model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                } else if model.libraryRefreshing && !model.libraryHasSnapshot && model.libraryRows.isEmpty {
+                    Spacer()
+                    ProgressView("Loading library…")
+                    Spacer()
+                } else if model.libraryRows.isEmpty && !model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView {
                         Label("No matching papers", systemImage: "magnifyingglass")
                     } description: {
@@ -160,7 +176,7 @@ struct LibraryView: View {
                     } actions: {
                         Button("Clear search") { model.libraryQuery = "" }.accessibilityIdentifier("search.clear")
                     }
-                } else if model.filteredPapers.isEmpty {
+                } else if model.libraryRows.isEmpty {
                     ContentUnavailableView {
                         Label(model.searchExternal ? "Find papers" : "Your library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
                     } description: {
@@ -169,11 +185,18 @@ struct LibraryView: View {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
                 } else {
-                    List(model.filteredPapers) { paper in
-                        Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, showAbstract: model.showAbstracts, showTopics: model.showTopics) }
-                            .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
-                            .accessibilityIdentifier("paper.\(paper.id.wire)")
-                    }.listStyle(.plain)
+                    List(model.libraryRows) { entry in
+                        switch entry {
+                        case .paper(let paper):
+                            Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, showAbstract: model.showAbstracts, showTopics: model.showTopics) }
+                                .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+                                .accessibilityIdentifier("paper.\(paper.id.wire)")
+                        case .pending(let item):
+                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                                .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+                                .accessibilityIdentifier("import.\(item.id.wire)")
+                        }
+                    }.listStyle(.plain).refreshable { await model.refreshLibrary() }
                 }
             }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
@@ -183,12 +206,58 @@ struct LibraryView: View {
                     Menu {
                         Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
                         Button("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
-                    } label: { Image(systemName: "ellipsis.circle") }
+                        Button("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
+                            .disabled(model.email == nil || model.libraryRefreshing)
+                    } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Library options")
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button { model.showImport = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add a paper") }
             }
             .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
         }
+    }
+}
+
+struct ImportRow: View {
+    let item: LibraryImportRecord
+    var showAbstract = true
+    var showTopics = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var status: String {
+        switch item.phase {
+        case .accepted, .resolving: "Finding paper…"
+        case .acquiring: "Preparing PDF…"
+        case .sourceOnly: "Available at source"
+        case .failed: "Couldn’t import this paper"
+        case .membershipConflict: "Not added to library"
+        case .ready: "Added"
+        case .cancelled: "Cancelled"
+        }
+    }
+    private var active: Bool { [.accepted, .resolving, .acquiring].contains(item.phase) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(item.metadata?.title ?? "arXiv \(item.sourceID)").font(.headline).fixedSize(horizontal: false, vertical: true)
+            if let authors = item.metadata?.authors, !authors.isEmpty {
+                Text(authors.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+            }
+            if showAbstract, let abstract = item.metadata?.abstract, !abstract.isEmpty {
+                Text(abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+            }
+            let year = item.metadata?.publishedAt.map { String($0.prefix(4)) }
+            let topics = showTopics ? Array((item.metadata?.categories ?? []).prefix(3)) : []
+            let revision = (item.sourceRevision ?? item.requestedRevision).map { ["arXiv v\($0)"] } ?? []
+            let metadata = (year.map { [$0] } ?? []) + revision + topics
+            if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
+            HStack(spacing: 6) {
+                if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                Text(status).font(.caption).foregroundStyle(.secondary)
+                if !active, let url = URL(string: item.sourceURL) {
+                    Spacer(minLength: 8)
+                    Link("View source", destination: url).font(.caption.weight(.semibold))
+                }
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -207,7 +276,8 @@ struct PaperRow: View {
             }
             if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-            let metadata = paper.year.map { [String($0)] } ?? []
+            let source = paper.sourceID == nil ? [] : [paper.sourceRevision.map { "arXiv v\($0)" } ?? "arXiv"]
+            let metadata = (paper.year.map { [String($0)] } ?? []) + source
             let topics = showTopics ? Array(paper.keywords.prefix(3)) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)

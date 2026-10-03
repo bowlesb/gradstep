@@ -10,15 +10,15 @@ final class WorkflowSafetyTests: XCTestCase {
         model.openSample()
         let original = try XCTUnwrap(model.selectedPaper), originalScope = model.readerDocumentScope
         let key = "\(original.id.uuidString)/\(try XCTUnwrap(original.artifactID).uuidString)"
-        model.headings = ["Original section"]
-        model.paperJump = PaperJumpRequest(locationKey: key, headingID: "sr-heading-0")
+        model.headings = [PaperHeading(id: "original-section", title: "Original section")]
+        model.paperJump = PaperJumpRequest(locationKey: key, headingID: "original-section")
         model.selectedQuote = "A passage from the original artifact"
         let position = PaperReadingLocation(blockIndex: 3, blockFraction: 0.4, blockHeight: 100, scrollY: 140)
         model.paperLocations[key] = position
 
         model.select(original)
         XCTAssertEqual(model.readerDocumentScope, originalScope)
-        XCTAssertEqual(model.headings, ["Original section"])
+        XCTAssertEqual(model.headings, [PaperHeading(id: "original-section", title: "Original section")])
         XCTAssertNotNil(model.paperJump)
 
         let replacement = Paper(id: original.id, title: original.title, authors: original.authors,

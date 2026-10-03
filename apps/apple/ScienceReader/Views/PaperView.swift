@@ -20,6 +20,11 @@ struct PaperJumpRequest: Equatable, Identifiable {
     let headingID: String
 }
 
+struct PaperHeading: Equatable, Identifiable {
+    let id: String
+    let title: String
+}
+
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
@@ -94,9 +99,9 @@ struct PaperView: View {
             }
             .sheet(isPresented: $showContents) {
                 NavigationStack {
-                    List(Array(model.headings.enumerated()), id: \.offset) { index, title in
-                        Button(title) {
-                            if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: "sr-heading-\(index)") }
+                    List(model.headings) { heading in
+                        Button(heading.title) {
+                            if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: heading.id) }
                             showContents = false
                         }
                     }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
@@ -128,7 +133,7 @@ struct PaperWebView: UIViewRepresentable {
     let onLocation: (String, PaperReadingLocation) -> Void
     let onJumpApplied: (UUID) -> Void
     let onSelection: (String) -> Void
-    let onHeadings: ([String]) -> Void
+    let onHeadings: ([PaperHeading]) -> Void
     let onFigure: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -138,9 +143,34 @@ struct PaperWebView: UIViewRepresentable {
         let script = """
         (() => {
           const post = value => window.webkit.messageHandlers.reader.postMessage(value);
-          const headings = [...document.querySelectorAll('h1,h2,h3')];
-          headings.forEach((element,index) => element.id='sr-heading-'+index);
-          post({type:'headings',items:headings.map(element=>element.textContent || '')});
+          // Renderer IDs are part of the immutable artifact: section/equation
+          // references already point at them. Missing or ambiguous IDs get a
+          // private Contents key; never rewrite an existing artifact anchor.
+          const counts = new Map();
+          document.querySelectorAll('[id]').forEach(element => counts.set(element.id,(counts.get(element.id)||0)+1));
+          const used = new Set(counts.keys());
+          const headings = [...document.querySelectorAll('h1,h2,h3')]
+            .filter(element=>(element.textContent||'').trim()).slice(0,500);
+          const headingTargets = new Map();
+          const items = headings.map((element,index) => {
+            const valid = element.id && element.id.length<=512 && !/[\\u0000-\\u0020\\u007f]/.test(element.id) && counts.get(element.id)===1;
+            let key=element.id;
+            if (!valid) {
+              const stem='sr-heading-'+index;
+              let id=stem, suffix=0;
+              while (used.has(id)) id=stem+'-'+(++suffix);
+              used.add(id); key=id;
+            }
+            headingTargets.set(key,element);
+            return {id:key,title:(element.textContent||'').trim().slice(0,2000)};
+          });
+          window.__scienceReaderJumpToHeading = (key,reduced) => {
+            const heading=headingTargets.get(key);
+            if (!heading) return false;
+            heading.scrollIntoView({behavior:reduced?'instant':'smooth',block:'start'});
+            return true;
+          };
+          post({type:'headings',items});
           const blocks = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,figure,table,pre')];
           window.__scienceReaderLocation = () => {
             const index = blocks.findIndex(element => {
@@ -232,7 +262,16 @@ struct PaperWebView: UIViewRepresentable {
             guard active, message.frameInfo.isMainFrame, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
             case "selection": if let text = body["text"] as? String, text.utf8.count <= 80_000 { parent.onSelection(text.count > 2 ? text : "") }
-            case "headings": if let items = body["items"] as? [String] { parent.onHeadings(Array(items.prefix(500))) }
+            case "headings":
+                if let items = body["items"] as? [[String: String]], items.count <= 500 {
+                    let headings = items.compactMap { item -> PaperHeading? in
+                        guard let id = item["id"], !id.isEmpty, id.utf8.count <= 2_048,
+                              let title = item["title"], !title.isEmpty, title.utf8.count <= 8_000 else { return nil }
+                        return PaperHeading(id: id, title: title)
+                    }
+                    guard headings.count == items.count, Set(headings.map(\.id)).count == headings.count else { return }
+                    parent.onHeadings(headings)
+                }
             case "figure": if let html = body["html"] as? String, html.utf8.count <= 1_000_000 { parent.onFigure(html) }
             case "position": if ready, let web = message.webView { remember(body, in: web) }
             default: break
@@ -267,10 +306,7 @@ struct PaperWebView: UIViewRepresentable {
             inFlightJumpID = request.id
             let load = loadingID
             web.callAsyncJavaScript("""
-                const heading = document.getElementById(id);
-                if (!heading) return false;
-                heading.scrollIntoView({behavior:reduced?'instant':'smooth',block:'start'});
-                return true;
+                return window.__scienceReaderJumpToHeading(id,reduced);
                 """, arguments: ["id": request.headingID, "reduced": parent.reduceMotion], in: nil, in: .page) { [weak self, weak web] result in
                     guard let self, let web, self.active, self.loadingID == load else { return }
                     self.inFlightJumpID = nil

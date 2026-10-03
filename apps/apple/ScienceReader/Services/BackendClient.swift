@@ -52,7 +52,7 @@ enum BackendError: LocalizedError {
     }
 }
 
-actor BackendClient {
+actor BackendClient: LibraryTransport {
     private let config: BackendConfiguration
     private var session: AuthSession?
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
@@ -170,6 +170,30 @@ actor BackendClient {
         return try JSONDecoder().decode(R.self, from: data)
     }
 
+    /// Library pages use their bounded wire decoder and keep the reconciler's
+    /// original account/session/request ticket through the transport boundary.
+    func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
+        let function: String, body: Data
+        switch request.query {
+        case .baseline(let cursor):
+            struct Parameters: Encodable { let p_cursor: LibraryBaselineCursor?; let p_limit: Int }
+            function = "v2_library_page"
+            body = try ReaderCrypto.encode(Parameters(p_cursor: cursor, p_limit: request.limit))
+        case .changes(let after, let through):
+            struct Parameters: Encodable { let p_after: Int64; let p_through: Int64?; let p_limit: Int }
+            function = "v2_library_changes"
+            body = try ReaderCrypto.encode(Parameters(p_after: after, p_through: through, p_limit: request.limit))
+        }
+        let data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
+                                        maximumResponseBytes: LibraryWire.maximumPageBytes, libraryErrors: true)
+        let page: LibraryPageDelivery.Page
+        switch request.query {
+        case .baseline: page = .baseline(try LibraryWire.decodeBaseline(data))
+        case .changes: page = .changes(try LibraryWire.decodeChanges(data))
+        }
+        return LibraryPageDelivery(request: request, page: page)
+    }
+
     /// SQL `returns void` has an empty HTTP 204 response. Keep it distinct from
     /// typed RPCs: an empty key-state response must never mean "no keyring".
     func rpcVoid<P: Encodable & Sendable>(_ function: String, params: P, accountID: UUID) async throws {
@@ -205,14 +229,23 @@ actor BackendClient {
         refreshTask?.task.cancel(); refreshTask = nil; session = nil; signInAttempt = nil
     }
 
-    private func authorized(path: String, body: Data?, method: String = "POST", mediaType: String = "application/json", accountID: UUID?) async throws -> Data {
+    private func authorized(path: String, body: Data?, method: String = "POST", mediaType: String = "application/json", accountID: UUID?,
+                            maximumResponseBytes: Int? = nil, libraryErrors: Bool = false) async throws -> Data {
         let generation = authGeneration
         guard let expected = session?.user.id, accountID == nil || expected == accountID else { throw BackendError.signInRequired }
         let token = try await accessToken()
         guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
-        let data = try await raw(path: path, body: body, token: token, method: method, mediaType: mediaType)
-        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
-        return data
+        do {
+            let data = try await raw(path: path, body: body, token: token, method: method, mediaType: mediaType,
+                                     maximumResponseBytes: maximumResponseBytes, libraryErrors: libraryErrors)
+            guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+            return data
+        } catch {
+            // A late error belongs to the same authentication generation as a
+            // late success; it must not reset or alter the next account session.
+            guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+            throw error
+        }
     }
 
     private func accessToken() async throws -> String {
@@ -240,22 +273,58 @@ actor BackendClient {
         session = next
     }
 
-    private func raw(path: String, body: Data?, token: String?, method: String = "POST", mediaType: String = "application/json") async throws -> Data {
+    private func raw(path: String, body: Data?, token: String?, method: String = "POST", mediaType: String = "application/json",
+                     maximumResponseBytes: Int? = nil, libraryErrors: Bool = false) async throws -> Data {
         guard let url = URL(string: "/" + path, relativeTo: config.url)?.absoluteURL, url.host == config.url.host else { throw BackendError.unavailable }
         var request = URLRequest(url: url)
         request.httpMethod = method; request.httpBody = body
         request.setValue(mediaType, forHTTPHeaderField: "Content-Type")
         request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, response) = try await network.data(for: request)
+        let data: Data, response: URLResponse
+        if let maximumResponseBytes {
+            (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes)
+        } else {
+            (data, response) = try await network.data(for: request)
+        }
         guard let response = response as? HTTPURLResponse else { throw BackendError.transport }
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let code: String?; let message: String?; let error_code: String? }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
+            if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
+                throw LibraryTransportError.resyncRequired
+            }
             let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }
         return data
+    }
+
+    private func boundedResponse(for request: URLRequest, maximumBytes: Int) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await network.bytes(for: request, delegate: LibraryRedirectPolicy())
+        // Always cancel on early exit, including a false Content-Length,
+        // decoder-independent overflow, cancellation, or a truncated stream.
+        defer { bytes.task.cancel() }
+        guard response.expectedContentLength <= Int64(maximumBytes) else { throw LibraryProtocolError.payloadTooLarge }
+        return try await withTaskCancellationHandler {
+            var data = Data()
+            data.reserveCapacity(min(maximumBytes, 65_536))
+            for try await byte in bytes {
+                guard data.count < maximumBytes else { throw LibraryProtocolError.payloadTooLarge }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            return (data, response)
+        } onCancel: { bytes.task.cancel() }
+    }
+}
+
+/// Library RPCs are same-origin reads. Do not follow a redirect before parsing
+/// a supposedly trusted structured error or forward credentials to its target.
+private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
