@@ -41,7 +41,8 @@ test('arXiv normalization rejects malformed identifiers, other origins, credenti
     'https://arxiv.org:8080/abs/1706.03762', 'file:///abs/1706.03762',
     'https://arxiv.org/abs/1706%2e03762', 'https://arxiv.org/search/1706.03762',
     'https://arxiv.org/abs/%2e%2e/abs/1706.03762', 'https://arxiv.org/abs/../abs/1706.03762',
-    'https://arxiv.org/abs/1706.03762/extra', 'https://arxiv.org\\@evil.test/abs/1706.03762']) {
+    'https://arxiv.org/abs/1706.03762/extra', 'https://arxiv.org\\@evil.test/abs/1706.03762',
+    'a'.repeat(129) + '/9901001']) {
     assert.throws(() => arxivReference(value), /invalid_arxiv_id/, value);
   }
 });

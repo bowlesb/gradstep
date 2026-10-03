@@ -70,6 +70,8 @@ export function arxivReference(input: string): ArxivReference {
     // Optional historical classification is not part of the external identity.
     value = `${archive}/${historic[3]}${historic[4]}${historic[5]}`;
   }
+  // Match the durable catalog/import identity bound before making a request.
+  if (value.length > 128) throw new SourceError('invalid_arxiv_id');
   return { sourceID: value, revision };
 }
 
