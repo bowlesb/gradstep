@@ -29,11 +29,20 @@ struct Paper: Identifiable, Sendable {
 enum LibraryListEntry: Identifiable {
     case paper(Paper)
     case pending(LibraryImportRecord)
+    case queued(LocalLibraryCommand)
     var id: String {
-        switch self { case .paper(let paper): "paper/\(paper.id.wire)"; case .pending(let item): "import/\(item.id.wire)" }
+        switch self {
+        case .paper(let paper): "paper/\(paper.id.wire)"
+        case .pending(let item): "import/\(item.id.wire)"
+        case .queued(let command): "import/\(command.id.wire)"
+        }
     }
     var title: String {
-        switch self { case .paper(let paper): paper.title; case .pending(let item): item.metadata?.title ?? "arXiv \(item.sourceID)" }
+        switch self {
+        case .paper(let paper): paper.title
+        case .pending(let item): item.metadata?.title ?? "arXiv \(item.sourceID)"
+        case .queued(let command): command.display ?? "Queued paper"
+        }
     }
 }
 
@@ -62,6 +71,15 @@ final class ReaderModel {
     private var libraryPublicationGeneration: UInt64 = 0
     private var libraryRefreshAttempt: UUID?
     private var libraryCreationSequences: [UUID: Int64] = [:]
+    private var completeLibrary: LibrarySnapshot?
+    private var libraryCommandCoordinator: LibraryCommandCoordinator?
+    private var libraryCommandGeneration: Int64 = -1
+    private(set) var libraryCommands: [LocalLibraryCommand] = []
+    private(set) var libraryCommandIssue: String?
+    var showLibraryChanges = false
+    var librarySignInRequired: Bool { accountID == nil }
+    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && !workOwnership.isActivating && !needsRecovery }
+    var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
     var selectedPaper: Paper? {
         didSet {
             if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL {
@@ -200,10 +218,18 @@ final class ReaderModel {
                 + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? [])
             return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
         }
-        let rows = filteredPapers.map(LibraryListEntry.paper) + imports.map(LibraryListEntry.pending)
+        let knownImports = Set(completeLibrary?.imports.map(\.id) ?? [])
+        let localImports = libraryCommands.filter { command in
+            guard case .beginImport(let source, let revision, _) = command.mutation,
+                  command.isUnfinished, !knownImports.contains(command.id) else { return false }
+            let fields = [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")]
+            return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
+        }
+        let rows = filteredPapers.map(LibraryListEntry.paper) + imports.map(LibraryListEntry.pending) + localImports.map(LibraryListEntry.queued)
         func sequence(_ row: LibraryListEntry) -> Int64 {
             switch row { case .paper(let paper): libraryCreationSequences[paper.id] ?? Int64.max
-            case .pending(let item): item.createdSequence }
+            case .pending(let item): item.createdSequence
+            case .queued: Int64.max }
         }
         return rows.enumerated().sorted { lhs, rhs in
             if librarySort == "Title" {
@@ -354,6 +380,8 @@ final class ReaderModel {
             }
         }
         let persistence = localPersistence
+        await libraryCommandCoordinator?.pause()
+        guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
         let previousSync = sync; sync = nil
         if let previousSync { retirementQueue.stop(previousSync) }
         await retirementQueue.wait()
@@ -378,6 +406,12 @@ final class ReaderModel {
         recoveryCode = nil; needsRecovery = false; showRecovery = false
         activated = true
         workOwnership.finishActivation(activation)
+        do { try await prepareLibraryCommands(accountID: device.accountID, scope: scope) }
+        catch {
+            guard sessionID == scope, workOwnership.owns(activation) else { throw CancellationError() }
+            libraryCommandCoordinator?.close(); libraryCommandCoordinator = nil
+            libraryCommandIssue = "Library changes are paused. Reopen the app to check the saved queue."
+        }
         await synchronize()
         return activation
     }
@@ -431,16 +465,24 @@ final class ReaderModel {
         do { try await backend.signOut() } catch { if sessionID == scope { show(error) } }
     }
 
+    /// Sign-out clears presentation immediately; wait here before retiring any
+    /// backing files or opening a replacement owner in a workflow harness.
+    func waitForLocalRetirement() async { await retirementQueue.wait() }
+
     private func clearAccountView() {
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
+        let oldCommands = libraryCommandCoordinator; libraryCommandCoordinator = nil
+        oldCommands?.close()
         let oldLibrary = libraryService; libraryService = nil
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; libraryPublicationGeneration = 0
         libraryRefreshAttempt = nil; libraryRefreshing = false; libraryHasSnapshot = false; libraryIssue = nil
+        completeLibrary = nil; libraryCommands = []; libraryCommandGeneration = -1
+        libraryCommandIssue = nil; showLibraryChanges = false; showImport = false
         publishedGeneration = -1; publishedPendingCount = 0
         support?.cancel(); support = nil
         draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
-        retirementQueue.retire(sync: sync, persistence: localPersistence)
+        retirementQueue.retire(sync: sync, persistence: localPersistence, commands: oldCommands)
         sync = nil
         device = nil; localPersistence = ReaderLocalPersistence(); keys = nil
         privateState = PrivateState(); papers = []; selectedPaper = nil; chatPaperID = nil
@@ -456,7 +498,78 @@ final class ReaderModel {
 
     func refreshLibrary() async {
         guard let accountID else { return }
-        await loadLibrary(accountID: accountID, scope: sessionID)
+        let scope = sessionID
+        await loadLibrary(accountID: accountID, scope: scope)
+        if sessionID == scope, !workOwnership.isActivating { await libraryCommandCoordinator?.retry() }
+    }
+
+    private func prepareLibraryCommands(accountID: UUID, scope: UUID) async throws {
+        guard sessionID == scope, self.accountID == accountID, let configuration, let backend else { throw CancellationError() }
+        if let existing = libraryCommandCoordinator { existing.resume(); return }
+        let library = libraryService ?? LibraryService(scope: .init(accountID: accountID, readerSessionID: scope), transport: backend)
+        libraryService = library
+        let commandScope = try LibraryCommandScope(accountID: accountID, deploymentID: configuration.url.absoluteString)
+        let coordinator = LibraryCommandCoordinator(scope: commandScope, persistence: localPersistence, library: library, transport: backend,
+            publish: { [weak self] commands, snapshot in
+                guard let self, self.sessionID == scope, self.accountID == accountID, self.libraryService === library else { return }
+                if let snapshot { self.publishLibrary(snapshot) }
+                if commands.generation >= self.libraryCommandGeneration {
+                    self.libraryCommandGeneration = commands.generation
+                    self.libraryCommands = commands.commands.filter { ![.finished, .cancelled].contains($0.phase) }
+                }
+            }, report: { [weak self] issue in
+                guard let self, self.sessionID == scope, self.accountID == accountID else { return }
+                self.libraryCommandIssue = issue
+            })
+        libraryCommandCoordinator = coordinator
+        try await coordinator.restore()
+        guard sessionID == scope, libraryCommandCoordinator === coordinator else { throw CancellationError() }
+        coordinator.resume()
+    }
+
+    func importPaper(_ input: String) async throws {
+        let reference = try ArxivReference(input)
+        guard canBeginImport, let snapshot = completeLibrary, let commands = libraryCommandCoordinator else { throw ReaderError.storageUnavailable }
+        let scope = sessionID
+        _ = try await commands.enqueue(.beginImport(sourceID: reference.sourceID, requestedRevision: reference.revision,
+                                                    observedCursor: snapshot.committedCursor), display: "arXiv \(reference.identifier)")
+        guard sessionID == scope else { throw CancellationError() }
+        searchExternal = false; libraryQuery = ""
+    }
+
+    func removePaper(_ paper: Paper) async {
+        guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
+              let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
+              let commands = libraryCommandCoordinator else { return }
+        let scope = sessionID
+        do {
+            _ = try await commands.enqueue(.setMembership(documentID: item.documentID, present: false,
+                                                         expectedRevision: item.membershipRevision, approvalID: item.approvalID),
+                                           display: String(paper.title.unicodeScalars.prefix(200)))
+        } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
+    }
+
+    func changeImport(_ item: LibraryImportRecord, retry: Bool) async {
+        guard canChangeLibrary, let commands = libraryCommandCoordinator,
+              completeLibrary?.imports.contains(where: { $0.id == item.id && $0.intentRevision == item.intentRevision }) == true,
+              !retry || (item.phase == .failed && item.retryable) else { return }
+        let scope = sessionID
+        let mutation: LibraryMutation = retry ? .retryImport(importID: item.id, expectedRevision: item.intentRevision)
+            : .cancelImport(importID: item.id, expectedRevision: item.intentRevision)
+        do { _ = try await commands.enqueue(mutation, display: String((item.metadata?.title ?? "arXiv \(item.sourceID)").unicodeScalars.prefix(200))) }
+        catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
+    }
+
+    func cancelLibraryChange(_ command: LocalLibraryCommand) async {
+        let scope = sessionID
+        do { try await libraryCommandCoordinator?.cancel(command) }
+        catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
+    }
+
+    func dismissLibraryChange(_ command: LocalLibraryCommand) async {
+        let scope = sessionID
+        do { try await libraryCommandCoordinator?.dismiss(command) }
+        catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 
     private func loadLibrary(accountID: UUID, scope: UUID) async {
@@ -477,7 +590,19 @@ final class ReaderModel {
             let snapshot = try await service.refresh()
             guard sessionID == scope, self.accountID == accountID, libraryService === service,
                   snapshot.scope == libraryScope else { return }
-            if snapshot.generation > libraryPublicationGeneration {
+            publishLibrary(snapshot)
+            if libraryRefreshAttempt == attempt { libraryIssue = nil }
+        } catch {
+            guard sessionID == scope, self.accountID == accountID, libraryService === service,
+                  libraryRefreshAttempt == attempt, !(error is CancellationError) else { return }
+            libraryIssue = libraryHasSnapshot ? "Couldn’t refresh your library. Showing the last complete update." : "Couldn’t load your library."
+        }
+    }
+
+    private func publishLibrary(_ snapshot: LibrarySnapshot) {
+        guard snapshot.scope.accountID == accountID, snapshot.scope.readerSessionID == sessionID else { return }
+        if snapshot.generation > libraryPublicationGeneration {
+                completeLibrary = snapshot
                 let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 let items = snapshot.items.filter(\.visible)
                 let next = items.map { item in
@@ -503,12 +628,6 @@ final class ReaderModel {
                         if wideMode == .reader || wideMode == .browse { wideMode = .library }
                     }
                 }
-            }
-            if libraryRefreshAttempt == attempt { libraryIssue = nil }
-        } catch {
-            guard sessionID == scope, self.accountID == accountID, libraryService === service,
-                  libraryRefreshAttempt == attempt, !(error is CancellationError) else { return }
-            libraryIssue = libraryHasSnapshot ? "Couldn’t refresh your library. Showing the last complete update." : "Couldn’t load your library."
         }
     }
 
@@ -865,10 +984,11 @@ final class ReaderLocalPersistence {
 final class ReaderRetirementQueue {
     private var pending: (id: UUID, task: Task<Void, Never>)?
 
-    func retire(sync: CloudSync?, persistence: ReaderLocalPersistence) {
+    func retire(sync: CloudSync?, persistence: ReaderLocalPersistence, commands: LibraryCommandCoordinator? = nil) {
+        commands?.close()
         persistence.retire()
         sync?.cancel()
-        enqueue(sync: sync, persistence: persistence)
+        enqueue(sync: sync, persistence: persistence, commands: commands)
     }
 
     func stop(_ sync: CloudSync) {
@@ -876,10 +996,11 @@ final class ReaderRetirementQueue {
         enqueue(sync: sync, persistence: nil)
     }
 
-    private func enqueue(sync: CloudSync?, persistence: ReaderLocalPersistence?) {
+    private func enqueue(sync: CloudSync?, persistence: ReaderLocalPersistence?, commands: LibraryCommandCoordinator? = nil) {
         let previous = pending?.task, id = UUID()
         let task = Task { [weak self] in
             if let previous { await previous.value }
+            if let commands { await commands.stop() }
             if let sync { await sync.stop() }
             if let persistence { await persistence.waitForAcceptedWrites() }
             if self?.pending?.id == id { self?.pending = nil }

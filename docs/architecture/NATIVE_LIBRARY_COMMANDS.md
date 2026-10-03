@@ -1,6 +1,6 @@
 # Native durable library commands
 
-Status, 2026-10-03: **accepted design; Core encrypted queue and migration implemented, native integration under development**. All 21 focused queue tests pass; the full Core run passes 98 Swift Testing tests plus four XCTest tests. Coverage includes crash/replay, reversal, capacity, corruption, writer ownership and migration schedules. This is local storage/state-machine evidence, not a working customer mutation/acquisition workflow. Migration 010 is applied and immutable; this change needs no server migration and does not enable acquisition or paid processing. It builds on [the library contract](DATA_MODEL.md#migration-010--applied-and-verified-in-staging) and [local encrypted storage](PRIVACY_AND_SYNC.md#local-encrypted-event-journal).
+Status, 2026-10-03: **Core encrypted queue and native integration implemented and verified with deterministic fixtures**. Twenty-one focused Core queue cases pass; the complete package passes 98 Swift Testing cases plus four XCTest cases. The signed native suite passes 114 cases with three live/device checks skipped, including eleven coordinator schedules, eight transport checks, eleven library-service schedules and five model journeys. Two existing search/navigation journeys also pass. New Add/Pending screens were captured and inspected on iPad. These are local storage and simulated-HTTP workflow checks; live populated native mutation/acquisition remains unverified. Migration 010 is applied and immutable; this change needs no server migration and does not enable acquisition or paid processing. It builds on [the library contract](DATA_MODEL.md#migration-010--applied-and-verified-in-staging) and [local encrypted storage](PRIVACY_AND_SYNC.md#local-encrypted-event-journal).
 
 ## Storage and ownership
 
@@ -133,3 +133,12 @@ Implement/test core storage and the pure command state machine first, then bound
 7. Sign-out at each local/network await; immediate same-account return; different-account login; old cancellation-ignoring callback. Immediate clear, one writer, no cross-account upload/publication, exact reconciliation on return.
 8. Queue/byte limit, terminal cleanup, child dependencies, protected-storage failure, ambiguous COMMIT, corrupt/missing row, stale writer, format upgrade rollback and downgrade. Completion/reconciliation remains possible at capacity; unsent intent is never evicted.
 9. Content-key rotation, missing local key, failed recovery, restart offline, and expired auth. Retain exact queued arguments where keys remain; accurately distinguish local pending intent from an accepted server import or available paper.
+
+## Native integration evidence
+
+- `.artifacts/library-command-core-tests.log`: full Core package, including authenticated format-4→5/schema-3→4 upgrade and rollback.
+- `.artifacts/library-command-verified-native.xcresult`: final signed native suite, 114 passed / three live-device checks skipped / zero failures.
+- `.artifacts/library-model-rendered-ipad.xcresult`: five model workflows with real Keychain/encrypted SQLite, simulated Auth/private sync/library HTTP, and settled UIKit sheet captures. Add → lost response → exact retry → one server import → Cancel and Remove → preserved private chat/draft pass. The capture helper waits for completed presentation and actual visible rows; an intermediate blank screenshot was not accepted as evidence.
+- `.artifacts/library-command-navigation.xcresult`: existing search/open/return and Contents/chat/reader-location journeys, two passed.
+
+The coordinator prioritizes runnable withdrawals at capacity, persists its submitted marker before HTTP, and requires complete post-receipt catch-up before clearing pending presentation. A transient local write rollback halts dispatch until explicit refresh authenticates the current disk metadata; a replaced writer remains halted. Unknown HTTP failures remain uncertain submissions, not definitive rejections. No native fixture contacts a live provider or downloads a paper.

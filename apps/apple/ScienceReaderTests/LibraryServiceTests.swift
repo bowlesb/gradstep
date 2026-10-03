@@ -212,6 +212,86 @@ final class LibraryServiceTests: XCTestCase {
         do { _ = try await service.refresh(); XCTFail("Retired service cannot restart") }
         catch LibraryServiceError.retired { }
     }
+
+    func testCommandCatchupWaitsOutOlderPullAndPublishesTheWholeChangeGroup() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID()), first = UUID(), second = UUID()
+        let f = LibraryFixture(accountID: scope.accountID)
+        let script = LibraryScript([.data(f.baseline([f.row(first, created: 1), f.row(second, created: 2)], high: 2)),
+                                    .data(f.changes([], through: 2)), .held, .held])
+        let service = LibraryService(scope: scope, transport: script)
+        _ = try await service.refresh()
+        let oldPull = Task { try await service.refresh() }
+        await script.waitForRequests(3)
+        let commandPull = Task { try await service.refreshAfterCommand(minimumCursor: 3) }
+        await script.release(f.changes([], through: 2))
+        _ = try await oldPull.value
+        await script.waitForRequests(4)
+        let stillComplete = await service.snapshot()
+        XCTAssertEqual(stillComplete?.committedCursor, 2)
+        XCTAssertEqual(stillComplete?.imports.filter(\.visible).count, 2)
+        await script.release(f.changes([(3, [f.row(first, created: 1, state: 3, visible: false),
+                                               f.row(second, created: 2, state: 3, visible: false)])], through: 3))
+        let result = try await commandPull.value
+        XCTAssertEqual(result.committedCursor, 3)
+        XCTAssertTrue(result.imports.allSatisfy { !$0.visible })
+        let requests = await script.requests()
+        XCTAssertEqual(requests[3].query, .changes(after: 2, through: nil))
+    }
+
+    func testAbsentConflictStillRequiresNewBoundaryAfterResumingInterruptedOldPage() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID()), first = UUID(), second = UUID()
+        let f = LibraryFixture(accountID: scope.accountID)
+        let script = LibraryScript([.data(f.baseline([f.row(first, created: 1)], high: 1)), .data(f.changes([], through: 1)),
+                                    .data(f.changes([(2, [f.row(second, created: 2)])], through: 3, more: true)), .failure,
+                                    .data(f.changes([(3, [f.row(first, created: 1, state: 3, visible: false)])], through: 3)), .held])
+        let service = LibraryService(scope: scope, transport: script)
+        let initial = try await service.refresh()
+        do { _ = try await service.refresh(); XCTFail("Old page should be interrupted") } catch LibraryFixtureFailure.interrupted { }
+        // An absent-item conflict has neither a receipt sequence nor an entry.
+        let commandPull = Task { try await service.refreshAfterCommand(minimumCursor: 0) }
+        await script.waitForRequests(6)
+        let pending = await service.snapshot(); XCTAssertEqual(pending, initial)
+        let requests = await script.requests()
+        XCTAssertEqual(requests[3], requests[4])
+        XCTAssertEqual(requests[5].query, .changes(after: 3, through: nil))
+        await script.release(f.changes([(4, [f.row(second, created: 2, state: 4, visible: false)])], through: 4))
+        let result = try await commandPull.value
+        XCTAssertEqual(result.generation, 2); XCTAssertEqual(result.committedCursor, 4)
+        XCTAssertTrue(result.imports.allSatisfy { !$0.visible })
+    }
+
+    func testUnobservedReceiptCannotFabricateCursorOrSpinAndCanRetryLater() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID()), id = UUID()
+        let f = LibraryFixture(accountID: scope.accountID)
+        let script = LibraryScript([.data(f.baseline([f.row(id, created: 1)], high: 1)), .data(f.changes([], through: 1)),
+                                    .data(f.changes([], through: 1)),
+                                    .data(f.changes([(4, [f.row(id, created: 1, state: 4, visible: false)])], through: 4))])
+        let service = LibraryService(scope: scope, transport: script)
+        let initial = try await service.refresh()
+        do { _ = try await service.refreshAfterCommand(minimumCursor: 4); XCTFail("Receipt is not a consumed page") }
+        catch LibraryServiceError.receiptNotObserved { }
+        let pending = await service.snapshot(), requests = await script.requests()
+        XCTAssertEqual(pending, initial); XCTAssertEqual(requests.count, 3)
+        let result = try await service.refreshAfterCommand(minimumCursor: 4)
+        XCTAssertEqual(result.generation, 2); XCTAssertEqual(result.committedCursor, 4)
+    }
+
+    func testRetirementWhileWaitingForCommandBoundaryDoesNotStartAnotherPull() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID())
+        let f = LibraryFixture(accountID: scope.accountID)
+        let script = LibraryScript([.data(f.baseline([], high: 0)), .data(f.changes([], through: 0)), .held])
+        let service = LibraryService(scope: scope, transport: script)
+        _ = try await service.refresh()
+        let old = Task { try await service.refresh() }
+        await script.waitForRequests(3)
+        let command = Task { try await service.refreshAfterCommand(minimumCursor: 1) }
+        await service.invalidate()
+        await script.release(f.changes([], through: 0))
+        do { _ = try await old.value; XCTFail("Old pull must be fenced") } catch { }
+        do { _ = try await command.value; XCTFail("Command pull must be fenced") } catch { }
+        let requests = await script.requests(), snapshot = await service.snapshot()
+        XCTAssertEqual(requests.count, 3); XCTAssertNil(snapshot)
+    }
 }
 
 private final class LibraryTestProtocol: URLProtocol, @unchecked Sendable {
@@ -273,6 +353,7 @@ private final class LibraryHTTPServer: @unchecked Sendable {
         lock.withLock { pending?.respond(reply.data, status: reply.status, finish: reply.finish, headers: reply.headers); pending = nil }
     }
     func requests() -> [URLRequest] { lock.withLock { captured } }
+    func append(_ replies: [Reply]) { lock.withLock { self.replies += replies } }
 }
 
 @MainActor
@@ -288,7 +369,7 @@ final class LibraryTransportTests: XCTestCase {
     private func clean(_ environment: String, _ host: String) {
         LibraryTestProtocol.remove(host); try? KeychainVault.delete(environment + ".auth-session")
     }
-    private func body(_ request: URLRequest) throws -> [String: Any] {
+    private func bodyData(_ request: URLRequest) -> Data {
         let data: Data
         if let bytes = request.httpBody { data = bytes }
         else if let stream = request.httpBodyStream {
@@ -300,7 +381,19 @@ final class LibraryTransportTests: XCTestCase {
             }
             data = bytes
         } else { data = Data() }
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return data
+    }
+    private func body(_ request: URLRequest) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData(request)) as? [String: Any])
+    }
+    private func command(account: UUID, host: String) async throws -> (LibraryCommandAttempt, URL) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
+        let store = try EncryptedStore(url: directory.appendingPathComponent("queue.sqlite"), accountID: account,
+                                       localKey: ReaderCrypto.randomKey(), keys: KeyBundle.generate(accountID: account))
+        let scope = try LibraryCommandScope(accountID: account, deploymentID: "https://\(host)")
+        let handle = try await store.enqueueLibraryCommand(scope: scope,
+            mutation: .beginImport(sourceID: "2601.00001", requestedRevision: nil, observedCursor: 7))
+        return (try await store.beginLibraryAttempt(handle, scope: scope), directory)
     }
 
     func testBoundedTransportUsesV2ParametersAndPreservesExactRequestOwnership() async throws {
@@ -389,5 +482,108 @@ final class LibraryTransportTests: XCTestCase {
         do { _ = try await old.value; XCTFail("Old auth generation must not deliver a compaction error") }
         catch is CancellationError { }
         let current = await client.currentUser(); XCTAssertEqual(current?.id, account)
+    }
+
+    func testCommandReplaySendsTheIdenticalDurablyPreparedBytesWithoutAutomaticRetry() async throws {
+        let account = UUID(), f = LibraryFixture(accountID: account)
+        let server = LibraryHTTPServer(account: account)
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        let (attempt, directory) = try await command(account: account, host: host)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let id = attempt.request.operationID
+        server.append([.init(data: Data("unavailable".utf8), status: 503),
+                       .init(data: f.bytes(["result": ["status": "applied", "kind": "import", "id": id.wire,
+                                                      "seq": 8, "revision": 1],
+                                           "replayed": true, "entry": f.row(id, created: 8)]))])
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        do { _ = try await client.libraryCommand(attempt); XCTFail("Uncertain response must fail") }
+        catch BackendError.rejected(let code) { XCTAssertEqual(code, "request_failed") }
+        XCTAssertEqual(server.requests().count, 1, "Transport does not retry on its own")
+        let delivery = try await client.libraryCommand(attempt)
+        XCTAssertEqual(delivery.attempt, attempt)
+        XCTAssertTrue(delivery.response.replayed)
+        let requests = server.requests()
+        XCTAssertEqual(requests.count, 2)
+        for request in requests {
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(request.url?.path, "/rest/v1/rpc/v2_begin_import")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-library-token")
+            XCTAssertEqual(bodyData(request), attempt.request.body)
+        }
+        let frozen = try XCTUnwrap(JSONSerialization.jsonObject(with: attempt.request.body) as? [String: Any])
+        XCTAssertEqual(frozen["p_observed_cursor"] as? Int, 7)
+        XCTAssertEqual(frozen["p_operation_id"] as? String, id.wire)
+    }
+
+    func testCommandErrorsRequireExactWhitelistedSQLAndHTTPStatus() async throws {
+        let account = UUID(), f = LibraryFixture(accountID: account)
+        let cases: [(LibraryHTTPServer.Reply, String)] = [
+            (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 400), "operation_id_conflict"),
+            (.init(data: f.bytes(["code": "P0001", "message": "request_rate_limit"]), status: 400), "request_rate_limit"),
+            (.init(data: f.bytes(["code": "P0001", "message": "library_account_item_limit"]), status: 400), "library_account_item_limit"),
+            (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 503), "request_failed"),
+            (.init(data: f.bytes(["code": "P0001", "message": "operation_id_conflict"]), status: 429), "request_failed"),
+            (.init(data: f.bytes(["code": "other", "message": "operation_id_conflict"]), status: 400), "request_failed"),
+            (.init(data: f.bytes(["code": "P0001", "message": "some operation_id_conflict text"]), status: 400), "request_failed"),
+            (.init(data: f.bytes(["code": "P0001", "details": "operation_id_conflict"]), status: 400), "request_failed"),
+            (.init(data: f.bytes(["code": "P0001", "message": "key_authority_required"]), status: 400), "request_failed")
+        ]
+        let server = LibraryHTTPServer(account: account, replies: cases.map(\.0) + [.init(data: Data(), status: 401)])
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        let (attempt, directory) = try await command(account: account, host: host)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        for (_, expected) in cases {
+            do { _ = try await client.libraryCommand(attempt); XCTFail("Error must reject") }
+            catch BackendError.rejected(let code) { XCTAssertEqual(code, expected) }
+        }
+        do { _ = try await client.libraryCommand(attempt); XCTFail("Expired auth must pause") }
+        catch BackendError.signInRequired { }
+        XCTAssertEqual(server.requests().count, cases.count + 1)
+    }
+
+    func testCommandScopeFencesNetworkAndLateSuccessBelongsToOldAuthGeneration() async throws {
+        let account = UUID(), f = LibraryFixture(accountID: account)
+        let server = LibraryHTTPServer(account: account); server.holdNext = true
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        let (wrongAccount, firstDirectory) = try await command(account: UUID(), host: host)
+        let (wrongOrigin, secondDirectory) = try await command(account: account, host: "other.invalid")
+        let (attempt, directory) = try await command(account: account, host: host)
+        defer { for url in [firstDirectory, secondDirectory, directory] { try? FileManager.default.removeItem(at: url) } }
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        do { _ = try await client.libraryCommand(wrongAccount); XCTFail("Foreign account must fail before HTTP") }
+        catch BackendError.signInRequired { }
+        do { _ = try await client.libraryCommand(wrongOrigin); XCTFail("Foreign deployment must fail before HTTP") }
+        catch LibraryCommandError.invalidScope { }
+        XCTAssertTrue(server.requests().isEmpty)
+        let old = Task { try await client.libraryCommand(attempt) }
+        await fulfillment(of: [server.arrived], timeout: 5)
+        try await client.signOut()
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        let id = attempt.request.operationID
+        server.release(.init(data: f.bytes(["result": ["status": "applied", "kind": "import", "id": id.wire,
+                                                       "seq": 8, "revision": 1],
+                                            "replayed": false, "entry": f.row(id, created: 8)])))
+        do { _ = try await old.value; XCTFail("Old auth generation cannot deliver a receipt") }
+        catch is CancellationError { }
+        let current = await client.currentUser(); XCTAssertEqual(current?.id, account)
+    }
+
+    func testCommandResponseByteLimitCancelsAnUnfinishedOversizeTransfer() async throws {
+        let account = UUID()
+        let server = LibraryHTTPServer(account: account, replies: [
+            .init(data: Data(repeating: 32, count: LibraryWire.maximumPageBytes + 1), finish: false)])
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        let (attempt, directory) = try await command(account: account, host: host)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        do { _ = try await client.libraryCommand(attempt); XCTFail("Actual byte cap must stop command response") }
+        catch LibraryProtocolError.payloadTooLarge { }
+        await fulfillment(of: [server.cancelled], timeout: 5)
+        XCTAssertEqual(server.requests().count, 1)
     }
 }

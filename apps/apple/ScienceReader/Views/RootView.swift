@@ -161,6 +161,16 @@ struct LibraryView: View {
                             .disabled(model.libraryRefreshing)
                     }.padding(.horizontal, 16).padding(.bottom, 10).accessibilityIdentifier("library.refreshIssue")
                 }
+                if !model.searchExternal, !model.libraryCommands.isEmpty || model.libraryCommandIssue != nil {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let issue = model.libraryCommandIssue { Text(issue).font(.caption).foregroundStyle(.secondary) }
+                        if !model.libraryCommands.isEmpty {
+                            Button("Pending changes (\(model.libraryCommands.count))", systemImage: "arrow.triangle.2.circlepath") {
+                                model.showLibraryChanges = true
+                            }.font(.caption.weight(.semibold)).accessibilityIdentifier("library.pendingChanges")
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 10)
+                }
                 if model.searchExternal {
                     ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
                         .accessibilityIdentifier("search.external.unavailable")
@@ -191,10 +201,35 @@ struct LibraryView: View {
                             Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, showAbstract: model.showAbstracts, showTopics: model.showTopics) }
                                 .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                                 .accessibilityIdentifier("paper.\(paper.id.wire)")
+                                .contextMenu {
+                                    if !paper.isSample {
+                                        Button("Remove from library", systemImage: "minus.circle", role: .destructive) { Task { await model.removePaper(paper) } }
+                                            .disabled(!model.canChangeLibrary)
+                                    }
+                                }
                         case .pending(let item):
                             ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
                                 .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                                 .accessibilityIdentifier("import.\(item.id.wire)")
+                                .contextMenu {
+                                    if item.phase == .failed && item.retryable {
+                                        Button("Retry import", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
+                                            .disabled(!model.canChangeLibrary)
+                                    }
+                                    Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.changeImport(item, retry: false) } }
+                                        .disabled(!model.canChangeLibrary)
+                                }
+                        case .queued(let command):
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(command.display ?? "Queued paper").font(.headline)
+                                Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                                .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+                                .accessibilityIdentifier("import.\(command.id.wire)")
+                                .contextMenu {
+                                    Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.cancelLibraryChange(command) } }
+                                        .disabled(!model.canChangeLibrary)
+                                }
                         }
                     }.listStyle(.plain).refreshable { await model.refreshLibrary() }
                 }
@@ -210,9 +245,14 @@ struct LibraryView: View {
                             .disabled(model.email == nil || model.libraryRefreshing)
                     } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Library options")
                 }
-                ToolbarItem(placement: .topBarTrailing) { Button { model.showImport = true } label: { Image(systemName: "plus") }.accessibilityLabel("Add a paper") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if model.librarySignInRequired { model.showSignIn = true } else { model.showImport = true }
+                    } label: { Image(systemName: "plus") }.accessibilityLabel("Add a paper")
+                }
             }
             .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
+            .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model) }
         }
     }
 }
@@ -224,7 +264,8 @@ struct ImportRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var status: String {
         switch item.phase {
-        case .accepted, .resolving: "Finding paper…"
+        case .accepted: "Queued"
+        case .resolving: "Finding paper…"
         case .acquiring: "Preparing PDF…"
         case .sourceOnly: "Available at source"
         case .failed: "Couldn’t import this paper"
@@ -233,7 +274,7 @@ struct ImportRow: View {
         case .cancelled: "Cancelled"
         }
     }
-    private var active: Bool { [.accepted, .resolving, .acquiring].contains(item.phase) }
+    private var active: Bool { [.resolving, .acquiring].contains(item.phase) }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(item.metadata?.title ?? "arXiv \(item.sourceID)").font(.headline).fixedSize(horizontal: false, vertical: true)
@@ -536,16 +577,46 @@ struct RecoveryView: View {
 struct ImportPaperView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
+    @State private var input = ""
+    @State private var saving = false
+    @State private var issue: String?
     var body: some View {
         NavigationStack {
             Form {
                 Section("Paper link") {
-                    Text("Paper import is not connected in this build.").font(.subheadline)
-                    Text("The offline sample is available while processing is being connected.").font(.footnote).foregroundStyle(.secondary)
+                    TextField("arXiv link or ID", text: $input).keyboardType(.URL)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("import.reference")
+                        .disabled(saving)
+                    if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
                 }
-                Section { Button("Open offline reader sample") { model.openSample(); dismiss() } }
+                if !model.canChangeLibrary {
+                    Section { Text("Restore this device to save library changes.").font(.footnote).foregroundStyle(.secondary) }
+                } else if !model.libraryHasSnapshot {
+                    Section {
+                        Text("Refresh your library before adding a paper.").font(.footnote).foregroundStyle(.secondary)
+                        Button("Refresh library") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
+                    }
+                }
+                Section {
+                    Button {
+                        saving = true; issue = nil
+                        Task {
+                            defer { saving = false }
+                            do { try await model.importPaper(input); dismiss() }
+                            catch is CancellationError { }
+                            catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
+                            catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
+                            catch { issue = "Couldn’t save this import. Your link is still here." }
+                        }
+                    } label: {
+                        HStack { Text("Add paper"); if saving { Spacer(); ProgressView() } }
+                    }.disabled(saving || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canBeginImport)
+                        .accessibilityIdentifier("import.add")
+                }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() }.disabled(saving) } }
+                .interactiveDismissDisabled(saving)
         }
     }
 }

@@ -24,13 +24,14 @@ protocol LibraryTransport: Sendable {
 enum LibraryTransportError: Error, Equatable { case resyncRequired }
 
 enum LibraryServiceError: Error, Equatable {
-    case retired, pageBudgetExhausted, repeatedCompaction, wrongDelivery
+    case retired, pageBudgetExhausted, repeatedCompaction, wrongDelivery, receiptNotObserved
 }
 
 struct LibrarySnapshot: Equatable, Sendable {
     let scope: LibraryScope
     let generation: UInt64
     let committedCursor: Int64
+    let observation: LibraryCompleteObservation
     /// Tombstones and import-to-item mappings remain in the snapshot. Imports
     /// are their own typed records; an unresolved import has no document ID.
     let entries: [LibraryEntry]
@@ -63,7 +64,10 @@ actor LibraryService {
     private var published: LibrarySnapshot?
     private var publicationGeneration: UInt64 = 0
     private var retired = false
-    private var running: (id: UUID, task: Task<LibrarySnapshot, Error>)?
+    private var pullCycle: UInt64 = 0
+    private var requiredCursor: Int64 = 0
+    private var requiresFreshBoundary = false
+    private var running: (id: UUID, cycle: UInt64, task: Task<LibrarySnapshot, Error>)?
 
     init(scope: LibraryScope, transport: any LibraryTransport, limits: Limits = .init()) {
         self.scope = scope; self.transport = transport; self.limits = limits
@@ -76,14 +80,44 @@ actor LibraryService {
     /// Concurrent callers share one bounded pull. Cancellation of an awaiting
     /// view does not cancel another caller's refresh; account retirement does.
     func refresh() async throws -> LibrarySnapshot {
+        try await refresh(minimumCursor: 0, startedAfter: nil)
+    }
+
+    /// A command reply can omit other entities changed in its transaction.
+    /// Finish any older pull, then observe a fresh server boundary. The floor
+    /// is evidence to read through, never a replacement for the library cursor.
+    /// This also handles absent-item conflicts whose receipt has no sequence.
+    func refreshAfterCommand(minimumCursor: Int64) async throws -> LibrarySnapshot {
+        guard minimumCursor >= 0 else { throw LibraryProtocolError.invalidCursor }
+        return try await refresh(minimumCursor: minimumCursor, startedAfter: pullCycle)
+    }
+
+    private func refresh(minimumCursor: Int64, startedAfter: UInt64?) async throws -> LibrarySnapshot {
         try Task.checkCancellation()
         guard !retired else { throw LibraryServiceError.retired }
+        if let startedAfter {
+            // Ignore an older pull's transient failure here: its exact pending
+            // page remains in working, and the new bounded pull retries it.
+            while let old = running, old.cycle <= startedAfter {
+                _ = try? await old.task.value
+                try Task.checkCancellation()
+                guard !retired else { throw LibraryServiceError.retired }
+            }
+        }
         let task: Task<LibrarySnapshot, Error>
-        if let running { task = running.task }
+        if let running {
+            requiredCursor = max(requiredCursor, minimumCursor)
+            requiresFreshBoundary = requiresFreshBoundary || startedAfter != nil
+            task = running.task
+        }
         else {
+            guard pullCycle < UInt64.max else { throw LibraryServiceError.pageBudgetExhausted }
             let id = UUID()
+            pullCycle += 1
+            requiredCursor = minimumCursor
+            requiresFreshBoundary = startedAfter != nil
             task = Task { try await self.pull(id: id) }
-            running = (id, task)
+            running = (id, pullCycle, task)
         }
         let result = try await task.value
         try Task.checkCancellation()
@@ -103,6 +137,7 @@ actor LibraryService {
     private func pull(id: UUID) async throws -> LibrarySnapshot {
         defer { if running?.id == id { running = nil } }
         var pages = 0, compactions = 0
+        var readFreshBoundary = false
         while true {
             try requireOwnership(id)
             guard pages < limits.pagesPerRefresh else { throw LibraryServiceError.pageBudgetExhausted }
@@ -116,21 +151,33 @@ actor LibraryService {
                 case .baseline(let page): try working.accept(page, for: request)
                 case .changes(let page): try working.accept(page, for: request)
                 }
+                if case .changes(_, nil) = request.query { readFreshBoundary = true }
             } catch {
                 try requireOwnership(id, request: request)
                 guard error as? LibraryTransportError == .resyncRequired else { throw error }
                 // Even exhaustion retires the expired ticket before returning.
                 // The next explicit refresh can start a valid new baseline.
                 guard working.requireResync(for: request) else { throw CancellationError() }
+                readFreshBoundary = false
                 compactions += 1
                 guard compactions <= limits.compactionsPerRefresh else { throw LibraryServiceError.repeatedCompaction }
                 continue
             }
             if working.phase == .ready, let cursor = working.committedCursor {
                 try requireOwnership(id)
+                if requiresFreshBoundary && !readFreshBoundary { continue }
+                if cursor < requiredCursor {
+                    // A resumed fixed-boundary page may predate the receipt.
+                    // Read one new boundary, but never spin on a server that
+                    // still cannot return an already-acknowledged sequence.
+                    guard !readFreshBoundary else { throw LibraryServiceError.receiptNotObserved }
+                    continue
+                }
+                let observation = try working.completeObservation()
                 publicationGeneration += 1
                 let result = LibrarySnapshot(scope: scope, generation: publicationGeneration,
-                                             committedCursor: cursor, entries: working.orderedEntries)
+                                             committedCursor: cursor, observation: observation,
+                                             entries: working.orderedEntries)
                 published = result
                 return result
             }

@@ -61,7 +61,9 @@ On iOS, the directory, main database, and write-ahead log use complete file prot
 
 This unreleased format replaces the development-only whole-file checkpoint. Existing incompatible files are preserved and rejected explicitly, not overwritten. There is no migration of NAS user data. Local authenticated storage detects corruption and partial substitution; it cannot prevent an attacker who controls the entire device from rolling back a complete older database and its keys.
 
-### Device-local encrypted drafts (metadata format 4)
+### Device-local encrypted drafts
+
+Drafts were introduced in metadata format 4 / SQLite schema 3. The current format 5 / schema 4 adds the separate [durable library command queue](NATIVE_LIBRARY_COMMANDS.md), retaining draft/history domains and upgrading the complete store atomically. The draft invariants below remain unchanged.
 
 Unsent signed-in chat drafts use mutable encrypted `local_drafts` rows in the same account-scoped SQLite store as history. They are not cloud events and do not enter the sync outbox. Guest drafts remain in memory; the product must call them session-only. A saved local draft is available on this device, not on another phone or the future browser reader.
 

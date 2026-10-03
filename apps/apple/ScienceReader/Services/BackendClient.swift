@@ -52,7 +52,7 @@ enum BackendError: LocalizedError {
     }
 }
 
-actor BackendClient: LibraryTransport {
+actor BackendClient: LibraryTransport, LibraryCommandTransport {
     private let config: BackendConfiguration
     private var session: AuthSession?
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
@@ -194,6 +194,18 @@ actor BackendClient: LibraryTransport {
         return LibraryPageDelivery(request: request, page: page)
     }
 
+    func libraryCommand(_ attempt: LibraryCommandAttempt) async throws -> LibraryCommandDelivery {
+        let deployment = try LibraryCommandScope(accountID: attempt.scope.accountID, deploymentID: config.url.absoluteString)
+        guard attempt.scope == deployment else { throw LibraryCommandError.invalidScope }
+        let request = attempt.request
+        guard ["v2_begin_import", "v2_set_library_item", "v2_cancel_import", "v2_retry_import"].contains(request.endpoint),
+              !request.body.isEmpty, request.body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
+        let data = try await authorized(path: "rest/v1/rpc/\(request.endpoint)", body: request.body,
+                                        accountID: attempt.scope.accountID, maximumResponseBytes: LibraryWire.maximumPageBytes,
+                                        libraryCommandErrors: true)
+        return LibraryCommandDelivery(attempt: attempt, response: try LibraryWire.decodeCommand(data))
+    }
+
     /// SQL `returns void` has an empty HTTP 204 response. Keep it distinct from
     /// typed RPCs: an empty key-state response must never mean "no keyring".
     func rpcVoid<P: Encodable & Sendable>(_ function: String, params: P, accountID: UUID) async throws {
@@ -230,14 +242,16 @@ actor BackendClient: LibraryTransport {
     }
 
     private func authorized(path: String, body: Data?, method: String = "POST", mediaType: String = "application/json", accountID: UUID?,
-                            maximumResponseBytes: Int? = nil, libraryErrors: Bool = false) async throws -> Data {
+                            maximumResponseBytes: Int? = nil, libraryErrors: Bool = false,
+                            libraryCommandErrors: Bool = false) async throws -> Data {
         let generation = authGeneration
         guard let expected = session?.user.id, accountID == nil || expected == accountID else { throw BackendError.signInRequired }
         let token = try await accessToken()
         guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
         do {
             let data = try await raw(path: path, body: body, token: token, method: method, mediaType: mediaType,
-                                     maximumResponseBytes: maximumResponseBytes, libraryErrors: libraryErrors)
+                                     maximumResponseBytes: maximumResponseBytes, libraryErrors: libraryErrors,
+                                     libraryCommandErrors: libraryCommandErrors)
             guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
             return data
         } catch {
@@ -274,7 +288,8 @@ actor BackendClient: LibraryTransport {
     }
 
     private func raw(path: String, body: Data?, token: String?, method: String = "POST", mediaType: String = "application/json",
-                     maximumResponseBytes: Int? = nil, libraryErrors: Bool = false) async throws -> Data {
+                     maximumResponseBytes: Int? = nil, libraryErrors: Bool = false,
+                     libraryCommandErrors: Bool = false) async throws -> Data {
         guard let url = URL(string: "/" + path, relativeTo: config.url)?.absoluteURL, url.host == config.url.host else { throw BackendError.unavailable }
         var request = URLRequest(url: url)
         request.httpMethod = method; request.httpBody = body
@@ -293,6 +308,19 @@ actor BackendClient: LibraryTransport {
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
+            }
+            if libraryCommandErrors {
+                if response.statusCode == 401 { throw BackendError.signInRequired }
+                let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit",
+                    "library_account_import_limit", "library_environment_import_limit", "library_active_import_limit",
+                    "library_account_item_limit", "library_environment_item_limit",
+                    "library_account_receipt_limit", "library_environment_receipt_limit",
+                    "import_not_retryable", "invalid_library_cursor", "document_not_verified"]
+                if response.statusCode == 400, failure?.code == "P0001", let message = failure?.message,
+                   commandCodes.contains(message) { throw BackendError.rejected(message) }
+                // Unknown bodies, wrong HTTP/SQL codes and embedded lookalike
+                // strings never become an immutable-operation conflict.
+                throw BackendError.rejected("request_failed")
             }
             let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
@@ -320,7 +348,7 @@ actor BackendClient: LibraryTransport {
     }
 }
 
-/// Library RPCs are same-origin reads. Do not follow a redirect before parsing
+/// Library RPCs stay on their configured origin. Do not follow a redirect before parsing
 /// a supposedly trusted structured error or forward credentials to its target.
 private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
