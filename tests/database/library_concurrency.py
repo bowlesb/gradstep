@@ -200,7 +200,7 @@ if __name__ == '__main__':
         try:
             sources = [ROOT / 'tests/database/bootstrap.sql', *sorted((ROOT / 'supabase/migrations').glob('*.sql'))]
             if mode == 'upgrade':
-                sources = [s for s in sources if s.name != '202610030010_library_import_contract.sql']
+                sources = [s for s in sources if s.name == 'bootstrap.sql' or s.name < '202610030010']
             for source in sources:
                 result = subprocess.run([str(binaries / 'psql'), *local, '-X', '-v', 'ON_ERROR_STOP=1', '-d', database, '-f', str(source)], capture_output=True, text=True)
                 if result.returncode:
