@@ -236,16 +236,20 @@ final class CloudSync {
     private func pull() async throws {
         struct Pull: Encodable, Sendable { let p_after: Int64; let p_limit = 200 }
         struct Row: Decodable, Sendable { let id: UUID; let device_id: UUID; let cursor: Int64; let epoch: Int; let format: Int; let ciphertext: String; let ciphertext_sha256: String }
+        struct Page: Decodable, Sendable { let events: [Row]; let next_cursor: Int64; let has_more: Bool }
         while true {
             try Task.checkCancellation()
-            let rows: [Row] = try await backend.rpc("v1_pull_events", params: Pull(p_after: await store.cursor()), accountID: device.accountID)
+            let before = await store.cursor()
+            let response: Page = try await backend.rpc("v2_pull_events", params: Pull(p_after: before), accountID: device.accountID)
             try Task.checkCancellation()
-            let page = try rows.map { row in
+            guard response.next_cursor == (response.events.last?.cursor ?? before),
+                  !response.has_more || !response.events.isEmpty else { throw ReaderError.corruptData }
+            let page = try response.events.map { row in
                 RemoteEvent(cursor: row.cursor, envelope: EventEnvelope(id: row.id, deviceID: row.device_id, epoch: row.epoch,
                     format: row.format, ciphertext: try DeviceKeys.bytea(row.ciphertext)), digest: try DeviceKeys.bytea(row.ciphertext_sha256))
             }
             try await store.ingest(page)
-            if rows.count < 200 { break }
+            if !response.has_more { break }
         }
     }
 }

@@ -1,0 +1,58 @@
+begin;
+insert into auth.users values('90000000-0000-0000-0000-000000000001');
+set role authenticated;
+select set_config('request.jwt.claim.sub','90000000-0000-0000-0000-000000000001',false);
+select public.v1_bootstrap_keys('91000000-0000-0000-0000-000000000001',decode(repeat('11',32),'hex'),decode(repeat('22',60),'hex'),decode(repeat('33',32),'hex'),decode(repeat('44',92),'hex'),decode(repeat('aa',32),'hex'));
+select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000001',1,1,decode(repeat('55',262144),'hex'),decode(repeat('33',32),'hex'));
+select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000002',1,1,decode(repeat('66',262144),'hex'),decode(repeat('33',32),'hex'));
+select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000003',1,1,decode(repeat('77',262144),'hex'),decode(repeat('33',32),'hex'));
+select test.assert((public.v1_sync_usage()->>'ciphertext_bytes')::bigint=786432,'own storage usage');
+select test.assert(public.v2_pull_events(0)->>'has_more'='true','large first page has explicit continuation');
+select test.assert(public.v2_pull_events(1)->>'next_cursor'='2','large second page has contiguous cursor');
+select test.assert(public.v2_pull_events(2)->>'has_more'='false','last large page completes catch-up');
+select test.assert(jsonb_array_length(public.v1_pull_events(0,1))=1,'legacy small complete page remains compatible');
+select test.reject('select public.v1_pull_events(0)','sync_page_too_large');
+select test.reject('select * from app_private.sync_transfer_months','permission denied');
+select test.reject('select public.worker_prune_sync_usage()','permission denied');
+select test.reject($q$select app_private.v1_append_event(null,null,1,1,null,null)$q$,'permission denied');
+reset role;
+select test.assert((select requests=4 from app_private.sync_transfer_months where scope_id='90000000-0000-0000-0000-000000000001'),'only returned content consumes transfer');
+
+update app_private.sync_storage_policy set account_bytes=786432;
+set role authenticated;
+select test.reject($q$select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000004',1,1,decode(repeat('88',60),'hex'),decode(repeat('33',32),'hex'))$q$,'sync_account_storage_limit');
+select test.assert(public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000001',1,1,decode(repeat('55',262144),'hex'),decode(repeat('33',32),'hex'))=1,'exact replay succeeds at storage limit');
+reset role;
+select test.assert((select next_cursor=3 from app_private.keyrings where account_id='90000000-0000-0000-0000-000000000001'),'rejection never consumes cursor');
+select test.assert((select ciphertext_bytes=786432 and event_count=3 from app_private.sync_account_storage where account_id='90000000-0000-0000-0000-000000000001'),'replay/rejection leave storage unchanged');
+update app_private.sync_storage_policy set account_bytes=786500,account_events=3;
+set role authenticated;
+select test.reject($q$select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000004',1,1,decode(repeat('88',60),'hex'),decode(repeat('33',32),'hex'))$q$,'sync_account_storage_limit');
+reset role;
+update app_private.sync_storage_policy set account_events=4,environment_bytes=(select ciphertext_bytes from app_private.sync_environment_storage);
+set role authenticated;
+select test.reject($q$select public.v1_append_event('91000000-0000-0000-0000-000000000001','92000000-0000-0000-0000-000000000004',1,1,decode(repeat('88',60),'hex'),decode(repeat('33',32),'hex'))$q$,'sync_environment_storage_limit');
+reset role;
+
+create temp table transfer_before as select * from app_private.sync_transfer_months;
+update app_private.sync_transfer_policy set account_bytes=(select reserved_bytes+1 from app_private.sync_transfer_months where scope_id='90000000-0000-0000-0000-000000000001');
+set role authenticated;
+select test.reject('select public.v2_pull_events(0)','sync_account_transfer_limit');
+select test.assert(public.v1_key_state('91000000-0000-0000-0000-000000000001')->>'device_envelope' is not null,'history transfer limit does not block key recovery');
+select test.assert(public.v1_sync_usage()->>'events'='3','usage remains available at transfer limit');
+reset role;
+select test.assert(not exists((select * from app_private.sync_transfer_months except select * from transfer_before) union all (select * from transfer_before except select * from app_private.sync_transfer_months)),'rejected transfer reserves neither environment nor account bytes');
+update app_private.sync_transfer_policy set environment_bytes=(select reserved_bytes+1 from app_private.sync_transfer_months where scope_id='environment');
+set role authenticated;
+select test.reject('select public.v2_pull_events(0)','sync_environment_transfer_limit');
+select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000002',false);
+select test.assert(public.v1_sync_usage()->>'events'='0','usage isolation');
+reset role;
+
+select test.reject($q$update app_private.sync_events set format=1 where account_id='90000000-0000-0000-0000-000000000001'$q$,'immutable_record');
+-- Model account deletion's lock order. Only this synthetic transaction is erased.
+select 1 from app_private.keyrings where account_id='90000000-0000-0000-0000-000000000001' for update;
+delete from app_private.sync_events where account_id='90000000-0000-0000-0000-000000000001';
+select test.assert((select ciphertext_bytes=0 and event_count=0 from app_private.sync_account_storage where account_id='90000000-0000-0000-0000-000000000001'),'explicit removal releases storage');
+select test.assert((select ciphertext_bytes=(select coalesce(sum(octet_length(ciphertext)),0) from app_private.sync_events) and event_count=(select count(*) from app_private.sync_events) from app_private.sync_environment_storage),'environment counter reconstructs after cleanup');
+rollback;

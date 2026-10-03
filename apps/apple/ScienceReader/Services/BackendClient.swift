@@ -35,6 +35,12 @@ enum BackendError: LocalizedError {
             case "key_authority_required", "stale_key_epoch": "This device needs updated encryption keys from an approved device or recovery code."
             case "invalid_credentials": "The email or password was not accepted."
             case "email_not_confirmed": "Confirm your email before signing in."
+            case "sync_account_storage_limit": "Your cloud history storage is full. New changes remain on this device."
+            case "sync_environment_storage_limit": "Cloud history uploads are paused because storage is full. New changes remain on this device."
+            case "sync_account_transfer_limit": "Your cloud history download allowance has been reached for this month. Your saved work remains on this device."
+            case "sync_environment_transfer_limit": "Cloud history downloads are temporarily paused. Your saved work remains on this device."
+            case "sync_page_too_large": "Update the app to sync this history. Your saved work remains on this device."
+            case "request_rate_limit": "Cloud requests are temporarily limited. Your saved work remains on this device."
             case "owner_mfa_required", "operator_required": "This action needs an authorized administrator with two-factor authentication."
             default: "The server could not complete this request. Please try again."
         }
@@ -177,7 +183,7 @@ actor BackendClient {
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let code: String?; let message: String?; let error_code: String? }
             let failure = try? JSONDecoder().decode(Failure.self, from: data)
-            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired"])
+            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }

@@ -81,6 +81,10 @@ try {
   await page.goto('http://127.0.0.1:5173/');
   await page.getByRole('heading', { name: 'Overview', exact: true }).waitFor();
   await page.getByText('No provider budget is configured. Paid processing is disabled.').waitFor();
+  await page.getByRole('heading', { name: 'Encrypted history storage', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'History downloads this month', exact: true }).waitFor();
+  assert.equal(await page.getByRole('progressbar', { name: 'Encrypted history storage used' }).getAttribute('max'), '536870912');
+  assert.equal(await page.getByRole('progressbar', { name: 'History download allowance used' }).getAttribute('max'), '10737418240');
   await page.screenshot({ path: new URL('.artifacts/admin-overview.png', root).pathname, fullPage: true });
   await page.getByRole('button', { name: /^Support/ }).click();
   await page.getByRole('button', { name: /Synthetic screenshot workflow check/ }).click();

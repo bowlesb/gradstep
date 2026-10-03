@@ -66,6 +66,10 @@ try:
     assert rpc('v1_append_event',event,a)==1
     assert len(rpc('v1_pull_events',{'p_after':0},a))==1
     assert rpc('v1_pull_events',{'p_after':0},b)==[]
+    assert rpc('v2_pull_events',{'p_after':0},a)['next_cursor']==1
+    assert rpc('v2_pull_events',{'p_after':0},b)=={'events':[],'next_cursor':0,'has_more':False}
+    assert rpc('v1_sync_usage',{},a)['ciphertext_bytes']==60
+    assert rpc('v1_sync_usage',{},b)['ciphertext_bytes']==0
     assert rpc('v1_key_state',{'p_device_id':device},b) is None
     print('PASS hosted encrypted-envelope isolation and exact replay')
     report={'p_id':str(uuid.uuid4()),'p_title':'Synthetic staging check','p_note':'Test fixture; no user content.',

@@ -26,8 +26,8 @@ try {
   assert.equal(status,0,'Native sync check failed; inspect local log');
   assert.match(log,/testTwoDeviceRecoveryOfflineEditsAndLostAcknowledgment.*passed/,'Native sync check did not run');
   const rows=await sql(`select count(*)::int as devices,min(acknowledged_cursor)::int as acknowledged from app_private.devices where account_id='${account}'`);
-  assert.equal(rows[0].devices,2);assert.equal(rows[0].acknowledged,4);
-  console.log('PASS hosted native two-device key recovery, concurrent offline edits, exact ciphertext replay, missed acknowledgment recovery, and durable device cursors');
+  assert.equal(rows[0].devices,2);assert.equal(rows[0].acknowledged,7);
+  console.log('PASS hosted native two-device key recovery, concurrent offline edits, exact ciphertext replay, missed acknowledgment recovery, byte-bounded pagination, and durable device cursors');
 } finally {
   if(account){
     // This check creates no immutable rotation/billing/audit events. Such future
@@ -43,6 +43,8 @@ delete from app_private.keyrings where account_id='${account}';
 delete from app_private.accounts where id='${account}';
 commit;`);
     const removed=await admin.auth.admin.deleteUser(account);assert.equal(removed.error,null);
+    const counters=await sql('select ciphertext_bytes=(select coalesce(sum(octet_length(ciphertext)),0) from app_private.sync_events) and event_count=(select count(*) from app_private.sync_events) as reconciled from app_private.sync_environment_storage');
+    assert.equal(counters[0].reconciled,true,'Storage counters must reconcile after fixture cleanup');
     console.log('Removed the synthetic sync account, device envelopes, enrollment, and encrypted events');
   }
 }

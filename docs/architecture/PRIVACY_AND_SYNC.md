@@ -85,6 +85,8 @@ The server assigns account-scoped cursors under a transaction/lock discipline th
 
 On launch, foreground, login, reconnect, or a realtime notification, fetch everything after the last durable cursor in bounded pages. Realtime is a latency optimization. Catch-up works when every realtime event is missed. Supabase documents background disconnection behavior, so a persistent WebSocket cannot be the recovery mechanism. [Supabase reconnect behavior](https://supabase.com/docs/guides/troubleshooting/realtime-handling-silent-disconnections-in-backgrounded-applications-592794)
 
+`v2_pull_events` limits both count and serialized bytes and supplies `next_cursor` plus `has_more`. A short page can still have a continuation; the client must follow it before considering catch-up complete or rebasing pending events. Validate the supplied cursor against the last event, and reject a non-progressing continuation. Quota rejection preserves local state/outbox and never triggers key replacement. The legacy v1 endpoint rejects a byte-truncated page explicitly instead of letting an older reader mistake it for the end.
+
 ## Conflicts and lifecycle
 
 - **Completed chat messages:** append-only with stable message/turn identities and explicit causal parents. Concurrent continuations retain both branches; never overwrite one device's answer with the other device's answer.

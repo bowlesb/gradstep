@@ -8,6 +8,7 @@ import './style.css';
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);
 const date = (value: string) => new Date(value).toLocaleString();
 const statusName = (value: string) => value.replaceAll('_', ' ');
+const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GiB` : `${(value / 1024 ** 2).toFixed(2)} MiB`;
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -80,6 +81,7 @@ function App() {
       {tab === 'Overview' && overview && <>
         <div className="metrics"><Metric label="Accounts" value={overview.accounts} /><Metric label="Library items" value={overview.library_items} /><Metric label="Shared documents" value={overview.shared_documents} /><Metric label="Reused by multiple accounts" value={overview.shared_documents_reused} /></div>
         <BudgetPanel overview={overview} onChanged={refresh} />
+        <HistoryCapacity overview={overview} />
         <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
@@ -97,6 +99,24 @@ function Empty({ text }: { text: string }) { return <p className="empty">{text}<
 function Metric({ label, value }: { label: string; value: number }) { return <section className="metric"><p>{label}</p><strong>{value.toLocaleString()}</strong></section>; }
 function Counts({ values, empty }: { values: Record<string, number>; empty: string }) {
   return Object.keys(values).length ? <dl className="counts">{Object.entries(values).map(([label, value]) => <div key={label}><dt>{statusName(label)}</dt><dd>{value}</dd></div>)}</dl> : <Empty text={empty} />;
+}
+
+function HistoryCapacity({ overview }: { overview: Overview }) {
+  const storage = overview.sync_storage, transfers = overview.sync_transfers;
+  if (!storage || !transfers) return null;
+  const month = transfers.months.find(value => value.period === transfers.period);
+  return <div className="two-columns">
+    <section className="panel"><h2>Encrypted history storage</h2>
+      <p><strong>{bytes(storage.ciphertext_bytes)}</strong> of {bytes(storage.environment_bytes)}</p>
+      <progress value={storage.ciphertext_bytes} max={storage.environment_bytes} aria-label="Encrypted history storage used" />
+      <p className="muted">{storage.event_count.toLocaleString()} of {storage.environment_events.toLocaleString()} events. Each account is limited to {bytes(storage.account_bytes)} and {storage.account_events.toLocaleString()} events.</p>
+    </section>
+    <section className="panel"><h2>History downloads this month</h2>
+      <p><strong>{bytes(month?.reserved_bytes ?? 0)}</strong> of {bytes(transfers.policy.environment_bytes)}</p>
+      <progress value={month?.reserved_bytes ?? 0} max={transfers.policy.environment_bytes} aria-label="History download allowance used" />
+      <p className="muted">{(month?.requests ?? 0).toLocaleString()} responses, including a conservative overhead allowance. Each account has {bytes(transfers.policy.account_bytes)} per UTC month. These counters cover history sync; the provider invoice includes other traffic.</p>
+    </section>
+  </div>;
 }
 
 function SignIn({ error, setError }: { error: string; setError: (text: string) => void }) {

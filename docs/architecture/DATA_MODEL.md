@@ -1,6 +1,6 @@
 # Data model and invariants
 
-Status: approved design direction, with migrations 001–007 applied to staging and protected by a migration hash ledger. Device-held keys are selected in [Decisions](../DECISIONS.md). Production is not provisioned. See [implementation evidence](../IMPLEMENTATION_STATUS.md) for the boundary between implemented contracts and planned behavior.
+Status: approved design direction, with migrations 001–009 applied to staging and protected by a migration hash ledger. Device-held keys are selected in [Decisions](../DECISIONS.md). Production is not provisioned. See [implementation evidence](../IMPLEMENTATION_STATUS.md) for the boundary between implemented contracts and planned behavior.
 
 ## Boundaries
 
@@ -54,6 +54,8 @@ Do not add an unused team/organization layer to every record. The identities abo
 
 See [Privacy and sync](PRIVACY_AND_SYNC.md) for the consistency model. This avoids adding plaintext `chat_messages.content`, `chats.title`, or public `diagrams.body_html` and trying to remove them after launch. Private diagrams returned by an AI tool follow the encrypted conversation lifecycle.
 
+History storage projections count ciphertext bytes and event rows per account and environment, and are maintained by transactional triggers. Account projections cascade only when their account is removed; they are derived bookkeeping, not shared content or monetary history. Monthly download counters are separate from persistent storage and provider credits. The versioned page API bounds both event count and encoded response bytes. See the capacity/compatibility contract in [Operations and billing](OPERATIONS_AND_BILLING.md).
+
 ## Durable processing
 
 `processing_jobs` describes work, not a user's subscription. `job_attempts` records bounded attempts and external provider IDs. `job_requests` links interested accounts and library imports to shared work. `job_leases` or equivalent locked job fields provide a lease generation/fencing token; stale workers cannot publish completion after their lease has been replaced.
@@ -98,4 +100,4 @@ Support screenshots and notes are intentionally disclosed content, not encrypted
 
 ## Pre-migration proof
 
-The staging foundation was deployed after local scope, lease, accounting, encryption-envelope, retry, and concurrency tests. Hosted isolation tests also pass. Complete duplicate-import integration, deletion workflows, and restoration of both rows and objects before production or real beta data. The original plan grouped the restore proof with the first migration; that proof remains outstanding and is a release gate, not evidence already obtained.
+The staging foundation was deployed after local scope, lease, accounting, encryption-envelope, retry, and concurrency tests. Hosted isolation and native two-client sync tests pass. Signed database/object exports restore successfully into a disposable local database, including the schema after migration 009. Complete duplicate-import integration, deletion workflows, and a hosted replacement-project restore including Auth/MFA before production or real beta data. A local restore is evidence for its tested scope, not a hosted disaster-recovery guarantee.

@@ -1,6 +1,6 @@
 # Infrastructure, spending, and recovery
 
-Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–008 are applied. Private support storage is deployed and tested. Production, provider processing, independent backups, and distribution remain in progress.
+Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–009 are applied. Private support storage and encrypted-history capacity limits are deployed and tested. Production, provider processing, independent backups, and distribution remain in progress.
 
 ## Environments and deployment
 
@@ -75,6 +75,18 @@ Benchmark Standard/Pro at the approved provisional price points using actual ML-
 - Admin/tester traffic remains visible and included in global cost caps; development does not use an unlimited billing bypass.
 
 ## Migrations and client compatibility
+
+### Encrypted-history capacity and transfer contract
+
+Migration 009 extends the existing request-rate system. These are internal beta safety limits, not finalized paid-plan allowances: at most 64 MiB of event ciphertext and 100,000 events per account; 512 MiB and 500,000 events across an environment. Track ciphertext bytes and row counts separately, because many tiny events still consume indexes and database overhead. Materialized usage is derived from the immutable event rows, changes in the same transaction, and can be reconstructed. Exact replay consumes no additional storage. A rejected append must not consume a cursor or discard a local outbox entry. Explicit account cleanup releases storage; ordinary tombstones retain their encrypted history and do not pretend to free bytes.
+
+Before installing accounting triggers, lock event writes and backfill both account and environment totals in the migration transaction. Preserve existing data even if a newly configured limit is already exceeded; reject new growth until resolved. Lock order for new writes is request window, account keyring, environment storage counter, account storage counter. Future deletion jobs must acquire the keyring before deleting event rows. Client roles have no counter or policy write access. Provider credits do not bypass these limits, and these quotas do not replace separate paper/support/key-material limits.
+
+Cap encrypted-history download content at 512 MiB/account/month and 10 GiB/environment/month (UTC), reserving measured JSON bytes plus 1 KiB/request overhead transactionally before returning a successful result. These conservative application counters are not a claim to meter every byte on the Supabase invoice. Read/write request windows also apply: 1,000 successful requests/account/hour and 10,000/environment/hour per route. Failed transactions roll back counters; gateway-level denial-of-service protection remains separate. The existing maintenance routine prunes old request windows, and `worker_prune_sync_usage` retains the current and two prior transfer periods for reconciliation. Scheduling these routines remains a beta release gate. The environment aggregate continues to include traffic from subsequently deleted accounts.
+
+The new `v2_pull_events` returns `events`, `next_cursor`, and `has_more`, with at most 200 events and 1 MiB of JSON per response. Select the page and continuation from one database snapshot. The client follows `has_more`, not a short event count: large encrypted events can fill a byte-bounded page early. The format of an individual encrypted event does not change. `v1_pull_events` remains valid for a complete count-bounded page that fits; it returns an explicit update-required error if byte truncation would make an older client mistake the page for the end of history. This is essential before rebasing unpublished events after rotation. Deploy the server contract before switching the native client; no public builds currently depend on v1.
+
+Keep usage reads and key recovery available when the history transfer budget is exhausted. Exhaustion pauses cloud history writes/downloads with a clear local-save status; it never resets encryption keys, deletes history, or silently purchases capacity. Add the storage/transfer totals to the MFA-protected admin overview. Remaining quotas for key management and all other data-bearing APIs must be completed before beta access is opened.
 
 Each migration specifies forward behavior, old-client behavior, lock/backfill impact, and rollback/roll-forward recovery. Use expand/backfill/contract where appropriate. Deploy readers compatible with both formats before switching writers, and retain the old read path until its support window is explicitly closed.
 

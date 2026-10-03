@@ -23,6 +23,10 @@ try:
     concurrency = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(concurrency)
     concurrency.verify(BIN, DB, BASE)
+    spec = importlib.util.spec_from_file_location('upgrade', ROOT / 'tests/database/upgrade.py')
+    upgrade = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(upgrade)
+    upgrade.verify(BIN, DB, BASE, ROOT)
     print('Database:', DB)
 except subprocess.CalledProcessError as error:
     print(error.stdout or '')

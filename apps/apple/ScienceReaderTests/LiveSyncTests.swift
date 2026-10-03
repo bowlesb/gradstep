@@ -78,6 +78,27 @@ final class LiveSyncTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty); XCTAssertEqual(cursor, committedCursor)
         XCTAssertEqual(finalA.events, finalB.events); XCTAssertEqual(finalA.events.count, 4)
         XCTAssertEqual(try managerA.cachedDevice()?.bundle, keys)
+
+        print("Native sync phase: byte-bounded multi-page catch-up")
+        for index in 0..<3 {
+            try await reopened.append(PrivateEvent(kind: .note, text: "Large synthetic note \(index): " + String(repeating: "x", count: 190_000)), deviceID: deviceA.deviceID)
+        }
+        try await restarted.synchronize()
+        struct PageProbe: Decodable, Sendable {
+            struct Row: Decodable, Sendable { let cursor: Int64 }
+            let events: [Row]; let next_cursor: Int64; let has_more: Bool
+        }
+        let page: PageProbe = try await clients[1].rpc("v2_pull_events", params: ["p_after": committedCursor], accountID: account)
+        XCTAssertEqual(page.events.count, 2); XCTAssertTrue(page.has_more)
+        XCTAssertEqual(page.next_cursor, committedCursor + 2)
+        do {
+            let _: [PageProbe.Row] = try await clients[1].rpc("v1_pull_events", params: ["p_after": committedCursor], accountID: account)
+            XCTFail("Legacy readers must not mistake a byte-limited short page for complete catch-up")
+        } catch BackendError.rejected(let code) { XCTAssertEqual(code, "sync_page_too_large") }
+        try await syncB.synchronize()
+        let completeA = await reopened.state(), completeB = await storeB.state(), finalCursor = await storeB.cursor()
+        XCTAssertEqual(completeA.events, completeB.events); XCTAssertEqual(completeB.events.count, 7)
+        XCTAssertEqual(finalCursor, committedCursor + 3)
         struct DeviceRow: Decodable, Sendable { let id: UUID }
         let devices: [DeviceRow] = try await clients[0].rpc("v1_devices", params: EmptyResponse(), accountID: account)
         XCTAssertEqual(Set(devices.map(\.id)), [deviceA.deviceID, deviceB.deviceID])

@@ -42,6 +42,8 @@ export interface Overview {
   accounts: number; library_items: number; shared_documents: number; shared_documents_reused: number;
   budgets: Budget[]; jobs: Record<string, number>; subscriptions: Record<string, number>; open_reports: number;
   usage: Array<{ provider: string; model: string; calls: number; estimated_microusd: number }>;
+  sync_storage?: { ciphertext_bytes: number; event_count: number; environment_bytes: number; environment_events: number; account_bytes: number; account_events: number };
+  sync_transfers?: { period: string; policy: { account_bytes: number; environment_bytes: number }; months: Array<{ period: string; reserved_bytes: number; requests: number }> };
 }
 export interface Report { id: string; title: string; note: string; account_id: string; status: string; app_version: string; build: string; fixed_build?: string; screen: string; os_version: string; created_at: string }
 export interface Thread { report: Report; messages: Array<{ id: string; body: string; is_operator: boolean; created_at: string }>; attachments: Array<{ id: string; object_id: string }> }
