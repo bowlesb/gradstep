@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arxivAtomRecord, arxivReference, arxivReuseEvidence, arxivURLs } from '../../supabase/functions/_shared/arxiv.ts';
+import { arxivAtomRecord, arxivCatalogArguments, arxivReference, arxivReuseEvidence, arxivURLs } from '../../supabase/functions/_shared/arxiv.ts';
 import { sourceXML } from '../../supabase/functions/_shared/source-xml.ts';
 
 const bytes = (value: string) => new TextEncoder().encode(value);
@@ -67,6 +67,23 @@ test('Atom parsing uses namespace identity and bounded plain fields with source 
   const prefixed = bytes(new TextDecoder().decode(atom(entry())).replace('<feed xmlns=', '<a:feed xmlns:a=').replace('</feed>', '</a:feed>').replace('<entry>', '<entry xmlns="http://www.w3.org/2005/Atom">'));
   assert.deepEqual(arxivAtomRecord(prefixed, arxivReference('1706.03762')), record);
   assert.throws(() => arxivAtomRecord(atom(entry(), 'https://evil.test/Atom'), arxivReference('1706.03762')), /invalid_source_metadata/);
+});
+
+test('catalog persistence uses calendar dates without altering exact license-correlation timestamps', async () => {
+  const record = pinned(), original = structuredClone(record);
+  const catalog = arxivCatalogArguments(record);
+  assert.equal(catalog.p_source_id, '1706.03762');
+  assert.equal(catalog.p_revision, 2);
+  assert.equal(catalog.p_metadata.published_at, '2017-06-12');
+  assert.equal(catalog.p_metadata.updated_at, '2017-06-19');
+  catalog.p_metadata.authors.push('Catalog-only mutation');
+  catalog.p_metadata.categories.length = 0;
+  assert.deepEqual(record, original);
+  assert.equal((await arxivReuseEvidence(raw(), record, observed)).eligible, true);
+  const sparse = arxivAtomRecord(atom('<entry><id>http://arxiv.org/abs/1706.03762v1</id><title>Sparse</title></entry>'), arxivReference('1706.03762'));
+  assert.equal(arxivCatalogArguments(sparse).p_metadata.updated_at, null);
+  record.metadata.updated_at = '2017-06-19';
+  assert.throws(() => arxivCatalogArguments(record), /invalid_source_metadata/);
 });
 
 test('Atom resolution cannot substitute a different paper/version or mistake a source error for a result', () => {

@@ -12,6 +12,8 @@ export interface ArxivMetadata {
   title: string;
   authors: string[];
   abstract: string | null;
+  // Full UTC instants are retained for version/license correlation. Convert to
+  // the date-only catalog DTO only at the database persistence boundary.
   published_at: string | null;
   updated_at: string | null;
   categories: string[];
@@ -21,6 +23,11 @@ export interface ArxivRecord {
   sourceID: string;
   revision: number;
   metadata: ArxivMetadata;
+}
+export interface ArxivCatalogMetadata extends Omit<ArxivMetadata, 'published_at' | 'updated_at'> {
+  /** Calendar dates (YYYY-MM-DD), as required by the catalog RPC. */
+  published_at: string | null;
+  updated_at: string | null;
 }
 
 function revisionNumber(value: string): number {
@@ -124,6 +131,24 @@ export function arxivAtomRecord(bytes: Uint8Array, expected: ArxivReference): Ar
   // Leave room for PostgreSQL's JSONB spacing in the 32 KiB catalog bound.
   if (new TextEncoder().encode(JSON.stringify(metadata)).length > 30_000) throw new SourceError('metadata_size_limit');
   return { sourceID: ref.sourceID, revision: ref.revision, metadata };
+}
+
+/** Arguments for migration010's metadata RPC; preserves the evidence record. */
+export function arxivCatalogArguments(record: ArxivRecord): {
+  p_source_id: string; p_revision: number; p_metadata: ArxivCatalogMetadata;
+} {
+  const ref = validated(record);
+  if (ref.revision === null) throw new SourceError('invalid_source_metadata');
+  const calendarDate = (value: string | null) => {
+    if (value === null) return null;
+    if (!Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) throw new SourceError('invalid_source_metadata');
+    return value.slice(0, 10);
+  };
+  return { p_source_id: ref.sourceID, p_revision: ref.revision, p_metadata: {
+    title: record.metadata.title, authors: [...record.metadata.authors], categories: [...record.metadata.categories],
+    abstract: record.metadata.abstract, venue: record.metadata.venue,
+    published_at: calendarDate(record.metadata.published_at), updated_at: calendarDate(record.metadata.updated_at),
+  } };
 }
 
 export type ArxivReuse =
