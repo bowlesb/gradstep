@@ -7,11 +7,10 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 850 { wideLayout }
+            if geometry.size.width >= 850 { wideLayout(width: geometry.size.width) }
             else {
                 VStack(spacing: 0) {
                     destination(model.tab)
-                    Divider()
                     HStack(spacing: 0) {
                         ForEach(ReaderTab.allCases) { tab in
                             Button {
@@ -19,7 +18,7 @@ struct RootView: View {
                             } label: {
                                 VStack(spacing: 4) {
                                     Image(systemName: tab.symbol).font(.system(size: 20))
-                                    Text(tab.rawValue).font(.caption2)
+                                    Text(tab.rawValue).font(.caption2).lineLimit(1).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                                 }
                                 .frame(maxWidth: .infinity).frame(minHeight: 49)
                                 .foregroundStyle(model.tab == tab ? Color.accentColor : Color.secondary)
@@ -28,9 +27,10 @@ struct RootView: View {
                             .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
                             .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
                             .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                            .accessibilityShowsLargeContentViewer { Label(tab.rawValue, systemImage: tab.symbol) }
                         }
                     }
-                    .background(.bar)
+                    .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
                 }
             }
         }
@@ -73,7 +73,7 @@ struct RootView: View {
         }
     }
 
-    private var wideLayout: some View {
+    private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack {
                 Label("Science Reader", systemImage: "books.vertical").font(.headline)
@@ -86,7 +86,7 @@ struct RootView: View {
                         if mode == .chat { model.generalChat = true }
                         if mode == .reader, model.chatPaperID != nil { model.generalChat = false }
                     }
-                Button { model.tab = .settings } label: { Image(systemName: "gearshape") }.accessibilityLabel("Settings")
+                Button { model.tab = .settings } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }.accessibilityLabel("Settings")
             }.padding(.horizontal, 18).padding(.vertical, 12)
             Divider()
             if model.tab == .settings {
@@ -96,13 +96,20 @@ struct RootView: View {
                 case .feed: FeedView(model: model)
                 case .library: LibraryView(model: model)
                 case .reader:
-                    HStack(spacing: 0) { PaperView(model: model).frame(maxWidth: .infinity); Divider(); ChatView(model: model).frame(width: 360) }
+                    HStack(spacing: 0) { PaperView(model: model).frame(maxWidth: .infinity); Divider(); ChatView(model: model).frame(width: min(400, max(320, width * 0.28))) }
                 case .browse:
-                    HStack(spacing: 0) { LibraryView(model: model).frame(width: 350); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
+                    HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
                 }
             }
         }
+    }
+}
+
+struct ReaderControlMaterial: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28)) }
+        else { content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28)) }
     }
 }
 
@@ -122,15 +129,15 @@ struct LibraryView: View {
                 HStack {
                     Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }.pickerStyle(.segmented).frame(maxWidth: 220)
                     Spacer()
-                    Menu { Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") } } label: { Image(systemName: "arrow.up.arrow.down") }
+                    Menu { Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") } } label: { Image(systemName: "arrow.up.arrow.down").frame(width: 44, height: 44) }.accessibilityLabel("Sort papers")
                 }.padding(.horizontal, 16).padding(.vertical, 10)
                 if model.filteredPapers.isEmpty {
                     ContentUnavailableView {
-                        Label(model.searchExternal ? "Search research papers" : "Your paper library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
+                        Label(model.searchExternal ? "Find papers" : "Your library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
                     } description: {
-                        Text(model.searchExternal ? "Find research on arXiv and add papers from the results." : "Add a paper to read, explore its figures, and ask questions in context.")
+                        Text(model.searchExternal ? "Search arXiv to add a paper." : "Add a paper to read and ask questions.")
                     } actions: {
-                        Button("Open an offline sample") { model.openSample() }.buttonStyle(.bordered)
+                        Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
                 } else {
                     List(model.filteredPapers) { paper in
@@ -158,6 +165,7 @@ struct LibraryView: View {
 struct PaperRow: View {
     let paper: Paper
     var selected = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
@@ -165,8 +173,8 @@ struct PaperRow: View {
                 Spacer(minLength: 8)
                 if paper.fileURL != nil { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
             }
-            Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            if !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(3) }
+            Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+            if !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
             HStack {
                 if let year = paper.year { Text(String(year)).font(.caption2).foregroundStyle(.secondary) }
                 ForEach(paper.keywords.prefix(3), id: \.self) { Text($0).font(.caption2).padding(.horizontal, 7).padding(.vertical, 3).background(Color.accentColor.opacity(0.08), in: Capsule()) }
@@ -179,7 +187,7 @@ struct FeedView: View {
     @Bindable var model: ReaderModel
     var body: some View {
         NavigationStack {
-            ContentUnavailableView("Research feed", systemImage: "dot.radiowaves.up.forward", description: Text("Recent ML papers will appear here as you build your library. Adding a discovery result does not automatically start paid OCR."))
+            ContentUnavailableView("Research feed", systemImage: "dot.radiowaves.up.forward", description: Text("New research will appear here."))
                 .navigationTitle("Feed").navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -187,6 +195,7 @@ struct FeedView: View {
 
 struct ChatView: View {
     @Bindable var model: ReaderModel
+    @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -210,12 +219,12 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if model.chatMessages.isEmpty {
-                            ContentUnavailableView("Ask about your research", systemImage: "bubble.left.and.bubble.right", description: Text(model.generalChat ? "Explore an idea or search across your research." : "Select a passage in the paper or ask a question here."))
+                            ContentUnavailableView(model.generalChat ? "Explore an idea" : "Ask about this paper", systemImage: "bubble.left.and.bubble.right", description: Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question."))
                         }
                         ForEach(model.chatMessages, id: \.id) { message in
                             HStack {
                                 if message.payload.role == .user { Spacer(minLength: 30) }
-                                Text(.init(message.payload.text ?? "")).font(.system(size: model.chatFontSize)).textSelection(.enabled)
+                                Text(.init(message.payload.text ?? "")).font(.system(size: model.chatFontSize * bodySize / 17)).textSelection(.enabled)
                                     .padding(12).background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
                                 if message.payload.role != .user { Spacer(minLength: 30) }
                             }
@@ -224,10 +233,11 @@ struct ChatView: View {
                 }
                 HStack(alignment: .bottom, spacing: 12) {
                     TextField("Ask a question…", text: $model.chatInput, axis: .vertical).lineLimit(1...6).padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                    Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)) }
+                    Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
                         .disabled(model.isGenerating || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send message")
                 }.padding(12)
-                Text(model.syncStatus).font(.caption2).foregroundStyle(.secondary).padding(.bottom, 5)
+                if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
+                else { Text(model.syncStatus).font(.caption2).foregroundStyle(.secondary).padding(.bottom, 5) }
             }
             .navigationTitle("Chat").navigationBarTitleDisplayMode(.inline)
             .toolbar {

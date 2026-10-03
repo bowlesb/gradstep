@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-02. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-03. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## Agreed
 
@@ -8,6 +8,8 @@ Last updated: 2026-10-02. Requirements below come from the current user conversa
 |---|---|
 | Audience | Individual ML researchers and engineers |
 | Native surfaces | iPhone and iPad |
+| Sign-in | Apple and Google following TextBrain's interaction pattern; email one-time code fallback selected under the user's delegated choice; no usernames/passwords in launch customer UX |
+| Public name | Timestep is the user's first choice, conditional on availability; name investigation in progress and no public rename yet |
 | Reader launch scope | iPhone/iPad first; browser reader deferred; admin website included |
 | Key custody | Device-held keys; recovery requires an approved device or saved recovery code |
 | Business model | Subscription with included AI/OCR allowance; tiers and credits supported |

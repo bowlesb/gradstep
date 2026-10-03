@@ -34,17 +34,17 @@ struct ReportComposer: View {
                         Button("Remove screenshot", role: .destructive) { self.screenshot = nil; attachment = nil; consent = false }
                     }
                     PhotosPicker(selection: $photo, matching: .images) { Label("Attach a screenshot", systemImage: "photo") }
-                    Text("Only the preview shown here will be uploaded. Crop or cover anything you do not want to share.").font(.footnote).foregroundStyle(.secondary)
+                    Text("Only this preview is uploaded. Crop or cover private details.").font(.footnote).foregroundStyle(.secondary)
                 }.disabled(pendingDraft != nil || loadingImage)
                 Section {
-                    Toggle("Share this note and preview with support", isOn: $consent).accessibilityIdentifier("report.consent")
+                    Toggle(attachment == nil ? "Share note with support" : "Share note and screenshot with support", isOn: $consent).accessibilityIdentifier("report.consent")
                     Button { Task { await send() } } label: { HStack { Text("Send report"); Spacer(); if busy { ProgressView() } } }
                         .disabled(busy || loadingImage || note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !consent || model.support == nil)
                         .accessibilityIdentifier("report.send")
                     if model.support == nil { Text("Sign in before sending. You can still preview and edit your screenshot.").font(.footnote).foregroundStyle(.secondary) }
                     if let error { Text(error).foregroundStyle(.red) }
                 } footer: {
-                    Text("Includes app version, operating system, and screen name. Reports are shared with support. Your full chat history, keys, and device logs are not attached. Offline reports are encrypted on this device until they can be sent.")
+                    Text("Support receives your note, any attached screenshot, app/OS version, and screen name. No full chat history, keys, or logs. Offline reports stay encrypted here until sent.")
                 }
             }.navigationTitle("Report an issue").navigationBarTitleDisplayMode(.inline)
                 .disabled(busy)
@@ -106,7 +106,7 @@ struct ScreenshotEditor: View {
         NavigationStack {
             VStack(spacing: 16) {
                 Picker("Edit", selection: $mode) { Text("Cover private text").tag("Cover"); Text("Crop").tag("Crop") }.pickerStyle(.segmented)
-                Text(mode == "Cover" ? "Drag over text or images to cover them with a solid black rectangle." : "Drag a rectangle around the part of the screenshot to keep.").font(.footnote).foregroundStyle(.secondary)
+                Text(mode == "Cover" ? "Drag to cover private details." : "Drag around the area to keep.").font(.footnote).foregroundStyle(.secondary)
                 GeometryReader { geometry in
                     let factor = min(geometry.size.width / image.size.width, geometry.size.height / image.size.height)
                     let size = CGSize(width: image.size.width * factor, height: image.size.height * factor)

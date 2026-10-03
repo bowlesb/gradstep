@@ -9,7 +9,7 @@ final class ReaderNavigationTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 10))
         if app.buttons["tab.paper"].exists { XCTAssertFalse(app.buttons["tab.paper"].isEnabled) }
-        app.buttons["Open an offline sample"].tap()
+        app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         app.buttons["Table of contents"].tap()
         let equation = app.buttons["2. Read the equations in context"]
@@ -30,7 +30,7 @@ final class ReaderNavigationTests: XCTestCase {
     func testScreenshotPreviewRedactionAndRemoval() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication(); app.launch()
-        app.buttons["Open an offline sample"].tap()
+        app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         app.buttons["Paper options"].tap()
         app.buttons["Report this screen"].tap()
@@ -59,7 +59,7 @@ final class ReaderNavigationTests: XCTestCase {
         let app = XCUIApplication(); app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
         XCTAssertTrue(app.segmentedControls.firstMatch.waitForExistence(timeout: 5))
-        app.buttons["Open an offline sample"].tap()
+        app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
         let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad reader and chat"; reader.lifetime = .keepAlways; add(reader)

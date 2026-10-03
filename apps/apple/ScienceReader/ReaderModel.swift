@@ -34,7 +34,7 @@ final class ReaderModel {
     var searchExternal = false
     var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" { didSet { UserDefaults.standard.set(appearance, forKey: "appearance") } }
     var paperFontSize = UserDefaults.standard.double(forKey: "paperFontSize") == 0 ? 17 : UserDefaults.standard.double(forKey: "paperFontSize") { didSet { UserDefaults.standard.set(paperFontSize, forKey: "paperFontSize") } }
-    var chatFontSize = 16.0
+    var chatFontSize = 17.0
     var message = ""
     var generalChat = true
     var chatPaperID: UUID?

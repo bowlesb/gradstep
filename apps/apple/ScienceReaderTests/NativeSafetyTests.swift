@@ -6,7 +6,7 @@ import UIKit
 import XCTest
 @testable import ScienceReader
 
-private final class StubProtocol: URLProtocol, @unchecked Sendable {
+final class StubProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (StubProtocol) -> Void
     private static let mutex = NSLock()
     nonisolated(unsafe) private static var routes: [String: Handler] = [:]
@@ -36,6 +36,8 @@ private final class Scenario: @unchecked Sendable {
     private var pending: StubProtocol?
     private var newDevice: UUID?
     private var envelope: String?
+    private var enrollmentIDs: [UUID] = []
+    private var failApprovalRead = true
     var holdRefresh = false
     var holdRead = false
     var recoveryPackage: String?
@@ -62,6 +64,9 @@ private final class Scenario: @unchecked Sendable {
                 else { request.respond(Data("{}".utf8)) }
             } else if url.path.hasSuffix("v1_key_state") {
                 guard let recoveryPackage else { request.respond(Data("null".utf8)); return }
+                if envelope != nil && failApprovalRead {
+                    failApprovalRead = false; request.respond(Data("{}".utf8), status: 503); return
+                }
                 let payload = body(request.request)
                 let requested = (payload["p_device_id"] as? String)?.lowercased()
                 let value: [String: Any] = ["epoch": recoveryEpoch, "recovery_package": recoveryPackage, "device_envelope": requested == newDevice?.wire ? (envelope as Any? ?? NSNull()) : NSNull()]
@@ -69,7 +74,13 @@ private final class Scenario: @unchecked Sendable {
             } else if url.path.hasSuffix("v1_request_enrollment") {
                 let payload = body(request.request)
                 newDevice = UUID(uuidString: payload["p_device_id"] as! String)
-                request.respond(try! JSONEncoder().encode(UUID(uuidString: payload["p_request_id"] as! String)!))
+                let id = UUID(uuidString: payload["p_request_id"] as! String)!
+                enrollmentIDs.append(id)
+                request.respond(try! JSONEncoder().encode(id))
+            } else if url.path.hasSuffix("v1_enrollment_requests") {
+                request.respond(try! JSONEncoder().encode(enrollmentIDs.map { ["id": $0.wire] }))
+            } else if url.path.hasSuffix("v1_devices") {
+                request.respond(Data("[]".utf8))
             } else if url.path.hasSuffix("v1_acknowledge_cursor") || url.path.hasSuffix("v1_set_report_status") {
                 request.respond(Data(), status: 204)
             } else if url.path.hasSuffix("v1_approve_enrollment") {
@@ -125,12 +136,25 @@ final class NativeSafetyTests: XCTestCase {
         let pending = try await store.append(PrivateEvent(kind: .note, text: "PRIVATE-IOS-LOCAL-STORE-CHECK"), deviceID: device)
         let reopened = try EncryptedStore(url: path, accountID: account, localKey: key, keys: bundle)
         let recovered = await reopened.pending(); XCTAssertEqual(recovered, [pending])
-        for file in try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) {
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        XCTAssertTrue(Set(files.map(\.lastPathComponent)).isSuperset(of: ["state.sqlite", "state.sqlite-wal", "state.sqlite-shm"]))
+        for file in files {
             XCTAssertNil(try Data(contentsOf: file).range(of: Data("PRIVATE-IOS-LOCAL-STORE-CHECK".utf8)))
             if checkProtection {
                 let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
                 let protection = (attributes[.protectionKey] as? FileProtectionType)?.rawValue ?? (attributes[.protectionKey] as? String)
-                XCTAssertEqual(protection, FileProtectionType.complete.rawValue)
+                if file.lastPathComponent == "state.sqlite-shm" {
+                    // SQLite's mapped coordination index contains no database
+                    // content. Apple gives it a mapping-safe protection class;
+                    // forcing Complete can cause SIGBUS when the phone locks.
+                    // https://www.sqlite.org/walformat.html
+                    // https://bugs.webkit.org/show_bug.cgi?id=197390
+                    XCTAssertTrue([FileProtectionType.completeUntilFirstUserAuthentication.rawValue,
+                                   FileProtectionType.completeUnlessOpen.rawValue].contains(protection ?? ""),
+                                  "Mapping-safe protection for the SQLite coordination index")
+                } else {
+                    XCTAssertEqual(protection, FileProtectionType.complete.rawValue, "Protection class for \(file.lastPathComponent)")
+                }
             }
         }
         XCTAssertTrue(try directory.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)

@@ -22,6 +22,9 @@ struct AuthSession: Codable, Sendable {
     let user: User
 }
 
+struct GoogleAuthorization: Sendable { let id: UUID; let url: URL; let callbackURL: URL }
+struct AppleAuthorization: Sendable { let id: UUID; let hashedNonce: String }
+
 enum BackendError: LocalizedError {
     case unavailable, signInRequired, emailConfirmation, rejected(String), transport
     var errorDescription: String? {
@@ -55,6 +58,13 @@ actor BackendClient {
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
     private let network: URLSession
+    private enum SignInPhase { case google(OAuthPKCEAttempt), apple(AppleSignInNonce), exchanging, completed }
+    private struct SignInAttempt {
+        let id: UUID
+        let generation: UInt64
+        var phase: SignInPhase
+    }
+    private var signInAttempt: SignInAttempt?
 
     init(configuration: BackendConfiguration, network: URLSession? = nil) throws {
         self.config = configuration
@@ -68,6 +78,65 @@ actor BackendClient {
     }
 
     func currentUser() -> AuthSession.User? { session?.user }
+
+    func beginGoogleSignIn() throws -> GoogleAuthorization {
+        try beginAuthenticationChange()
+        let attempt = try OAuthPKCEAttempt(callbackURL: URL(string: "com.sciencereader.ios://auth-callback")!)
+        let url = try attempt.authorizationURL(supabaseURL: config.url)
+        signInAttempt = SignInAttempt(id: attempt.id, generation: authGeneration, phase: .google(attempt))
+        return GoogleAuthorization(id: attempt.id, url: url, callbackURL: attempt.callbackURL)
+    }
+
+    func finishGoogleSignIn(id: UUID, callbackURL: URL) async throws -> AuthSession.User {
+        guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
+              case .google(let pkce) = attempt.phase else { throw CancellationError() }
+        let code = try pkce.authorizationCode(from: callbackURL)
+        return try await exchangeSignIn(attempt, grant: "pkce", body: ReaderCrypto.encode([
+            "auth_code": code, "code_verifier": pkce.verifier
+        ]))
+    }
+
+    func beginAppleSignIn() throws -> AppleAuthorization {
+        try beginAuthenticationChange()
+        let nonce = AppleSignInNonce(), id = UUID()
+        signInAttempt = SignInAttempt(id: id, generation: authGeneration, phase: .apple(nonce))
+        return AppleAuthorization(id: id, hashedNonce: nonce.hashed)
+    }
+
+    func finishAppleSignIn(id: UUID, identityToken: String) async throws -> AuthSession.User {
+        guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
+              case .apple(let nonce) = attempt.phase else { throw CancellationError() }
+        guard !identityToken.isEmpty, identityToken.utf8.count <= 32_768 else { throw OAuthFlowError.invalidCallback }
+        return try await exchangeSignIn(attempt, grant: "id_token", body: ReaderCrypto.encode([
+            "provider": "apple", "id_token": identityToken, "nonce": nonce.raw
+        ]))
+    }
+
+    func cancelSignIn(id: UUID) throws {
+        // Also covers cancellation while an exchange is in flight, or between
+        // session persistence and UI delivery. A newer attempt has another ID.
+        guard signInAttempt?.id == id else { return }
+        try beginAuthenticationChange()
+    }
+
+    private func exchangeSignIn(_ attempt: SignInAttempt, grant: String, body: Data) async throws -> AuthSession.User {
+        try Task.checkCancellation()
+        signInAttempt?.phase = .exchanging
+        do {
+            let data = try await raw(path: "auth/v1/token?grant_type=\(grant)", body: body, token: nil)
+            try Task.checkCancellation()
+            guard attempt.generation == authGeneration, signInAttempt?.id == attempt.id else { throw CancellationError() }
+            let next = try JSONDecoder().decode(AuthSession.self, from: data)
+            try save(next)
+            // Retain only identity/generation so a cancellation that beats UI
+            // delivery can still invalidate this result. Discard nonce/verifier.
+            signInAttempt?.phase = .completed
+            return next.user
+        } catch {
+            if signInAttempt?.id == attempt.id { signInAttempt = nil }
+            throw error
+        }
+    }
 
     func signIn(email: String, password: String) async throws -> AuthSession.User {
         try beginAuthenticationChange()
@@ -133,7 +202,7 @@ actor BackendClient {
     private func beginAuthenticationChange() throws {
         try KeychainVault.delete("\(config.environment).auth-session")
         authGeneration &+= 1
-        refreshTask?.task.cancel(); refreshTask = nil; session = nil
+        refreshTask?.task.cancel(); refreshTask = nil; session = nil; signInAttempt = nil
     }
 
     private func authorized(path: String, body: Data?, method: String = "POST", mediaType: String = "application/json", accountID: UUID?) async throws -> Data {

@@ -6,6 +6,9 @@ struct PaperView: View {
     @State private var showContents = false
     @State private var selectedText = ""
     @State private var figure: String?
+    @State private var loadingPaper = true
+    @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -13,19 +16,21 @@ struct PaperView: View {
                 if let paper = model.selectedPaper, let file = paper.fileURL {
                     VStack(spacing: 0) {
                         if paper.isSample {
-                            Text("Offline reader sample").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 5).background(Color.secondary.opacity(0.05))
+                            Text("Offline sample").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 5).background(Color.secondary.opacity(0.05))
                         }
-                        PaperWebView(url: file, fontSize: model.paperFontSize, jumpTo: model.jumpToHeading,
+                        PaperWebView(url: file, fontSize: model.paperFontSize * bodySize / 17, jumpTo: model.jumpToHeading,
+                                     reduceMotion: reduceMotion, onLoading: { loadingPaper = $0 },
                                      onSelection: { selectedText = $0 }, onHeadings: { model.headings = $0 }, onFigure: { figure = $0 })
+                            .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
                         if !selectedText.isEmpty {
                             HStack(spacing: 0) {
                                 ForEach(SelectionAction.allCases, id: \.self) { action in
                                     Button(action.rawValue) { model.selectionAction(action, quote: selectedText); selectedText = "" }
                                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(minHeight: 44)
                                 }
-                            }.background(.bar).transition(.move(edge: .bottom).combined(with: .opacity))
+                            }.padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.bottom, 4).transition(.opacity)
                         }
-                    }
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedText.isEmpty)
                 } else if model.selectedPaper != nil {
                     ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
                 } else {
@@ -67,6 +72,8 @@ struct PaperWebView: UIViewRepresentable {
     let url: URL
     let fontSize: Double
     let jumpTo: String?
+    let reduceMotion: Bool
+    let onLoading: (Bool) -> Void
     let onSelection: (String) -> Void
     let onHeadings: ([String]) -> Void
     let onFigure: (String) -> Void
@@ -86,9 +93,20 @@ struct PaperWebView: UIViewRepresentable {
             clearTimeout(timer);
             timer=setTimeout(()=>post({type:'selection',text:(window.getSelection()?.toString() || '').trim().slice(0,20000)}),180);
           });
-          document.querySelectorAll('figure').forEach(element=>element.addEventListener('click',()=> {
-            if (!(window.getSelection()?.toString())) post({type:'figure',html:element.outerHTML});
-          }));
+          document.querySelectorAll('figure').forEach((element,index)=> {
+            const open = () => {
+              if (window.getSelection()?.toString()) return;
+              const detail = element.cloneNode(true);
+              ['role','tabindex','aria-label'].forEach(name=>detail.removeAttribute(name));
+              post({type:'figure',html:detail.outerHTML});
+            };
+            element.setAttribute('role','button'); element.setAttribute('tabindex','0');
+            element.setAttribute('aria-label','Open figure '+(index+1));
+            element.addEventListener('click',open);
+            element.addEventListener('keydown',event=> {
+              if (event.key==='Enter' || event.key===' ') { event.preventDefault(); open(); }
+            });
+          });
         })();
         """
         configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
@@ -112,7 +130,7 @@ struct PaperWebView: UIViewRepresentable {
         web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'", arguments: ["size": fontSize], in: nil, in: .page, completionHandler: nil)
         if let jumpTo, context.coordinator.lastJump != jumpTo {
             context.coordinator.lastJump = jumpTo
-            web.callAsyncJavaScript("document.getElementById(id)?.scrollIntoView({behavior:'smooth',block:'start'})", arguments: ["id": jumpTo], in: nil, in: .page, completionHandler: nil)
+            web.callAsyncJavaScript("document.getElementById(id)?.scrollIntoView({behavior:reduced?'auto':'smooth',block:'start'})", arguments: ["id": jumpTo, "reduced": reduceMotion], in: nil, in: .page, completionHandler: nil)
         }
     }
 
@@ -135,8 +153,13 @@ struct PaperWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.onLoading(false)
             webView.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'", arguments: ["size": parent.fontSize], in: nil, in: .page, completionHandler: nil)
         }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) { parent.onLoading(true) }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { parent.onLoading(false) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { parent.onLoading(false) }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             guard let destination = navigationAction.request.url else { return .cancel }

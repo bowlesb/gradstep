@@ -19,20 +19,29 @@ struct LocalDevice: Codable, Sendable {
 
 enum KeyPreparation: Sendable { case ready(LocalDevice), saveRecoveryCode(String), recoveryRequired }
 
+enum DeviceKeyError: LocalizedError {
+    case operationInProgress
+    var errorDescription: String? { "Encryption keys are being updated. Please try again in a moment." }
+}
+
 @MainActor
 final class DeviceKeys {
     private let backend: BackendClient
     private let accountID: UUID
     private let vaultName: String
     private var device: LocalDevice
+    private var operationInProgress = false
     private struct PendingEnrollment: Codable {
         let requestID: UUID
         var candidate: LocalDevice
         let envelope: Data
+        // Informational only. Server request state determines renewal.
         let createdAt: Date
     }
 
     struct KeyState: Decodable, Sendable { let epoch: Int; let recovery_package: String; let device_envelope: String? }
+    private struct DeviceRegistration: Decodable, Sendable { let id: UUID; let revoked_at: String? }
+    private struct EnrollmentRequest: Decodable, Sendable { let id: UUID }
 
     init(backend: BackendClient, accountID: UUID, environment: String) throws {
         self.backend = backend; self.accountID = accountID
@@ -56,13 +65,16 @@ final class DeviceKeys {
     }
 
     func prepare() async throws -> KeyPreparation {
+        try beginOperation(); defer { operationInProgress = false }
         if let pending = try pendingEnrollment(), let completed = try await finishApproved(pending) { return .ready(completed) }
         let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": device.deviceID.wire], accountID: accountID)
+        try Task.checkCancellation()
         guard let state else {
             if device.bundle == nil {
-                device.bundle = KeyBundle.generate(accountID: accountID)
-                device.pendingRecoveryCode = ReaderCrypto.recoveryCode()
-                try save()
+                var candidate = device
+                candidate.bundle = KeyBundle.generate(accountID: accountID)
+                candidate.pendingRecoveryCode = ReaderCrypto.recoveryCode()
+                try activate(candidate)
             }
             guard let code = device.pendingRecoveryCode else { throw ReaderError.missingKey }
             return .saveRecoveryCode(code)
@@ -70,13 +82,14 @@ final class DeviceKeys {
         guard let wrapped = state.device_envelope else { return .recoveryRequired }
         let keys = try ReaderCrypto.unwrapForDevice(try Self.bytea(wrapped), accountID: accountID, deviceID: device.deviceID,
                                                     epoch: state.epoch, privateKey: .init(rawRepresentation: device.privateKey), challenge: device.challenge)
-        device.bundle = keys
-        try save()
+        var candidate = device; candidate.bundle = keys
+        try activate(candidate)
         if let code = device.pendingRecoveryCode { return .saveRecoveryCode(code) }
         return .ready(device)
     }
 
     func confirmRecoverySaved() async throws -> LocalDevice {
+        try beginOperation(); defer { operationInProgress = false }
         guard let keys = device.bundle, let code = device.pendingRecoveryCode else { throw ReaderError.missingKey }
         let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: device.privateKey).publicKey.rawRepresentation
         let recovery = try ReaderCrypto.wrapRecovery(keys, code: code)
@@ -84,73 +97,121 @@ final class DeviceKeys {
         struct Params: Encodable, Sendable { let p_device_id: String; let p_public_key: String; let p_recovery_package: String; let p_management_token: String; let p_device_envelope: String; let p_challenge: String }
         let created: Bool = try await backend.rpc("v1_bootstrap_keys", params: Params(p_device_id: device.deviceID.wire, p_public_key: Self.hex(publicKey),
             p_recovery_package: Self.hex(recovery), p_management_token: Self.hex(keys.managementToken), p_device_envelope: Self.hex(envelope), p_challenge: Self.hex(device.challenge)), accountID: accountID)
+        var candidate = device
         if !created {
             // A timed-out successful bootstrap is recoverable through this exact
             // device envelope. A different first device must use enrollment.
             let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": device.deviceID.wire], accountID: accountID)
             guard let state, let wrapped = state.device_envelope else { throw ReaderError.missingKey }
-            device.bundle = try ReaderCrypto.unwrapForDevice(try Self.bytea(wrapped), accountID: accountID, deviceID: device.deviceID,
+            candidate.bundle = try ReaderCrypto.unwrapForDevice(try Self.bytea(wrapped), accountID: accountID, deviceID: device.deviceID,
                 epoch: state.epoch, privateKey: .init(rawRepresentation: device.privateKey), challenge: device.challenge)
         }
-        device.pendingRecoveryCode = nil
-        try save()
+        candidate.pendingRecoveryCode = nil
+        try activate(candidate)
         return device
     }
 
     func recover(code: String) async throws -> LocalDevice {
-        if let pending = try pendingEnrollment(), let completed = try await finishApproved(pending) { return completed }
+        try beginOperation(); defer { operationInProgress = false }
+        var saved = try pendingEnrollment()
+        if let saved, let completed = try await finishApproved(saved) { return completed }
         let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": device.deviceID.wire], accountID: accountID)
+        try Task.checkCancellation()
         guard let state else { throw ReaderError.missingKey }
         let keys = try ReaderCrypto.recover(try Self.bytea(state.recovery_package), code: code, accountID: accountID)
-        // Recovery enrolls a new identity; revoked device IDs are never revived.
-        var pending = try pendingEnrollment()
-        if pending == nil || pending!.candidate.bundle != keys || Date().timeIntervalSince(pending!.createdAt) > 14 * 60 {
-            var candidate = LocalDevice.create(accountID: accountID, localStoreKey: device.localStoreKey)
-            candidate.bundle = keys
-            let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: candidate.privateKey).publicKey.rawRepresentation
-            let envelope = try ReaderCrypto.wrapForDevice(keys, deviceID: candidate.deviceID, recipientPublicKey: publicKey, challenge: candidate.challenge)
-            pending = PendingEnrollment(requestID: UUID(), candidate: candidate, envelope: envelope, createdAt: Date())
-            // Persist recipient private key, exact envelope, request identity and
-            // the existing local-store key BEFORE either network operation.
-            try KeychainVault.write(ReaderCrypto.encode(pending!), name: vaultName + ".pending-enrollment")
+        guard keys.epoch == state.epoch else { throw ReaderError.staleEpoch }
+        if let pending = saved {
+            let registrations: [DeviceRegistration] = try await backend.rpc("v1_devices", params: EmptyResponse(), accountID: accountID)
+            try Task.checkCancellation()
+            // A positive revocation record is the only reason to retire this
+            // recipient. Timeouts, elapsed time and new epochs are insufficient.
+            if registrations.contains(where: { $0.id == pending.candidate.deviceID && $0.revoked_at != nil }) { saved = nil }
         }
-        guard let pending else { throw ReaderError.missingKey }
-        let candidate = pending.candidate
+        var candidate = saved?.candidate ?? LocalDevice.create(accountID: accountID, localStoreKey: device.localStoreKey)
+        let sameBundle = candidate.bundle == keys
+        candidate.bundle = keys
         let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: candidate.privateKey).publicKey.rawRepresentation
-        let _: UUID = try await backend.rpc("v1_request_enrollment", params: ["p_request_id": pending.requestID.wire, "p_device_id": candidate.deviceID.wire,
-            "p_public_key": Self.hex(publicKey), "p_challenge": Self.hex(candidate.challenge)], accountID: accountID)
+        let envelope: Data
+        if let saved, sameBundle { envelope = saved.envelope }
+        else { envelope = try ReaderCrypto.wrapForDevice(keys, deviceID: candidate.deviceID, recipientPublicKey: publicKey, challenge: candidate.challenge) }
+        var pending = PendingEnrollment(requestID: saved?.requestID ?? UUID(), candidate: candidate, envelope: envelope,
+                                        createdAt: saved?.createdAt ?? Date())
+        try savePending(pending)
+        try await requestEnrollment(pending, publicKey: publicKey)
+        let requests: [EnrollmentRequest] = try await backend.rpc("v1_enrollment_requests", params: EmptyResponse(), accountID: accountID)
+        try Task.checkCancellation()
+        if !requests.contains(where: { $0.id == pending.requestID }) {
+            if let completed = try await finishApproved(pending) { return completed }
+            // An old request may still win after the read above. Keep its
+            // recipient key so that approval remains recoverable in that race.
+            pending = PendingEnrollment(requestID: UUID(), candidate: candidate, envelope: envelope, createdAt: Date())
+            try savePending(pending)
+            try await requestEnrollment(pending, publicKey: publicKey)
+        }
         struct Approval: Encodable, Sendable {
             let p_request_id: String; let p_epoch: Int; let p_management_token: String
             let p_expected_public_key: String; let p_expected_challenge: String; let p_envelope: String
         }
-        try await backend.rpcVoid("v1_approve_enrollment", params: Approval(p_request_id: pending.requestID.wire, p_epoch: keys.epoch,
-            p_management_token: Self.hex(keys.managementToken), p_expected_public_key: Self.hex(publicKey),
-            p_expected_challenge: Self.hex(candidate.challenge), p_envelope: Self.hex(pending.envelope)), accountID: accountID)
-        device = candidate; try save()
-        try KeychainVault.delete(vaultName + ".pending-enrollment")
-        return device
+        do {
+            try await backend.rpcVoid("v1_approve_enrollment", params: Approval(p_request_id: pending.requestID.wire, p_epoch: keys.epoch,
+                p_management_token: Self.hex(keys.managementToken), p_expected_public_key: Self.hex(publicKey),
+                p_expected_challenge: Self.hex(candidate.challenge), p_envelope: Self.hex(pending.envelope)), accountID: accountID)
+        } catch {
+            try Task.checkCancellation()
+            // The server may have committed, or the older request may have won.
+            // If reconciliation itself fails, retain the pending recipient and
+            // report the original error; prepare() can resume after a restart.
+            if let completed = try? await finishApproved(pending) { return completed }
+            throw error
+        }
+        guard let completed = try await finishApproved(pending) else { throw ReaderError.missingKey }
+        return completed
     }
 
+    private func requestEnrollment(_ pending: PendingEnrollment, publicKey: Data) async throws {
+        let receipt: UUID = try await backend.rpc("v1_request_enrollment", params: ["p_request_id": pending.requestID.wire,
+            "p_device_id": pending.candidate.deviceID.wire, "p_public_key": Self.hex(publicKey),
+            "p_challenge": Self.hex(pending.candidate.challenge)], accountID: accountID)
+        try Task.checkCancellation()
+        guard receipt == pending.requestID else { throw ReaderError.corruptData }
+    }
+    private func savePending(_ pending: PendingEnrollment) throws {
+        try Task.checkCancellation()
+        try KeychainVault.write(ReaderCrypto.encode(pending), name: vaultName + ".pending-enrollment")
+    }
     private func pendingEnrollment() throws -> PendingEnrollment? {
         guard let bytes = try KeychainVault.read(vaultName + ".pending-enrollment") else { return nil }
         let pending = try JSONDecoder().decode(PendingEnrollment.self, from: bytes)
         guard pending.candidate.accountID == accountID, pending.candidate.localStoreKey == device.localStoreKey else { throw ReaderError.wrongAccount }
+        guard pending.candidate.pendingRecoveryCode == nil, pending.candidate.privateKey.count == 32,
+              pending.candidate.challenge.count == 32, pending.candidate.localStoreKey.count == 32 else { throw ReaderError.invalidKey }
+        try pending.candidate.bundle?.validate(accountID: accountID)
         return pending
     }
     private func finishApproved(_ pending: PendingEnrollment) async throws -> LocalDevice? {
         let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": pending.candidate.deviceID.wire], accountID: accountID)
+        try Task.checkCancellation()
         guard let state, let wrapped = state.device_envelope else { return nil }
         var candidate = pending.candidate
         candidate.bundle = try ReaderCrypto.unwrapForDevice(try Self.bytea(wrapped), accountID: accountID, deviceID: candidate.deviceID,
             epoch: state.epoch, privateKey: .init(rawRepresentation: candidate.privateKey), challenge: candidate.challenge)
-        device = candidate; try save()
+        try activate(candidate)
         try KeychainVault.delete(vaultName + ".pending-enrollment")
         return device
     }
 
-    private func save() throws { try KeychainVault.write(ReaderCrypto.encode(device), name: vaultName) }
-    static func hex(_ data: Data) -> String { "\\x" + data.hex }
-    static func bytea(_ string: String) throws -> Data {
+    private func activate(_ candidate: LocalDevice) throws {
+        try Task.checkCancellation()
+        try KeychainVault.write(ReaderCrypto.encode(candidate), name: vaultName)
+        device = candidate
+    }
+    private func beginOperation() throws {
+        try Task.checkCancellation()
+        guard !operationInProgress else { throw DeviceKeyError.operationInProgress }
+        operationInProgress = true
+    }
+    nonisolated static func hex(_ data: Data) -> String { "\\x" + data.hex }
+    nonisolated static func bytea(_ string: String) throws -> Data {
         guard string.hasPrefix("\\x"), let data = Data(hex: String(string.dropFirst(2))) else { throw ReaderError.corruptData }
         return data
     }

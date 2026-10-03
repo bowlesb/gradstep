@@ -58,7 +58,7 @@ struct ReportThreadView: View {
                     Button("Send reply") { Task { await send(.reply, text: reply) } }.disabled(busy || reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 Section {
-                    if thread.report.status == "ready_to_retest" { Button("Verified — this is fixed") { Task { await send(.status, text: "verified") } }.disabled(busy) }
+                    if thread.report.status == "ready_to_retest" { Button("Confirm fixed") { Task { await send(.status, text: "verified") } }.disabled(busy) }
                     if thread.report.status != "open" { Button("Reopen issue") { Task { await send(.status, text: "open") } }.disabled(busy) }
                 }
             } else { ProgressView("Loading report…") }

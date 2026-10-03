@@ -18,6 +18,18 @@ Device-held keys have a real product cost: losing all approved devices and the r
 
 Server-managed content keys are excluded from the selected design. Do not retain a second plaintext chat store or add account-assisted content recovery that bypasses the user's device/recovery keys.
 
+## Account sign-in and identity linking
+
+The user requested TextBrain's Apple/Google interaction pattern on 2026-10-03 and delegated the password decision. Launch customer sign-in uses native Sign in with Apple, Google through `ASWebAuthenticationSession`, and an email one-time code fallback. No username/password form is planned for customers. The current password-based development fixture interface is not the launch policy. Provider configuration, custom email delivery, and end-to-end verification are still outstanding.
+
+Use dedicated app/provider registrations for this backend. Native Apple sign-in binds a secure random nonce to the identity token (SHA-256 in Apple's request, raw nonce in the Supabase exchange). Google uses a per-attempt random PKCE verifier and S256 challenge. Accept only the configured callback scheme/host/path and one bounded authorization code; never ingest bearer tokens from URL fragments. Bind each result to the active sign-in attempt and authentication generation. Cancellation, sign-out, account switching, or a newer sign-in invalidates older callbacks before they can save a session. Keep verifiers/nonces in memory and require a fresh sign-in after process termination. Never log identity tokens, callback URLs, codes, or provider response bodies.
+
+TextBrain's local reference implements native Apple token exchange and a retained system browser session for Google, explicitly hopping its `@Sendable` callback onto the main actor. Reuse that interaction and concurrency pattern, with a defined failed-start path and exactly-once continuation completion. The new app's existing account-scoped session/key handling remains authoritative.
+
+Supabase's stable user UUID owns library membership, encryption keys, reports, and purchases. Only the Auth service may establish identity links. Verified same-email linking follows its documented policy; Apple private relay addresses can differ from Google addresses, so offer explicit linking while already signed in. Never merge separate user UUIDs or transfer purchases based on a client-supplied email or matching display name. If an identity already belongs to another account, preserve both accounts and report the conflict. Login/account recovery does not recover private-content keys. Manual-linking behavior, callback account binding, identity removal, and Apple token revocation on account deletion need integration tests before release.
+
+Email delivery must use a verified sender with bounded sending/verification rates and code expiry before exposing the fallback. Administrators still require server-enforced MFA regardless of their initial sign-in provider. [Supabase Apple sign-in](https://supabase.com/docs/guides/auth/social-login/auth-apple), [Google sign-in](https://supabase.com/docs/guides/auth/social-login/auth-google), [identity linking](https://supabase.com/docs/guides/auth/auth-identity-linking).
+
 ## Information visible to the service
 
 | Data | Proposed treatment |
@@ -38,6 +50,8 @@ Use SQLite transactions with WAL and full synchronization for local history. Eac
 Appending commits a sealed record, outbox membership, and updated commitment in one transaction. Pulling commits all new records, matching outbox removals, and the page cursor together. Acknowledging an upload changes only encrypted outbox metadata; it never advances the pull cursor. Metadata scales with the bounded unsent queue, not total history. Existing records are immutable, so ordinary edits no longer rewrite the history file. The initial reducer remains in memory; paged indexes will be needed for very large libraries.
 
 Set directory protection, permissions, and backup exclusion before creating the database; SQLite's database, journal, and WAL contain ciphertext for private content. Generation checks reject a second stale writer. A write failure rolls back the transaction and leaves the prior in-memory view unchanged. An ambiguous commit is reconciled against the encrypted metadata before further writes are allowed. An unrecoverable I/O failure requires reopening; it never resets the store.
+
+On iOS, the directory, main database, and write-ahead log use complete file protection. SQLite's `-shm` file is a mapped coordination index containing no database content; preserve the platform's mapping-safe protection class instead of forcing complete protection onto that mapping. The physical-device check verifies database/WAL protection, index protection, backup exclusion, and absence of the plaintext fixture across all files. It does not establish locked-device behavior: stopping work and closing/reopening the store around protected-data availability still requires implementation and testing. [SQLite WAL format](https://www.sqlite.org/walformat.html), [WebKit investigation of protected shared-memory crashes](https://bugs.webkit.org/show_bug.cgi?id=197390).
 
 This unreleased format replaces the development-only whole-file checkpoint. Existing incompatible files are preserved and rejected explicitly, not overwritten. There is no migration of NAS user data. Local authenticated storage detects corruption and partial substitution; it cannot prevent an attacker who controls the entire device from rolling back a complete older database and its keys.
 
@@ -62,6 +76,14 @@ Retained device keys allow offline reading before the server is reachable. Netwo
 - Revocation cannot erase copies a previously authorized device already decrypted. Recovery packages and device envelopes need explicit replacement and deletion lifecycle rules.
 
 TextBrain contains designs and code for these concerns. Review dependencies and failure cases before reuse; do not copy its legacy cutover, note migration, or broad product-specific protocol without need. Cross-runtime known-answer vectors, corruption tests, nonce rules, enrollment tests, and revocation tests are required before describing the implementation as working.
+
+### Enrollment renewal and ambiguous approval
+
+Persist an enrollment candidate's private key, device ID, challenge, local-store key, request ID, and exact envelope before sending the request. Request expiry never expires the recipient key. Renew an expired request with a new request ID while retaining that recipient, including when the current key epoch changes. A delayed approval of either request must remain decryptable after a restart. Only a positive server record marking that candidate revoked permits replacing its identity; revoked identities cannot be reactivated.
+
+Use the server's unexpired-request list to decide whether a request needs renewal. A local timestamp is informational only: clock skew, suspension, and delayed submission cannot establish server expiry. Check the candidate's current device envelope before renewal and after an ambiguous approval, then authenticate the server envelope before activating it. A missing envelope or transport failure preserves pending keys. A duplicate-device conflict caused by an older request winning the race is resolved through that same recipient's envelope.
+
+Serialize key-changing operations in each account's manager across suspension points. An overlapping prepare/bootstrap/recovery attempt returns a retryable busy state rather than mutating the same pending candidate. Check cancellation before durable writes. Persist the active device before removing its pending record; a crash between these writes is recoverable. This uses the existing versioned enrollment/device RPCs and does not change encrypted formats or database identities.
 
 ## Cloud AI boundary
 
