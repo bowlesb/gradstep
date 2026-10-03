@@ -44,6 +44,8 @@ struct ChatTranscript: View {
     @ViewBuilder private var emptyState: some View {
         if model.chatWasDeleted {
             ContentUnavailableView("Conversation deleted", systemImage: "bubble.left", description: Text("Start a new chat to continue."))
+        } else if model.chatHasRemovedMessages {
+            ContentUnavailableView("Messages removed", systemImage: "bubble.left", description: Text("You can add a new message to this conversation."))
         } else if !model.generalChat && !model.canUsePaperChat {
             ContentUnavailableView("Choose a paper", systemImage: "doc.text", description: Text("Open a paper from your library, or use General chat."))
         } else {

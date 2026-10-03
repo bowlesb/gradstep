@@ -5,10 +5,10 @@ import UIKit
 final class WorkflowJourneyTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
 
-    private func launch() -> XCUIApplication {
+    private func launch(additionalArguments: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["--workflow-fixture"]
+        app.launchArguments = ["--workflow-fixture"] + additionalArguments
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
         return app
@@ -98,6 +98,56 @@ final class WorkflowJourneyTests: XCTestCase {
         let app = launch()
         app.buttons["tab.chat"].tap()
         exerciseLatestReplyWhileComposing(app)
+    }
+
+    func testDeletedObservedReplyRetainsEarlierMessagesUntilSiblingIsChosen() throws {
+        let app = launch(additionalArguments: ["--branch-fixture"])
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(app.segmentedControls.buttons["General chat"].isSelected)
+        XCTAssertEqual(input.value as? String, "A separate general draft")
+        app.buttons["Chat history"].tap()
+        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        app.buttons["A retained paper discussion"].tap()
+
+        let transcript = app.tables["chat.transcript"]
+        func message(_ text: String) -> XCUIElement {
+            transcript.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+                "chat.message.text.", text)).firstMatch
+        }
+        let earlier = message("Keep this earlier question visible.")
+        let removed = message("This observed reply was removed.")
+        let siblingText = "A sibling reply requires an explicit choice."
+        let sibling = message(siblingText)
+        XCTAssertTrue(app.navigationBars["A retained paper discussion"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
+        XCTAssertTrue(earlier.waitForExistence(timeout: 5))
+        XCTAssertTrue(earlier.isHittable)
+        XCTAssertFalse(removed.exists)
+        XCTAssertFalse(sibling.exists, "A surviving sibling must require an explicit choice")
+
+        let branchPicker = app.buttons["chat.branchPicker"]
+        XCTAssertTrue(branchPicker.waitForExistence(timeout: 5))
+        branchPicker.tap()
+        let earlierOption = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Earlier messages")).firstMatch
+        let siblingOption = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", siblingText)).firstMatch
+        XCTAssertTrue(earlierOption.waitForExistence(timeout: 5))
+        XCTAssertTrue(siblingOption.isHittable)
+        capture(app, "Deleted reply retains an explicit earlier-messages branch")
+        siblingOption.tap()
+        XCTAssertTrue(sibling.waitForExistence(timeout: 5))
+        XCTAssertTrue(sibling.isHittable)
+        XCTAssertTrue(earlier.exists)
+        XCTAssertFalse(removed.exists)
+        XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
+        app.segmentedControls.buttons["General chat"].tap()
+        XCTAssertEqual(input.value as? String, "A separate general draft")
+        app.segmentedControls.buttons["Paper chat"].tap()
+        XCTAssertTrue(sibling.waitForExistence(timeout: 5))
+        XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
+        XCTAssertTrue(app.buttons["chat.returnToPaper"].isHittable)
+        capture(app, "Explicit sibling choice preserves paper draft and context")
     }
 
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {

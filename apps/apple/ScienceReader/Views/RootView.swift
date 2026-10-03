@@ -234,9 +234,11 @@ struct ChatView: View {
                     if model.chatBranches.count > 1 {
                         Picker("Conversation branch", selection: $model.activeBranchID) {
                             ForEach(model.chatBranches, id: \.head) { branch in
-                                Text(String((branch.messages.last?.payload.text ?? "Continuation").prefix(60))).tag(Optional(branch.head))
+                                Text(model.privateState.events[branch.head].map { model.privateState.isDeleted($0.payload.entityID) } == true
+                                    ? "Earlier messages" : String((branch.messages.last?.payload.text ?? "Continuation").prefix(60)))
+                                    .tag(Optional(branch.head))
                             }
-                        }.pickerStyle(.menu).padding(.horizontal).accessibilityLabel("Conversation branch")
+                        }.pickerStyle(.menu).padding(.horizontal).accessibilityIdentifier("chat.branchPicker")
                     }
                     if !model.chatContextComplete && !model.chatWasDeleted {
                         Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)

@@ -28,7 +28,38 @@ extension ReaderModel {
             parent = id
         }
         activeConversation = conversation
+        if ProcessInfo.processInfo.arguments.contains("--branch-fixture") {
+            try configureBranchWorkflowFixture(documentID: sample.id)
+        }
         tab = .library; wideMode = .library
+    }
+
+    private func configureBranchWorkflowFixture(documentID: UUID) throws {
+        let conversation = UUID(uuidString: "dddddddd-0000-0000-0000-000000000001")!
+        let device = UUID(uuidString: "dddddddd-0000-0000-0000-000000000002")!
+        let root = UUID(uuidString: "dddddddd-0000-0000-0000-000000000003")!
+        let question = UUID(uuidString: "dddddddd-0000-0000-0000-000000000600")!
+        let observed = UUID(uuidString: "dddddddd-0000-0000-0000-000000000900")!
+        let sibling = UUID(uuidString: "dddddddd-0000-0000-0000-000000000100")!
+        try privateState.apply(AppliedEvent(id: root, deviceID: device, payload: PrivateEvent(kind: .conversation,
+            entityID: conversation, documentID: documentID, text: "A retained paper discussion")))
+        try privateState.apply(AppliedEvent(id: question, deviceID: device, payload: PrivateEvent(kind: .message,
+            entityID: question, parents: [root], conversationID: conversation, documentID: documentID,
+            text: "Keep this earlier question visible.", role: .user, status: .complete)))
+        try privateState.apply(AppliedEvent(id: observed, deviceID: device, payload: PrivateEvent(kind: .message,
+            entityID: observed, parents: [question], conversationID: conversation, documentID: documentID,
+            text: "This observed reply was removed.", role: .assistant, status: .complete)))
+        // Observe the first answer before a sibling arrives. Removing that answer
+        // must retain its earlier context without silently selecting the sibling.
+        openConversation(conversation)
+        chatInput = "Draft for the retained paper discussion"
+        try privateState.apply(AppliedEvent(id: sibling, deviceID: device, payload: PrivateEvent(kind: .message,
+            entityID: sibling, parents: [question], conversationID: conversation, documentID: documentID,
+            text: "A sibling reply requires an explicit choice.", role: .assistant, status: .complete)))
+        try privateState.apply(AppliedEvent(id: UUID(uuidString: "dddddddd-0000-0000-0000-000000000901")!,
+            deviceID: device, payload: PrivateEvent(kind: .tombstone, entityID: observed)))
+        newChat(general: true)
+        chatInput = "A separate general draft"
     }
 }
 #endif

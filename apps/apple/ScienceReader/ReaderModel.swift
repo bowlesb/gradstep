@@ -65,7 +65,13 @@ final class ReaderModel {
     private(set) var chatFollowRequest: ChatFollowRequest?
     private var chatContext: String { generalChat ? "general" : "paper/\((chatPaperID ?? selectedPaper?.id)?.wire ?? "none")" }
     var chatInput: String { get { chatWorkspace.draft(in: chatContext) } set { chatWorkspace.setDraft(newValue, in: chatContext) } }
-    var activeConversation: UUID? { get { chatWorkspace.conversation(in: chatContext) } set { chatWorkspace.select(newValue, in: chatContext) } }
+    var activeConversation: UUID? {
+        get { chatWorkspace.conversation(in: chatContext) }
+        set {
+            chatWorkspace.select(newValue, in: chatContext)
+            branchSelections.reconcile(with: privateState, observing: newValue)
+        }
+    }
     var chatComposerID: UUID? { chatWorkspace.composerID(in: chatContext) }
     var unsentDrafts: [ChatWorkspace.UnsentDraft] { chatWorkspace.unsentDrafts }
     var chatHasSaved: Bool { chatWorkspace.hasSaved(in: chatContext) }
@@ -73,7 +79,9 @@ final class ReaderModel {
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
     var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text } ?? "New chat") }
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
-    var privateState = PrivateState()
+    var privateState = PrivateState() {
+        didSet { branchSelections.reconcile(with: privateState, observing: activeConversation) }
+    }
     var syncStatus = "On this device"
     var syncIssue: String?
     var error: String?
@@ -129,26 +137,38 @@ final class ReaderModel {
         }
         return librarySort == "Title" ? matching.sorted { $0.title.localizedCompare($1.title) == .orderedAscending } : matching
     }
-    var chatBranches: [ConversationBranch] { chatWasDeleted ? [] : (activeConversation.map { privateState.conversationBranches($0) } ?? []) }
+    var chatBranches: [ConversationBranch] {
+        guard let conversation = activeConversation, !chatWasDeleted else { return [] }
+        var branches = privateState.conversationBranches(conversation)
+        if let retained = branchSelections.selected(in: conversation), !branches.contains(where: { $0.head == retained }),
+           let projection = privateState.conversationBranch(conversation, through: retained) {
+            branches.append(projection)
+        }
+        return branches
+    }
+    var chatHasRemovedMessages: Bool {
+        activeBranchID.flatMap { privateState.events[$0] }.map { privateState.isDeleted($0.payload.entityID) } ?? false
+    }
     var activeBranchID: UUID? {
         get {
-            let branches = chatBranches
-            if let conversation = activeConversation, let original = branchSelections.selected(in: conversation) {
-                let selected = privateState.resolvedEventID(original)
-                if branches.contains(where: { $0.head == selected }) { return selected }
-                if let continuation = branches.first(where: { $0.messages.contains(where: { $0.id == selected }) }) { return continuation.head }
-            }
-            return branches.first?.head
+            guard let conversation = activeConversation, !chatWasDeleted else { return nil }
+            return branchSelections.selected(in: conversation) ?? chatBranches.first?.head
         }
         set {
             if let conversation = activeConversation, let composerID = chatComposerID {
+                guard newValue == nil || chatBranches.contains(where: { $0.head == newValue }) else { return }
                 branchSelections.select(newValue, in: conversation)
+                branchSelections.reconcile(with: privateState, observing: conversation)
                 chatFollowRequest = ChatFollowRequest(composerID: composerID)
             }
         }
     }
     var chatMessages: [AppliedEvent] { chatBranches.first(where: { $0.head == activeBranchID })?.messages ?? [] }
-    var chatContextComplete: Bool { !chatWasDeleted && (chatBranches.first(where: { $0.head == activeBranchID })?.complete ?? true) }
+    var chatContextComplete: Bool {
+        guard !chatWasDeleted else { return false }
+        guard let activeBranchID else { return true }
+        return chatBranches.first(where: { $0.head == activeBranchID })?.complete ?? false
+    }
 
     func start() async {
         guard !started else { return }; started = true
@@ -445,6 +465,7 @@ final class ReaderModel {
             if workOwnership.owns(storeScope), publish(snapshot) {
                 syncStatus = syncIssue == nil ? "Saved on this device" : "Saved on this device · Sync paused"
             }
+            branchSelections.reconcile(with: privateState, observing: submission.conversationID)
             // Local acknowledgement restores this composer's controls. Slow
             // network synchronization must not block a different conversation.
             Task { if self.sessionID == scope { await self.synchronize() } }
@@ -507,32 +528,6 @@ struct ReaderWorkOwnership {
 
     func owns(_ scope: StoreScope) -> Bool { storeScope == scope }
     func owns(_ attempt: SyncAttempt) -> Bool { owns(attempt.store) && latestSync == attempt && !isActivating }
-}
-
-/// An automatic continuation may advance the branch the user sent from, but
-/// must not override an explicit branch choice made while that save was waiting.
-struct ConversationBranchSelections {
-    struct Choice: Sendable {
-        let conversationID: UUID
-        let revision: UUID?
-    }
-    private var heads: [UUID: UUID] = [:]
-    private var revisions: [UUID: UUID] = [:]
-
-    func selected(in conversation: UUID) -> UUID? { heads[conversation] }
-    func capture(in conversation: UUID) -> Choice { Choice(conversationID: conversation, revision: revisions[conversation]) }
-
-    mutating func select(_ head: UUID?, in conversation: UUID) {
-        heads[conversation] = head
-        revisions[conversation] = UUID()
-    }
-
-    @discardableResult
-    mutating func complete(_ choice: Choice, head: UUID?) -> Bool {
-        guard revisions[choice.conversationID] == choice.revision else { return false }
-        heads[choice.conversationID] = head
-        return true
-    }
 }
 
 /// One writer per account's local database. Activation waits for writes already

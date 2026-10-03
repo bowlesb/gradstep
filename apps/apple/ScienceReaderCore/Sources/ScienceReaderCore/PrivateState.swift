@@ -126,6 +126,7 @@ public struct PrivateState: Codable, Equatable, Sendable {
     /// separate branches; UUID sorting is only a stable order for the picker.
     public func conversationBranches(_ conversationID: UUID) -> [ConversationBranch] {
         let deleted = Set(events.values.filter { $0.payload.kind == .tombstone }.map { $0.payload.entityID })
+        guard !deleted.contains(conversationID) else { return [] }
         let messages = events.values.filter { $0.payload.kind == .message && $0.payload.conversationID == conversationID && !deleted.contains($0.payload.entityID) }
         var parents = Set<UUID>()
         for message in messages {
@@ -138,23 +139,37 @@ public struct PrivateState: Codable, Equatable, Sendable {
             }
         }
         let heads = messages.filter { !parents.contains($0.id) }.sorted { $0.id.wire < $1.id.wire }
-        return heads.map { head in
-            var path: [AppliedEvent] = [], next: UUID? = head.id, visited = Set<UUID>(), complete = true
-            while let id = next {
-                guard visited.insert(id).inserted, let event = events[id] else { complete = false; break }
-                guard event.payload.kind == .message, event.payload.conversationID == conversationID else { complete = false; break }
-                if !deleted.contains(event.payload.entityID) { path.append(event) }
-                var predecessors: [UUID] = []
-                for parentID in event.payload.parents {
-                    guard let parent = events[parentID] else { complete = false; continue }
-                    if parent.payload.kind == .message, parent.payload.conversationID == conversationID { predecessors.append(parentID) }
-                    else if parent.payload.kind != .conversation || parent.payload.entityID != conversationID { complete = false }
-                }
-                guard predecessors.count <= 1 else { complete = false; break }
-                next = predecessors.first
+        return heads.compactMap { conversationBranch(conversationID, through: $0.id, deleted: deleted) }
+    }
+
+    /// Projects the history through a retained causal tip, even when the tip is
+    /// now an interior or deleted message. Deleted text stays omitted; keeping
+    /// its event ID does not select a sibling or resurrect the deleted entity.
+    public func conversationBranch(_ conversationID: UUID, through head: UUID) -> ConversationBranch? {
+        let deleted = Set(events.values.filter { $0.payload.kind == .tombstone }.map { $0.payload.entityID })
+        return conversationBranch(conversationID, through: head, deleted: deleted)
+    }
+
+    private func conversationBranch(_ conversationID: UUID, through head: UUID, deleted: Set<UUID>) -> ConversationBranch? {
+        let resolvedHead = resolvedEventID(head)
+        guard !deleted.contains(conversationID), let first = events[resolvedHead],
+              first.payload.kind == .message, first.payload.conversationID == conversationID else { return nil }
+        var path: [AppliedEvent] = [], next: UUID? = resolvedHead, visited = Set<UUID>(), complete = true
+        while let id = next {
+            guard visited.insert(id).inserted, let event = events[id] else { complete = false; break }
+            guard event.payload.kind == .message, event.payload.conversationID == conversationID else { complete = false; break }
+            if !deleted.contains(event.payload.entityID) { path.append(event) }
+            var predecessors: [UUID] = []
+            for originalParentID in event.payload.parents {
+                let parentID = resolvedEventID(originalParentID)
+                guard let parent = events[parentID] else { complete = false; continue }
+                if parent.payload.kind == .message, parent.payload.conversationID == conversationID { predecessors.append(parentID) }
+                else if parent.payload.kind != .conversation || parent.payload.entityID != conversationID { complete = false }
             }
-            return ConversationBranch(head: head.id, messages: path.reversed(), complete: complete)
+            guard predecessors.count <= 1 else { complete = false; break }
+            next = predecessors.first
         }
+        return ConversationBranch(head: resolvedHead, messages: path.reversed(), complete: complete)
     }
 
     public func isDeleted(_ entityID: UUID) -> Bool {
