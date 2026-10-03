@@ -1,0 +1,15 @@
+{
+  "nas_source": "/volume1/@home/selfhost/science-reader",
+  "file_count": 75,
+  "total_bytes": 1215780,
+  "environment_keys": [
+    "MATHPIX_APP_ID",
+    "MATHPIX_APP_KEY",
+    "ANTHROPIC_API_KEY",
+    "TAVILY_API_KEY",
+    "LLM_PROVIDER",
+    "DEEPSEEK_API_KEY"
+  ],
+  "remote_access": "read_only",
+  "excluded": "Environment values, databases, paper files, build output, dependencies, symlinks, git history"
+}

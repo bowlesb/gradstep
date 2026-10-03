@@ -1,0 +1,17 @@
+{
+  "organization": {
+    "id": "mhiweqpcwyqtyorgqhla",
+    "slug": "mhiweqpcwyqtyorgqhla",
+    "name": "Science Reader",
+    "plan": "pro"
+  },
+  "projects": {
+    "staging": {
+      "id": "coxhjvqpflgxkleydati",
+      "name": "science-reader-staging",
+      "region": "us-west-2",
+      "status": "ACTIVE_HEALTHY"
+    }
+  },
+  "provider_work_enabled": false
+}

@@ -1,0 +1,2 @@
+# Operator-side backup signing/verification; tested version. Not shipped in iOS.
+cryptography==49.0.0

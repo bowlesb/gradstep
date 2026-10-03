@@ -1,0 +1,37 @@
+project_id = "science-reader"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 500
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "sciencereader://auth/callback"
+additional_redirect_urls = ["sciencereader://auth/callback"]
+enable_signup = true
+minimum_password_length = 12
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "32MiB"
+
+[functions.support-assets]
+# Auth is verified against Auth.getUser inside the handler, including newer JWT
+# signing keys. Anon/service tokens cannot become a reporter or operator.
+verify_jwt = false

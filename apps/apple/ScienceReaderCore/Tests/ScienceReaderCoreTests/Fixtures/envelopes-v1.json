@@ -1,0 +1,38 @@
+{
+  "keys": {
+    "accountID": "11111111-2222-4333-8444-555555555555",
+    "epoch": 1,
+    "contentKeys": {
+      "1": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8="
+    },
+    "managementToken": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp8="
+  },
+  "payload": {
+    "kind": "message",
+    "entityID": "ABCDEF01-2345-4678-9ABC-DEF012345678",
+    "parents": [
+      "99999999-0000-4000-8000-111111111111"
+    ],
+    "conversationID": "CCCCCCCC-0000-4000-8000-AAAAAAAAAAAA",
+    "documentID": "DDDDDDDD-0000-4000-8000-BBBBBBBBBBBB",
+    "text": "Why does ∑ attention ≥ 0?\nA quote: \"context\"; slash /; café; 中文.",
+    "role": "user",
+    "status": "complete",
+    "anchor": {
+      "artifactID": "EEEEEEEE-0000-4000-8000-CCCCCCCCCCCC",
+      "quote": "∑ attention",
+      "prefix": "before ",
+      "suffix": " after",
+      "elementID": "section-2",
+      "page": 3
+    }
+  },
+  "eventID": "12345678-abcd-4abc-8def-123456789abc",
+  "deviceID": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "challenge": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=",
+  "privateKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+  "recoveryCode": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecf",
+  "eventCiphertext": "AAECAwQFBgcICQoLJ3A8ySldhJ6ew7LkRwEqVXURihAjVYQrBkiW//7Ejt1p8yINKy9p0dpLytX0+xqBH0quvRkQtMblfk/qZp9PjSCr7neTs8iQF0OsUSocmOHuUvGf8j9+ORu+em6hY8htZVYr6UMLNK/EeaSEgnBbDvDfKlTueAZH7KLNP+aiCX568/NVdvZq+7qVeNMWkHfTV77YeK4SsxmC/SL+yotlBKiBBjkbQWwm6BBVXP1ujdvXJ0PC0tJkW/CAvvLntJE5n2D7wTaCR+vz/rjBOqYJZWXw271VslDe+SH7uFmxUdf7Kf8Sf1AUhOhtaIYIQXYyZv9MGTYvO31GSzzpipcCnVW1EgdqqHSEs8i1VtVfZESvJQgCEz/BQLk65TctjwCvoM3C24PHZafRiwTXSSS3I9OW8YrhCu25qg9Fyu52k0kMqxvQAI7j7lOlB0OIzfJ27pxzp5gqsBWY6pchGg3+1UrriNlj8/KxMT5VboMM4v0CNK4KpbXo9nX780oi2j1Wz/137n8rx4BfNeZa71LherB/ooFkU37IYeSlazw3S72yfoGjVLmuBaVw0rtgIu+Ohl0Hk0ywL7Wqr6yQB7p8TvpRTSe2MIrr+ujV2fj6iFS8RslJVAJbcj2Onl2cva1pqozVArlBjrTXNpIxv5hIW55U/vwKDgnZHYJ/TP4VCcMRQcm9inafzA==",
+  "recoveryPackage": "EBESExQVFhcYGRobSz5QDtKkpF6LnT4u5BnTzuuaTLUHgIIm8LfOBoISAokFTzM+PEWdtaemZSdM9XpRAjLBQNuEJziJYuBs7sMe7jJafar3pKlBgJOSu/l5gz16HzSoBPtFqJkoS/DdwYO8Z734FkAAM3HDEqM56E3IkI5gVHJ/f80ZtnFNGMRf1LumT04+dQXjm9D43sVp8sSnwE6mq1pEZw+Wq5O1xB/XpTlW1dXg9Im9hW4D8yGVhJKq3460S588h15/gftBQTWQzQ9Bm2h1KKrA+Ik38h8pF1oi",
+  "deviceEnvelope": "c2hF1U6H3gnWuxFKpwQsUKSgFb2ZAdGgAm9ZVlM6FRkwMTIzNDU2Nzg5OjsUnmT0EPsZBKieDjFufHag0mD9XWHUl8DbZfXUgF2VaMgCfe5RaVuEBF5o9KnFSpMnyr89UpXrdYImV0BMx5okKmkE/NXcBaMTsIF/p0D0otB0wI8qr99HwSHxLH+ipExlyNhEvWvC+eVQaylS8jzgKMdNIZW4JAoO5Z/kVp8Bsy3SZzoAJzW1ErU7jBnJVyNuhgkHchmvvlWtPe2VgmR251Cfqy73GMxzfUUr1/5QlWX4qW/MNyKodGT8RsW+cDGV/7dqiSvycOK8dXRgdfsyLZ4="
+}

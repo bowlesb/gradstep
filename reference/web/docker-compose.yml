@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pdf-reader-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paperreader
+      POSTGRES_USER: paperreader
+      POSTGRES_PASSWORD: paperreader_local
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperreader"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  pdf-reader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdf-research-reader
+    restart: unless-stopped
+    ports:
+      - "3321:3000"
+    env_file:
+      - .env.local
+    environment:
+      - DATABASE_URL=postgresql://paperreader:paperreader_local@db:5432/paperreader
+    volumes:
+      - ./input:/app/input:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: pdf-reader-worker
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      - DATABASE_URL=postgresql://paperreader:paperreader_local@db:5432/paperreader
+    volumes:
+      - ./input:/app/input:ro
+    depends_on:
+      db:
+        condition: service_healthy

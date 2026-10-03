@@ -1,0 +1,13 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Install dependencies (including tsx for TypeScript execution)
+COPY package.json ./
+RUN npm install && npm install tsx
+
+# Copy only what the worker needs
+COPY tsconfig.json ./
+COPY lib/ ./lib/
+COPY worker/ ./worker/
+
+CMD ["npx", "tsx", "worker/main.ts"]

@@ -1,0 +1,12 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.2",
+    "fflate": "npm:fflate@0.8.3",
+    "pdf-lib": "npm:pdf-lib@1.17.1",
+    "sanitize-html": "npm:sanitize-html@2.18.0",
+    "@apple/app-store-server-library": "npm:@apple/app-store-server-library@3.1.0"
+  },
+  "compilerOptions": {"strict": true},
+  "nodeModulesDir": "auto",
+  "lock": true
+}

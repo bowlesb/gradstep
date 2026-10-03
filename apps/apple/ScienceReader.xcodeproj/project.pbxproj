@@ -1,0 +1,782 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
+		19D21897B7DE8D3A6CE01371 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */; };
+		2068FF43BBD2F54711A95852 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
+		3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */; };
+		544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */; };
+		5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
+		5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
+		69FFC6AB0D50BFE7E7090F61 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
+		7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
+		8C871D53BC76304C7AA87F41 /* ScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */; };
+		968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AE39314F13A59D175222F59 /* KeychainVault.swift */; };
+		B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
+		C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */; };
+		EFDD0C95FBC49CE9EE5021B0 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */; };
+		F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */; };
+		FC594F3DD5F6CE995B709E65 /* reader-sample.html in Resources */ = {isa = PBXBuildFile; fileRef = FD128D67F4F26212703DD4BB /* reader-sample.html */; };
+		FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
+		FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4A294F2989F27AAD42DA707F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83D038C58C532C63B403044F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6ECC4E28C6EFE03B55653FD1;
+			remoteInfo = ScienceReader;
+		};
+		B35E2F6BCEDC5FA639625AE6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83D038C58C532C63B403044F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6ECC4E28C6EFE03B55653FD1;
+			remoteInfo = ScienceReader;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSupportTests.swift; sourceTree = "<group>"; };
+		03742A4949DCA5611E5FF883 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		0A7005386659A627AA9009A5 /* DeviceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceKeys.swift; sourceTree = "<group>"; };
+		18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCapture.swift; sourceTree = "<group>"; };
+		2673CB0144CC1585AD755137 /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
+		27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		44EA809E32C50B2747229C55 /* ScienceReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		46DD9E9113B03CAE53BF0271 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4E95203AFDE6CC762825DA86 /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
+		5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
+		6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSafetyTests.swift; sourceTree = "<group>"; };
+		7AE39314F13A59D175222F59 /* KeychainVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainVault.swift; sourceTree = "<group>"; };
+		80D8495E8DC938EEAB87F4E1 /* ScienceReaderCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ScienceReaderCore; path = ScienceReaderCore; sourceTree = SOURCE_ROOT; };
+		83219A1C314B8263C3120D73 /* ScienceReaderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScienceReaderApp.swift; sourceTree = "<group>"; };
+		927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderNavigationTests.swift; sourceTree = "<group>"; };
+		A87576DE63B383CD1FD6B82E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportComposer.swift; sourceTree = "<group>"; };
+		D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderModel.swift; sourceTree = "<group>"; };
+		EBA5A7FE1780246822D83E36 /* PaperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperView.swift; sourceTree = "<group>"; };
+		EE4FFCDAC511A1BEF29DD176 /* .env.staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = .env.staging.xcconfig; sourceTree = "<group>"; };
+		FD128D67F4F26212703DD4BB /* reader-sample.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "reader-sample.html"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BFE32679E2C26E57C814A45A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				19D21897B7DE8D3A6CE01371 /* ScienceReaderCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CDB434825275BC006BF20863 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		05CEE2511F485568067D94C4 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				4E95203AFDE6CC762825DA86 /* BackendClient.swift */,
+				0A7005386659A627AA9009A5 /* DeviceKeys.swift */,
+				7AE39314F13A59D175222F59 /* KeychainVault.swift */,
+				18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */,
+				5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		1C62319E0C5A9EACD4F82825 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				46DD9E9113B03CAE53BF0271 /* Assets.xcassets */,
+				FD128D67F4F26212703DD4BB /* reader-sample.html */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		2EE1DA22DBF26BF88E2B4334 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				44EA809E32C50B2747229C55 /* ScienceReader.app */,
+				83219A1C314B8263C3120D73 /* ScienceReaderTests.xctest */,
+				27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		422E8CE016CACAC572D599FD /* ScienceReader */ = {
+			isa = PBXGroup;
+			children = (
+				03742A4949DCA5611E5FF883 /* Info.plist */,
+				D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */,
+				843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */,
+				1C62319E0C5A9EACD4F82825 /* Resources */,
+				05CEE2511F485568067D94C4 /* Services */,
+				9A0E4069604052ABBE564CD0 /* Views */,
+			);
+			path = ScienceReader;
+			sourceTree = "<group>";
+		};
+		5E4F6BB85A59AE725A6D50B0 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				EE4FFCDAC511A1BEF29DD176 /* .env.staging.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		7468672D22A1BFF78DA4BEC7 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				80D8495E8DC938EEAB87F4E1 /* ScienceReaderCore */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		79C8BD4691AD6B299D891FEF /* ScienceReaderTests */ = {
+			isa = PBXGroup;
+			children = (
+				02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */,
+				6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */,
+			);
+			path = ScienceReaderTests;
+			sourceTree = "<group>";
+		};
+		9A0E4069604052ABBE564CD0 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				EBA5A7FE1780246822D83E36 /* PaperView.swift */,
+				BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */,
+				2673CB0144CC1585AD755137 /* ReportsView.swift */,
+				A87576DE63B383CD1FD6B82E /* RootView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		D28EFED6235326B9BCE6A018 = {
+			isa = PBXGroup;
+			children = (
+				5E4F6BB85A59AE725A6D50B0 /* Config */,
+				7468672D22A1BFF78DA4BEC7 /* Packages */,
+				422E8CE016CACAC572D599FD /* ScienceReader */,
+				79C8BD4691AD6B299D891FEF /* ScienceReaderTests */,
+				E596EB9BE443307AB3C5F579 /* ScienceReaderUITests */,
+				2EE1DA22DBF26BF88E2B4334 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		E596EB9BE443307AB3C5F579 /* ScienceReaderUITests */ = {
+			isa = PBXGroup;
+			children = (
+				927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */,
+			);
+			path = ScienceReaderUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2FE16AF9D3A2801D3320809A /* ScienceReaderUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 751AF47C5ED54A5FD5524428 /* Build configuration list for PBXNativeTarget "ScienceReaderUITests" */;
+			buildPhases = (
+				A7B8FC06DE179959AC62D960 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				65AEED1E30009ACDEBDE5F53 /* PBXTargetDependency */,
+			);
+			name = ScienceReaderUITests;
+			packageProductDependencies = (
+			);
+			productName = ScienceReaderUITests;
+			productReference = 27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6ECC4E28C6EFE03B55653FD1 /* ScienceReader */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 528C17632B46485E1594FEAA /* Build configuration list for PBXNativeTarget "ScienceReader" */;
+			buildPhases = (
+				145635587235925D3D1AFE19 /* Sources */,
+				BF1B9B644B4CBA3F71B05A5D /* Resources */,
+				CDB434825275BC006BF20863 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScienceReader;
+			packageProductDependencies = (
+				82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */,
+			);
+			productName = ScienceReader;
+			productReference = 44EA809E32C50B2747229C55 /* ScienceReader.app */;
+			productType = "com.apple.product-type.application";
+		};
+		9C6A883CE8AECF4C05CB639D /* ScienceReaderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9F66AAFA15AE1EDC7CA7B4C2 /* Build configuration list for PBXNativeTarget "ScienceReaderTests" */;
+			buildPhases = (
+				A246688F603C094058442F65 /* Sources */,
+				BFE32679E2C26E57C814A45A /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2065437AB419DF4E5C7EA97A /* PBXTargetDependency */,
+			);
+			name = ScienceReaderTests;
+			packageProductDependencies = (
+				3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */,
+			);
+			productName = ScienceReaderTests;
+			productReference = 83219A1C314B8263C3120D73 /* ScienceReaderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		83D038C58C532C63B403044F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					2FE16AF9D3A2801D3320809A = {
+						DevelopmentTeam = 3BJ33TT599;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 6ECC4E28C6EFE03B55653FD1;
+					};
+					6ECC4E28C6EFE03B55653FD1 = {
+						DevelopmentTeam = 3BJ33TT599;
+						ProvisioningStyle = Automatic;
+					};
+					9C6A883CE8AECF4C05CB639D = {
+						DevelopmentTeam = 3BJ33TT599;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = DB19DFAD96B66CA35CAF754D /* Build configuration list for PBXProject "ScienceReader" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D28EFED6235326B9BCE6A018;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B2B6EECC88174F41F5801A47 /* XCLocalSwiftPackageReference "ScienceReaderCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 2EE1DA22DBF26BF88E2B4334 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6ECC4E28C6EFE03B55653FD1 /* ScienceReader */,
+				9C6A883CE8AECF4C05CB639D /* ScienceReaderTests */,
+				2FE16AF9D3A2801D3320809A /* ScienceReaderUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		BF1B9B644B4CBA3F71B05A5D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */,
+				FC594F3DD5F6CE995B709E65 /* reader-sample.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		145635587235925D3D1AFE19 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */,
+				FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */,
+				968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */,
+				5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */,
+				B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */,
+				FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */,
+				5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */,
+				2068FF43BBD2F54711A95852 /* RootView.swift in Sources */,
+				69FFC6AB0D50BFE7E7090F61 /* ScienceReaderApp.swift in Sources */,
+				8C871D53BC76304C7AA87F41 /* ScreenshotCapture.swift in Sources */,
+				EFDD0C95FBC49CE9EE5021B0 /* SupportService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A246688F603C094058442F65 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */,
+				3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7B8FC06DE179959AC62D960 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2065437AB419DF4E5C7EA97A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6ECC4E28C6EFE03B55653FD1 /* ScienceReader */;
+			targetProxy = B35E2F6BCEDC5FA639625AE6 /* PBXContainerItemProxy */;
+		};
+		65AEED1E30009ACDEBDE5F53 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6ECC4E28C6EFE03B55653FD1 /* ScienceReader */;
+			targetProxy = 4A294F2989F27AAD42DA707F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5C44D0D4DA24030C357E915C /* Internal */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReader;
+			};
+			name = Internal;
+		};
+		6DD4C7970180156CC3FEC9A9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3BJ33TT599;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SCIENCE_READER_ENVIRONMENT = staging;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		75AB478799C5C5BA3B6FEA26 /* Internal */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EE4FFCDAC511A1BEF29DD176 /* .env.staging.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3BJ33TT599;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SCIENCE_READER_ENVIRONMENT = staging;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Internal;
+		};
+		7AD1214921ED311866B5F557 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScienceReader/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG INTERNAL";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8C006B61B706B3BE572665B2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReader;
+			};
+			name = Release;
+		};
+		96B6800ECB11F67571F67D25 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReader;
+			};
+			name = Debug;
+		};
+		9DBA5574F5AB168CD12CEEED /* Internal */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScienceReader/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = INTERNAL;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Internal;
+		};
+		AE25BFAA94BE3E9989F593E7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+			};
+			name = Release;
+		};
+		BEEAB2D0DD6EAA55F17E90E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ScienceReader/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		CBF34A6687CA3B091C7E5BDB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+			};
+			name = Debug;
+		};
+		E35C9641EDBAF90BBBBEE51E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EE4FFCDAC511A1BEF29DD176 /* .env.staging.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3BJ33TT599;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SCIENCE_READER_ENVIRONMENT = staging;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E9815F6B9B9A64BFA8D00889 /* Internal */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+			};
+			name = Internal;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		528C17632B46485E1594FEAA /* Build configuration list for PBXNativeTarget "ScienceReader" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7AD1214921ED311866B5F557 /* Debug */,
+				9DBA5574F5AB168CD12CEEED /* Internal */,
+				BEEAB2D0DD6EAA55F17E90E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		751AF47C5ED54A5FD5524428 /* Build configuration list for PBXNativeTarget "ScienceReaderUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				96B6800ECB11F67571F67D25 /* Debug */,
+				5C44D0D4DA24030C357E915C /* Internal */,
+				8C006B61B706B3BE572665B2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9F66AAFA15AE1EDC7CA7B4C2 /* Build configuration list for PBXNativeTarget "ScienceReaderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CBF34A6687CA3B091C7E5BDB /* Debug */,
+				E9815F6B9B9A64BFA8D00889 /* Internal */,
+				AE25BFAA94BE3E9989F593E7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DB19DFAD96B66CA35CAF754D /* Build configuration list for PBXProject "ScienceReader" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E35C9641EDBAF90BBBBEE51E /* Debug */,
+				75AB478799C5C5BA3B6FEA26 /* Internal */,
+				6DD4C7970180156CC3FEC9A9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		B2B6EECC88174F41F5801A47 /* XCLocalSwiftPackageReference "ScienceReaderCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ScienceReaderCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScienceReaderCore;
+		};
+		82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScienceReaderCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 83D038C58C532C63B403044F /* Project object */;
+}

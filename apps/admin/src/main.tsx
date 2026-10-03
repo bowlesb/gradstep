@@ -1,0 +1,199 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import type { Session } from '@supabase/supabase-js';
+import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Report, type Thread } from './backend';
+import { mutate } from './mutations';
+import './style.css';
+
+const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);
+const date = (value: string) => new Date(value).toLocaleString();
+const statusName = (value: string) => value.replaceAll('_', ' ');
+
+function App() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [account, setAccount] = useState<AccountContext | null>(null);
+  const [error, setError] = useState('');
+  const [tab, setTab] = useState('Overview');
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(false);
+  const currentUser = useRef<string | null>(null);
+  const refreshGeneration = useRef(0);
+
+  useEffect(() => {
+    if (!backend) return;
+    const { data } = backend.auth.onAuthStateChange((_event, next) => {
+      currentUser.current = next?.user.id ?? null;
+      refreshGeneration.current += 1;
+      setSession(next);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!session) return;
+    const generation = ++refreshGeneration.current;
+    const active = () => currentUser.current === session.user.id && generation === refreshGeneration.current;
+    setLoading(true); setError('');
+    try {
+      const context = await rpc<AccountContext>('v1_account_context');
+      if (!active()) return;
+      setAccount(context);
+      if (context.operator_verified) {
+        const results = await Promise.all([
+          context.roles.includes('owner') ? rpc<Overview>('v1_admin_overview') : Promise.resolve(null),
+          rpc<Report[]>('v2_reports'),
+        ]);
+        if (!active()) return;
+        setOverview(results[0]); setReports(results[1]);
+        if (!context.roles.includes('owner')) setTab('Support');
+      }
+    } catch (e) { if (active()) setError(e instanceof Error ? e.message : 'The dashboard could not refresh.'); }
+    finally { if (active()) setLoading(false); }
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || account?.account_id !== session.user.id) { setAccount(null); setOverview(null); setReports([]); }
+    void refresh(); return () => { refreshGeneration.current += 1; };
+  }, [refresh]);
+
+  if (!session) return <SignIn error={error} setError={setError} />;
+  if (!account || account.account_id !== session.user.id) return <div className="auth-shell"><div className="auth-card"><Brand /><p role="status">Checking operator access…</p>{error && <p className="error" role="alert">{error}</p>}<button disabled={loading} onClick={() => void refresh()}>Retry</button><button className="quiet" onClick={() => void backend?.auth.signOut()}>Sign out</button></div></div>;
+  if (account && !account.roles.some(role => ['owner', 'support'].includes(role))) {
+    return <div className="auth-shell"><div className="auth-card"><Brand /><h1>Operator access required</h1><p>This account can use the reader, but it has not been granted administration access.</p><button onClick={() => void backend?.auth.signOut()}>Sign out</button></div></div>;
+  }
+  if (account && !account.operator_verified) return <TwoFactor onVerified={refresh} />;
+  return <div className="app-shell">
+    <aside>
+      <Brand />
+      <span className="environment">{environment}</span>
+      <nav aria-label="Administration">
+        {(account?.roles.includes('owner') ? ['Overview', 'Usage', 'Processing', 'Support'] : ['Support']).map(item =>
+          <button key={item} aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'selected' : ''} onClick={() => setTab(item)}>{item}{item === 'Support' && overview?.open_reports ? <span className="count">{overview.open_reports}</span> : null}</button>)}
+      </nav>
+      <div className="sidebar-bottom"><span>{session.user.email}</span><button className="quiet" onClick={() => void backend?.auth.signOut()}>Sign out</button></div>
+    </aside>
+    <main>
+      <header><div><p className="eyebrow">SCIENCE READER / ADMINISTRATION</p><h1>{tab}</h1></div><button className="secondary" disabled={loading} onClick={() => void refresh()}>{loading ? 'Refreshing…' : 'Refresh'}</button></header>
+      {error && <div className="error" role="alert">{error}</div>}
+      {loading && !account ? <p role="status">Checking operator access…</p> : null}
+      {tab === 'Overview' && overview && <>
+        <div className="metrics"><Metric label="Accounts" value={overview.accounts} /><Metric label="Library items" value={overview.library_items} /><Metric label="Shared documents" value={overview.shared_documents} /><Metric label="Reused by multiple accounts" value={overview.shared_documents_reused} /></div>
+        <BudgetPanel overview={overview} onChanged={refresh} />
+        <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
+        <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
+      </>}
+      {tab === 'Usage' && overview && <section className="panel"><h2>Provider usage this month</h2><p className="muted">Recorded provider estimates; reconciliation can adjust final expense. Customer credits are accounted for separately.</p>
+        <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
+        {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
+      {tab === 'Processing' && overview && <section className="panel"><h2>Durable job states</h2><Counts values={overview.jobs} empty="No jobs have been submitted." /><p className="muted">Uncertain submissions retain their spending reservation until reconciled. They are not automatically submitted again.</p></section>}
+      {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
+    </main>
+  </div>;
+}
+
+function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Science Reader</span></div>; }
+function Empty({ text }: { text: string }) { return <p className="empty">{text}</p>; }
+function Metric({ label, value }: { label: string; value: number }) { return <section className="metric"><p>{label}</p><strong>{value.toLocaleString()}</strong></section>; }
+function Counts({ values, empty }: { values: Record<string, number>; empty: string }) {
+  return Object.keys(values).length ? <dl className="counts">{Object.entries(values).map(([label, value]) => <div key={label}><dt>{statusName(label)}</dt><dd>{value}</dd></div>)}</dl> : <Empty text={empty} />;
+}
+
+function SignIn({ error, setError }: { error: string; setError: (text: string) => void }) {
+  const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false);
+  return <div className="auth-shell"><form className="auth-card" onSubmit={async event => {
+    event.preventDefault(); if (!backend) return; setBusy(true); setError('');
+    const result = await backend.auth.signInWithPassword({ email, password });
+    if (result.error) setError('Sign-in was not accepted. Check your email, password, and account confirmation.');
+    setBusy(false);
+  }}><Brand /><span className="environment">{environment}</span><h1>Administration</h1><p>Sign in with your operator account. Two-factor authentication is required.</p>
+    <label>Email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+    <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
+    {error && <p className="error" role="alert">{error}</p>}
+    {!backend && <p className="muted">This build needs its backend configuration before sign-in is available.</p>}
+    <button type="submit" disabled={busy || !backend}>{busy ? 'Signing in…' : 'Sign in'}</button>
+  </form></div>;
+}
+
+function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
+  const [factor, setFactor] = useState(''); const [qr, setQR] = useState(''); const [code, setCode] = useState('');
+  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { void backend?.auth.mfa.listFactors().then(({ data }) => { const first = data?.totp.find(item => item.status === 'verified'); if (first) setFactor(first.id); }); }, []);
+  async function enroll() {
+    if (!backend) return; setBusy(true); setError('');
+    const { data, error } = await backend.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Science Reader administration' });
+    if (error) setError('Authenticator setup could not start. Try again.');
+    else { setFactor(data.id); setQR(data.totp.qr_code.startsWith('data:') ? data.totp.qr_code : 'data:image/svg+xml,' + encodeURIComponent(data.totp.qr_code)); }
+    setBusy(false);
+  }
+  return <div className="auth-shell"><form className="auth-card" onSubmit={async event => {
+    event.preventDefault(); if (!backend) return; setBusy(true); setError('');
+    const { error } = await backend.auth.mfa.challengeAndVerify({ factorId: factor, code });
+    if (error) setError('The code was not accepted. Try the current code from your authenticator.');
+    else await onVerified(); setBusy(false);
+  }}><Brand /><h1>Verify your sign-in</h1><p>Use an authenticator app to protect access to reports and spending controls.</p>
+    {qr && <img className="qr" src={qr} alt="Scan this QR code with your authenticator app" />}
+    {!factor ? <button type="button" onClick={() => void enroll()} disabled={busy}>Set up authenticator</button> : <><label>Six-digit code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} /></label><button disabled={busy || code.length !== 6}>{busy ? 'Verifying…' : 'Verify'}</button></>}
+    {error && <p className="error" role="alert">{error}</p>}
+    <button type="button" className="quiet" onClick={() => void backend?.auth.signOut()}>Sign out</button>
+  </form></div>;
+}
+
+function BudgetPanel({ overview, onChanged }: { overview: Overview; onChanged: () => Promise<void> }) {
+  const budget = overview.budgets[0]; const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  return <section className="panel"><div className="section-heading"><h2>Provider spending</h2><span className={'badge ' + (budget?.work_enabled ? 'positive' : '')}>{budget?.work_enabled ? 'Enabled' : 'Paused'}</span></div>
+    {!budget ? <Empty text="No provider budget is configured. Paid processing is disabled." /> : <>
+      <div className="budget-values"><div><span>Incurred</span><strong>{dollars(budget.spent_microusd)}</strong></div><div><span>Reserved in flight</span><strong>{dollars(budget.reserved_microusd)}</strong></div><div><span>Environment limit</span><strong>{dollars(budget.limit_microusd)}</strong></div></div>
+      <progress max={Math.max(1, budget.limit_microusd)} value={Math.min(budget.limit_microusd, budget.spent_microusd + budget.reserved_microusd)} aria-label="Incurred and reserved provider spending" />
+      <p className="muted">This is the {environment} provider allocation. The $100 total operating budget also includes infrastructure, backups, and contingency.</p>
+      <form className="inline-form" onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { await rpc('v1_admin_pause_work', { p_paused: budget.work_enabled, p_reason: reason }); setReason(''); await onChanged(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
+        <label>Reason for change<input minLength={3} maxLength={1000} required value={reason} onChange={e => setReason(e.target.value)} placeholder="Recorded in the audit log" /></label>
+        <button disabled={busy || reason.trim().length < 3}>{budget.work_enabled ? 'Pause new paid work' : 'Resume within limit'}</button>
+      </form>{error && <p className="error" role="alert">{error}</p>}
+    </>}
+  </section>;
+}
+
+function Support({ accountID, reports, refresh }: { accountID: string; reports: Report[]; refresh: () => Promise<void> }) {
+  const [selected, setSelected] = useState<string | null>(null); const [thread, setThread] = useState<Thread | null>(null);
+  const [reply, setReply] = useState(''); const [build, setBuild] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const load = useCallback(async () => { if (selected) { try { const next = await rpc<Thread>('v1_report_thread', { p_report_id: selected }); if (selectedRef.current === selected) setThread(next); } catch (e) { if (selectedRef.current === selected) setError((e as Error).message); } } }, [selected]);
+  useEffect(() => { setThread(null); setReply(''); setBuild(''); setError(''); void load(); }, [load]);
+  async function status(value: string) {
+    if (!selected) return; setBusy(true); setError('');
+    try { await mutate(accountID, 'v1_set_report_status', { p_report_id: selected, p_status: value, p_fixed_build: value === 'ready_to_retest' ? build : null }); await load(); await refresh(); }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  return <div className="support-layout"><section className="panel report-list"><h2>Reports</h2>{!reports.length && <Empty text="No reports have been submitted." />}
+    {reports.map(report => <button key={report.id} disabled={busy} className={selected === report.id ? 'report selected-report' : 'report'} onClick={() => setSelected(report.id)}><strong>{report.title}</strong><span>{statusName(report.status)} · Build {report.build}</span><small>{date(report.created_at)}</small></button>)}
+    </section><section className="panel report-detail">
+      {!thread ? <Empty text="Select a report to review the issue and reply." /> : <><span className="badge">{statusName(thread.report.status)}</span><h2>{thread.report.title}</h2><p className="report-note">{thread.report.note}</p>
+        <p className="muted">Version {thread.report.app_version} ({thread.report.build}) · {thread.report.os_version} · {thread.report.screen}</p>
+        {thread.report.fixed_build && <p className="fix-build">Fix available in build {thread.report.fixed_build}</p>}
+        {thread.attachments.length > 0 && <div className="attachments">{thread.attachments.map(attachment => <PrivateAttachment key={attachment.id} id={attachment.id} />)}</div>}
+        <div className="messages">{thread.messages.map(message => <article key={message.id}><strong>{message.is_operator ? 'Support' : 'Reporter'}</strong><time>{date(message.created_at)}</time><p>{message.body}</p></article>)}</div>
+        <form onSubmit={async event => { event.preventDefault(); setBusy(true); setError(''); try { await mutate(accountID, 'v1_reply_to_report', { p_report_id: selected, p_body: reply }); setReply(''); await load(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }}>
+          <label>Reply<textarea required disabled={busy} maxLength={10000} rows={4} value={reply} onChange={e => setReply(e.target.value)} /></label><button disabled={busy || !reply.trim()}>Send reply</button>
+        </form>
+        <div className="status-controls"><button className="secondary" disabled={busy} onClick={() => void status('investigating')}>Investigating</button><label>Fixed in build<input value={build} maxLength={40} onChange={e => setBuild(e.target.value)} placeholder="e.g. 12" /></label><button className="secondary" disabled={busy || !build.trim()} onClick={() => void status('ready_to_retest')}>Ready to retest</button></div>
+      </>}{error && <p className="error" role="alert">{error}</p>}
+    </section></div>;
+}
+
+function PrivateAttachment({ id }: { id: string }) {
+  const [source, setSource] = useState(''); const [error, setError] = useState(''); const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController(); let objectURL = '';
+    setSource(''); setError('');
+    void attachmentImage(id, controller.signal).then(blob => {
+      if (controller.signal.aborted) return;
+      objectURL = URL.createObjectURL(blob); setSource(objectURL);
+    }).catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Screenshot unavailable.'); });
+    return () => { controller.abort(); if (objectURL) URL.revokeObjectURL(objectURL); };
+  }, [id, attempt]);
+  return <figure>{source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt="Screenshot shared by the reporter" /></a> : <p role="status">{error || 'Loading private screenshot…'}</p>}{error && <button className="secondary" onClick={() => setAttempt(n => n + 1)}>Retry image</button>}</figure>;
+}
+
+createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);

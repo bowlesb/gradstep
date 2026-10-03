@@ -1,0 +1,23 @@
+{
+  "admin_origins": [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173"
+  ],
+  "support_bucket": {
+    "id": "support",
+    "name": "support",
+    "public": false,
+    "file_size_limit": 5242880,
+    "allowed_mime_types": [
+      "image/png",
+      "image/jpeg"
+    ]
+  },
+  "database": {
+    "ssl_enforced": true,
+    "client_ssl_mode": "verify-full",
+    "ca_file": "infra/supabase-ca-2021.crt",
+    "session_pooler_host": "aws-0-us-west-2.pooler.supabase.com",
+    "session_pooler_port": 5432
+  }
+}

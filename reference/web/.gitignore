@@ -1,0 +1,11 @@
+node_modules
+.next
+.env.local
+input
+output
+data
+*.pdf
+papers_2025.json
+tsconfig.tsbuildinfo
+*.png
+!public/*.png

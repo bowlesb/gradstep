@@ -1,0 +1,6 @@
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src https://coxhjvqpflgxkleydati.supabase.co wss://coxhjvqpflgxkleydati.supabase.co; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
