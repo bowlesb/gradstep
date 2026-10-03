@@ -56,6 +56,64 @@ try:
     assert rpc('v1_account_context',{},a)['account_id']==created[0]
     assert rpc('v1_account_context',{},b)['account_id']==created[1]
     print('PASS hosted Auth and account mapping')
+    for account,session in zip(created,sessions):
+        page=rpc('v2_library_page',{},session)
+        assert page['format']==2 and page['account_id']==account
+        assert page['entries']==[] and page['baseline_cursor']==0 and page['has_more'] is False
+        changes=rpc('v2_library_changes',{'p_after':0},session)
+        assert changes['changes']==[] and changes['next_cursor']==0 and changes['account_id']==account
+    request('rest/v1/rpc/v2_library_page',{},expected=401)
+    rpc('worker_record_arxiv_metadata',{'p_source_id':'2401.01234','p_revision':1,'p_metadata':{}},a,403)
+    # Keep immutable import receipts intact: exercise mutations in one hosted
+    # transaction that is explicitly rolled back, rather than disabling audit
+    # guards to delete fixture receipts afterwards. All identities are synthetic.
+    operation=str(uuid.uuid4()); cancellation=str(uuid.uuid4())
+    admin_query(f"""begin;
+set local role authenticated;
+select set_config('request.jwt.claim.sub','{created[0]}',true);
+do $$ declare first_result jsonb; current_result jsonb; page jsonb; changes jsonb;
+begin
+ first_result:=public.v2_begin_import('{operation}','2401.01234',0,1);
+ if first_result->'entry'->>'phase' is distinct from 'accepted'
+ or first_result->>'replayed' is distinct from 'false' then raise exception 'hosted_import_not_accepted'; end if;
+ current_result:=public.v2_begin_import('{operation}',' 2401.01234 ',0,1);
+ if current_result->>'replayed' is distinct from 'true'
+ or current_result->'result' is distinct from first_result->'result' then raise exception 'hosted_import_replay_failed'; end if;
+ begin
+  perform public.v2_begin_import('{operation}','2401.01234',0,2);
+  raise exception 'hosted_changed_request_not_rejected';
+ exception when raise_exception then
+  if sqlerrm<>'operation_id_conflict' then raise; end if;
+ end;
+ page:=public.v2_library_page();
+ if jsonb_array_length(page->'entries')<>1 or page->>'baseline_cursor'<>'1' then raise exception 'hosted_pending_import_missing'; end if;
+ current_result:=public.v2_cancel_import('{cancellation}','{operation}',1);
+ if current_result->'entry'->>'phase' is distinct from 'cancelled'
+ or current_result->'entry'->>'visible' is distinct from 'false' then raise exception 'hosted_import_cancel_failed'; end if;
+ current_result:=public.v2_begin_import('{operation}','2401.01234',0,1);
+ if current_result->'result' is distinct from first_result->'result'
+ or current_result->'entry'->>'phase' is distinct from 'cancelled' then raise exception 'hosted_old_receipt_resurrected_import'; end if;
+ changes:=public.v2_library_changes(0,null,1);
+ if jsonb_array_length(changes->'changes')<>1 or changes->>'next_cursor'<>'1'
+ or changes->>'has_more'<>'true' or changes->>'through'<>'2' then raise exception 'hosted_delta_continuation_failed'; end if;
+ changes:=public.v2_library_changes(1,2,1);
+ if changes->>'next_cursor'<>'2' or changes->>'has_more'<>'false'
+ or changes->'changes'->0->'entries'->0->>'phase' is distinct from 'cancelled' then raise exception 'hosted_delta_tombstone_missing'; end if;
+end $$;
+select set_config('request.jwt.claim.sub','{created[1]}',true);
+do $$ begin
+ if public.v2_library_page()->'entries'<>'[]'::jsonb
+ or public.v2_library_changes(0)->'changes'<>'[]'::jsonb then raise exception 'hosted_library_isolation_failed'; end if;
+ begin
+  perform public.v2_cancel_import(gen_random_uuid(),'{operation}',1);
+  raise exception 'hosted_cross_account_cancel_not_rejected';
+ exception when insufficient_privilege then
+  if sqlerrm<>'import_unavailable' then raise; end if;
+ end;
+end $$;
+rollback;""")
+    assert rpc('v2_library_page',{},a)['baseline_cursor']==0
+    print('PASS hosted library paging, replay, cancellation, tombstones and account isolation; mutations rolled back')
     device=str(uuid.uuid4()); token='\\x'+secrets.token_hex(32)
     params={'p_device_id':device,'p_public_key':'\\x'+secrets.token_hex(32),'p_recovery_package':'\\x'+secrets.token_hex(60),
             'p_management_token':token,'p_device_envelope':'\\x'+secrets.token_hex(92),'p_challenge':'\\x'+secrets.token_hex(32)}
