@@ -70,6 +70,8 @@ private final class Scenario: @unchecked Sendable {
                 let payload = body(request.request)
                 newDevice = UUID(uuidString: payload["p_device_id"] as! String)
                 request.respond(try! JSONEncoder().encode(UUID(uuidString: payload["p_request_id"] as! String)!))
+            } else if url.path.hasSuffix("v1_acknowledge_cursor") || url.path.hasSuffix("v1_set_report_status") {
+                request.respond(Data(), status: 204)
             } else if url.path.hasSuffix("v1_approve_enrollment") {
                 envelope = body(request.request)["p_envelope"] as? String
                 // Simulate a server commit whose success response is lost.
@@ -167,6 +169,25 @@ final class NativeSafetyTests: XCTestCase {
         let network = URLSession(configuration: configuration)
         let client = try BackendClient(configuration: BackendConfiguration(url: URL(string: "https://\(host)")!, anonKey: "fixture", environment: environment), network: network)
         return (client, environment, host)
+    }
+
+    func testVoidAcknowledgmentsAndMissingTypedResponsesAreDistinct() async throws {
+        let scenario = Scenario(arrived: XCTestExpectation(description: "unused"))
+        let (client, environment, host) = try client(scenario)
+        defer { StubProtocol.remove(host: host); try? KeychainVault.delete(environment + ".auth-session") }
+        _ = try await client.signIn(email: "fixture", password: "fixture")
+        try await client.rpcVoid("v1_acknowledge_cursor", params: EmptyResponse(), accountID: scenario.firstID)
+        try await client.rpcVoid("v1_set_report_status", params: EmptyResponse(), accountID: scenario.firstID)
+        do {
+            let _: DeviceKeys.KeyState? = try await client.rpc("v1_acknowledge_cursor", params: EmptyResponse(), accountID: scenario.firstID)
+            XCTFail("An empty typed response cannot silently decode as a missing keyring")
+        } catch is DecodingError { }
+        let absent: DeviceKeys.KeyState? = try await client.rpc("v1_key_state", params: EmptyResponse(), accountID: scenario.firstID)
+        XCTAssertNil(absent)
+        do {
+            try await client.rpcVoid("v1_library", params: EmptyResponse(), accountID: scenario.firstID)
+            XCTFail("A structured response is not a void acknowledgment")
+        } catch ReaderError.corruptData { }
     }
 
     func testLateRefreshCannotRestoreSignedOutSession() async throws {

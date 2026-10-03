@@ -91,7 +91,8 @@ final class ReaderModel {
     var activeBranchID: UUID? {
         get {
             let branches = chatBranches
-            if let conversation = activeConversation, let selected = branchSelections[conversation] {
+            if let conversation = activeConversation, let original = branchSelections[conversation] {
+                let selected = privateState.resolvedEventID(original)
                 if branches.contains(where: { $0.head == selected }) { return selected }
                 if let continuation = branches.first(where: { $0.messages.contains(where: { $0.id == selected }) }) { return continuation.head }
             }
@@ -138,6 +139,11 @@ final class ReaderModel {
         Task { await feedback.refresh() }
         let manager = try DeviceKeys(backend: client, accountID: user.id, environment: configuration.environment)
         keys = manager
+        if let cached = try manager.cachedDevice() {
+            try await activate(cached, scope: scope)
+            try await loadLibrary(accountID: user.id, scope: scope)
+            return
+        }
         let preparation = try await manager.prepare()
         guard sessionID == scope, accountID == user.id else { throw BackendError.signInRequired }
         switch preparation {
@@ -166,7 +172,9 @@ final class ReaderModel {
 
     private func activate(_ device: LocalDevice, scope: UUID) async throws {
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }
-        guard let bundle = device.bundle, let backend, let configuration else { throw ReaderError.missingKey }
+        guard let bundle = device.bundle, let backend, let configuration, let keys else { throw ReaderError.missingKey }
+        if let sync { await sync.stop() }
+        guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }
         let environment = configuration.environment
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             .appendingPathComponent("\(environment)/\(device.accountID.wire)", isDirectory: true)
@@ -174,7 +182,10 @@ final class ReaderModel {
         let state = await local.state()
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }
         self.device = device; self.store = local
-        self.sync = CloudSync(backend: backend, device: device, store: local)
+        self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local) { [weak self] updated in
+            guard let self, self.sessionID == scope, self.accountID == updated.accountID else { return }
+            self.device = updated
+        }
         privateState = state
         await synchronize()
     }
@@ -188,9 +199,18 @@ final class ReaderModel {
         do {
             try await sync.synchronize()
             let state = await store.state()
+            let remaining = await store.pending().count
             guard sessionID == scope else { return }
-            privateState = state; syncStatus = "Synced"
-        } catch { if sessionID == scope { syncStatus = "Saved on this device"; show(error) } }
+            privateState = state; syncStatus = remaining == 0 ? "Synced" : "\(remaining) changes waiting to sync"
+            if remaining > 0 { Task { if self.sessionID == scope { await self.synchronize() } } }
+        } catch {
+            if sessionID == scope {
+                syncStatus = "Saved on this device"
+                if let keyError = error as? ReaderError, keyError == .missingKey || keyError == .staleEpoch {
+                    recoveryCode = nil; needsRecovery = true; showRecovery = true
+                } else { show(error) }
+            }
+        }
     }
 
     func beginReport(afterMenu: Bool = false) {

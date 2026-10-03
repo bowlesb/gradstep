@@ -84,7 +84,7 @@ final class SupportService {
                     let receipt: UUID = try await backend.rpc("v1_reply_to_report", params: ["p_id": draft.id.wire, "p_report_id": draft.reportID.wire, "p_body": draft.text], accountID: accountID)
                     guard receipt == draft.id else { throw ReaderError.corruptData }
                 case .status:
-                    let _: EmptyResponse? = try await backend.rpc("v1_set_report_status", params: ["p_id": draft.id.wire, "p_report_id": draft.reportID.wire, "p_status": draft.text], accountID: accountID)
+                    try await backend.rpcVoid("v1_set_report_status", params: ["p_id": draft.id.wire, "p_report_id": draft.reportID.wire, "p_status": draft.text], accountID: accountID)
                 }
                 try Task.checkCancellation()
                 try await outbox.acknowledge(draft)

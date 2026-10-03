@@ -66,10 +66,36 @@ public struct ConversationBranch: Equatable, Sendable {
 /// concurrent edits. The UI presents all surviving heads for explicit resolution.
 public struct PrivateState: Codable, Equatable, Sendable {
     public private(set) var events: [UUID: AppliedEvent] = [:]
+    private var localReplacements: [UUID: UUID] = [:]
 
     public init() {}
 
+    public func resolvedEventID(_ id: UUID) -> UUID {
+        var current = id, visited = Set<UUID>()
+        while let next = localReplacements[current], visited.insert(current).inserted { current = next }
+        return current
+    }
+
+    /// Only the local store calls this after an authenticated replacement marker.
+    /// Both revisions must preserve logical identity/content; only causal event
+    /// IDs and author devices may change. Cloud events never carry this marker.
+    mutating func applyLocalReplacements(_ mapping: [UUID: UUID]) throws {
+        guard !mapping.isEmpty, Set(mapping.values).count == mapping.count,
+              Set(mapping.keys).isDisjoint(with: Set(mapping.values)) else { throw ReaderError.corruptData }
+        for (oldID, newID) in mapping {
+            guard let old = events[oldID], let new = events[newID], localReplacements[oldID] == nil else { throw ReaderError.corruptData }
+            var expected = old.payload
+            expected.parents = expected.parents.map { mapping[$0] ?? $0 }
+            guard expected == new.payload else { throw ReaderError.corruptData }
+        }
+        let retired = Set(mapping.keys)
+        guard events.values.filter({ !retired.contains($0.id) }).allSatisfy({ Set($0.payload.parents).isDisjoint(with: retired) }) else { throw ReaderError.corruptData }
+        for (oldID, newID) in mapping { events.removeValue(forKey: oldID); localReplacements[oldID] = newID }
+    }
+
     public mutating func apply(_ event: AppliedEvent) throws {
+        guard localReplacements[event.id] == nil else { throw ReaderError.eventConflict }
+        guard event.payload.parents.allSatisfy({ localReplacements[$0] == nil }) else { throw ReaderError.invalidEvent }
         try event.payload.validate()
         if let existing = events[event.id] {
             guard existing == event else { throw ReaderError.eventConflict }

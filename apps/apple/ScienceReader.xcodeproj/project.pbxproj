@@ -10,6 +10,7 @@
 		1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
 		19D21897B7DE8D3A6CE01371 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */; };
 		2068FF43BBD2F54711A95852 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
+		2B06FCF690BB99B86685709C /* LiveSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F440B89B75174BCEE986FB90 /* LiveSyncTests.swift */; };
 		3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */; };
 		544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */; };
 		5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
@@ -66,6 +67,7 @@
 		D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderModel.swift; sourceTree = "<group>"; };
 		EBA5A7FE1780246822D83E36 /* PaperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperView.swift; sourceTree = "<group>"; };
 		EE4FFCDAC511A1BEF29DD176 /* .env.staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = .env.staging.xcconfig; sourceTree = "<group>"; };
+		F440B89B75174BCEE986FB90 /* LiveSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSyncTests.swift; sourceTree = "<group>"; };
 		FD128D67F4F26212703DD4BB /* reader-sample.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "reader-sample.html"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -153,6 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */,
+				F440B89B75174BCEE986FB90 /* LiveSyncTests.swift */,
 				6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */,
 			);
 			path = ScienceReaderTests;
@@ -334,6 +337,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */,
+				2B06FCF690BB99B86685709C /* LiveSyncTests.swift in Sources */,
 				3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

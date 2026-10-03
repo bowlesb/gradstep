@@ -41,6 +41,16 @@ Set directory protection, permissions, and backup exclusion before creating the 
 
 This unreleased format replaces the development-only whole-file checkpoint. Existing incompatible files are preserved and rejected explicitly, not overwritten. There is no migration of NAS user data. Local authenticated storage detects corruption and partial substitution; it cannot prevent an attacker who controls the entire device from rolling back a complete older database and its keys.
 
+### Rotation with offline edits
+
+Before uploading, refresh the device envelope and pull all committed events. This resolves a successful upload whose acknowledgement was lost. A committed key rotation holds the same keyring lock as event append, so after the new epoch is visible, no new old-epoch event can commit later. Only after that catch-up may the client replace remaining old-epoch outbox events.
+
+Replacement preserves logical entity/conversation IDs and content, assigns new event IDs and current-author/current-epoch envelopes, and remaps causal parents. Include every pending descendant of a replaced event. Committed events are never rewritten. All replacement records, an authenticated local replacement marker, and the new outbox commit atomically. A crash before commit leaves the old queue; a crash after commit leaves exact new envelopes ready for retry. A second rotation repeats the same pull-first procedure. A revoked device without a new envelope cannot upload.
+
+Local metadata format 3 adds replacement markers to the authenticated record journal. It reads existing format-2 event rows and advances the metadata format on the next transaction, without rewriting history. Older clients reject format 3 before reducing it. The cryptographic container domains remain version 2; the authenticated metadata format is separate. Markers are local bookkeeping for events proven absent from the server, not new cloud payload kinds. Readers verify content preservation, parent remapping, and that no retained event still refers to a retired local event.
+
+Retained device keys allow offline reading before the server is reachable. Network failure does not erase local history or bootstrap replacement keys. Cloud synchronization still refreshes authority before pushing, and account changes invalidate all outstanding UI work.
+
 ## Device-held key design
 
 - Generate content keys with the operating-system secure random source. Use a reviewed, versioned envelope format built on CryptoKit AES-GCM and standard key-agreement/key-derivation primitives. Use fresh nonces and bind account, object/event identity, format, and key version into authenticated data.

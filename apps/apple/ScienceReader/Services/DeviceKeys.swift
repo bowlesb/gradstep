@@ -47,6 +47,14 @@ final class DeviceKeys {
         }
     }
 
+    func cachedDevice() throws -> LocalDevice? {
+        guard let bundle = device.bundle, device.pendingRecoveryCode == nil else { return nil }
+        try bundle.validate(accountID: accountID)
+        guard device.accountID == accountID, device.localStoreKey.count == 32, device.challenge.count == 32,
+              device.privateKey.count == 32 else { throw ReaderError.invalidKey }
+        return device
+    }
+
     func prepare() async throws -> KeyPreparation {
         if let pending = try pendingEnrollment(), let completed = try await finishApproved(pending) { return .ready(completed) }
         let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": device.deviceID.wire], accountID: accountID)
@@ -115,7 +123,7 @@ final class DeviceKeys {
             let p_request_id: String; let p_epoch: Int; let p_management_token: String
             let p_expected_public_key: String; let p_expected_challenge: String; let p_envelope: String
         }
-        let _: EmptyResponse? = try await backend.rpc("v1_approve_enrollment", params: Approval(p_request_id: pending.requestID.wire, p_epoch: keys.epoch,
+        try await backend.rpcVoid("v1_approve_enrollment", params: Approval(p_request_id: pending.requestID.wire, p_epoch: keys.epoch,
             p_management_token: Self.hex(keys.managementToken), p_expected_public_key: Self.hex(publicKey),
             p_expected_challenge: Self.hex(candidate.challenge), p_envelope: Self.hex(pending.envelope)), accountID: accountID)
         device = candidate; try save()
@@ -153,11 +161,16 @@ struct EmptyResponse: Codable, Sendable {}
 @MainActor
 final class CloudSync {
     private let backend: BackendClient
-    private let device: LocalDevice
+    private(set) var device: LocalDevice
+    private let keyManager: DeviceKeys
     private let store: EncryptedStore
+    private let onDeviceChanged: @MainActor (LocalDevice) -> Void
     private var currentTask: Task<Void, Error>?
 
-    init(backend: BackendClient, device: LocalDevice, store: EncryptedStore) { self.backend = backend; self.device = device; self.store = store }
+    init(backend: BackendClient, device: LocalDevice, keyManager: DeviceKeys, store: EncryptedStore,
+         onDeviceChanged: @escaping @MainActor (LocalDevice) -> Void = { _ in }) {
+        self.backend = backend; self.device = device; self.keyManager = keyManager; self.store = store; self.onDeviceChanged = onDeviceChanged
+    }
 
     func synchronize() async throws {
         if let currentTask { return try await currentTask.value }
@@ -168,24 +181,65 @@ final class CloudSync {
     }
 
     func cancel() { currentTask?.cancel() }
+    func stop() async { if let currentTask { currentTask.cancel(); _ = await currentTask.result } }
 
     private func transfer() async throws {
-        guard let keys = device.bundle else { throw ReaderError.missingKey }
+        for attempt in 0..<2 {
+            do { try await transferOnce(); return }
+            catch {
+                let canRefresh: Bool
+                switch error {
+                case ReaderError.missingKey, ReaderError.staleEpoch: canRefresh = true
+                case BackendError.rejected(let code): canRefresh = ["stale_key_epoch", "key_authority_required"].contains(code)
+                default: canRefresh = false
+                }
+                guard attempt == 0 && canRefresh else { throw error }
+            }
+        }
+    }
+
+    private func transferOnce() async throws {
+        try Task.checkCancellation()
+        guard case .ready(let refreshed) = try await keyManager.prepare(), let keys = refreshed.bundle else { throw ReaderError.missingKey }
+        try Task.checkCancellation()
+        guard refreshed.accountID == device.accountID else { throw ReaderError.wrongAccount }
+        try await store.updateKeys(keys)
+        device = refreshed; onDeviceChanged(refreshed)
+        // Pull-first resolves accepted uploads with lost acknowledgements. A
+        // visible newer epoch fences any subsequent old-epoch server commits.
+        try await pull()
+        try Task.checkCancellation()
+        try await store.rebasePendingAfterCatchUp(deviceID: device.deviceID, verifiedEpoch: keys.epoch, cursor: await store.cursor())
         struct Push: Encodable, Sendable {
             let p_device_id: UUID; let p_id: UUID; let p_epoch: Int; let p_format: Int; let p_ciphertext: String; let p_management_token: String
         }
-        for event in await store.pending() {
-            try Task.checkCancellation()
-            let cursor: Int64 = try await backend.rpc("v1_append_event", params: Push(p_device_id: event.deviceID, p_id: event.id,
-                p_epoch: event.epoch, p_format: event.format, p_ciphertext: DeviceKeys.hex(event.ciphertext), p_management_token: DeviceKeys.hex(keys.managementToken)), accountID: device.accountID)
-            guard cursor > 0 else { throw ReaderError.corruptData }
-            try await store.acknowledge(event)
+        var uploaded = 0
+        while uploaded < 1_000 {
+            let pending = await store.pending()
+            if pending.isEmpty { break }
+            for event in pending.prefix(1_000 - uploaded) {
+                try Task.checkCancellation()
+                let cursor: Int64 = try await backend.rpc("v1_append_event", params: Push(p_device_id: event.deviceID, p_id: event.id,
+                    p_epoch: event.epoch, p_format: event.format, p_ciphertext: DeviceKeys.hex(event.ciphertext), p_management_token: DeviceKeys.hex(keys.managementToken)), accountID: device.accountID)
+                try Task.checkCancellation()
+                guard cursor > 0 else { throw ReaderError.corruptData }
+                try await store.acknowledge(event); uploaded += 1
+            }
         }
+        try await pull()
+        try Task.checkCancellation()
+        struct Acknowledgment: Encodable, Sendable { let p_device_id: UUID; let p_cursor: Int64; let p_management_token: String }
+        try await backend.rpcVoid("v1_acknowledge_cursor", params: Acknowledgment(p_device_id: device.deviceID,
+            p_cursor: await store.cursor(), p_management_token: DeviceKeys.hex(keys.managementToken)), accountID: device.accountID)
+    }
+
+    private func pull() async throws {
         struct Pull: Encodable, Sendable { let p_after: Int64; let p_limit = 200 }
         struct Row: Decodable, Sendable { let id: UUID; let device_id: UUID; let cursor: Int64; let epoch: Int; let format: Int; let ciphertext: String; let ciphertext_sha256: String }
         while true {
             try Task.checkCancellation()
             let rows: [Row] = try await backend.rpc("v1_pull_events", params: Pull(p_after: await store.cursor()), accountID: device.accountID)
+            try Task.checkCancellation()
             let page = try rows.map { row in
                 RemoteEvent(cursor: row.cursor, envelope: EventEnvelope(id: row.id, deviceID: row.device_id, epoch: row.epoch,
                     format: row.format, ciphertext: try DeviceKeys.bytea(row.ciphertext)), digest: try DeviceKeys.bytea(row.ciphertext_sha256))

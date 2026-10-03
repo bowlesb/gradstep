@@ -95,6 +95,16 @@ actor BackendClient {
         return try JSONDecoder().decode(R.self, from: data)
     }
 
+    /// SQL `returns void` has an empty HTTP 204 response. Keep it distinct from
+    /// typed RPCs: an empty key-state response must never mean "no keyring".
+    func rpcVoid<P: Encodable & Sendable>(_ function: String, params: P, accountID: UUID) async throws {
+        let data = try await authorized(path: "rest/v1/rpc/\(function)", body: ReaderCrypto.encode(params), accountID: accountID)
+        if !data.isEmpty {
+            let value = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
+            guard value is NSNull else { throw ReaderError.corruptData }
+        }
+    }
+
     func edge<P: Encodable & Sendable, R: Decodable & Sendable>(_ function: String, body: P, accountID: UUID? = nil, as type: R.Type = R.self) async throws -> R {
         let data = try await authorized(path: "functions/v1/\(function)", body: ReaderCrypto.encode(body), accountID: accountID)
         return try JSONDecoder().decode(R.self, from: data)
