@@ -17,6 +17,7 @@ Last updated: 2026-10-03. Requirements below come from the current user conversa
 | Operating budget | $100/month incremental Science Reader private-beta costs, excluding existing TextBrain charges |
 | Backend | Dedicated Supabase infrastructure with background processing as needed |
 | Shared articles | Reuse eligible article conversions across users to reduce Mathpix costs |
+| Equation-aware reader | Mathpix PDF parsing is required for the final structured text/equation/figure experience; opening an original PDF is an intermediate development capability, not completion of the reader |
 | Private user data | Each person owns their library state, notes, highlights, and conversations |
 | Admin | Private usage/cost dashboard with spending and account controls |
 | Testing | Internal/admin app experience: screenshot, note, upload, replies, and fix-build tracking |

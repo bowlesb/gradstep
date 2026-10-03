@@ -17,7 +17,8 @@
     "pdf-lib": "1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "sanitize-html": "2.18.0"
+    "sanitize-html": "2.18.0",
+    "saxes": "6.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
@@ -30,5 +31,7 @@
     "typescript": "7.0.2",
     "vite": "8.3.2"
   },
-  "engines": {"node": ">=24"}
+  "engines": {
+    "node": ">=24"
+  }
 }

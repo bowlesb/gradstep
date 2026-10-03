@@ -5,7 +5,8 @@
     "npm:@supabase/supabase-js@2.117.2": "2.117.2",
     "npm:fflate@0.8.3": "0.8.3",
     "npm:pdf-lib@1.17.1": "1.17.1",
-    "npm:sanitize-html@2.18.0": "2.18.0"
+    "npm:sanitize-html@2.18.0": "2.18.0",
+    "npm:saxes@6.0.0": "6.0.0"
   },
   "npm": {
     "@apple/app-store-server-library@3.1.0": {
@@ -399,6 +400,12 @@
         "postcss"
       ]
     },
+    "saxes@6.0.0": {
+      "integrity": "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==",
+      "dependencies": [
+        "xmlchars"
+      ]
+    },
     "semver@7.8.5": {
       "integrity": "sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==",
       "bin": true
@@ -427,6 +434,9 @@
         "tr46",
         "webidl-conversions"
       ]
+    },
+    "xmlchars@2.2.0": {
+      "integrity": "sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw=="
     }
   },
   "workspace": {
@@ -435,7 +445,8 @@
       "npm:@supabase/supabase-js@2.117.2",
       "npm:fflate@0.8.3",
       "npm:pdf-lib@1.17.1",
-      "npm:sanitize-html@2.18.0"
+      "npm:sanitize-html@2.18.0",
+      "npm:saxes@6.0.0"
     ]
   }
 }

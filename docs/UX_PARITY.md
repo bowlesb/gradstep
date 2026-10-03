@@ -52,7 +52,7 @@ The user specifically requested complete workflow simulations and independent re
 | Stream and stop | Stable text metrics for partial/final Markdown, math, tables, and code; follow only near the bottom; user can read earlier text; stop restores controls and retains an interrupted encrypted result; late tokens cannot change another conversation |
 | Keyboard and dismissal | Keyboard can be dismissed without discarding input; history/figures return to their origin; repeated contents jumps work; headings, controls, and messages remain usable at large text sizes |
 
-Each check must distinguish source review, deterministic simulation, and live service evidence. Search/import/tag generation/provider streaming are still incomplete; a fixture does not establish those integrations. Review findings and implemented regression checks are recorded in IMPLEMENTATION_STATUS.md. Unsent draft persistence across process termination is also pending encrypted-storage design; never store drafts in plaintext preferences.
+Each check must distinguish source review, deterministic simulation, and live service evidence. Search/import/tag generation/provider streaming are still incomplete; a fixture does not establish those integrations. Review findings and implemented regression checks are recorded in IMPLEMENTATION_STATUS.md. Signed-in drafts now use encrypted device-local checkpoints across process termination; guest drafts remain session-only. Never store drafts in plaintext preferences. Mathpix conversion, durable equation/figure assets, and an equation-heavy actual-paper walkthrough remain required for reader completion; displaying an original PDF alone does not satisfy this gate.
 
 ## Earlier implementation history reviewed
 
