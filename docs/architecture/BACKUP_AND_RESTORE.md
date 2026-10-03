@@ -18,6 +18,8 @@ Before automated retention of verified objects is enabled, its physical-deletion
 
 Do not restore pending/deleting objects as usable files. Resume their reconciliation only after quarantine checks. Database/object consistency does not mean a provider's external state was rolled back with the database.
 
+The local drill atomically closes platform paid-work admission and, when present, migration 011's metadata, original-download, verification and original-read gates. It preserves restored network leases, uncertain attempts, read grants, deletion state, and charged/reserved capacity. Four disposable PostgreSQL regressions verify enabled-policy quarantine, pre-011 compatibility, independently present optional policies, and complete rollback on an incompatible present schema. This does not reconcile an external provider or authorize a restored worker to resume.
+
 ## Recovery procedure
 
 1. Decrypt and verify the manifest, the database dump, and every object in a local, access-restricted quarantine. Reject unknown formats, unsafe paths, missing/truncated files, or checksum mismatches.

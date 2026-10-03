@@ -49,6 +49,27 @@ def decrypt(source, key, target, maximum):
                 process.kill(); process.wait()
 
 
+def quarantine(sql):
+    """Disable admission without releasing restored authority or reservations.
+
+    A pre-011 checkpoint has neither optional policy table. Dynamic statements
+    are deliberate: PostgreSQL must not resolve those relations on that path.
+    The single DO statement rolls back every flag change if a present table is
+    incompatible; the restore then fails and drops its disposable database.
+    """
+    sql("""do $restore_quarantine$
+    begin
+      update app_private.platform_budgets set work_enabled=false;
+      if pg_catalog.to_regclass('app_private.acquisition_policy') is not null then
+        execute 'update app_private.acquisition_policy set metadata_enabled=false, original_enabled=false, verification_enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.paper_read_policy') is not null then
+        execute 'update app_private.paper_read_policy set enabled=false';
+      end if;
+    end
+    $restore_quarantine$;""")
+
+
 def restore(checkpoint, environment, fixture=None):
     os.umask(0o077)
     start = time.monotonic()
@@ -124,7 +145,9 @@ def restore(checkpoint, environment, fixture=None):
                 if actual != count:
                     raise RuntimeError('Restored row count mismatch')
             # Quarantine is explicit even though this local target has no worker.
-            sql('update app_private.platform_budgets set work_enabled=false;')
+            # Keep network gate leases, uncertain grants and charged/reserved
+            # capacity intact for a later deliberate recovery reconciliation.
+            quarantine(sql)
             if sql("select count(*) from pg_tables where schemaname='app_private' and not rowsecurity;").strip() != '0':
                 raise RuntimeError('Restored application table lacks RLS')
             expected = len(manifest['objects'])
