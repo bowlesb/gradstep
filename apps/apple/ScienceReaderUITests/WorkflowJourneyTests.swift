@@ -150,6 +150,77 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Explicit sibling choice preserves paper draft and context")
     }
 
+    func testEncryptedDraftsSurviveRelaunchAndSentTextDoesNotReturn() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        let paperDraft = "Explain how attention scales."
+        let generalDraft = "Compare retrieval methods."
+        app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        func assertDraftSaved() {
+            let status = app.staticTexts["chat.draftStatus"]
+            let saved = NSPredicate { _, _ in status.exists && status.label == "Draft saved on this device" }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: saved, object: nil)], timeout: 8), .completed)
+        }
+        func assertComposerEmpty() {
+            let empty = NSPredicate { _, _ in
+                let value = input.value as? String ?? ""
+                return (value.isEmpty || value == "Ask a question…") && !app.buttons["chat.send"].isEnabled
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: empty, object: nil)], timeout: 8), .completed)
+        }
+        func relaunch() {
+            app.terminate()
+            app.launchArguments = ["--draft-fixture"]
+            app.launch()
+            XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+            app.buttons["tab.chat"].tap()
+        }
+        func sentQuestion() -> XCUIElementQuery {
+            app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@",
+                "chat.message.text.", "You: \(paperDraft)"))
+        }
+
+        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        input.tap(); input.typeText(paperDraft)
+        assertDraftSaved()
+        app.buttons["chat.dismissKeyboard"].tap()
+        app.segmentedControls.buttons["General chat"].tap()
+        input.tap(); input.typeText(generalDraft)
+        assertDraftSaved()
+        app.buttons["chat.dismissKeyboard"].tap()
+
+        relaunch()
+        XCTAssertEqual(input.value as? String, paperDraft)
+        app.segmentedControls.buttons["General chat"].tap()
+        XCTAssertEqual(input.value as? String, generalDraft)
+        app.segmentedControls.buttons["Paper chat"].tap()
+        XCTAssertEqual(input.value as? String, paperDraft)
+        capture(app, "Encrypted paper and general drafts survive process relaunch")
+        app.buttons["chat.send"].tap()
+        XCTAssertTrue(sentQuestion().firstMatch.waitForExistence(timeout: 8))
+        assertComposerEmpty()
+
+        // Restart after the send is locally visible; the transaction must have
+        // consumed the captured draft even if a later receipt checkpoint lags.
+        relaunch()
+        app.buttons["Chat history"].tap()
+        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons[paperDraft].waitForExistence(timeout: 5))
+        app.buttons[paperDraft].tap()
+        XCTAssertTrue(sentQuestion().firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(sentQuestion().count, 1, "The saved question appears once after relaunch")
+        assertComposerEmpty()
+        app.segmentedControls.buttons["General chat"].tap()
+        XCTAssertEqual(input.value as? String, generalDraft)
+        app.segmentedControls.buttons["Paper chat"].tap()
+        assertComposerEmpty()
+        capture(app, "Saved question reopens once without resurrecting its draft")
+    }
+
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
         app.buttons["tab.chat"].tap()

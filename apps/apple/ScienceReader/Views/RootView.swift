@@ -66,7 +66,12 @@ struct RootView: View {
         .alert("Science Reader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await model.synchronize() } } }
+        .onChange(of: scenePhase) { _, phase in
+            Task {
+                await model.flushDrafts()
+                if phase == .active { await model.synchronize() }
+            }
+        }
     }
 
     @ViewBuilder private func destination(_ tab: ReaderTab) -> some View {
@@ -245,6 +250,15 @@ struct ChatView: View {
                     }
                     ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17)
                     Text("AI replies aren’t available in this build.").font(.caption).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    if let issue = model.chatDraftIssue {
+                        HStack {
+                            Text(issue).font(.caption)
+                            Button("Retry") { model.retryDraftSave() }.font(.caption.weight(.semibold))
+                        }.padding(.horizontal, 16).accessibilityIdentifier("chat.draftIssue")
+                    } else if model.draftsArePersistent && !model.chatInput.isEmpty {
+                        Text(model.chatDraftStatusText).font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.draftStatus")
+                    }
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("Ask a question…", text: $model.chatInput, axis: .vertical)
                             .focused($composerFocused).accessibilityIdentifier("chat.composer")
@@ -257,7 +271,7 @@ struct ChatView: View {
                                 .keyboardShortcut(.cancelAction)
                         }
                         Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                            .disabled(model.isGenerating || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Save message").accessibilityIdentifier("chat.send")
+                            .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Save message").accessibilityIdentifier("chat.send")
                     }.padding(12)
                     if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
                     else if model.email != nil || model.chatHasSaved { Text(model.syncStatus).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
@@ -376,7 +390,9 @@ struct HistoryView: View {
                                     Button("Discard", role: .destructive) { model.discardUnsentDraft(draft.id) }
                                 }
                         }
-                    } header: { Text("Unsent drafts") } footer: { Text("Kept for this session.") }
+                    } header: { Text("Unsent drafts") } footer: {
+                        Text(model.draftsArePersistent ? "Drafts stay on this device." : "Kept for this session.")
+                    }
                 }
                 Section {
                     ForEach(entities, id: \.self) { id in

@@ -64,23 +64,52 @@ final class ReaderModel {
     private var branchSelections = ConversationBranchSelections()
     private(set) var chatFollowRequest: ChatFollowRequest?
     private var chatContext: String { generalChat ? "general" : "paper/\((chatPaperID ?? selectedPaper?.id)?.wire ?? "none")" }
-    var chatInput: String { get { chatWorkspace.draft(in: chatContext) } set { chatWorkspace.setDraft(newValue, in: chatContext) } }
+    var chatInput: String {
+        get { chatWorkspace.draft(in: chatContext) }
+        set {
+            chatWorkspace.setDraft(newValue, in: chatContext)
+            recordCurrentDraftBranch()
+            if let chatComposerID { queueDraft(chatComposerID) }
+        }
+    }
     var activeConversation: UUID? {
         get { chatWorkspace.conversation(in: chatContext) }
         set {
             chatWorkspace.select(newValue, in: chatContext)
             branchSelections.reconcile(with: privateState, observing: newValue)
+            recordCurrentDraftBranch()
+            if let chatComposerID { queueDraft(chatComposerID) }
         }
     }
     var chatComposerID: UUID? { chatWorkspace.composerID(in: chatContext) }
     var unsentDrafts: [ChatWorkspace.UnsentDraft] { chatWorkspace.unsentDrafts }
     var chatHasSaved: Bool { chatWorkspace.hasSaved(in: chatContext) }
+    var chatDraftStatus: ChatWorkspace.DraftStatus { chatWorkspace.draftStatus(in: chatContext) }
+    var draftsArePersistent: Bool { draftQueue != nil }
+    var chatDraftIssue: String? {
+        if case .failed(let message) = chatDraftStatus { return message }
+        return nil
+    }
+    var chatDraftStatusText: String {
+        guard draftsArePersistent else { return "Draft kept for this session" }
+        switch chatDraftStatus {
+        case .saved: return "Draft saved on this device"
+        case .saving, .changed: return "Saving draft…"
+        case .failed: return "Draft not saved"
+        case .memoryOnly: return "Draft kept for this session"
+        }
+    }
     var canUsePaperChat: Bool { chatPaperID != nil || selectedPaper != nil }
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
     var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text } ?? "New chat") }
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
     var privateState = PrivateState() {
-        didSet { branchSelections.reconcile(with: privateState, observing: activeConversation) }
+        didSet {
+            branchSelections.reconcile(with: privateState, observing: activeConversation)
+            chatWorkspace.setDeletedConversations(Set(privateState.events.values.lazy
+                .filter { $0.payload.kind == .tombstone }.map { $0.payload.entityID }))
+            checkpointObservedBranches()
+        }
     }
     var syncStatus = "On this device"
     var syncIssue: String?
@@ -105,10 +134,14 @@ final class ReaderModel {
     var paperJump: PaperJumpRequest?
     var selectedQuote = ""
     var isGenerating: Bool { chatWorkspace.isSaving(in: chatContext) }
+    var isDiscardingDraft: Bool { chatWorkspace.isDiscarding(in: chatContext) }
     private var backend: BackendClient?
     private var keys: DeviceKeys?
     private var device: LocalDevice?
     private var localPersistence = ReaderLocalPersistence()
+    private var draftQueue: ReaderDraftQueue?
+    private var pendingDraftCheckpoints: [UUID: ChatWorkspace.Checkpoint] = [:]
+    private var draftsRestored = false
     private let retirementQueue = ReaderRetirementQueue()
     private var store: EncryptedStore? { localPersistence.store }
     private var sync: CloudSync?
@@ -159,6 +192,8 @@ final class ReaderModel {
                 guard newValue == nil || chatBranches.contains(where: { $0.head == newValue }) else { return }
                 branchSelections.select(newValue, in: conversation)
                 branchSelections.reconcile(with: privateState, observing: conversation)
+                recordCurrentDraftBranch(explicit: true)
+                queueDraft(composerID)
                 chatFollowRequest = ChatFollowRequest(composerID: composerID)
             }
         }
@@ -173,6 +208,11 @@ final class ReaderModel {
     func start() async {
         guard !started else { return }; started = true
         #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--draft-fixture") {
+            do { try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture")) }
+            catch { show(error) }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--workflow-fixture") {
             do { try configureWorkflowFixture() } catch { show(error) }
             return
@@ -192,7 +232,7 @@ final class ReaderModel {
         guard !isBusy else { return }
         // Only an unauthenticated local draft may cross initial sign-in. Never
         // carry a signed-in account's private context into another account.
-        let guestDraft = accountID == nil && self.email == nil ? chatInput : nil
+        let guestDraft = accountID == nil && self.email == nil && chatComposerID != nil ? chatInput : nil
         let guestPaper = accountID == nil && self.email == nil && selectedPaper?.isSample == true ? selectedPaper : nil
         let guestGeneral = generalChat
         let guestTab = tab, guestMode = wideMode
@@ -288,7 +328,9 @@ final class ReaderModel {
             guard let self, self.workOwnership.owns(activation), self.accountID == updated.accountID else { return }
             self.device = updated
         }
+        prepareDrafts(snapshot: snapshot, scope: scope)
         publish(snapshot)
+        checkpointAllDrafts()
         recoveryCode = nil; needsRecovery = false; showRecovery = false
         activated = true
         workOwnership.finishActivation(activation)
@@ -349,6 +391,7 @@ final class ReaderModel {
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
         publishedGeneration = -1; publishedPendingCount = 0
         support?.cancel(); support = nil
+        draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
         retirementQueue.retire(sync: sync, persistence: localPersistence)
         sync = nil
         device = nil; localPersistence = ReaderLocalPersistence(); keys = nil
@@ -395,10 +438,37 @@ final class ReaderModel {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }
             generalChat = false; wideMode = .reader
         } else { generalChat = true; wideMode = .chat }
+        if let checkpoint = chatWorkspace.checkpoint(for: id), let conversation = checkpoint.conversationID,
+           let head = checkpoint.selectedHead {
+            branchSelections.select(head, in: conversation)
+            branchSelections.reconcile(with: privateState, observing: conversation)
+        }
         tab = .chat
+        recordCurrentDraftBranch()
+        queueDraft(id)
     }
 
-    func discardUnsentDraft(_ id: UUID) { chatWorkspace.discardDraft(id) }
+    func discardUnsentDraft(_ id: UUID) {
+        guard let draftQueue else { chatWorkspace.discardDraft(id); return }
+        guard let removal = chatWorkspace.prepareDiscard(id) else { return }
+        let scope = sessionID
+        do {
+            let task = try draftQueue.discard(id: id, revision: removal.revision)
+            pendingDraftCheckpoints.removeValue(forKey: id)
+            Task {
+                do {
+                    try await task.value
+                    guard sessionID == scope else { return }
+                    if let replacement = chatWorkspace.completeDiscard(removal) { queueDraft(replacement) }
+                } catch {
+                    guard sessionID == scope else { return }
+                    chatWorkspace.failDiscard(removal)
+                    queueDraft(id)
+                    show(error)
+                }
+            }
+        } catch { chatWorkspace.failDiscard(removal); queueDraft(id); show(error) }
+    }
     func openSample() {
         let paper = Paper(id: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!, title: "Reading machine learning papers", authors: "Science Reader · offline sample", year: 2026,
             abstract: "A local reading fixture with equations, a wide table, figure, and references. It demonstrates the reader without uploading a paper or using credits.",
@@ -441,12 +511,14 @@ final class ReaderModel {
         let documentID = generalChat ? nil : (chatPaperID ?? selectedPaper?.id)
         var parents = activeBranchID.map { [$0] } ?? []
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
+        recordCurrentDraftBranch()
         guard let submission = chatWorkspace.beginSubmission(in: chatContext) else { return }
         // A remote user message is not a local scrolling action. Capture the
         // accepted submit gesture before saving, scoped to its own composer.
         chatFollowRequest = ChatFollowRequest(composerID: submission.composerID)
         let branchChoice = branchSelections.capture(in: submission.conversationID)
         do {
+            guard let checkpoint = submission.checkpoint else { throw ReaderError.invalidEvent }
             var events: [(id: UUID, event: PrivateEvent)] = []
             if let root = submission.rootID {
                 events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID, text: String(submission.text.prefix(100)))))
@@ -455,17 +527,23 @@ final class ReaderModel {
             events.append((submission.id, PrivateEvent(kind: .message, entityID: submission.id, parents: parents,
                 conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete)))
             let batch = events
-            let committed = try await persistence.performWrite { local in
-                try await local.appendBatch(batch, deviceID: device.deviceID)
+            let committing = try persistence.acceptWrite { local in
+                try await local.commitDraftSubmission(batch, deviceID: device.deviceID,
+                    consuming: DraftConsumption(draft: checkpoint, submissionID: submission.id))
             }
+            let committed = try await committing.value
             let snapshot = await store.snapshot()
             guard sessionID == scope else { return }
-            branchSelections.complete(branchChoice, head: committed.last?.id)
-            chatWorkspace.complete(submission)
+            branchSelections.complete(branchChoice, head: committed.envelopes.last?.id)
+            chatWorkspace.complete(submission, stored: committed.draft, receiptID: committed.receiptID)
             if workOwnership.owns(storeScope), publish(snapshot) {
                 syncStatus = syncIssue == nil ? "Saved on this device" : "Saved on this device · Sync paused"
             }
             branchSelections.reconcile(with: privateState, observing: submission.conversationID)
+            if let head = branchSelections.selected(in: submission.conversationID) {
+                chatWorkspace.recordSelectedHead(head, for: submission.composerID, explicit: false)
+            }
+            queueDraft(submission.composerID)
             // Local acknowledgement restores this composer's controls. Slow
             // network synchronization must not block a different conversation.
             Task { if self.sessionID == scope { await self.synchronize() } }
@@ -478,6 +556,97 @@ final class ReaderModel {
     }
 
     func show(_ error: Error) { self.error = (error as? LocalizedError)?.errorDescription ?? "This operation could not finish. Your existing saved data has been preserved." }
+
+    private func prepareDrafts(snapshot: LocalStoreSnapshot, scope: UUID) {
+        if !draftsRestored {
+            chatWorkspace.restore(snapshot.drafts)
+            var restoredConversations = Set<UUID>()
+            for draft in snapshot.drafts {
+                if let conversation = draft.conversationID, restoredConversations.insert(conversation).inserted {
+                    branchSelections.select(draft.selectedHead, in: conversation)
+                }
+            }
+            draftsRestored = true
+        }
+        guard draftQueue == nil else { return }
+        draftQueue = ReaderDraftQueue(persistence: localPersistence) { [weak self] requested, result in
+            guard let self, self.sessionID == scope,
+                  let checkpoint = self.pendingDraftCheckpoints[requested.id], checkpoint.draft.revision == requested.revision else { return }
+            self.pendingDraftCheckpoints.removeValue(forKey: requested.id)
+            switch result {
+            case .success(let stored):
+                self.chatWorkspace.acknowledge(checkpoint, stored: stored)
+                if self.chatWorkspace.checkpoint(for: requested.id) != stored { self.queueDraft(requested.id) }
+            case .failure:
+                self.chatWorkspace.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.")
+            }
+        }
+    }
+
+    private func recordCurrentDraftBranch(explicit: Bool = false) {
+        guard let id = chatComposerID else { return }
+        chatWorkspace.recordSelectedHead(activeBranchID, for: id, explicit: explicit)
+    }
+
+    private func checkpointObservedBranches() {
+        for draft in chatWorkspace.checkpoints {
+            guard let conversation = draft.conversationID,
+                  let head = branchSelections.selected(in: conversation), head != draft.selectedHead else { continue }
+            chatWorkspace.recordSelectedHead(head, for: draft.id, explicit: false)
+            queueDraft(draft.id)
+        }
+    }
+
+    private func queueDraft(_ id: UUID) {
+        guard let draftQueue, let checkpoint = chatWorkspace.beginCheckpoint(for: id) else { return }
+        pendingDraftCheckpoints[id] = checkpoint
+        do { try draftQueue.save(checkpoint.draft) }
+        catch {
+            pendingDraftCheckpoints.removeValue(forKey: id)
+            chatWorkspace.failCheckpoint(checkpoint, message: "Draft not saved on this device. Try saving it again.")
+        }
+    }
+
+    private func checkpointAllDrafts() {
+        for draft in chatWorkspace.checkpoints { queueDraft(draft.id) }
+    }
+
+    func retryDraftSave() { if let chatComposerID { queueDraft(chatComposerID) } }
+
+    func flushDrafts() async {
+        checkpointAllDrafts()
+        await localPersistence.waitForAcceptedWrites()
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// Synthetic process-restart journeys use the real encrypted SQLite path,
+    /// with public fixture keys and no Auth, networking, or provider setup.
+    func configureDurableDraftFixture(reset: Bool) async throws {
+        let fixtureAccount = UUID(uuidString: "eeeeeeee-0000-4000-8000-000000000001")!
+        let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("workflow-draft-fixture", isDirectory: true)
+        if reset, FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+        let encoded = try JSONSerialization.data(withJSONObject: [
+            "accountID": fixtureAccount.uuidString, "epoch": 1,
+            "contentKeys": ["1": Data(repeating: 17, count: 32).base64EncodedString()],
+            "managementToken": Data(repeating: 23, count: 32).base64EncodedString()
+        ])
+        let bundle = try JSONDecoder().decode(KeyBundle.self, from: encoded)
+        var fixtureDevice = LocalDevice.create(accountID: fixtureAccount, localStoreKey: Data(repeating: 31, count: 32))
+        fixtureDevice.bundle = bundle
+        accountID = fixtureAccount; email = "draft-fixture@example.invalid"; device = fixtureDevice
+        let activation = workOwnership.beginActivation()
+        defer { workOwnership.finishActivation(activation) }
+        let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
+            accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
+        openSample()
+        let snapshot = await local.snapshot()
+        prepareDrafts(snapshot: snapshot, scope: sessionID)
+        publish(snapshot)
+        checkpointAllDrafts()
+        tab = .library; wideMode = .library
+    }
+    #endif
 
     @discardableResult
     func publish(_ snapshot: LocalStoreSnapshot) -> Bool {
@@ -540,14 +709,24 @@ final class ReaderLocalPersistence {
     private var accountID: UUID?
     private var localKey: Data?
     private var storageURL: URL?
-    private var writes: [UUID: Task<[EventEnvelope], Error>] = [:]
+    private var writes: [UUID: Task<Void, Never>] = [:]
 
     func performWrite(_ operation: @escaping @Sendable (EncryptedStore) async throws -> [EventEnvelope]) async throws -> [EventEnvelope] {
+        try await acceptWrite(operation).value
+    }
+
+    /// Registers ownership synchronously, before a later sign-out can retire
+    /// this writer. Once accepted, the old account's work is always drained.
+    func acceptWrite<Value: Sendable>(_ operation: @escaping @Sendable (EncryptedStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let store else { throw ReaderError.storageUnavailable }
         let id = UUID(), task = Task { try await operation(store) }
-        writes[id] = task
-        defer { writes.removeValue(forKey: id) }
-        return try await task.value
+        let completion = Task { _ = await task.result }
+        writes[id] = completion
+        Task { [weak self] in
+            await completion.value
+            self?.writes.removeValue(forKey: id)
+        }
+        return task
     }
 
     func activate(url: URL, accountID: UUID, localKey: Data, keys: KeyBundle) async throws -> EncryptedStore {
