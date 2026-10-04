@@ -295,9 +295,9 @@ The launcher must implement the supervisor/child UID boundary without giving the
 child service-manager or cgroup privileges. Its control protocol accepts only
 the fixed bundle, finite source DTO and never-reused scope; no arbitrary command,
 path, unit or URL. The precise privilege-drop mechanism and effective kernel
-restrictions require review and negative tests before admission. The tested
-fixture used one credential-free UID for supervisor and child; it does **not**
-establish this production separation. Root/host compromise remains outside the
+restrictions require review and negative tests before admission. The original
+lifecycle fixture used one credential-free UID; the split-UID prerequisite below
+adds local evidence, not production admission. Root/host compromise remains outside the
 trust model; hashes and role names do not remove that dependency.
 
 Use distinct restricted login connections with certificate-verified DB TLS and
@@ -600,6 +600,165 @@ transaction below; the prerequisite authorization did not permit installation:
   for the current parser builder. Copy only its captured TS inputs and existing
   `saxes@6.0.0`/`xmlchars@2.2.0` JS/JSON graph. Downloads, if required, are package
   preparation only and need the separately reviewed install step; no arXiv call.
+
+### Pinned dependency proposal, 2026-10-04
+
+This is a **metadata-only review**, not an executed installation. The exact guest
+remained stopped. PGDG's Noble `InRelease`, dated 2026-09-30, verifies under
+fingerprint `B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8`; its SHA-256 entries match
+the retained `main/binary-arm64` and `17/binary-arm64` indexes. The selected
+packages below match hosted PostgreSQL 17.11. Use both components and pin
+`libpq5` explicitly: `main` currently offers libpq 18 as its newest version.
+Do not install the unversioned PostgreSQL metapackages.
+[PGDG Ubuntu repository](https://www.postgresql.org/download/linux/ubuntu/),
+[PostgreSQL 17.11 release](https://www.postgresql.org/docs/release/17.11/).
+
+| Package | Exact version / architecture | SHA-256 from signed index |
+|---|---|---|
+| `postgresql-17` | `17.11-1.pgdg24.04+2` / arm64 | `4f70a5f9101cab17348f40e4534ea96f9e70b8bb4e44a2b4c8b314e3dee2aca7` |
+| `postgresql-client-17` | same / arm64 | `07d62cc509748510bb8e862fbe58d1050e99fb1d457f09036f04253d9995aba7` |
+| `libpq5` (component `17`) | same / arm64 | `31fff8c4df7f2ef61f0cf579cd2b9b9fa101a842e1a01ad940c0855587010aea` |
+| `postgresql-common` | `293.pgdg24.04+1` / all | `4393363fa55e5351c6948939927c48419d804197bf638e295a78824daecff6b3` |
+| `postgresql-client-common` | same / all | `80ae115f63ba67fbba442f6b75a468a559b77a3ee3b0be357a4c49e70bf860c5` |
+
+These five packages total 18,851,700 download bytes and 73,395 installed KiB,
+**excluding dependencies**. Server requirements include libllvm19, libicu74,
+locales, ssl-cert and the ordinary Noble runtime libraries; common also needs
+Perl/libjson-perl, ucf and init helpers. The current schema needs no separate
+pgvector/extension package. The retained guest inventory does not contain full
+dpkg status, package indexes or existing service policy, so the complete closure
+and its upgrade/removal set are not yet known. Do not label this table an exact
+APT transaction until the next inventory/simulation closes that gap.
+
+The Linux Deno/esbuild registry metadata matches the committed lockfile's exact
+URLs and SHA-512 SRI. ECDSA registry signatures verify against the fetched npm
+registry key; this verifies the signed name/version/integrity, not an independently
+reviewed build-provenance attestation. No binary tarball was downloaded here.
+Deno advertises three files / 84,906,430 unpacked bytes; esbuild three files /
+10,289,789 bytes. Later extraction must validate those actual files and SRI,
+reject links/traversal/duplicates, and run no npm lifecycle or shell installer.
+Keep total compressed tool downloads within 96 MiB, extracted Deno within 96 MiB
+and esbuild within 16 MiB; these are refusal limits, not measured download sizes.
+[npm signature contract](https://docs.npmjs.com/about-registry-signatures/).
+
+Raw signed indexes, registry metadata/signature checks, package paths, sizes and
+both full SRI values are retained in `.artifacts/linux-dependency-review/`.
+`review-manifest.json` SHA-256 is
+`a9d1f941a061b2a6e9b2f0da7c6b2c97db80489de65498c0e96735e5c01df1ec`.
+Package and tool payload verification remains required after any later download.
+
+The root's current project-volume `df` observation is approximately **11 GiB
+available**; each retained native diagnostic build tree uses about 338–339 MiB.
+Do not infer available space from the guest's 20 GiB sparse-disk ceiling. Before
+any preparation, recheck both actual host and guest free space. Reserve at least
+8 GiB host free initially and a projected 4 GiB remaining margin, allowing up to
+512 MiB host package/tool staging, 3 GiB additional guest allocation, 128 MiB
+evidence and one 350 MiB native build. Check actual allocation after each phase;
+APT Installed-Size is not a physical-space guarantee. No VM disk growth beyond
+that allowance, full-disk rollback copy or deletion of baseline/evidence/unrelated
+files is implied. A space shortfall pauses preparation for root review.
+
+### Finite preparation transaction proposed for root review
+
+1. On the **same authorized guest only**, first capture full dpkg status,
+   `dpkg --audit`, exact APT sources/preferences/hooks, active package managers,
+   free disk, existing PostgreSQL users/clusters/units and `policy-rc.d`. This
+   proposal itself does not authorize that boot. Use a private APT lists/cache
+   directory and a single explicit signed PGDG/Noble source set; disable
+   translations, retries and inherited proxy settings. Resolve with
+   `--no-install-recommends`, exact versions and `--no-remove`; record every
+   package/version/architecture/hash and installed-size delta. Reject existing
+   package upgrades/downgrades/removals, third-party repositories, kernel/init/
+   Python/TLS upgrades, or an unexpected package before installation. A necessary
+   existing-library update requires a revised transaction and runtime review.
+2. Freeze/download only that reviewed closure; allow at most 384 MiB of package
+   archives and 1 GiB additional installed files, with at least 4 GiB free guest
+   space. Inspect the **verified exact** `.deb` control scripts/triggers and unit
+   files before root accepts the install step. Those scripts have not been
+   inspected in this metadata-only pass. Use no development/docs/metapackages,
+   recommendations, Node/npm or compiler toolchain.
+3. Before package configuration, preserve any existing service policy and refuse
+   an unreviewed collision. Set PostgreSQL's `create_main_cluster=false` and
+   `start_conf=disabled`; use the documented service-policy denial (`101`) for
+   maintainer start/restart actions and mask the exact reviewed PostgreSQL units.
+   Install helpers/common first, verify the cluster policy, then install the
+   versioned server/client closure. No `main` cluster, enabled service or listener
+   may appear. Explicitly check package-trigger side effects: the package-owned
+   postgres account/directories, ssl-cert material and alternatives are expected
+   system changes, not fixture credentials or proof of a clean rollback.
+   [Cluster defaults](https://manpages.debian.org/unstable/postgresql-common/pg_createcluster.1.en.html),
+   [service policy](https://manpages.debian.org/unstable/init-system-helpers/invoke-rc.d.8.en.html).
+4. Stage Deno/esbuild in the task-owned tool prefix, retaining their package JSON
+   and exact lockfile. Recreate the parser builder's finite expected layout,
+   invoke native esbuild directly, and require Deno's observed version and hash
+   to match the new Linux manifest. No implicit package resolver is used.
+   Bound package/tool/build/cluster/journal work together to 2 GiB excluding the
+   separately capped installed packages, and stop admission below the disk reserve.
+5. Treat installation as non-atomic. On failure, retain the transaction/logs,
+   confirm no package service/listener escaped the suppression, and stop the
+   guest. Do not run a broad repair/upgrade/autoremove or delete uncertain action
+   evidence. Exact rollback is a separately reviewed restoration/recreation of
+   this disposable task guest from its pinned base, not a claim that `apt purge`
+   reverses every script. On success, keep the verified tools installed for this
+   task, package services disabled, and clean only confirmed fixture resources.
+
+### Combined fixture bootstrap and distinct callers
+
+Create one private cluster with versioned absolute `initdb`/`postgres`/`psql`
+paths, C.UTF-8/UTC, checksums, fsync/full-page writes and synchronous commit on.
+Run the server as its unprivileged package account under an exact owned unit,
+with `listen_addresses=127.0.0.1` and a fresh task CA/server certificate carrying
+the IP SAN. A private Unix socket permits peer-authenticated fixture bootstrap
+only; reject every other local client. TCP admits only the exact test database
+and three finite SCRAM login names over TLS; non-TLS and unmatched users reject.
+The action callers use explicit `sslmode=verify-full`, CA, numeric host/port,
+`gssencmode=disable`, connection timeout and `psql -X -w`, with no inherited PG
+service/options/default connection. [TLS verification](https://www.postgresql.org/docs/17/libpq-ssl.html),
+[HBA matching](https://www.postgresql.org/docs/17/auth-pg-hba-conf.html).
+
+The privileged fixture setup applies the unchanged bootstrap and migrations
+001–012, then creates three disposable LOGIN/NOINHERIT/NOSUPERUSER/NOBYPASSRLS/
+NOCREATEDB/NOCREATEROLE/NOREPLICATION callers, each with a short expiry and only
+its corresponding 012 membership (`INHERIT FALSE, SET TRUE, ADMIN FALSE`).
+Grant CONNECT to the test database and no direct table/schema-write privilege.
+Each transaction can `SET LOCAL ROLE` only to its one capability; it starts as
+that restricted login, never the database owner. Check `session_user`, role and
+TLS on the real connections, plus negative cross-role/table/owner checks.
+[PostgreSQL role membership](https://www.postgresql.org/docs/17/role-membership.html).
+
+Keep the executor/controller outside the transport slice under a new collision-
+checked locked UID/GID 62403, with only its executor password file. The root
+guardian has only the observer credential; the fixture bootstrap/admission path
+closes its separate admitter session, makes that login NOLOGIN and removes its
+password-file copy before the action, without retiring the activated DB authority.
+Source and
+supervisor retain 62402/62401 and receive no DB credential, password-file path or
+FD. Password files are private, selected explicitly and never logged or passed
+on argv. Parsing remains the executor's trusted, denied-permission Deno task,
+outside the two-process transport scope; this does not claim a new OS sandbox
+for the parser. [Password-file permissions](https://www.postgresql.org/docs/17/libpq-pgpass.html).
+
+Use a Linux-specific restricted-login adapter and frozen fixture connection
+descriptor rather than relaxing the existing Mac-only `LocalRPC` guard. Preserve
+SELECT → COMMIT → private acknowledgement-marker semantics, one grant call,
+exact durable receipt/result replay and independent guardian ownership. Admission
+activates only the disposable fixture DB with synthetic host/project identity;
+actual source networking stays absent. No SQL layout change is needed.
+
+The new bundle must bind its actual Python/Deno/psql and dynamic runtime package
+inventory, parser output/manifest, supervisor/child/observer/controller modules,
+templates and bootstrap. A preliminary union of existing relevant source plus
+parser/manifest is 233,356 bytes, leaving only 28,788 bytes below the 262,144-byte
+source allowance **before** new glue/manifests. Reuse the reviewed mechanics and
+measure the final captured graph before granting; do not silently expand the
+4 MiB/32-name layout. Installed executable files and OS libraries remain separate
+host-storage/runtime inputs, not mutable action journal members.
+
+After fixture execution, settle or explicitly retain every action first. Stop
+the exact cluster unit, confirm process/socket retirement, then remove only its
+confirmed database directory, short-lived logins/passwords and owned service
+accounts/units; preserve unresolved journal/body/unit identities. The final
+guest stop and cleanup inventory are required even when no action reached GO.
 
 Build a **new Linux parser identity** using the unchanged captured
 [`build-metadata-parser.py`](../../scripts/build-metadata-parser.py) under the
