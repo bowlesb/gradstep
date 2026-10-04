@@ -1,6 +1,6 @@
 import factory from './verifier.mjs';
 import { createVerifier, sha256, type ModuleFactory } from './runtime.ts';
-import { createProbeHandler, type CaseName } from './hosted/handler.ts';
+import { createProbeHandler, withProbeStage, type CaseName } from './hosted/handler.ts';
 import { config, profile, wasmSHA256, profileSHA256, fixtures, wasmBase64 } from './assets.ts';
 
 const base = `https://${config.project}.supabase.co`;
@@ -39,16 +39,20 @@ const handler = createProbeHandler(config, {
     const start = performance.now();
     // Generated glue has no TypeScript declaration. The pinned runtime checks
     // its numeric ABI, exported memory size and parser version before parsing.
-    const verifier = await createVerifier({ factory: factory as unknown as ModuleFactory,
-      wasm: decode(wasmBase64), wasmSHA256, profile, profileSHA256 });
+    const verifier = await withProbeStage('initialization', () => createVerifier({ factory: factory as unknown as ModuleFactory,
+      wasm: decode(wasmBase64), wasmSHA256, profile, profileSHA256 }));
     return {
       coldLoadMS: performance.now() - start,
       async verify(name: CaseName) {
         const fixture = fixtures[name];
-        const bytes = decode(fixture.base64);
-        if (bytes.length !== fixture.bytes || await sha256(bytes) !== fixture.sha256) throw new Error('probe_fixture_mismatch');
-        const result = await verifier.verify(bytes, fixture);
-        if (result.outcome !== fixture.expected || (result.pages ?? null) !== fixture.pages || result.sha256 !== fixture.sha256) throw new Error('probe_result_mismatch');
+        const bytes = await withProbeStage('fixture_decode', () => decode(fixture.base64));
+        await withProbeStage('fixture_hash', async () => {
+          if (bytes.length !== fixture.bytes || await sha256(bytes) !== fixture.sha256) throw new Error('probe_fixture_mismatch');
+        });
+        const result = await withProbeStage('verification', () => verifier.verify(bytes, fixture));
+        await withProbeStage('result_check', () => {
+          if (result.outcome !== fixture.expected || (result.pages ?? null) !== fixture.pages || result.sha256 !== fixture.sha256) throw new Error('probe_result_mismatch');
+        }, result);
         return result;
       },
     };

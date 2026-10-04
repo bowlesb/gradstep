@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createProbeHandler, type ProbeConfig, type ProbeDependencies } from './handler.ts';
+import { createProbeHandler, withProbeStage, type ProbeConfig, type ProbeDependencies } from './handler.ts';
 
 const runID = '11111111-1111-4111-8111-111111111111';
 const userID = '22222222-2222-4222-8222-222222222222';
@@ -133,9 +133,90 @@ Deno.test('initialization failures never disclose dependency diagnostics or clai
   f.deps.initialize = () => Promise.reject(new Error('private provider token and document content'));
   const handler = createProbeHandler(config, f.deps), response = await handler(request());
   assert.equal(response.status, 500);
-  assert.equal((await response.text()).includes('private'), false);
+  const value = await response.json();
+  assert.equal(JSON.stringify(value).includes('private'), false);
+  assert.deepEqual(value.diagnostic, { stage: 'initialization', code: 'unknown', error_class: 'Error', observed_outcome: null, observed_pages: null });
+  assert.equal(value.initialization_wall_ms, null);
+  assert.deepEqual(value.runtime, f.deps.runtime);
+  assert.equal(value.deployment_id, f.deps.deploymentID);
   assert.equal(JSON.stringify(f.logs).includes('private'), false);
   assert.equal(f.counts().verified, 0);
+});
+
+Deno.test('fixed stage and exact known runtime code survive without raw error text or stack', async () => {
+  for (const [stage, error, code, category] of [
+    ['initialization', new Error('invalid_verifier_import'), 'invalid_verifier_import', 'Error'],
+    ['initialization', new WebAssembly.CompileError('private compiler detail'), 'unknown', 'WebAssembly.CompileError'],
+    ['fixture_decode', new DOMException('private base64 bytes', 'InvalidCharacterError'), 'unknown', 'DOMException'],
+    ['fixture_hash', new Error('probe_fixture_mismatch'), 'probe_fixture_mismatch', 'Error'],
+    ['verification', new Error('verifier_abi_mismatch'), 'verifier_abi_mismatch', 'Error'],
+    ['verification', new TypeError('private numeric ABI detail'), 'unknown', 'TypeError'],
+    ['result_check', new Error('probe_result_mismatch'), 'probe_result_mismatch', 'Error'],
+  ] as const) {
+    const f = fixture();
+    error.stack = 'private original stack and bearer token';
+    const fail = () => withProbeStage(stage, () => { throw error; }, { outcome: 'page_limit', pages: 51, token: 'private ignored field' });
+    f.deps.initialize = stage === 'initialization' ? fail : async () => ({ coldLoadMS: 12, verify: fail });
+    const response = await createProbeHandler(config, f.deps)(request());
+    assert.equal(response.status, 500);
+    const value = await response.json();
+    assert.deepEqual(value.diagnostic, { stage, code, error_class: category,
+      observed_outcome: stage === 'result_check' ? 'page_limit' : null, observed_pages: stage === 'result_check' ? 51 : null });
+    assert.equal(JSON.stringify(value).includes('private'), false);
+    assert.equal(JSON.stringify(f.logs).includes('private'), false);
+    assert.equal(value.cpu_ms, null); assert.equal(value.peak_memory_bytes, null); assert.equal(value.hosted_admitted, false);
+  }
+});
+
+Deno.test('diagnostics classify native Error categories and reject spoofed names or message prefixes', async () => {
+  const categories: [unknown, string][] = [
+    [new RangeError('secret'), 'RangeError'], [new SyntaxError('secret'), 'SyntaxError'],
+    [new ReferenceError('secret'), 'ReferenceError'], [new URIError('secret'), 'URIError'],
+    [new EvalError('secret'), 'EvalError'], [new AggregateError([new Error('secret')], 'secret'), 'AggregateError'],
+    [new WebAssembly.LinkError('secret'), 'WebAssembly.LinkError'], [new WebAssembly.RuntimeError('secret'), 'WebAssembly.RuntimeError'],
+    [{ name: 'CompileError', message: 'invalid_profile', cause: 'secret' }, 'non_error'],
+    ['secret token', 'non_error'], [new Error('invalid_profile: secret'), 'Error'],
+  ];
+  for (const [error, category] of categories) {
+    const f = fixture();
+    f.deps.initialize = () => withProbeStage('initialization', () => { throw error; });
+    const value = await (await createProbeHandler(config, f.deps)(request())).json();
+    assert.equal(value.diagnostic.error_class, category);
+    assert.equal(value.diagnostic.code, 'unknown');
+    assert.equal(JSON.stringify(value).includes('secret'), false);
+    assert.equal(JSON.stringify(f.logs).includes('secret'), false);
+  }
+});
+
+Deno.test('diagnostic capture reads each allowlisted property once and retains no original Error', async () => {
+  let messageReads = 0, outcomeReads = 0, pageReads = 0;
+  const original = new Error();
+  Object.defineProperty(original, 'message', { get: () => ++messageReads === 1 ? 'probe_result_mismatch' : 'private second read' });
+  const observed = {
+    get outcome() { return ++outcomeReads === 1 ? 'verified' : 'private second read'; },
+    get pages() { return ++pageReads === 1 ? 2 : 'private second read'; },
+  };
+  let wrapped: unknown;
+  try { await withProbeStage('result_check', () => { throw original; }, observed); } catch (error) { wrapped = error; }
+  assert.ok(wrapped instanceof Error);
+  assert.equal(Object.getOwnPropertyDescriptor(wrapped, 'cause'), undefined);
+  assert.equal(Object.values(Object.getOwnPropertyDescriptors(wrapped)).some(property => property.value === original || property.value === observed), false);
+  assert.deepEqual({ messageReads, outcomeReads, pageReads }, { messageReads: 1, outcomeReads: 1, pageReads: 1 });
+  const diagnostic = (wrapped as Error & { diagnostic: unknown }).diagnostic;
+  assert.equal(Object.isFrozen(diagnostic), true);
+  assert.deepEqual(diagnostic, { stage: 'result_check', code: 'probe_result_mismatch', error_class: 'Error', observed_outcome: 'verified', observed_pages: 2 });
+});
+
+Deno.test('result diagnostics cannot preserve arbitrary outcomes or unbounded page values', async () => {
+  for (const observed of [{ outcome: 'private document content', pages: 'private' },
+    { outcome: 'verified', pages: Infinity }, { outcome: 'verified', pages: -1 }, { outcome: 'verified', pages: 2_147_483_648 }]) {
+    const f = fixture();
+    f.deps.initialize = async () => ({ coldLoadMS: 1, verify: () => withProbeStage('result_check', () => { throw new Error('probe_result_mismatch'); }, observed) });
+    const value = await (await createProbeHandler(config, f.deps)(request())).json();
+    assert.equal(value.diagnostic.observed_pages, null);
+    assert.equal(value.diagnostic.observed_outcome, observed.outcome === 'verified' ? 'verified' : null);
+    assert.equal(JSON.stringify(value).includes('private'), false);
+  }
 });
 
 Deno.test('configuration is copied and cannot expand the authorized time or project', async () => {

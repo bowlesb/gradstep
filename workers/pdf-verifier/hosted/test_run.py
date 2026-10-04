@@ -89,6 +89,9 @@ class FakeAPI:
         self.auth_create_lost = False
         self.auth_create_status = 201
         self.fail_fixture = None
+        self.diagnostic_fixture = None
+        self.diagnostic = {'stage': 'initialization', 'code': 'unknown', 'error_class': 'WebAssembly.CompileError',
+                           'observed_outcome': None, 'observed_pages': None}
         self.ordinal = 0
         self.fixture_map = {row['name']: row for row in json.loads(OP.package.checked(
             OP.package.ARTIFACTS / 'fixtures/manifest.json', OP.package.FIXTURE_MANIFEST_SHA256))}
@@ -165,13 +168,19 @@ class FakeAPI:
                   'wasmSHA256': self.identity['wasm_sha256'], 'elapsedMS': 12.5}
         if fixture['expected'] == 'verified':
             result['pages'] = fixture['pages']
-        return 200, {'run_id': body['run_id'], 'fixture': body['fixture'], 'build_sha256': OP.package.BUILD_SHA256,
+        value = {'run_id': body['run_id'], 'fixture': body['fixture'], 'build_sha256': OP.package.BUILD_SHA256,
                      'execution_id': EXECUTION, 'deployment_id': OP.PROJECT + '_' + FUNCTION + '_1',
                      'isolate_id': ISOLATE, 'ordinal': self.ordinal, 'cold': self.ordinal == 1,
                      'initialization_wall_ms': 18 if self.ordinal == 1 else 0,
                      'runtime': {'deno': '2.1.4', 'v8': '13.0', 'typescript': '5.6.2'},
                      'result': result, 'memory_snapshot': {'rss': 120000000, 'heapTotal': 2000000, 'heapUsed': 1000000, 'external': 68000000},
-                     'hosted_admitted': False, 'cpu_ms': None, 'peak_memory_bytes': None}, {}
+                     'hosted_admitted': False, 'cpu_ms': None, 'peak_memory_bytes': None}
+        if body['fixture'] == self.diagnostic_fixture:
+            value.pop('result')
+            value.pop('memory_snapshot')
+            value.update({'error': 'probe_failed', 'diagnostic': copy.deepcopy(self.diagnostic), 'initialization_wall_ms': None})
+            return 500, value, {}
+        return 200, value, {}
 
 
 class OperatorTests(unittest.TestCase):
@@ -390,6 +399,56 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual([body['fixture'] for body in api.invocations].count('pages-25'), 1)
         self.assertEqual(evidence['requests'][-1]['state'], 'failed_or_uncertain')
         self.assertTrue(evidence['cleanup_verified'])
+
+    def test_http500_retains_only_validated_diagnostic_identity_before_stopping(self):
+        api = FakeAPI()
+        api.diagnostic_fixture = 'pages-1'
+        _, _, work, execute = self.local_run(api)
+        with self.assertRaisesRegex(OP.ProbeError, '^unexpected_probe_status$'):
+            execute()
+        evidence = OP.read_json(work / 'evidence.json')
+        self.assertEqual(len(api.invocations), 4)
+        attempt = evidence['requests'][-1]
+        self.assertEqual(attempt['http_status'], 500)
+        self.assertEqual(attempt['state'], 'failed_or_uncertain')
+        diagnostic = attempt['diagnostic']
+        self.assertEqual(diagnostic['diagnostic'], api.diagnostic)
+        self.assertEqual(diagnostic['deployment_id'], OP.PROJECT + '_' + FUNCTION + '_1')
+        self.assertEqual(diagnostic['execution_id'], EXECUTION)
+        self.assertEqual(diagnostic['isolate_id'], ISOLATE)
+        self.assertEqual(diagnostic['ordinal'], 1)
+        self.assertTrue(diagnostic['cold'])
+        self.assertIsNone(diagnostic['initialization_wall_ms'])
+        self.assertFalse(diagnostic['hosted_admitted'])
+        self.assertTrue(evidence['cleanup_verified'])
+
+    def test_http500_unknown_or_extra_diagnostic_data_is_never_archived(self):
+        patches = [{'stack': 'private token and document'}, {'code': 'invalid_profile: private token'},
+                   {'stage': ['private']}, {'error_class': 'PrivateRuntimeError'},
+                   {'observed_outcome': 'private paper'}, {'observed_pages': 2_147_483_648},
+                   {'observed_pages': True}, {'observed_outcome': 'verified'}]
+        for patch in patches:
+            api = FakeAPI()
+            api.diagnostic_fixture = 'pages-1'
+            api.diagnostic.update(patch)
+            _, _, work, execute = self.local_run(api)
+            with self.subTest(patch=patch), self.assertRaisesRegex(OP.ProbeError, '^invalid_probe_diagnostic$'):
+                execute()
+            evidence = OP.read_json(work / 'evidence.json')
+            self.assertNotIn('diagnostic', evidence['requests'][-1])
+            self.assertNotIn('private', (work / 'evidence.json').read_text())
+            self.assertEqual(len(api.invocations), 4)
+            self.assertTrue(evidence['cleanup_verified'])
+
+    def test_result_mismatch_diagnostics_keep_only_known_outcome_and_bounded_pages(self):
+        api = FakeAPI()
+        api.diagnostic_fixture = 'pages-1'
+        api.diagnostic = {'stage': 'result_check', 'code': 'probe_result_mismatch', 'error_class': 'Error',
+                          'observed_outcome': 'page_limit', 'observed_pages': 51}
+        _, _, work, execute = self.local_run(api)
+        with self.assertRaisesRegex(OP.ProbeError, '^unexpected_probe_status$'):
+            execute()
+        self.assertEqual(OP.read_json(work / 'evidence.json')['requests'][-1]['diagnostic']['diagnostic'], api.diagnostic)
 
     def test_lost_auth_creation_ack_is_reconciled_for_cleanup_without_deploy(self):
         api = FakeAPI()

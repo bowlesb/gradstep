@@ -13,6 +13,73 @@ export type ProbeConfig = {
 };
 type Runtime = { deno: string; v8: string; typescript: string };
 type MemorySnapshot = { rss: number; heapTotal: number; heapUsed: number; external: number };
+export const PROBE_STAGES = ['initialization', 'fixture_decode', 'fixture_hash', 'verification', 'result_check'] as const;
+export type ProbeStage = typeof PROBE_STAGES[number];
+export const PROBE_CODES = ['invalid_profile', 'verifier_build_mismatch', 'verifier_abi_mismatch',
+  'invalid_verifier_memory', 'invalid_verifier_import', 'invalid_verifier_memory_export', 'one_verification_at_a_time',
+  'probe_fixture_mismatch', 'probe_result_mismatch', 'unknown'] as const;
+export const PROBE_ERROR_CLASSES = ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError',
+  'EvalError', 'AggregateError', 'DOMException', 'WebAssembly.CompileError', 'WebAssembly.LinkError',
+  'WebAssembly.RuntimeError', 'non_error'] as const;
+export const PROBE_OUTCOMES = ['verified', 'malformed', 'encrypted', 'unsupported', 'parser_resource_limit',
+  'resource_limit', 'internal_error', 'input_limit', 'page_limit', 'binding_mismatch'] as const;
+type ProbeDiagnostic = {
+  stage: ProbeStage; code: typeof PROBE_CODES[number]; error_class: typeof PROBE_ERROR_CLASSES[number];
+  observed_outcome: typeof PROBE_OUTCOMES[number] | null; observed_pages: number | null;
+};
+
+function errorClass(error: unknown): ProbeDiagnostic['error_class'] {
+  // Never read name, constructor.name, stack, cause or a string conversion.
+  if (error instanceof WebAssembly.CompileError) return 'WebAssembly.CompileError';
+  if (error instanceof WebAssembly.LinkError) return 'WebAssembly.LinkError';
+  if (error instanceof WebAssembly.RuntimeError) return 'WebAssembly.RuntimeError';
+  if (error instanceof TypeError) return 'TypeError';
+  if (error instanceof RangeError) return 'RangeError';
+  if (error instanceof SyntaxError) return 'SyntaxError';
+  if (error instanceof ReferenceError) return 'ReferenceError';
+  if (error instanceof URIError) return 'URIError';
+  if (error instanceof EvalError) return 'EvalError';
+  if (error instanceof AggregateError) return 'AggregateError';
+  if (error instanceof DOMException) return 'DOMException';
+  return error instanceof Error ? 'Error' : 'non_error';
+}
+
+function diagnostic(stage: ProbeStage, error: unknown, observed?: unknown): Readonly<ProbeDiagnostic> {
+  let code: ProbeDiagnostic['code'] = 'unknown', category: ProbeDiagnostic['error_class'] = 'non_error';
+  let outcome: ProbeDiagnostic['observed_outcome'] = null, pages: number | null = null;
+  try {
+    category = errorClass(error);
+    // Only exact known literals survive. Even a familiar prefix plus private
+    // content is unknown, and no original Error is retained by the wrapper.
+    if (error instanceof Error) {
+      const message = error.message;
+      if (PROBE_CODES.includes(message as ProbeDiagnostic['code'])) code = message as ProbeDiagnostic['code'];
+    }
+  } catch { /* Hostile property access stays redacted. */ }
+  try {
+    if (stage === 'result_check' && observed !== null && typeof observed === 'object') {
+      const value = observed as Record<string, unknown>;
+      const observedOutcome = value.outcome, observedPages = value.pages;
+      if (PROBE_OUTCOMES.includes(observedOutcome as typeof PROBE_OUTCOMES[number])) outcome = observedOutcome as ProbeDiagnostic['observed_outcome'];
+      if (Number.isInteger(observedPages) && (observedPages as number) >= 0 && (observedPages as number) <= 2_147_483_647) pages = observedPages as number;
+    }
+  } catch { /* Unexpected result fields cannot disclose diagnostics. */ }
+  return Object.freeze({ stage, code, error_class: category, observed_outcome: outcome, observed_pages: pages });
+}
+
+class ProbeFailure extends Error {
+  readonly diagnostic: Readonly<ProbeDiagnostic>;
+  constructor(stage: ProbeStage, error: unknown, observed?: unknown) {
+    super('probe_failed');
+    this.diagnostic = diagnostic(stage, error, observed);
+  }
+}
+
+/** Retains only the fixed diagnostic DTO, never the original Error or result. */
+export async function withProbeStage<T>(stage: ProbeStage, work: () => T | Promise<T>, observed?: unknown): Promise<T> {
+  try { return await work(); }
+  catch (error) { throw new ProbeFailure(stage, error, observed); }
+}
 type Executor = {
   coldLoadMS: number;
   verify(name: CaseName): Promise<Measurement>;
@@ -124,27 +191,34 @@ export function createProbeHandler(input: ProbeConfig, dependencies: ProbeDepend
       deployment_id: deps.deploymentID, execution_id: deps.executionID, ordinal, build_sha256: config.buildSHA256,
     };
     const cold = executor === undefined;
+    let stage: ProbeStage = 'initialization';
+    let initializationWallMS: number | null = null;
     try {
       deps.log({ event: 'pdf_probe_start', ...execution });
       if (request.signal.aborted) return json(408, { error: 'request_cancelled' });
       executor ??= deps.initialize(); // No compilation before authorization.
       const loaded = await executor;
+      initializationWallMS = cold ? loaded.coldLoadMS : 0;
       if (request.signal.aborted) return json(408, { error: 'request_cancelled' });
       if (!active()) return json(410, { error: 'probe_expired' });
+      stage = 'verification';
       const result = await loaded.verify(name);
       let memory: MemorySnapshot | null = null;
       try { memory = deps.memory(); } catch { /* unsupported measurement remains absent */ }
       const response = {
         ...execution, runtime: deps.runtime, cold,
-        initialization_wall_ms: cold ? loaded.coldLoadMS : 0,
+        initialization_wall_ms: initializationWallMS,
         result, memory_snapshot: memory, cpu_ms: null, peak_memory_bytes: null,
         hosted_admitted: false,
       };
       deps.log({ event: 'pdf_probe_complete', ...execution, outcome: result.outcome, elapsed_ms: result.elapsedMS });
       return json(200, response);
-    } catch {
-      deps.log({ event: 'pdf_probe_failed', ...execution });
-      return json(500, { error: 'probe_failed', ...execution });
+    } catch (error) {
+      const failure = error instanceof ProbeFailure ? error.diagnostic : diagnostic(stage, error);
+      deps.log({ event: 'pdf_probe_failed', ...execution, diagnostic: failure });
+      return json(500, { error: 'probe_failed', ...execution, runtime: deps.runtime, cold,
+        initialization_wall_ms: initializationWallMS, diagnostic: failure,
+        cpu_ms: null, peak_memory_bytes: null, hosted_admitted: false });
     } finally { busy = false; }
   };
 }

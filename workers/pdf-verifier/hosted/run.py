@@ -31,6 +31,15 @@ HOST = PROJECT + '.supabase.co'
 MANAGEMENT = 'api.supabase.com'
 MARKER = 'pdf-verifier-probe'
 MAX_REQUESTS = 40
+FAILURE_STAGES = {'initialization', 'fixture_decode', 'fixture_hash', 'verification', 'result_check'}
+FAILURE_CODES = {'invalid_profile', 'verifier_build_mismatch', 'verifier_abi_mismatch', 'invalid_verifier_memory',
+                 'invalid_verifier_import', 'invalid_verifier_memory_export', 'one_verification_at_a_time',
+                 'probe_fixture_mismatch', 'probe_result_mismatch', 'unknown'}
+ERROR_CLASSES = {'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError', 'URIError', 'EvalError',
+                 'AggregateError', 'DOMException', 'WebAssembly.CompileError', 'WebAssembly.LinkError',
+                 'WebAssembly.RuntimeError', 'non_error'}
+OUTCOMES = {'verified', 'malformed', 'encrypted', 'unsupported', 'parser_resource_limit', 'resource_limit',
+            'internal_error', 'input_limit', 'page_limit', 'binding_mismatch'}
 spec = importlib.util.spec_from_file_location('pdf_probe_package', Path(__file__).with_name('package.py'))
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
@@ -417,8 +426,8 @@ def deploy_cli(work, slug, management):
         raise ProbeError('deployment_uncertain') from None
 
 
-def validate_execution(value, fixture, journal, identity, ordinals):
-    require(isinstance(value, dict) and value.get('run_id') == journal['run_id'] and value.get('fixture') == fixture['name']
+def execution_context(value, name, journal, ordinals, failed=False):
+    require(isinstance(value, dict) and value.get('run_id') == journal['run_id'] and value.get('fixture') == name
             and value.get('build_sha256') == package.BUILD_SHA256 and value.get('hosted_admitted') is False
             and value.get('cpu_ms') is None and value.get('peak_memory_bytes') is None, 'invalid_probe_result')
     isolate = identifier(value.get('isolate_id'))
@@ -433,6 +442,37 @@ def validate_execution(value, fixture, journal, identity, ordinals):
         identifier(execution)
     deployment = value.get('deployment_id')
     require(deployment is None or deployment == PROJECT + '_' + journal['function_identity']['id'] + '_1', 'invalid_deployment_identity')
+    initialization = value.get('initialization_wall_ms')
+    if initialization is not None or not failed:
+        initialization = finite(initialization)
+    return {'run_id': journal['run_id'], 'fixture': name, 'execution_id': execution, 'deployment_id': deployment,
+            'isolate_id': isolate, 'ordinal': ordinal, 'runtime': {key: runtime[key] for key in ('deno', 'v8', 'typescript')},
+            'cold': value['cold'], 'initialization_wall_ms': initialization,
+            'cpu_ms': None, 'peak_memory_bytes': None, 'hosted_admitted': False}
+
+
+def validate_failure(value, name, journal, ordinals):
+    fields = {'error', 'run_id', 'fixture', 'execution_id', 'deployment_id', 'isolate_id', 'ordinal', 'build_sha256',
+              'runtime', 'cold', 'initialization_wall_ms', 'diagnostic', 'cpu_ms', 'peak_memory_bytes', 'hosted_admitted'}
+    require(isinstance(value, dict) and set(value) == fields and value['error'] == 'probe_failed', 'invalid_probe_diagnostic')
+    context = execution_context(value, name, journal, ordinals, failed=True)
+    diagnostic = value['diagnostic']
+    require(isinstance(diagnostic, dict) and set(diagnostic) == {'stage', 'code', 'error_class', 'observed_outcome', 'observed_pages'},
+            'invalid_probe_diagnostic')
+    require(isinstance(diagnostic['stage'], str) and diagnostic['stage'] in FAILURE_STAGES
+            and isinstance(diagnostic['code'], str) and diagnostic['code'] in FAILURE_CODES
+            and isinstance(diagnostic['error_class'], str) and diagnostic['error_class'] in ERROR_CLASSES, 'invalid_probe_diagnostic')
+    outcome, pages = diagnostic['observed_outcome'], diagnostic['observed_pages']
+    require(outcome is None or isinstance(outcome, str) and outcome in OUTCOMES, 'invalid_probe_diagnostic')
+    require(pages is None or type(pages) is int and 0 <= pages <= 2_147_483_647, 'invalid_probe_diagnostic')
+    require(diagnostic['stage'] == 'result_check' or outcome is None and pages is None, 'invalid_probe_diagnostic')
+    ordinals[context['isolate_id']] = context['ordinal']
+    return {**context, 'error': 'probe_failed', 'diagnostic': {key: diagnostic[key] for key in
+            ('stage', 'code', 'error_class', 'observed_outcome', 'observed_pages')}}
+
+
+def validate_execution(value, fixture, journal, identity, ordinals):
+    context = execution_context(value, fixture['name'], journal, ordinals)
     result = value.get('result')
     expected_pages = fixture.get('pages') if fixture['expected'] == 'verified' else None
     require(isinstance(result, dict) and result.get('outcome') == fixture['expected'] and result.get('pages') == expected_pages
@@ -443,10 +483,8 @@ def validate_execution(value, fixture, journal, identity, ordinals):
     if memory is not None:
         require(isinstance(memory, dict), 'invalid_memory_snapshot')
         memory = {key: finite(memory.get(key)) for key in ('rss', 'heapTotal', 'heapUsed', 'external')}
-    ordinals[isolate] = ordinal
-    return {'run_id': journal['run_id'], 'fixture': fixture['name'], 'execution_id': execution, 'deployment_id': deployment,
-            'isolate_id': isolate, 'ordinal': ordinal, 'runtime': {key: runtime[key] for key in ('deno', 'v8', 'typescript')},
-            'cold': value['cold'], 'initialization_wall_ms': finite(value.get('initialization_wall_ms')),
+    ordinals[context['isolate_id']] = context['ordinal']
+    return {**context,
             'result': {key: result[key] for key in ('outcome', 'sha256', 'bytes', 'profileID', 'profileSHA256', 'wasmSHA256')},
             'pages': expected_pages, 'verification_wall_ms': finite(result.get('elapsedMS')), 'memory_snapshot': memory,
             'wasm_linear_memory_bytes_checked_by_runtime': identity['profile']['wasm_memory_bytes'],
@@ -477,6 +515,8 @@ def invoke_cases(api, journal, token, evidence, evidence_path, identity, fixture
         try:
             status, value, observed = api.transport.request(HOST, path, 'POST', body, headers, expected=(200, 400, 401, 403, 404, 410, 429, 500, 502, 503, 504), timeout=60)
             attempt.update({'http_status': status, 'client_wall_ms': (time.monotonic() - started) * 1000, 'response_ids': observed})
+            if status == 500 and expected == 200:
+                attempt['diagnostic'] = validate_failure(value, body['fixture'], journal, ordinals)
             require(status == expected, 'unexpected_probe_status')
             if expected == 200:
                 attempt['measurement'] = validate_execution(value, fixtures[body['fixture']], journal, identity, ordinals)
