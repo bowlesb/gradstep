@@ -42,7 +42,7 @@ function integer(value: unknown, minimum: number, maximum: number): number {
 }
 function instant(value: unknown): string {
   const text = string(value, 24, true);
-  requireInput(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(text));
+  requireInput(/^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(text));
   requireInput(Number.isFinite(Date.parse(text)) && new Date(text).toISOString() === text);
   return text;
 }

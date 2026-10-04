@@ -96,6 +96,21 @@ test('Atom resolution cannot substitute a different paper/version or mistake a s
   assert.throws(() => arxivAtomRecord(atom('<entry><id>http://arxiv.org/api/errors</id><title>Error</title></entry>'), arxivReference('1706.03762')), /invalid_source_metadata/);
 });
 
+test('source and catalog instants stay within the database four-digit AD year range', async () => {
+  for (const value of ['0000-06-19T16:49:45Z', '0001-01-01T00:00:00+01:00', '9999-12-31T23:59:59-01:00']) {
+    assert.throws(() => arxivAtomRecord(atom(entry().replace('2017-06-19T16:49:45Z', value)), arxivReference('1706.03762')), /invalid_source_metadata/);
+  }
+  for (const value of ['0000-01-01T00:00:00.000Z', '+010000-01-01T00:00:00.000Z']) {
+    const record = pinned(); record.metadata.updated_at = value;
+    assert.throws(() => arxivCatalogArguments(record), /invalid_source_metadata/);
+    await assert.rejects(arxivReuseEvidence(raw(), pinned(), value), /invalid_source_metadata/);
+  }
+  for (const value of ['0001-01-01T00:00:00Z', '9999-12-31T23:59:59Z']) {
+    const record = arxivAtomRecord(atom(entry().replace('2017-06-19T16:49:45Z', value)), arxivReference('1706.03762'));
+    assert.equal(arxivCatalogArguments(record).p_metadata.updated_at, value.slice(0, 10));
+  }
+});
+
 test('optional metadata remains absent and duplicate or unsafe field structure is rejected', () => {
   const minimal = atom('<entry><id>http://arxiv.org/abs/1706.03762v1</id><title>Minimal</title></entry>');
   assert.deepEqual(arxivAtomRecord(minimal, arxivReference('1706.03762')).metadata, {

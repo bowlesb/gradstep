@@ -121,6 +121,7 @@ test('wrong digest, noncanonical body encodings and unbound pins never yield res
     (v: ReturnType<typeof input>) => { v.request.revision = null; },
     (v: ReturnType<typeof input>) => { v.pinned_record!.metadata.updated_at = '2017-06-19'; },
     (v: ReturnType<typeof input>) => { v.observed_at = '2026-10-04'; },
+    (v: ReturnType<typeof input>) => { v.observed_at = '0000-01-01T00:00:00.000Z'; },
   ];
   for (const change of changes) {
     const value = input('license'); change(value);
@@ -151,6 +152,13 @@ test('latest-version and license decisions remain source-only when reuse is unpr
     assert.equal(result.kind, 'result');
     if (result.kind === 'result') assert.deepEqual(result.result, { eligible: false, reason });
   }
+});
+
+test('dates that cannot reach the catalog become metadata failures before a result write', async () => {
+  const value = input('atom', atomText.replace('2017-06-19T16:49:45Z', '0001-01-01T00:00:00+01:00'));
+  const expected = { schema_version: 1, kind: 'failure', error_code: 'invalid_source_metadata', retryable: false };
+  assert.deepEqual(await parseMetadata(value), expected);
+  assert.deepEqual(cli(JSON.stringify(value)), expected);
 });
 
 test('a recognized missing OAI record reports source not found without reflecting source text', async () => {

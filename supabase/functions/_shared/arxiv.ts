@@ -92,15 +92,24 @@ export function arxivURLs(reference: ArxivReference): { abstract: string; atom: 
     pdf: ref.revision === null ? null : `https://arxiv.org/pdf/${id}` };
 }
 
+function catalogInstant(value: string): boolean {
+  // PostgreSQL has no year zero. Keep the four-digit UTC form used by the
+  // catalog wire contract, including after a source timezone is normalized.
+  return /^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+
 function dateValue(node: XMLNode | undefined): string | null {
   const value = plain(node, 64, false);
   if (value === null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new SourceError('invalid_source_metadata');
+  if (!/^(?!0000)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new SourceError('invalid_source_metadata');
   const timestamp = Date.parse(value);
   // Check the source calendar day independently of its timezone; Date.parse
   // alone normalizes invalid dates such as February 30.
   if (!Number.isFinite(timestamp) || new Date(`${value.slice(0, 10)}T00:00:00Z`).toISOString().slice(0, 10) !== value.slice(0, 10)) throw new SourceError('invalid_source_metadata');
-  return new Date(timestamp).toISOString();
+  const utc = new Date(timestamp).toISOString();
+  if (!catalogInstant(utc)) throw new SourceError('invalid_source_metadata');
+  return utc;
 }
 
 export function arxivAtomRecord(bytes: Uint8Array, expected: ArxivReference): ArxivRecord {
@@ -143,7 +152,7 @@ export function arxivCatalogArguments(record: ArxivRecord): {
   if (ref.revision === null) throw new SourceError('invalid_source_metadata');
   const calendarDate = (value: string | null) => {
     if (value === null) return null;
-    if (!Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) throw new SourceError('invalid_source_metadata');
+    if (!catalogInstant(value)) throw new SourceError('invalid_source_metadata');
     return value.slice(0, 10);
   };
   return { p_source_id: ref.sourceID, p_revision: ref.revision, p_metadata: {
@@ -184,7 +193,7 @@ function supportedLicense(value: string): string | null {
 // A hash is evidence provenance, not a signature from arXiv or byte verification.
 export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord, observedAt: string): Promise<ArxivReuse> {
   const ref = validated(pinned);
-  if (ref.revision === null || !Number.isFinite(Date.parse(observedAt)) || new Date(observedAt).toISOString() !== observedAt) throw new SourceError('invalid_source_metadata');
+  if (ref.revision === null || !catalogInstant(observedAt)) throw new SourceError('invalid_source_metadata');
   const root = sourceXML(bytes);
   if (root.uri !== OAI || root.local !== 'OAI-PMH') throw new SourceError('invalid_source_metadata');
   const errors = children(root, OAI, 'error');
