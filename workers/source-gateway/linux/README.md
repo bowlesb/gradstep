@@ -364,3 +364,26 @@ PostgreSQL server/cluster, and the guest is stopped. Evidence is
 `.artifacts/linux-restricted-caller/observer-0f2bf6c2521b/summary.json`; the
 [admission checkpoint](../../../docs/architecture/LINUX_METADATA_ADMISSION.md#supervisor-interruption-and-observer-only-replay--2026-10-04)
 records the exact scope and remaining recovery limits.
+
+## Isolated original-PDF slots — verified 2026-10-04
+
+`original_spool.py` implements the separately reviewed original file handoff.
+It retains at most two 5 MiB payload inodes under one reservation lock, publishes
+a closed canonical descriptor, rechecks file identity and every byte on reopen,
+and replays interrupted copies/cleanup without allocating a third payload.
+Allocation uses the preplanned claim ID; the full post-grant binding also pins
+the actual database execution ID. Required guardian callbacks validate the
+external allocation, retirement, reader intent and downstream settlement.
+
+The 26 new portable tests pass, including process exit, maximum/oversized bodies,
+short writes, partial files, inode substitution, hardlink cleanup, reader holds
+and close-error handling. Complete discovery using the `PYTHONPATH` command above
+passes 189 tests with 16 Linux-only skips (205 total). Evidence and the remaining
+integration boundary are in
+[Original execution](../../../docs/architecture/ORIGINAL_EXECUTION.md#verified-isolated-spool-checkpoint--2026-10-04)
+and `.artifacts/original-spool-summary.json`.
+
+This is a file-mechanics checkpoint with injected trusted validators. It is not
+part of the admitted metadata bundle or a connected original-PDF execution path.
+There is no new SQL migration, source/Storage traffic, Linux runtime admission,
+physical disk quota or verifier measurement claim. The existing guest stays off.

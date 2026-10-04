@@ -95,6 +95,15 @@ Updated 2026-10-04. This is a development checkpoint, not a release declaration.
 
 ## Still required
 
+The latest original-PDF prerequisite is independently reviewed and locally tested:
+one bounded producer/guardian file pair, canonical identity/byte descriptors,
+restart verification and exact interrupted cleanup. All 26 new portable tests
+pass; full Linux-worker discovery is 189 passing with 16 Linux-only skips.
+The [original execution proposal](architecture/ORIGINAL_EXECUTION.md) now fixes
+the per-stage permissions, immutable chain and complete reserved capacity before
+SQL implementation. This does not connect live acquisition or Storage; those
+integrations and actual verifier host measurements remain required below.
+
 - Broader hosted integration and migration replay checks; hosted replacement-project restore drill. Local DB tests use PostgreSQL 18; hosted staging is PostgreSQL 17.11 and is the authoritative compatibility check. The local database/object restore drill passes.
 - Complete API contracts and independent security review. The crypto wire contract and cross-runtime fixtures are now recorded; tests do not constitute an independent crypto audit.
 - Transactional encrypted-record persistence replaces the prototype whole-file checkpoint. Very large histories still need paged local indexes and memory benchmarks; the reducer currently loads history into memory. Complete the protected-data lock/unlock lifecycle and physical checks after the user resumes iPhone work.
