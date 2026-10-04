@@ -12,10 +12,10 @@ import XCTest
 final class OfflineModelTests: XCTestCase {
     private enum Failure: Error { case observationTimedOut }
 
-    private func fixture(expired: Bool = false,
+    private func fixture(expired: Bool = false, paperCount: Int = 1,
                          verification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
                          directory: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) }) async throws -> OfflineModelFixture {
-        let fixture = try OfflineModelFixture(expired: expired, verification: verification, directory: directory)
+        let fixture = try OfflineModelFixture(expired: expired, paperCount: paperCount, verification: verification, directory: directory)
         addTeardownBlock { await fixture.close() }
         try await fixture.seed()
         return fixture
@@ -27,6 +27,152 @@ final class OfflineModelTests: XCTestCase {
         await fulfillment(of: [observation.ready], timeout: 5)
         observation.stop()
         guard condition() else { throw Failure.observationTimedOut }
+    }
+
+    private func assertLoadedCopies(_ expected: Set<UUID>, in model: ReaderModel,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let paperIDs = Set(model.papers.filter { !$0.isSample && $0.readerBundle != nil }.map(\.id))
+        let rowIDs = Set(model.libraryRows.compactMap { entry -> UUID? in
+            guard case .paper(let paper) = entry, !paper.isSample, paper.readerBundle != nil else { return nil }
+            return paper.id
+        })
+        XCTAssertEqual(paperIDs, expected, "Library metadata must not keep previously selected bundles", file: file, line: line)
+        XCTAssertEqual(rowIDs, expected, "Published search rows must release the same old handles immediately", file: file, line: line)
+    }
+
+    func testChangingPapersEvictsOnlyTheLoadedCopyAndReopensFromDisk() async throws {
+        let gate = OfflineModelSelectionVerifier()
+        let fixture = try await fixture(paperCount: 2, verification: { try await gate.verify($0) }), model = fixture.model
+        addTeardownBlock { await gate.release() }
+        await model.start()
+        await model.waitForLibrarySearch()
+        let first = fixture.catalog, second = try XCTUnwrap(fixture.additionalCatalogs.first)
+        model.select(try XCTUnwrap(model.papers.first { $0.id == first.document }))
+        try await observe("The first encrypted copy is opened") { model.selectedPaper?.readerBundle != nil }
+        let staleFirstRow = try XCTUnwrap(model.selectedPaper)
+        assertLoadedCopies([first.document], in: model)
+
+        let held = expectation(description: "Second paper admission remains suspended")
+        await gate.arm(arrived: held)
+        model.select(try XCTUnwrap(model.papers.first { $0.id == second.document }))
+        // Check before any await: switching selection itself must evict A,
+        // independently of whether B's SQLite read or verifier has begun.
+        assertLoadedCopies([], in: model)
+        XCTAssertNil(model.papers.first { $0.id == first.document }?.fileURL)
+        XCTAssertEqual(model.selectedPaper?.id, second.document)
+        XCTAssertNil(model.selectedPaper?.readerBundle)
+        XCTAssertTrue(model.papers.allSatisfy { model.offlineStatus(for: $0) == .available }, "Eviction cannot remove the installed-copy badge")
+        await fulfillment(of: [held], timeout: 5)
+        assertLoadedCopies([], in: model)
+        await gate.release()
+        try await observe("The second encrypted copy is opened") {
+            model.selectedPaper?.id == second.document && model.selectedPaper?.readerBundle != nil
+        }
+        assertLoadedCopies([second.document], in: model)
+
+        let reopening = expectation(description: "An evicted paper must be verified again from encrypted storage")
+        await gate.arm(arrived: reopening)
+        model.select(staleFirstRow)
+        XCTAssertEqual(model.selectedPaper?.id, first.document)
+        XCTAssertNil(model.selectedPaper?.readerBundle, "A captured loaded row cannot reattach its old payload")
+        assertLoadedCopies([], in: model)
+        await fulfillment(of: [reopening], timeout: 5)
+        await gate.release()
+        try await observe("Returning to the first paper completes fresh admission") {
+            model.selectedPaper?.id == first.document && model.selectedPaper?.readerBundle != nil
+        }
+        assertLoadedCopies([first.document], in: model)
+        let calls = await gate.callCount()
+        XCTAssertEqual(calls, 3)
+
+        await model.signOut()
+        await model.waitForLocalRetirement()
+        let store = try fixture.reopenStore()
+        let installed = try await store.listInstalledReaderBundles(scope: fixture.scope)
+        XCTAssertEqual(Set(installed.installations.map { $0.binding.documentID }), [first.document, second.document],
+                       "Selection changes evict memory only; both encrypted installations remain")
+    }
+
+    func testHistoryAndUnsentDraftSelectionEvictOtherBundlesButChatAndRefreshKeepTheCurrentCopy() async throws {
+        let gate = OfflineModelSelectionVerifier()
+        let fixture = try await fixture(paperCount: 2, verification: { try await gate.verify($0) }), model = fixture.model
+        addTeardownBlock { await gate.release() }
+        let first = fixture.catalog, second = try XCTUnwrap(fixture.additionalCatalogs.first)
+        let saved = try await fixture.seedConversationAndDraft(conversationDocument: first.document, draftDocument: second.document)
+        await model.start()
+        await model.waitForLibrarySearch()
+        XCTAssertTrue(model.unsentDrafts.contains { $0.id == saved.draftID })
+        model.select(try XCTUnwrap(model.papers.first { $0.id == second.document }))
+        try await observe("The starting paper is opened") { model.selectedPaper?.readerBundle != nil }
+
+        let historyHeld = expectation(description: "Saved conversation switches to its own paper")
+        await gate.arm(arrived: historyHeld)
+        model.openConversation(saved.conversationID)
+        assertLoadedCopies([], in: model)
+        XCTAssertEqual(model.selectedPaper?.id, first.document)
+        XCTAssertEqual(model.activeConversation, saved.conversationID)
+        XCTAssertEqual(model.tab, .chat)
+        await fulfillment(of: [historyHeld], timeout: 5)
+        await gate.release()
+        try await observe("History's paper completes admission") {
+            model.selectedPaper?.id == first.document && model.selectedPaper?.readerBundle != nil
+        }
+        assertLoadedCopies([first.document], in: model)
+
+        let draftHeld = expectation(description: "The durable unsent draft switches back to its paper")
+        await gate.arm(arrived: draftHeld)
+        model.openUnsentDraft(saved.draftID)
+        assertLoadedCopies([], in: model)
+        XCTAssertEqual(model.selectedPaper?.id, second.document)
+        XCTAssertEqual(model.chatInput, "Keep this unsent paper question")
+        await fulfillment(of: [draftHeld], timeout: 5)
+        await gate.release()
+        try await observe("The unsent draft's paper completes admission") {
+            model.selectedPaper?.id == second.document && model.selectedPaper?.readerBundle != nil
+        }
+        assertLoadedCopies([second.document], in: model)
+
+        let scope = model.readerDocumentScope
+        model.newChat(general: false)
+        model.newChat(general: true)
+        model.tab = .library
+        model.askAboutSelectedPaper()
+        await model.refreshLibrary()
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.readerDocumentScope, scope, "Chat/tab navigation and unchanged metadata keep the selected reading scope")
+        assertLoadedCopies([second.document], in: model)
+        XCTAssertTrue(model.papers.allSatisfy { model.offlineStatus(for: $0) == .available })
+        let calls = await gate.callCount()
+        XCTAssertEqual(calls, 3, "Unchanged selection must not trigger another bundle verification")
+    }
+
+    func testCancelledOlderVerificationCannotRepopulateAnEvictedPaper() async throws {
+        let gate = OfflineModelSelectionVerifier()
+        let fixture = try await fixture(paperCount: 2, verification: { try await gate.verify($0) }), model = fixture.model
+        addTeardownBlock { await gate.release() }
+        await model.start()
+        await model.waitForLibrarySearch()
+        let first = fixture.catalog, second = try XCTUnwrap(fixture.additionalCatalogs.first)
+        let held = expectation(description: "Old paper's native verification is held")
+        let cancelled = expectation(description: "Changing papers cancels the older open")
+        await gate.arm(arrived: held, cancelled: cancelled, ignoreCancellation: true)
+        model.select(try XCTUnwrap(model.papers.first { $0.id == first.document }))
+        await fulfillment(of: [held], timeout: 5)
+        model.select(try XCTUnwrap(model.papers.first { $0.id == second.document }))
+        await fulfillment(of: [cancelled], timeout: 5)
+        XCTAssertEqual(model.selectedPaper?.id, second.document)
+        assertLoadedCopies([], in: model)
+        let beforeRelease = await gate.callCount()
+        XCTAssertEqual(beforeRelease, 1, "The replacement verifier must wait for the cancelled verifier to drain")
+        await gate.release()
+        try await observe("Only the replacement paper can publish its verified bundle") {
+            model.selectedPaper?.id == second.document && model.selectedPaper?.readerBundle != nil
+        }
+        assertLoadedCopies([second.document], in: model)
+        XCTAssertNil(model.readerOpenIssue)
+        let calls = await gate.callCount(), maximum = await gate.maximumConcurrent()
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(maximum, 1)
     }
 
     func testExpiredCachedAuthenticationOpensEncryptedPaperBeforeRefreshReturns() async throws {
@@ -340,6 +486,7 @@ final class OfflineModelTests: XCTestCase {
 @MainActor
 private final class OfflineModelFixture {
     let catalog = OfflineModelCatalog()
+    let additionalCatalogs: [OfflineModelCatalog]
     let environment = "offline-model-\(UUID().wire)"
     let root: URL
     let device: LocalDevice
@@ -350,8 +497,11 @@ private final class OfflineModelFixture {
     private let network: URLSession
     private var host: String { environment + ".invalid" }
 
-    init(expired: Bool, verification: @escaping ReaderBundleCoordinator.Verification,
+    init(expired: Bool, paperCount: Int, verification: @escaping ReaderBundleCoordinator.Verification,
          directory: @escaping ReaderBundleCoordinator.DirectoryReader) throws {
+        precondition((1...3).contains(paperCount))
+        let account = catalog.account
+        additionalCatalogs = (1..<paperCount).map { OfflineModelCatalog(account: account, sequence: Int64($0 + 1)) }
         let configuration = BackendConfiguration(url: URL(string: "https://\(environment).invalid")!,
                                                  anonKey: "fixture", environment: environment)
         root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
@@ -366,7 +516,7 @@ private final class OfflineModelFixture {
             user: .init(id: catalog.account, email: "offline-fixture@example.invalid"))
         try KeychainVault.write(ReaderCrypto.encode(session), name: environment + ".auth-session")
         try KeychainVault.write(ReaderCrypto.encode(device), name: "\(environment).\(catalog.account.wire).device-keys")
-        server = try OfflineModelServer(catalog: catalog, device: device, holdRefresh: expired)
+        server = try OfflineModelServer(catalog: catalog, additionalCatalogs: additionalCatalogs, device: device, holdRefresh: expired)
         let server = server
         StubProtocol.install(host: configuration.url.host!) { server.handle($0) }
         let settings = URLSessionConfiguration.ephemeral
@@ -380,11 +530,30 @@ private final class OfflineModelFixture {
         // This writer is never used again once the model opens its account;
         // startup must claim the normal fresh-writer generation itself.
         let store = try reopenStore()
-        try await store.saveLibraryPresentation(catalog.observation(), scope: scope)
-        let binding = try ReaderArtifactBinding(scope: scope, documentID: catalog.document,
-            artifactID: catalog.artifact, manifestSHA256: bundle.manifestSHA256)
-        let ticket = try await store.beginReaderInstall(binding: binding)
-        _ = try await store.commitReaderInstall(ticket, bundle: bundle)
+        try await store.saveLibraryPresentation(catalog.observation(additionalCatalogs: additionalCatalogs), scope: scope)
+        for entry in [catalog] + additionalCatalogs {
+            let binding = try ReaderArtifactBinding(scope: scope, documentID: entry.document,
+                artifactID: entry.artifact, manifestSHA256: bundle.manifestSHA256)
+            let ticket = try await store.beginReaderInstall(binding: binding)
+            _ = try await store.commitReaderInstall(ticket, bundle: bundle)
+        }
+    }
+
+    /// Seed through the actual private event and encrypted draft APIs before
+    /// startup; model history/draft restoration supplies the selection routes.
+    func seedConversationAndDraft(conversationDocument: UUID, draftDocument: UUID) async throws -> (conversationID: UUID, draftID: UUID) {
+        let store = try reopenStore(), conversation = UUID(), rootEvent = UUID(), message = UUID(), draft = UUID()
+        _ = try await store.appendBatch([
+            (id: rootEvent, event: PrivateEvent(kind: .conversation, entityID: conversation,
+                documentID: conversationDocument, text: "Saved paper conversation")),
+            (id: message, event: PrivateEvent(kind: .message, entityID: message, parents: [rootEvent],
+                conversationID: conversation, documentID: conversationDocument, text: "A saved paper question",
+                role: .user, status: .complete))
+        ], deviceID: device.deviceID)
+        _ = try await store.saveDraft(LocalDraft(id: draft, documentID: draftDocument,
+            revision: 1, textRevision: UUID(), text: "Keep this unsent paper question",
+            editedAt: Date(), branchRevision: UUID()))
+        return (conversation, draft)
     }
 
     func seedPendingAndResolvedImports() async throws -> [UUID] {
@@ -454,41 +623,52 @@ private final class OfflineModelFixture {
 }
 
 private struct OfflineModelCatalog: Sendable {
-    let account = UUID(), document = UUID(), artifact = UUID(), item = UUID()
+    let account: UUID
+    let sequence: Int64
+    let document = UUID(), artifact = UUID(), item = UUID()
     let approval = UUID(), version = UUID(), metadata = UUID(), original = UUID()
+    private var sourceID: String { "2404." + String(format: "%05d", Int(sequence)) }
+
+    init(account: UUID = UUID(), sequence: Int64 = 1) {
+        self.account = account; self.sequence = sequence
+    }
 
     func row(state: Int64 = 1, availability: String = "available") -> [String: Any] {
-        ["kind": "item", "id": item.wire, "document_id": document.wire, "created_seq": 1, "state_seq": state,
+        ["kind": "item", "id": item.wire, "document_id": document.wire, "created_seq": sequence, "state_seq": state,
          "membership_revision": 1, "visible": true, "added_at": "2026-10-03T10:00:00Z", "last_remove_seq": 0,
          "approval_id": approval.wire, "version_id": version.wire, "metadata_id": metadata.wire, "source": "arxiv",
-         "source_id": "2404.00001", "source_revision": 1, "metadata": ["title": "Synthetic account's authored reading fixture",
+         "source_id": sourceID, "source_revision": 1, "metadata": ["title": "Synthetic account's authored reading fixture",
             "authors": ["Offline Fixture"], "abstract": "Account-scoped local reading test, with no server artifact claim.",
             "categories": ["cs.LG"], "published_at": "2024-04-03", "updated_at": "2024-04-03", "venue": NSNull()],
-         "metadata_recorded_at": "2026-10-03T10:00:00Z", "source_url": "https://arxiv.org/abs/2404.00001v1",
+         "metadata_recorded_at": "2026-10-03T10:00:00Z", "source_url": "https://arxiv.org/abs/" + sourceID + "v1",
          "scope": "shared_catalog", "page_count": 1, "original_object_id": original.wire, "artifact_id": artifact.wire,
          "readiness": availability == "available" ? "converted_ready" : "unavailable", "original_availability": "available",
          "render_availability": availability, "original_availability_revision": 1, "render_availability_revision": state]
     }
 
-    func baseline(state: Int64 = 1, availability: String = "available") -> Data {
-        Self.bytes(["format": 2, "account_id": account.wire, "baseline_cursor": state, "retained_after": 0,
-            "entries": [row(state: state, availability: availability)], "has_more": false,
+    func baseline(state: Int64 = 1, availability: String = "available", additionalCatalogs: [Self] = []) -> Data {
+        let last = additionalCatalogs.last ?? self
+        return Self.bytes(["format": 2, "account_id": account.wire, "baseline_cursor": state, "retained_after": 0,
+            "entries": ([self] + additionalCatalogs).map { $0.row(state: state, availability: availability) }, "has_more": false,
             "next_cursor": ["format": 2, "account_id": account.wire, "through": state,
-                "created_seq": 1, "id": item.wire, "kind": "item"]])
+                "created_seq": last.sequence, "id": last.item.wire, "kind": "item"]])
     }
 
-    func changes(after: Int64, through: Int64, availability: String = "available") -> Data {
+    func changes(after: Int64, through: Int64, availability: String = "available", additionalCatalogs: [Self] = []) -> Data {
         Self.bytes(["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
-            "changes": after < through ? [["seq": through, "entries": [row(state: through, availability: availability)]]] : [],
+            "changes": after < through ? [["seq": through, "entries": ([self] + additionalCatalogs).map {
+                $0.row(state: through, availability: availability)
+            }]] : [],
             "next_cursor": through, "has_more": false])
     }
 
-    func observation() throws -> LibraryCompleteObservation {
+    func observation(additionalCatalogs: [Self] = []) throws -> LibraryCompleteObservation {
+        let through = additionalCatalogs.last?.sequence ?? sequence
         var reconciler = LibraryReconciler(accountID: account)
         let baselineRequest = try reconciler.nextRequest()
-        try reconciler.accept(LibraryWire.decodeBaseline(baseline()), for: baselineRequest)
+        try reconciler.accept(LibraryWire.decodeBaseline(baseline(state: through, additionalCatalogs: additionalCatalogs)), for: baselineRequest)
         let deltaRequest = try reconciler.nextRequest()
-        try reconciler.accept(LibraryWire.decodeChanges(changes(after: 1, through: 1)), for: deltaRequest)
+        try reconciler.accept(LibraryWire.decodeChanges(changes(after: through, through: through, additionalCatalogs: additionalCatalogs)), for: deltaRequest)
         return try reconciler.completeObservation()
     }
 
@@ -501,6 +681,7 @@ private final class OfflineModelServer: @unchecked Sendable {
     let refreshArrived = XCTestExpectation(description: "Expired session attempts token refresh")
     private let lock = NSLock()
     private let catalog: OfflineModelCatalog
+    private let additionalCatalogs: [OfflineModelCatalog]
     private let keyState: Data
     private let recoveryState: Data
     private var deviceEnvelopeAvailable = true
@@ -512,8 +693,9 @@ private final class OfflineModelServer: @unchecked Sendable {
     private var availability = "available"
     private var paths: [String] = []
 
-    init(catalog: OfflineModelCatalog, device: LocalDevice, holdRefresh: Bool) throws {
-        self.catalog = catalog; self.holdRefresh = holdRefresh
+    init(catalog: OfflineModelCatalog, additionalCatalogs: [OfflineModelCatalog], device: LocalDevice, holdRefresh: Bool) throws {
+        self.catalog = catalog; self.additionalCatalogs = additionalCatalogs; self.holdRefresh = holdRefresh
+        state = additionalCatalogs.last?.sequence ?? catalog.sequence
         let keys = try XCTUnwrap(device.bundle)
         let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: device.privateKey).publicKey.rawRepresentation
         let envelope = try ReaderCrypto.wrapForDevice(keys, deviceID: device.deviceID,
@@ -556,12 +738,12 @@ private final class OfflineModelServer: @unchecked Sendable {
                 let after = (Self.fields(request.request)["p_after"] as? NSNumber)?.int64Value ?? 0
                 request.respond(OfflineModelCatalog.bytes(["events": [], "next_cursor": after, "has_more": false]))
             case "v1_acknowledge_cursor": request.respond(Data(), status: 204)
-            case "v2_library_page": request.respond(catalog.baseline(state: state, availability: availability))
+            case "v2_library_page": request.respond(catalog.baseline(state: state, availability: availability, additionalCatalogs: additionalCatalogs))
             case "v2_library_changes":
                 let input = Self.fields(request.request)
                 let after = (input["p_after"] as? NSNumber)?.int64Value ?? 0
                 let through = (input["p_through"] as? NSNumber)?.int64Value ?? state
-                let bytes = catalog.changes(after: after, through: through, availability: availability)
+                let bytes = catalog.changes(after: after, through: through, availability: availability, additionalCatalogs: additionalCatalogs)
                 if let arrival = holdChanges {
                     holdChanges = nil; pendingChanges = (request, bytes); arrival.fulfill()
                 } else { request.respond(bytes) }
@@ -605,6 +787,56 @@ private final class OfflineModelObservation {
         if complete { stopped = true; ready.fulfill() }
     }
     func stop() { stopped = true }
+}
+
+/// This verifier can deliberately return a valid bundle after cancellation.
+/// The coordinator must still join it and fence that obsolete completion.
+private actor OfflineModelSelectionVerifier {
+    private struct Hold {
+        let arrived: XCTestExpectation
+        let cancelled: XCTestExpectation?
+        let ignoreCancellation: Bool
+    }
+    private var nextHold: Hold?
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var calls = 0
+    private var active = 0
+    private var maximum = 0
+
+    func arm(arrived: XCTestExpectation, cancelled: XCTestExpectation? = nil, ignoreCancellation: Bool = false) {
+        precondition(nextHold == nil && continuation == nil)
+        nextHold = Hold(arrived: arrived, cancelled: cancelled, ignoreCancellation: ignoreCancellation)
+    }
+
+    func verify(_ input: ReaderBundleInput) async throws -> VerifiedReaderBundle {
+        calls += 1; active += 1; maximum = max(maximum, active)
+        defer { active -= 1 }
+        let hold = nextHold; nextHold = nil
+        if let hold {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    self.continuation = continuation
+                    hold.arrived.fulfill()
+                }
+            } onCancel: { hold.cancelled?.fulfill() }
+        }
+        if hold?.ignoreCancellation == true {
+            // Detached admission has no inherited cancellation. Returning it
+            // exercises the real callback fence, not just a thrown test error.
+            return try await Task.detached {
+                try ReaderBundleLoader.verify(manifest: input.manifestData,
+                    expectedSHA256: input.expectedSHA256, members: input.members)
+            }.value
+        }
+        return try await ReaderBundleInput.verify(input)
+    }
+
+    func callCount() -> Int { calls }
+    func maximumConcurrent() -> Int { maximum }
+    func release() {
+        nextHold = nil
+        continuation?.resume(); continuation = nil
+    }
 }
 
 private actor OfflineModelVerificationGate {

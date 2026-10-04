@@ -233,6 +233,10 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launchArguments = ["--offline-reader-fixture"]
         app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        let unopenedRow = app.buttons[paperID]
+        XCTAssertTrue(unopenedRow.label.contains("Available offline") || unopenedRow.images["Available offline"].exists,
+                      "A persisted download remains available before its decoded bundle is loaded.")
+        capture(app, "Downloaded badge survives relaunch before loading paper")
         app.buttons[paperID].tap()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))

@@ -10,6 +10,7 @@ enum ReaderTab: String, CaseIterable, Identifiable {
 }
 enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat" }
 enum SelectionAction: String, CaseIterable { case define = "Define", relevance = "Relevance", similar = "Similar", ingest = "Ingest" }
+enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 
 struct Paper: Identifiable, Sendable {
     let id: UUID
@@ -101,6 +102,7 @@ final class ReaderModel {
         didSet {
             if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL || oldValue?.readerBundle?.manifestSHA256 != selectedPaper?.readerBundle?.manifestSHA256 {
                 headings = []; paperJump = nil; selectedQuote = ""
+                releaseUnselectedReaderBundles()
             }
         }
     }
@@ -920,7 +922,12 @@ final class ReaderModel {
         let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let items = entries.compactMap { if case .item(let item) = $0, item.visible { return item }; return nil }
         let next = items.map { item in
-            let cached = previous[item.documentID]
+            // Only the selected binding may carry decoded bytes through a
+            // metadata refresh. Other installed copies remain on disk.
+            let previousRow = previous[item.documentID]
+            let cached = selectedPaper?.id == item.documentID && selectedPaper?.artifactID == item.artifactID &&
+                selectedPaper?.readerBundle?.manifestSHA256 == previousRow?.readerBundle?.manifestSHA256
+                ? previousRow : nil
             let installed = readerBundles?.installation(documentID: item.documentID, artifactID: item.artifactID)
             let readable: Bool
             if let installed {
@@ -964,6 +971,29 @@ final class ReaderModel {
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
         openLocalPaperIfNeeded()
+    }
+
+    /// One selected downloaded bundle may remain loaded when returning to
+    /// Library or Chat. Changing selection drops every other model/row handle;
+    /// active WebKit views may finish using their own immutable copies.
+    private func releaseUnselectedReaderBundles() {
+        let selected = selectedPaper
+        func shouldRelease(_ paper: Paper) -> Bool {
+            guard !paper.isSample, let bundle = paper.readerBundle else { return false }
+            return paper.id != selected?.id || paper.artifactID != selected?.artifactID ||
+                bundle.manifestSHA256 != selected?.readerBundle?.manifestSHA256
+        }
+        guard papers.contains(where: shouldRelease) else { return }
+        papers = papers.map { shouldRelease($0) ? $0.displaying(nil) : $0 }
+    }
+
+    /// Availability belongs to the permitted encrypted installation, not to
+    /// whether this row currently owns decoded bytes in memory.
+    func offlineStatus(for paper: Paper) -> PaperOfflineStatus {
+        if paper.isSample { return paper.readerBundle == nil ? .none : .available }
+        guard accountID != nil, let coordinator = readerBundles,
+              let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return .none }
+        return coordinator.permits(installation) ? .available : .unavailable
     }
 
     func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }

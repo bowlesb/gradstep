@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import ScienceReaderCore
 
 /// Copy at the synchronous caller boundary. Foundation Data may wrap mutable
@@ -51,6 +52,7 @@ struct ReaderOfflineRestoration: Sendable {
 /// reopening. The retirement queue also joins verification before a new owner
 /// starts work, while accepted SQLite operations drain through persistence.
 @MainActor
+@Observable
 final class ReaderBundleCoordinator {
     typealias Verification = @Sendable (ReaderBundleInput) async throws -> VerifiedReaderBundle
     typealias DirectoryReader = @Sendable (EncryptedStore, LibraryCommandScope) async throws -> InstalledReaderBundleList
@@ -60,15 +62,15 @@ final class ReaderBundleCoordinator {
     private let readDirectory: DirectoryReader
     private let report: @MainActor (String?) -> Void
     private var closed = false
-    private var paused = false
-    private var install: Install?
-    private var opening: (id: UUID, installationID: UUID, binding: ReaderArtifactBinding, task: Task<OpenedReaderBundle, Error>)?
+    @ObservationIgnored private var paused = false
+    @ObservationIgnored private var install: Install?
+    @ObservationIgnored private var opening: (id: UUID, installationID: UUID, binding: ReaderArtifactBinding, task: Task<OpenedReaderBundle, Error>)?
     private var installed: [UUID: InstalledReaderBundle] = [:]
-    private var directory: InstalledReaderBundleList?
+    @ObservationIgnored private var directory: InstalledReaderBundleList?
     private var eligibility: [UUID: ReaderBundleEligibility] = [:]
-    private var latestObservation: LibraryCompleteObservation?
-    private var cacheSave: Task<CachedLibraryPresentation, Error>?
-    private var cacheHalted = false
+    @ObservationIgnored private var latestObservation: LibraryCompleteObservation?
+    @ObservationIgnored private var cacheSave: Task<Void, Error>?
+    @ObservationIgnored private var cacheHalted = false
     private var policyFailed = false
     private var removals: [UUID: Task<Void, Error>] = [:]
 
@@ -169,7 +171,7 @@ final class ReaderBundleCoordinator {
     /// Register an accepted observation independently of the originating UI
     /// task's cancellation. Retirement and the writer pause still fence it.
     @discardableResult
-    func observe(_ observation: LibraryCompleteObservation) throws -> Task<CachedLibraryPresentation, Error> {
+    func observe(_ observation: LibraryCompleteObservation) throws -> Task<Void, Error> {
         try applyLiveObservation(observation)
         guard !paused, !persistence.isActivating else { throw ReaderError.storageUnavailable }
         // Never skip a failed observation: it may contain a quarantine that a
@@ -177,17 +179,18 @@ final class ReaderBundleCoordinator {
         // new installs for this activation if the ordered disk chain fails.
         guard !cacheHalted else { throw ReaderError.storageUnavailable }
         let previous = cacheSave, scope = scope, readDirectory = readDirectory
-        let saved: Task<CachedLibraryPresentation, Error>
+        let saved: Task<Void, Error>
         do {
             let accepted = try persistence.acceptWrite { store in
                 if let previous { _ = try await previous.value }
-                let presentation = try await store.saveLibraryPresentation(observation, scope: scope)
-                return (presentation, try await readDirectory(store, scope))
+                // The retained task is an ordering/error barrier, not another
+                // owner of the full decoded catalog returned by the store.
+                _ = try await store.saveLibraryPresentation(observation, scope: scope)
+                return try await readDirectory(store, scope)
             }
             saved = Task {
-                let (presentation, list) = try await accepted.value
+                let list = try await accepted.value
                 if !self.closed { try self.publishDirectory(list) }
-                return presentation
             }
         } catch { cacheHalted = true; reportCacheFailure(); throw error }
         cacheSave = saved

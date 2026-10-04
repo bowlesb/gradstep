@@ -218,7 +218,7 @@ struct LibraryView: View {
                     List(model.libraryRows) { entry in
                         switch entry {
                         case .paper(let paper):
-                            Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, showAbstract: model.showAbstracts, showTopics: model.showTopics) }
+                            Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics) }
                                 .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                                 .accessibilityIdentifier("paper.\(paper.id.wire)")
                                 .contextMenu {
@@ -328,6 +328,7 @@ struct ImportRow: View {
 struct PaperRow: View {
     let paper: Paper
     var selected = false
+    var offlineStatus: PaperOfflineStatus = .none
     var showAbstract = true
     var showTopics = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -336,7 +337,8 @@ struct PaperRow: View {
             HStack(alignment: .top) {
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
-                if paper.fileURL != nil { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
+                if offlineStatus == .available { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
+                else if offlineStatus == .unavailable { Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityLabel("Downloaded copy unavailable") }
             }
             if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }

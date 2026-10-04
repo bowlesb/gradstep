@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Observation
 import ScienceReaderCore
 import SQLite3
 import XCTest
@@ -146,6 +147,41 @@ final class ReaderBundleCoordinatorTests: XCTestCase {
         _ = try await coordinator.open(admitted).value
     }
 
+    func testInstalledCopyObservationInvalidatesOnLiveQuarantineWithoutCatalogPublication() async throws {
+        let fixture = try OfflineBundleFixture(), persistence = ReaderLocalPersistence()
+        defer { try? FileManager.default.removeItem(at: fixture.folder) }
+        _ = try await fixture.activate(persistence)
+        let coordinator = ReaderBundleCoordinator(scope: fixture.scope, persistence: persistence)
+        _ = try await coordinator.observe(fixture.observation()).value
+        let installed = try await fixture.install(coordinator).value
+
+        try coordinator.applyLiveObservation(fixture.observation(state: 2, availability: "unavailable", availabilityRevision: 2))
+        let invalidation = BundleObservationInvalidation()
+        let readable = withObservationTracking {
+            (installation: coordinator.installation(documentID: fixture.document, artifactID: fixture.artifact)?.id,
+             permitted: coordinator.permits(installed),
+             localCopy: coordinator.localCopy(documentID: fixture.document, artifactID: fixture.artifact)?.id)
+        } onChange: { invalidation.record() }
+        XCTAssertEqual(readable.installation, installed.id)
+        XCTAssertTrue(readable.permitted, "A remote outage must preserve a verified local copy")
+        XCTAssertEqual(readable.localCopy, installed.id)
+        XCTAssertFalse(invalidation.wasRecorded)
+
+        // No model metadata assignment, disk acknowledgement or actor yield can
+        // supply this invalidation. These are the badge's computed dependencies.
+        try coordinator.applyLiveObservation(fixture.observation(state: 3, availability: "quarantined", availabilityRevision: 3))
+        XCTAssertTrue(invalidation.wasRecorded)
+        // Observation calls onChange before mutation; read the new state only
+        // after the live-policy operation has returned.
+        XCTAssertEqual(coordinator.installation(documentID: fixture.document, artifactID: fixture.artifact)?.id, installed.id)
+        XCTAssertFalse(coordinator.permits(installed))
+        XCTAssertNil(coordinator.localCopy(documentID: fixture.document, artifactID: fixture.artifact))
+
+        let retirement = ReaderRetirementQueue()
+        retirement.retire(sync: nil, persistence: persistence, bundles: coordinator)
+        await retirement.wait()
+    }
+
     func testQuarantineDuringNativeOpenCannotPublishTheOlderVerifiedHandle() async throws {
         let fixture = try OfflineBundleFixture(), persistence = ReaderLocalPersistence()
         defer { try? FileManager.default.removeItem(at: fixture.folder) }
@@ -254,6 +290,19 @@ final class ReaderBundleCoordinatorTests: XCTestCase {
     private func expectCancellation<T: Sendable>(_ task: Task<T, Error>, file: StaticString = #filePath, line: UInt = #line) async {
         do { _ = try await task.value; XCTFail("Expected cancelled old operation", file: file, line: line) }
         catch { XCTAssertTrue(error is CancellationError, "Unexpected \(error)", file: file, line: line) }
+    }
+}
+
+private final class BundleObservationInvalidation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded = false
+    var wasRecorded: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return recorded
+    }
+    func record() {
+        lock.lock(); defer { lock.unlock() }
+        recorded = true
     }
 }
 
