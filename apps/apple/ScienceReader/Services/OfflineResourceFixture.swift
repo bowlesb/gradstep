@@ -38,6 +38,13 @@ enum OfflineResourceFixture {
         }
         let settledFlags = arguments.filter { $0 == "--offline-resource-settled" }.count
         guard settledFlags <= 1, settledFlags == 0 || mode != .seed else { throw Failure.invalidArguments }
+        let attributionFlags = arguments.filter { $0 == "--offline-resource-attribution" }.count
+        guard attributionFlags <= 1, attributionFlags == 0 || (settledFlags == 1 && mode != .seed) else {
+            throw Failure.invalidArguments
+        }
+        #if !OFFLINE_RESOURCE_MEASUREMENTS
+        guard attributionFlags == 0 else { throw Failure.invalidArguments }
+        #endif
         return mode
     }
 
@@ -214,6 +221,9 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var searchPublicationElapsedMS: Double?
     @ObservationIgnored private var settledStartMS: Double?
     @ObservationIgnored private var settledSamples: [SettledFootprint]?
+    #if OFFLINE_RESOURCE_MEASUREMENTS
+    @ObservationIgnored private var attributionEmitted = false
+    #endif
 
     private struct Stamp {
         let nanoseconds: UInt64
@@ -301,6 +311,9 @@ final class OfflineResourceProbe {
         openedMemberBytes = nil; seeded = false; failure = 0
         searchSourceElapsedMS = nil; searchWorkerElapsedMS = nil; searchPublicationElapsedMS = nil
         settledStartMS = nil; settledSamples = nil
+        #if OFFLINE_RESOURCE_MEASUREMENTS
+        attributionEmitted = false
+        #endif
         publish()
     }
 
@@ -404,12 +417,12 @@ final class OfflineResourceProbe {
         settledSamples = samples
         // Publish once: intermediate JSON/observation work is not introduced
         // between the four passive readings. Existing app work runs normally.
-        publish()
+        publish(attributionCheckpoint: true)
     }
 
     func fail(_ code: OfflineResourceFixture.Failure) { failure = code.rawValue; publish() }
 
-    private func publish() {
+    private func publish(attributionCheckpoint: Bool = false) {
         guard let mode else { return }
         let report = Report(pid: ProcessInfo.processInfo.processIdentifier, mode: mode == .seed ? 1 : (mode == .restore ? 2 : 3),
             rows: rows, installations: installations, ciphertextBytes: ciphertextBytes,
@@ -421,6 +434,9 @@ final class OfflineResourceProbe {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(report), bytes.count <= 16_384,
               let value = String(data: bytes, encoding: .utf8) else { return }
+        #if OFFLINE_RESOURCE_MEASUREMENTS
+        if attributionCheckpoint { emitAttributionCheckpoint(report) }
+        #endif
         serial += 1
         let current = serial, generation = generation
         Task { @MainActor [weak self] in
@@ -428,6 +444,45 @@ final class OfflineResourceProbe {
             self.publishedSerial = current; self.statusJSON = value
         }
     }
+
+    #if OFFLINE_RESOURCE_MEASUREMENTS
+    /// One numeric checkpoint for launch-time allocation traces. It occurs
+    /// after the unchanged sampling/ownership guards, never between readings.
+    /// No accessibility observer, allocator purge or library content is added.
+    private func emitAttributionCheckpoint(_ report: Report) {
+        guard ProcessInfo.processInfo.arguments.contains("--offline-resource-attribution"),
+              !attributionEmitted, report.failure == 0, report.settledSamples?.count == 4,
+              report.openedMemberBytes == nil, mode == .empty || mode == .restore else { return }
+        struct AllocatorSnapshot: Encodable {
+            let blocksInUse: UInt64
+            let bytesInUse: UInt64
+            let bytesAllocated: UInt64
+        }
+        struct Checkpoint: Encodable {
+            let format = 1
+            let uptimeNanoseconds: UInt64
+            let unixMilliseconds: Double
+            let allocator: AllocatorSnapshot
+            let report: Report
+        }
+        // The public API defines nil as the sum over all malloc zones. These
+        // are current allocator counters, not physical memory or peak usage.
+        // Query only after passive sampling; no memory-pressure/purge call.
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        let checkpoint = Checkpoint(uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            unixMilliseconds: Date().timeIntervalSince1970 * 1_000,
+            allocator: AllocatorSnapshot(blocksInUse: UInt64(statistics.blocks_in_use),
+                bytesInUse: UInt64(statistics.size_in_use), bytesAllocated: UInt64(statistics.size_allocated)),
+            report: report)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let bytes = try? encoder.encode(checkpoint), bytes.count <= 16_384 else { return }
+        var line = Data("TIMESTEP_ALLOCATION_CHECKPOINT ".utf8)
+        line.append(bytes); line.append(10)
+        attributionEmitted = true
+        try? FileHandle.standardOutput.write(contentsOf: line)
+    }
+    #endif
 
     private func stamp() -> Stamp {
         let time = DispatchTime.now().uptimeNanoseconds

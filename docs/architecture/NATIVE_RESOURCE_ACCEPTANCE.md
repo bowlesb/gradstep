@@ -101,4 +101,63 @@ The unchanged app restore phase takes 214–265 ms for the control and 4.180–4
 
 The large catalog remains above the provisional retained-growth investigation trigger across the final readings, even allowing for the control's variation. Review bounded local presentation and search before accepting the whole-library hydration design; preserve every authenticated row, the complete cursor, full-field search semantics and encrypted persistence. Do not simply reduce the valid catalog or metadata contract to meet a benchmark. This offline-only journey does not exercise live cache-save publication or different-paper accumulation, so it establishes neither savings from those fixes nor WebContent/physical-device headroom. Repeated open/close cycles, live refresh, allocation attribution and total reader memory remain open.
 
+## Allocation diagnostic boundary
+
+A separate diagnostic build adds `--offline-resource-attribution`, accepted only
+by the explicit Simulator resource target and only with the existing post-restore
+sampling mode. It emits one bounded numeric JSON checkpoint after the unchanged
+four readings and final ownership guard. It adds no accessibility polling,
+catalog text, allocator purge or forced collection. Normal Debug and shipping
+builds cannot enable this diagnostic. Independent source review is clear, and
+the optimized build passes in `.artifacts/offline-attribution-counters-build.log`.
+The original benchmark binary and evidence remain intact.
+
+Three `xctrace` launch attempts stalled before recording or checkpoint emission,
+including a minimal Allocations-only launch. Their owned processes were stopped;
+there is no valid allocation trace. A separate launch with stack logging reached
+the empty checkpoint, but `vmmap`, `heap` and `malloc_history` all failed to obtain
+the target's DYLD information. These failures establish neither allocation
+ownership nor their own underlying cause. Logs are retained under
+`.artifacts/offline-attribution-*`; no global debugging permission, Xcode version
+or device setting was changed.
+
+The fallback diagnostic reads `malloc_zone_statistics(nil, ...)` inside its own
+process after sampling. It reports blocks in use, current allocator bytes in use
+and allocator bytes reserved. These are not physical-memory or peak counters.
+The allocator query and Mach footprint are separate readings: subtracting them
+does not establish fragmentation or exact ownership. A valid run must contain
+exactly one complete checkpoint with the launched PID, correct complete dataset,
+four successful footprint readings and no opened bundle. Missing, duplicate,
+truncated or failed reports are not measurements. Plain launches must disable
+stack logging and avoid concurrent builds, VM activity and XCTest/AX inspection.
+Such a launch remains a single-process diagnostic, not a replacement for the
+repeated baseline or whole-reader resource acceptance.
+
+Both plain launches produced valid checkpoints from the same optimized binary,
+SHA-256 `59055d6af930c8876c2bb821e891976c76c31528e367b6bb2fb463aef11abe5c`.
+The exact installed binary and all 81 captured source inputs matched the manifest.
+The isolated task VM was stopped; no build, profiler or automated UI inspection
+overlapped either run. Both applications were explicitly terminated afterward.
+
+| Single-process diagnostic | Empty library | Maximum library |
+| --- | --- | --- |
+| Allocator blocks in use | 76,268 | 957,502 |
+| Allocator bytes in use | 12.3 MiB | 244.8 MiB |
+| Allocator bytes reserved | 28.0 MiB | 431.3 MiB |
+| Final current application footprint | 36.1 MiB | 313.5 MiB |
+| Actual final sample offset | 1,032 ms | 1,030 ms |
+| Restore/model publication phase | 126.8 ms | 5,288.8 ms |
+
+The maximum run restored all 4,000 rows and one installation without opening its
+bundle. The live allocator count warrants further investigation even without
+XCTest inspecting the view hierarchy. It does not identify particular retainers,
+prove a leak, establish fragmentation or demonstrate savings against the earlier
+benchmark. The changed observation method and single run also do not establish
+a timing regression; the measured restore remains above the provisional trigger.
+Validated raw checkpoints are
+`.artifacts/offline-attribution-{empty,restore}-counters-evidence.json`, with the
+source/binary manifest and exact diagnostic delta in
+`offline-attribution-counters-source.{json,patch}`. The bounded launch/validation
+recipe is `.artifacts/run-offline-attribution-counters.py`.
+
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).
