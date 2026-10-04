@@ -1,8 +1,8 @@
 # Linux metadata executor admission
 
-Status, 2026-10-04: **database delta reviewed and tested locally; combined Linux
-runtime source implemented with portable recovery tests, but not yet run as a
-complete Linux/database action or admitted**. The
+Status, 2026-10-04: **the combined Linux/PostgreSQL normal workflow and a
+supervisor interruption with observer-only replay are verified locally,
+including restricted callers and cleanup. Hosted admission remains disabled**. The
 extension lives only in the unapplied
 [`012` candidate](../../supabase/migrations/202610030012_metadata_execution.sql.pending).
 No hosted migration, enabled flag or credential changed. Applied migrations
@@ -10,11 +10,13 @@ No hosted migration, enabled flag or credential changed. Applied migrations
 PDF acquisition, verification, Mathpix or a general scheduler.
 
 The [execution contract](EXECUTOR_LIFETIME.md) and
-[local integration](../../workers/source-gateway/INTEGRATION.md) already separate
+[local integration](../../workers/source-gateway/INTEGRATION.md) separate
 one-use permission, committed results and resource retirement. The
-[Linux fixture](../../workers/source-gateway/linux/README.md), committed as
-`a20cd4c`, adds a tested same-boot process-group observation. It does **not** yet
-connect that observation to database authority. References in
+[Linux fixture](../../workers/source-gateway/linux/README.md) began with the
+same-boot process-group observation in `a20cd4c`. The combined runtime in
+`689648e` connects captured Linux actions to a disposable database through
+separate capability logins. The subsequent checkpoint below verifies one actual
+scope-only failure schedule while preserving the original guardian. References in
 [ACQUISITION.md](ACQUISITION.md) assigning paid processing to “012” predate the
 metadata-execution candidate; they do not authorize paid work in this proposal.
 
@@ -1429,24 +1431,56 @@ and bounded JSON evidence remain in the guest. The guest is stopped. Candidate
 012 retains its pinned hash and remains unapplied to hosted Supabase; external
 source networking and paid providers remain disabled.
 
-### Next failure-recovery boundary
+### Supervisor interruption and observer-only replay — 2026-10-04
 
-The next bounded schedule kills only the transport supervisor after one complete
-GET and response headers, while the fixture withholds its body. Keep the guardian
-alive so it retains the controller family's original subreaper/wait authority.
-Require original-scope retirement, executor-before-source receipts, no parser
-body, the full 1,048,576-byte charge and an acknowledged `metadata_unavailable`
-result. A separately launched observer-only resource replay must preserve the
-same receipt IDs, result, request charge, source cooldown and job backoff without
-a new grant or GET.
+The new `metadata_observer` bundle entry accepts only the existing job, claim and
+observer connection descriptor. It restores the captured action and settles its
+transport resources without starting an executor controller, obtaining a grant,
+publishing GO, parsing or finalizing a job. Its bounded result identifies resource
+closure only. Unknown grants retain their holds; a pending GO publication remains
+unpublished and unresolved. Saved grant/status checkpoints must agree on every
+immutable execution field, including the captured stage.
 
-Current `recover` starts another executor controller. Add a separately bounded
-observer-only resource entry before claiming this next schedule: it must accept
-only the job/claim and observer descriptor, restore the existing capture/journal,
-and use the existing settlement protocol without grant, GO, parser or result
-capabilities. Extend test cleanup only for the exact acknowledged failure result;
-resource settlement alone does not authorize deletion. This design is reviewed,
-but the entry and actual fault schedule are not implemented or verified here.
+The actual Linux `supervisor_death` schedule passes in 37.300 seconds, including
+teardown. After a complete GET and successfully sent response headers, the TLS
+fixture withholds all body bytes. The test opens a Linux process handle and
+rechecks the captured supervisor's boot, start identity, IDs, cgroup, invocation,
+unit bytes and live GO before one SIGKILL. No old PID/PGID fallback is available.
+Cancellation and the final signal decision share a lock. The original guardian
+stays alive and retains its controller family's subreaper/wait authority.
+
+The database records one attempt, one request and the full **1,048,576-byte**
+charge. Its two `owned_scope_retired_v1` receipts are ordered executor before
+source connection. Framing is unknown; actual bytes, body hash and status are
+null. There is no accepted body witness or parser checkpoint. The exact
+`metadata_unavailable`, retryable failure is acknowledged and leaves the job in
+`retry_wait`. A fresh process then uses only `metadata_observer`; it preserves
+the same receipt identities/facts, result, charge periods, source gate/cooldown,
+job/backoff/state revision and import state. The listener stays open to detect
+duplicates and observes no second connection.
+
+Only this explicit failure scenario permits test cleanup of the failed result.
+Normal cleanup still requires a successful metadata result. The killed service
+receives one exactly named `reset-failed` only after durable fault evidence,
+result/receipt acknowledgements, a fresh same-inode empty-scope observation and
+revalidation of the original unit and permanent start fence under the held
+journal lock. Reset also clears start counters, so the independent start
+condition remains continuously enforced. The fence is deleted last, after unit
+removal/unloading and current runtime absence. Uncertain cleanup retains state;
+this is a fixture exception, not a production recovery API.
+
+Frozen runtime bundle
+`1c1b040f8bab4835c718a0d8a36475c8bdc72c5e1a36e30b91677f73339eb161` charges
+309,005 source bytes under the unchanged 327,680-byte allowance. The final local
+suite passes 163 tests with 16 explicit Linux-only skips; 23 focused checks cover
+fault injection and cleanup. The final normal regression with the same frozen
+harness passes in 11.282 seconds, including cleanup. Source, runtime bundle,
+database observations and logs are retained in
+`.artifacts/linux-restricted-caller/observer-0f2bf6c2521b/summary.json` and its
+companion artifacts. Final readback confirms no owned actions, accounts, units
+or PostgreSQL server/cluster; the guest is stopped.
+No hosted migration was applied, and no production credential, external source
+or paid provider was used.
 
 Guardian SIGKILL remains a different, quarantined case. It loses the original
 controller/psql/parser family wait authority, which the source-slice capture does

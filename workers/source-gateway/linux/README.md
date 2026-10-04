@@ -1,12 +1,16 @@
 # Linux lifecycle fixture
 
-Status: implemented local fixtures. The original lifecycle checkpoint passed
+Status: implemented local fixtures, including the combined PostgreSQL metadata
+workflow, supervisor interruption and observer-only replay described below.
+The original lifecycle checkpoint passed
 23 tests; the separate UID/ingress prerequisite now passes **41 tests on the
 isolated Linux guest** (8.080 seconds), including all original 23 scenarios.
 This is not a deployed metadata gateway.
-Migration 012 is unchanged. The shared paused-child API has a backward-compatible
+Candidate migration 012 remains unapplied to hosted Supabase. The shared
+paused-child API has a backward-compatible
 spawn/handshake split, with the existing gateway regressions passing. Source
-networking, database access and production credentials are absent from this fixture.
+networking and production credentials are absent. The combined fixture uses a
+private, disposable loopback PostgreSQL database.
 
 ## VM review boundary
 
@@ -318,7 +322,45 @@ case after a saved cleanup proof. It does not relax `ActionJournal` or create a
 new retirement receipt. Missing, changed or partially deleted files are retained
 for review.
 
-Actual combined transport-failure schedules, a separate observer-only resource
-replay entry and guardian-death controller-family ownership remain open. This
-normal loopback result does not enable hosted workers, external source requests,
+The supervisor-interruption schedule and observer entry are verified in the
+next checkpoint. Guardian-death controller-family ownership remains open.
+These loopback results do not enable hosted workers, external source requests,
 PDF acquisition or paid Mathpix/AI work.
+
+## Supervisor interruption and observer-only replay — verified 2026-10-04
+
+`metadata_observer` accepts only an existing job/claim and observer descriptor.
+It can settle the captured transport resources; it cannot start a controller,
+grant, publish GO, parse, finalize a job or clean up the action. A pending GO
+publication remains unresolved. Resource closure does not prove retirement of
+a separate controller family after guardian death.
+
+The integration harness selects exactly one fresh workflow using
+`TIMESTEP_METADATA_SCENARIO=normal` (the default) or `supervisor_death`.
+The latter uses an exact Linux process handle to kill the supervisor after
+response headers while the fixture withholds the body. The original guardian
+retains its wait authority. One request stays fully charged at 1,048,576 bytes,
+both resources receive ordered scope-retirement receipts with unknown body
+facts, and the job records an acknowledged retryable failure. A fresh
+observer-only process preserves all receipts, results, charge periods, cooldown
+and retry state, with no additional connection.
+
+The fault scenario passes in 37.300 seconds; the final normal regression passes
+in 11.282 seconds, including full cleanup in each case. Only the explicit fault
+fixture permits one named `reset-failed` after durable fault/settlement/empty
+scope proof and rechecking the original unit/fence under the held lock. The
+independent start fence survives reset and unit removal and is deleted last.
+
+The final Mac discovery run passes 163 tests with 16 Linux-only skips:
+
+```sh
+PYTHONPATH=workers/source-gateway:workers/source-gateway/linux python3 -B -m unittest discover -s workers/source-gateway/linux -p 'test_*.py' -v
+```
+
+Bundle `1c1b040f8bab4835c718a0d8a36475c8bdc72c5e1a36e30b91677f73339eb161`
+charges 309,005 source bytes. Source and saved database/cleanup evidence passed
+independent review. The final readback finds no owned actions, accounts, units or
+PostgreSQL server/cluster, and the guest is stopped. Evidence is
+`.artifacts/linux-restricted-caller/observer-0f2bf6c2521b/summary.json`; the
+[admission checkpoint](../../../docs/architecture/LINUX_METADATA_ADMISSION.md#supervisor-interruption-and-observer-only-replay--2026-10-04)
+records the exact scope and remaining recovery limits.

@@ -29,7 +29,8 @@ MEMBERS = frozenset(name + '.py' for name in GATEWAY + LOCAL) | {
 ENTRIES = {'metadata_launcher': ['linux_launcher', 'main'],
            'linux_source': ['linux_source', 'main'],
            'metadata_executor': ['metadata_bridge', 'executor_main'],
-           'metadata_guardian': ['metadata_bridge', 'main']}
+           'metadata_guardian': ['metadata_bridge', 'main'],
+           'metadata_observer': ['metadata_bridge', 'observer_main']}
 RUNTIME_NAMES = ('python', 'deno', 'psql')
 INVENTORY_KEYS = {'schema_version', 'kind', 'platform', 'architecture', 'kernel_release',
                   'systemd_version', 'python_version', 'deno_version', 'psql_version',

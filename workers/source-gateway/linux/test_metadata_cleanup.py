@@ -13,6 +13,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent)]
 import test_metadata_integration as fixture
+import test_metadata_settlement as settlement_fixture
 
 
 def state(unit, *, service, loaded=None):
@@ -203,6 +204,130 @@ class RetainedFilesTests(unittest.TestCase):
                 unlink.assert_not_called(); runtime.assert_not_called()
             Restored.record.assert_not_called()
             self.assertEqual(before, {path: path.read_bytes() for leaf in self.layout.values() for path in leaf.iterdir()})
+
+
+class ExpectedFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.case = settlement_fixture.SettlementTests()
+        self.case.setUp()
+        self.addCleanup(self.case.tearDown)
+        case, kernel = self.case, self.case.kernel
+        case.settle()  # Actual private journal, explicitly simulated SQL/kernel.
+        self.execution = copy.deepcopy(case.observer.execution)
+        self.ack = {'id': kernel.job, 'source_id': fixture.SOURCE, 'requested_revision': 1,
+            'generation': 1, 'stage': 'atom', 'status': 'retry_wait', 'error_code': 'metadata_unavailable',
+            'retryable': True, 'claim_id': None}
+        result = {'name': 'worker_fail_metadata_stage_v2', 'parameters': {'p_job_id': kernel.job,
+            'p_claim_id': kernel.claim, 'p_generation': 1, 'p_attempt_id': self.execution['id'],
+            'p_error_code': 'metadata_unavailable', 'p_retryable': True}}
+        case.action.put('result.json', result)
+        case.action.put('result-ack.json', self.ack)
+        self.current = {'job': self.ack, 'execution': self.execution, 'step_result': {
+            'attempt_id': self.execution['id'], 'error_code': 'metadata_unavailable', 'retryable': True}}
+        self.action = types.SimpleNamespace(journal=case.action, binding=kernel.binding, capture=kernel.capture,
+            ready=kernel.ready, service=kernel.service, slice=kernel.slice, claim=kernel.claim,
+            scope=kernel.scope, fence_value=lambda: kernel.fence)
+
+    def settled(self, current=None, read=None, **kwargs):
+        k = self.case.kernel
+        return fixture.settled_cleanup_records(read or self.case.action.read,
+            self.current if current is None else current, k.binding, k.job, k.claim, **kwargs)
+
+    def test_failure_is_explicit_exact_and_scope_only(self):
+        self.assertEqual(self.settled(expected_failure=True), (self.execution, self.ack))
+        with self.assertRaisesRegex(ValueError, 'missing_result_ack_retained'):
+            self.settled()
+        for edit in ('pending', 'attempt', 'error', 'retry', 'generation', 'ack', 'joined', 'status', 'body'):
+            current = copy.deepcopy(self.current)
+            saved = {name: self.case.action.read(name) for name in ('result.json', 'result-ack.json',
+                'executor.json', 'executor-ack.json', 'arxiv_connection.json', 'arxiv_connection-ack.json')}
+            if edit == 'pending': current['execution']['pending_resources'] = ['executor']
+            elif edit == 'attempt': current['step_result']['attempt_id'] = str(uuid.uuid4())
+            elif edit == 'error': current['step_result']['error_code'] = 'source_not_found'
+            elif edit == 'retry': current['step_result']['retryable'] = 1
+            elif edit == 'generation': saved['result.json']['parameters']['p_generation'] = 2
+            elif edit == 'ack': saved['result-ack.json']['status'] = 'complete'
+            elif edit == 'joined': saved['executor.json']['parameters']['p_evidence_kind'] = 'owned_child_joined'
+            else:
+                facts = saved['arxiv_connection.json']['parameters']['p_facts']
+                facts['status_code' if edit == 'status' else 'actual_bytes'] = 200 if edit == 'status' else 0
+            with self.subTest(edit=edit), self.assertRaises(ValueError):
+                self.settled(current, saved.__getitem__, expected_failure=True)
+
+    def test_reset_accepts_only_exact_killed_failed_service_and_original_paths(self):
+        action = self.action
+        value = dict(state(action.service, service=True, loaded='loaded'), ActiveState='failed', SubState='failed',
+            FragmentPath='/run/systemd/system/' + action.service, InvocationID=action.ready['invocation_id'],
+            Result='signal', ExecMainCode='2', ExecMainStatus='9')
+        with patch.object(fixture.lifecycle, 'show', return_value=value):
+            self.assertEqual(fixture.fault_service_state(action), value)
+        for key, changed in (('ActiveState', 'active'), ('Result', 'exit-code'), ('ExecMainStatus', '15'),
+                             ('ExecMainCode', '1'), ('Job', '3'), ('MainPID', '42'),
+                             ('InvocationID', 'another'), ('SourcePath', '/source'), ('DropInPaths', '/dropin'),
+                             ('ControlGroup', '/different'), ('FragmentPath', '/another')):
+            with self.subTest(key=key), patch.object(fixture.lifecycle, 'show', return_value=dict(value, **{key: changed})):
+                with self.assertRaisesRegex(ValueError, 'unexpected_fault_service_state'):
+                    fixture.fault_service_state(action)
+        reset = dict(value, ActiveState='inactive', SubState='dead', Result='success')
+        with patch.object(fixture.lifecycle, 'show', return_value=reset):
+            self.assertEqual(fixture.fault_service_state(action, reset=True), reset)
+            with self.assertRaises(ValueError): fixture.fault_service_state(action)
+
+    def test_one_reset_only_after_durable_proof_and_recheck_with_fence_retained(self):
+        k = self.case.kernel
+        k.service_state.update(ActiveState='failed', SubState='failed')
+        observation = k.scope.observe(k.capture, k.ready, k.binding, self.execution['binding_sha256'], k.fence)
+        class Context(fixture.MetadataIntegrationTests):
+            pass
+        Context.job, Context.scenario, Context.claims = k.job, fixture.FAULT, [k.claim]
+        Context.state = Mock(return_value=self.current)
+        Context.fault_proof = Mock(return_value={'exact_fixture_proof': True})
+        events = []
+        Context.record = Mock(side_effect=lambda name, value: events.append(name))
+        def reset(argv):
+            self.assertEqual(argv, ['/usr/bin/systemctl', 'reset-failed', k.service])
+            self.assertEqual(events, ['fault-reset-intent.json'])
+            self.assertEqual(self.case.action.read('stop-fence.json'), k.fence)
+            events.append('reset')
+            k.service_state.update(ActiveState='inactive', SubState='dead')
+        with patch.object(fixture, 'require_no_fixture_runtime'), \
+             patch.object(fixture, 'fault_service_state', side_effect=lambda action, **kw: {'reset': kw.get('reset', False)}), \
+             patch.object(fixture.lifecycle, 'run', side_effect=reset) as run:
+            Context.reset_fault_service(self.action, self.execution, observation)
+        self.assertEqual(events, ['fault-reset-intent.json', 'reset', 'fault-reset-ack.json'])
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(self.case.action.read('stop-fence.json'), k.fence)
+
+    def test_failed_proof_publication_unsettled_or_changed_fence_never_resets(self):
+        k = self.case.kernel
+        observation = k.scope.observe(k.capture, k.ready, k.binding, self.execution['binding_sha256'], k.fence)
+        for failure in ('unsettled', 'proof', 'publication', 'changed_fence', 'nonempty'):
+            class Context(fixture.MetadataIntegrationTests): pass
+            Context.job = k.job
+            current = copy.deepcopy(self.current)
+            if failure == 'unsettled': current['execution']['pending_resources'] = ['executor']
+            Context.state = Mock(return_value=current)
+            Context.fault_proof = Mock(side_effect=ValueError('proof') if failure == 'proof' else None, return_value={})
+            reads = self.case.action.read
+            changed = False
+            def record(name, value):
+                nonlocal changed
+                if failure == 'publication': raise OSError('directory fsync')
+                changed = True
+            def read(name):
+                if failure == 'changed_fence' and changed and name == 'stop-fence.json':
+                    return dict(k.fence, capture_sha256='0' * 64)
+                return reads(name)
+            Context.record = Mock(side_effect=record)
+            with self.subTest(failure=failure), patch.object(fixture, 'require_no_fixture_runtime'), \
+                 patch.object(fixture, 'fault_service_state', return_value={}), \
+                 patch.object(self.case.action, 'read', side_effect=read), \
+                 patch.object(fixture.lifecycle, 'run') as run:
+                if failure == 'nonempty': self.case.kernel.group['populated'] = 1
+                with self.assertRaises((ValueError, OSError)):
+                    Context.reset_fault_service(self.action, self.execution, observation)
+                run.assert_not_called()
+            self.case.kernel.group['populated'] = 0
 
 
 if __name__ == '__main__':

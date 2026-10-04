@@ -4,14 +4,19 @@ Run this file separately from test_prerequisite.py, as root, with the selected
 Linux Python using -I -S -B. No setup runs on import or ordinary discovery.
 Required TIMESTEP_METADATA_* variables: SOURCE_ROOT, DB_MANIFEST,
 DB_MANIFEST_SHA256, DB_PORT, PARSER_DIR, RUNTIME_INVENTORY, PYTHON, DENO and
-EVIDENCE_ROOT. Also set TIMESTEP_LINUX_METADATA_RUN=1. The evidence path must be
+EVIDENCE_ROOT. Also set TIMESTEP_LINUX_METADATA_RUN=1. TIMESTEP_METADATA_SCENARIO
+is exactly normal (default) or supervisor_death; one fresh instance runs one
+workflow. The evidence path must be
 new: /var/lib/timestep-metadata-fixture-runs/<12 lowercase hex characters>.
 
 The supplied parser was built on this guest; this harness neither downloads nor
 builds it. Owner SQL is fixture setup/audit only. The two source actions use the
 unchanged captured guardian/controller and distinct actual restricted logins.
 Any failed setup/action/check leaves its owned state for explicit review. Only
-the fully successful, settled normal schedule reaches the narrow cleanup below.
+the selected, fully acknowledged schedule reaches the narrow cleanup below.
+Only supervisor_death permits one exact reset-failed for its killed service,
+after durable fault/result/receipt/empty-scope proof while its original unit and
+permanent start fence are checked under the held lock. No restart is permitted.
 The immutable bundle and bounded evidence remain for export after cleanup.
 """
 from contextlib import contextmanager
@@ -23,9 +28,12 @@ import os
 from pathlib import Path
 import pwd
 import re
+import select
+import signal
 import socket
 import stat
 import sys
+import threading
 import time
 import unittest
 import uuid
@@ -37,12 +45,14 @@ import fixture_database as database
 import lifecycle
 import metadata_bootstrap as bootstrap
 from action_journal import RECORDS, _open_directory, _read as read_record
-from execution_contract import validate_execution
+from execution_contract import source_dto, validate_execution
 from metadata_host import HostAction, HOST, PROJECT, trusted_directory
-from metadata_scope import MetadataScope, policy_hashes
+from metadata_scope import MetadataScope, checked_go, policy_hashes
 from metadata_settlement import check_ack, checked_observation
+from protocol import clock_ns
 from restricted_rpc import RestrictedRPC
 from tls_fixture import Server
+import uid_policy
 import witness_slots
 
 ENABLED = sys.platform == 'linux' and os.environ.get('TIMESTEP_LINUX_METADATA_RUN') == '1'
@@ -51,6 +61,13 @@ RUNS = Path('/var/lib/timestep-metadata-fixture-runs')
 BUNDLES = Path('/var/lib/timestep-source/metadata-bundles')
 SOURCE = '2403.81001'  # Same synthetic source/metadata as ../test_integration.py.
 MAX_EVIDENCE = 524_288
+FAULT = 'supervisor_death'
+
+
+def selected_scenario():
+    value = os.environ.get('TIMESTEP_METADATA_SCENARIO', 'normal')
+    require(value in ('normal', FAULT), 'invalid_fixture_scenario')
+    return value
 
 
 def require(value, code):
@@ -128,6 +145,139 @@ def explicit_path(name):
     require(type(value) is str and value and Path(value).is_absolute()
             and Path(value).resolve() == Path(value), 'explicit_fixture_path_required')
     return Path(value)
+
+
+def fault_target(action, job):
+    """Read immutable published inputs without taking the guardian's held lock."""
+    def record(name):
+        leaf, maximum = RECORDS[name]
+        owner, group, mode = cleanup_identity(leaf)
+        trusted_directory(action.layout[leaf].parent)
+        fd = _open_directory(action.layout[leaf], owner, group, mode)
+        try:
+            require(os.stat(name, dir_fd=fd, follow_symlinks=False).st_nlink == 1, 'fault_record_alias')
+            raw = read_record(fd, name, owner, group, 0o640 if leaf == 'control' else 0o600,
+                              maximum, sync=True)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        value = database.decode(raw)
+        require(database.canonical(value) == raw, 'noncanonical_fault_record')
+        return value
+    capture, ready = record('capture.json'), record('ready.json')
+    binding = copy.deepcopy(capture['binding_without_capture_sha256'])
+    binding['scope']['capture_sha256'] = database.sha(database.canonical(capture))
+    MetadataScope(action.manifest, action.render).checked_capture(capture, ready, binding)
+    require(capture['job_id'] == job and capture['claim_id'] == action.claim
+            and binding['boot_id'] == lifecycle.boot_id(), 'fault_capture_changed')
+    fence = {'schema_version': 1, 'kind': 'linux_metadata_stop_fence_v1', 'scope_id': action.claim,
+             'capture_sha256': binding['scope']['capture_sha256']}
+    require(record('stop-fence.json') == fence, 'fault_fence_changed')
+    go = record('go.json')
+    require(go == record('go-intent.json'), 'fault_go_changed')
+    execution_id, _ = checked_go(go, action.claim, ready)
+    grant = record('grant.json')['response']
+    execution = grant['execution']
+    validate_execution(execution, binding, job, action.claim)
+    require(grant['granted'] is True and grant['action'] == 'perform_stage'
+            and execution['id'] == execution_id and execution['kind'] == 'atom'
+            and source_dto(grant['job'], execution['kind'], execution['byte_ceiling']) == capture['source_request']
+            and capture['source_request'] == {'source_id': SOURCE, 'revision': 1, 'stage': 'atom',
+                                             'byte_ceiling': 1_048_576}, 'fault_grant_changed')
+    for path, raw in action.units.items():
+        info = path.lstat()
+        require(info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o644
+                and database.read_file(path, 16_384) == raw, 'fault_unit_changed')
+    require(capture['unit_sha256'] == database.sha(action.units[Path('/run/systemd/system') / action.service])
+            and capture['slice_sha256'] == database.sha(action.units[Path('/run/systemd/system') / action.slice]),
+            'fault_unit_changed')
+    pid = capture['supervisor']['process_id']
+    uid_policy.checked_status(pid, 62401)
+    process = lifecycle.process(pid)
+    unit = lifecycle.show(action.service, lifecycle.SERVICE_FIELDS + ('DropInPaths', 'SourcePath'), family='tsmetadata')
+    require(process['process_start_id'] == capture['supervisor']['process_start_id']
+            and process['cgroup'] == '/' + action.slice + '/' + action.service
+            and unit['Id'] == action.service and unit['LoadState'] == 'loaded'
+            and unit['ActiveState'] == 'active' and unit['SubState'] == 'running'
+            and unit['MainPID'] == str(pid) and unit['InvocationID'] == ready['invocation_id']
+            and unit['ControlGroup'] == process['cgroup'] and unit['Slice'] == action.slice
+            and unit['KillMode'] == 'control-group' and unit['Restart'] == 'no' and unit['Delegate'] == 'no'
+            and unit['Job'] == unit['DropInPaths'] == unit['SourcePath'] == ''
+            and unit['FragmentPath'] == '/run/systemd/system/' + action.service, 'fault_supervisor_changed')
+    uid_policy.checked_status(pid, 62401)
+    require(lifecycle.process(pid) == process, 'fault_supervisor_changed')
+    checked_go(go, action.claim, ready)
+    return fault_intent(capture, ready, execution, go, fence, action.service)
+
+
+def fault_intent(capture, ready, execution, go, fence, service):
+    return {'schema_version': 1, 'kind': 'test_supervisor_death_intent_v1', 'job_id': capture['job_id'],
+        'claim_id': capture['claim_id'], 'execution_id': execution['id'], 'generation': execution['generation'],
+        'binding_sha256': execution['binding_sha256'], 'bundle_sha256': ready['bundle_sha256'],
+        'capture_sha256': database.sha(database.canonical(capture)), 'go_sha256': database.sha(database.canonical(go)),
+        'fence_sha256': database.sha(database.canonical(fence)), 'source_sha256': ready['source_sha256'],
+        'boot_id': capture['binding_without_capture_sha256']['boot_id'], 'invocation_id': ready['invocation_id'],
+        'supervisor': capture['supervisor'], 'service': service,
+        'headers_sent': True, 'signal': 'SIGKILL', 'mechanism': 'pidfd',
+        'new_retirement_receipt': False}
+
+
+class SupervisorDeath:
+    """One finite test injector. It never owns the guardian or a source receipt."""
+    def __init__(self, fixture, action, job, record):
+        require(callable(getattr(os, 'pidfd_open', None))
+                and callable(getattr(signal, 'pidfd_send_signal', None)), 'pidfd_required')
+        self.fixture, self.action, self.job, self.record = fixture, action, job, record
+        self.cancel, self.lock = threading.Event(), threading.Lock()
+        self.error = self.outcome = None
+        self.thread = threading.Thread(target=self.inject, name='metadata-supervisor-death')
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def inject(self):
+        handle = None
+        try:
+            deadline = time.monotonic() + 12
+            while not self.fixture.headers_sent.is_set():
+                require(not self.cancel.wait(.02) and time.monotonic() < deadline, 'fault_headers_not_observed')
+            require(self.fixture.slow and self.fixture.requested.is_set() and self.fixture.connections == 1,
+                    'fault_source_not_held')
+            target = fault_target(self.action, self.job)
+            handle = os.pidfd_open(target['supervisor']['process_id'], 0)
+            require(fault_target(self.action, self.job) == target, 'fault_target_changed_after_open')
+            require(not select.select([handle], [], [], 0)[0], 'fault_target_exited')
+            self.record('fault-intent.json', target)
+            # Cancellation and the final decision serialize with the caller's
+            # join. Recheck immutable inputs and live identity after publication.
+            with self.lock:
+                require(not self.cancel.is_set(), 'fault_cancelled')
+                require(fault_target(self.action, self.job) == target, 'fault_target_changed_before_signal')
+                require(not select.select([handle], [], [], 0)[0] and not self.cancel.is_set(), 'fault_target_exited')
+                signal.pidfd_send_signal(handle, signal.SIGKILL, None, 0)
+            require(bool(select.select([handle], [], [], 2)[0]), 'fault_supervisor_exit_unobserved')
+            self.outcome = {'schema_version': 1, 'kind': 'test_supervisor_death_outcome_v1',
+                'intent_sha256': database.sha(database.canonical(target)), 'claim_id': self.action.claim,
+                'execution_id': target['execution_id'], 'signal_count': 1, 'pidfd_exit_observed': True,
+                'new_retirement_receipt': False}
+            self.record('fault-outcome.json', self.outcome)
+        except BaseException as error:
+            self.error = error
+        finally:
+            if handle is not None:
+                os.close(handle)
+
+    def __exit__(self, *_):
+        with self.lock:
+            self.cancel.set()
+        # No action result can escape with a still-running injector or a hidden
+        # error. Its three bounded systemctl reads precede the one signal.
+        self.thread.join(20)
+        require(not self.thread.is_alive(), 'fault_injector_not_joined')
+        if self.error is not None:
+            raise self.error
+        require(self.outcome is not None, 'fault_not_injected')
 
 
 def require_no_fixture_runtime():
@@ -280,23 +430,48 @@ def retained_cleanup_records(action, saved):
             os.close(fd)
 
 
-def settled_cleanup_records(read, current, binding, job, claim):
+def settled_cleanup_records(read, current, binding, job, claim, *, expected_failure=False):
     execution = current['execution']
     require(execution is not None and execution['pending_resources'] == []
             and current['step_result'] is not None, 'unsettled_action_retained')
     validate_execution(execution, binding, job, claim)
     result, ack = read('result.json'), read('result-ack.json')
-    require(result['name'] == 'worker_finish_metadata_stage_v2'
-            and all(result['parameters'][key] == value for key, value in {
+    identity = {
                 'p_job_id': job, 'p_claim_id': claim, 'p_attempt_id': execution['id'],
-                'p_generation': execution['generation']}.items())
-            and current['step_result']['job_id'] == job
-            and ack['id'] == job and ack['source_id'] == SOURCE and ack['requested_revision'] == 1,
+                'p_generation': execution['generation']}
+    require(ack['id'] == job and ack['source_id'] == SOURCE and ack['requested_revision'] == 1,
             'missing_result_ack_retained')
+    if expected_failure:
+        require(result == {'name': 'worker_fail_metadata_stage_v2', 'parameters': dict(identity,
+                    p_error_code='metadata_unavailable', p_retryable=True)}
+                and current['step_result'] == {'attempt_id': execution['id'],
+                    'error_code': 'metadata_unavailable', 'retryable': True}
+                and type(result['parameters']['p_retryable']) is bool
+                and type(current['step_result']['retryable']) is bool
+                and ack == current['job'] and ack['generation'] == execution['generation']
+                and ack['stage'] == execution['kind'] == 'atom' and ack['status'] == 'retry_wait'
+                and ack['error_code'] == 'metadata_unavailable' and ack['retryable'] is True
+                and ack['claim_id'] is None, 'unexpected_failure_retained')
+    else:
+        require(result['name'] == 'worker_finish_metadata_stage_v2'
+                and all(result['parameters'][key] == value for key, value in identity.items())
+                and current['step_result'].get('job_id') == job, 'missing_result_ack_retained')
     for resource in ('executor', 'arxiv_connection'):
         record = read(resource + '.json')
         require(record['name'] == 'worker_record_metadata_quiescence', 'invalid_receipt_checkpoint')
         check_ack(read(resource + '-ack.json'), execution, record['parameters'], binding, job, claim)
+        if expected_failure:
+            require(record['parameters']['p_evidence_kind'] == 'owned_scope_retired_v1'
+                    and next(row for row in execution['receipts'] if row['resource'] == resource)['facts']
+                        == record['parameters']['p_facts'], 'expected_scope_receipts_required')
+    if expected_failure:
+        facts = read('arxiv_connection.json')['parameters']['p_facts']
+        require(all(facts[key] == value for key, value in {'framing': 'unknown', 'peer_eof': False,
+            'actual_bytes': None, 'body_sha256': None, 'status_code': None, 'retry_after_seconds': 0}.items())
+            and facts['peer_eof'] is False and type(facts['retry_after_seconds']) is int
+            and read('executor-ack.json')['execution']['pending_resources'] == ['arxiv_connection']
+            and read('arxiv_connection-ack.json')['execution']['pending_resources'] == [],
+            'expected_unknown_body_required')
     return execution, ack
 
 
@@ -306,6 +481,24 @@ def remove_cleanup_layout(action):
     action.root.rmdir()
     for parent in ({path.parent for path in action.layout.values()} - {action.root}) | {action.root.parent}:
         database.sync_dir(parent)
+
+
+def fault_service_state(action, *, reset=False):
+    fields = ('Id', 'LoadState', 'ActiveState', 'SubState', 'MainPID', 'InvocationID',
+              'FragmentPath', 'SourcePath', 'DropInPaths', 'Job', 'ControlGroup',
+              'Result', 'ExecMainCode', 'ExecMainStatus')
+    value = lifecycle.show(action.service, fields, family='tsmetadata')
+    require(value['Id'] == action.service and value['LoadState'] == 'loaded'
+            and value['ActiveState'] == ('inactive' if reset else 'failed')
+            and value['SubState'] == ('dead' if reset else 'failed') and value['MainPID'] == '0'
+            and value['InvocationID'] in ('', action.ready['invocation_id'])
+            and value['FragmentPath'] == '/run/systemd/system/' + action.service
+            and value['SourcePath'] == value['DropInPaths'] == value['Job'] == ''
+            and value['ControlGroup'] in ('', '/' + action.slice + '/' + action.service)
+            and value['Result'] == ('success' if reset else 'signal')
+            and (reset or (value['ExecMainCode'] == '2' and value['ExecMainStatus'] == '9')),
+            'unexpected_fault_service_state')
+    return value
 
 
 @unittest.skipUnless(ENABLED, 'requires explicit opt-in inside the marked isolated Linux guest')
@@ -330,6 +523,7 @@ class MetadataIntegrationTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        cls.scenario = selected_scenario()  # Refuse unknown selection before any mutation.
         cls.completed = False
         cls.claims = []
         cls.accounts = []
@@ -375,7 +569,7 @@ class MetadataIntegrationTests(unittest.TestCase):
         owned_directory(cls.evidence, 0o700, create=True)
         cls.addClassCleanup(cls.cleanup_owned)
         cls.record('inputs.json', {'schema_version': 1, 'mode': 'linux_metadata_integration_fixture',
-            'instance': cls.instance, 'platform': cls.platform, 'database_manifest_sha256': expected,
+            'instance': cls.instance, 'scenario': cls.scenario, 'platform': cls.platform, 'database_manifest_sha256': expected,
             'harness_sha256': database.sha(database.read_file(Path(__file__), 65_536)),
             'fixture_database_sha256': database.sha(database.read_file(HERE / 'fixture_database.py', 65_536)),
             'tls_fixture_sha256': database.sha(database.read_file(HERE / 'tls_fixture.py', 16_384)),
@@ -478,7 +672,112 @@ class MetadataIntegrationTests(unittest.TestCase):
             and str(uuid.UUID(result['execution_id'])) == result['execution_id'], 'metadata_action_not_completed')
         return result
 
-    def test_atom_license_projection_and_completed_recovery(self):
+    @classmethod
+    def failure_audit(cls, claim):
+        q = database.quote
+        value = database.decode(cls.owner("select jsonb_build_object("
+            "'gate',(select to_jsonb(g) from app_private.arxiv_network_gate g),"
+            "'windows',(select jsonb_agg(to_jsonb(w) order by period,scope,kind) from app_private.acquisition_transfer_windows w),"
+            "'attempt',(select to_jsonb(e) "
+            "from app_private.execution_attempts e where job_id=" + q(cls.job) + " and operation_id=" + q(claim) + "),"
+            "'step',(select to_jsonb(s) from app_private.acquisition_steps s where job_id=" + q(cls.job) +
+            " and operation_id=" + q(claim) + "),'job',(select to_jsonb(j) from app_private.acquisition_jobs j where id=" +
+            q(cls.job) + "),'import',(select to_jsonb(i) from app_private.import_requests i where id=" + q(cls.imported) + "))"))
+        counts = cls.counters()
+        require(counts == {'attempts': 1, 'steps': 1, 'receipts': 2,
+                'charged_bytes': 1_048_576, 'charged_requests': 1}, 'fault_charge_changed')
+        attempt, step = value['attempt'], value['step']
+        windows = sorted(value['windows'], key=lambda row: row['kind'])
+        require(len(windows) == 2 and windows[0] == {'period': attempt['charge_period'],
+                    'scope': 'environment', 'kind': 'source_bytes', 'charged': 1_048_576}
+                and windows[1] == {'period': windows[1]['period'], 'scope': 'environment',
+                    'kind': 'source_requests', 'charged': 1}
+                and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', windows[1]['period'])
+                and step['generation'] == attempt['generation'] and step['outcome'] == 'failed'
+                and step['result'] == {'attempt_id': attempt['id'], 'error_code': 'metadata_unavailable', 'retryable': True},
+                'fault_accounting_mismatch')
+        return dict(value, counters=counts)
+
+    @classmethod
+    def fault_proof(cls, action, current, read):
+        require(cls.scenario == FAULT and cls.claims == [action.claim], 'explicit_fault_cleanup_required')
+        capture, ready, go = read('capture.json'), read('ready.json'), read('go.json')
+        require(go == read('go-intent.json') and go['execution_id'] == current['execution']['id'], 'fault_go_changed')
+        expected = fault_intent(capture, ready, current['execution'], go, read('stop-fence.json'), action.service)
+        outcome = {'schema_version': 1, 'kind': 'test_supervisor_death_outcome_v1',
+            'intent_sha256': database.sha(database.canonical(expected)), 'claim_id': action.claim,
+            'execution_id': current['execution']['id'], 'signal_count': 1, 'pidfd_exit_observed': True,
+            'new_retirement_receipt': False}
+        owned_directory(cls.evidence, 0o700)
+        fd = _open_directory(cls.evidence, *cleanup_identity('records'))
+        try:
+            for name, value in (('fault-intent.json', expected), ('fault-outcome.json', outcome)):
+                require(os.stat(name, dir_fd=fd, follow_symlinks=False).st_nlink == 1, 'fault_proof_alias')
+                require(read_record(fd, name, 0, 0, 0o600, 65_536, sync=True) == database.canonical(value),
+                        'fault_proof_changed')
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        require(all(not os.path.lexists(action.layout['records'] / name)
+                    for name in ('parser-input.json', 'parser-output.json', 'terminal-witness.json'))
+                and set(p.name for p in action.layout['witness'].iterdir()) == {witness_slots.LOCK}
+                and not list(action.layout['ingress'].iterdir()), 'fault_body_or_parser_retained')
+        cls.failure_audit(action.claim)
+        return outcome
+
+    def test_selected_metadata_workflow(self):
+        if self.scenario == 'normal':
+            self.normal_workflow()
+        else:
+            self.supervisor_death_workflow()
+
+    def supervisor_death_workflow(self):
+        claim = str(uuid.uuid4())
+        self.claims.append(claim)
+        target = HostAction(self.bundle, self.manifest, claim)  # No open/lock or mutation.
+        with SingleRequestServer(self.cert, self.key, slow=True, body=atom()) as server:
+            with SupervisorDeath(server, target, self.job, self.record):
+                result = self.action(claim, server.fixture, 'run')
+            current = self.state(claim)
+            target.open(fresh=False)
+            try:
+                target.restore()
+                execution, _ = settled_cleanup_records(target.journal.read, current, target.binding,
+                    self.job, claim, expected_failure=True)
+                self.fault_proof(target, current, target.journal.read)
+                self.assertFalse(target.journal.exists('parser-input.json'))
+                self.assertFalse(target.journal.exists('parser-output.json'))
+                self.assertEqual(set(p.name for p in target.layout['witness'].iterdir()), {witness_slots.LOCK})
+                self.assertEqual(list(target.layout['ingress'].iterdir()), [])
+            finally:
+                target.close()
+            before = self.failure_audit(claim)
+            self.assertEqual(current['job']['stage'], 'atom')
+            self.assertIsNone(current['job']['metadata_id'])
+            self.assertEqual(before['job']['atom_attempts'], 1)
+            self.assertEqual(before['job']['license_attempts'], 0)
+            self.assertEqual(server.connections, 1)
+            require_no_fixture_runtime()  # Original guardian has joined its own controller family.
+            self.record('fault-run.json', {'result': result, 'state': current, 'audit': before,
+                'accepted_loopback_connections': 1, 'no_body_or_parser_checkpoint': True})
+            config = {'job_id': self.job, 'claim_id': claim, 'observer': self.descriptors['observer']}
+            code, raw, _ = database.run([str(self.python), '-I', '-S', '-B', str(self.bundle / 'bootstrap.py'),
+                str(self.bundle), 'metadata_observer'], database.canonical(config), timeout=35, maximum=4096)
+            self.assertEqual(code, 0)
+            recovered = database.decode(raw)
+            self.assertEqual(recovered, {'schema_version': 1, 'kind': 'metadata_resource_closure_v1',
+                'state': 'settled', 'job_id': self.job, 'claim_id': claim, 'execution_id': execution['id'],
+                'source_network_enabled': False, 'hosted_admitted': False})
+            self.assertEqual(self.state(claim), current)
+            self.assertEqual(self.failure_audit(claim), before)
+            self.assertEqual(server.connections, 1)
+            self.assertTrue(server.thread.is_alive(), 'duplicate-connection observation expired')
+            require_no_fixture_runtime()
+            self.record('fault-observer-replay.json', {'result': recovered, 'audit': before,
+                'accepted_loopback_connections': 1, 'unchanged_receipts_result_gate_and_backoff': True})
+        type(self).completed = True
+
+    def normal_workflow(self):
         for index, (stage, body) in enumerate((('atom', atom()), ('license', license_xml())), 1):
             if index == 2:
                 delay = float(self.owner("select greatest(0,extract(epoch from next_allowed_at-clock_timestamp())) "
@@ -555,7 +854,11 @@ class MetadataIntegrationTests(unittest.TestCase):
             action.open(fresh=False)
             action.restore()
             current = cls.state(claim)
-            execution, ack = settled_cleanup_records(action.journal.read, current, action.binding, cls.job, claim)
+            failure = getattr(cls, 'scenario', 'normal') == FAULT
+            execution, ack = settled_cleanup_records(action.journal.read, current, action.binding,
+                                                     cls.job, claim, expected_failure=failure)
+            if failure:
+                cls.fault_proof(action, current, action.journal.read)
             fence = action.journal.read('stop-fence.json')
             observation = action.scope.observe(action.capture, action.ready, action.binding,
                                               execution['binding_sha256'], fence)
@@ -580,8 +883,11 @@ class MetadataIntegrationTests(unittest.TestCase):
                 'claim_id': claim, 'execution_id': execution['id'], 'pending_resources': [],
                 'result_ack_sha256': database.sha(database.canonical(ack)),
                 'observation': observation, 'inventory': counts, 'files': files})
-            # Keep the permanent service start fence until both definitions have
-            # been stopped, removed and unloaded. Do not reset failed state.
+            # Test-only exception: one exactly named killed service, after all
+            # proofs are durable, while the original lock/unit/fence are held.
+            if failure:
+                cls.reset_fault_service(action, execution, observation)
+            # The fence survives reset and definition removal/unloading.
             lifecycle.run(['/usr/bin/systemctl', 'stop', action.service])
             group = lifecycle.cgroup_snapshot('/' + action.slice, family='tsmetadata')
             require(group['populated'] == 0 and str(group['device']) == observation['group']['device']
@@ -600,13 +906,50 @@ class MetadataIntegrationTests(unittest.TestCase):
             removed_runtime(action, observation)
             # Exact names were inventoried while the same publication lock was
             # held. No producer/controller remains and no source unit can start.
-            for path in remove:
+            for path in sorted(remove, key=lambda p: (p.name == 'stop-fence.json', p.name == witness_slots.LOCK)):
                 path.unlink()
             for path in action.layout.values():
                 database.sync_dir(path)
         finally:
             action.close()
         remove_cleanup_layout(action)
+
+    @classmethod
+    def reset_fault_service(cls, action, execution, observation):
+        require(action.journal is not None, 'held_action_required')
+        def recheck():
+            current = cls.state(action.claim)
+            settled, _ = settled_cleanup_records(action.journal.read, current, action.binding,
+                cls.job, action.claim, expected_failure=True)
+            require(settled == execution, 'fault_settlement_changed')
+            proof = cls.fault_proof(action, current, action.journal.read)
+            action.journal.inventory()  # Checks exact original rendered definitions.
+            require(action.journal.read('capture.json') == action.capture
+                    and action.journal.read('stop-fence.json') == action.fence_value(), 'fault_fence_changed')
+            fresh = action.scope.observe(action.capture, action.ready, action.binding,
+                execution['binding_sha256'], action.journal.read('stop-fence.json'))
+            require(fresh is not None and fresh['group'] == observation['group'], 'scope_not_empty_retained')
+            checked_observation(fresh, action.capture, execution['binding_sha256'], action.fence_value())
+            require_no_fixture_runtime()
+            return proof, fault_service_state(action)
+        proof, state = recheck()
+        # A lost reset acknowledgement is retained for review, never retried by
+        # this fixture. Reset clears systemd start counters too; the immutable
+        # ConditionPathExists=!stop-fence remains the independent start fence.
+        cls.record('fault-reset-intent.json', {'claim_id': action.claim, 'execution_id': execution['id'],
+            'fault_outcome_sha256': database.sha(database.canonical(proof)), 'unit': state,
+            'observation_sha256': database.sha(database.canonical(observation)),
+            'unit_sha256': action.capture['unit_sha256'], 'fence_sha256': observation['fence_sha256']})
+        require(recheck() == (proof, state), 'fault_reset_precondition_changed')
+        lifecycle.run(['/usr/bin/systemctl', 'reset-failed', action.service])
+        after = fault_service_state(action, reset=True)
+        action.journal.inventory()
+        require(action.journal.read('stop-fence.json') == action.fence_value(), 'fault_fence_changed')
+        fresh = action.scope.observe(action.capture, action.ready, action.binding,
+            execution['binding_sha256'], action.fence_value())
+        require(fresh is not None and fresh['group'] == observation['group'], 'scope_not_empty_retained')
+        cls.record('fault-reset-ack.json', {'claim_id': action.claim, 'execution_id': execution['id'],
+                                         'unit': after, 'reset_count': 1, 'fence_retained': True})
 
     @classmethod
     def recover_cleanup_action(cls, claim, expected_cleanup_sha256):
@@ -621,6 +964,7 @@ class MetadataIntegrationTests(unittest.TestCase):
         """
         require(claim in cls.claims and re.fullmatch(r'[0-9a-f]{64}', expected_cleanup_sha256),
                 'explicit_cleanup_identity_required')
+        require(getattr(cls, 'scenario', 'normal') == 'normal', 'fault_cleanup_uncertainty_requires_review')
         owned_directory(cls.evidence, 0o700)
         path = cls.evidence / ('cleanup-' + uuid.UUID(claim).hex + '.json')
         raw = database.read_file(path, 65_536, private=True)
@@ -662,7 +1006,7 @@ class MetadataIntegrationTests(unittest.TestCase):
                 'prior_cleanup_sha256': expected_cleanup_sha256, 'pending_resources': [],
                 'current_absence': absence, 'uses_saved_scope_observation': True,
                 'new_retirement_receipt': False})
-            for path in sorted(remove, key=lambda value: value.name == witness_slots.LOCK):
+            for path in sorted(remove, key=lambda p: (p.name == 'stop-fence.json', p.name == witness_slots.LOCK)):
                 path.unlink()
             for path in action.layout.values():
                 database.sync_dir(path)
@@ -707,7 +1051,11 @@ class MetadataIntegrationTests(unittest.TestCase):
         cls.tls.rmdir()
         database.sync_dir(RUNS)
         cls.record('completed.json', {'schema_version': 1, 'instance': cls.instance,
-            'normal_actions': 2, 'completed_recoveries': 2, 'accepted_loopback_connections': 2,
+            'scenario': cls.scenario, 'normal_actions': 2 if cls.scenario == 'normal' else 0,
+            'completed_recoveries': 2 if cls.scenario == 'normal' else 0,
+            'supervisor_deaths': 1 if cls.scenario == FAULT else 0,
+            'observer_only_replays': 1 if cls.scenario == FAULT else 0,
+            'accepted_loopback_connections': 2 if cls.scenario == 'normal' else 1,
             'source_units_and_action_directories_removed': True, 'database_removed': True,
             'owned_accounts_removed': True, 'retained_bundle': str(cls.bundle),
             'source_network_enabled': False, 'hosted_admitted': False})

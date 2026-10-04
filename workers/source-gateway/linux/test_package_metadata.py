@@ -168,7 +168,8 @@ class MaterialTests(unittest.TestCase):
     def test_entrypoint_dispatch_is_finite(self):
         self.assertEqual(boot.ENTRIES, {'metadata_launcher': ['linux_launcher', 'main'],
             'linux_source': ['linux_source', 'main'], 'metadata_executor': ['metadata_bridge', 'executor_main'],
-            'metadata_guardian': ['metadata_bridge', 'main']})
+            'metadata_guardian': ['metadata_bridge', 'main'],
+            'metadata_observer': ['metadata_bridge', 'observer_main']})
         with mock.patch.object(boot.sys, 'argv', ['bootstrap.py', str(PARENT), 'unknown']), \
                 mock.patch.object(boot, 'load_bundle', side_effect=AssertionError('must not load')):
             with self.assertRaisesRegex(ValueError, 'entrypoint'):

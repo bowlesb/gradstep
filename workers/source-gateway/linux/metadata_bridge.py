@@ -29,6 +29,9 @@ import lifecycle
 import uid_policy
 
 LIMIT = MAX_OUTPUT
+OBSERVER_INPUT_LIMIT = 4096
+RESOURCE_STATES = frozenset(('settled', 'grant_still_unknown', 'scope_unresolved',
+    'receipt_evidence_unresolved', 'retry_after_unresolved', 'wait', 'disabled', 'terminal', 'no_interest'))
 
 
 class Channel:
@@ -94,6 +97,15 @@ def configuration(value):
     return value
 
 
+def observer_configuration(value):
+    require(type(value) is dict and set(value) == {'job_id', 'claim_id', 'observer'}
+            and all(type(value[key]) is str and str(uuid.UUID(value[key])) == value[key]
+                    for key in ('job_id', 'claim_id')), 'invalid_observer_configuration')
+    observer, _ = connection(value['observer'])
+    require(observer['capability'] == 'observer', 'observer_required')
+    return value
+
+
 def intent_value(job, request, binding, origin):
     return {'parameters': {'p_job_id': job['id'], 'p_claim_id': binding['scope']['scope_id'],
                 'p_environment': 'staging', 'p_executor_binding': binding},
@@ -121,6 +133,8 @@ def checked_grant(value, action, intent):
     if grant['granted'] or grant['action'] == 'reconcile':
         require(set(grant) == {'granted', 'action', 'job', 'execution'}
                 and grant['action'] == ('perform_stage' if grant['granted'] else 'reconcile'),
+                'invalid_grant_checkpoint')
+        require(type(grant['execution']) is dict and type(grant['execution'].get('id')) is str,
                 'invalid_grant_checkpoint')
         validate_execution(grant['execution'], action.binding, intent['job']['id'], action.claim)
     elif grant['action'] == 'wait':
@@ -219,13 +233,49 @@ def executor(channel, rpc, *, parser=parse):
     return message(channel.receive(), 'done', {'state'})['state']
 
 
-def execution_state(observer, identity, action):
-    value = observer.call('worker_metadata_execution_state', identity)
+def checked_execution_state(value, identity, action):
     require(type(value) is dict and set(value) == {'job', 'execution', 'step_result'}
             and value['job']['id'] == identity['p_job_id'], 'invalid_execution_state')
     if value['execution'] is not None:
+        require(type(value['execution']) is dict and type(value['execution'].get('id')) is str,
+                'invalid_execution_state')
         validate_execution(value['execution'], action.binding, identity['p_job_id'], action.claim)
+        require(value['execution']['kind'] == action.capture['source_request']['stage'], 'execution_stage_mismatch')
     return value
+
+
+def execution_state(observer, identity, action):
+    return checked_execution_state(observer.call('worker_metadata_execution_state', identity), identity, action)
+
+
+def restore_grant(action, job_id):
+    action.restore()
+    require(action.capture['job_id'] == job_id, 'restored_job_mismatch')
+    intent = action.journal.recover('intent.json', lambda value: checked_intent(value, action, job_id))
+    require(intent is not None, 'missing_grant_intent')
+    grant = action.journal.recover('grant.json', lambda value: checked_grant(value, action, intent))
+    if grant is not None and 'execution' in grant['response']:
+        require(grant['response']['execution']['kind'] == intent['request']['stage'], 'execution_stage_mismatch')
+    return intent, grant['response'] if grant is not None else None
+
+
+def preserve_status(action, identity, current, answer):
+    # A null readback never proves that the original COMMIT cannot arrive later.
+    saved = action.journal.recover('grant-status.json',
+            lambda value: checked_execution_state(value, identity, action))
+    positive = [value for value in (current['execution'],
+                saved['execution'] if saved is not None else None,
+                answer.get('execution') if answer is not None else None) if value is not None]
+    if positive:
+        # Only receipts/pending resources evolve for the immutable attempt.
+        immutable = lambda value: {key: item for key, item in value.items()
+                                  if key not in ('receipts', 'pending_resources')}
+        require(all(immutable(value) == immutable(positive[0]) for value in positive),
+                'execution_checkpoint_conflict')
+        require(answer is None or answer['granted'] or answer['action'] == 'reconcile',
+                'non_grant_execution_conflict')
+    if saved is None:
+        action.journal.put('grant-status.json', current)
 
 
 def repair_controls(action, execution):
@@ -306,14 +356,9 @@ def guardian(channel, observer, action, config, *, cancelled=None):
             except (Refused, ValueError):
                 pass  # No new GO; exact scope still requires independent retirement.
     else:
-        action.restore()
-        require(action.capture['job_id'] == config['job_id'], 'restored_job_mismatch')
-        intent = action.journal.recover('intent.json', lambda value: checked_intent(value, action, config['job_id']))
-        require(intent is not None, 'missing_grant_intent')
-        grant = action.journal.recover('grant.json', lambda value: checked_grant(value, action, intent))
-        answer = grant['response'] if grant is not None else None
+        intent, answer = restore_grant(action, config['job_id'])
         current = execution_state(observer, identity, action)
-        job = grant['response']['job'] if grant is not None and grant['response']['granted'] else intent['job']
+        job = answer['job'] if answer is not None and answer['granted'] else intent['job']
     if config['mode'] == 'run':
         job = answer['job'] if answer is not None and answer['granted'] else intent['job']
     execution = current['execution']
@@ -322,15 +367,7 @@ def guardian(channel, observer, action, config, *, cancelled=None):
     retired = action.retire()
     if execution is not None and retired:
         repair_controls(action, execution)
-    # The first readback is a snapshot, not evidence that a later commit cannot
-    # appear. It is preserved on every recovery regardless of evolving state.
-    def check_status(value):
-        require(value['job']['id'] == config['job_id'], 'status_checkpoint_mismatch')
-        if value['execution'] is not None:
-            validate_execution(value['execution'], action.binding, config['job_id'], config['claim_id'])
-    saved = action.journal.recover('grant-status.json', check_status)
-    if saved is None:
-        action.journal.put('grant-status.json', current)
+    preserve_status(action, identity, current, answer)
     if execution is not None and retired:
         closure = settle(action.journal, observer, action.scope, execution, action.binding, action.capture, action.ready)
     else:
@@ -398,6 +435,65 @@ def run(config):
                     pass  # Retain journal/units/holds; cleanup is a separate confirmed operation.
             action.close()
     return result
+
+
+def recover_resources(observer, action, config):
+    """Close only the captured transport resources, never a controller family.
+
+    This entry cannot grant, publish/promote GO, parse, finalize a job or clean
+    up its journal. A retired source scope is not a whole-action death proof.
+    """
+    require(observer.capability == 'observer', 'observer_required')
+    identity = {'p_job_id': config['job_id'], 'p_claim_id': config['claim_id']}
+    require(action.claim == config['claim_id'], 'restored_scope_mismatch')
+    _, answer = restore_grant(action, config['job_id'])
+    current = execution_state(observer, identity, action)
+    execution = current['execution']
+    declined = answer is not None and not answer['granted'] and answer['action'] != 'reconcile'
+    require(not declined or execution is None, 'non_grant_execution_conflict')
+    retired = action.retire()
+    preserve_status(action, identity, current, answer)
+    if execution is not None and retired:
+        closure = settle(action.journal, observer, action.scope, execution, action.binding, action.capture, action.ready)
+        state = closure['state']
+    else:
+        state = answer['action'] if declined and retired else \
+                'grant_still_unknown' if execution is None else 'scope_unresolved'
+    require(state in RESOURCE_STATES, 'invalid_resource_closure_state')
+    return {'schema_version': 1, 'kind': 'metadata_resource_closure_v1', 'state': state,
+        'job_id': config['job_id'], 'claim_id': config['claim_id'],
+        'execution_id': execution['id'] if execution is not None else None,
+        'source_network_enabled': False, 'hosted_admitted': False}
+
+
+def observer_run(config):
+    config = observer_configuration(config)
+    lifecycle.preflight()
+    observer = RestrictedRPC(config['observer'])
+    action = HostAction(frozen_context.root, frozen_context.manifest, config['claim_id'])
+    try:
+        action.open(fresh=False)
+        return recover_resources(observer, action, config)
+    finally:
+        # No controller startup/join or fallback retirement. Failed validation
+        # leaves the original action, authority and records for reconciliation.
+        action.close()
+
+
+def observer_main():
+    try:
+        require(len(sys.argv) == 3, 'invalid_arguments')
+        raw = sys.stdin.buffer.read(OBSERVER_INPUT_LIMIT + 1)
+        require(0 < len(raw) <= OBSERVER_INPUT_LIMIT, 'observer_input_limit')
+        result = observer_run(decode(raw))
+        output = canonical(result)
+        require(len(output) <= 1024, 'observer_output_limit')
+        print(output.decode())
+        return 0 if result['state'] == 'settled' else 2
+    except (Refused, ValueError, KeyError, TypeError, OSError, RecursionError, subprocess.TimeoutExpired):
+        print('{"schema_version":1,"kind":"metadata_resource_closure_v1","state":"reconcile_required",'
+              '"source_network_enabled":false,"hosted_admitted":false}')
+        return 2
 
 
 def executor_main():

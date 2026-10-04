@@ -35,6 +35,7 @@ class Server:
                         'ca_pem': cert.read_text()}
         self.slow, self.connections = slow, 0
         self.requested, self.ended, self.stop = threading.Event(), threading.Event(), threading.Event()
+        self.headers_sent = threading.Event()
         self.error = None
         self.thread = threading.Thread(target=self.serve, daemon=True)
 
@@ -68,6 +69,7 @@ class Server:
             self.requested.set()
             tls.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: ' + str(len(self.body)).encode() + b'\r\n\r\n'
                         + (b'' if self.slow else self.body))
+            self.headers_sent.set()  # Successful send, distinct from receiving the GET.
             if self.slow:
                 tls.settimeout(.1)
                 while not self.stop.is_set() and time.monotonic() < deadline:

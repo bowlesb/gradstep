@@ -1,5 +1,7 @@
 """Actual pipes/journal with explicitly simulated database and Linux observations."""
 import copy
+from contextlib import ExitStack, redirect_stdout
+import io
 import os
 import struct
 import subprocess
@@ -7,7 +9,8 @@ import sys
 import threading
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+import uuid
 
 sys.modules.setdefault('frozen_context', types.ModuleType('frozen_context'))
 import metadata_bridge as bridge
@@ -15,6 +18,7 @@ import metadata_host
 import owned_session
 import test_metadata_settlement as fixture
 from protocol import Refused, clock_ns
+from common import canonical, decode
 
 
 class Database:
@@ -285,6 +289,240 @@ class BridgeTests(unittest.TestCase):
                 bridge.retire_controller(child, grace=0)
         kill.assert_called_once_with(4242, owned_session.signal.SIGKILL)
         self.assertIsNone(child.returncode)
+
+
+class ObserverRecoveryTests(unittest.TestCase):
+    """Real retained journal; kernel and capability RPCs remain simulated."""
+    def setUp(self):
+        self.base = BridgeTests()
+        self.base.setUp()
+        self.case, self.action, self.db = self.base.case, self.base.action, self.base.db
+        self.action.restore = types.MethodType(metadata_host.HostAction.restore, self.action)
+        self.action.open, self.action.close = Mock(), Mock()
+        self.descriptor = {'schema_version': 1, 'mode': 'linux_metadata_fixture_db', 'instance': '123456789abc',
+            'capability': 'observer', 'port': 54321, 'database': 'science_reader_linux_123456789abc',
+            'login': 'ts_observer_123456789abc', 'psql_sha256': 'a' * 64, 'ca_sha256': 'b' * 64}
+        self.config = {'job_id': self.case.kernel.job, 'claim_id': self.case.kernel.claim, 'observer': self.descriptor}
+        self.guards = ExitStack()
+        self.addCleanup(self.guards.close)
+        self.guards.enter_context(patch.object(bridge.lifecycle, 'preflight'))
+        self.constructor = self.guards.enter_context(patch.object(bridge, 'RestrictedRPC', return_value=self.db.rpc('observer')))
+        self.host = self.guards.enter_context(patch.object(bridge, 'HostAction', return_value=self.action))
+        self.guards.enter_context(patch.object(bridge.frozen_context, 'root', '/captured/fixture', create=True))
+        self.guards.enter_context(patch.object(bridge.frozen_context, 'manifest', self.case.kernel.manifest, create=True))
+        for name in ('subreaper', 'controller_children', 'retire_controller', 'executor', 'parse',
+                     'parser_context', 'result_record', 'repair_controls'):
+            self.guards.enter_context(patch.object(bridge, name, side_effect=AssertionError('forbidden observer path: ' + name)))
+        self.guards.enter_context(patch.object(bridge.subprocess, 'Popen', side_effect=AssertionError('controller startup')))
+        self.guards.enter_context(patch.object(self.action, 'prepare', side_effect=AssertionError('source prepare')))
+        self.guards.enter_context(patch.object(self.action, 'release', side_effect=AssertionError('source GO')))
+
+    def tearDown(self):
+        self.guards.close()
+        self.base.tearDown()
+
+    def seed(self, *, granted=True, checkpoint=True, decline=None):
+        intent = bridge.intent_value(copy.deepcopy(self.db.job), self.case.kernel.request, self.action.binding, clock_ns())
+        self.action.journal.put('intent.json', intent)
+        if granted:
+            self.db.commit_grant()
+        if checkpoint:
+            answer = {'granted': granted, 'action': 'perform_stage' if granted else decline,
+                      'job': copy.deepcopy(self.db.job)}
+            if granted:
+                answer['execution'] = copy.deepcopy(self.case.observer.execution)
+            elif decline == 'wait':
+                answer.update(reason='unsettled_execution', next_allowed_at=None)
+            self.action.journal.put('grant.json', {'response': answer, 'before_rpc_ns': intent['before_rpc_ns']})
+
+    def recover(self):
+        result = bridge.observer_run(copy.deepcopy(self.config))
+        self.action.open.assert_called_with(fresh=False)
+        self.constructor.assert_called_with(self.descriptor)
+        self.assertEqual(set(result), {'schema_version', 'kind', 'state', 'job_id', 'claim_id', 'execution_id',
+                                      'source_network_enabled', 'hosted_admitted'})
+        self.assertEqual((result['schema_version'], result['kind']), (1, 'metadata_resource_closure_v1'))
+        self.assertEqual((result['job_id'], result['claim_id']), (self.config['job_id'], self.config['claim_id']))
+        self.assertIs(result['source_network_enabled'], False)
+        self.assertIs(result['hosted_admitted'], False)
+        self.assertLessEqual(len(canonical(result)), 1024)
+        self.assertTrue(all(capability == 'observer' and name in (
+            'worker_metadata_execution_state', 'worker_record_metadata_quiescence') for capability, name, _ in self.db.calls))
+        self.assertEqual((self.base.fetches, self.base.parses), (0, 0))
+        self.assertFalse(self.action.journal.exists('go.json'))
+        for name in ('parser-input.json', 'parser-output.json', 'result.json', 'result-ack.json'):
+            self.assertFalse(self.action.journal.exists(name))
+        return result
+
+    def test_exact_config_rejects_other_capabilities_and_extra_authority(self):
+        for key in ('executor', 'fixture', 'mode'):
+            with self.subTest(extra=key), self.assertRaisesRegex(ValueError, 'invalid_observer_configuration'):
+                bridge.observer_run(dict(self.config, **{key: 'not admitted'}))
+        for capability in ('executor', 'admitter'):
+            descriptor = dict(self.descriptor, capability=capability, login='ts_' + capability + '_123456789abc')
+            with self.subTest(capability=capability), self.assertRaisesRegex(ValueError, 'observer_required'):
+                bridge.observer_run(dict(self.config, observer=descriptor))
+        self.host.assert_not_called()
+        self.constructor.assert_not_called()
+
+    def test_known_execution_scope_only_replay_retains_original_receipt_ids(self):
+        self.seed()
+        retained = {name: self.action.journal.read(name) for name in ('intent.json', 'grant.json')}
+        first = self.recover()
+        self.assertEqual(first['state'], 'settled')
+        self.assertEqual(first['execution_id'], self.case.execution['id'])
+        receipts = copy.deepcopy(self.case.observer.calls)
+        self.assertEqual([row['p_resource'] for row in receipts], ['executor', 'arxiv_connection'])
+        self.assertTrue(all(row['p_evidence_kind'] == 'owned_scope_retired_v1' for row in receipts))
+        source = receipts[1]['p_facts']
+        self.assertEqual(source['framing'], 'unknown')
+        self.assertIs(source['peer_eof'], False)
+        self.assertIsNone(source['actual_bytes'])
+        self.assertIsNone(source['body_sha256'])
+        acks = {name: self.action.journal.read(name) for name in ('executor-ack.json', 'arxiv_connection-ack.json')}
+        self.assertEqual(self.recover(), first)
+        self.assertEqual(self.case.observer.calls, receipts + receipts)
+        self.assertEqual(len(self.case.observer.execution['receipts']), 2)
+        for name, value in dict(retained, **acks).items():
+            self.assertEqual(self.action.journal.read(name), value)
+        self.assertIsNone(self.db.finished)  # Resource success does not finalize the step.
+        self.assertEqual(self.action.close.call_count, 2)
+
+    def test_null_then_late_commit_keeps_first_status_without_grant_or_go(self):
+        self.seed(granted=False, checkpoint=False)
+        first = self.recover()
+        self.assertEqual((first['state'], first['execution_id']), ('grant_still_unknown', None))
+        status = self.action.journal.read('grant-status.json')
+        self.assertIsNone(status['execution'])
+        self.assertEqual(self.case.observer.calls, [])
+        self.assertEqual(self.recover(), first)
+        self.db.commit_grant()
+        self.assertEqual(self.recover()['state'], 'settled')
+        self.assertEqual(self.action.journal.read('grant-status.json'), status)
+        self.assertFalse(self.action.journal.exists('grant.json'))
+        self.assertEqual(len(self.case.observer.execution['receipts']), 2)
+
+    def test_positive_saved_grant_with_null_current_state_stays_unknown(self):
+        self.seed()
+        grant = self.action.journal.read('grant.json')
+        self.db.granted = False
+        result = self.recover()
+        self.assertEqual((result['state'], result['execution_id']), ('grant_still_unknown', None))
+        self.assertEqual(self.action.journal.read('grant.json'), grant)
+        self.assertEqual(self.case.observer.calls, [])
+
+    def test_lost_receipt_ack_replays_original_body_and_id(self):
+        self.seed()
+        self.case.observer.lose_ack = 'executor'
+        with self.assertRaises(Refused):
+            self.recover()
+        original = self.action.journal.read('executor.json')
+        self.assertFalse(self.action.journal.exists('executor-ack.json'))
+        self.assertEqual(self.recover()['state'], 'settled')
+        self.assertEqual(self.action.journal.read('executor.json'), original)
+        self.assertEqual(self.case.observer.calls[0], self.case.observer.calls[1])
+        self.assertEqual(len(self.case.observer.execution['receipts']), 2)
+
+    def test_retained_complete_body_is_validated_but_never_exposed_or_parsed(self):
+        self.seed()
+        report = self.case.witness()
+        result = self.recover()
+        self.assertEqual(result['state'], 'settled')
+        self.assertNotIn(report['result']['body_base64'], canonical(result).decode())
+        self.assertTrue(all(row['evidence_kind'] == 'owned_child_joined'
+                            for row in self.case.observer.execution['receipts']))
+        self.assertEqual(self.case.observer.execution['receipts'][1]['facts']['body_sha256'],
+                         report['result']['body_sha256'])
+
+    def test_known_non_grant_requires_retired_scope_and_issues_no_receipts(self):
+        self.seed(granted=False, decline='wait')
+        with patch.object(self.action, 'retire', return_value=False):
+            self.assertEqual(self.recover()['state'], 'grant_still_unknown')
+        self.assertEqual(self.recover()['state'], 'wait')
+        self.assertEqual(self.case.observer.calls, [])
+
+    def test_failed_stop_leaves_all_holds_without_receipts(self):
+        self.seed()
+        with patch.object(self.action, 'retire', return_value=False):
+            self.assertEqual(self.recover()['state'], 'scope_unresolved')
+        self.assertEqual(self.case.observer.execution['pending_resources'], ['arxiv_connection', 'executor'])
+        self.assertEqual(self.case.observer.calls, [])
+
+    def test_saved_execution_identity_conflict_refuses_resource_receipts(self):
+        self.seed()
+        saved = self.db.state()
+        saved['execution']['id'] = str(uuid.uuid4())
+        self.action.journal.put('grant-status.json', saved)
+        with self.assertRaisesRegex(ValueError, 'execution_checkpoint_conflict'):
+            self.recover()
+        self.assertEqual(self.case.observer.calls, [])
+        self.assertEqual(self.action.journal.read('grant-status.json'), saved)
+
+    def test_saved_grant_generation_conflict_refuses_resource_receipts(self):
+        self.seed()
+        self.case.observer.execution['generation'] += 1
+        with self.assertRaisesRegex(ValueError, 'execution_checkpoint_conflict'):
+            self.recover()
+        self.assertEqual(self.case.observer.calls, [])
+
+    def test_malformed_current_execution_fails_before_retirement_or_receipts(self):
+        self.seed()
+        self.case.observer.execution['id'] = 7
+        with patch.object(self.action, 'retire') as retire, self.assertRaisesRegex(ValueError, 'invalid_execution_state'):
+            self.recover()
+        retire.assert_not_called()
+        self.assertEqual(self.case.observer.calls, [])
+
+    def test_missing_intent_and_changed_boot_fail_before_retirement_or_rpc(self):
+        with patch.object(self.action, 'retire') as retire:
+            with self.assertRaisesRegex(ValueError, 'missing_grant_intent'):
+                self.recover()
+            self.seed()
+            self.action.boot = str(uuid.uuid4())
+            with self.assertRaisesRegex(ValueError, 'changed_boot_requires_review'):
+                self.recover()
+        retire.assert_not_called()
+        self.assertEqual(self.db.calls, [])
+        self.assertEqual(self.action.close.call_count, 2)
+
+    def test_pending_go_is_never_promoted_to_make_room_for_receipts(self):
+        self.seed()
+        k = self.case.kernel
+        go = {'schema_version': 1, 'kind': 'linux_metadata_go_v1', 'scope_id': k.claim,
+              **{key: k.ready[key] for key in ('child_id', 'bundle_sha256', 'source_sha256')},
+              'execution_id': self.case.execution['id'], 'deadline_ns': str(clock_ns() + 30_000_000_000)}
+        def interrupt(event):
+            if event == 'checkpoint_fsynced':
+                raise OSError('publication interrupted')
+        with self.assertRaises(OSError):
+            self.base.actual_put('go.json', go, hook=interrupt)
+        pending = self.case.layout['control'] / '.pending-go.json'
+        raw, inode = pending.read_bytes(), pending.stat().st_ino
+        with self.assertRaisesRegex(ValueError, 'unfinished_action_record'):
+            self.recover()
+        self.assertEqual((pending.read_bytes(), pending.stat().st_ino), (raw, inode))
+        self.assertFalse((self.case.layout['control'] / 'go.json').exists())
+        self.assertEqual(self.case.observer.calls, [])
+        self.assertEqual([name for _, name, _ in self.db.calls], ['worker_metadata_execution_state'])
+
+    def test_main_bounds_input_and_redacts_failures(self):
+        self.seed()
+        for raw in (b'x' * (bridge.OBSERVER_INPUT_LIMIT + 1), b'{"observer":"secret fixture path"}',
+                    b'[]', b'[' * 1500 + b']' * 1500):
+            output = io.StringIO()
+            with patch.object(bridge.sys, 'argv', ['bootstrap.py', '/captured', 'metadata_observer']), \
+                 patch.object(bridge.sys, 'stdin', types.SimpleNamespace(buffer=io.BytesIO(raw))), redirect_stdout(output):
+                self.assertEqual(bridge.observer_main(), 2)
+            self.assertEqual(decode(output.getvalue().encode()), {'schema_version': 1,
+                'kind': 'metadata_resource_closure_v1', 'state': 'reconcile_required',
+                'source_network_enabled': False, 'hosted_admitted': False})
+        self.host.assert_not_called()
+        output = io.StringIO()
+        with patch.object(bridge.sys, 'argv', ['bootstrap.py', '/captured', 'metadata_observer']), \
+             patch.object(bridge.sys, 'stdin', types.SimpleNamespace(buffer=io.BytesIO(canonical(self.config)))), \
+             redirect_stdout(output):
+            self.assertEqual(bridge.observer_main(), 0)
+        self.assertEqual(decode(output.getvalue().encode())['state'], 'settled')
 
 
 @unittest.skipUnless(sys.platform == 'linux' and os.environ.get('TIMESTEP_LINUX_FIXTURE_RUN') == '1',
