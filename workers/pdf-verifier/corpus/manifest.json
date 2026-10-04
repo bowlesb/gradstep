@@ -1,0 +1,1029 @@
+{
+  "version": 1,
+  "purpose": "local offline PDF verifier benchmark only; no upload/application redistribution",
+  "limits": {
+    "file_bytes": 33554432,
+    "aggregate_received_bytes": 167772160,
+    "one_connection": true,
+    "spacing_after_close_seconds": 1.0,
+    "redirects": false
+  },
+  "license_evidence": [
+    {
+      "url": "https://proceedings.mlr.press/pmlr-license-agreement.html",
+      "sha256": "bcede61d46e1b2e9aa929220784a4b9c9a5e2c0a6b89c20af5f7dce535b067b6",
+      "bytes": 11344,
+      "content_type": "text/html",
+      "retrieved_at": "2026-10-04T00:12:13.630305+00:00",
+      "redirected": false,
+      "id": "publication-agreement",
+      "file": "evidence/publication-agreement.html"
+    },
+    {
+      "url": "https://proceedings.mlr.press/faq.html",
+      "sha256": "1fc0c388096d8c202b3830ea317bc06044ff92ce49beef2fb24397c262c2caed",
+      "bytes": 16911,
+      "content_type": "text/html",
+      "retrieved_at": "2026-10-04T00:12:14.841659+00:00",
+      "redirected": false,
+      "id": "publisher-faq",
+      "file": "evidence/publisher-faq.html"
+    },
+    {
+      "url": "https://creativecommons.org/licenses/by/4.0/legalcode.en",
+      "sha256": "58230517b7895aa219ff46a6ed63e67057a1582fb9ea054b16728a8c13525650",
+      "bytes": 48742,
+      "content_type": "text/html",
+      "retrieved_at": "2026-10-04T00:12:16.002836+00:00",
+      "redirected": false,
+      "id": "cc-by-4.0-legalcode",
+      "file": "evidence/cc-by-4.0-legalcode.html"
+    }
+  ],
+  "papers": [
+    {
+      "id": "v139-radford21a",
+      "title": "Learning Transferable Visual Models From Natural Language Supervision",
+      "authors": [
+        "Alec Radford",
+        "Jong Wook Kim",
+        "Chris Hallacy",
+        "Aditya Ramesh",
+        "Gabriel Goh",
+        "Sandhini Agarwal",
+        "Girish Sastry",
+        "Amanda Askell",
+        "Pamela Mishkin",
+        "Jack Clark",
+        "Gretchen Krueger",
+        "Ilya Sutskever"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "8748",
+      "last_page": "8763",
+      "source_url": "https://proceedings.mlr.press/v139/radford21a.html",
+      "source_file": "evidence/v139-radford21a.html",
+      "source_sha256": "423aaadf030dde25d7832d59608855071eeec18186e02494884022ee4182cd2c",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/radford21a/radford21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/radford21a/radford21a.pdf",
+      "file": "pdf/v139-radford21a.pdf",
+      "sha256": "2a4952960f350e50a3a4a847371b80b8aaa09ba82d1c2a8f6b30450e392a1fe4",
+      "bytes": 3526772,
+      "retrieved_at": "2026-10-04T00:13:07.511130+00:00",
+      "selection_topics": [
+        "multimodal",
+        "CNN",
+        "tables"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-chen20j",
+      "title": "A Simple Framework for Contrastive Learning of Visual Representations",
+      "authors": [
+        "Ting Chen",
+        "Simon Kornblith",
+        "Mohammad Norouzi",
+        "Geoffrey Hinton"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "1597",
+      "last_page": "1607",
+      "source_url": "https://proceedings.mlr.press/v119/chen20j.html",
+      "source_file": "evidence/v119-chen20j.html",
+      "source_sha256": "814454ec26c10fa59f1a8fff3c9bfb5fabc3823fb0aedef9bb8ef71550fe7a75",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/chen20j/chen20j.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/chen20j/chen20j.pdf",
+      "file": "pdf/v119-chen20j.pdf",
+      "sha256": "cc620e511bafe8b4b11ca3415f6d7bcf127a05818087bfa49905de3a2e50bc2d",
+      "bytes": 3328680,
+      "retrieved_at": "2026-10-04T00:13:10.260132+00:00",
+      "selection_topics": [
+        "contrastive learning",
+        "CNN",
+        "figures"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-katharopoulos20a",
+      "title": "Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention",
+      "authors": [
+        "Angelos Katharopoulos",
+        "Apoorv Vyas",
+        "Nikolaos Pappas",
+        "François Fleuret"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "5156",
+      "last_page": "5165",
+      "source_url": "https://proceedings.mlr.press/v119/katharopoulos20a.html",
+      "source_file": "evidence/v119-katharopoulos20a.html",
+      "source_sha256": "f802d22b3a832304c29c86fc6139932b1ab5b004907af7e6715afe4d34b8a451",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/katharopoulos20a/katharopoulos20a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/katharopoulos20a/katharopoulos20a.pdf",
+      "file": "pdf/v119-katharopoulos20a.pdf",
+      "sha256": "cd92e31e6a9371031660c03ae0dc2d47bb7d39014f7de73fdc3c021c3abd7e1c",
+      "bytes": 440409,
+      "retrieved_at": "2026-10-04T00:13:12.774477+00:00",
+      "selection_topics": [
+        "attention",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-jaegle21a",
+      "title": "Perceiver: General Perception with Iterative Attention",
+      "authors": [
+        "Andrew Jaegle",
+        "Felix Gimeno",
+        "Andy Brock",
+        "Oriol Vinyals",
+        "Andrew Zisserman",
+        "Joao Carreira"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "4651",
+      "last_page": "4664",
+      "source_url": "https://proceedings.mlr.press/v139/jaegle21a.html",
+      "source_file": "evidence/v139-jaegle21a.html",
+      "source_sha256": "4759e20abc616464d22a6a0fcf414beb2e3371a33d3615bab99c54485d3f1872",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/jaegle21a/jaegle21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/jaegle21a/jaegle21a.pdf",
+      "file": "pdf/v139-jaegle21a.pdf",
+      "sha256": "2224ebda9316eddb3fe5e88ca28f093d1ce4f6f5ef4404f1705653c6beb7ba67",
+      "bytes": 2577803,
+      "retrieved_at": "2026-10-04T00:13:15.335792+00:00",
+      "selection_topics": [
+        "attention",
+        "multimodal",
+        "figures"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-nichol21a",
+      "title": "Improved Denoising Diffusion Probabilistic Models",
+      "authors": [
+        "Alexander Quinn Nichol",
+        "Prafulla Dhariwal"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "8162",
+      "last_page": "8171",
+      "source_url": "https://proceedings.mlr.press/v139/nichol21a.html",
+      "source_file": "evidence/v139-nichol21a.html",
+      "source_sha256": "a545997dda1176f3538342db709c7d4364d6851e2a440bf47df6315673df6b64",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/nichol21a/nichol21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/nichol21a/nichol21a.pdf",
+      "file": "pdf/v139-nichol21a.pdf",
+      "sha256": "e365be4acbef22492cbe7c534019a025981cd88598c1e8e04f40d588f024d39d",
+      "bytes": 1167544,
+      "retrieved_at": "2026-10-04T00:13:17.957496+00:00",
+      "selection_topics": [
+        "diffusion",
+        "probabilistic models",
+        "image-heavy"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-ramesh21a",
+      "title": "Zero-Shot Text-to-Image Generation",
+      "authors": [
+        "Aditya Ramesh",
+        "Mikhail Pavlov",
+        "Gabriel Goh",
+        "Scott Gray",
+        "Chelsea Voss",
+        "Alec Radford",
+        "Mark Chen",
+        "Ilya Sutskever"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "8821",
+      "last_page": "8831",
+      "source_url": "https://proceedings.mlr.press/v139/ramesh21a.html",
+      "source_file": "evidence/v139-ramesh21a.html",
+      "source_sha256": "6f2b4ebd07bd44aec2ed8fdfcc7ddabbc7e5c6aa242d2aaa8b0a303d3091a13c",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/ramesh21a/ramesh21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/ramesh21a/ramesh21a.pdf",
+      "file": "pdf/v139-ramesh21a.pdf",
+      "sha256": "c2801c43b6f2e9a967ec872f6d4b741384ecb88f8cd33f82470ece70daf6c2bb",
+      "bytes": 6046235,
+      "retrieved_at": "2026-10-04T00:13:20.739184+00:00",
+      "selection_topics": [
+        "generative models",
+        "image-heavy",
+        "attention"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-laskin20a",
+      "title": "CURL: Contrastive Unsupervised Representations for Reinforcement Learning",
+      "authors": [
+        "Michael Laskin",
+        "Aravind Srinivas",
+        "Pieter Abbeel"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "5639",
+      "last_page": "5650",
+      "source_url": "https://proceedings.mlr.press/v119/laskin20a.html",
+      "source_file": "evidence/v119-laskin20a.html",
+      "source_sha256": "40abcad3cd11ac499b9ce45935781a5abb554986304df2eacde571a772a74320",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/laskin20a/laskin20a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/laskin20a/laskin20a.pdf",
+      "file": "pdf/v119-laskin20a.pdf",
+      "sha256": "c6a9fba35c952e74acf9bf2d8e31b4af5cea6838e267d135ee8259dc2cf730f8",
+      "bytes": 2151726,
+      "retrieved_at": "2026-10-04T00:13:23.305281+00:00",
+      "selection_topics": [
+        "reinforcement learning",
+        "CNN",
+        "figures"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-rezende20a",
+      "title": "Normalizing Flows on Tori and Spheres",
+      "authors": [
+        "Danilo Jimenez Rezende",
+        "George Papamakarios",
+        "Sebastien Racaniere",
+        "Michael Albergo",
+        "Gurtej Kanwar",
+        "Phiala Shanahan",
+        "Kyle Cranmer"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "8083",
+      "last_page": "8092",
+      "source_url": "https://proceedings.mlr.press/v119/rezende20a.html",
+      "source_file": "evidence/v119-rezende20a.html",
+      "source_sha256": "18282a845edcb346761f3513df805196d2b7cf7cb2a2fadad32e8b942e00c0f2",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/rezende20a/rezende20a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/rezende20a/rezende20a.pdf",
+      "file": "pdf/v119-rezende20a.pdf",
+      "sha256": "966df8160f4bd8e120bd99ecab815ad18771d229ef919db5ffbe3611487980b3",
+      "bytes": 1741779,
+      "retrieved_at": "2026-10-04T00:13:25.885283+00:00",
+      "selection_topics": [
+        "probabilistic models",
+        "equations",
+        "geometry"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-durkan20a",
+      "title": "On Contrastive Learning for Likelihood-free Inference",
+      "authors": [
+        "Conor Durkan",
+        "Iain Murray",
+        "George Papamakarios"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "2771",
+      "last_page": "2781",
+      "source_url": "https://proceedings.mlr.press/v119/durkan20a.html",
+      "source_file": "evidence/v119-durkan20a.html",
+      "source_sha256": "0961e115c9b9844734e818f0cb48b0bb63aa1d59a905098d460cb96c19fec449",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/durkan20a/durkan20a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/durkan20a/durkan20a.pdf",
+      "file": "pdf/v119-durkan20a.pdf",
+      "sha256": "eba4aecf20934fa069f5750283cd5cb43aba57929b8f4ba3fbdfb62a7de56e94",
+      "bytes": 667687,
+      "retrieved_at": "2026-10-04T00:13:29.445389+00:00",
+      "selection_topics": [
+        "probabilistic models",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-agarwal21a",
+      "title": "Acceleration via Fractal Learning Rate Schedules",
+      "authors": [
+        "Naman Agarwal",
+        "Surbhi Goel",
+        "Cyril Zhang"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "87",
+      "last_page": "99",
+      "source_url": "https://proceedings.mlr.press/v139/agarwal21a.html",
+      "source_file": "evidence/v139-agarwal21a.html",
+      "source_sha256": "3e9f8eac0b646a3337996f0b7f094e245846f5638c7115b1fa23f971f91c254a",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/agarwal21a/agarwal21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/agarwal21a/agarwal21a.pdf",
+      "file": "pdf/v139-agarwal21a.pdf",
+      "sha256": "394f9be11d297dbcdfed7ca0968449d683078f4bb2283db69da5cc967eea1f18",
+      "bytes": 640997,
+      "retrieved_at": "2026-10-04T00:13:32.724392+00:00",
+      "selection_topics": [
+        "optimization",
+        "equations",
+        "plots"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-aitchison21a",
+      "title": "Deep kernel processes",
+      "authors": [
+        "Laurence Aitchison",
+        "Adam Yang",
+        "Sebastian W. Ober"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "130",
+      "last_page": "140",
+      "source_url": "https://proceedings.mlr.press/v139/aitchison21a.html",
+      "source_file": "evidence/v139-aitchison21a.html",
+      "source_sha256": "2a2a1bcb60576105697cbbda5a38c2e43f81dccd392537f5f9156b6b0b7870de",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/aitchison21a/aitchison21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/aitchison21a/aitchison21a.pdf",
+      "file": "pdf/v139-aitchison21a.pdf",
+      "sha256": "dedea0d661fad0294cd82d80d9d41358b2b5c44dfc8273df92b801e9fe35d8b2",
+      "bytes": 222334,
+      "retrieved_at": "2026-10-04T00:13:35.630586+00:00",
+      "selection_topics": [
+        "Gaussian processes",
+        "probabilistic models",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-arbel21a",
+      "title": "Annealed Flow Transport Monte Carlo",
+      "authors": [
+        "Michael Arbel",
+        "Alex Matthews",
+        "Arnaud Doucet"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "318",
+      "last_page": "330",
+      "source_url": "https://proceedings.mlr.press/v139/arbel21a.html",
+      "source_file": "evidence/v139-arbel21a.html",
+      "source_sha256": "67a06236cb8f995e0b13178e96b41bb4e372b0c0f6c6d12faedee848d0d52f68",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/arbel21a/arbel21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/arbel21a/arbel21a.pdf",
+      "file": "pdf/v139-arbel21a.pdf",
+      "sha256": "64f1f02c0a658237638ac4e8aeee2334fce13f84bf395952717a7180207d0187",
+      "bytes": 430272,
+      "retrieved_at": "2026-10-04T00:13:38.239521+00:00",
+      "selection_topics": [
+        "Monte Carlo",
+        "probabilistic models",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-asi21a",
+      "title": "Private Adaptive Gradient Methods for Convex Optimization",
+      "authors": [
+        "Hilal Asi",
+        "John Duchi",
+        "Alireza Fallah",
+        "Omid Javidbakht",
+        "Kunal Talwar"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "383",
+      "last_page": "392",
+      "source_url": "https://proceedings.mlr.press/v139/asi21a.html",
+      "source_file": "evidence/v139-asi21a.html",
+      "source_sha256": "b06ccb360a3c382842d36b136e79b9eb82b2e4cc880b4200f8597622e62141b3",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/asi21a/asi21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/asi21a/asi21a.pdf",
+      "file": "pdf/v139-asi21a.pdf",
+      "sha256": "ff7951c8ced25640686c05240a68c6becc85008e4d9b6a0c08d4df97cf4d8669",
+      "bytes": 2292152,
+      "retrieved_at": "2026-10-04T00:13:40.908208+00:00",
+      "selection_topics": [
+        "optimization",
+        "privacy",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-artemev21a",
+      "title": "Tighter Bounds on the Log Marginal Likelihood of Gaussian Process Regression Using Conjugate Gradients",
+      "authors": [
+        "Artem Artemev",
+        "David R. Burt",
+        "Mark van der Wilk"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "362",
+      "last_page": "372",
+      "source_url": "https://proceedings.mlr.press/v139/artemev21a.html",
+      "source_file": "evidence/v139-artemev21a.html",
+      "source_sha256": "981cdd054e7986e0600ebd7e692c4b5675d1172ac1fc6a19f8aa0de2bc07b95b",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/artemev21a/artemev21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/artemev21a/artemev21a.pdf",
+      "file": "pdf/v139-artemev21a.pdf",
+      "sha256": "0cef7aca08a3954b87ffb0aca3ba24ec4193ba6236888ed72a99169f8fb241e4",
+      "bytes": 768661,
+      "retrieved_at": "2026-10-04T00:13:43.697540+00:00",
+      "selection_topics": [
+        "Gaussian processes",
+        "optimization",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-amani21a",
+      "title": "Safe Reinforcement Learning with Linear Function Approximation",
+      "authors": [
+        "Sanae Amani",
+        "Christos Thrampoulidis",
+        "Lin Yang"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "243",
+      "last_page": "253",
+      "source_url": "https://proceedings.mlr.press/v139/amani21a.html",
+      "source_file": "evidence/v139-amani21a.html",
+      "source_sha256": "b754abf9b52d1c5c2cedee4fd28e2f1ff1a0278ba91279acd42e522e021bb90a",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/amani21a/amani21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/amani21a/amani21a.pdf",
+      "file": "pdf/v139-amani21a.pdf",
+      "sha256": "d71a38f99b18c827c4faabbb5ff719742871bcbc76149c65898359220599426f",
+      "bytes": 679628,
+      "retrieved_at": "2026-10-04T00:13:46.301298+00:00",
+      "selection_topics": [
+        "reinforcement learning",
+        "theory",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-tan21a",
+      "title": "EfficientNetV2: Smaller Models and Faster Training",
+      "authors": [
+        "Mingxing Tan",
+        "Quoc Le"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "10096",
+      "last_page": "10106",
+      "source_url": "https://proceedings.mlr.press/v139/tan21a.html",
+      "source_file": "evidence/v139-tan21a.html",
+      "source_sha256": "51e3d7de788743ad2639e6472fd417b5b42b0adbc291f2f84bb9cc7c82a445c1",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/tan21a/tan21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/tan21a/tan21a.pdf",
+      "file": "pdf/v139-tan21a.pdf",
+      "sha256": "2e6a1873cbd039dac943638c418a21f8a4a3e7ca25db9cdd0362be735c484b88",
+      "bytes": 636328,
+      "retrieved_at": "2026-10-04T00:13:49.174348+00:00",
+      "selection_topics": [
+        "CNN",
+        "tables",
+        "plots"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-touvron21a",
+      "title": "Training data-efficient image transformers & distillation through attention",
+      "authors": [
+        "Hugo Touvron",
+        "Matthieu Cord",
+        "Matthijs Douze",
+        "Francisco Massa",
+        "Alexandre Sablayrolles",
+        "Herve Jegou"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "10347",
+      "last_page": "10357",
+      "source_url": "https://proceedings.mlr.press/v139/touvron21a.html",
+      "source_file": "evidence/v139-touvron21a.html",
+      "source_sha256": "be372962e5a69befaa620b2c78aee713dcf2bc1edd12797361a0bf17e78aa801",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/touvron21a/touvron21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/touvron21a/touvron21a.pdf",
+      "file": "pdf/v139-touvron21a.pdf",
+      "sha256": "cda84d183eaf19db264264a3627bf51643852ef437d71ca6af36409cee8ac2d5",
+      "bytes": 354992,
+      "retrieved_at": "2026-10-04T00:13:51.834592+00:00",
+      "selection_topics": [
+        "attention",
+        "tables",
+        "figures"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v202-park23c",
+      "title": "TRAK: Attributing Model Behavior at Scale",
+      "authors": [
+        "Sung Min Park",
+        "Kristian Georgiev",
+        "Andrew Ilyas",
+        "Guillaume Leclerc",
+        "Aleksander Madry"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2023/07/03",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "202",
+      "first_page": "27074",
+      "last_page": "27113",
+      "source_url": "https://proceedings.mlr.press/v202/park23c.html",
+      "source_file": "evidence/v202-park23c.html",
+      "source_sha256": "f6e288e060a9351bd08c924be16b739eed25cfd2d110e782357e73e0f8a48bac",
+      "publisher_pdf_link": "https://proceedings.mlr.press/v202/park23c/park23c.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v202/park23c/park23c.pdf",
+      "file": "pdf/v202-park23c.pdf",
+      "sha256": "9a3aa5c2b83511ddac253b2368daf808590e9c8714089a51be5cf4bfe069b96e",
+      "bytes": 8636031,
+      "retrieved_at": "2026-10-04T00:13:54.678159+00:00",
+      "selection_topics": [
+        "data attribution",
+        "long paper",
+        "tables"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v162-dao22a",
+      "title": "Monarch: Expressive Structured Matrices for Efficient and Accurate Training",
+      "authors": [
+        "Tri Dao",
+        "Beidi Chen",
+        "Nimit S Sohoni",
+        "Arjun Desai",
+        "Michael Poli",
+        "Jessica Grogan",
+        "Alexander Liu",
+        "Aniruddh Rao",
+        "Atri Rudra",
+        "Christopher Re"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2022/06/28",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "162",
+      "first_page": "4690",
+      "last_page": "4721",
+      "source_url": "https://proceedings.mlr.press/v162/dao22a.html",
+      "source_file": "evidence/v162-dao22a.html",
+      "source_sha256": "1cab6a2c8184c08ef3bfe669c2ed52612bbe8a166f8b248a0607b497c996846a",
+      "publisher_pdf_link": "https://proceedings.mlr.press/v162/dao22a/dao22a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v162/dao22a/dao22a.pdf",
+      "file": "pdf/v162-dao22a.pdf",
+      "sha256": "3c1c88439bd88c1012afee462e91c9102235778c2e965812a8de83e8c5f4113c",
+      "bytes": 5030951,
+      "retrieved_at": "2026-10-04T00:13:57.648156+00:00",
+      "selection_topics": [
+        "structured matrices",
+        "long paper",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-rasul21a",
+      "title": "Autoregressive Denoising Diffusion Models for Multivariate Probabilistic Time Series Forecasting",
+      "authors": [
+        "Kashif Rasul",
+        "Calvin Seward",
+        "Ingmar Schuster",
+        "Roland Vollgraf"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "8857",
+      "last_page": "8868",
+      "source_url": "https://proceedings.mlr.press/v139/rasul21a.html",
+      "source_file": "evidence/v139-rasul21a.html",
+      "source_sha256": "bdd370950b24bd2c7587bb96ec6c8ca1fa13b197834965c25c3cc346f711b7f9",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/rasul21a/rasul21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/rasul21a/rasul21a.pdf",
+      "file": "pdf/v139-rasul21a.pdf",
+      "sha256": "41d2446ebcee84621baba8cf5621d7b44a722a4bb0bacab3171e07c2a75520a4",
+      "bytes": 5751832,
+      "retrieved_at": "2026-10-04T00:14:03.347805+00:00",
+      "selection_topics": [
+        "time series",
+        "probabilistic models",
+        "tables"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-rao21a",
+      "title": "MSA Transformer",
+      "authors": [
+        "Roshan M Rao",
+        "Jason Liu",
+        "Robert Verkuil",
+        "Joshua Meier",
+        "John Canny",
+        "Pieter Abbeel",
+        "Tom Sercu",
+        "Alexander Rives"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "8844",
+      "last_page": "8856",
+      "source_url": "https://proceedings.mlr.press/v139/rao21a.html",
+      "source_file": "evidence/v139-rao21a.html",
+      "source_sha256": "31b18db10547cea702edb971f7502d46edf2f9e688a60ed81b3f01ad2461af62",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/rao21a/rao21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/rao21a/rao21a.pdf",
+      "file": "pdf/v139-rao21a.pdf",
+      "sha256": "1e93dc3e3540902857888b850d18589d0080c487493e6adadbcb828c5876b602",
+      "bytes": 3437208,
+      "retrieved_at": "2026-10-04T00:14:06.687385+00:00",
+      "selection_topics": [
+        "attention",
+        "protein models",
+        "figures"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v119-xiong20b",
+      "title": "On Layer Normalization in the Transformer Architecture",
+      "authors": [
+        "Ruibin Xiong",
+        "Yunchang Yang",
+        "Di He",
+        "Kai Zheng",
+        "Shuxin Zheng",
+        "Chen Xing",
+        "Huishuai Zhang",
+        "Yanyan Lan",
+        "Liwei Wang",
+        "Tieyan Liu"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2020/11/21",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "119",
+      "first_page": "10524",
+      "last_page": "10533",
+      "source_url": "https://proceedings.mlr.press/v119/xiong20b.html",
+      "source_file": "evidence/v119-xiong20b.html",
+      "source_sha256": "eb2e6fca045862f646a726e569f85ec50c0454248314aafd87ce4fefb311f9a5",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v119/xiong20b/xiong20b.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v119/xiong20b/xiong20b.pdf",
+      "file": "pdf/v119-xiong20b.pdf",
+      "sha256": "93dbef3adbd54e01a03a81b9876f22a8c823562e0e578b2176d488c16db8ad45",
+      "bytes": 389563,
+      "retrieved_at": "2026-10-04T00:14:09.331440+00:00",
+      "selection_topics": [
+        "attention",
+        "optimization",
+        "equations"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-kostrikov21a",
+      "title": "Offline Reinforcement Learning with Fisher Divergence Critic Regularization",
+      "authors": [
+        "Ilya Kostrikov",
+        "Rob Fergus",
+        "Jonathan Tompson",
+        "Ofir Nachum"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "5774",
+      "last_page": "5783",
+      "source_url": "https://proceedings.mlr.press/v139/kostrikov21a.html",
+      "source_file": "evidence/v139-kostrikov21a.html",
+      "source_sha256": "cc1abcaf002fa03e2fddb8c2d2dc2c07b3ed993c9b2e567626d8c412ec5bb7e2",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/kostrikov21a/kostrikov21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/kostrikov21a/kostrikov21a.pdf",
+      "file": "pdf/v139-kostrikov21a.pdf",
+      "sha256": "b7b11fc108506cee4f5243b157f6789e3b5cb41be6714346cd5641b51b847aba",
+      "bytes": 1633455,
+      "retrieved_at": "2026-10-04T00:14:13.813059+00:00",
+      "selection_topics": [
+        "reinforcement learning",
+        "equations",
+        "tables"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    },
+    {
+      "id": "v139-anand21a",
+      "title": "Preferential Temporal Difference Learning",
+      "authors": [
+        "Nishanth Anand",
+        "Doina Precup"
+      ],
+      "publisher": "PMLR",
+      "publication_date": "2021/07/01",
+      "proceedings": "International Conference on Machine Learning",
+      "volume": "139",
+      "first_page": "286",
+      "last_page": "296",
+      "source_url": "https://proceedings.mlr.press/v139/anand21a.html",
+      "source_file": "evidence/v139-anand21a.html",
+      "source_sha256": "4f46cd54fd0ae4d30e4b57153274cfd4713c9569e155c40b2a6f7c5d6d01ea30",
+      "publisher_pdf_link": "http://proceedings.mlr.press/v139/anand21a/anand21a.pdf",
+      "pdf_url": "https://proceedings.mlr.press/v139/anand21a/anand21a.pdf",
+      "file": "pdf/v139-anand21a.pdf",
+      "sha256": "050a7d544835fb0f04e747a63433f87ec7fd83a49443873848cda1aceca78470",
+      "bytes": 7269363,
+      "retrieved_at": "2026-10-04T00:14:16.703149+00:00",
+      "selection_topics": [
+        "reinforcement learning",
+        "equations",
+        "plots"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "license_basis": "publisher-policy inference; individual signed forms not inspected",
+      "license_evidence_ids": [
+        "publication-agreement",
+        "publisher-faq",
+        "cc-by-4.0-legalcode"
+      ],
+      "modified": false,
+      "production_eligible": false
+    }
+  ],
+  "pdf_bytes": 59822402,
+  "received_bytes": 60267042
+}
