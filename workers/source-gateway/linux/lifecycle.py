@@ -43,11 +43,11 @@ def rendered_units(attempt):
     return result
 
 
-def validate_ready(ready, attempt):
+def validate_ready(ready, attempt, mode=MARKER['mode']):
     require(type(ready) is dict and set(ready) == {'schema_version', 'mode', 'attempt_id', 'child_id',
             'identity', 'controller_pid', 'invocation_id', 'source_sha256', 'bundle_sha256',
             'source_network_enabled', 'hosted_admitted'} and type(ready['schema_version']) is int
-            and ready['schema_version'] == 1 and ready['mode'] == MARKER['mode'] and ready['attempt_id'] == attempt
+            and ready['schema_version'] == 1 and ready['mode'] == mode and ready['attempt_id'] == attempt
             and ready['source_network_enabled'] is False and ready['hosted_admitted'] is False, 'invalid_ready')
     require(all(type(ready[key]) is str and re.fullmatch(r'[0-9a-f]{64}', ready[key])
                 for key in ('source_sha256', 'bundle_sha256')) and type(ready['invocation_id']) is str
@@ -174,13 +174,15 @@ def process(pid):
 
 class Observer:
     def __init__(self, *, unit_show=show, current_boot=boot_id, snapshot=cgroup_snapshot,
-                 current_process=process):
+                 current_process=process, unit_renderer=rendered_units, expected_uid=65534,
+                 ready_mode=MARKER['mode']):
         self.show, self.boot, self.snapshot, self.process = unit_show, current_boot, snapshot, current_process
+        self.render, self.expected_uid, self.ready_mode = unit_renderer, expected_uid, ready_mode
 
     def capture(self, attempt, ready):
         ready = decode(canonical(ready))
         service, slice_name, _ = names(attempt)
-        validate_ready(ready, attempt)
+        validate_ready(ready, attempt, self.ready_mode)
         s = self.show(service, SERVICE_FIELDS)
         parent = self.show(slice_name, SLICE_FIELDS)
         require(s['Id'] == service and s['LoadState'] == 'loaded' and s['ActiveState'] == 'active'
@@ -199,12 +201,12 @@ class Observer:
                 and identity['boot_id'] == self.boot(), 'child_identity_mismatch')
         child = self.process(identity['process_id'])
         require(child['process_start_id'] == identity['process_start_id']
-                and child['parent_pid'] == ready['controller_pid'] and child['uid'] == 65534
+                and child['parent_pid'] == ready['controller_pid'] and child['uid'] == self.expected_uid
                 and child['cgroup'] == '/' + slice_name + '/' + service,
                 'child_identity_mismatch')
         group = self.snapshot('/' + slice_name)
         require(group['populated'] == 1, 'group_not_populated')
-        units = rendered_units(attempt)
+        units = self.render(attempt)
         require(read(s['FragmentPath'], 16_384) == units[service]
                 and read(parent['FragmentPath'], 16_384) == units[slice_name], 'unit_source_changed')
         return {'schema_version': 1, 'kind': 'fixture_slice_capture_v1', 'attempt_id': attempt,
@@ -223,7 +225,7 @@ class Observer:
                 and capture['kind'] == 'fixture_slice_capture_v1' and capture['source_network_enabled'] is False
                 and capture['hosted_admitted'] is False, 'invalid_capture')
         service, slice_name, _ = names(capture['attempt_id'])
-        validate_ready(capture['ready'], capture['attempt_id'])
+        validate_ready(capture['ready'], capture['attempt_id'], self.ready_mode)
         require(capture['service'] == service and capture['slice'] == slice_name
                 and re.fullmatch(r'[0-9a-f]{32}', capture['invocation_id'])
                 and capture['boot_id'] == self.boot() == capture['ready']['identity']['boot_id']
@@ -250,7 +252,7 @@ class Observer:
         require(parent['Id'] == slice_name and parent['ActiveState'] == 'active'
                 and parent['ControlGroup'] == old['path'] and parent['StopWhenUnneeded'] == 'no'
                 and parent['FragmentPath'] == '/run/systemd/system/' + slice_name, 'slice_identity_changed')
-        units = rendered_units(capture['attempt_id'])
+        units = self.render(capture['attempt_id'])
         require(read(s['FragmentPath'], 16_384) == units[service]
                 and read(parent['FragmentPath'], 16_384) == units[slice_name]
                 and hashlib.sha256(units[service]).hexdigest() == capture['unit_sha256']
@@ -288,10 +290,11 @@ def stop_and_observe(checkpoints, *, observer=None, seconds=3):
         time.sleep(.02)
 
 
-def stop_before_cleanup(attempt, remove_artifacts, *, control=run, snapshot=cgroup_snapshot):
+def stop_before_cleanup(attempt, remove_artifacts, *, control=run, snapshot=cgroup_snapshot,
+                        unit_renderer=rendered_units):
     """Keep unit files and journals intact after any uncertain stop/observation."""
     service, slice_name, _ = names(attempt)
-    units = rendered_units(attempt)
+    units = unit_renderer(attempt)
     require(all(read('/run/systemd/system/' + name, 16_384) == raw for name, raw in units.items()),
             'unit_source_changed')
     control(['/usr/bin/systemctl', 'stop', service])

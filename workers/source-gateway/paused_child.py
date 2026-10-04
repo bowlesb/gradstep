@@ -11,16 +11,46 @@ from protocol import MAX_INPUT, MAX_OUTPUT, MAX_STDERR, canonical, decode, diges
 from supervisor import checked_result, _stop, _joined, _close_pipes
 
 
+class ChildSetupError(ValueError):
+    """The original handle remains available if bounded setup cleanup cannot join."""
+    def __init__(self, session, returncode):
+        super().__init__('child_setup_failed')
+        self.session, self.returncode = session, returncode
+
+
 class PausedChild:
     def __init__(self, request, fixture):
-        self.value = decode(canonical({'mode': 'loopback_fixture_v1', 'attempt_id': str(uuid.uuid4()),
-                                     'request': request, 'fixture': fixture, 'useful_ms': 30_000, 'close_ms': 0}))
-        envelope(self.value)
-        raw = canonical(self.value) + b'\n'
-        require(len(raw) <= MAX_INPUT, 'input_limit')
-        self.child = subprocess.Popen(command(frozen_context.root, 'child'), stdin=subprocess.PIPE,
+        value = self._prepare(request, fixture)
+        self._spawn()
+        self._handshake(value)
+
+    @staticmethod
+    def _prepare(request, fixture):
+        value = decode(canonical({'mode': 'loopback_fixture_v1', 'attempt_id': str(uuid.uuid4()),
+                                  'request': request, 'fixture': fixture, 'useful_ms': 30_000, 'close_ms': 0}))
+        envelope(value)
+        require(len(canonical(value)) + 1 <= MAX_INPUT, 'input_limit')
+        return value
+
+    @classmethod
+    def spawn_only(cls, *, argv, user, group, identity_reader, stop_child):
+        """Trusted Linux bootstrap: spawn without reading or sending app input.
+
+        The caller must permanently drop privileges before handshake(). Policy
+        and the child command are captured by that caller, not source-controlled.
+        """
+        self = cls.__new__(cls)
+        self._spawn(argv=argv, credentials={'user': user, 'group': group, 'extra_groups': (), 'umask': 0o077},
+                    identity_reader=identity_reader, stop_child=stop_child)
+        return self
+
+    def _spawn(self, *, argv=None, credentials=None, identity_reader=process_identity, stop_child=_stop):
+        self.value = None
+        self._identity_reader, self._stop_child = identity_reader, stop_child
+        self.child = subprocess.Popen(argv or command(frozen_context.root, 'child'), stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, close_fds=True,
-                                      start_new_session=True, cwd=frozen_context.root, env={'LC_ALL': 'C'})
+                                      start_new_session=True, cwd=frozen_context.root, env={'LC_ALL': 'C'},
+                                      **(credentials or {}))
         self.identity = None
         self.sent_go = False
         self.execution_id = None
@@ -28,6 +58,24 @@ class PausedChild:
         try:
             for pipe in (self.child.stdin, self.child.stdout, self.child.stderr):
                 os.set_blocking(pipe.fileno(), False)
+        except BaseException:
+            self._stop_child(self.child)
+            code = _joined(self.child, .5)
+            _close_pipes(self.child)
+            # No protocol witness exists before handshake. A caller that needs
+            # same-process reconciliation receives this exact retained handle;
+            # Linux may instead ask its outside guardian to retire the scope.
+            raise ChildSetupError(self, code) from None
+
+    def handshake(self, request, fixture):
+        self._handshake(self._prepare(request, fixture))
+
+    def _handshake(self, value):
+        require(self.value is None and self.child.poll() is None, 'handshake_consumed')
+        self.value = value
+        raw = canonical(self.value) + b'\n'
+        require(len(raw) <= MAX_INPUT, 'input_limit')
+        try:
             deadline = clock() + 5
             self._write(raw, deadline)
             ready = bytearray()
@@ -40,10 +88,10 @@ class PausedChild:
                         require(piece, 'invalid_ready')
                         ready.extend(piece)
             expected = {'schema_version': 1, 'kind': 'ready', 'child_id': self.value['attempt_id'],
-                        'source_sha256': digest(canonical(request)), 'bundle_sha256': digest(canonical(frozen_context.manifest)),
+                        'source_sha256': digest(canonical(value['request'])), 'bundle_sha256': digest(canonical(frozen_context.manifest)),
                         'process_id': self.child.pid}
             require(decode(bytes(ready)) == expected, 'invalid_ready')
-            self.identity = process_identity(self.child.pid)
+            self.identity = self._identity_reader(self.child.pid)
             require(self.child.poll() is None, 'child_unavailable')
         except BaseException:
             self.stop()
@@ -60,7 +108,7 @@ class PausedChild:
 
     def go(self, execution_id, deadline_ns, *, cancelled=None):
         require(not self.sent_go and self.report is None and self.child.poll() is None
-                and process_identity(self.child.pid) == self.identity, 'child_identity_changed')
+                and self._identity_reader(self.child.pid) == self.identity, 'child_identity_changed')
         require(type(deadline_ns) is int and deadline_ns > clock_ns(), 'deadline')
         require(cancelled is None or not cancelled.is_set(), 'cancelled')
         self.sent_go = True  # Mark uncertainty BEFORE the first possible write.
@@ -72,7 +120,7 @@ class PausedChild:
         self.child.stdin.close()
 
     def stop(self):
-        _stop(self.child)
+        self._stop_child(self.child)
         return self.finish(clock_ns(), stopped=True)
 
     def finish(self, deadline_ns, *, cancelled=None, stopped=False):
@@ -89,7 +137,7 @@ class PausedChild:
                 now = clock()
                 if stop_deadline is None and (clock_ns() >= deadline_ns or cancelled is not None and cancelled.is_set()):
                     outcome = 'stopped'
-                    _stop(self.child)
+                    self._stop_child(self.child)
                     stop_deadline = now + .5
                 if stop_deadline is not None and now >= stop_deadline:
                     break
@@ -104,7 +152,7 @@ class PausedChild:
                     if len(target) + len(part) > bound:
                         if stop_deadline is None:
                             stop_deadline = clock() + .5
-                        _stop(self.child)
+                        self._stop_child(self.child)
                         outcome = 'output_limit'
                     elif outcome != 'output_limit':
                         target.extend(part)

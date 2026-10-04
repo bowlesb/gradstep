@@ -307,25 +307,39 @@ an owner session constitutes provisioned separation. Journal and source bytes
 are private local state, not logs. Budgeted deployment, bounded local disk,
 backup/restore quarantine and host identity remain admission inputs.
 
-## Combined adapter launcher proposal — not implemented
+## Combined adapter launcher — local prerequisite verified
 
-This section is the proposed next local implementation, pending review. It does
-not admit a host, change candidate 012 or authorize starting/installing the guest.
-Use two dedicated locked, non-login OS accounts: proposed fixture UID/GID
+This policy is implemented and locally verified for the launcher/ingress
+prerequisite described below. It does not admit a host or change candidate 012.
+The separately authorized exact isolated guest may run the launcher/ingress
+tests; package installation and combined SQL runtime remain unapproved.
+Use two dedicated locked, non-login OS accounts: selected fixture UID/GID
 `62401` for the transport supervisor and `62402` for the source child. Refuse
 existing ID/name collisions; do not repurpose `nobody`. Freeze the chosen numeric
 IDs in the host admission recipe. Neither account has other services, a login
 shell, supplementary groups, sudo/polkit rules or database credentials.
 
 Prefer a short **SETPCAP-assisted bootstrap** over retaining dormant capability
-bounding bits. The service initially runs the fixed root-owned launcher as
-`User=0`, `Group=0`, with only `CAP_SETUID CAP_SETGID CAP_SETPCAP` in its capability
+bounding bits. The system-manager service runs the fixed root-owned launcher
+with its default root identity, omitting explicit `User`/`Group` directives and
+requiring all actual real/effective/saved/filesystem UID/GID values to be zero.
+It has only `CAP_SETUID CAP_SETGID CAP_SETPCAP` in its capability
 bounding set, an empty ambient set, `NoNewPrivileges=yes`, no keep-caps behavior
 and no privileged `+`/`!` command prefix. Its argv contains only the fixed bundle
 and derived scope identity. Python uses `-I -S -B`, a finite environment, no
 shell, no user-site loading and no source input before the drop. The launcher is
 single-threaded; its only pre-drop inputs are trusted captured code/configuration
 and bounded kernel state.
+
+This directive choice is deliberate: the first exact guest test with explicit
+`User=0` stopped at the initial privilege check. It observed P/E `320`, I `256`
+and B `448`, rather than P/E/B `448` with empty I/A. In systemd 255,
+`exec_invoke`'s explicit-valid-user/seccomp condition enables
+`keep_seccomp_privileges`; its later UID path drops SETUID unless ambient and
+retains SETPCAP. The system manager's default-root path avoids that adjustment.
+No capability requirement, syscall filter or permanent-drop check is relaxed,
+and ambient capability fallback remains forbidden. This is a system service,
+not a user-manager service. [systemd 255 execution implementation](https://raw.githubusercontent.com/systemd/systemd/v255/src/core/exec-invoke.c).
 
 The fixed sequence is:
 
@@ -404,7 +418,7 @@ is part of this synchronous Python policy, not an optional hardening measure.
 Control communication uses anonymous pipes and guarded files, not a source-owned
 Unix socket. Keep `RestrictNamespaces=yes`, `ProtectControlGroups=yes`, no
 delegation, read-only system files and inaccessible credential/guardian paths.
-For this strictly single-threaded transport, propose `TasksMax=2` on the service
+For this strictly single-threaded transport, require `TasksMax=2` on the service
 and retained slice: supervisor plus source child, with parser/DB work outside.
 This also prevents a source child from leaving a live descendant during a normal
 parent-wait path. If its supervisor dies, only scope evidence remains valid.
@@ -414,17 +428,18 @@ silently increasing the limit. [systemd task accounting](https://raw.githubuserc
 bounded negative probe in the actual service context must verify the effective
 native-ABI policy and denial of all three io_uring syscalls, `socketpair` and
 non-allowed address families without attempting an external connection.
-The fixture remains loopback-only. These are proposed restrictions, not evidence
-that BPF/seccomp/ptrace or cgroup escape attempts have already been tested.
+The fixture remains loopback-only. The prerequisite run verifies the finite
+denials listed below; it does not establish exhaustive process-escape resistance,
+execution of an alternative ABI or kernel BPF filtering of external destinations.
 
-The required adapter changes are explicit; the current fixture helpers cannot
-be reused unchanged:
+The prerequisite implements the following adapter changes, preserving the
+original same-UID fixture contract:
 
 - Split `PausedChild` construction into **spawn only**, with no request-file
   read, stdin write or READY consumption, followed by a separate bounded
   request/READY handshake after the supervisor's permanent drop. Keep the same
-  exact Popen handle across both phases. Its current constructor performs that
-  handshake immediately, so adding `user`/`group` arguments alone is insufficient.
+  exact Popen handle across both phases. The original constructor still performs
+  the immediate handshake; the Linux launcher uses the explicit spawn-only API.
 - Add a Linux identity check pinned to the **source** UID/GID `62402`, not the
   supervisor's current UID. Read all four `Uid` and `Gid` values and `Groups`
   from `/proc/<pid>/status`, plus the required capability/NNP fields; retain
@@ -432,13 +447,14 @@ be reused unchanged:
   these IDs from ownership of the `/proc/<pid>` directory; one inode owner does
   not establish all UID/GID fields. The outside guardian performs the process
   checks; a process that cannot inspect a peer must not substitute self-report.
-  Preserve the existing same-UID fixture's separate contract.
+  `uid_policy.process_identity` supplies the separate Linux check.
 - Add the dedicated large-witness publisher/recovery path below. The current
   `linux/common.publish` has a 64 KiB limit and creates a new temporary before
   checking whether the destination exists. Raising that limit would not provide
-  the required crash-safe two-slot bound.
+  the required crash-safe two-slot bound. The separate `witness_slots` implementation
+  preserves that bound without changing the small-record publisher.
 
-## Ingress ownership and reserved action envelope — proposed
+## Ingress ownership and reserved action envelope
 
 Keep the authoritative journal at the derived root-owned `0700` path above.
 Place service input/control under a separate root-owned `0750` scope directory,
@@ -552,20 +568,23 @@ filesystem metadata and PostgreSQL are separate bounded host disk inputs; 4 MiB
 is not a promise of physical allocation or RAM usage. Require a separate free
 disk reserve before admission, and never delete unresolved evidence to make room.
 
-## Guest readiness and finite dependency plan — no installation performed
+## Guest readiness and finite dependency plan — no package installation performed
 
 The retained [`platform-and-cleanup.json`](../../.artifacts/linux-lima/platform-and-cleanup.json)
 and [`review-bundle.json`](../../.artifacts/linux-lima/review-bundle.json) establish
 Ubuntu 24.04.4/aarch64, Linux 6.8.0-117, systemd 255.4, Python 3.12.3 and OpenSSL
 3.0.13. The previous tests also invoked the guest's OpenSSL CLI. The saved
 preflight/configuration disables package resolution and upgrades. Neither the
-logs nor manifests inventory PostgreSQL, Deno, Node or esbuild: their guest
-availability is **unknown**, not proven absent. The local checkout has only
-Darwin-arm64 Deno/esbuild executables. No guest was booted for this assessment.
+earlier logs nor manifests inventoried PostgreSQL, Deno, Node or esbuild. The
+subsequently authorized prerequisite boot inspected the required PATH and named
+packages: PostgreSQL server/client, Deno, Node and esbuild were absent from that
+targeted inventory. The existing UID/GID 62401/62402 and proposed account names
+were unused. Temporary locked accounts were created only for the tests and
+removed afterward; no package was installed. The local checkout has only
+Darwin-arm64 Deno/esbuild executables. The exact isolated guest is stopped again.
 
-After approval to use the isolated guest, first inspect only the required
-executables/package versions and ID collisions. If missing, the finite dependency
-set is:
+Before any combined SQL/parser run, review the exact finite dependency
+transaction below; the prerequisite authorization did not permit installation:
 
 - PostgreSQL **17** server/client, matching the hosted major, from the PostgreSQL
   project's signed Noble/arm64 repository. Review the exact minor/package
@@ -651,17 +670,56 @@ source request is needed for these checks:
    even when the receipt arrives in a later month; it does not credit today's
    transfer window.
 
-The Linux checkpoint's 23 tests and the earlier integration's 54 tests validate
-their separate fixture contracts. None of the combined checks above is claimed
-complete by this proposal. Cold reboot, clone/restore, host replacement and
-arbitrary kernel-stuck work remain quarantined, rather than being prerequisites
-we pretend have already been tested.
+The original Linux checkpoint's 23 tests, the launcher/ingress evidence below
+and the earlier integration's 54 tests validate separate fixture contracts.
+None of the combined database/runtime checks above is claimed complete.
+Cold reboot, clone/restore, host replacement and arbitrary kernel-stuck work
+remain quarantined rather than being treated as already tested.
 
 Independent review checked the existing candidate-012 grant/receipt/refund
 paths and the committed lifecycle fixture. It found no structural blocker in
 this scope, including executor-before-source receipt ordering, ambiguous COMMIT
 handling and separate authority roles. That review does not establish any of
 the combined checks, production UID separation or host admission.
+
+## Launcher/ingress verification checkpoint
+
+The isolated guest passed **41 tests in 8.080 seconds**, including the original
+23 lifecycle checks and five new real systemd/TLS schedules. The new schedules
+verify a one-MiB response with exact cross-UID parent wait, the all-zero
+post-drop privilege sets, 19 finite kernel denials, refusal of missing bootstrap
+capabilities, cancellation of a stopped child that its supervisor cannot signal,
+and guardian-only retirement after supervisor death. The two body-slot tests
+cover partial copies, failed barriers, aliases, conflicting data and recovery;
+filled synthetic records reach 4,153,344 serialized bytes and 30 names. This is
+the reserved envelope, not yet admission of actual combined SQL journal records.
+
+After that guest run, one additional local test actually exits the writer at
+four publication boundaries without cleanup and recovers in a fresh isolated
+Python process. The local suite passes 29 checks with 13 Linux-only skips; the
+extra process-crash test was not rerun in Linux and is not a power-loss test.
+All 23 direct-gateway and eight coordination regressions pass after the shared
+spawn/handshake refactor. Post-spawn setup failures preserve ownership of the
+exact Popen handle and never invent a wait witness.
+
+Evidence is `.artifacts/linux-prerequisite-guest-final.log`,
+`linux-prerequisite-local-final.log`, `linux-prerequisite-v1-gateway.log` and
+`linux-prerequisite-v1-coordination.log`. The retained guest source snapshot is
+`.artifacts/linux-prerequisite/becc0dfaab1ac7061473b5464fb491bfc97c28068926f3efc8e5db456c3f6659/`;
+runtime bundle identity is
+`b1bb7ab854eda341899f9c25dba32395bb72ab2b74d1df9078feb21b1cd54906`.
+The first capability refusal and sanitized kernel state remain in the earlier
+guest logs and `linux-prerequisite-bootstrap-failure.json`. No capability/filter
+was relaxed to pass that refusal; the default-root directive correction above
+was reviewed before rerunning.
+
+Cleanup observed no owned units, attempts, bundles, fixture accounts or groups;
+the sole authorized guest is stopped. No package, credential, source request or
+SQL change belongs to this checkpoint. The source-to-guardian copy still requires
+the combined adapter's strict captured-action/wait-witness validator before it
+can support an observer RPC. The fixture callback and empty-scope observation
+have no database authority. Whole-action journal enforcement, distinct database
+logins, actual Linux parser identity and combined recovery remain next work.
 
 ## Single outbound authority and rollout boundary
 
@@ -674,8 +732,9 @@ old environment. This proposal does not build that cross-project routing layer.
 Inventory other controlled callers before activation without expanding the
 user's NAS permissions.
 
-Next work is the local combined action and reviewed pending-012 delta. A hosting
-account is needed only for actual deployment and host admission. Keep original
+Next work is the local combined action against the already reviewed, unapplied
+012 delta, after reviewing the exact dependency/runtime preparation transaction.
+A hosting account is needed only for actual deployment and host admission. Keep original
 download/verification/read and paid-provider paths disabled; obtaining metadata
 does not complete the reader. Provision no host or credentials from this
 document, and make no additional commitment beyond the agreed $100/month

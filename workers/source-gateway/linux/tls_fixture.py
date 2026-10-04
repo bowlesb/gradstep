@@ -21,7 +21,10 @@ def certificate(root):
 
 
 class Server:
-    def __init__(self, cert, key, *, slow=False):
+    def __init__(self, cert, key, *, slow=False, body=b'ok'):
+        if type(body) is not bytes or len(body) > 1_048_576:
+            raise ValueError('fixture_body_limit')
+        self.body = body
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.context.load_cert_chain(cert, key)
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -63,7 +66,8 @@ class Server:
                 if len(request) > 4096:
                     raise ValueError('fixture_request_limit')
             self.requested.set()
-            tls.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n' + (b'' if self.slow else b'ok'))
+            tls.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: ' + str(len(self.body)).encode() + b'\r\n\r\n'
+                        + (b'' if self.slow else self.body))
             if self.slow:
                 tls.settimeout(.1)
                 while not self.stop.is_set() and time.monotonic() < deadline:

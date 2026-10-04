@@ -1,10 +1,12 @@
 # Linux lifecycle fixture
 
-Status: implemented local fixture. **23 tests pass on the isolated Linux guest**
-(15 contract tests and eight real systemd/loopback TLS schedules, 4.786 seconds).
+Status: implemented local fixtures. The original lifecycle checkpoint passed
+23 tests; the separate UID/ingress prerequisite now passes **41 tests on the
+isolated Linux guest** (8.080 seconds), including all original 23 scenarios.
 This is not a deployed metadata gateway.
-Migration 012 and the existing gateway are unchanged. Source networking,
-database access and production credentials are absent from this fixture.
+Migration 012 is unchanged. The shared paused-child API has a backward-compatible
+spawn/handshake split, with the existing gateway regressions passing. Source
+networking, database access and production credentials are absent from this fixture.
 
 ## VM review boundary
 
@@ -85,7 +87,8 @@ assumptions; source hashes alone do not establish a host security boundary.
 
 ## Verification and remaining schedules
 
-Host command (15 pass, eight Linux tests explicitly skipped on macOS):
+Host command (original checkpoint: 15 pass and eight Linux tests skipped;
+current prerequisite checkpoint: 29 pass and 13 Linux tests skipped on macOS):
 
 ```sh
 python3 -m unittest discover -s workers/source-gateway/linux -p 'test_*.py' -v
@@ -134,7 +137,8 @@ Cleanup stops the exact service, observes its retained slice empty, then stops
 the slice before deleting unit definitions and the attempt directory. An
 uncertain stop or nonempty group retains all definitions/checkpoints for later
 inspection; a regression checks this ordering. Cleanup never stops unrelated
-services. No SQL migration or existing gateway source is modified.
+services. No SQL migration is modified. The original checkpoint left gateway
+source unchanged; the later shared-session refactor is described below.
 
 Saved local evidence under `.artifacts/linux-lima/`:
 
@@ -156,3 +160,94 @@ the two pre-existing Colima guests remain stopped and untouched.
 Primary references: [Lima 2.1.4 configuration](https://raw.githubusercontent.com/lima-vm/lima/v2.1.4/templates/default.yaml),
 [systemd slice ownership](https://raw.githubusercontent.com/systemd/systemd/v257/man/systemd.slice.xml),
 [kernel cgroup v2 events](https://docs.kernel.org/admin-guide/cgroup-v2.html).
+
+## UID and ingress prerequisite — local evidence only
+
+The separately reviewed [Linux metadata admission plan](../../../docs/architecture/LINUX_METADATA_ADMISSION.md)
+now has a concrete prerequisite implementation. `prerequisite.service.in` and
+`prerequisite.slice.in` are separate from the original UID-65534 fixture units.
+The new captured launcher uses only SETUID/SETGID/SETPCAP during bootstrap,
+clears every bounding capability and drops SETPCAP, creates the source child,
+then permanently drops the supervisor to UID/GID 62401 before consuming input or
+READY. The source child uses UID/GID 62402. Both check all four UID/GID values,
+empty supplementary groups, five zero capability sets, locked securebits,
+no-new-privileges and dumpable zero. The guardian independently reads the kernel
+status IDs, parentage and retained scope before capture. The shared `PausedChild`
+keeps its existing constructor behavior and adds explicit spawn/handshake and
+identity/stop strategies; Linux cancellation has no signal helper or CAP_KILL.
+
+The first actual launch refused the unexpected capability state produced by
+systemd 255's **explicit** `User=0` plus seccomp path. The reviewed correction
+uses the system manager's default root identity, with the same exact root IDs
+and P/E/B=448, I/A=0 bootstrap requirements. It does not add ambient capabilities
+or relax a filter. `prerequisite_failure` logs contain only finite phase/errno
+and kernel privilege fields; no exception text, request or response bytes.
+The failed run and sanitized initial state remain in
+`.artifacts/linux-prerequisite-guest-first.log`, `linux-prerequisite-guest-phase.log`
+and `linux-prerequisite-bootstrap-failure.json`.
+
+The syscall policy restricts the native ABI, permits AF_INET/AF_INET6, and denies
+socketpair, all three io_uring calls, ptrace, process-memory access and pidfd FD
+retrieval. `TasksMax=2` admits only supervisor and source child. Actual guest
+negative tests observed denial of privilege reacquisition, source access to
+guardian/control/parent-FD paths, cgroup writes, Unix sockets, the listed syscalls
+and an extra fork. The signal check is an actual cross-UID `kill(pid, 0)` permission
+probe. No non-native executable or external destination was attempted; exhaustive
+escape resistance and kernel BPF filtering remain unclaimed.
+
+`witness_slots.py` retains at most two bounded body inodes, with fixed pending and
+final names. Recovery validates/fsyncs an existing final before using it, reuses
+one retained partial inode, counts every hardlink name, and never writes a fresh
+body merely because a publication acknowledgement was lost. A local exclusive
+lock serializes file operations and conveys no database authority. Unexpected
+aliases, incomplete ingress, conflicting data or failed barriers retain state.
+The guardian callback must validate the captured action and exact parent-wait
+provenance before publication; this storage module does not invent that proof.
+
+The new guest schedules cover a complete **one-MiB** loopback body under the split
+UIDs, exact cross-UID parent wait, unsupported initial capability sets, kernel
+denials, a stopped child that cannot be signalled by its supervisor, and lost
+supervisor recovery using only the outside guardian's empty-scope observation.
+Witness failure schedules cover partial copy, file sync, final link, directory
+sync and ingress cleanup; repeated fsync failure never returns a durable witness.
+Filled synthetic slots reach exactly **4,153,344 serialized bytes and 30 names**
+within the 4 MiB/32-name limits, including both pairs of hardlink aliases. This
+tests the reserved envelope; the future combined SQL coordinator still needs to
+apply its full action-journal admission and strict receipt/result validation.
+
+Current local tests discover 42 cases: 29 pass and 13 Linux-only cases skip.
+This includes one additional post-guest test that actually terminates the writer
+without cleanup at four publication boundaries and recovers in a fresh isolated
+Python process. That additional process-crash evidence is on the local Mac; it
+was not rerun in the guest. Neither exception injection nor process exit is a
+power-loss/filesystem durability test. The existing direct-gateway tests' 23 cases
+and eight coordination regressions also pass locally.
+
+Evidence:
+
+- `.artifacts/linux-prerequisite-guest-final.log`: 41/41 on the guest, including
+  the original lifecycle suite and new prerequisite scenarios.
+- `.artifacts/linux-prerequisite-local-final.log`: 29 pass / 13 expected skips,
+  including actual writer exit and fresh-process recovery.
+- `.artifacts/linux-prerequisite-v1-gateway.log` and
+  `linux-prerequisite-v1-coordination.log`: 23 and eight existing checks pass.
+- `.artifacts/linux-prerequisite/becc0dfaab1ac7061473b5464fb491bfc97c28068926f3efc8e5db456c3f6659/`:
+  frozen guest source, runtime manifest and immutable reconstructed runtime
+  bundle. Runtime identity is
+  `b1bb7ab854eda341899f9c25dba32395bb72ab2b74d1df9078feb21b1cd54906`;
+  its member bytes were checked against both the copied source and current runtime
+  files. The subsequent test-only crash case and this README are outside that
+  guest source snapshot; no runtime member changed.
+- `.artifacts/linux-prerequisite-platform-cleanup.json`: actual Linux/Python/TLS
+  identity and zero owned runtime units, attempts, active bundles, fixture
+  accounts or groups after cleanup. The evidence bundle was archived on the host
+  and its temporary guest copy then removed. `timestep-lifecycle-646` is stopped.
+
+The harness creates only the two previously unused locked fixture accounts and
+removes them after confirmed group retirement. It refuses collisions and retains
+definitions/journals when cleanup is uncertain. Ubuntu may delete the matching
+unused group with `userdel`; cleanup accepts absence only after the exact owned
+account deletion. No PostgreSQL/Deno/Node/esbuild package was installed: the
+targeted guest inventory found them absent. Combined Linux SQL execution,
+production credential separation, host admission and live source traffic remain
+unfinished. Candidate 012 and all applied SQL files are unchanged.
