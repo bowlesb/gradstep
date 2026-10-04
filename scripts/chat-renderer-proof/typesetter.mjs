@@ -1,5 +1,5 @@
 // Local component experiment, deliberately outside every application bundle.
-// Input is one already-delimited TeX fixture, NOT Markdown or a chat contract.
+// Inputs are already-delimited TeX fixtures, NOT a shipping chat contract.
 import { mathjax } from '../../workers/reader-renderer/node_modules/mathjax-full/js/mathjax.js';
 import { TeX } from '../../workers/reader-renderer/node_modules/mathjax-full/js/input/tex.js';
 import { SVG } from '../../workers/reader-renderer/node_modules/mathjax-full/js/output/svg.js';
@@ -7,6 +7,8 @@ import { LiteAdaptor } from '../../workers/reader-renderer/node_modules/mathjax-
 import { RegisterHTMLHandler } from '../../workers/reader-renderer/node_modules/mathjax-full/js/handlers/html.js';
 import { MmlFactory } from '../../workers/reader-renderer/node_modules/mathjax-full/js/core/MmlTree/MmlFactory.js';
 import { TextNode } from '../../workers/reader-renderer/node_modules/mathjax-full/js/core/MmlTree/MmlNode.js';
+import { SerializedMmlVisitor } from '../../workers/reader-renderer/node_modules/mathjax-full/js/core/MmlTree/SerializedMmlVisitor.js';
+import { checkCompiledMath, MathRefusal } from './math-policy.mjs';
 import '../../workers/reader-renderer/node_modules/mathjax-full/js/input/tex/base/BaseConfiguration.js';
 import '../../workers/reader-renderer/node_modules/mathjax-full/js/input/tex/ams/AmsConfiguration.js';
 import '../../workers/reader-renderer/node_modules/mathjax-full/js/input/tex/newcommand/NewcommandConfiguration.js';
@@ -122,60 +124,84 @@ function checkMml(root) {
 // LiteAdaptor.childNodes accepts elements only. The previous probe incorrectly
 // called it for label text nodes and misreported verifier TypeErrors as TeX errors.
 function inspectOutput(adaptor, root) {
-  let outerSVGCount = 0, textNodes = 0, nodes = 0;
+  let outerSVGCount = 0, textNodes = 0, nodes = 0, svgNode;
   const stack = [[root, 0, false]];
   while (stack.length) {
     const [node, depth, insideSVG] = stack.pop();
     if (++nodes > 4000 || depth > 64) throw new Refusal('output_tree_limit');
     const kind = adaptor.kind(node);
     if (kind === '#text' || kind === '#comment') { textNodes++; continue; }
-    if (kind === 'svg' && !insideSVG) outerSVGCount++;
+    if (kind === 'svg' && !insideSVG) { outerSVGCount++; svgNode = node; }
     if (adaptor.hasAttribute(node, 'data-mjx-error') || adaptor.getAttribute(node, 'data-mml-node') === 'merror') {
       throw new Refusal('math_error_node');
     }
     for (const child of adaptor.childNodes(node)) stack.push([child, depth + 1, insideSVG || kind === 'svg']);
   }
   if (outerSVGCount !== 1) throw new Refusal('output_shape');
-  return { outerSVGCount, textNodes, nodes };
+  return { outerSVGCount, textNodes, nodes, svgNode };
 }
 
 let consumed = false;
-export function run({ source, display = true, lowerLimits = {} }) {
+function convert(equations, lowerLimits, withOutput) {
   if (consumed) return { code: 'realm_consumed', stage: 'admission', converted: false };
   consumed = true;
-  if (typeof source !== 'string' || typeof display !== 'boolean') return { code: 'invalid_input', stage: 'admission', converted: false };
-  if (source.length > 12288 || bytes(source) > 12288) return { code: 'source_limit', stage: 'admission', converted: false };
+  if (!Array.isArray(equations) || equations.length > 16 || equations.some(eq =>
+    !eq || typeof eq.latex !== 'string' || typeof eq.display !== 'boolean')) return { code: 'invalid_input', stage: 'admission', converted: false };
+  if (equations.some(eq => eq.latex.length > 12288 || bytes(eq.latex) > 12288)
+    || equations.reduce((sum, eq) => sum + bytes(eq.latex), 0) > 32768) return { code: 'source_limit', stage: 'admission', converted: false };
   let stage = 'configuration', budget;
   try {
     budget = new Budget(lowerLimits);
     if (mathjax.asyncLoad !== null) throw new Refusal('unexpected_loader');
     const { factory, adaptor } = factories(budget);
     RegisterHTMLHandler(adaptor);
-    const tex = new TeX({ packages: ['base', 'ams', 'newcommand'], tags: 'ams', baseURL: '',
+    const tex = new TeX({ packages: ['base', 'ams', 'newcommand'], tags: 'ams', baseURL: '', useLabelIds: false,
       maxMacros: 1000, maxBuffer: 15360,
       formatError: (_jax, error) => {
         const texCode = ['MaxMacroSub1', 'MaxMacroSub2'].includes(error.id) ? 'expansion_limit'
           : error.id === 'MaxBufferSize' ? 'buffer_limit' : 'tex_error';
         throw new Refusal(texCode);
       } });
+    let compiledRoot, semanticEstimate;
     const document = mathjax.document('', { InputJax: tex, OutputJax: new SVG({ fontCache: 'none' }),
       MmlFactory: factory,
       compileError: () => { throw new Refusal('compile_error'); },
       typesetError: () => { throw new Refusal('typeset_error'); },
-      renderActions: { proofCheck: [21, () => false, math => { checkMml(math.root); stage = 'svg'; return false; }, true] } });
-    stage = 'compile';
-    const output = document.convert(source, { display, em: 17, ex: 8.5, containerWidth: 320 });
-    stage = 'verification';
-    const shape = inspectOutput(adaptor, output);
-    stage = 'serialization';
-    const outputBytes = bytes(adaptor.outerHTML(output));
-    if (outputBytes > 1048576) throw new Refusal('output_limit');
-    // No HTML, source, exception text, labels or macros cross the proof bridge.
-    return { code: 'ok', stage: 'complete', converted: true, outputBytes, ...shape, counts: budget.counts };
+      renderActions: { proofCheck: [21, () => false, math => {
+        checkMml(math.root);
+        semanticEstimate = checkCompiledMath(math.root);
+        if (withOutput) budget.take('outputEstimate', semanticEstimate);
+        compiledRoot = math.root; stage = 'svg'; return false;
+      }, true] } });
+    const results = []; let outputBytes = 0, lastShape = {};
+    for (const equation of equations) {
+      stage = 'compile'; compiledRoot = undefined;
+      const output = document.convert(equation.latex, { display: equation.display, em: 17, ex: 8.5, containerWidth: 320 });
+      stage = 'verification';
+      const { svgNode, ...shape } = inspectOutput(adaptor, output); lastShape = shape;
+      stage = 'serialization';
+      const svg = adaptor.outerHTML(withOutput ? svgNode : output);
+      const mathml = withOutput ? new SerializedMmlVisitor().visitTree(compiledRoot) : '';
+      if (withOutput && bytes(mathml) > semanticEstimate) throw new Refusal('semantic_estimate_failed');
+      outputBytes += bytes(svg) + bytes(mathml);
+      if (outputBytes > 1048576) throw new Refusal('output_limit');
+      if (withOutput) results.push({ id: equation.id, svg, mathml });
+    }
+    // Raw generated output is internal to the combined validator. The public
+    // test bridge still returns only finite statuses and counters.
+    return { code: 'ok', stage: 'complete', converted: equations.length > 0,
+      outputBytes, ...lastShape, counts: budget.counts, ...(withOutput ? { equations: results } : {}) };
   } catch (error) {
-    return { code: error instanceof Refusal ? error.code : 'internal_error', stage,
+    return { code: error instanceof Refusal || error instanceof MathRefusal ? error.code : 'internal_error', stage,
       converted: !['configuration', 'admission'].includes(stage), counts: budget?.counts ?? null };
   }
+}
+
+export function run({ source, display = true, lowerLimits = {} }) {
+  return convert([{ latex: source, display }], lowerLimits, false);
+}
+export function typesetEquations(equations, lowerLimits = {}) {
+  return convert(equations, lowerLimits, true);
 }
 
 globalThis.ChatTypesetterProof = Object.freeze({ run });

@@ -73,7 +73,7 @@ private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler,
         phase = "result_checks"
         result["durationMs"] = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
         let expectedStage = fixture["expectedStage"] as? String
-        let goodLabel = fixture["labeled"] as? Bool != true || (result["textNodes"] as? Int ?? 0) > 0
+        let goodLabel = proofGlobal != "ChatTypesetterProof" || fixture["labeled"] as? Bool != true || (result["textNodes"] as? Int ?? 0) > 0
         let pass = result["code"] as? String == fixture["expected"] as? String
             && (expectedStage == nil || result["stage"] as? String == expectedStage) && goodLabel
             && observation["replyAccepted"] as? Bool == true && observation["reused"] as? String == "realm_consumed"
@@ -123,9 +123,10 @@ private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler,
         documentLoads += 1
         // Inline script is deliberately permitted by CSP, then disabled by the
         // WK preference. Its marker must remain absent. All resources denied.
+        let styles = proofGlobal == "ChatMessageProof" ? "style-src 'unsafe-inline';" : ""
         let html = """
         <!doctype html><html><head><meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'">
+        content="default-src 'none'; script-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; \(styles)">
         <script>document.documentElement.setAttribute('data-page-ran','yes')</script>
         </head><body></body></html>
         """
@@ -160,10 +161,10 @@ private struct Main {
         do {
             guard (2...3).contains(CommandLine.arguments.count) else { throw ProofFailure() }
             let mode = CommandLine.arguments.count == 3 ? CommandLine.arguments[2] : "typesetter"
-            guard ["typesetter", "source"].contains(mode) else { throw ProofFailure() }
-            let proofGlobal = mode == "source" ? "ChatSourceProof" : "ChatTypesetterProof"
+            guard let proofGlobal = ["source": "ChatSourceProof", "typesetter": "ChatTypesetterProof", "message": "ChatMessageProof"][mode],
+                  let filename = ["source": "tokenizer.js", "typesetter": "typesetter.js", "message": "message.js"][mode] else { throw ProofFailure() }
             let directory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
-            let data = try Data(contentsOf: directory.appendingPathComponent(mode == "source" ? "tokenizer.js" : "typesetter.js"))
+            let data = try Data(contentsOf: directory.appendingPathComponent(filename))
             let bundle = String(decoding: data, as: UTF8.self)
             let fixtureData = try Data(contentsOf: directory.appendingPathComponent("fixtures.json"))
             guard let fixtures = try JSONSerialization.jsonObject(with: fixtureData) as? [[String: Any]] else { throw ProofFailure() }
@@ -178,7 +179,7 @@ private struct Main {
             }
             let passed = rows.allSatisfy { $0["passed"] as? Bool == true }
             let report: [String: Any] = ["format": 1, "component": mode,
-                "scope": "macOS WKContentWorld component; no iOS layout, sanitizer, shipping renderer or hard resource bound",
+                "scope": "macOS WKContentWorld authored component; no iOS layout, shipping renderer or hard resource bound",
                 "os": ProcessInfo.processInfo.operatingSystemVersionString,
                 "bundleSHA256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
                 "fixturesSHA256": SHA256.hash(data: fixtureData).map { String(format: "%02x", $0) }.joined(),

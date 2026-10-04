@@ -29,8 +29,10 @@ const inputs = Object.keys(result.metafile.inputs);
 const disabled = inputs.filter(path => path.startsWith('(disabled):'));
 const external = Object.values(result.metafile.outputs).flatMap(output => output.imports).filter(item => item.external);
 if (disabled.length || external.length || result.warnings.length) throw new Error('graph_not_closed');
-const packageRoots = new Set(inputs.filter(path => path.includes('/node_modules/')).map(path => path.split('/node_modules/')[0]
-  + '/node_modules/' + path.split('/node_modules/')[1].split('/')[0]));
+const packageRoots = new Set(inputs.flatMap(path => {
+  const match = [...path.matchAll(/(?:^|\/)node_modules\/(?:@[^/]+\/)?[^/]+/g)].at(-1);
+  return match ? [path.slice(0, match.index + match[0].length)] : [];
+}));
 const packages = [...packageRoots].map(path => {
   const data = JSON.parse(readFileSync(resolve(root, path, 'package.json')));
   if (!allowedPackages.has(data.name)) throw new Error('unreviewed_source_dependency');

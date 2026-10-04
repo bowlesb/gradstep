@@ -1,7 +1,7 @@
 # Native chat formatting
 
-Status, 2026-10-04: **Direct typesetter and lossless source components pass browser
-and macOS WebKit checks. No rich-chat renderer is integrated.** The native
+Status, 2026-10-04: **The combined source → bounded typesetter → validated DOM/copy
+proof passes browser and macOS WebKit checks. No rich-chat renderer is integrated.** The native
 transcript displays saved source
 through SwiftUI text in a self-sizing `UITableView`. Its completed-turn scrolling,
 keyboard, selection and encrypted-restart journeys already have regression
@@ -59,9 +59,9 @@ candidate must tokenize/admit with an explicitly safe profile before calling a
 typesetter, or maintain a reviewed parser fork. It cannot claim that the broad
 Mathpix plugin is safe merely because unsupported tokens are rejected later.
 
-The graph and browser artifacts have no production authority. The next proof
-must establish a compatible bounded tokenizer, exact source sidecars and output
-validation before any Swift chat row or shipping renderer package is added.
+The graph and browser artifacts have no production authority. The proofs below
+establish a limited tokenizer, exact source sidecars and validated generated
+output; native ownership/layout requirements still precede any shipping renderer.
 
 A successful browser build is insufficient. The component now executes in an
 actual macOS `WKContentWorld` with page JavaScript disabled, local resources only
@@ -118,8 +118,8 @@ imports its broad conversion graph. Stock normalization and paragraph trimming
 need explicit source-span handling; code fences, escaped delimiters, comments,
 nested environments, blank lines and repeated formulas are required fixtures.
 The scoped source/tokenizer proof below now implements the first part of that
-recommendation. Independent output validation, aggregate typesetting budget,
-retirement lifecycle and iOS presentation remain unimplemented.
+recommendation. The combined proof below adds independent output validation and
+an aggregate typesetting budget. Retirement lifecycle and iOS presentation remain unimplemented.
 
 ### Lossless source and copy proof
 
@@ -164,7 +164,7 @@ source-span/code/currency blocker within this profile.
 Evidence is in `.artifacts/chat-source-component/`. All 82 authored cases pass
 in Chromium and a fresh macOS WKContentWorld; 85 Node checks include additional
 source-partition invariants. Both engines use identical packaged fixtures and
-bundle hashes. The closed graph contains only markdown-it, uc.micro, mdurl,
+bundle hashes. The closed graph contains only entities, markdown-it, uc.micro, mdurl,
 linkify-it and the real bundled punycode implementation; it contains no Mathpix,
 typesetter, separate HTML parser or resource loader. Licenses and exact graph inputs are
 retained. No typesetting or generated DOM occurs in this proof.
@@ -179,8 +179,65 @@ equation bodies/complete environments at 12 KiB and lexical nesting at 32.
 Boundary and limit-plus-one cases are covered. These are finite component
 controls, not an aggregate WebContent CPU/heap proof. The separate 18-case
 typesetter suite still passes in both engines after sharing the harness.
-Combining validated source tokens with rendering, sanitization, mixed visual
-selection and encrypted-restart/iOS workflows remains the next integration step.
+
+### Combined completed-message proof
+
+`message.mjs` combines the original source sidecars with a single typesetter
+invocation per message. All equations share the factory/adaptor limits; macros
+may carry between equations in that message, but never into another realm.
+Compiled MathML is checked before SVG generation. Disabling the HTML extension
+alone is insufficient: base `mmlToken` can attach links, styles, IDs and other
+attributes. A closed semantic attribute/node profile rejects those routes,
+including macro-mediated attempts. Its exact named-space enum retains ordinary
+AMS `bmod`. The pinned semantic serializer's conservative byte estimate is
+charged before rendering against the same output budget, then checked against
+actual serialized bytes. This is not a bound on temporary strings or the heap.
+
+`output-policy.mjs` parses generated SVG and MathML using saxes 6.0.0 with exact
+namespaces and XML 1.0. It rejects declarations, DTDs, processing instructions,
+comments, CDATA, duplicate attributes/IDs, namespace changes and every unlisted
+element/attribute. Links, images, external glyphs, `use`, HTML, animation and
+general CSS are absent. SVG geometry/path/transform values are checked; only
+generated vertical alignment/minimum-width style declarations are accepted.
+Significant token whitespace is retained. Generated IDs are replaced with owned
+message/equation/type prefixes; no source ID acquires page authority.
+
+The output ledger has cumulative 1 MiB estimated bytes, 6,000 nodes, 24,000
+attributes, 64 KiB text and depth 64. It charges positive ID rewrite growth and
+owned wrapper/prose/style contributions before materialization. The byte estimate
+includes conservative escaping/shell reserves. Every equation validates before
+building a detached DOM with `createElementNS` and original text nodes. No
+`innerHTML` or forgiving HTML parser receives source/generated markup. Any
+failure, including the last equation, returns the entire original source with
+no partial rendered equations. This bounded fixture fallback has no native
+formatting-status UI yet.
+
+The range resolver maps ordered original prose and equation source, including
+intersections inside SVG or assistive MathML. An equation contributes its exact
+LaTeX once; full-message Copy retains original delimiters. Outside/collapsed
+ranges and endpoints splitting a UTF-16 surrogate pair are rejected. Each
+equation has one SVG visual hidden from accessibility and one assistive MathML
+tree; source remains in the sidecar rather than another hidden text node.
+These are DOM-range/structural checks, not a system clipboard, native selection
+gesture or VoiceOver acceptance claim.
+
+All 33 authored combined cases pass in Chromium and macOS WKContentWorld using
+bundle `8b0d1677ee03f068af9ad2647e706bf8abb3c3f186c7682f313fc437dcbca8ac`;
+46 rejecting-output unit tests and the existing 85 source checks pass. Evidence
+is `.artifacts/chat-message-component/`, with the closed nine-package graph,
+licenses, hashes and fixture/result reports. The source graph's notice census
+was corrected to include root-level `entities`; its bundle bytes are unchanged.
+Only the combined mode admits owned inline CSS; page JavaScript remains disabled
+in WebKit, with one owned document load and no resource/navigation/console/CSP
+events or source-bearing bridge data in these cases.
+
+Visual inspection at 320px covers mixed prose, numbered align, matrix/cases,
+source fallback and both ends of the attention equation. Fixed CSS preserves
+the pinned engine's root/nested-table SVG overflow rules. Long equations scroll
+horizontally inside the message; their discoverability and touch interaction are
+unverified. Native sizing, streaming, scrolling, clipboard, encrypted restart,
+retirement and resource adoption gates below remain open. The proof does not
+alter app targets, persisted formats, Supabase or provider processing.
 
 ## Mathematical identity and admission
 
