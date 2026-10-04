@@ -55,19 +55,25 @@ export function canonicalProfile(profile: Profile): Uint8Array {
 export async function instantiate(
   factory: ModuleFactory, module: WebAssembly.Module,
 ): Promise<{ api: NumericAPI; memory: WebAssembly.Memory; abortReason: () => unknown }> {
+  // The hosted runtime may wrap global WebAssembly.Memory without preserving
+  // its prototype. The compiled module's descriptor identifies the actual
+  // export independently of that host constructor's JavaScript identity.
+  const memories = WebAssembly.Module.exports(module).filter((value) => value.kind === "memory");
+  if (memories.length !== 1) throw new Error("invalid_verifier_memory_export");
   let memory: WebAssembly.Memory | undefined;
   let aborted: unknown;
   const api = await factory({
     instantiateWasm(imports, receive) {
       const instance = new WebAssembly.Instance(module, imports);
-      memory = Object.values(instance.exports).find((value) => value instanceof WebAssembly.Memory) as WebAssembly.Memory;
+      memory = instance.exports[memories[0].name] as WebAssembly.Memory;
       receive(instance);
       return instance.exports;
     },
     print() {}, printErr() {}, // No PDF strings or parser diagnostics enter logs.
     onAbort(reason) { aborted = reason; },
   });
-  if (!memory || memory.buffer.byteLength !== 67108864 || api.HEAPU8.byteLength !== 67108864 ||
+  if (!memory || memory.buffer.byteLength !== 67108864 ||
+      api.HEAPU8.buffer !== memory.buffer || api.HEAPU8.byteOffset !== 0 || api.HEAPU8.byteLength !== 67108864 ||
       api._pdfv_abi() !== 1 || api._pdfv_parser_version() !== 120402 || api._pdfv_stack_bytes() !== 2097152) {
     throw new Error("verifier_abi_mismatch");
   }

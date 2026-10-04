@@ -588,7 +588,7 @@ def run_probe(api, run_id, user_id, deploy=deploy_cli, builder=package.build):
         save_json(path, journal)
         evidence['function'] = journal['function_identity']
         save_json(evidence_path, evidence)
-        identity = json.loads(package.checked(package.ARTIFACTS / 'dist/identity.json', package.BUILD_SHA256))
+        identity = json.loads(package.checked(package.reviewed_bundle() / 'identity.json', package.BUILD_SHA256))
         original = json.loads(package.checked(package.ARTIFACTS / 'fixtures/manifest.json', package.FIXTURE_MANIFEST_SHA256))
         fixtures = {fixture['name']: fixture for fixture in original if fixture['name'] in package.CASES}
         require(set(fixtures) == set(package.CASES), 'fixture_set_mismatch')

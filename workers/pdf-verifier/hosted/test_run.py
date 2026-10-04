@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 SPEC = importlib.util.spec_from_file_location('pdf_probe_operator', Path(__file__).with_name('run.py'))
@@ -95,7 +96,7 @@ class FakeAPI:
         self.ordinal = 0
         self.fixture_map = {row['name']: row for row in json.loads(OP.package.checked(
             OP.package.ARTIFACTS / 'fixtures/manifest.json', OP.package.FIXTURE_MANIFEST_SHA256))}
-        self.identity = json.loads(OP.package.checked(OP.package.ARTIFACTS / 'dist/identity.json', OP.package.BUILD_SHA256))
+        self.identity = json.loads(OP.package.checked(OP.package.reviewed_bundle() / 'identity.json', OP.package.BUILD_SHA256))
 
     def function(self, slug):
         self.calls.append(('function', slug))
@@ -184,6 +185,33 @@ class FakeAPI:
 
 
 class OperatorTests(unittest.TestCase):
+    def test_packaging_selects_reviewed_bundle_independent_of_live_runtime(self):
+        run_id = str(uuid.uuid4())
+        work = OP.package.ARTIFACTS / 'hosted' / run_id
+        self.addCleanup(shutil.rmtree, work, True)
+        bundle = OP.package.reviewed_bundle()
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            (source / 'hosted').mkdir()
+            for name in ('index.ts.in', 'handler.ts'):
+                shutil.copyfile(OP.package.SOURCE / 'hosted' / name, source / 'hosted' / name)
+            (source / 'runtime.ts').write_text('throw new Error("unreviewed working source");')
+            (source / 'wasm.ts').write_text('throw new Error("unreviewed inspector");')
+            with patch.object(OP.package, 'SOURCE', source):
+                built = OP.package.build(run_id, str(uuid.uuid4()), int(time.time() * 1000))
+        packaged = work / 'supabase/functions' / built['function']
+        self.assertEqual((packaged / 'runtime.ts').read_bytes(), (bundle / 'runtime.ts').read_bytes())
+        self.assertEqual((packaged / 'wasm.ts').read_bytes(), (bundle / 'wasm.ts').read_bytes())
+        self.assertEqual(built['config']['buildSHA256'], OP.package.BUILD_SHA256)
+
+    def test_missing_pinned_bundle_does_not_fall_back_to_current_or_dist(self):
+        run_id = str(uuid.uuid4())
+        work = OP.package.ARTIFACTS / 'hosted' / run_id
+        with patch.object(OP.package, 'BUILD_SHA256', '0' * 64):
+            with self.assertRaises(ValueError):
+                OP.package.build(run_id, str(uuid.uuid4()), int(time.time() * 1000))
+        self.assertFalse(work.exists())
+
     def test_transport_refuses_redirects_bounds_actual_bytes_and_redacts_errors(self):
         for status in (301, 302, 303, 307, 308):
             connection = FakeConnection(FakeResponse(status, b'private-token', {'Location': 'https://elsewhere.invalid'}))

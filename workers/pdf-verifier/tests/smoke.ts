@@ -3,7 +3,7 @@ import { instantiate } from "../runtime.ts";
 import { fixtureBytes, load } from "./load.ts";
 
 const start = performance.now();
-const { wasm, factory, verifier, fixtures } = await load();
+const { buildID, wasm, factory, verifier, fixtures } = await load(Deno.args[2]);
 const coldLoadMS = performance.now() - start;
 const name = Deno.args[0] ?? "pages-1";
 if (name === "probe-oom" || name === "probe-stack") {
@@ -24,7 +24,7 @@ if (name === "probe-oom" || name === "probe-stack") {
   const fixture = fixtures.find((value) => value.name === "pages-1")!;
   const next = await verifier.verify(await fixtureBytes(fixture), fixture);
   assert.equal(next.outcome, "verified");
-  console.log(JSON.stringify({ name, coldLoadMS, next, memory: Deno.memoryUsage() }));
+  console.log(JSON.stringify({ buildID, name, coldLoadMS, next, memory: Deno.memoryUsage() }));
 } else {
   const fixture = fixtures.find((value) => value.name === name);
   if (!fixture) throw new Error("unknown_fixture");
@@ -43,5 +43,5 @@ if (name === "probe-oom" || name === "probe-stack") {
     const next = fixtures.find((value) => value.name === "pages-1")!;
     assert.equal((await verifier.verify(await fixtureBytes(next), next)).outcome, "verified");
   }
-  console.log(JSON.stringify({ name, coldLoadMS, measurements, memory: Deno.memoryUsage() }));
+  console.log(JSON.stringify({ buildID, name, coldLoadMS, measurements, memory: Deno.memoryUsage() }));
 }

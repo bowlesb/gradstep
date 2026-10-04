@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import time
@@ -11,10 +12,13 @@ import uuid
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / 'workers/pdf-verifier'
 ARTIFACTS = ROOT / '.artifacts/pdf-verifier'
-BUILD_SHA256 = '2fea7b1c8f842c4c9402720a2f5c4ad8e9b7c343bcea5c6ee29210f1606028b0'
+BUILD_SHA256 = '39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610'
 FIXTURE_MANIFEST_SHA256 = '8c76c68f86b16a71b9ef0f85d044e69923866ba69f9d0f91cb9672ae3134be43'
 CASES = ['pages-1', 'pages-25', 'pages-50', 'pages-51', 'not-pdf', 'corrupt-flate',
          'unsupported-filter', 'stream-budget', 'object-stream-small', 'object-stream-oom', 'job-json-encrypt-40']
+_store_spec = importlib.util.spec_from_file_location('pdf_probe_build_store', SOURCE / 'build_store.py')
+build_store = importlib.util.module_from_spec(_store_spec)
+_store_spec.loader.exec_module(build_store)
 
 
 def digest(raw):
@@ -28,15 +32,21 @@ def checked(path, expected):
     return raw
 
 
+def reviewed_bundle():
+    """Select only the explicitly reviewed build; never follow current-build."""
+    return build_store.open_bundle(BUILD_SHA256)
+
+
 def build(run_id, user_id, created_at):
     run_id, user_id = str(uuid.UUID(run_id)), str(uuid.UUID(user_id))
     if not isinstance(created_at, int) or created_at <= 0:
         raise RuntimeError('Invalid probe creation time')
-    identity = json.loads(checked(ARTIFACTS / 'dist/identity.json', BUILD_SHA256))
-    glue = checked(ARTIFACTS / 'dist/verifier.mjs', identity['javascript_sha256'])
-    wasm = checked(ARTIFACTS / 'dist/verifier.wasm', identity['wasm_sha256'])
-    runtime = checked(SOURCE / 'runtime.ts', identity['runtime_sha256'])
-    inspector = checked(SOURCE / 'wasm.ts', identity['memory_inspector_sha256'])
+    bundle = reviewed_bundle()
+    identity = json.loads(checked(bundle / 'identity.json', BUILD_SHA256))
+    glue = checked(bundle / 'verifier.mjs', identity['javascript_sha256'])
+    wasm = checked(bundle / 'verifier.wasm', identity['wasm_sha256'])
+    runtime = checked(bundle / 'runtime.ts', identity['runtime_sha256'])
+    inspector = checked(bundle / 'wasm.ts', identity['memory_inspector_sha256'])
     manifest = json.loads(checked(ARTIFACTS / 'fixtures/manifest.json', FIXTURE_MANIFEST_SHA256))
     fixtures = {}
     for name in CASES:

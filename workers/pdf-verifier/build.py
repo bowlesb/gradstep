@@ -5,6 +5,7 @@ All downloads, caches, generated source and binaries stay under .artifacts.
 The SDK port recipes themselves verify the pinned zlib/libjpeg SHA-512s.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -13,7 +14,10 @@ import platform
 import shutil
 import subprocess
 import tarfile
+import tempfile
 import urllib.request
+import uuid
+import build_store
 
 SOURCE = Path(__file__).resolve().parent
 REPO = SOURCE.parent.parent
@@ -109,6 +113,24 @@ def main():
     if node_version != 'v24.18.0':
         raise SystemExit('This reproducibility profile requires the existing Node v24.18.0; no global install is performed.')
     OUT.mkdir(parents=True, exist_ok=True)
+    build_lock = (OUT / '.build.lock').open('a')
+    fcntl.flock(build_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    distribution = OUT / 'working-builds' / str(uuid.uuid4())
+    captured = distribution / 'source'
+    captured.mkdir(parents=True)
+    source_inputs = {name: build_store.read(SOURCE / name) for name in
+                     [*build_store.SOURCES, 'profile.json', 'build_store.py']}
+    if json.loads(source_inputs['dependencies.lock.json']) != LOCK:
+        raise SystemExit('Dependency inputs changed before capture; restart the build.')
+    for name, raw in source_inputs.items():
+        (captured / name).write_bytes(raw)
+        (captured / name).chmod(0o444)
+    # Do not reuse the mutable legacy dist directory. An older measured build
+    # must already have a checked source/executable snapshot before replacing
+    # any dependency cache or selecting a newer build for local tests.
+    legacy = OUT / 'dist/identity.json'
+    if legacy.exists():
+        build_store.open_bundle(build_store.digest(build_store.read(legacy)))
     sdk = dependency(LOCK['emscripten_macos_arm64'])
     cmake = dependency(LOCK['cmake_macos']) / 'CMake.app/Contents/bin'
     python = dependency(LOCK['python_macos_arm64'])
@@ -127,8 +149,6 @@ def main():
     for key in ('CFLAGS', 'CXXFLAGS', 'LDFLAGS', 'EMCC_CFLAGS', 'EMCC_FORCE_STDLIBS'):
         environment.pop(key, None)
     build = OUT / 'qpdf-build'
-    distribution = OUT / 'dist'
-    distribution.mkdir(exist_ok=True)
     # embuilder's fresh-cache port setup expects this directory to exist.
     (OUT / 'cache/sysroot/lib/pkgconfig').mkdir(parents=True, exist_ok=True)
     flags = '-fwasm-exceptions -O3'
@@ -146,8 +166,9 @@ def main():
                       '-DLIBJPEG_LIB_PATH=' + str(OUT / 'cache/sysroot/lib/wasm32-emscripten/libjpeg.a')],
                      ['cmake', '--build', str(build), '--target', 'libqpdf', '-j', '4'] +
                      (['--clean-first'] if args.clean_library else [])]
-    link = [str(em / 'em++'), str(SOURCE / 'verifier.cpp'), '-I' + str(qpdf / 'include'),
-            '-I' + str(build / 'include'), str(build / 'libqpdf/libqpdf.a'), '-std=c++20',
+    linked_library = distribution / 'libqpdf.a'
+    link = [str(em / 'em++'), str(captured / 'verifier.cpp'), '-I' + str(qpdf / 'include'),
+            '-I' + str(build / 'include'), str(linked_library), '-std=c++20',
             '-O3', '-fwasm-exceptions', '--use-port=zlib', '--use-port=libjpeg',
             '-sALLOW_MEMORY_GROWTH=0', '-sINITIAL_MEMORY=67108864', '-sSTACK_SIZE=2097152',
             '-sSTACK_OVERFLOW_CHECK=2', '-sABORTING_MALLOC=1', '-sALLOW_TABLE_GROWTH=0',
@@ -157,24 +178,34 @@ def main():
             '-sEXPORTED_FUNCTIONS=_pdfv_abi,_pdfv_parser_version,_pdfv_stack_bytes,_pdfv_verify,_malloc,_free',
             '-sEXPORTED_RUNTIME_METHODS=HEAPU8', '-o', str(distribution / 'verifier.mjs')]
     commands.append(link)
-    with (OUT / 'build.log').open('w') as log:
+    linked_library_sha256 = None
+    with (distribution / 'build.log').open('w') as log:
         for command in commands:
+            if command is link:
+                # Link an owned byte copy even when reusing the library cache.
+                library_bytes = build_store.read(build / 'libqpdf/libqpdf.a')
+                linked_library_sha256 = build_store.digest(library_bytes)
+                linked_library.write_bytes(library_bytes)
+                linked_library.chmod(0o444)
             print('Running ' + Path(command[0]).name, flush=True)
             result = subprocess.run(command, env=environment, stdout=log, stderr=subprocess.STDOUT)
             log.flush()
             if result.returncode:
-                raise SystemExit('Build failed; see ' + str(OUT / 'build.log'))
-    profile = json.loads((SOURCE / 'profile.json').read_text())
+                raise SystemExit('Build failed; see ' + str(distribution / 'build.log'))
+    if any(build_store.read(captured / name) != raw for name, raw in source_inputs.items()) or digest(linked_library) != linked_library_sha256:
+        raise SystemExit('Captured build inputs changed during compilation; refusing publication.')
+    profile = json.loads(source_inputs['profile.json'])
     canonical_profile = json.dumps(profile, sort_keys=True, separators=(',', ':')).encode()
     manifest = {'profile': profile, 'profile_sha256': hashlib.sha256(canonical_profile).hexdigest(),
                 'wasm_sha256': digest(distribution / 'verifier.wasm'),
                 'javascript_sha256': digest(distribution / 'verifier.mjs'),
-                'wrapper_sha256': digest(SOURCE / 'verifier.cpp'),
-                'dependencies_sha256': digest(SOURCE / 'dependencies.lock.json'),
-                'runtime_sha256': digest(SOURCE / 'runtime.ts'),
-                'memory_inspector_sha256': digest(SOURCE / 'wasm.ts'),
-                'build_recipe_sha256': digest(SOURCE / 'build.py'),
-                'qpdf_library_sha256': digest(build / 'libqpdf/libqpdf.a'),
+                'wrapper_sha256': digest(captured / 'verifier.cpp'),
+                'dependencies_sha256': digest(captured / 'dependencies.lock.json'),
+                'runtime_sha256': digest(captured / 'runtime.ts'),
+                'memory_inspector_sha256': digest(captured / 'wasm.ts'),
+                'build_recipe_sha256': digest(captured / 'build.py'),
+                'build_store_sha256': digest(captured / 'build_store.py'),
+                'qpdf_library_sha256': digest(linked_library),
                 'cmake_cache_sha256': digest(build / 'CMakeCache.txt'),
                 'compiler_flags': flags,
                 'node_version': node_version,
@@ -189,7 +220,20 @@ def main():
     manifest['build_identity_sha256'] = hashlib.sha256(identity_bytes).hexdigest()
     (distribution / 'identity.json').write_bytes(identity_bytes)
     (distribution / 'build.json').write_text(json.dumps(manifest, indent=2) + '\n')
-    print(json.dumps({key: manifest[key] for key in ('profile_sha256', 'wasm_sha256', 'javascript_sha256', 'build_identity_sha256')}))
+    bundle = build_store.freeze(distribution, source=captured, expected=manifest['build_identity_sha256'], library=linked_library)
+    if any(build_store.read(SOURCE / name) != raw for name, raw in source_inputs.items()):
+        raise SystemExit('Build preserved, but live source changed during compilation; current build was not selected.')
+    # This pointer is only a local test convenience. Hosted packaging must pin
+    # an explicitly reviewed digest and may not follow the current pointer.
+    with tempfile.NamedTemporaryFile(dir=OUT, prefix='.current-build-', delete=False) as stream:
+        pointer = Path(stream.name)
+        stream.write(build_store.canonical({'format': 1, 'identity_sha256': manifest['build_identity_sha256']}))
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(pointer, OUT / 'current-build.json')
+    build_store.fsync_directory(OUT)
+    print(json.dumps({**{key: manifest[key] for key in ('profile_sha256', 'wasm_sha256', 'javascript_sha256', 'build_identity_sha256')},
+                      'bundle': str(bundle.relative_to(REPO))}))
 
 
 if __name__ == '__main__':
