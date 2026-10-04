@@ -19,17 +19,18 @@ import shutil
 import statistics
 import subprocess
 import time
+import sys
+sys.dont_write_bytecode = True
+import corpus_store as store
 
 ROOT=Path(__file__).resolve().parents[3]
 SOURCE=ROOT/'workers/pdf-verifier/corpus'
 OUT=ROOT/'.artifacts/pdf-verifier/corpus'
 DENO=ROOT/'node_modules/@deno/darwin-arm64/deno'
-IDENTITY='2fea7b1c8f842c4c9402720a2f5c4ad8e9b7c343bcea5c6ee29210f1606028b0'
 TIMEOUT=5.0
 
 
 def sha(data): return hashlib.sha256(data).hexdigest()
-def write_json(path,value): path.write_text(json.dumps(value,indent=2,ensure_ascii=False)+'\n')
 
 
 def descriptive_inspection(path):
@@ -74,18 +75,30 @@ def descriptive_inspection(path):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--repeats',type=int,choices=[1,3],default=3);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--build-identity',required=True)
+    parser.add_argument('--run-id')
+    parser.add_argument('--repeats',type=int,choices=[1,3],default=3)
+    args=parser.parse_args()
+    identity=store.identifier(args.build_identity)
+    bundle=store.build_store.open_bundle(identity)
     manifest_bytes=(SOURCE/'manifest.json').read_bytes();manifest=json.loads(manifest_bytes)
-    if sha((ROOT/'.artifacts/pdf-verifier/dist/identity.json').read_bytes())!=IDENTITY: raise RuntimeError('unreviewed_build')
     if not 20<=len(manifest['papers'])<=25 or sum(p['bytes'] for p in manifest['papers'])>160*1024*1024: raise RuntimeError('invalid_corpus_bound')
+    run_directory=store.claim_run('benchmark',identity,args.run_id)
+    with (run_directory/'manifest.json').open('xb') as stream: stream.write(manifest_bytes)
+    runner_files=['benchmark.py','case.ts','bundle.ts','corpus_store.py']
+    runner_hashes={name:sha((SOURCE/name).read_bytes()) for name in runner_files}
     environment=dict(os.environ,DENO_DIR=str(OUT/'deno-cache'))
     deno_version=subprocess.run([str(DENO),'--version'],capture_output=True,text=True,check=True).stdout.splitlines()[0]
     report={'created_at':datetime.now(timezone.utc).isoformat(),'scope':'local offline corpus only; hosted_admitted remains false',
-            'build_identity_sha256':IDENTITY,'manifest_sha256':sha(manifest_bytes),'platform':platform.platform(),
+            'build_identity_sha256':identity,'manifest_sha256':sha(manifest_bytes),'platform':platform.platform(),
+            'build_bundle':str(bundle.relative_to(ROOT)),
+            'bundle_manifest_sha256':sha(store.read(bundle/'bundle.json')),
+            'run_directory':str(run_directory.relative_to(ROOT)),'runner_sha256':runner_hashes,
             'deno':deno_version,'repeats':args.repeats,'process_wall_timeout_seconds':TIMEOUT,
             'cpu_scope':'whole isolated child: startup, build checks, compile, input read/hash and parse',
             'memory_scope':'Deno post-run RSS/heap/external snapshot, not measured peak; peak_host_bytes not available',
-            'permission_scope':'Deno read-only project verifier/dist/corpus; no net, env, run or write permissions',
+            'permission_scope':'Deno read-only corpus and immutable build store; no live verifier source/dist, net, env, run or write permissions',
             'results':[]}
     for entry in manifest['papers']:
         identifier=entry['id'];path=OUT/entry['file']
@@ -94,8 +107,8 @@ def main():
         case={'id':identifier,'bytes':entry['bytes'],'runs':[]}
         for run in range(args.repeats):
             command=[str(DENO),'run','--no-config','--no-prompt','--no-remote',
-                     '--allow-read=workers/pdf-verifier,.artifacts/pdf-verifier/dist,.artifacts/pdf-verifier/corpus',
-                     'workers/pdf-verifier/corpus/case.ts',identifier]
+                     '--allow-read=workers/pdf-verifier/corpus,.artifacts/pdf-verifier/builds,.artifacts/pdf-verifier/corpus',
+                     'workers/pdf-verifier/corpus/case.ts',identity,identifier,sha(manifest_bytes)]
             before=resource.getrusage(resource.RUSAGE_CHILDREN);started=time.monotonic()
             try:
                 completed=subprocess.run(command,cwd=ROOT,env=environment,capture_output=True,text=True,timeout=TIMEOUT)
@@ -104,7 +117,8 @@ def main():
                  'whole_child_cpu_ms':((after.ru_utime+after.ru_stime)-(before.ru_utime+before.ru_stime))*1000}
                 if completed.returncode==0 and len(completed.stdout)<=65536:
                     observed=json.loads(completed.stdout)
-                    if observed['id']!=identifier or observed['buildIdentitySHA256']!=IDENTITY: raise RuntimeError('benchmark_output_binding_mismatch')
+                    if observed['id']!=identifier or observed['buildIdentitySHA256']!=identity or observed['manifestSHA256']!=sha(manifest_bytes) or observed['artifactSHA256']!=entry['sha256']:
+                        raise RuntimeError('benchmark_output_binding_mismatch')
                     measurement.update(observed);measurement['outcome']=observed['measurement']['outcome']
                 else:
                     measurement.update(outcome='execution_failure',diagnostic=completed.stderr[:2000])
@@ -117,7 +131,7 @@ def main():
         case['license_review_status']='flagged_exclude_pending_review' if case['descriptive_inspection']['conflicting_license_markers'] else 'no_conflicting_marker_in_extracted_text'
         case['consistent_outcome']=len({r['outcome'] for r in case['runs']})==1
         report['results'].append(case)
-        write_json(OUT/'benchmark.json',report)
+        store.write_progress(run_directory,report)
         print(identifier,','.join(sorted({r['outcome'] for r in case['runs']})),
               'max_cpu_ms='+str(round(max(r['whole_child_cpu_ms'] for r in case['runs']),1)),flush=True)
     runs=[r for case in report['results'] for r in case['runs']]
@@ -130,8 +144,11 @@ def main():
                        'peak_host_bytes':None,'hosted_admitted':False,
                        'license_flagged_ids':[c['id'] for c in report['results'] if c['license_review_status'].startswith('flagged')],
                        'linearized_pdfinfo_ids':[c['id'] for c in report['results'] if c['descriptive_inspection'].get('pdfinfo',{}).get('Optimized')=='yes']}
-    write_json(OUT/'benchmark.json',report)
+    if any(sha((SOURCE/name).read_bytes())!=expected for name,expected in runner_hashes.items()):
+        raise RuntimeError('benchmark_runner_changed')
+    path=store.finalize(run_directory,report)
     print(json.dumps(report['summary'],sort_keys=True),flush=True)
+    print('REPORT',str(path.relative_to(ROOT)),flush=True)
 
 
 if __name__=='__main__': main()

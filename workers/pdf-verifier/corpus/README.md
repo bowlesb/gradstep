@@ -45,22 +45,34 @@ Page counts in this table come from auxiliary `pdfinfo`, **not successful verifi
 
 ## Reproduce
 
-Run from the repository root with the existing pinned verifier dependencies/artifacts available:
+Run from the repository root with the verified immutable build bundles available. Select full identities explicitly; no command follows the mutable `dist/` directory or current verifier source:
 
 ```sh
 python3 workers/pdf-verifier/corpus/test_fetch.py
 python3 workers/pdf-verifier/corpus/test_research.py
+python3 workers/pdf-verifier/corpus/test_corpus_store.py
 python3 workers/pdf-verifier/corpus/fetch.py
-python3 workers/pdf-verifier/corpus/benchmark.py --repeats 3
-python3 workers/pdf-verifier/corpus/research_build.py
-python3 workers/pdf-verifier/corpus/research.py
+python3 workers/pdf-verifier/corpus/benchmark.py \
+  --build-identity 2fea7b1c8f842c4c9402720a2f5c4ad8e9b7c343bcea5c6ee29210f1606028b0 --repeats 3
+python3 workers/pdf-verifier/corpus/research_build.py \
+  --verify-existing a525543bde71a0b92dd3ad396571037ae14877b7f35b253f10bfa8b98f311f42
+python3 workers/pdf-verifier/corpus/research.py \
+  --research-identity a525543bde71a0b92dd3ad396571037ae14877b7f35b253f10bfa8b98f311f42 \
+  --baseline .artifacts/pdf-verifier/corpus/benchmark.json \
+  --baseline-sha256 8c2a1df54987dadfe2438acdd58686f0081ee5f7addf2ee3644bac63c6c8b4d2
 ```
+
+Verifier bundles live at `.artifacts/pdf-verifier/builds/<full identity>/`. The loader verifies the complete bundle and imports its archived runtime/inspector only after verification. Diagnostic bundles live at `.artifacts/pdf-verifier/corpus/research-builds/<full identity>/`, including the exact instrumentation recipe, generated wrapper, WASM, glue, identity and provenance. Their original runtime comes from the referenced verifier bundle. Editing current verifier or research source does not invalidate these historical execution inputs.
+
+New benchmark/research results go to `.artifacts/pdf-verifier/corpus/runs/<kind>/<identity>/<run ID>/report.json`. A generated run ID is the default; `--run-id` accepts an explicit fresh key and refuses reuse. Each run saves its input manifest; research runs also save the exact baseline report. Partial progress is separate from the exclusively published final report. Legacy `benchmark.json`, `research/report.json`, and their original logs remain preserved. No diagnostic rebuild was needed for this migration.
+
+An optional `research_build.py --rebuild --build-identity <full identity>` creates a new isolated work directory and diagnostic identity. It requires the matching existing local SDK/headers/cache, uses the base bundle's exact wrapper and static library, and captures the recipe/wrapper before compilation. It never executes archived `build.json` commands. This rebuild branch was not exercised during the consumer migration; historical replay uses the already verified diagnostic bundle. Archived recipes/provenance are evidence, not automatic commands to execute.
 
 `fetch.py` verifies cached files without network. Missing files are restored from the pinned exact HTTPS publisher URLs, with redirects refused, no proxies, one connection at a time, a one-second pause after closure, 32 MiB/file and 160 MiB cumulative received-byte limits. The persistent transfer receipt includes failed partial bytes; restart does not reset the budget. HTTP compression is refused. Each socket has a ten-second timeout; a thirty-second elapsed check runs between bounded reads. An exact-cap unknown-length response may be refused rather than reading a detection byte beyond the limit. Older publisher links using HTTP are recorded unchanged as evidence and fetched using only a scheme change to HTTPS. Arbitrary existing files are not adopted.
 
 The initial `--capture` path creates a manifest only when none exists. Ordinary reproduction never repins changed publisher bytes. The 15 offline tests exercise redirect refusal, file/aggregate caps, restart accounting, truncation, changed bytes, encoding, URL/path restrictions, and hash-bound cache reuse without opening sockets.
 
-Each benchmark invocation uses a fresh local Deno child, a parent-enforced five-second timeout, and no Deno network/environment/subprocess/write permissions. Read access is limited to the verifier, its distribution and the corpus. Build, source, profile and PDF hashes are checked before verification. There were 72 cold processes, three per paper, with consistent outcomes for every paper. Optional local `pdfinfo`/`pdftotext` commands provide separately labelled descriptive facts; extracted article text is not saved in the report.
+Each benchmark invocation uses a fresh local Deno child, a parent-enforced five-second timeout, and no Deno network/environment/subprocess/write permissions. Current read grants cover the corpus and immutable build store, excluding live verifier source and `dist/`. Build, source, profile and PDF hashes are checked before verification. The original baseline used 72 cold processes, three per paper, with consistent outcomes for every paper. Optional local `pdfinfo`/`pdftotext` commands provide separately labelled descriptive facts; extracted article text is not saved in the report.
 
 Auxiliary Poppler commands have a five-second process timeout, but their output-size checks occur **after capture**. Those checks are not hard output or memory enforcement and do not make Poppler an admitted verification host. The diagnostic comparison separately rejects stale baseline manifests/builds, same-ID changed PDF bytes, duplicate/missing records and inconsistent outcomes; its imported runtime/inspector sources are also bound to the frozen identity.
 
@@ -75,6 +87,16 @@ The profile remains qpdf 12.4.2 / Emscripten 6.0.11, 5 MiB input, 50 pages, fixe
 Maximum **whole-child CPU** was **270.674 ms**; median was **139.557 ms**. This includes startup, hash/build checks, WASM compilation, input read/hash and parsing. Maximum **post-run Deno RSS snapshot** was **98,254,848 bytes (93.70 MiB)**. It is **not peak RSS**; `peak_host_bytes` is null. These local measurements do not establish a peak-memory ceiling, Edge resource compliance, or hosted admission. Rejected inputs stop early, so their times do not predict the cost of finishing under a different policy.
 
 Ignored evidence is under `.artifacts/pdf-verifier/corpus/`: `benchmark.json` (all 72 runs), `benchmark.log`, `fetch.log`, `download-receipts.json`, `fetch-tests.log`, plus unchanged `pdf/` and hashed `evidence/` files. A restored artifact must match the tracked manifest before it can be benchmarked.
+
+## Immutable-consumer comparison
+
+The corrected runtime build `39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610` was tested separately using one cold process per paper. All **24 exact input hashes, byte counts and outcomes match** the original 72-run baseline. Its wrapper, profile, WASM, glue and qpdf library hashes are identical to the baseline; runtime/build-provenance identity differs.
+
+The new report is `runs/benchmark/39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610/immutable-consumer-comparison/report.json` (SHA-256 `58dd3519991e04179946db8ac21460ee5ebb8aa9b4215df8e52b5b092ee9a2af`). The exact comparison is under the same corpus root at `runs/validation/39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610/legacy-comparison-v1/report.json`.
+
+Observed maximum whole-child CPU was 247.675 ms and maximum post-run RSS snapshot was 115,179,520 bytes (109.84 MiB), **not peak memory**. The new observer verifies the complete bundle, including archived source/library hashes, so its overhead differs from the original runner. These are local execution measurements, not evidence of hosted admission or a performance improvement/regression.
+
+Migration checks include nine Python archive/run tests, six Deno loader tests and the eight existing stale-baseline tests. They cover changed live source, tampering, rewritten manifests, symlinks, duplicate output keys, racing run creation and immutable final reports. Deno loader fixtures write only under ignored corpus artifacts; the symlink-creation test requires Deno's unscoped read/write test grants. Benchmark children retain their separate read-only permissions. Evidence is in `runs/validation/2fea7b1c8f842c4c9402720a2f5c4ad8e9b7c343bcea5c6ee29210f1606028b0/bundle-migration-v1/` and `bundle-migration-v2/` (the latter resolves initial type-check/test-permission failures). A historical CLIP case passes with live-source/`dist` read access absent.
 
 ## Numeric rejection investigation
 
@@ -97,4 +119,4 @@ All 24 research outcomes match the original outcomes. Diagnostic fields report a
 
 All five warning refusals return wrapper code `-5`, which the frozen runtime maps to `malformed`. None reaches a caught parse exception or failed stream decode before that refusal. The four xref/header cases differ materially from the hint-only case; accepting one class does not justify accepting the others. qpdf explicitly recognizes zero-offset live xref entries as a common writer error and substitutes null. This investigation does **not** prove those entries are unreachable or that all later structural checks would pass.
 
-Research evidence: `research/identity.json`, `research/provenance.json`, `research/verifier-research.cpp`, `research/report.json`, and `research.log` under the ignored corpus directory. Numeric categories are fixed in the tracked recipe; no parser message or document text crosses the diagnostic WASM boundary. See [POLICY_REVIEW.md](POLICY_REVIEW.md) for an unimplemented review proposal and required regressions.
+Original research evidence remains `research/identity.json`, `research/provenance.json`, `research/verifier-research.cpp`, `research/report.json`, and `research.log` under the ignored corpus directory. Its exact executable/recipe inputs are now also in the immutable diagnostic bundle. A separate 24-case archived replay is recorded at `runs/research/a525543bde71a0b92dd3ad396571037ae14877b7f35b253f10bfa8b98f311f42/immutable-bundle-replay/report.json`. Numeric categories are fixed in the captured recipe; no parser message or document text crosses the diagnostic WASM boundary. See [POLICY_REVIEW.md](POLICY_REVIEW.md) for an unimplemented review proposal and required regressions.
