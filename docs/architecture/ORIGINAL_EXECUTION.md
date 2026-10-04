@@ -1,12 +1,14 @@
-# Original acquisition execution — proposed local integration
+# Original acquisition execution — local integration
 
-Status: **independently reviewed proposal; isolated spool implemented/tested;
-no new migration, runtime admission, Storage integration or live source traffic**.
-This document proposes the next
+Status: **independently reviewed design; isolated spool and disabled candidate
+013 implemented and locally tested; no hosted migration, runtime admission,
+Storage integration or live source traffic**.
+This document defines the next
 original-only slice after the tested Linux metadata action. It does not change
 applied 001–011, pending 012, any enabled flag, the PDF parser profile, or the paid
-Mathpix contract. The isolated binary spool prerequisite is implemented below;
-its tests need no source or Storage credentials. The rest remains proposed.
+Mathpix contract. The isolated binary spool and SQL prerequisites are implemented
+below; their tests need no source or Storage credentials. The combined transport,
+spool, retirement and measured-verifier workflow remains unconnected.
 
 Reviewed source boundaries:
 
@@ -39,7 +41,7 @@ import-to-reader product journey. Published bytes and all immutable approval pin
 remain retained. Unknown work stays reserved; bounded capacity can refuse new
 work instead of guessing that an old operation stopped.
 
-The proposed additive migration follows 012. It replaces only the necessary
+The disabled additive migration 013 follows 012. It replaces only the necessary
 function definitions and constraints in a new file; neither predecessor file is
 edited. It remains disabled by default and creates no login or credential.
 
@@ -844,9 +846,9 @@ request is necessary for these local schedules.
 
 ## Implementation order and remaining decisions
 
-The isolated `OriginalSpool` prerequisite now passes the file-mechanics checks
-below. Next implement the reviewed additive resource-aware SQL/role/envelope
-changes above. Then add the separate streaming source/upload/
+The isolated `OriginalSpool` prerequisite passes the file-mechanics checks
+below, and candidate 013 passes the local SQL authority, role, envelope,
+concurrency and populated-upgrade checks. Next add the separate streaming source/upload/
 stored-read actions, followed by the receiving verifier wrapper and its honest
 host metrics. Combine them in one opt-in disposable-PG/loopback fixture before
 any hosted credentials or outbound switch is considered.
@@ -908,3 +910,81 @@ SQL authority, Storage settlement or physical disk reservations. The module is
 not in the frozen metadata bundle and grants no network or parser access.
 No original SQL migration, live acquisition, Storage upload, verifier host
 admission, Mathpix request, Linux VM restart or physical-phone action occurred.
+
+## Verified disabled SQL checkpoint — 2026-10-04
+
+[`202610040013_original_execution.sql.pending`](../../supabase/migrations/202610040013_original_execution.sql.pending)
+implements the additive SQL contract at SHA-256
+`e41d5ed45894e213ebfb247e5aaf53374786a3af760481ffcbc71cf1e49f4c06`.
+It is an explicit local candidate, not a hosted migration. Applied 001–011 and
+pending 012 are unchanged. No login is created; no worker or read switch is
+enabled by the migration.
+
+The only installable original policy is `original-loopback-scope-v1`, and its
+profile is `original-loopback-verifier-v1`. Both require `local_fixture_only:true`.
+Verifier reports require the `synthetic-sql-fixture` host-evidence kind. The
+profile's legacy measured-shaped columns do not establish a measured host;
+production admission needs a separately reviewed policy/installer extension.
+Changing a fixture boolean cannot turn this checkpoint into live authority.
+
+Disposable PostgreSQL 18 checks cover the complete synthetic download → upload
+→ stored read → verification → publication → account library projection. The
+resulting library entry is `pdf_ready`; the import request itself is `ready`.
+The maximum chain uses two downloads, one upload, two stored reads and one
+verification. All eight steps, six attempts, eleven resource receipts, one
+reservation and two result allowances fit the prepaid 28-slot envelope, even
+when no capacity remains for a new command. Unknown transfers retain their
+ceiling; a positive stored read can shrink the storage reservation only after
+upload settlement. Shared publication still uses 011's exact-byte document and
+approval rules.
+
+The same checks exercise closed policy/profile and binding schemas, actual
+digest/version/deadline/NULL constraints, descriptor canonical hashes and inode
+separation, immutable candidates and policy pins, cross-kind and caller-role
+denials, verifier limits, and stored-byte mismatch quarantine. Exact grant,
+receipt, result and publication replays allocate or charge nothing extra.
+The unchanged metadata SQL and concurrency suite passes after 013.
+
+Three accounting cases insert explicitly synthetic historical chains without
+editing an issued immutable attempt. Real role APIs then settle or expire them:
+source/read refunds affect only the captured old month, source request days stay
+in UTC under a non-UTC session, and unresolved upload/read liabilities count once
+toward new-period admission. One-byte-short and exact-cap cases distinguish a
+missing or double-counted liability. Logical failure and retirement retain the
+holds; late receipts cannot revive the result or release stored-byte capacity.
+These seeded histories do not prove a real historical execution.
+
+Twelve original concurrency groups use observed database blockers, including a
+bounded traversal through tuple-lock queues. They cover duplicate prepare/grant
+and closure, a shared metadata/PDF gate, cancellation and policy changes during
+admission, library/FK publication order, durable projection catch-up, simultaneous
+exact-hash publication, conflicting approval pins, expiry versus result, unknown
+upload settlement, and late closure during authority retirement. Five populated
+upgrade groups verify disabled-state preflight and byte preservation of every
+existing private-table column through 012→013, including v1/v2 metadata behavior
+and refusal to adopt an unissued legacy original.
+
+Restore quarantine now conditionally clears original admission with the other
+switches, retaining epoch, policy pins, immutable receipts and resource holds.
+All 13 restore tests pass, including an actual 013 schema with a retired executor
+and unresolved source connection. The final complete database run passes in
+43.250 seconds: the legacy 001–011 suite, metadata before/after 013, the original
+SQL/accounting/concurrency suite, and populated upgrade checks. Source hashes
+are unchanged throughout that run. Evidence is
+`.artifacts/original-execution-final.log`,
+`.artifacts/original-restore-quarantine.log`, and
+`.artifacts/original-execution-summary.json` (SHA-256
+`478ac142bfef72599c2e040641587c206bf445296060694905a3809479321108`).
+
+Reproduce the explicit candidate checks with:
+
+```sh
+python3 scripts/test-database.py --candidate supabase/migrations/202610030012_metadata_execution.sql.pending --original-candidate supabase/migrations/202610040013_original_execution.sql.pending
+python3 -m unittest discover -s tests/operations -p test_restore_quarantine.py -v
+```
+
+These tests submit synthetic process, transfer, file and host facts. They do not
+connect `OriginalSpool` to SQL, fetch a PDF, contact an object service, run the PDF
+parser, or demonstrate actual cgroup retirement. The Linux integration and
+measured host evidence above remain required. No hosted state, provider, VM or
+physical device was changed for this checkpoint.

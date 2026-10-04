@@ -67,7 +67,15 @@ def quarantine(sql):
         execute 'update app_private.paper_read_policy set enabled=false';
       end if;
       if pg_catalog.to_regclass('app_private.executor_authority') is not null then
-        execute 'update app_private.executor_authority set enabled=false, recovery_required=true, revision=revision+1';
+        if exists (
+          select 1 from pg_catalog.pg_attribute
+          where attrelid=pg_catalog.to_regclass('app_private.executor_authority')
+            and attname='original_admitted' and not attisdropped
+        ) then
+          execute 'update app_private.executor_authority set enabled=false, original_admitted=false, recovery_required=true, revision=revision+1';
+        else
+          execute 'update app_private.executor_authority set enabled=false, recovery_required=true, revision=revision+1';
+        end if;
       end if;
     end
     $restore_quarantine$;""")

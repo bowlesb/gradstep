@@ -24,7 +24,7 @@ SPEC.loader.exec_module(RESTORE)
 class QuarantineDatabaseCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.database = 'science_reader_quarantine_' + uuid.uuid4().hex[:12]
+        cls.database = 'science_reader_test_' + uuid.uuid4().hex[:12]
         # Explicit localhost arguments and no inherited remote PG configuration.
         cls.base = ['-h', '127.0.0.1', '-p', '55431']
         cls.env = {key: value for key, value in os.environ.items() if not key.startswith('PG')}
@@ -62,6 +62,8 @@ class QuarantineDatabaseCase(unittest.TestCase):
         for row in expected.get('executor_authority', []):
             row['recovery_required'] = True
             row['revision'] += 1
+            if 'original_admitted' in row:
+                row['original_admitted'] = False
         RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), expected)
         # Each restore fences a prior admission CAS, even if the copied authority
@@ -212,6 +214,41 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
             RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), before)
 
+    def test_original_admission_quarantine_preserves_pins_and_evidence(self):
+        self.policies()
+        self.recovery_evidence()
+        self.execution_evidence()
+        self.sql("""alter table app_private.executor_authority
+            add column original_admitted boolean not null default false,
+            add column original_policy_id uuid,
+            add column original_deployment_id text,
+            add column admitted_host_id uuid,
+            add column admitted_boot_id uuid,
+            add constraint original_authority_enabled check(not original_admitted or
+              (enabled and not recovery_required and original_policy_id is not null
+                and admitted_host_id is not null and admitted_boot_id is not null));
+          update app_private.executor_authority set original_admitted=true,
+            original_policy_id='cccccccc-cccc-cccc-cccc-cccccccccccc',
+            original_deployment_id='original-restore-fixture',
+            admitted_host_id='dddddddd-dddd-dddd-dddd-dddddddddddd',
+            admitted_boot_id='eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+        """)
+        self.assert_quarantined()
+        row = self.rows()['executor_authority'][0]
+        self.assertFalse(row['original_admitted'])
+        self.assertEqual(row['original_policy_id'], 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+        self.assertEqual(row['revision'], 9)
+
+    def test_incompatible_original_admission_column_rolls_back_all_gates(self):
+        self.policies()
+        self.execution_evidence()
+        self.sql("""alter table app_private.executor_authority
+            add column original_admitted integer not null default 1;""")
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'original_admitted'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
 
 class ExecutorSchemaQuarantineTests(QuarantineDatabaseCase):
     """Run the same restore hook against actual 001--012 relations and RPCs.
@@ -236,7 +273,7 @@ class ExecutorSchemaQuarantineTests(QuarantineDatabaseCase):
 
     def setUp(self):
         template = type(self).database
-        self.database = 'science_reader_quarantine_' + uuid.uuid4().hex[:12]
+        self.database = 'science_reader_test_' + uuid.uuid4().hex[:12]
         self.run_pg('createdb', ['-T', template, self.database])
         self.addCleanup(self.run_pg, 'dropdb', [self.database])
         self.sql(f"""
@@ -335,6 +372,99 @@ class ExecutorSchemaQuarantineTests(QuarantineDatabaseCase):
         self.assertFalse(replay['granted'])
         self.assertEqual(replay['action'], 'reconcile')
         self.assertEqual(replay['execution']['pending_resources'], ['arxiv_connection'])
+        self.assertEqual(self.authority(), after)
+
+
+class OriginalSchemaQuarantineTests(QuarantineDatabaseCase):
+    """Restore the actual additive 013 schema, with synthetic SQL evidence only."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        migration_dir = ROOT / 'supabase/migrations'
+        sources = [ROOT / 'tests/database/bootstrap.sql',
+                   *sorted(p for p in migration_dir.glob('*.sql') if p.name < '202610030012')]
+        for name in ['202610030012_metadata_execution.sql', '202610040013_original_execution.sql']:
+            applied = migration_dir / name
+            sources.append(applied if applied.is_file() else migration_dir / (name + '.pending'))
+        sources.append(ROOT / 'tests/database/original_execution_helpers.sql')
+        cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database],
+                   f'alter database {cls.database} set timezone to \'UTC\';')
+        for source in sources:
+            cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database, '-f', str(source)])
+
+    def setUp(self):
+        template = type(self).database
+        self.database = 'science_reader_test_' + uuid.uuid4().hex[:12]
+        self.run_pg('createdb', ['-T', template, self.database])
+        self.addCleanup(self.run_pg, 'dropdb', [self.database])
+        # Database settings are not copied by CREATE DATABASE ... TEMPLATE.
+        self.sql(f'alter database {self.database} set timezone to \'UTC\';')
+        self.sql('select test.original_enable();')
+
+    @staticmethod
+    def json_sql(value):
+        return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
+
+    def authority(self):
+        return json.loads(self.sql('set role science_reader_executor_admitter; '
+                                   'select public.worker_original_authority_state();'))
+
+    def assert_activation_rejected(self, authority, revision, category):
+        with self.assertRaisesRegex(RuntimeError, category):
+            self.sql(f"""set role science_reader_executor_admitter;
+              select public.worker_activate_original_executor_v1(
+                {revision},'{authority['project_ref']}',
+                '{authority['metadata_policy_id']}','{authority['original_policy_id']}',
+                '{authority['host_id']}','{authority['boot_id']}',
+                '{authority['metadata_deployment_id']}','{authority['original_deployment_id']}',
+                decode(repeat('e',64),'hex'));
+            """)
+
+    def test_actual_original_quarantine_retains_scope_hold_and_all_pins(self):
+        fixture = json.loads(self.sql("select test.original_job('2403.50002');"))
+        arguments = json.loads(self.sql(
+            f"select test.original_claim_args({self.json_sql(fixture)},'original_download');"))
+        granted = json.loads(self.sql(f'select test.original_grant({self.json_sql(arguments)});'))
+        self.assertTrue(granted['granted'])
+        execution = granted['execution']
+        closed = json.loads(self.sql(
+            f"select test.original_close({self.json_sql(execution)},'executor');"))
+        self.assertEqual(closed['execution']['pending_resources'], ['arxiv_connection'])
+        self.assertEqual(len(closed['execution']['receipts']), 1)
+        before = self.authority()
+        self.assertTrue(before['original_admitted'])
+        self.assertTrue(before['enabled'])
+        self.assertEqual(before['unsettled_attempts'], 1)
+
+        # Compare every application-private row, including both policy pins,
+        # job/reservation identities, receipt bytes, source gate and charges.
+        self.assert_quarantined()
+        after = self.authority()
+        self.assertFalse(after['original_admitted'])
+        self.assertFalse(after['enabled'])
+        self.assertTrue(after['recovery_required'])
+        self.assertEqual(after['revision'], before['revision'] + 2)
+        self.assertEqual(after['epoch'], before['epoch'])
+        self.assertEqual(after['unsettled_attempts'], 1)
+        for key in ['metadata_policy_id', 'original_policy_id', 'host_id', 'boot_id',
+                    'metadata_deployment_id', 'original_deployment_id']:
+            self.assertEqual(after[key], before[key])
+        self.assert_activation_rejected(before, before['revision'], 'stale_executor_authority')
+        self.assert_activation_rejected(after, after['revision'], 'executor_recovery_required')
+
+        replay = json.loads(self.sql(f'select test.original_grant({self.json_sql(arguments)});'))
+        self.assertFalse(replay['granted'])
+        self.assertEqual(replay['action'], 'reconcile')
+        self.assertEqual(replay['execution'], closed['execution'])
+        fresh = copy.deepcopy(arguments)
+        fresh['claim_id'] = str(uuid.uuid4())
+        fresh['binding']['scope']['scope_id'] = fresh['claim_id']
+        fresh['binding']['child_id'] = str(uuid.uuid4())
+        fresh['binding']['process_id'] += 1
+        refused = json.loads(self.sql(f'select test.original_grant({self.json_sql(fresh)});'))
+        self.assertFalse(refused['granted'])
+        self.assertEqual(refused['action'], 'disabled')
         self.assertEqual(self.authority(), after)
 
 

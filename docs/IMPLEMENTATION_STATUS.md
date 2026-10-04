@@ -95,14 +95,18 @@ Updated 2026-10-04. This is a development checkpoint, not a release declaration.
 
 ## Still required
 
-The latest original-PDF prerequisite is independently reviewed and locally tested:
-one bounded producer/guardian file pair, canonical identity/byte descriptors,
-restart verification and exact interrupted cleanup. All 26 new portable tests
-pass; full Linux-worker discovery is 189 passing with 16 Linux-only skips.
-The [original execution proposal](architecture/ORIGINAL_EXECUTION.md) now fixes
-the per-stage permissions, immutable chain and complete reserved capacity before
-SQL implementation. This does not connect live acquisition or Storage; those
-integrations and actual verifier host measurements remain required below.
+The [original execution design](architecture/ORIGINAL_EXECUTION.md) now has two
+independently reviewed prerequisites: the bounded producer/guardian spool and a
+disabled 013 SQL candidate. The spool has 26 passing portable tests; full
+Linux-worker discovery is 189 passing with 16 Linux-only skips. Disposable PG18
+SQL checks pass through synthetic publication and a `pdf_ready` library entry,
+including the complete six-attempt/28-slot retry envelope, 12 concurrency groups,
+five populated-upgrade groups, historical accounting cases and unchanged metadata
+regressions. The complete database run passes in 43.250 seconds, with source
+hashes unchanged throughout. All 13 restore
+quarantine tests pass. This does not connect the spool to SQL, live acquisition,
+Storage, or actual verifier host measurements; those integrations remain required
+below. Both 012 and 013 remain unapplied to Supabase.
 
 - Broader hosted integration and migration replay checks; hosted replacement-project restore drill. Local DB tests use PostgreSQL 18; hosted staging is PostgreSQL 17.11 and is the authoritative compatibility check. The local database/object restore drill passes.
 - Complete API contracts and independent security review. The crypto wire contract and cross-runtime fixtures are now recorded; tests do not constitute an independent crypto audit.
