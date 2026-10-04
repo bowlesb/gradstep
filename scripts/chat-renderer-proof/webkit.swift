@@ -11,6 +11,7 @@ private struct ProofFailure: Error {}
 private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler, WKScriptMessageHandlerWithReply {
     let world = WKContentWorld.world(name: "typesetter-proof-" + UUID().uuidString)
     let invocation = UUID().uuidString
+    let proofGlobal: String
     let url = URL(string: "chat-proof://local/index.html")!
     var web: WKWebView!
     var loaded: CheckedContinuation<Void, Error>?
@@ -20,8 +21,10 @@ private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler,
     var rejectedNavigations = 0
     var bridgeCalls = 0
     var terminated = false
+    var phase = "configuration"
 
-    init(bundle: String) {
+    init(bundle: String, proofGlobal: String) {
+        self.proofGlobal = proofGlobal
         super.init()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -42,6 +45,7 @@ private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler,
     }
 
     func start() async throws {
+        phase = "load"
         try await withCheckedThrowingContinuation { continuation in
             loaded = continuation
             web.load(URLRequest(url: url))
@@ -49,21 +53,24 @@ private final class Harness: NSObject, WKNavigationDelegate, WKURLSchemeHandler,
     }
 
     func run(_ fixture: [String: Any]) async throws -> [String: Any] {
+        phase = "component_call"
         let start = ContinuousClock.now
         guard let observation = try await web.callAsyncJavaScript("""
-            const result = globalThis.ChatTypesetterProof.run(input);
+            const result = globalThis[proofGlobal].run(input);
             const reply = await window.webkit.messageHandlers.proof.postMessage({invocation, result});
-            const reused = globalThis.ChatTypesetterProof.run({source:'x'});
+            const reused = globalThis[proofGlobal].run({source:'x'});
             return {replyAccepted:reply.accepted, reused:reused.code,
               resources:performance.getEntriesByType('resource').length,
               ...globalThis.__proofDiagnostics};
-            """, arguments: ["input": fixture, "invocation": invocation], in: nil, contentWorld: world) as? [String: Any],
+            """, arguments: ["input": fixture, "invocation": invocation, "proofGlobal": proofGlobal], in: nil, contentWorld: world) as? [String: Any],
               var result = acceptedResult else { throw ProofFailure() }
+        phase = "page_isolation"
         let pageIsolation = try await web.callAsyncJavaScript("""
-            return typeof globalThis.ChatTypesetterProof === 'undefined'
+            return typeof globalThis[proofGlobal] === 'undefined'
               && !document.documentElement.hasAttribute('data-page-ran');
-            """, arguments: [:], in: nil, contentWorld: .page) as? Bool
+            """, arguments: ["proofGlobal": proofGlobal], in: nil, contentWorld: .page) as? Bool
         let elapsed = start.duration(to: .now)
+        phase = "result_checks"
         result["durationMs"] = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
         let expectedStage = fixture["expectedStage"] as? String
         let goodLabel = fixture["labeled"] as? Bool != true || (result["textNodes"] as? Int ?? 0) > 0
@@ -149,22 +156,29 @@ private struct Main {
             try await Task.sleep(for: .seconds(55))
             print("{\"passed\":false,\"failure\":\"proof_timeout\"}"); exit(1)
         }
+        var activeHarness: Harness?
         do {
-            guard CommandLine.arguments.count == 2 else { throw ProofFailure() }
+            guard (2...3).contains(CommandLine.arguments.count) else { throw ProofFailure() }
+            let mode = CommandLine.arguments.count == 3 ? CommandLine.arguments[2] : "typesetter"
+            guard ["typesetter", "source"].contains(mode) else { throw ProofFailure() }
+            let proofGlobal = mode == "source" ? "ChatSourceProof" : "ChatTypesetterProof"
             let directory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
-            let data = try Data(contentsOf: directory.appendingPathComponent("typesetter.js"))
+            let data = try Data(contentsOf: directory.appendingPathComponent(mode == "source" ? "tokenizer.js" : "typesetter.js"))
             let bundle = String(decoding: data, as: UTF8.self)
             let fixtureData = try Data(contentsOf: directory.appendingPathComponent("fixtures.json"))
             guard let fixtures = try JSONSerialization.jsonObject(with: fixtureData) as? [[String: Any]] else { throw ProofFailure() }
             var rows: [[String: Any]] = []
             for fixture in fixtures {
-                let harness = Harness(bundle: bundle)
+                let harness = Harness(bundle: bundle, proofGlobal: proofGlobal)
+                activeHarness = harness
                 try await harness.start()
                 rows.append(try await harness.run(fixture))
                 harness.close()
+                activeHarness = nil
             }
             let passed = rows.allSatisfy { $0["passed"] as? Bool == true }
-            let report: [String: Any] = ["format": 1, "scope": "macOS WKContentWorld component; no iOS layout, sanitizer, tokenizer or hard resource bound",
+            let report: [String: Any] = ["format": 1, "component": mode,
+                "scope": "macOS WKContentWorld component; no iOS layout, sanitizer, shipping renderer or hard resource bound",
                 "os": ProcessInfo.processInfo.operatingSystemVersionString,
                 "bundleSHA256": SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined(),
                 "fixturesSHA256": SHA256.hash(data: fixtureData).map { String(format: "%02x", $0) }.joined(),
@@ -175,7 +189,9 @@ private struct Main {
             watchdog.cancel(); exit(passed ? 0 : 1)
         } catch {
             // No potentially source-bearing WebKit exception reaches stdout.
-            print("{\"passed\":false,\"failure\":\"proof_harness_failed\"}")
+            let domain = (error as NSError).domain == WKError.errorDomain ? "webkit" : "other"
+            let code = (error as NSError).code
+            print("{\"passed\":false,\"failure\":\"proof_harness_failed\",\"phase\":\"\(activeHarness?.phase ?? "setup")\",\"domain\":\"\(domain)\",\"code\":\(code)}")
             watchdog.cancel(); exit(1)
         }
     }

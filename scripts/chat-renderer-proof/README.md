@@ -1,9 +1,10 @@
-# Local chat typesetter component proof
+# Local chat formatting component proofs
 
-This experiment runs authored TeX fixtures through the existing pinned
-MathJax dependency. It does not render customer messages, ship app resources,
-change schemas, contact providers, or use a physical phone. It is not a Markdown
-parser or a complete chat renderer. See
+These experiments separately check authored TeX typesetting and exact source
+parsing/copying with existing pinned dependencies. They do not render customer
+messages, ship app resources, change schemas, contact providers, or use a
+physical phone. The source grammar is a limited Markdown profile, and the
+components are not a complete chat renderer. See
 [native chat rendering](../../docs/architecture/NATIVE_CHAT_RENDERING.md) for
 the adoption requirements and remaining work.
 
@@ -15,6 +16,29 @@ node scripts/chat-renderer-proof/browser.mjs
 xcrun swiftc -swift-version 6 -parse-as-library scripts/chat-renderer-proof/webkit.swift -o .artifacts/chat-typesetter-component/webkit-proof
 .artifacts/chat-typesetter-component/webkit-proof .artifacts/chat-typesetter-component
 ```
+
+For the source-only component:
+
+```sh
+node --test scripts/chat-renderer-proof/tokenizer.test.mjs
+node scripts/chat-renderer-proof/build-source.mjs
+node scripts/chat-renderer-proof/browser.mjs source
+xcrun swiftc -swift-version 6 -parse-as-library scripts/chat-renderer-proof/webkit.swift -o .artifacts/chat-source-component/webkit-proof
+.artifacts/chat-source-component/webkit-proof .artifacts/chat-source-component source
+```
+
+The source build has its own closed dependency graph and licenses. It imports no
+typesetter or separate HTML parser. It tests raw/body spans, distinct repeated equations,
+whole-message/equation copying, code exclusions, Unicode, comments, nesting,
+currency and limits. Two invalid-surrogate fixtures use explicit code-unit
+arrays for transport through Foundation; the JS adapter reconstructs them
+immediately before admission. No real message uses this test representation.
+
+The source grammar is deliberately limited: other Markdown stays literal;
+CR/NUL, unsupported syntax and ambiguous math request an exact-source fallback.
+Digit-led prices and trailing literal dollars remain prose. The result is an
+in-memory experiment, not a persistence or cross-device contract. These checks
+do not establish native visual selection, rendered copying or row layout.
 
 Run sequentially and stop on failure. The browser check requires the existing
 Playwright Chromium installation; the native check requires macOS and Xcode.

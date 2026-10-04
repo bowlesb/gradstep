@@ -1,7 +1,8 @@
 # Native chat formatting
 
-Status, 2026-10-04: **Direct typesetter component passes browser and macOS WebKit
-checks. No rich-chat renderer is integrated.** The native transcript displays saved source
+Status, 2026-10-04: **Direct typesetter and lossless source components pass browser
+and macOS WebKit checks. No rich-chat renderer is integrated.** The native
+transcript displays saved source
 through SwiftUI text in a self-sizing `UITableView`. Its completed-turn scrolling,
 keyboard, selection and encrypted-restart journeys already have regression
 evidence. Saved equation questions still expose raw LaTeX. This document plans
@@ -93,7 +94,8 @@ the typesetter global. A main-frame, invocation-bound message/reply bridge
 accepts only a small metrics result. All 18 cases report one owned in-memory
 document load, no additional resource entries, no rejected navigation/request,
 no CSP violation and no console/error calls. No generated HTML or source is
-returned through the message/reply bridge or inserted into the page DOM. These are component execution checks, not
+returned through the message/reply bridge or inserted into the page DOM. These
+are component execution checks, not
 selection, accessibility, display or network-process telemetry.
 
 The previous 13.3 MB expansion now stops during compilation after 2,000 MML
@@ -115,16 +117,79 @@ enabled markdown-it profile. Importing selected `mdPluginRaw` exports still
 imports its broad conversion graph. Stock normalization and paragraph trimming
 need explicit source-span handling; code fences, escaped delimiters, comments,
 nested environments, blank lines and repeated formulas are required fixtures.
-The tokenizer, source sidecars, independent output sanitizer, aggregate message
-budget, retirement lifecycle and iOS presentation remain unimplemented.
+The scoped source/tokenizer proof below now implements the first part of that
+recommendation. Independent output validation, aggregate typesetting budget,
+retirement lifecycle and iOS presentation remain unimplemented.
+
+### Lossless source and copy proof
+
+`tokenizer.mjs` defines an ephemeral `chat-source-proof-v1` result, not a database
+or sync format. It retains the original message plus ordered block/inline ranges
+and equation sidecars. Every range uses original UTF-16 indices, with validated
+scalar boundaries. Each equation has a distinct local ID, full delimiter range,
+body range, display flag and body/environment form. The exact LaTeX is checked
+against that body range; whole-message copy returns the original source, and
+equation copy resolves the validated source range. Repeated formulas are never
+associated by content search or rendered order.
+
+The profile uses markdown-it 9.1.0's zero preset, paragraphs, fences, indented
+code, escapes, newlines and backticks, with app-owned math rules. It recognizes
+single/double dollars, parentheses/brackets, and complete equation/align
+environments, including a limited set of nested matrix/cases/aligned forms.
+TeX comments, escaped control symbols, balanced groups and nested environments
+are scanned before accepting a closing marker. Unsupported commands/markup or
+malformed/ambiguous math return one finite refusal code and no partial sidecar.
+The original stored source remains available to the caller for fallback.
+
+The narrow profile deliberately leaves other Markdown as literal source.
+Headings/lists/tables and links do not receive formatting or navigation authority.
+CR/NUL and isolated UTF-16 surrogates refuse formatting instead of being silently
+normalized. This is a rendering capability limit, not a restriction on saved
+messages. Bare digit-led prices and trailing literal dollars remain prose;
+an incomplete non-price formula requests fallback. Price-before-formula behavior
+is checked for all admitted delimiter forms. Dollar/brace/macro ambiguities may
+conservatively refuse; this is not a complete TeX grammar.
+
+Stock paragraph trimming is mapped by raw block bounds and a measured leading
+trim, then verified against the original slice. Code-span ranges are captured
+while the stock backtick rule consumes them, without relying on its normalized
+display content. Independent review found and fixed a block/inline interaction:
+an apparent display equation inside multiline inline code must not interrupt
+the paragraph before code recognition. A bounded code-only preview within the
+paragraph's blank-line/fence bounds now protects those spans. Matching and
+unmatched-backtick controls are regression fixtures. Follow-up independent
+review of both fixes and nearby boundary cases found no remaining concrete
+source-span/code/currency blocker within this profile.
+
+Evidence is in `.artifacts/chat-source-component/`. All 82 authored cases pass
+in Chromium and a fresh macOS WKContentWorld; 85 Node checks include additional
+source-partition invariants. Both engines use identical packaged fixtures and
+bundle hashes. The closed graph contains only markdown-it, uc.micro, mdurl,
+linkify-it and the real bundled punycode implementation; it contains no Mathpix,
+typesetter, separate HTML parser or resource loader. Licenses and exact graph inputs are
+retained. No typesetting or generated DOM occurs in this proof.
+
+The two malformed-surrogate fixtures travel as explicit UTF-16 code-unit arrays
+because Foundation correctly rejects isolated surrogates in JSON strings. The
+JavaScript test adapter reconstructs those authored strings immediately before
+admission. This fixture representation is not an application wire contract.
+
+Source admission caps UTF-8 bytes at 32 KiB, equations at 16, blocks at 64,
+equation bodies/complete environments at 12 KiB and lexical nesting at 32.
+Boundary and limit-plus-one cases are covered. These are finite component
+controls, not an aggregate WebContent CPU/heap proof. The separate 18-case
+typesetter suite still passes in both engines after sharing the harness.
+Combining validated source tokens with rendering, sanitization, mixed visual
+selection and encrypted-restart/iOS workflows remains the next integration step.
 
 ## Mathematical identity and admission
 
 The paper renderer uses `mathpix-markdown-it` 3.0.1, `markdown-it` 9.1.0,
 `mathjax-full` 3.2.2, `sanitize-html` 2.18.0 and `htmlparser2` 12.0.0, pinned by its
 lockfile. Reuse the reviewed semantics where browser packaging permits it. The
-candidate must establish that `forLatex:true` defers conversion for every admitted
-math token before relying on a tokenize/admit/typeset sequence.
+Any candidate using the Mathpix plugin must establish that `forLatex:true`
+defers conversion for every admitted math token before relying on a
+tokenize/admit/typeset sequence. The current source proof avoids that plugin.
 
 Every equation's exact LaTeX, display mode and source form come from the same
 parser token that is typeset. Delimited body tokens and complete environment
