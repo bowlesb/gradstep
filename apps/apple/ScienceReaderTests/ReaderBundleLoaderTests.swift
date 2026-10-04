@@ -13,6 +13,9 @@ final class ReaderBundleLoaderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let bundle = try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)
         XCTAssertEqual(bundle.data(for: "figure.png"), bytes)
+        let reopened = try verifyMemoryCopy(bundle)
+        XCTAssertEqual(reopened.data(for: "figure.png"), bytes)
+        XCTAssertEqual(reopened.manifestData, bundle.manifestData)
     }
 
     func testCorrectHashesCannotAdmitFalseDimensionsOrImageType() throws {
@@ -23,7 +26,10 @@ final class ReaderBundleLoaderTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: directory) }
             // Both are valid byte-integrity packages; native image admission
             // must independently verify actual type and bounded dimensions.
-            XCTAssertNoThrow(try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest))
+            let payload = try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest)
+            XCTAssertThrowsError(try verifyMemoryCopy(payload)) {
+                XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
+            }
             XCTAssertThrowsError(try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)) {
                 XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
             }
@@ -36,7 +42,10 @@ final class ReaderBundleLoaderTests: XCTestCase {
         let truncated = Data(png.prefix(imageData.lowerBound + 4))
         let (directory, digest) = try writeBundle(image: truncated)
         defer { try? FileManager.default.removeItem(at: directory) }
-        XCTAssertNoThrow(try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest))
+        let payload = try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest)
+        XCTAssertThrowsError(try verifyMemoryCopy(payload)) {
+            XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
+        }
         XCTAssertThrowsError(try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)) {
             XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
         }
@@ -48,7 +57,10 @@ final class ReaderBundleLoaderTests: XCTestCase {
             let broken = fixturePNG.prefix(33) + chunk("IDAT", stream) + fixturePNG.suffix(12)
             let (directory, digest) = try writeBundle(image: broken)
             defer { try? FileManager.default.removeItem(at: directory) }
-            XCTAssertNoThrow(try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest))
+            let payload = try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest)
+            XCTAssertThrowsError(try verifyMemoryCopy(payload)) {
+                XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
+            }
             XCTAssertThrowsError(try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)) {
                 XCTAssertEqual($0 as? ReaderBundleError, .invalidResource)
             }
@@ -71,6 +83,12 @@ final class ReaderBundleLoaderTests: XCTestCase {
     // Authored 32×16 RGBA blue raster emitted by the pinned renderer's encodePNG.
     // UIImage.pngData adds metadata outside this intentionally narrow profile.
     private var fixturePNG: Data { Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAQCAYAAAB3AH1ZAAAAIklEQVR42u3OIQEAAAACIP+f1hkWAp0k7ZeAgICAgIDAOTDcxPwukNxH3wAAAABJRU5ErkJggg==")! }
+
+    private func verifyMemoryCopy(_ bundle: VerifiedReaderBundle) throws -> VerifiedReaderBundle {
+        var members: [String: Data] = [:]
+        for member in bundle.manifest.members { members[member.path] = try XCTUnwrap(bundle.data(for: member.path)) }
+        return try ReaderBundleLoader.verify(manifest: bundle.manifestData, expectedSHA256: bundle.manifestSHA256, members: members)
+    }
 
     private func chunk(_ type: String, _ bytes: Data) -> Data {
         let body = Data(type.utf8) + bytes

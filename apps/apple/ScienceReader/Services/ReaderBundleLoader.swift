@@ -16,7 +16,16 @@ enum ReaderBundleLoader {
     static func sample() throws -> VerifiedReaderBundle { try sampleResult.get() }
 
     static func load(directory: URL, expectedSHA256: String) throws -> VerifiedReaderBundle {
-        let bundle = try VerifiedReaderBundle.load(directory: directory, expectedSHA256: expectedSHA256)
+        try admitImages(in: VerifiedReaderBundle.load(directory: directory, expectedSHA256: expectedSHA256))
+    }
+
+    /// The encrypted cache can reopen an owned payload without extracting files.
+    /// Apply the same integrity and image admission as the compiled/disk source.
+    static func verify(manifest: Data, expectedSHA256: String, members: [String: Data]) throws -> VerifiedReaderBundle {
+        try admitImages(in: VerifiedReaderBundle.verify(manifest: manifest, expectedSHA256: expectedSHA256, members: members))
+    }
+
+    private static func admitImages(in bundle: VerifiedReaderBundle) throws -> VerifiedReaderBundle {
         // Metadata/header recognition alone is insufficient. Force decoding of
         // every bounded raster while the bundle still cannot be presented.
         for member in bundle.manifest.members where member.role == "image" {

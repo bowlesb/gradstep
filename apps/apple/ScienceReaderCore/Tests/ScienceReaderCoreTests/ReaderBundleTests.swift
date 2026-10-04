@@ -55,6 +55,20 @@ struct ReaderBundleTests {
         }
     }
 
+    @Test func exactManifestFormattingSurvivesAnInMemoryReopen() throws {
+        let fixture = try Fixture().package()
+        let original = Data(" \n\t".utf8) + fixture.manifest + Data("\n ".utf8)
+        let digest = VerifiedReaderBundle.digest(original)
+        let bundle = try VerifiedReaderBundle.verify(manifest: original, expectedSHA256: digest, members: fixture.files)
+        #expect(bundle.manifestData == original)
+        #expect(try JSONEncoder().encode(bundle.manifest) != original)
+        var members: [String: Data] = [:]
+        for member in bundle.manifest.members { members[member.path] = try #require(bundle.data(for: member.path)) }
+        let reopened = try VerifiedReaderBundle.verify(manifest: bundle.manifestData, expectedSHA256: digest, members: members)
+        #expect(reopened.manifestData == original)
+        #expect(reopened.data(for: "index.html") == fixture.files["index.html"])
+    }
+
     @Test func resourceURLsAdmitOnlyExactMembersAndDocumentFragments() throws {
         let bundle = try Fixture().verified()
         let base = "reader-bundle://\(bundle.manifestSHA256)"
@@ -138,13 +152,18 @@ struct ReaderBundleTests {
         let original = fixture.files["index.html"]!
         let pointer = UnsafeMutableRawPointer.allocate(byteCount: original.count, alignment: 1)
         defer { pointer.deallocate() }
+        let manifestPointer = UnsafeMutableRawPointer.allocate(byteCount: fixture.manifest.count, alignment: 1)
+        defer { manifestPointer.deallocate() }
         original.withUnsafeBytes { pointer.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        fixture.manifest.withUnsafeBytes { manifestPointer.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
         var files = fixture.files
         files["index.html"] = Data(bytesNoCopy: pointer, count: original.count, deallocator: .none)
-        let bundle = try VerifiedReaderBundle.verify(manifest: fixture.manifest,
+        let bundle = try VerifiedReaderBundle.verify(manifest: Data(bytesNoCopy: manifestPointer, count: fixture.manifest.count, deallocator: .none),
             expectedSHA256: VerifiedReaderBundle.digest(fixture.manifest), members: files)
         pointer.initializeMemory(as: UInt8.self, repeating: 0, count: original.count)
+        manifestPointer.initializeMemory(as: UInt8.self, repeating: 0, count: fixture.manifest.count)
         #expect(bundle.data(for: "index.html") == original)
+        #expect(bundle.manifestData == fixture.manifest)
     }
 
     @Test func formatRoleAndResourceCeilingsArePartOfAdmission() throws {

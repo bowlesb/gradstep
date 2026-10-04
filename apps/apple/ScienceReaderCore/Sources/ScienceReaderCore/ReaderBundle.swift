@@ -77,6 +77,9 @@ public struct ReaderBundleIndex: Codable, Sendable {
 /// An owned, verified snapshot. WebKit never reopens unchecked on-disk assets.
 public struct VerifiedReaderBundle: Sendable {
     public let manifestSHA256: String
+    /// Exact authenticated bytes, retained for encrypted installation/reopening.
+    /// Re-encoding `manifest` is not guaranteed to preserve its trusted digest.
+    public let manifestData: Data
     public let manifest: ReaderBundleManifest
     public let index: ReaderBundleIndex
     private let contents: [String: Data]
@@ -127,7 +130,7 @@ public struct VerifiedReaderBundle: Sendable {
         do { index = try JSONDecoder().decode(ReaderBundleIndex.self, from: indexData) }
         catch { throw ReaderBundleError.invalidIndex }
         try validate(index, manifest: manifest)
-        return Self(manifestSHA256: expectedSHA256, manifest: manifest, index: index, contents: frozen)
+        return Self(manifestSHA256: expectedSHA256, manifestData: data, manifest: manifest, index: index, contents: frozen)
     }
 
     public static func load(directory: URL, expectedSHA256: String) throws -> Self {
