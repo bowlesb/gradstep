@@ -1,0 +1,7 @@
+[Unit]
+Description=Timestep retained local metadata group @ATTEMPT@
+StopWhenUnneeded=no
+
+[Slice]
+TasksMax=2
+MemoryMax=128M

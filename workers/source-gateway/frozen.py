@@ -7,9 +7,11 @@ import sys
 
 from protocol import canonical, decode, digest, require, clock_name
 
+from runtime_identity import executable_sha, command
+
 FILES = ('protocol.py', 'transport.py', 'supervisor.py', 'identity.py', 'journal.py',
          'frozen.py', 'child.py', 'paused_child.py', 'local_postgres.py', 'integrate.py',
-         'rpc_support.py', 'execution_contract.py')
+         'rpc_support.py', 'execution_contract.py', 'child_contract.py', 'runtime_identity.py')
 # This exact string is itself included in the recipe identity, then passed as
 # Python's -c program. Project modules execute only bytes read into this loader.
 BOOTSTRAP = '''import hashlib,importlib.abc,importlib.util,json,os,pathlib,sys,types
@@ -30,17 +32,6 @@ class Loader(importlib.abc.MetaPathFinder,importlib.abc.Loader):
 sys.meta_path.insert(0,Loader())
 module=__import__(entry);raise SystemExit(module.main())
 '''
-
-
-def executable_sha(path):
-    executable = hashlib.sha256()
-    size = 0
-    with open(path, 'rb') as stream:
-        for block in iter(lambda: stream.read(65536), b''):
-            size += len(block)
-            require(size <= 268_435_456, 'runtime_capacity')
-            executable.update(block)
-    return executable.hexdigest()
 
 
 def capture(parent, parser_bundle):
@@ -88,14 +79,3 @@ def capture(parent, parser_bundle):
             os.close(fd)
         directory.chmod(0o500)
     return root, manifest
-
-
-def command(root, entry):
-    require(entry in ('child', 'integrate'), 'invalid_entry')
-    # Every launch uses the exact captured loader bytes, even if this module
-    # was edited between the caller's import and bundle capture.
-    raw = (Path(root) / 'bootstrap.py').read_bytes()
-    manifest = decode((Path(root) / 'bundle.json').read_bytes())
-    require(len(raw) <= 16_384 and digest(raw) == manifest['bootstrap_sha256']
-            and executable_sha(sys.executable) == manifest['python_sha256'], 'bootstrap_changed')
-    return [sys.executable, '-I', '-S', '-B', '-c', raw.decode('utf8'), str(root), entry]

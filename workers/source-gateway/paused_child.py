@@ -5,10 +5,10 @@ import subprocess
 import uuid
 
 import frozen_context
-from frozen import command
+from runtime_identity import command
 from identity import process_identity
 from protocol import MAX_INPUT, MAX_OUTPUT, MAX_STDERR, canonical, decode, digest, envelope, require, Refused, clock, clock_ns
-from supervisor import checked_result, _stop, _joined, _close_pipes
+from child_contract import checked_result, _stop, _joined, _close_pipes
 
 
 class ChildSetupError(ValueError):

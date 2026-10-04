@@ -267,3 +267,58 @@ and 14 new offline tests pass. The full local Linux-oriented suite now has
 integration checks also pass after extraction. These are not actual Linux
 database connection tests. The combined action and its recovery remain
 unfinished; no hosted worker or source networking was enabled.
+
+## Combined action source — 2026-10-04
+
+The combined guardian/controller is now written. `metadata_bridge.py` connects
+separate executor and observer callers; `metadata_host.py` owns the exact Linux
+scope. `action_journal.py` supplies one held lock and immutable, recoverable fixed
+records; `metadata_scope.py` and `metadata_settlement.py` translate verified
+capture/retirement into 012 receipts. The source supervisor receives the actual
+granted execution ID and absolute deadline. Recovery cannot grant or start a
+source service.
+
+The permanent start fence precedes grant intent. A saved GO can be repaired only
+after the retained scope is empty. Complete interrupted checkpoints preserve
+their original receipt IDs, bytes, inode and first acknowledgement; partial or
+conflicting records remain unresolved. These paths pass portable file/pipe tests
+with simulated SQL/kernel boundaries. Actual Linux execution is still required.
+
+The new `fixed-record-inodes-v2` capacity uses 327,680 bytes for the full shared
+source/parser/manifest/rendered-unit graph. Ordinary pending records use their
+own slot's inode allowance, with no extra generic temporary bytes. The tested
+maximum remains 4,153,344 bytes and 30 names under the unchanged 4 MiB/32-name
+limits. Earlier prerequisite reservations/evidence retain their legacy layout;
+reopen compares the explicit version and complete immutable capacity record.
+
+The source-only `fixture_database.py` provisions a disposable, loopback PG17
+cluster with verified TLS and separate capability logins. Its offline tests do
+not establish that the real guest connection or combined workflow works. See
+[the admission checkpoint](../../../docs/architecture/LINUX_METADATA_ADMISSION.md#combined-runtime-source-checkpoint--2026-10-04)
+for exact evidence and remaining checks.
+
+## Combined Linux normal workflow — verified 2026-10-04
+
+`test_metadata_integration.py` now passes in the marked isolated PG17 guest:
+actual restricted TLS logins, Atom → license → 011 source-only library projection,
+and both completed-action recoveries with no extra grant, GET or charge. The
+final fresh run also removes its temporary scopes, database, accounts and TLS
+files. Both Linux descendant-retirement tests pass. The portable suite has 116
+passes and two Linux-only skips.
+
+The exact captured bundle charges 303,984 source bytes. Evidence and failure
+corrections are recorded in the
+[combined Linux checkpoint](../../../docs/architecture/LINUX_METADATA_ADMISSION.md#combined-linux-verification-checkpoint--2026-10-04).
+The guest is stopped; only immutable inputs/bundle and bounded evidence remain.
+
+The harness is explicit opt-in and needs the documented `TIMESTEP_METADATA_*`
+inputs; ordinary test discovery performs no provisioning. Its test-only
+`recover_cleanup_action` handles the exact definitions-removed, journals-intact
+case after a saved cleanup proof. It does not relax `ActionJournal` or create a
+new retirement receipt. Missing, changed or partially deleted files are retained
+for review.
+
+Actual combined transport-failure schedules, a separate observer-only resource
+replay entry and guardian-death controller-family ownership remain open. This
+normal loopback result does not enable hosted workers, external source requests,
+PDF acquisition or paid Mathpix/AI work.

@@ -122,8 +122,9 @@ def child_check():
     return self_check(SOURCE_UID)
 
 
-def process_identity(pid):
+def process_identity(pid, *, family='tsfixture'):
     """Supervisor's actual child, all IDs checked independently of inode owner."""
+    require(family in ('tsfixture', 'tsmetadata'), 'invalid_process_family')
     raw = _read('/proc/' + str(pid) + '/stat', 4096)
     require(raw.startswith(str(pid) + ' ('), 'invalid_process_stat')
     fields = raw[raw.rfind(')') + 2:].split()
@@ -131,7 +132,7 @@ def process_identity(pid):
     checked_status(pid, SOURCE_UID, parent=os.getpid())
     own_group = _read('/proc/self/cgroup', 4096)
     require(_read('/proc/' + str(pid) + '/cgroup', 4096) == own_group
-            and re.fullmatch(r'0::/tsfixture[0-9a-f]{32}\.slice/tsfixture[0-9a-f]{32}\.service\n', own_group),
+            and re.fullmatch('0::/' + family + r'([0-9a-f]{32})\.slice/' + family + r'\1\.service\n', own_group),
             'process_scope_mismatch')
     again = _read('/proc/' + str(pid) + '/stat', 4096)
     require(again[again.rfind(')') + 2:].split()[19] == fields[19], 'process_replaced')

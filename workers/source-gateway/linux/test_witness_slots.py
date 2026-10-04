@@ -108,11 +108,11 @@ print(hashlib.sha256(raw).hexdigest())
         os.link(self.ingress / slots.FINAL, self.ingress / slots.PENDING)
         peak = []
         def sample(step):
-            peak.append(slots.usage((self.ingress, self.guardian, records), captured_source_bytes=262_144 - 2048))
+            peak.append(slots.usage((self.ingress, self.guardian, records), captured_source_bytes=slots.LEGACY_MAX_SOURCE_BYTES - 2048))
         self.recover(hook=sample)
         self.assertEqual(max(x['bytes'] for x in peak), slots.RESERVED_BYTES)
         self.assertEqual(max(x['names'] for x in peak), slots.RESERVED_NAMES)
-        self.assertEqual(slots.reservation(262_144)['reserved_bytes'], 4_153_344)
+        self.assertEqual(slots.reservation(slots.LEGACY_MAX_SOURCE_BYTES)['reserved_bytes'], 4_153_344)
 
     def test_partial_ingress_is_not_promoted_or_replaced(self):
         def fail(step):
@@ -167,7 +167,9 @@ print(hashlib.sha256(raw).hexdigest())
             os.close(directory)
 
     def test_known_source_and_name_bounds_refuse_before_publication(self):
-        with self.assertRaises(ValueError): slots.reservation(262_145)
+        with self.assertRaises(ValueError): slots.reservation(slots.LEGACY_MAX_SOURCE_BYTES + 1)
+        with self.assertRaises(ValueError): slots.reservation(slots.MAX_SOURCE_BYTES + 1, fixed_records=True)
+        self.assertEqual(slots.reservation(slots.MAX_SOURCE_BYTES, fixed_records=True)['schema_version'], 2)
         for number in range(33): (self.guardian / str(number)).write_bytes(b'')
         with self.assertRaisesRegex(ValueError, 'action_name_limit'): slots.usage((self.guardian,))
 

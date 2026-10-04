@@ -1,0 +1,53 @@
+[Unit]
+Description=Timestep local metadata action @ATTEMPT@
+Requires=@SLICE@
+After=@SLICE@
+ConditionPathExists=@ROOT@/control/input.json
+ConditionPathExists=!@JOURNAL@/stop-fence.json
+StartLimitIntervalSec=infinity
+StartLimitBurst=1
+
+[Service]
+Type=exec
+Slice=@SLICE@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 -I -S -B @BUNDLE@/bootstrap.py @BUNDLE@ metadata_launcher @ROOT@
+Restart=no
+RemainAfterExit=yes
+KillMode=control-group
+SendSIGKILL=yes
+TimeoutStartSec=5s
+TimeoutStopSec=2s
+RuntimeMaxSec=50s
+UMask=0077
+StandardInput=null
+StandardOutput=null
+StandardError=journal
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@ROOT@/data @ROOT@/ingress
+InaccessiblePaths=/var/lib/timestep-source/attempts /var/lib/timestep-source/witnesses /var/lib/timestep-metadata-fixture-db
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=~socketpair io_uring_setup io_uring_enter io_uring_register ptrace process_vm_readv process_vm_writev pidfd_getfd
+SystemCallErrorNumber=EPERM
+IPAddressDeny=any
+IPAddressAllow=localhost
+TasksMax=2
+MemoryMax=128M
+LimitNOFILE=64
+
+# Local loopback only. The source and supervisor receive no database credentials.

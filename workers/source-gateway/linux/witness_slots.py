@@ -11,6 +11,8 @@ from common import require
 MAX_OUTPUT = 1_572_864
 MAX_BYTES = 4_194_304
 MAX_NAMES = 32
+LEGACY_MAX_SOURCE_BYTES = 262_144
+MAX_SOURCE_BYTES = 327_680
 RESERVED_BYTES = 4_153_344
 RESERVED_NAMES = 30
 FINAL = 'witness.json'
@@ -18,17 +20,23 @@ PENDING = '.witness.pending'
 LOCK = 'publication.lock'
 
 
-def reservation(source_bytes):
-    require(type(source_bytes) is int and 0 < source_bytes <= 262_144, 'source_reservation_exceeded')
-    return {'schema_version': 1, 'reserved_bytes': RESERVED_BYTES, 'maximum_bytes': MAX_BYTES,
+def reservation(source_bytes, *, fixed_records=False):
+    require(type(fixed_records) is bool, 'invalid_journal_allocation')
+    maximum = MAX_SOURCE_BYTES if fixed_records else LEGACY_MAX_SOURCE_BYTES
+    require(type(source_bytes) is int and 0 < source_bytes <= maximum, 'source_reservation_exceeded')
+    result = {'schema_version': 2 if fixed_records else 1, 'reserved_bytes': RESERVED_BYTES, 'maximum_bytes': MAX_BYTES,
             'reserved_names': RESERVED_NAMES, 'maximum_names': MAX_NAMES,
             'witness_slot_bytes': MAX_OUTPUT, 'witness_inode_count': 2,
             'captured_source_bytes': source_bytes, 'source_network_enabled': False}
+    if fixed_records:
+        result.update(allocation='fixed-record-inodes-v2', source_allowance_bytes=MAX_SOURCE_BYTES,
+                      ordinary_temporary_extra_bytes=0)
+    return result
 
 
 def usage(directories, *, captured_source_bytes=0):
     """Count each name, but body/file bytes once per inode across trusted dirs."""
-    require(type(captured_source_bytes) is int and 0 <= captured_source_bytes <= 262_144,
+    require(type(captured_source_bytes) is int and 0 <= captured_source_bytes <= LEGACY_MAX_SOURCE_BYTES,
             'source_reservation_exceeded')
     count, inodes = 0, {}
     for path in directories:
@@ -169,6 +177,56 @@ def _exclusive(directory, owner):
         os.close(fd)
 
 
+def _recover_locked(source, target, validate, *, producer_uid, guardian_uid, hook=None):
+    """Directory FDs plus the caller's held publication.lock; no second lock."""
+    # These dedicated directories contain only body slots/the lock.
+    for directory, allowed in ((source, {FINAL, PENDING}), (target, {FINAL, PENDING, LOCK})):
+        with os.scandir(directory) as entries:
+            for count, entry in enumerate(entries, 1):
+                require(count <= 3 and entry.name in allowed, 'unexpected_witness_name')
+    source_final, source_pending = _slot(source, producer_uid)
+    final, pending = _slot(target, guardian_uid)
+    if final is not None:
+        raw = _read(target, FINAL, guardian_uid, sync=True)
+        validate(raw)
+        if source_final is not None:
+            original = _read(source, FINAL, producer_uid)
+            require(raw == original, 'witness_replay_conflict')
+        else:
+            require(source_pending is None, 'incomplete_ingress')
+        os.fsync(target)
+        _step(hook, 'final_reused')
+    else:
+        require(source_final is not None, 'incomplete_ingress')
+        raw = _read(source, FINAL, producer_uid)
+        validate(raw)
+        if pending is not None and _read(target, PENDING, guardian_uid) == raw:
+            _read(target, PENDING, guardian_uid, sync=True)
+        else:
+            _write_pending(target, guardian_uid, raw, existing=pending is not None, hook=hook)
+        try:
+            _publish_pending(target, hook=hook)
+        except FileExistsError:
+            # No new body allocation; the same final must validate.
+            _slot(target, guardian_uid)
+            require(_read(target, FINAL, guardian_uid, sync=True) == raw, 'witness_replay_conflict')
+            os.fsync(target)
+    # Re-check inode aliases after the barrier, before exact cleanup.
+    _, pending = _slot(target, guardian_uid)
+    if pending is not None:
+        os.unlink(PENDING, dir_fd=target)
+        os.fsync(target)
+    _step(hook, 'before_ingress_unlink')
+    source_final, source_pending = _slot(source, producer_uid)
+    if source_pending is not None:
+        os.unlink(PENDING, dir_fd=source)
+    if source_final is not None:
+        os.unlink(FINAL, dir_fd=source)
+    os.fsync(source)
+    _step(hook, 'ingress_unlinked')
+    return raw
+
+
 def recover(ingress, guardian, validate, *, producer_uid=62401, guardian_uid=0, hook=None):
     """Publish/reopen a validated witness, never creating a third body inode.
 
@@ -181,52 +239,8 @@ def recover(ingress, guardian, validate, *, producer_uid=62401, guardian_uid=0, 
     try:
         target = _directory(guardian, guardian_uid)
         with _exclusive(target, guardian_uid):
-            # These dedicated directories contain only body slots/the lock.
-            for directory, allowed in ((source, {FINAL, PENDING}), (target, {FINAL, PENDING, LOCK})):
-                with os.scandir(directory) as entries:
-                    for count, entry in enumerate(entries, 1):
-                        require(count <= 3 and entry.name in allowed, 'unexpected_witness_name')
-            source_final, source_pending = _slot(source, producer_uid)
-            final, pending = _slot(target, guardian_uid)
-            if final is not None:
-                raw = _read(target, FINAL, guardian_uid, sync=True)
-                validate(raw)
-                if source_final is not None:
-                    original = _read(source, FINAL, producer_uid)
-                    require(raw == original, 'witness_replay_conflict')
-                else:
-                    require(source_pending is None, 'incomplete_ingress')
-                os.fsync(target)
-                _step(hook, 'final_reused')
-            else:
-                require(source_final is not None, 'incomplete_ingress')
-                raw = _read(source, FINAL, producer_uid)
-                validate(raw)
-                if pending is not None and _read(target, PENDING, guardian_uid) == raw:
-                    _read(target, PENDING, guardian_uid, sync=True)
-                else:
-                    _write_pending(target, guardian_uid, raw, existing=pending is not None, hook=hook)
-                try:
-                    _publish_pending(target, hook=hook)
-                except FileExistsError:
-                    # No new body allocation; the same final must validate.
-                    _slot(target, guardian_uid)
-                    require(_read(target, FINAL, guardian_uid, sync=True) == raw, 'witness_replay_conflict')
-                    os.fsync(target)
-            # Re-check inode aliases after the barrier, before exact cleanup.
-            _, pending = _slot(target, guardian_uid)
-            if pending is not None:
-                os.unlink(PENDING, dir_fd=target)
-                os.fsync(target)
-            _step(hook, 'before_ingress_unlink')
-            source_final, source_pending = _slot(source, producer_uid)
-            if source_pending is not None:
-                os.unlink(PENDING, dir_fd=source)
-            if source_final is not None:
-                os.unlink(FINAL, dir_fd=source)
-            os.fsync(source)
-            _step(hook, 'ingress_unlinked')
-            return raw
+            return _recover_locked(source, target, validate, producer_uid=producer_uid,
+                                   guardian_uid=guardian_uid, hook=hook)
     finally:
         if target is not None:
             os.close(target)

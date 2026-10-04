@@ -24,11 +24,13 @@ def digest(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
-def names(attempt):
+def names(attempt, family='tsfixture'):
+    require(family in ('tsfixture', 'tsmetadata'), 'invalid_unit_family')
     normalized = str(uuid.UUID(attempt))
     require(attempt == normalized, 'invalid_attempt')
-    prefix = 'tsfixture' + uuid.UUID(attempt).hex
-    return prefix + '.service', prefix + '.slice', '/run/timestep-source-fixture/' + uuid.UUID(attempt).hex
+    prefix = family + uuid.UUID(attempt).hex
+    root = '/run/timestep-source-fixture/' if family == 'tsfixture' else '/var/lib/timestep-source/transport/'
+    return prefix + '.service', prefix + '.slice', root + uuid.UUID(attempt).hex
 
 
 def rendered_units(attempt):
@@ -102,8 +104,9 @@ def run(argv, seconds=3):
         child.stderr.close()
 
 
-def show(unit, fields):
-    require(re.fullmatch(r'tsfixture[0-9a-f]{32}\.(?:service|slice)', unit) is not None, 'invalid_unit')
+def show(unit, fields, *, family='tsfixture'):
+    require(family in ('tsfixture', 'tsmetadata') and
+            re.fullmatch(family + r'[0-9a-f]{32}\.(?:service|slice)', unit) is not None, 'invalid_unit')
     raw = run(['/usr/bin/systemctl', 'show', '--no-pager', '--property=' + ','.join(fields), unit])
     result = {}
     for line in raw.splitlines():
@@ -134,8 +137,9 @@ def preflight():
             'hosted_admitted': False}
 
 
-def cgroup_snapshot(path, root=Path('/sys/fs/cgroup')):
-    require(re.fullmatch(r'/tsfixture[0-9a-f]{32}\.slice', path) is not None, 'invalid_cgroup')
+def cgroup_snapshot(path, root=Path('/sys/fs/cgroup'), *, family='tsfixture'):
+    require(family in ('tsfixture', 'tsmetadata') and
+            re.fullmatch('/' + family + r'[0-9a-f]{32}\.slice', path) is not None, 'invalid_cgroup')
     parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     directory = None
     try:
@@ -173,18 +177,27 @@ def process(pid):
 
 
 class Observer:
-    def __init__(self, *, unit_show=show, current_boot=boot_id, snapshot=cgroup_snapshot,
+    def __init__(self, *, unit_show=None, current_boot=boot_id, snapshot=None,
                  current_process=process, unit_renderer=rendered_units, expected_uid=65534,
-                 ready_mode=MARKER['mode']):
-        self.show, self.boot, self.snapshot, self.process = unit_show, current_boot, snapshot, current_process
+                 ready_mode=MARKER['mode'], family='tsfixture'):
+        require(family in ('tsfixture', 'tsmetadata'), 'invalid_unit_family')
+        self.family = family
+        self.service_fields = SERVICE_FIELDS + (('DropInPaths',) if family == 'tsmetadata' else ())
+        self.slice_fields = SLICE_FIELDS + (('DropInPaths',) if family == 'tsmetadata' else ())
+        self.show = unit_show or (lambda unit, fields: show(unit, fields, family=family))
+        self.snapshot = snapshot or (lambda path: cgroup_snapshot(path, family=family))
+        self.boot, self.process = current_boot, current_process
+        self.names = lambda attempt: names(attempt, family)
         self.render, self.expected_uid, self.ready_mode = unit_renderer, expected_uid, ready_mode
 
     def capture(self, attempt, ready):
         ready = decode(canonical(ready))
-        service, slice_name, _ = names(attempt)
+        service, slice_name, _ = self.names(attempt)
         validate_ready(ready, attempt, self.ready_mode)
-        s = self.show(service, SERVICE_FIELDS)
-        parent = self.show(slice_name, SLICE_FIELDS)
+        s = self.show(service, self.service_fields)
+        parent = self.show(slice_name, self.slice_fields)
+        if self.family == 'tsmetadata':
+            require(s['DropInPaths'] == '' and parent['DropInPaths'] == '', 'unexpected_unit_dropin')
         require(s['Id'] == service and s['LoadState'] == 'loaded' and s['ActiveState'] == 'active'
                 and s['InvocationID'] == ready['invocation_id']
                 and re.fullmatch(r'[0-9a-f]{32}', s['InvocationID'])
@@ -224,7 +237,7 @@ class Observer:
                 and type(capture['schema_version']) is int and capture['schema_version'] == 1
                 and capture['kind'] == 'fixture_slice_capture_v1' and capture['source_network_enabled'] is False
                 and capture['hosted_admitted'] is False, 'invalid_capture')
-        service, slice_name, _ = names(capture['attempt_id'])
+        service, slice_name, _ = self.names(capture['attempt_id'])
         validate_ready(capture['ready'], capture['attempt_id'], self.ready_mode)
         require(capture['service'] == service and capture['slice'] == slice_name
                 and re.fullmatch(r'[0-9a-f]{32}', capture['invocation_id'])
@@ -237,8 +250,10 @@ class Observer:
         require(type(old) is dict and set(old) == {'path', 'device', 'inode', 'populated'}
                 and old['path'] == '/' + slice_name and type(old['populated']) is int and old['populated'] == 1
                 and all(type(old[k]) is int and old[k] >= 0 for k in ('device', 'inode')), 'invalid_group_capture')
-        s = self.show(service, SERVICE_FIELDS)
-        parent = self.show(slice_name, SLICE_FIELDS)
+        s = self.show(service, self.service_fields)
+        parent = self.show(slice_name, self.slice_fields)
+        if self.family == 'tsmetadata':
+            require(s['DropInPaths'] == '' and parent['DropInPaths'] == '', 'unexpected_unit_dropin')
         # systemd255 clears the completed service's InvocationID. This alone is
         # no evidence: the durable root-owned stop marker must also inhibit all
         # future starts through the captured unit's ConditionPathExists rule.

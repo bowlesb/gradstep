@@ -6,8 +6,8 @@ from pathlib import Path
 import ssl
 import sys
 
-GATEWAY_FILES = ('protocol.py', 'transport.py', 'supervisor.py', 'identity.py',
-                 'frozen.py', 'child.py', 'paused_child.py', 'journal.py')
+GATEWAY_FILES = ('protocol.py', 'transport.py', 'child_contract.py', 'identity.py',
+                 'runtime_identity.py', 'child.py', 'paused_child.py', 'journal.py')
 LOCAL_FILES = {'bootstrap.py': 'bootstrap.py', 'common.py': 'common.py',
                'controller.py': 'linux_controller.py', 'lifecycle.py': 'linux_lifecycle.py',
                'package.py': 'package.py',

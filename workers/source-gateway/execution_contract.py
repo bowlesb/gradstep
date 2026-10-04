@@ -4,7 +4,7 @@ import re
 import uuid
 
 from protocol import MAX_BODY, canonical, digest, require, target
-from supervisor import checked_result
+from child_contract import checked_result
 
 def source_dto(job, kind=None, ceiling=MAX_BODY):
     stage = kind or job['stage']

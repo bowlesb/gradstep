@@ -1,7 +1,8 @@
 # Linux metadata executor admission
 
-Status, 2026-10-04: **database delta implemented, independently reviewed and
-tested locally; combined Linux runtime not implemented or admitted**. The
+Status, 2026-10-04: **database delta reviewed and tested locally; combined Linux
+runtime source implemented with portable recovery tests, but not yet run as a
+complete Linux/database action or admitted**. The
 extension lives only in the unapplied
 [`012` candidate](../../supabase/migrations/202610030012_metadata_execution.sql.pending).
 No hosted migration, enabled flag or credential changed. Applied migrations
@@ -184,7 +185,11 @@ bytes alone cannot upgrade scope-retirement evidence to a complete-body receipt.
    `{source_id, revision, stage, byte_ceiling}`. Hash compact, sorted UTF-8 JSON
    and insert that digest into the final binding. No circular SQL binding hash or
    not-yet-created execution ID appears in the capture.
-4. Persist the final grant intent before invoking the grant **once**. Retain
+4. Immediately after capture, publish and fsync the exact permanent start fence
+   described below, before grant intent. It prevents any later activation of
+   this unit; it neither stops the already-running paused service nor proves
+   emptiness. Failure here means zero grant calls. Persist the final grant intent
+   before invoking the grant **once**. Retain
    SELECT output until COMMIT acknowledgement succeeds. Use the existing
    pre-RPC `CLOCK_BOOTTIME` origin and `deadline - created_at` durations, consuming
    all RPC latency; do not compare independent wall clocks.
@@ -211,7 +216,7 @@ The observer reopens and validates the bounded capture without following links,
 including every nested source/process/bundle field. It must not reconstruct a
 parent-wait witness from `/proc` or use a new unit bearing an old name.
 
-Before requesting stop, durably publish root-owned `stop-fence.json`, exactly
+Before grant intent, durably publish root-owned `stop-fence.json`, exactly
 `{schema_version: 1, kind: linux_metadata_stop_fence_v1, scope_id,
 capture_sha256}`. The captured service has
 `ConditionPathExists=!<journal>/stop-fence.json`, `Restart=no`, one permitted
@@ -527,8 +532,8 @@ pending/final slots through this recovery routine before exposing the witness
 as durable. Do not call the existing generic publisher on a large witness, even
 on replay. In particular, final-link → directory-fsync → crash before ingress
 unlink leaves both full inodes; a retry validates that final and creates **no
-third `MAX_OUTPUT` body**. The separate 64 KiB temporary allowance below cannot
-be borrowed for a body copy.
+third `MAX_OUTPUT` body**. An ordinary record's reservation cannot be borrowed
+for a body copy.
 
 Reserve the following **serialized-byte** envelope before a grant. The two
 body slots include simultaneous ingress and guardian publication; hard-link
@@ -541,8 +546,8 @@ checkpoint publication at a time.
 | Eight metadata records at 64 KiB: input, intent, grant, grant-status, parser-input, parser-output, result, result-ack | 524,288 |
 | Eight 16 KiB records: capacity, capture, fence, observation, both receipt arguments and both acknowledgements | 131,072 |
 | Six 4 KiB controls: READY, GO intent/control, privilege check, stop request, terminal witness | 24,576 |
-| Captured source/parser/manifest and rendered-unit allowance | 262,144 |
-| One simultaneous ordinary publication temporary | 65,536 |
+| Captured source/parser/manifest and rendered-unit allowance | 327,680 |
+| Additional bytes for an ordinary publication temporary | 0 |
 | **Total** | **4,153,344** |
 
 This leaves 40,960 bytes below the existing 4 MiB bound. Enforce each named slot,
@@ -557,6 +562,22 @@ records, unbudgeted lock files or raw diagnostic logs enter this set.
 If the actual captured graph or worst-case RPC/Unicode envelope exceeds a slot,
 reject before granting and review the layout; do not truncate metadata or raise
 limits while an action is running.
+
+This is the **fixed-record-inodes-v2** allocation used by `ActionJournal`, with
+capacity schema version 2. Each ordinary pending file either occupies its own
+missing-final record slot, or is a hardlink to that record's final inode. A
+different pending/final inode is rejected. Consequently the old extra 65,536-byte
+generic temporary allowance double-counted bytes for this fixed-slot publisher;
+those bytes now belong to the immutable source allowance. This is an accounting
+correction for the implemented algorithm, not a higher 4 MiB/32-name limit.
+Independent review and an actual maximum-filled journal test confirm exactly
+4,153,344 bytes and 30 names while all three publication aliases overlap.
+
+The earlier prerequisite keeps its separate legacy schema-1 reservation:
+262,144 source bytes plus a generic 65,536-byte temporary. Its old evidence is
+unchanged. The two totals happen to match; reopen validates the explicit layout,
+source allowance, bundle identity and complete capacity record, never the total
+alone. An old action is not rewritten into the new layout.
 
 The concrete storage choice for review is a shared, content-addressed immutable
 bundle instead of copying its many members into every attempt. Its full bounded
@@ -1130,7 +1151,10 @@ source request is needed for these checks:
 
 The original Linux checkpoint's 23 tests, the launcher/ingress evidence below
 and the earlier integration's 54 tests validate separate fixture contracts.
-None of the combined database/runtime checks above is claimed complete.
+At the proposal checkpoint none of the combined checks was complete. The normal
+two-stage/source-only path in check 1 now passes as recorded in the combined
+Linux verification checkpoint below. The remaining failure schedules are not
+established by that result.
 Cold reboot, clone/restore, host replacement and arbitrary kernel-stuck work
 remain quarantined rather than being treated as already tested.
 
@@ -1293,3 +1317,140 @@ this checkpoint. The new caller has not yet connected to the Linux PostgreSQL
 17 fixture. Actual restricted-login/TLS/negative-permission checks, combined
 controller/guardian journal enforcement, grant-to-GO integration and scope-only
 recovery remain required. Candidate 012 retains its frozen hash above.
+
+### Combined runtime source checkpoint — 2026-10-04
+
+`action_journal.py`, `metadata_scope.py`, `metadata_settlement.py`,
+`metadata_host.py` and `metadata_bridge.py` now connect the finite runtime
+protocol in source. The UID-62403 controller owns grant, parser and result RPCs.
+The root guardian owns only its observer session, journal and exact unit control.
+They exchange bounded, sequenced messages over anonymous pipes; there is no
+general-purpose guardian RPC proxy. Source/supervisor remain credential-free.
+
+The permanent future-start fence is now durable immediately after capture and
+before grant intent. A fresh GO requires its exact capture-bound contents, a
+committed positive grant, unchanged current source/job/authority and the original
+absolute deadline. Recovery can therefore stop/observe an action even when an
+interrupted GO publication occupies the ordinary temporary slot. It repairs that
+same control inode only after emptiness; it never starts a service or grants again.
+
+Valid complete pending JSON is validated and republished using its original
+bytes/inode. Partial, conflicting or noncanonical records remain unresolved.
+Receipt arguments and the first acknowledgement survive later database state
+changes. Accepted proof is preserved separately for each resource. Parser bytes
+are exposed only if every retained source fact matches the accepted joined
+receipt, including status, framing, byte count and Retry-After. Scope-only proof
+provides no parser body. Confirmed non-grants (`wait`, `disabled`, `terminal`,
+`no_interest`) converge separately from lost acknowledgement/null state.
+
+The trusted controller, psql and Deno share a new process session outside the
+transport scope. The guardian becomes a verified subreaper before launch, keeps
+the original leader PID unreaped through its single group signal, then requires
+actual ECHILD and no adopted process outside the owned session/group. This is
+controller cleanup, not SQL transport retirement evidence. Guardian death,
+changed boot and unresolved descendant waits remain explicit recovery limits.
+
+Portable tests use real bounded pipes and journal files with explicitly simulated
+database/kernel observations: 12 journal, 10 capture/GO, 12 settlement and 10
+bridge tests pass. Included schedules cover 15 settlement publication boundaries,
+six GO publication boundaries, lost grant/receipt/result acknowledgements,
+late-visible grant, preserved parser/result snapshots and no second fetch.
+The new real Linux controller/grandchild test is still skipped on the Mac.
+Independent source review corrected interrupted-publication replay, mismatched
+accepted source facts, permanent non-grant uncertainty and descendant cleanup.
+
+`child_contract.py` and `runtime_identity.py` extract existing runtime helpers
+from the standalone fixture supervisor and Mac bundle builder; the combined
+bundle does not carry those unused fixture implementations. Existing gateway
+23, coordination eight and real disposable Mac PostgreSQL integration 23 checks
+pass after extraction. No temporary integration database remains. These are
+compatibility tests, not evidence for the new Linux deployment.
+
+`fixture_database.py` supplies the source-only private PG17 setup, TLS/SCRAM
+callers, real permission probes, admitter retirement and conservative cleanup;
+its 17 offline tests pass. Actual Linux parser capture, restricted sessions,
+combined Atom-to-license projection and kernel failure schedules are still to
+run. No hosted migration or source/provider traffic has been enabled.
+
+### Combined Linux verification checkpoint — 2026-10-04
+
+The isolated `timestep-lifecycle-646` guest now passes the real PG17/loopback TLS
+normal workflow, including cleanup, using `test_metadata_integration.py`.
+Actual separate executor, observer and admitter logins pass 24 forbidden-operation
+checks and nine connection-denial checks. Each login verifies its own TLS session
+before switching to its fixed capability role; the matching backend PID and
+login bind the subsequent role/restriction observation. The admission login is
+disabled and its password removed before either source action.
+
+The captured Linux parser produces 86,359 bytes, SHA-256
+`668d65700b17b5024f8cfbf13f5db4a55954b718b470ac9a8b402aff4781ba25`, matching the
+reviewed JavaScript output. Its manifest records the actual Linux Deno/compiler
+hashes. Frozen runtime bundle
+`884503836eb351c5f10387428404ac15057e7f9fe0d9a964d7688049624f3415` charges
+303,984 bytes for all source, parser, manifest and rendered units, below the
+327,680-byte v2 source allowance. The complete journal reservation remains
+4,153,344 bytes / 30 names under the unchanged 4 MiB / 32-name limits.
+
+Atom and license stages each make one loopback connection. The database records
+two attempts, two result steps and four retirement receipts, with two request
+charges and 733 measured response bytes. Reopening each completed action keeps
+those counters unchanged and adds no connection. The existing 011 projection
+publishes the synthetic paper as `source_only` with no document or render asset;
+this does not claim a verified PDF or Mathpix result. The final fresh test passes
+in 11.148 seconds, including source-scope, database, account and TLS-file cleanup.
+
+Two real Linux process tests also pass: normal or killed controller with a live
+grandchild, and helper timeout with a live grandchild. Both require actual
+descendant retirement. `initdb` now uses the same owned-session helper; simple
+database clients retain their direct-child handling. The final portable suite
+runs 118 checks: 116 pass and the two Linux-only process checks skip on the Mac.
+These include eight cleanup refusal/recovery regressions. The earlier shared
+gateway, coordination and 23 actual Mac database integration checks remain
+passing; no application/iOS source changed in this checkpoint.
+
+Two test assumptions failed during the real run and were corrected without
+widening runtime authority. First, PostgreSQL hides the login's TLS statistics
+after switching to its separate restricted role; the probe now reads TLS before
+that switch, consistent with its [statistics visibility rules](https://www.postgresql.org/docs/17/monitoring-stats.html#MONITORING-STATS-VIEWS).
+Second, systemd 255 keeps an automatically generated inactive slice after its
+unit file is removed. Cleanup now checks the exact inactive, no-job, no-fragment,
+no-drop-in state and current group/process absence. The interrupted cleanup was
+finished using the independently pinned original file inventory and saved scope
+observation plus fresh database settlement and current runtime checks. It issued
+no new grant, result or retirement receipt. Changed or partially deleted journals
+are refused; the runtime's unit/capture checks were not weakened for this helper.
+
+Evidence is `.artifacts/linux-restricted-caller/combined-df8e8f44f20c/summary.json`
+with the final log, immutable bundle, input manifests and bounded evidence
+archives alongside it. Fresh readback confirms no fixture PostgreSQL server or
+cluster, owned accounts/groups, source UID processes, source action directories,
+or source/database unit files. Immutable source/tool inputs, the frozen bundle
+and bounded JSON evidence remain in the guest. The guest is stopped. Candidate
+012 retains its pinned hash and remains unapplied to hosted Supabase; external
+source networking and paid providers remain disabled.
+
+### Next failure-recovery boundary
+
+The next bounded schedule kills only the transport supervisor after one complete
+GET and response headers, while the fixture withholds its body. Keep the guardian
+alive so it retains the controller family's original subreaper/wait authority.
+Require original-scope retirement, executor-before-source receipts, no parser
+body, the full 1,048,576-byte charge and an acknowledged `metadata_unavailable`
+result. A separately launched observer-only resource replay must preserve the
+same receipt IDs, result, request charge, source cooldown and job backoff without
+a new grant or GET.
+
+Current `recover` starts another executor controller. Add a separately bounded
+observer-only resource entry before claiming this next schedule: it must accept
+only the job/claim and observer descriptor, restore the existing capture/journal,
+and use the existing settlement protocol without grant, GO, parser or result
+capabilities. Extend test cleanup only for the exact acknowledged failure result;
+resource settlement alone does not authorize deletion. This design is reviewed,
+but the entry and actual fault schedule are not implemented or verified here.
+
+Guardian SIGKILL remains a different, quarantined case. It loses the original
+controller/psql/parser family wait authority, which the source-slice capture does
+not replace. Do not reconstruct a kill from an old PID/PGID or claim that an empty
+source slice proves that separate family retired. Durable controller-family
+ownership requires its own design before whole-action restart/cleanup can be
+admitted after guardian death.

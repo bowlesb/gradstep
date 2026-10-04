@@ -11,7 +11,7 @@ import uuid
 import frozen_context
 from common import canonical, decode, publish, read, require
 from paused_child import PausedChild
-from protocol import clock, clock_ns, digest
+from protocol import clock, clock_ns, digest, Refused
 import uid_policy
 from witness_slots import publish_ingress
 
@@ -43,7 +43,16 @@ def main():
     try:
         require(len(sys.argv) == 4, 'invalid_arguments')
         root = Path(sys.argv[3])
-        require(re.fullmatch(r'/run/timestep-source-fixture/[0-9a-f]{32}', str(root)), 'invalid_scope_path')
+        metadata = sys.argv[2] == 'metadata_launcher'
+        family = 'tsmetadata' if metadata else 'tsfixture'
+        prefix = '/var/lib/timestep-source/transport/' if metadata else '/run/timestep-source-fixture/'
+        require(re.fullmatch(prefix + r'[0-9a-f]{32}', str(root)), 'invalid_scope_path')
+        mode = 'linux_metadata_fixture' if metadata else 'linux_uid_ingress_fixture'
+        writer = publish
+        if metadata:
+            from action_journal import publish_producer
+            from metadata_scope import checked_go
+            writer = publish_producer
         probe = sys.argv[2] == 'linux_probe_launcher'
         phase = 21
         uid_policy.begin_drop()
@@ -51,7 +60,7 @@ def main():
                 str(frozen_context.root), 'linux_source_probe' if probe else 'linux_source', str(root)]
         phase = 22
         session = PausedChild.spawn_only(argv=argv, user=uid_policy.SOURCE_UID, group=uid_policy.SOURCE_UID,
-                                        identity_reader=uid_policy.process_identity,
+                                        identity_reader=lambda pid: uid_policy.process_identity(pid, family=family),
                                         stop_child=uid_policy.cooperative_stop)
         phase = 23
         identity = uid_policy.finish_drop()
@@ -64,7 +73,8 @@ def main():
         phase = 25
         value = decode(read(root / 'control' / 'input.json'))
         require(set(value) == {'schema_version', 'mode', 'attempt_id', 'request', 'fixture'}
-                and value['schema_version'] == 1 and value['mode'] == 'linux_uid_ingress_fixture', 'invalid_fixture')
+                and type(value['schema_version']) is int and value['schema_version'] == 1
+                and value['mode'] == mode, 'invalid_fixture')
         attempt = str(uuid.UUID(value['attempt_id']))
         require(attempt == value['attempt_id'] and uuid.UUID(attempt).hex == root.name, 'invalid_attempt')
         invocation = os.environ.get('INVOCATION_ID', '')
@@ -77,37 +87,41 @@ def main():
         except OSError as error:
             require(error.errno == errno.EPERM, 'unexpected_signal_errno')
         phase = 27
-        publish(root / 'data', 'privileges.json', {'supervisor': identity, 'cross_uid_signal_errno': errno.EPERM})
-        binding = {'schema_version': 1, 'mode': 'linux_uid_ingress_fixture', 'attempt_id': attempt,
+        writer(root / 'data', 'privileges.json', {'supervisor': identity, 'cross_uid_signal_errno': errno.EPERM})
+        binding = {'schema_version': 1, 'mode': mode, 'attempt_id': attempt,
                    'child_id': session.value['attempt_id'], 'identity': session.identity,
                    'controller_pid': os.getpid(), 'invocation_id': invocation,
                    'source_sha256': digest(canonical(value['request'])),
                    'bundle_sha256': digest(canonical(frozen_context.manifest)),
                    'source_network_enabled': False, 'hosted_admitted': False}
-        publish(root / 'data', 'ready.json', binding)
+        writer(root / 'data', 'ready.json', binding)
 
         class StopFlag:
             def is_set(self):
                 return (root / 'control' / 'stop.json').exists()
 
         cancellation = StopFlag()
-        deadline = clock() + 5
+        deadline = clock() + (10 if metadata else 5)
         while clock() < deadline:
             if cancellation.is_set():
                 break
             if (root / 'control' / 'go.json').exists():
                 command = decode(read(root / 'control' / 'go.json', 4096))
-                require(command == {'mode': 'linux_uid_ingress_fixture', 'attempt_id': attempt,
-                                    'child_id': binding['child_id'], 'bundle_sha256': binding['bundle_sha256']},
-                        'fixture_go_mismatch')
-                session.go(str(uuid.uuid4()), clock_ns() + 8_000_000_000, cancelled=cancellation)
-                report = session.finish(clock_ns() + 8_000_000_000, cancelled=cancellation)
+                if metadata:
+                    execution_id, useful = checked_go(command, attempt, binding)
+                else:
+                    require(command == {'mode': mode, 'attempt_id': attempt,
+                                        'child_id': binding['child_id'], 'bundle_sha256': binding['bundle_sha256']},
+                            'fixture_go_mismatch')
+                    execution_id, useful = str(uuid.uuid4()), clock_ns() + 8_000_000_000
+                session.go(execution_id, useful, cancelled=cancellation)
+                report = session.finish(useful, cancelled=cancellation)
                 publish_ingress(root / 'ingress', canonical(report))
                 return 0
             time.sleep(.01)
         publish_ingress(root / 'ingress', canonical(session.stop()))
         return 0
-    except (ValueError, KeyError, OSError) as error:
+    except (Refused, ValueError, KeyError, TypeError, OSError) as error:
         # Fixed, secret-free diagnostic for the local prerequisite's operator.
         # Never print exception text or application/transport input.
         report = {'schema_version': 1, 'kind': 'prerequisite_failure', 'phase': phase,

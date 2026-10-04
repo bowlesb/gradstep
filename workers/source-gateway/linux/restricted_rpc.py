@@ -13,7 +13,7 @@ import uuid
 
 from rpc_support import RPCS, EXECUTOR, OBSERVER, ADMITTER, bounded, quoted
 from protocol import canonical, decode, require
-from frozen import executable_sha
+from runtime_identity import executable_sha
 
 PSQL = '/usr/lib/postgresql/17/bin/psql'
 CAPABILITIES = {'executor': (EXECUTOR, 62403), 'observer': (OBSERVER, 0), 'admitter': (ADMITTER, 0)}

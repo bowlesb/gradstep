@@ -6,8 +6,8 @@ import sys
 
 from package import canonical, runtime_sha, sha
 
-GATEWAY_FILES = ('protocol.py', 'transport.py', 'supervisor.py', 'identity.py',
-                 'frozen.py', 'child.py', 'paused_child.py')
+GATEWAY_FILES = ('protocol.py', 'transport.py', 'child_contract.py', 'identity.py',
+                 'runtime_identity.py', 'child.py', 'paused_child.py')
 LOCAL_FILES = {'prerequisite_bootstrap.py': 'bootstrap.py', 'common.py': 'common.py',
                'uid_policy.py': 'uid_policy.py', 'prerequisite_launcher.py': 'linux_launcher.py',
                'prerequisite_source.py': 'linux_source.py', 'witness_slots.py': 'witness_slots.py',
