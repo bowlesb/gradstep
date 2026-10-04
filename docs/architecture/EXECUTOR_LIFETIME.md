@@ -1,6 +1,6 @@
 # Executor lifetime and external-operation settlement
 
-Status: **reviewed additive contract; metadata-only local implementation under review,
+Status: **reviewed additive contract; metadata-only local candidate verified,
 not deployed or admitted**. Reviewed against
 immutable migration `202610030011_acquisition.sql`, SHA-256
 `30c2db5b6d1211dac4ccbbd93b732fb747a6dddcb06ceefc9970ba3bc3a09f03`.
