@@ -243,6 +243,112 @@ class ClassifierTests(unittest.TestCase):
         self.assertFalse(C.classify(evidence)["observation_complete"])
         self.assertFalse(result(evidence, "cpu-wasm")["target_limit_observed"])
 
+    def test_delayed_memory_start_allows_reobservation_without_authorizing_work(self):
+        evidence = example(6)
+        evidence["requests"][-1]["http_status"] = None
+        start = mutate_event(evidence, "memory-wasm")
+        evidence["rows"].remove(start)
+        # A real log query can first deliver Shutdown and beforeunload, then
+        # deliver the earlier start on a later GET of the same time window.
+        add_event(evidence, "memory-wasm", "beforeunload", 11.99, sequence=1)
+        mutate_event(evidence, "memory-wasm", "beforeunload", elapsed_ms=1890)
+        before = C.classify(evidence)
+        actual = next(r for r in before["cases"] if r["case"] == "memory-wasm")
+        self.assertFalse(before["observation_complete"])
+        self.assertFalse(before["hosted_admitted"])
+        self.assertEqual(actual["status"], "inconclusive")
+        self.assertFalse(actual["target_limit_observed"])
+        self.assertFalse(actual["isolate_termination_observed"])
+
+        requests = copy.deepcopy(evidence["requests"])
+        evidence["rows"].append(start)
+        after = C.classify(evidence)
+        actual = next(r for r in after["cases"] if r["case"] == "memory-wasm")
+        self.assertTrue(after["observation_complete"])
+        self.assertEqual(actual["status"], "hard_stop_observed")
+        self.assertTrue(actual["target_limit_observed"])
+        self.assertTrue(actual["isolate_termination_observed"])
+        self.assertFalse(after["hosted_admitted"])
+        self.assertEqual(evidence["requests"], requests)
+
+    def test_valid_non_start_events_without_start_remain_inconclusive(self):
+        cases = (("control", "complete"), ("cpu-wasm", "fallback"),
+                 ("memory-wasm", "allocation_refused"), ("background", "heartbeat"),
+                 ("memory-wasm", "beforeunload"), ("cpu-wasm", "failed"),
+                 ("recovery", "complete"))
+        for name, event in cases:
+            with self.subTest(case=name, event=event):
+                index = C.CASES.index(name)
+                evidence = example(index + 1)
+                evidence["rows"] = [r for r in evidence["rows"] if r["execution_id"] != uid(4, index)]
+                sent = (C.instant(evidence["requests"][-1]["sent_at"]) - BASE).total_seconds()
+                add_event(evidence, name, event, sent + 0.2, sequence=1,
+                          pages=1 if name == "recovery" else None)
+                if event == "failed":
+                    mutate_event(evidence, name, event, elapsed_ms=None)
+                report = C.classify(evidence)
+                actual = next(r for r in report["cases"] if r["case"] == name)
+                self.assertFalse(report["observation_complete"])
+                self.assertEqual(actual["status"], "inconclusive")
+                self.assertFalse(actual["isolate_termination_observed"])
+                self.assertFalse(actual["target_limit_observed"])
+
+    def test_partial_span_keeps_binding_and_sequence_conflicts_fatal(self):
+        def partial():
+            evidence = example(6)
+            evidence["rows"].remove(mutate_event(evidence, "memory-wasm"))
+            add_event(evidence, "memory-wasm", "beforeunload", 11, sequence=1)
+            return evidence
+
+        evidence = partial()
+        add_event(evidence, "memory-wasm", "allocation_refused", 11.1, sequence=2,
+                  execution=uid(4, 99), isolate=uid(5, 99))
+        self.rejected(evidence, "ambiguous_start")
+        evidence = partial()
+        add_event(evidence, "memory-wasm", "allocation_refused", 11.1, sequence=1)
+        self.rejected(evidence, "event_order")
+        evidence = partial()
+        add_event(evidence, "memory-wasm", "allocation_refused", 10.9, sequence=2)
+        self.rejected(evidence, "event_order")
+        evidence = partial()
+        add_event(evidence, "memory-wasm", "allocation_refused", 12.1, sequence=2)
+        self.rejected(evidence, "event_after_shutdown")
+        evidence = partial()
+        mutate_event(evidence, "memory-wasm", "beforeunload", elapsed_ms=None)
+        self.rejected(evidence)
+
+    def test_missing_start_does_not_mask_known_overlap_or_binding_conflict(self):
+        evidence = example(7)
+        evidence["rows"].remove(mutate_event(evidence, "memory-wasm"))
+        add_event(evidence, "memory-wasm", "beforeunload", 11, sequence=1)
+        remove_shutdown(evidence, "memory-wasm")
+        add_shutdown(evidence, "memory-wasm", "Memory", 21)
+        self.rejected(evidence, "overlapping_cases")
+
+        evidence = example(6)
+        evidence["rows"].remove(mutate_event(evidence, "memory-wasm"))
+        add_event(evidence, "memory-wasm", "beforeunload", 11, sequence=1,
+                  execution=uid(4, 4), isolate=uid(5, 99))
+        self.rejected(evidence, "ambiguous_isolate")
+
+    def test_delayed_start_cannot_create_conflicting_execution_or_time_order(self):
+        for changes, code in (({"execution_id": uid(4, 99), "isolate_id": uid(5, 99)}, "ambiguous_start"),
+                              ({"timestamp": stamp(11.5)}, "event_order")):
+            evidence = example(6)
+            start = mutate_event(evidence, "memory-wasm")
+            evidence["rows"].remove(start)
+            add_event(evidence, "memory-wasm", "beforeunload", 11, sequence=1)
+            self.assertFalse(C.classify(evidence)["observation_complete"])
+            if "timestamp" in changes:
+                start.update(changes)
+            else:
+                payload = json.loads(start["message"])
+                payload.update(changes)
+                start["message"] = json.dumps(payload)
+                start["execution_id"] = payload["execution_id"]
+            evidence["rows"].append(start)
+            self.rejected(evidence, code)
+
     def test_warm_serial_worker_shutdown_only_belongs_to_active_case(self):
         evidence = example(5)
         execution, isolate = uid(4, 3), uid(5, 3)
@@ -367,6 +473,22 @@ class ClassifierTests(unittest.TestCase):
             evidence = example(5)
             evidence["rows"].append(row(uid(4, 4), 8, message=message))
             self.rejected(evidence, "malformed_application_log")
+
+    def test_caught_failed_event_cannot_become_a_later_limit_pass(self):
+        evidence = example(5)
+        add_event(evidence, "cpu-wasm", "failed", 8, sequence=1)
+        mutate_event(evidence, "cpu-wasm", "failed", elapsed_ms=None)
+        actual = result(evidence, "cpu-wasm")
+        self.assertEqual(actual['status'], 'inconclusive')
+        self.assertFalse(actual['target_limit_observed'])
+        add_event(evidence, "cpu-wasm", "beforeunload", 8.1, sequence=2)
+        self.rejected(evidence, "event_after_terminal")
+
+    def test_only_failed_event_may_have_unknown_elapsed_time(self):
+        evidence = example(5)
+        add_event(evidence, "cpu-wasm", "fallback", 8, sequence=1)
+        mutate_event(evidence, "cpu-wasm", "fallback", elapsed_ms=None)
+        self.rejected(evidence)
 
 
 if __name__ == "__main__":

@@ -1,16 +1,69 @@
-# Hosted lifetime experiment proposal
+# Bounded hosted lifetime experiment
 
-Status: **proposal and offline evidence classifier only**. No workload, packager,
-operator, deployment, network experiment, profile admission, or SQL change is
-implemented here. Acquisition, verification, and original reading remain disabled.
+Status: **implemented, independently reviewed, and exercised in staging**.
+The final eight-request run observed all three target shutdown causes, then
+verified the fixed one-page PDF in a later invocation. Cleanup is verified.
+Acquisition, verification and original reading remain disabled; no schema or processing-policy change,
+executor-policy admission or paid-provider call is part of this experiment.
 The successful [compatibility probe](../hosted/README.md) established that the
 selected qpdf build runs; it did not establish an executor reclaim horizon.
 
-The proposed experiment uses one temporary staging function and eight serial
+Each run uses one temporary staging function and at most eight serial
 requests, with a closed set of synthetic cases. Its positive evidence is a
 platform shutdown event linked to the exact execution while a stress case is
 still active. A client timeout, missed heartbeat, allocation exception, fallback
 return, `beforeunload` notification, or deleted function is insufficient.
+
+## Hosted evidence — 2026-10-04 UTC
+
+The completed run is
+`.artifacts/pdf-verifier/hosted-limits/0f1ad5d9-2c17-4138-a6da-6fbc0b5a473a/`.
+Source-manifest SHA-256 is
+`46ac243cb907e20a5495052c0b88869115f029022d6a4d7cb199a5aafe5ec0d5`;
+the platform-emitted bundle hash is separately
+`f03a6ebd53760c095999a4ed115d4298190c645e34b00a6e9f81727f892f0309`.
+Function UUID `23efacbf-03a1-48bb-91e4-fd6364746fd0`, version 1, was bound to the
+exact staging project and recorded deployment before any test request.
+
+The three denial requests returned 401/403/400 without workload events. Control
+completed; CPU and memory responses were 546, the background response was 202,
+and recovery returned 200 with a verified one-page completion. HTTP status was
+not used as termination proof. The correlated platform events were:
+
+| Active case | Shutdown reason | Application start to shutdown | Worker-accounted CPU | Shutdown memory snapshot |
+|---|---|---:|---:|---:|
+| CPU WASM | `CPUTime` | 7.054 s | 7,038 ms | 13,853,981 bytes |
+| Memory WASM | `Memory` | 3.196 s | 150 ms | 273,245,821 bytes |
+| Background task | `WallClockTime` | 399.927 s | 40 ms | 13,534,583 bytes |
+
+These are observed execution/accounting values, not configured limits, peak
+memory, per-document CPU or a universal stop horizon. In particular the CPU
+observation does **not** establish the documentation's two-second CPU bound.
+All three stops occurred before an observed workload terminal/fallback event.
+Log delivery is not guaranteed complete; retain the attribution limits below.
+
+The operator sent exactly eight POSTs, used 19 bounded log GETs, 34 control calls
+and nine cleanup calls. The final merged window contains 65 normalized rows.
+`report.json` records complete observation, three target stops, completed
+recovery, no failure and verified exact function/Auth/account cleanup. Its SHA-256
+is `6e3b20c6474e00ad04c946200f124e6156a1dd82565357846d90ef1274a78df7`;
+`evidence.json` is
+`6d987c551547522b01dd0c5c5d93bd235ab9f0645aaac38865cc88ea2903a4ae`.
+The operator/classifier source snapshot is preserved separately from deployed
+worker source. A subsequent read-only project check confirms all four processing
+switches false, no active verification profile, and zero acquisition jobs/original
+reservations. This run never grants hosted admission.
+
+The earlier run `7bf7589f-c609-4103-9089-fa3644356e91`, source manifest
+`f90129fd120da6a3291865998d4e03373401d2a4a0d35cf220a8a34dfc1acc4d`,
+stopped after six POSTs with `ambiguous_start` and also cleaned up completely.
+One separately recorded historical query after cleanup obtained the delayed
+memory start and matched `Shutdown/Memory`; it did not resume the run or replace
+its failed report. That case exposed out-of-order log delivery. The earlier CPU
+case exhausted its smaller finite operation ceiling before a subsequent CPU
+shutdown, so it remains `fallback_only`. The new run used fresh identities,
+bounded delayed-start observation, and the separately reviewed CPU ceiling below;
+no request or immutable package was replayed or overwritten.
 
 ## What the reviewed source establishes
 
@@ -51,23 +104,23 @@ describes the platform reasons and execution identifier used below.
 The request body will contain only `run_id`, `attempt_id`, and a fixed case name;
 the latter two must match the operator's sealed eight-entry request manifest.
 It accepts no PDF, URL, allocation size, iteration count, sleep duration, object
-path, reservation, callback, or executable input. Constants below are proposed
-limits to review and locally validate before writing a deployable workload.
+path, reservation, callback, or executable input. The implemented bounds are:
 
 | Order | Case | Bounded work | Evidence sought |
 |---|---|---|---|
 | 1–3 | Missing auth, wrong run, invalid case | Existing bounded authentication/body rejection | Expected 401/403/400; no workload start |
 | 4 | `control` | Authenticate, emit fixed identity, return | Correlation works before stress |
-| 5 | `cpu-wasm` | A separately identified synthetic WASM loop; fixed chunks and at most 2^32 integer operations; check a monotonic 8-second fallback deadline between chunks | `Shutdown/CPUTime` during active work |
+| 5 | `cpu-wasm` | A separately identified synthetic WASM loop; 262,144 xorshift32 rounds per chunk, at most 32,768 chunks (2^33 rounds); check an 8-second wall/monotonic fallback between chunks | `Shutdown/CPUTime` during active work |
 | 6 | `memory-wasm` | Retain one synthetic WASM memory, grow and touch pages in 8 MiB steps to at most 320 MiB; at most 40 steps and a 10-second fallback deadline | `Shutdown/Memory` during active work |
 | 7 | `background` | Respond 202, keep one `waitUntil` promise, bounded 10-second timer steps; at most 45 heartbeats and a 450-second absolute fallback deadline | `Shutdown/WallClockTime` before fallback |
 | 8 | `recovery` | One fixed, valid one-page PDF with qpdf build `39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610` | Verified one-page completion in a later request |
 
-CPU chunks are synchronous and finite. A clock check between chunks is a
+Each round executes several integer instructions; rounds are not an instruction
+count or CPU measurement. CPU chunks are synchronous and finite. A clock check between chunks is a
 cooperative fallback, not proof of an enforced eight-second cutoff during one
 chunk. A frozen operation ceiling still applies if the clock behaves unexpectedly.
-Local offline validation must bound individual chunk cost and verify the computed
-checksum so the compiler cannot remove the intended work. No infinite loop or
+Local offline validation checks chunk cost and the computed checksum. The timing
+is not a universal bound for other hosts. No infinite loop or
 unbounded allocation is acceptable, even when host termination is the goal.
 
 The memory case specifically exercises WASM/external-memory accounting. It does
@@ -112,6 +165,25 @@ handler. Supabase injects ambient credentials; this is not credential-free
 isolation. The existing operator may use its separately held authority to create
 and remove the tagged Auth fixture and its pristine account.
 
+`package.build(run_id, user_id, created_at_ms, attempt_ids)` returns `directory`,
+`function`, `source_manifest_sha256`, `source_bytes`, `config`, and exactly eight
+`requests = [{case, attempt_id}]`. The manifest includes the same request list.
+Its config has `project`, `runID`, `userID`, `createdAt`, `expiresAt`,
+`buildSHA256`, `path`, and the same attempts as `{case, attemptID}` entries.
+The function slug remains `pdf-verifier-probe-<first eight run UUID characters>`.
+
+The operator packages, deploys once, pins the returned deployment, then creates
+the already-selected synthetic user once. Server-owned Auth metadata must contain
+`science_reader_check = pdf-verifier-probe`, `probe_kind = hosted-limits-v1`,
+`check_run_id`, `source_manifest_sha256` and `deployment_id`. The request header
+`x-probe-source-sha256` must match that trusted marker. The deployment marker must
+match the actual `DENO_DEPLOYMENT_ID`, whose project and version-one form are
+validated. A complete manifest cannot contain its own digest; the Auth marker
+provides that binding and the operator independently verifies its association
+with deployed bytes. A caller field never supplies the trusted source hash.
+Logs use the observed `Deno.version.deno` unchanged and check it against the
+reviewed runtime; the expected string is not substituted as an observation.
+
 Capture exact source bytes before packaging. Preserve an exclusive run directory
 containing all source, synthetic WASM bytes/recipe, selected immutable qpdf bundle
 identity, fixture bytes/hash, configuration and file manifest. Refuse overwrite.
@@ -121,6 +193,24 @@ may transform source during bundling. Before any POST, verify the exact staging
 project/organization and the unique function's identity. A changed deployment or
 runtime stops the run; it is not an equivalent experiment.
 
+The eight deployed files are `index.ts`, `handler.ts`, `workloads.ts`, `auth.ts`,
+`runtime.ts`, `wasm.ts`, `verifier.mjs` and generated `assets.ts`. The manifest
+binds each file plus `supabase_config_sha256` for exact CLI-consumed
+`supabase/config.toml` bytes. `captured_files` binds producer snapshots, the
+synthetic WASM recipe/binary, raw verifier identity, fixture manifest and unchanged
+recovery PDF. Sources/config are read-only; `supabase/.temp` stays writable for
+the CLI's link/cache state. The operator verifies the pinned configuration
+immediately before deployment.
+
+Foreground successful responses use HTTP 200; background acceptance uses 202.
+They contain the finite event identity fields plus `schema_version`, `result`,
+`pages`, finite `work` counters (or null), `elapsed_ms`, null `cpu_ms` and
+`peak_memory_bytes`, and `hosted_admitted: false`. They are not termination
+receipts. Replayed valid attempts return 409; overlapping work returns 429;
+expiry returns 410. Caught workload failures return a fixed 500 error and emit
+`failed` terminal evidence without raw exception details. Only `failed` may have
+null elapsed time; no timing is clipped or invented.
+
 Compile a package expiry at most 20 minutes from package creation. Each case
 also checks expiry immediately before starting, with enough remaining time for
 its complete fallback plus observation/cleanup margin. No start within the final
@@ -129,31 +219,34 @@ pause that misses these windows ends the run; it never extends the same package.
 
 ## Evidence, log budget, and interpretation
 
-Future log reads must use only the exact owned function ID and bounded UTC
+Log reads use only the exact owned function ID and bounded UTC
 windows through:
 
 `GET /v1/projects/<staging-ref>/analytics/endpoints/logs`
 
-The existing successful method uses URL-encoded `sql`, `start`, and `end` values,
-with a window no longer than 24 hours. The query selects `timestamp`,
+`observe.py` uses URL-encoded `sql`, `iso_timestamp_start`, and
+`iso_timestamp_end` values. The API rounds those parameters to minutes; the
+adapter widens them and adds exact UTC predicates to its bounded query. It uses
+`logs.timestamp` explicitly because ClickHouse expands the formatted `timestamp`
+output alias inside an unqualified WHERE predicate. A scoped live query caught
+that distinction before the first deployment. The query selects `timestamp`,
 `event_message` and explicit `log_attributes` fields from `logs`, constrains
 `source = 'function_logs'` and the exact owned `function_id`, and uses `LIMIT 50`.
 Retain deployment/execution ID, event type, reason and bounded numeric accounting
 fields when actually supplied. Do not silently invent absent identity fields.
 
-The future operator must journal at most eight function POSTs and at most 24 log
-GETs, with no simultaneous requests and no automatic transport retries. Split
-time windows or filter by an already verified execution ID so a full 50-row page
-is never treated as complete. Any full page, missing required field, uncovered
-window, changed identity or exhausted poll budget is inconclusive. Authentication,
-deployment identity reads, and independently journaled cleanup have separate
-small fixed budgets; exhaustion must preserve cleanup authority. The exact
-pagination/poll implementation still needs independent review before activation.
+The reviewed operator journals at most eight function POSTs and at most 24 log
+GETs, with no simultaneous requests and no automatic transport retries. The
+observer queries 180-second slices and splits any full 50-row page; overlapping
+boundary records are deduplicated. Unsplittable pages, missing required fields,
+uncovered windows, changed identities and exhausted poll budgets are inconclusive.
+Final observation rereads sealed slices for late records. Control-plane requests
+and independently journaled cleanup have separate caps of 64 and 24; exhausting
+the former preserves cleanup authority.
 
 Only parse application log JSON with the finite schema in `classify.py`. Drop
-unknown messages rather than persist their raw text. The query adapter is not
-implemented. Its future output must identify whether all intended pages were
-obtained, without truncation. Neither the classifier nor a caller-provided flag
+unknown messages rather than persist their raw text. The adapter records whether
+all intended pages were obtained without truncation. Neither the classifier nor a caller-provided flag
 proves the actual remote query was complete; the operator/transport must establish
 that separately. Repeated identical rows across overlapping reads can be deduped.
 
@@ -164,6 +257,10 @@ and deployment attributes, when supplied by a row, must agree too. A start's
 claimed execution ID must equal the platform envelope. Multiple starts for one
 attempt, overlapping active cases, contradictory terminal events, or two shutdown
 records for one execution are ambiguous and cannot yield positive evidence.
+Valid events arriving before their start remain incomplete and permit only the
+remaining bounded log GETs. They cannot authorize a successor POST. A delayed
+start must agree with the entire retained sequence and binding before that
+attempt can classify; conflicting starts still fail immediately.
 
 A complete bounded query is not a guarantee that the platform delivered every
 application log. The positive conclusion concerns the correlated isolate's final
@@ -180,6 +277,7 @@ binding and external stop semantics, not absence of a completion message.
 | Workload emits fallback or allocation refusal first | Finite workload stopped itself; target host limit unproven |
 | Matching `EarlyDrop`, `EventLoopCompleted`, or `TerminationRequested` during stress | Isolate ended for another reason; target host limit unproven |
 | Matched `UncaughtException` or `BootFailure` before workload completion or its shutdown | Workload attribution inconclusive, even if a later limit shutdown confirms that the isolate ended |
+| Application `failed` terminal event, including an unusable clock | Workload attribution inconclusive; a later cumulative limit is not a successful stress test |
 | 504/546, client timeout, missing heartbeat, `beforeunload`, missing/truncated logs, or only deletion | Inconclusive |
 
 Retain runtime failures only as their finite event type, timestamp and execution
@@ -190,7 +288,7 @@ a subsequent case on that failed execution cannot claim a healthy continuation.
 An exception followed by cumulative CPU shutdown proves the final stop, not a
 successful CPU-pressure test. The classifier keeps these conclusions separate.
 
-Keep `cpu_time_used_ms` labelled **worker-accounted CPU** and memory fields
+Keep `cpu_time_used` labelled **worker-accounted CPU** and memory fields
 labelled **shutdown snapshots**. Never rename either to peak process memory,
 per-document CPU, or a hard configured limit. The offline classifier intentionally
 does not copy these optional numeric fields into its conclusion. Raw returned
@@ -237,14 +335,60 @@ Run the local tests without network or credentials:
 python3 -m unittest discover -s workers/pdf-verifier/hosted-limits -p 'test_*.py'
 ```
 
-Current local evidence: 37 classifier tests pass. All events in those tests are
-synthetic; they are not hosted CPU, memory, or lifetime measurements.
+Current local checks: 44 classifier, six packager, 13 observer and 13 operator
+tests pass: 76 combined Python tests. The 23 handler/workload tests and three
+explicit-package tests pass, and the generated entry point passes Deno checking.
+The existing compatibility operator's 21 regressions also pass after its
+additive cleanup-hook change. Offline classifier events are
+synthetic, not hosted CPU, memory or lifetime measurements.
 
-Required future tests cover workload bounds/checksums, authorization before any
-allocation, final recovery fixture binding, source capture before build, journal
-crash schedules, identity/expiry/refused redirects, query completeness and safe
-cleanup. The classifier tests are not substitutes for those tests or for an
-independent review before remote activation.
+The preserved first local package, with the earlier 16,384-chunk CPU ceiling, is
+`.artifacts/pdf-verifier/hosted-limits/4d84a2f0-a8d5-416b-90d1-ea59442e7535/`,
+with source-manifest SHA-256
+`1078a3d6eb22af61dfdfbd2f10aa738767d6677b35c3ccd7faee8928a9da5f15`.
+Its `local-resource.json` records two isolated local Deno children, each with a
+12-second parent process timeout and network denied. CPU fallback completed in
+8,046.772 ms process wall time / 7,999.387 ms workload wall time after 16,156
+chunks. The one-chunk checksum was `1010791896`; two observed cold chunk times
+were 0.811 and 0.779 ms. Retained/touched memory stopped at exactly 40 steps /
+335,544,320 WASM bytes in 4,269.677 ms process wall time. These are local fallback
+results, not hosted terminations. Memory fields are post-work snapshots;
+CPU/peak process memory remain null. The 450-second background schedule was
+tested with an injected clock, not a real 450-second worker lifetime.
+
+The CPU ceiling is now 32,768 chunks because the earlier hosted case completed
+all 16,384 chunks before its subsequent CPU shutdown; that was correctly a
+fallback, not an observed stop during active work. The per-chunk work and
+8-second dual-clock fallback are unchanged. A fresh local package at
+`.artifacts/pdf-verifier/hosted-limits/66073386-d76e-4fb9-a676-5d3c1b22e62b/`
+has source-manifest SHA-256
+`2625ba4234497d1a7c2454f69d7a5b3c8b9976c52f10c8cccc5b3852ca6aee51`.
+Its separate `local-resource.json` records a network-denied CPU child with a
+12-second external timeout: fallback after 15,577 chunks in 8,062.645 ms process
+wall time / 8,000.034 ms workload wall time, first-chunk checksum `1010791896`.
+The 23 handler/workload tests pass with the new ceiling. Memory, background and
+the pinned qpdf profile are unchanged; this local result grants no hosted
+admission and does not replace the earlier evidence.
+
+Run handler/workload tests locally with network denied:
+
+```sh
+node_modules/@deno/darwin-arm64/deno test --no-config --deny-net workers/pdf-verifier/hosted-limits/handler.test.ts workers/pdf-verifier/hosted-limits/workloads.test.ts
+```
+
+`package.test.ts` takes an explicit `local-package-result.json` path after `--`
+and needs read access to this source directory and that package directory.
+`local_case.ts` takes that result path plus `cpu-wasm` or `memory-wasm`; run it
+only in a network-denied child with an external 12-second timeout. No local
+check enables a profile or stands in for a host result.
+
+Local checks cover workload ceilings/checksums, authorization before allocation,
+recovery binding, source capture, identity/expiry/redirect refusal and background
+registration failure. Independently reviewed operator schedules cover response
+loss without replay, delayed/missing starts, exhausted observation, changed
+function/user identities, late records, full pages, and optional evidence-write
+failure that cannot block cleanup. Its bounded ownership journal excludes bulk
+logs; locked cleanup rechecks all server-owned Auth markers before account deletion.
 
 Even three observed target shutdowns will not alone admit the verifier. The
 deployment policy still needs a trusted identity, a memory accounting scope

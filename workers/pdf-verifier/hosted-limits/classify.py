@@ -19,8 +19,8 @@ CASES = ("deny_missing_auth", "deny_wrong_run", "deny_invalid_case", "control",
 DENIALS = dict(zip(CASES[:3], (401, 403, 400)))
 TARGET = {"cpu-wasm": "CPUTime", "memory-wasm": "Memory", "background": "WallClockTime"}
 REASONS = {"CPUTime", "Memory", "WallClockTime", "EarlyDrop", "EventLoopCompleted", "TerminationRequested"}
-EVENTS = {"start", "complete", "fallback", "allocation_refused", "heartbeat", "beforeunload"}
-TERMINALS = {"complete", "fallback", "allocation_refused"}
+EVENTS = {"start", "complete", "fallback", "allocation_refused", "heartbeat", "beforeunload", "failed"}
+TERMINALS = {"complete", "fallback", "allocation_refused", "failed"}
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z\Z")
@@ -167,7 +167,8 @@ def classify(evidence: Any) -> dict:
         require(name not in DENIALS, "work_after_denial")
         require(at >= requested[name]["sent"], "work_before_request")
         require(type(payload["sequence"]) is int and 0 <= payload["sequence"] <= 64)
-        require(type(payload["elapsed_ms"]) in (int, float) and 0 <= payload["elapsed_ms"] <= 500000)
+        require((payload["event"] == "failed" and payload["elapsed_ms"] is None) or
+                type(payload["elapsed_ms"]) in (int, float) and 0 <= payload["elapsed_ms"] <= 500000)
         require(payload["pages"] is None or type(payload["pages"]) is int and payload["pages"] == 1)
         event = payload["event"]
         if event == "start":
@@ -182,15 +183,17 @@ def classify(evidence: Any) -> dict:
         require(event != "heartbeat" or name == "background")
         app[name].append({**payload, "at": at})
 
-    # Establish a unique start and monotonic event sequence before attributing an
-    # isolate shutdown. Different cases may legitimately share a warm isolate.
+    # Log delivery may expose later events before their start. Validate every
+    # received sequence/binding now, but require a unique start before attributing
+    # an isolate shutdown. Different cases may share a warm isolate.
     spans = {}
     execution_to_isolate, isolate_to_execution = {}, {}
     for name, events in app.items():
         if not events:
             continue
         events.sort(key=lambda e: e["sequence"])
-        require(events[0]["event"] == "start" and sum(e["event"] == "start" for e in events) == 1, "ambiguous_start")
+        starts = [event for event in events if event["event"] == "start"]
+        require(len(starts) <= 1, "ambiguous_start")
         first = events[0]
         execution, isolate = first["execution_id"], first["isolate_id"]
         require(execution_to_isolate.setdefault(execution, isolate) == isolate, "ambiguous_isolate")
@@ -199,8 +202,9 @@ def classify(evidence: Any) -> dict:
         terminals = []
         for event in events:
             require(event["execution_id"] == execution and event["isolate_id"] == isolate, "ambiguous_start")
-            require(event["sequence"] > previous and event["at"] >= previous_at and event["elapsed_ms"] >= previous_ms, "event_order")
             require(not terminals, "event_after_terminal")
+            require(event["sequence"] > previous and event["at"] >= previous_at and
+                    (event["elapsed_ms"] is None or event["elapsed_ms"] >= previous_ms), "event_order")
             if event["event"] in TERMINALS:
                 terminals.append(event)
             previous, previous_at, previous_ms = event["sequence"], event["at"], event["elapsed_ms"]
@@ -215,7 +219,8 @@ def classify(evidence: Any) -> dict:
         # A runtime failure before this same execution's start is also
         # inconsistent with a healthy case. Do not silently clear that history.
         failures = sorted((event for event in failures if event["at"] <= boundary), key=lambda e: e["at"])
-        spans[name] = {"start": first, "terminal": terminal, "shutdown": stop, "runtime_failures": failures}
+        spans[name] = {"start": starts[0] if starts else None, "terminal": terminal,
+                       "shutdown": stop, "runtime_failures": failures}
 
     # Serial work is a run-wide rule, not merely an isolate-local busy flag.
     # Missing evidence makes the sequence unconfirmed; proven overlap is invalid.
@@ -237,7 +242,10 @@ def classify(evidence: Any) -> dict:
         require(terminal["at"] <= requested[CASES[index + 1]]["sent"], "overlapping_cases")
 
     results = []
-    complete = window["complete"] and not window["truncated"] and serial_confirmed
+    # A complete query window is not complete execution evidence: the start may
+    # arrive on a later bounded GET. Until then no partial span can authorize work.
+    complete = (window["complete"] and not window["truncated"] and serial_confirmed
+                and all(span["start"] is not None for span in spans.values()))
     for name in CASES:
         result = {"case": name, "status": "not_requested", "target_limit_observed": False,
                   "isolate_termination_observed": False, "shutdown_reason": None, "runtime_failure_events": []}
@@ -265,7 +273,7 @@ def classify(evidence: Any) -> dict:
                         result["shutdown_reason"] = stop["reason"]
                         result["isolate_termination_observed"] = True
                 elif terminal is not None:
-                    result["status"] = {"complete": "completed", "fallback": "fallback_only",
+                    result["status"] = {"complete": "completed", "fallback": "fallback_only", "failed": "inconclusive",
                                         "allocation_refused": "allocation_refused_only"}[terminal["event"]]
                 elif stop is not None:
                     result["shutdown_reason"] = stop["reason"]

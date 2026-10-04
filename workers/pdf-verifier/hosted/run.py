@@ -272,11 +272,16 @@ def function_identity(row, journal):
             'created_at': row['created_at'], 'updated_at': row['updated_at'], 'ezbr_sha256': bundle, 'verify_jwt': False}
 
 
-def cleanup_account_sql(journal):
+def cleanup_account_sql(journal, required_metadata=None):
     """Auth's trigger creates a pristine account; do not disable its guards."""
     user = identifier(journal['user_id'])
     run = identifier(journal['run_id'])
     source = digest(journal['source_manifest_sha256'])
+    extra = ''
+    for key, value in (required_metadata or {}).items():
+        require(isinstance(key, str) and re.fullmatch('[a-z_]{1,64}', key)
+                and isinstance(value, str) and re.fullmatch('[A-Za-z0-9_-]{1,160}', value), 'invalid_cleanup_marker')
+        extra += f"\n        and raw_app_meta_data->>'{key}'='{value}'"
     return f"""do $cleanup$
     declare c record; present boolean;
     begin
@@ -285,7 +290,7 @@ def cleanup_account_sql(journal):
         and email='pdf-probe-{run}@science-reader.invalid'
         and raw_app_meta_data->>'science_reader_check'='pdf-verifier-probe'
         and raw_app_meta_data->>'check_run_id'='{run}'
-        and raw_app_meta_data->>'source_manifest_sha256'='{source}')
+        and raw_app_meta_data->>'source_manifest_sha256'='{source}'{extra})
         then raise exception 'probe_auth_marker_mismatch'; end if;
       perform 1 from app_private.accounts where id='{user}' for update;
       if exists(select 1 from app_private.accounts where id='{user}'
@@ -334,7 +339,7 @@ def validate_journal(value, run_id):
     return value
 
 
-def cleanup(api, journal, path):
+def cleanup(api, journal, path, *, verify_user=user_matches, account_sql=cleanup_account_sql):
     """Clean independent resources even if one identity cannot be established."""
     failures = []
     journal.update({'phase': 'cleaning', 'auth_absent': False, 'function_absent': False, 'cleanup_complete': False})
@@ -362,12 +367,12 @@ def cleanup(api, journal, path):
         status, user, _ = api.auth('/admin/users/' + journal['user_id'], admin=True, expected=(200, 404))
         if status == 200:
             require(journal['auth_attempted'], 'unowned_auth_identity')
-            user_matches(user, journal)
+            verify_user(user, journal)
             journal['auth_confirmed'] = True  # Reconcile a lost create acknowledgment.
             save_json(path, journal)
             # The Auth create trigger inserts accounts; no bootstrap API is
             # called. Only its pristine synthetic row may be removed here.
-            api.query(cleanup_account_sql(journal))
+            api.query(account_sql(journal))
             try:
                 api.auth('/admin/users/' + journal['user_id'], 'DELETE', admin=True, expected=(200, 204))
             except ProbeError:
