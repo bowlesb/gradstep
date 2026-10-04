@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local authored-MMD offline sample renderer; no hosted or OCR authority",
+  "description": "Local authored and retained Mathpix-MMD offline renderer; no hosted or OCR authority",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "build:fixture": "node cli.mjs"

@@ -4,6 +4,8 @@ import { decodePNG } from './png.mjs';
 import { renderMMD } from './renderer.mjs';
 import { parseHTML, elements, serialize, sanitizeAndValidate } from './dom.mjs';
 import { captureRendererIdentity } from './build-identity.mjs';
+import { readerProfileFor } from './mathpix-profile.mjs';
+import { validateMathpixProvenance } from './mathpix-provenance.mjs';
 
 export const CSP = "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; connect-src 'none'";
 const importedIdentity = captureRendererIdentity();
@@ -23,17 +25,27 @@ export function buildBundle({ sourceBytes, assets = new Map(), provenance }) {
   }
   const rendered = renderMMD(decodeUTF8(source), inputImages);
   const used = new Set(rendered.index.figures.flatMap(f => f.asset_paths)); requireThat(used.size === assets.size && [...assets.keys()].every(path => used.has(path)), 'unused_asset');
+  requireThat(provenance && typeof provenance === 'object' && !Array.isArray(provenance), 'provenance_required');
+  const provenanceBytes = jsonBytes({ ...provenance, format: 'reader-provenance-v1', kind: 'authored-fixture', source_sha256: sha256(source), image_inputs: [...assets].map(([path, bytes]) => ({ path, sha256: sha256(bytes), published_sha256: sha256(imageMembers.get(path)) })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) });
+  return assembleBundle({ source, rendered, inputImages, imageMembers, provenanceBytes,
+    rendererID: profile.id, sourceKind: profile.source_kind, identity });
+}
+
+// Shared final publication checks. The two producer entry points own/capture
+// their inputs; this never accepts caller-supplied policy limits or resource URLs.
+export function assembleBundle({ source, rendered, inputImages, imageMembers, provenanceBytes, rendererID, sourceKind, identity }) {
+  const selectedProfile = readerProfileFor(rendererID, sourceKind);
+  requireThat(identity === rendererIdentity(), 'renderer_source_changed');
+  requireThat(source instanceof Uint8Array && source.length > 0 && source.length <= profile.max_source_bytes, 'source_limit');
   const css = readFileSync(new URL('./reader.css', import.meta.url));
   requireThat(!/url\s*\(|@import|@font-face/i.test(decodeUTF8(css)), 'stylesheet_resource');
   const html = Buffer.from(`<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${CSP}"><title>${escapeText(rendered.index.title)}</title><link rel="stylesheet" href="reader.css"></head><body>${rendered.html}</body></html>\n`);
   requireThat(html.length <= profile.max_html_bytes, 'html_limit');
   const index = jsonBytes(rendered.index); requireThat(index.length <= profile.max_index_bytes, 'index_limit');
-  requireThat(provenance && typeof provenance === 'object' && !Array.isArray(provenance), 'provenance_required');
-  const provenanceBytes = jsonBytes({ ...provenance, format: 'reader-provenance-v1', kind: 'authored-fixture', source_sha256: sha256(source), image_inputs: [...assets].map(([path, bytes]) => ({ path, sha256: sha256(bytes), published_sha256: sha256(imageMembers.get(path)) })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) });
   requireThat(provenanceBytes.length <= profile.max_manifest_bytes, 'provenance_limit');
   const members = new Map([['index.html', html], ['reader.json', index], ['reader.css', css], ['provenance.json', provenanceBytes], ['NOTICE.txt', readFileSync(new URL('./NOTICE.txt', import.meta.url))], ...imageMembers]);
   const roles = { 'index.html': ['html', 'text/html'], 'reader.json': ['index', 'application/json'], 'reader.css': ['style', 'text/css'], 'provenance.json': ['provenance', 'application/json'], 'NOTICE.txt': ['notice', 'text/plain'] };
-  const manifest = { format: profile.format, renderer: { id: profile.id, build_sha256: identity }, source: { kind: profile.source_kind, sha256: sha256(source), provenance_path: 'provenance.json' }, entrypoint: 'index.html', index_path: 'reader.json', members: [...members].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => ({ path, role: roles[path]?.[0] ?? 'image', media_type: roles[path]?.[1] ?? 'image/png', bytes: bytes.length, sha256: sha256(bytes), ...(inputImages.has(path) ? { width: inputImages.get(path).width, height: inputImages.get(path).height } : {}) })) };
+  const manifest = { format: selectedProfile.format, renderer: { id: selectedProfile.id, build_sha256: identity }, source: { kind: selectedProfile.source_kind, sha256: sha256(source), provenance_path: 'provenance.json' }, entrypoint: 'index.html', index_path: 'reader.json', members: [...members].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => ({ path, role: roles[path]?.[0] ?? 'image', media_type: roles[path]?.[1] ?? 'image/png', bytes: bytes.length, sha256: sha256(bytes), ...(inputImages.has(path) ? { width: inputImages.get(path).width, height: inputImages.get(path).height } : {}) })) };
   const manifestBytes = jsonBytes(manifest); const manifestSHA = sha256(manifestBytes);
   validateBundle(manifestBytes, members, manifestSHA);
   rendererIdentity();
@@ -45,7 +57,8 @@ export function validateBundle(manifestBytes, members, expectedSHA) {
   requireThat(Buffer.byteLength(manifestBytes) <= profile.max_manifest_bytes && /^[a-f0-9]{64}$/.test(expectedSHA) && sha256(manifestBytes) === expectedSHA, 'manifest_integrity');
   const manifest = JSON.parse(decodeUTF8(manifestBytes));
   requireThat(jsonBytes(manifest).equals(Buffer.from(manifestBytes)), 'manifest_canonical');
-  requireThat(manifest.format === profile.format && manifest.renderer?.id === profile.id && /^[a-f0-9]{64}$/.test(manifest.renderer?.build_sha256) && manifest.source?.kind === profile.source_kind && /^[a-f0-9]{64}$/.test(manifest.source.sha256), 'manifest_format');
+  const selectedProfile = readerProfileFor(manifest.renderer?.id, manifest.source?.kind);
+  requireThat(manifest.format === selectedProfile.format && /^[a-f0-9]{64}$/.test(manifest.renderer?.build_sha256) && /^[a-f0-9]{64}$/.test(manifest.source.sha256), 'manifest_format');
   requireThat(Array.isArray(manifest.members) && manifest.members.length > 0 && manifest.members.length <= profile.max_members && members.size === manifest.members.length, 'member_count');
   const paths = new Set(); let total = 0, totalPixels = 0;
   const media = { html: ['text/html'], index: ['application/json'], provenance: ['application/json'], style: ['text/css'], notice: ['text/plain'], image: ['image/png'] };
@@ -71,6 +84,7 @@ export function validateBundle(manifestBytes, members, expectedSHA) {
   const imagePaths = new Set(manifest.members.filter(m => m.role === 'image').map(m => m.path));
   requireThat(index.figures.every(f => f.id === f.block_id && blocks.get(f.block_id)?.kind === 'figure' && Array.isArray(f.asset_paths) && f.asset_paths.length > 0 && f.asset_paths.every(p => imagePaths.has(p)) && new Set(f.asset_paths).size === f.asset_paths.length && boundedText(f.caption) === f.caption && boundedText(f.alt) === f.alt && f.alt.length > 0), 'index_figure');
   const figureAssets = new Set(index.figures.flatMap(f => f.asset_paths)); requireThat(figureAssets.size === imagePaths.size && [...imagePaths].every(p => figureAssets.has(p)), 'unused_asset');
+  if (selectedProfile.source_kind === 'mathpix-mmd') validateMathpixProvenance(members.get(manifest.source.provenance_path), manifest, index);
   const doc = parseHTML(decodeUTF8(members.get(manifest.entrypoint)));
   const htmls = elements(doc, n => n.name === 'html'), heads = elements(doc, n => n.name === 'head'), bodies = elements(doc, n => n.name === 'body');
   requireThat(htmls.length === 1 && heads.length === 1 && bodies.length === 1 && heads[0].parent === htmls[0] && bodies[0].parent === htmls[0], 'html_structure');
@@ -87,7 +101,7 @@ export function validateBundle(manifestBytes, members, expectedSHA) {
   const stylesheet = readFileSync(new URL('./reader.css', import.meta.url));
   for (const node of elements(doc, n => n.name === 'link')) requireThat(Object.keys(node.attribs).sort().join(',') === 'href,rel' && node.attribs.rel === 'stylesheet' && manifest.members.some(m => m.path === node.attribs.href && m.role === 'style' && members.get(m.path).equals(stylesheet)), 'style_reference');
   requireThat(manifest.members.filter(m => m.role === 'style').length === 1, 'style_reference');
-  for (const node of elements(doc, n => n.name === 'img')) requireThat(manifest.members.some(m => m.path === node.attribs.src && m.role === 'image'), 'image_reference');
+  for (const node of elements(doc, n => n.name === 'img')) requireThat(manifest.members.some(m => m.path === node.attribs.src && m.role === 'image' && node.attribs.width === String(m.width) && node.attribs.height === String(m.height)), 'image_reference');
   for (const node of elements(doc, n => n.name === 'a' || n.name === 'use')) requireThat([node.attribs.href, node.attribs['xlink:href']].filter(v => v !== undefined).every(v => v.startsWith('#') && ids.has(v.slice(1))), 'fragment_reference');
   for (const [collection, attr] of [['blocks', 'data-reader-block'], ['equations', 'data-reader-equation'], ['figures', 'data-reader-figure']]) {
     const nodes = elements(doc, n => attr in n.attribs); requireThat(Array.isArray(index[collection]) && nodes.length === index[collection].length && new Set(index[collection].map(v => v.id)).size === nodes.length, 'index_identity');

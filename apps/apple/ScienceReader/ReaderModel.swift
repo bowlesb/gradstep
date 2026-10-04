@@ -517,7 +517,8 @@ final class ReaderModel {
         #endif
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
-            do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture")) }
+            let variant: OfflineReaderFixture.Variant = ProcessInfo.processInfo.arguments.contains("--mathpix-reader-fixture") ? .syntheticMathpix : .authored
+            do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture"), variant: variant) }
             catch { show(error) }
             return
         }
@@ -1521,11 +1522,11 @@ final class ReaderModel {
     /// The reset flag is explicit installation intent in this test-only
     /// account. Relaunch reads only encrypted rows; it never reloads the sample
     /// resource as a substitute for a missing or damaged installed copy.
-    func configureOfflineReaderFixture(reset: Bool) async throws {
+    func configureOfflineReaderFixture(reset: Bool, variant: OfflineReaderFixture.Variant) async throws {
         let fixtureDevice = try OfflineReaderFixture.device()
         guard let keys = fixtureDevice.bundle else { throw ReaderError.missingKey }
         let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            .appendingPathComponent("offline-reader-fixture", isDirectory: true)
+            .appendingPathComponent(variant.directoryName, isDirectory: true)
         if reset, FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
         accountID = fixtureDevice.accountID; email = "offline-fixture@example.invalid"; device = fixtureDevice
         let activation = workOwnership.beginActivation()
@@ -1536,19 +1537,19 @@ final class ReaderModel {
         prepareDrafts(snapshot: snapshot, scope: sessionID); publish(snapshot)
         checkpointAllDrafts()
         workOwnership.finishActivation(activation)
-        let cacheScope = try LibraryCommandScope(accountID: fixtureDevice.accountID, deploymentID: OfflineReaderFixture.deployment)
+        let cacheScope = try LibraryCommandScope(accountID: fixtureDevice.accountID, deploymentID: variant.deployment)
         let coordinator = ReaderBundleCoordinator(scope: cacheScope, persistence: localPersistence)
         readerBundles = coordinator
         if reset {
-            _ = try await coordinator.observe(OfflineReaderFixture.observation()).value
-            let authored = try ReaderBundleLoader.sample()
+            _ = try await coordinator.observe(OfflineReaderFixture.observation(variant: variant)).value
+            let reader = try OfflineReaderFixture.reader(variant: variant)
             let binding = try ReaderArtifactBinding(scope: cacheScope, documentID: OfflineReaderFixture.document,
-                artifactID: OfflineReaderFixture.artifact, manifestSHA256: ReaderBundleLoader.sampleManifestSHA256)
-            let members = Dictionary(uniqueKeysWithValues: authored.manifest.members.map { ($0.path, authored.data(for: $0.path)!) })
-            _ = try await coordinator.install(binding: binding, manifestData: authored.manifestData, members: members).value
+                artifactID: OfflineReaderFixture.artifact, manifestSHA256: variant.manifestSHA256)
+            let members = Dictionary(uniqueKeysWithValues: reader.manifest.members.map { ($0.path, reader.data(for: $0.path)!) })
+            _ = try await coordinator.install(binding: binding, manifestData: reader.manifestData, members: members).value
         }
         await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID, activation: activation,
-                                    deploymentID: OfflineReaderFixture.deployment)
+                                    deploymentID: variant.deployment)
         tab = .library; wideMode = .library
     }
 

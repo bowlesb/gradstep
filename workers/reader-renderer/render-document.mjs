@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { profile, requireThat, boundedText, sha256, escapeAttr, escapeText, pathIsSafe } from './common.mjs';
 import { parseHTML, elements, namespaceIDs, serialize, sanitizeAndValidate, walk } from './dom.mjs';
+import { resolveArchiveImagePath, validateImageMapping } from './image-paths.mjs';
 
 const require = createRequire(import.meta.url);
 const MarkdownIt = require('markdown-it');
@@ -18,10 +19,12 @@ function textOf(node, equationMap) {
   if (node.name === 'br') return ' ';
   return (node.children ?? []).map(child => textOf(child, equationMap)).join(['tr', 'td', 'th', 'li', 'table', 'thead', 'tbody', 'ul', 'ol', 'figure'].includes(node.name) ? ' ' : '');
 }
-export function renderIsolatedDocument(source, images) {
+export function renderIsolatedDocument(source, images, imageMapping = null) {
   requireThat(!consumed, 'renderer_process_reused'); consumed = true;
   requireThat(typeof source === 'string' && source.length > 0 && Buffer.byteLength(source) <= profile.max_source_bytes && !source.includes('\u0000'), 'source_limit');
   const digest = sha256(Buffer.from(source)).slice(0, 12);
+  const archiveImages = imageMapping ? validateImageMapping(imageMapping, images) : null;
+  const imagePaths = new Set();
   resetMmdGlobalState();
   const md = new MarkdownIt({ html: false, linkify: false, typographer: false, breaks: false, maxNesting: 32 });
   md.use(mathpixMarkdownPlugin, { outMath: { ...profile.math_options }, accessibility: null, copyToClipboard: false, enableFileLinks: false, centerImages: false, centerTables: false, renderElement: {}, parserErrors: 'show', mathDelimiterMode: 'strict', codeHighlight: { code: false, auto: false } });
@@ -67,7 +70,16 @@ export function renderIsolatedDocument(source, images) {
       }
       if (token.type === 'image') {
         requireThat(current?.kind === 'figure' && figures.length < profile.max_figures, 'figure_context');
-        const path = token.attrGet('src'); requireThat(pathIsSafe(path) && images.has(path), 'asset_reference');
+        let path = token.attrGet('src');
+        if (archiveImages) {
+          const sourcePath = resolveArchiveImagePath(path, imageMapping.source_path);
+          path = archiveImages.get(sourcePath); requireThat(path !== undefined, 'asset_reference');
+          imagePaths.add(sourcePath); requireThat(imagePaths.size <= profile.max_figures, 'asset_limit');
+          // Only this parsed image token changes. The original source and math
+          // tokens retain their exact bytes and same-node source association.
+          token.attrSet('src', path);
+        }
+        requireThat(pathIsSafe(path) && images.has(path), 'asset_reference');
         const alt = boundedText(token.content).trim(); requireThat(alt.length > 0, 'figure_alt');
         const figure = { id: current.id, block_id: current.id, asset_paths: [path], caption: boundedText(token.attrGet('title') ?? alt), alt };
         figures.push(figure); current.figure = figure;
@@ -153,6 +165,6 @@ export function renderIsolatedDocument(source, images) {
   const title = headings.find(h => h.level === 1).title; requireThat(title.length > 0, 'document_title');
   const index = { format: profile.index_format, title, headings: headings.filter(h => h.level !== 1), blocks: blockNodes.map(n => ({ id: n.attribs.id, kind: n.attribs['data-reader-kind'], text: boundedText(textOf(n, equationMap).replace(/\s+/g, ' ').trim()) })), equations, figures };
   requireThat(index.blocks.every(b => blockIDs.has(b.id)), 'sidecar_identity');
-  return { html: serialize(safe), index };
+  return { html: serialize(safe), index, ...(imageMapping ? { image_paths: [...imagePaths].sort() } : {}) };
 }
 function hasSVGParent(node) { for (let p = node.parent; p; p = p.parent) if (p.name === 'svg') return true; return false; }

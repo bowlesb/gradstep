@@ -23,6 +23,20 @@ export function encodePNG(width, height, rgba) {
   for (let y = 0; y < height; y++) Buffer.from(rgba.buffer, rgba.byteOffset + y * width * 4, width * 4).copy(scanlines, y * (width * 4 + 1) + 1);
   return Buffer.concat([signature, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(scanlines, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
 }
+// Only a bounded header preflight for token-path planning. Call decodePNG before
+// publishing any image: this does not inspect/decompress IDAT or prove extent.
+export function pngHeaderMetadata(input) {
+  const bytes = input;
+  requireThat(bytes instanceof Uint8Array && bytes.length >= 33 && bytes.length <= profile.max_member_bytes, 'image_format');
+  const head = Buffer.from(bytes.buffer, bytes.byteOffset, 33);
+  requireThat(head.subarray(0, 8).equals(signature) && head.readUInt32BE(8) === 13 &&
+    head.subarray(12, 16).equals(Buffer.from('IHDR')) && crc32(head.subarray(12, 29)) === head.readUInt32BE(29), 'png_header');
+  const width = head.readUInt32BE(16), height = head.readUInt32BE(20);
+  requireThat(width > 0 && height > 0 && width <= profile.max_image_dimension && height <= profile.max_image_dimension &&
+    width * height <= profile.max_image_pixels, 'image_dimensions');
+  requireThat(head[24] === 8 && [2, 6].includes(head[25]) && head[26] === 0 && head[27] === 0 && head[28] === 0, 'png_profile');
+  return { width, height };
+}
 export function decodePNG(input) {
   const bytes = Buffer.from(input);
   requireThat(bytes.length <= profile.max_member_bytes && bytes.subarray(0, 8).equals(signature), 'image_format');

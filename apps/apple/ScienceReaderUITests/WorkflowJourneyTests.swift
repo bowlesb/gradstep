@@ -222,15 +222,27 @@ final class WorkflowJourneyTests: XCTestCase {
     }
 
     func testInstalledEncryptedPaperSurvivesRelaunchWithEquationsFiguresAndChat() throws {
+        try installedEncryptedReaderJourney(mathpix: false)
+    }
+
+    func testSyntheticMathpixBundleSurvivesRelaunchWithEquationsFiguresAndChat() throws {
+        try installedEncryptedReaderJourney(mathpix: true)
+    }
+
+    private func installedEncryptedReaderJourney(mathpix: Bool) throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
-        app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture"]
+        let variant = mathpix ? ["--mathpix-reader-fixture"] : []
+        app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture"] + variant
         app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        if mathpix {
+            XCTAssertTrue(app.buttons[paperID].label.contains("Synthetic Mathpix"), "The fixture must use the explicitly identified new artifact.")
+        }
         // Installation is already durable when the fixture publishes its row.
         // The next process does not call the compiled sample loader at all.
         app.terminate()
-        app.launchArguments = ["--offline-reader-fixture"]
+        app.launchArguments = ["--offline-reader-fixture"] + variant
         app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
         let unopenedRow = app.buttons[paperID]
@@ -254,8 +266,9 @@ final class WorkflowJourneyTests: XCTestCase {
         let paperOffset = before.frame.minY - web.frame.minY
         capture(app, "Equation actions from the encrypted installed paper after relaunch")
         define.tap()
-        let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
+        let questions = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#))
+        let question = questions.firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 8))
         app.buttons["chat.returnToPaper"].tap()
         let returned = NSPredicate { _, _ in before.exists && abs(before.frame.minY - web.frame.minY - paperOffset) < 6 }
@@ -289,6 +302,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", #"\begin{equation}"#)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
         XCTAssertTrue(question.waitForExistence(timeout: 5))
+        XCTAssertEqual(questions.count, 1, "The exact equation question is retained once after relaunch")
         capture(app, "Encrypted question restored alongside the installed paper")
     }
 

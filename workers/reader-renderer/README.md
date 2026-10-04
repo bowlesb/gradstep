@@ -1,6 +1,6 @@
-# Authored offline reader bundle
+# Offline reader bundle renderer
 
-Status: local authored-fixture renderer, October 2026. This builds the app's **Offline sample** through the actual math renderer and complete bundle validation. It is not a Mathpix result collector, a paid OCR path, a hosted worker, or evidence of arbitrary-paper compatibility. No network, provider credentials, storage, or database calls are made by the generator. Hosted CPU/RSS admission and real OCR corpus compatibility remain separate work.
+Status: local authored-fixture and retained-output renderer, October 2026. The original entry builds the app's **Offline sample** through the actual math renderer and complete bundle validation. The additive Mathpix entry consumes a checked retained raw-output contract; its current fixtures are synthetic, not provider captures. Neither entry is a paid OCR path, durable Storage collector, hosted worker, or evidence of arbitrary-paper compatibility. No network, provider credentials, remote storage or database calls are made by these entry points. Hosted CPU/RSS admission and real Mathpix archive/paper compatibility remain separate work.
 
 From this directory, on Node 24 (validated on 24.18.0):
 
@@ -11,6 +11,39 @@ node cli.mjs
 ```
 
 The last command prints one small JSON result and writes a complete content-addressed directory under `tests/fixtures/reader/generated/<manifest-sha256>/`. Files are validated before directory publication; an existing directory is compared byte-for-byte rather than overwritten. It does not install the result into the app. The native caller must pin the reviewed manifest SHA separately. `tests/fixtures/reader/make-figures.mjs` reproduces the two original PNG diagrams without fonts, third-party images, or drawing dependencies.
+
+## Retained Mathpix input
+
+`buildMathpixBundle(input)` is asynchronous; the original `buildBundle({sourceBytes,assets,provenance})` remains synchronous with its authored semantics. The new entry imports `validateMathpixRenderInput` from the shared [`mathpix-result.ts`](../../supabase/functions/_shared/mathpix-result.ts). Its closed input contains `rawManifestBytes`, `expectedRawManifestSHA256` and the complete `archiveMembers` map. That validator owns bytes before its first await and checks canonical raw-manifest/profile identity plus every expanded path, size and hash. The renderer does not implement another ZIP decoder or accept a fetch/submission callback. A missing/substituted map is refused again at this receiving boundary, even when the earlier opener succeeded.
+
+The shared collector/opener retains `standalone.mmd`, `output.mmd.zip` and `lines.json` independently. Exactly one case-sensitive archive `.mmd` member is the rendering source. The standalone MMD may have different text and crop paths; it is never substituted or compared for byte equality. Line geometry remains untrusted auxiliary data and does not determine equation or reading anchors. The reader manifest's source hash is the original archive MMD hash.
+
+The bounded math child receives at most 512 image-candidate metadata rows. These come only from an exact PNG IHDR preflight, which is **not image admission**. Parsed image tokens resolve relative to the archive MMD directory through `image-paths.mjs`; only their `src` attribute changes to `assets/<input-sha256>.png`. Source bytes, prose, code and equation tokens are not globally rewritten. The child returns sorted used archive paths; at most 128 distinct referenced paths proceed to full PNG decoding/re-encoding before any bundle is assembled. Dimensions must match the header facts. Identical input bytes may share one published image, while each figure keeps its own ID. Unused entries remain in the raw archive/inventory and are neither decoded nor published. A referenced malformed/unsupported image fails the entire build, including when its header looked valid.
+
+The additive exact pair is `timestep-mathpix-mmd-v1` / `mathpix-mmd`; crossed pairs fail. `mathpix-profile.mjs` deliberately uses the same content/image/DOM limits as the authored profile. It does not add external bibliography links, inline figures, JPEG or arbitrary provider constructs. The same sanitizer, same-node equation emission and fresh-process macro boundary apply. The original checked-in `4851d8173451955cc36a455dc5d5fe0992a156d186c09f6fb291e05b4935f0b4` authored artifact is unchanged and remains accepted; new builds naturally have a new source/build digest.
+
+`provenance.json` is closed canonical JSON plus LF, at most 262,144 bytes:
+
+```text
+format: "mathpix-reader-provenance-v1"
+raw_result_sha256: hex SHA-256
+document: {sha256, bytes, page_count}
+ocr: {api: "v3/pdf", profile: "science-reader-mmd-v1", options_sha256}
+source: {archive_path, bytes, sha256}
+image_inputs: [{archive_path, input_sha256, published_path,
+                published_sha256, width, height}]
+```
+
+Image inputs are sorted unique archive paths, at most 128. Repeated source references reuse their row; deduplicated published paths require equal hashes/dimensions. The output image map, manifest, sidecar, HTML references and dimensions must agree completely. Document bytes are 8–33,554,432 and pages 1–250; the source is 1–262,144 bytes. These shape bounds do not claim the original was verified: the caller supplies a trusted raw identity, and production publication must bind its verified original/attempt. Provider job, attempt IDs and raw outputs are not mobile bundle members. The frozen options digest is `1e817fa114840383c016f89f51a562ca8c90afb07d0cae3673036e8ce1b931b3`.
+
+To reproduce the **synthetic** native interoperability fixture under ignored local artifacts, run from this directory:
+
+```sh
+node tests/mathpix-fixture.mjs ../../.artifacts/mathpix-reader/raw
+node cli.mjs --mathpix <printed-raw-directory> <printed-raw-manifest-sha256> ../../.artifacts/mathpix-reader/readers
+```
+
+The fixture reuses exact `sample.mmd` bytes and its two authored PNGs under nested `paper/` archive paths, with deliberately different standalone MMD, synthetic completion/original identities and a one-page auxiliary envelope. No PDF was submitted or verified to produce those facts. The CLI opens only the fixed three raw filenames and manifest from the supplied local directory, checks their trusted root, and uses the same outer process-group watchdog and inner fresh renderer process as the authored entry. It publishes a separate content-addressed reader directory. Do not copy raw outputs into the app or present this fixture as real Mathpix acceptance. Rendering retry consumes retained bytes and has no paid-POST authority.
 
 ## Rendering and trust boundary
 
@@ -54,6 +87,6 @@ The isolated package pins `mathpix-markdown-it@3.0.1`, its matching `markdown-it
 
 Primary references: [Mathpix package/API](https://github.com/Mathpix/mathpix-markdown-it), [Mathpix license](https://github.com/Mathpix/mathpix-markdown-it/blob/master/LICENSE), [MathJax SVG output](https://docs.mathjax.org/en/v3.2/options/output/svg.html), [htmlparser2](https://github.com/fb55/htmlparser2), [sanitize-html package](https://www.npmjs.com/package/sanitize-html). Lockfile license metadata is mostly permissive; it also contains the tooling-only caniuse-lite CC-BY-4.0 data, Python-2.0 argparse, Artistic-2.0 domain-browser, and dual LGPL-or-MIT xmldom-sre. No node_modules code is vendored or shipped in the reader bundle. This is dependency provenance, not a legal opinion or a vulnerability audit.
 
-The renderer build digest binds production source files, profile/options, CSS/template, notices, exact lockfile, and Node/V8/zlib versions. The CLI captures that digest before importing the renderer and rechecks it before publication; each math child independently captures/rechecks the same identity. Same-process calls and fresh-process builds are compared byte-for-byte in tests. Use a clean `npm ci` with unchanged dependencies: the lockfile does not itself prove that an already installed node_modules tree is untampered. This is a local reproducible build record, not an immutable deployed renderer attestation.
+The renderer build digest binds production source files, profile/options, CSS/template, notices, exact lockfile, and Node/V8/zlib versions. It also binds the actually imported shared `mathpix-result.ts`, `mathpix.ts`, `archive.ts` and `http.ts` source bytes; Node 24 runs their erasable TypeScript directly. The CLI captures that digest before importing the renderer and rechecks it before publication; each math child independently captures/rechecks the same identity. Same-process calls and fresh-process builds are compared byte-for-byte in tests. Use a clean `npm ci` with unchanged dependencies: the lockfile does not itself prove that an already installed node_modules tree is untampered. This is a local reproducible build record, not an immutable deployed renderer attestation.
 
-The local CLI uses a 60-second outer process-group watchdog and 30-second individual rendering deadline, with 256 MiB V8 heap limits. It bounds actual file reads and aggregate retained input bytes. The outer timeout and handled cancellation terminate descendant processes too. V8 heap is not total process RSS; these settings are not a hosted CPU/memory guarantee, nor an OS sandbox against an independently compromised dependency. Future provider output needs its own reviewed source profile, immutable build packaging, worker admission and publication contract.
+The local CLI uses a 60-second outer process-group watchdog and 30-second individual rendering deadline, with 256 MiB V8 heap limits. It bounds actual file reads and aggregate retained input bytes. The Mathpix path can retain up to 56 MiB raw payload and a 32 MiB expanded archive before rendering; copied inputs, PNG pixels and process overhead need additional headroom. The outer timeout and handled cancellation terminate descendant processes too. V8 heap is not total process RSS; these settings are not a hosted CPU/memory guarantee or an OS network sandbox against an independently compromised dependency. Real provider output still needs compatibility evidence, immutable build packaging, worker admission and a durable publication contract.

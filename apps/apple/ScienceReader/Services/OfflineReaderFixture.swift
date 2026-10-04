@@ -9,7 +9,35 @@ enum OfflineReaderFixture {
     static let document = UUID(uuidString: "dddddddd-0000-4000-8000-000000000002")!
     static let artifact = UUID(uuidString: "dddddddd-0000-4000-8000-000000000003")!
     static let item = UUID(uuidString: "dddddddd-0000-4000-8000-000000000004")!
-    static let deployment = "https://offline-reader-fixture.invalid"
+    // Pinned after generating/reviewing synthetic retained outputs. This is not
+    // a provider capture or a digest discovered in an arbitrary download.
+    static let mathpixManifestSHA256 = "1423dcd31d00d694ecfbdbaaba7a6eeb0a123d0cf403ec4b22000e43d050c29e"
+
+    enum Variant {
+        case authored, syntheticMathpix
+
+        var directoryName: String {
+            self == .authored ? "offline-reader-fixture" : "offline-mathpix-reader-fixture"
+        }
+        var deployment: String { "https://" + directoryName + ".invalid" }
+        var manifestSHA256: String {
+            self == .authored ? ReaderBundleLoader.sampleManifestSHA256 : OfflineReaderFixture.mathpixManifestSHA256
+        }
+        var title: String {
+            self == .authored ? "Offline reading fixture" : "Synthetic Mathpix reading fixture"
+        }
+    }
+
+    static func reader(variant: Variant) throws -> VerifiedReaderBundle {
+        if variant == .authored { return try ReaderBundleLoader.sample() }
+        guard let resources = Bundle.main.resourceURL else { throw ReaderBundleError.invalidResource }
+        let reader = try ReaderBundleLoader.load(directory: resources.appendingPathComponent("ReaderSamples/" + variant.manifestSHA256),
+                                                  expectedSHA256: variant.manifestSHA256)
+        guard reader.manifest.renderer.id == "timestep-mathpix-mmd-v1", reader.manifest.source.kind == "mathpix-mmd" else {
+            throw ReaderBundleError.incompatibleFormat
+        }
+        return reader
+    }
 
     static func device() throws -> LocalDevice {
         let encoded = try JSONSerialization.data(withJSONObject: [
@@ -22,13 +50,13 @@ enum OfflineReaderFixture {
         return device
     }
 
-    static func observation() throws -> LibraryCompleteObservation {
+    static func observation(variant: Variant) throws -> LibraryCompleteObservation {
         let row: [String: Any] = ["kind": "item", "id": item.wire, "document_id": document.wire,
             "created_seq": 1, "state_seq": 1, "membership_revision": 1, "visible": true,
             "added_at": "2026-10-03T10:00:00Z", "last_remove_seq": 0,
             "approval_id": "dddddddd-0000-4000-8000-000000000005", "version_id": "dddddddd-0000-4000-8000-000000000006",
             "metadata_id": "dddddddd-0000-4000-8000-000000000007", "source": "arxiv", "source_id": "2404.00001", "source_revision": 1,
-            "metadata": ["title": "Offline reading fixture", "authors": ["Synthetic library · authored sample"],
+            "metadata": ["title": variant.title, "authors": [variant == .authored ? "Synthetic library · authored sample" : "Synthetic library · retained-output adapter"],
                 "abstract": "A local fixture for testing encrypted downloads, equations and chat after restarting the app.",
                 "published_at": "2024-04-03", "updated_at": "2024-04-03", "categories": ["cs.LG"], "venue": NSNull()],
             "metadata_recorded_at": "2026-10-03T10:00:00Z", "source_url": "https://arxiv.org/abs/2404.00001v1",

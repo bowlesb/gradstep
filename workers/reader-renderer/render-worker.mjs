@@ -7,12 +7,17 @@ try {
   const chunks = []; let length = 0, maximum = 2 * 1024 * 1024;
   while (true) { const bytes = Buffer.alloc(Math.min(65536, maximum + 1 - length)); const count = readSync(0, bytes, 0, bytes.length, null); if (!count) break; length += count; if (length > maximum) throw new Error('render_request_limit'); chunks.push(bytes.subarray(0, count)); }
   const input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, length)));
-  if (!input || Object.keys(input).sort().join(',') !== 'images,source' || !Array.isArray(input.images)) throw new Error('render_request');
+  if (!input || !['images,source', 'image_mapping,images,source'].includes(Object.keys(input).sort().join(',')) || !Array.isArray(input.images)) throw new Error('render_request');
   const { profile, pathIsSafe } = await import('./common.mjs');
-  if (typeof input.source !== 'string' || Buffer.byteLength(input.source) > profile.max_source_bytes || input.images.length > profile.max_figures || !input.images.every(row => Array.isArray(row) && row.length === 2 && pathIsSafe(row[0]) && row[1] && Object.keys(row[1]).sort().join(',') === 'height,width' && Number.isInteger(row[1].width) && Number.isInteger(row[1].height) && row[1].width > 0 && row[1].height > 0 && row[1].width <= profile.max_image_dimension && row[1].height <= profile.max_image_dimension && row[1].width * row[1].height <= profile.max_image_pixels) || new Set(input.images.map(row => row[0])).size !== input.images.length) throw new Error('render_request');
+  if (typeof input.source !== 'string' || Buffer.byteLength(input.source) > profile.max_source_bytes || input.images.length > (input.image_mapping ? 512 : profile.max_figures) || !input.images.every(row => Array.isArray(row) && row.length === 2 && pathIsSafe(row[0]) && row[1] && Object.keys(row[1]).sort().join(',') === 'height,width' && Number.isInteger(row[1].width) && Number.isInteger(row[1].height) && row[1].width > 0 && row[1].height > 0 && row[1].width <= profile.max_image_dimension && row[1].height <= profile.max_image_dimension && row[1].width * row[1].height <= profile.max_image_pixels) || new Set(input.images.map(row => row[0])).size !== input.images.length) throw new Error('render_request');
+  const images = new Map(input.images);
+  if (Object.hasOwn(input, 'image_mapping')) {
+    const { validateImageMapping } = await import('./image-paths.mjs');
+    validateImageMapping(input.image_mapping, images);
+  }
   const { renderIsolatedDocument } = await import('./render-document.mjs');
   if (captureRendererIdentity() !== identity) throw new Error('renderer_source_changed');
-  const result = renderIsolatedDocument(input.source, new Map(input.images));
+  const result = renderIsolatedDocument(input.source, images, input.image_mapping ?? null);
   if (captureRendererIdentity() !== identity) throw new Error('renderer_source_changed');
   reply = { ok: true, identity, result };
 } catch (error) {

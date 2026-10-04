@@ -130,6 +130,10 @@ public struct VerifiedReaderBundle: Sendable {
         do { index = try JSONDecoder().decode(ReaderBundleIndex.self, from: indexData) }
         catch { throw ReaderBundleError.invalidIndex }
         try validate(index, manifest: manifest)
+        if manifest.source.kind == "mathpix-mmd" {
+            guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
+            try MathpixReaderProvenance.validate(provenance, manifest: manifest, index: index)
+        }
         return Self(manifestSHA256: expectedSHA256, manifestData: data, manifest: manifest, index: index, contents: frozen)
     }
 
@@ -170,8 +174,9 @@ public struct VerifiedReaderBundle: Sendable {
     }
 
     private static func validate(_ manifest: ReaderBundleManifest) throws {
-        guard manifest.format == "reader-bundle-v1", manifest.renderer.id == "timestep-mmd-v1",
-              manifest.source.kind == "authored-mmd" else { throw ReaderBundleError.incompatibleFormat }
+        let supported = (manifest.renderer.id == "timestep-mmd-v1" && manifest.source.kind == "authored-mmd") ||
+            (manifest.renderer.id == "timestep-mathpix-mmd-v1" && manifest.source.kind == "mathpix-mmd")
+        guard manifest.format == "reader-bundle-v1", supported else { throw ReaderBundleError.incompatibleFormat }
         guard isDigest(manifest.renderer.buildSHA256), isDigest(manifest.source.sha256),
               (1...512).contains(manifest.members.count) else { throw ReaderBundleError.invalidManifest }
         let mime: [String: Set<String>] = ["html": ["text/html"], "index": ["application/json"],
@@ -187,6 +192,8 @@ public struct VerifiedReaderBundle: Sendable {
             }
             total += member.bytes
             if member.role == "html", member.bytes > 8_388_608 { throw ReaderBundleError.invalidManifest }
+            if manifest.source.kind == "mathpix-mmd", member.role == "provenance",
+               !(1...262_144).contains(member.bytes) { throw ReaderBundleError.invalidManifest }
             if member.role == "image" {
                 guard let width = member.width, let height = member.height,
                       (1...8192).contains(width), (1...8192).contains(height) else { throw ReaderBundleError.invalidManifest }
