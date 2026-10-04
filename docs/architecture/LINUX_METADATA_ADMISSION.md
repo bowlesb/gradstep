@@ -702,6 +702,66 @@ files is implied. A space shortfall pauses preparation for root review.
    reverses every script. On success, keep the verified tools installed for this
    task, package services disabled, and clean only confirmed fixture resources.
 
+### Phase 1 inventory and signed-metadata simulation completed
+
+On 2026-10-04, the exact task guest `timestep-lifecycle-646` was started only for
+inventory and dependency resolution, then stopped normally. This phase installed
+nothing and downloaded no `.deb` or tool payload. The full before/after dpkg
+status, package list, APT policy/source hashes, archive key, account/UID and
+PostgreSQL-path checks match. There are 266 installed packages and one unrelated
+residual `config-files` entry; all installed versions were pinned against change,
+and the residual package against reinstallation. No PostgreSQL unit, cluster or
+account exists, and 62401–62403 remain free.
+
+The base image has Docker packages/sources and Ubuntu ESM APT hooks. The private
+resolver inherited neither: its first-read `APT_CONFIG` replaces source, key,
+status, preferences, lists, cache and configuration-part paths, clears hooks, and
+uses no proxy, redirect, retry, recommendation or insecure-repository fallback.
+The initial direct update failed DNS resolution for both official repository
+hosts. Guest networking was left unchanged. Instead, 24,150,742 bytes of official
+HTTPS metadata were fetched on the host with redirect/proxy refusal, checked
+against signed releases, and copied into an owned local-file mirror. Guest APT
+independently verified those releases and indexes. Ubuntu signatures use
+`F6ECB3762474EDA9D21B7022871920D1991BC93C`; PGDG uses the fingerprint above.
+The retained initial refusal logs also record the harmless inventory-parser
+correction needed to distinguish the residual configuration entry from a
+partially configured package.
+
+The successful unprivileged `apt-get --simulate --no-install-recommends
+--no-remove --no-upgrade --no-download install` retained the five exact PGDG
+pins above and resolved these seven additional packages:
+
+| Dependency | Exact version / architecture | Archive bytes | Installed KiB |
+|---|---|---:|---:|
+| `libjson-perl` | `4.10000-1` / all | 81,896 | 238 |
+| `ssl-cert` | `1.1.2ubuntu1` / all | 17,826 | 66 |
+| `libicu74` | `74.2-1ubuntu3.1` / arm64 | 10,806,898 | 36,201 |
+| `libxml2` | `2.9.14+dfsg-1.3ubuntu3.9` / arm64 | 737,396 | 2,211 |
+| `locales` | `2.39-0ubuntu8.9` / all | 4,231,704 | 16,716 |
+| `libllvm19` | `1:19.1.1-1ubuntu1~24.04.2` / arm64 | 27,428,566 | 121,821 |
+| `libxslt1.1` | `1.1.39-0exp1ubuntu0.24.04.3` / arm64 | 166,772 | 456 |
+
+The complete transaction is **12 new packages, zero upgrades and zero removals**:
+62,322,758 archive bytes (59.44 MiB) and 251,104 installed KiB (245.22 MiB).
+Those metadata totals fit the reviewed 384 MiB archive / 1 GiB installed caps;
+physical usage and maintainer-script effects remain unmeasured. In particular,
+this does not inspect or approve package service/account/certificate/locale
+scripts. Existing libc, Python, TLS, kernel and init packages remain unchanged.
+
+Evidence is under `.artifacts/linux-dependency-review/phase1-2ae69ec54fe3/`.
+`closure.json` records every exact package URL/version/architecture/size/SHA-256,
+release/index evidence and command hashes; its SHA-256 is
+`4b6169ea25983525967f19711b62d18d96e2535bca02f76faa37567e0712ccf8`.
+`resolver-r3/simulation.stdout` contains the transaction, `update.stderr` the
+successful signature checks, `unchanged-state.json` the inventory comparison,
+and `stopped-state.json` confirms only the owned guest is stopped. Signed raw
+compressed metadata remains on the host; the guest's isolated resolver trees
+are retained for review, allocating 245,702,656 bytes in total. Guest free space
+was 18,474,143,744 bytes after resolution; host free space was 11,419,500,544 bytes
+after stop. Recheck both reserves and the captured dpkg state before another
+phase. No further boot, payload fetch, package script or installation is implied
+by this completed simulation.
+
 ### Combined fixture bootstrap and distinct callers
 
 Create one private cluster with versioned absolute `initdb`/`postgres`/`psql`
