@@ -27,7 +27,7 @@ _REASONS = frozenset(('transport', 'deadline', 'tls_identity', 'http_truncated',
                      'tls_truncated', 'extra_protocol_data', 'socket_ownership', 'invalid_request'))
 _KEYS = frozenset(('schema_version', 'mode', 'attempt_id', 'request_sha256', 'target', 'kind', 'reason',
                    'status', 'framing', 'framing_complete', 'tls_peer_close', 'body_base64', 'body_sha256',
-                   'body_bytes', 'protocol_bytes_received', 'retry_after_seconds', 'local_cleanup',
+                   'body_bytes', 'protocol_bytes_received', 'retry_after_seconds', 'retry_after_kind', 'local_cleanup',
                    'elapsed_ms', 'source_network_enabled'))
 
 
@@ -101,6 +101,8 @@ def checked_result(raw, value):
     require(type(result['framing_complete']) is bool and result['tls_peer_close'] in ('not_observed', 'abrupt', 'clean_tls'), 'invalid_output')
     require(type(result['protocol_bytes_received']) is int and 0 <= result['protocol_bytes_received'] <= MAX_PROTOCOL + 1, 'invalid_output')
     require(type(result['retry_after_seconds']) is int and 0 <= result['retry_after_seconds'] <= 86_400, 'invalid_output')
+    require(result['retry_after_kind'] in ('absent', 'delta_seconds', 'unsupported')
+            and (result['retry_after_kind'] != 'absent' or result['retry_after_seconds'] == 0), 'invalid_output')
     cleanup = result['local_cleanup']
     require(type(cleanup) is dict and set(cleanup) == {'http_file_closed', 'socket_closed'}
             and all(type(item) is bool for item in cleanup.values()), 'invalid_output')

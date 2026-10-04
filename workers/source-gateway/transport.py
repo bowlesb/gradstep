@@ -11,7 +11,7 @@ import time
 
 from protocol import (MAX_INPUT, MAX_OUTPUT, MAX_PROTOCOL, MAX_HEADERS, MAX_FIELDS,
                       MAX_HEADER_LINE, MAX_CHUNK_LINE, MAX_CHUNK_LINES,
-                      Refused, require, canonical, decode, envelope, digest)
+                      Refused, require, canonical, decode, envelope, digest, clock, clock_ns)
 
 
 class BoundedFile:
@@ -35,7 +35,7 @@ class BoundedFile:
         self.peer_close = 'not_observed'
 
     def _read(self, amount):
-        remaining = self.deadline - time.monotonic()
+        remaining = self.deadline - clock()
         require(remaining > 0, 'deadline')
         require(amount > 0, 'protocol_error')
         self.tls.settimeout(remaining)
@@ -187,21 +187,37 @@ def retry_after(response):
         return 0
 
 
-def perform(value):
+def retry_classification(response):
+    values = response.headers.get_all('Retry-After', [])
+    if not values:
+        return 'absent'
+    if len(values) != 1 or len(values[0]) > 128:
+        return 'unsupported'
+    value = values[0].strip()
+    if re.fullmatch(r'[0-9]{1,10}', value):
+        return 'delta_seconds' if int(value) <= 86_400 else 'unsupported'
+    # No host/server wall-clock admission exists for absolute HTTP dates.
+    return 'unsupported'
+
+
+def perform(value, *, absolute_deadline_ns=None):
     destination = envelope(value)
-    started = time.monotonic()
+    started = clock()
     deadline = started + value['useful_ms'] / 1000
+    if absolute_deadline_ns is not None:
+        require(type(absolute_deadline_ns) is int and absolute_deadline_ns > clock_ns(), 'deadline')
+        deadline = min(deadline, absolute_deadline_ns / 1_000_000_000)
     result = {'schema_version': 1, 'mode': 'loopback_fixture_v1', 'attempt_id': value['attempt_id'],
               'request_sha256': digest(canonical(value['request'])), 'target': destination,
               'kind': 'uncertain', 'reason': 'transport', 'status': None, 'framing': None,
               'framing_complete': False, 'tls_peer_close': 'not_observed',
               'body_base64': None, 'body_sha256': None, 'body_bytes': None,
-              'protocol_bytes_received': 0, 'retry_after_seconds': 0,
+              'protocol_bytes_received': 0, 'retry_after_seconds': 0, 'retry_after_kind': 'absent',
               'local_cleanup': {'http_file_closed': True, 'socket_closed': True},
               'elapsed_ms': 0, 'source_network_enabled': False}
     raw = tls = file = response = None
     def arm(connection):
-        remaining = deadline - time.monotonic()
+        remaining = deadline - clock()
         require(remaining > 0, 'deadline')
         connection.settimeout(remaining)
 
@@ -235,7 +251,7 @@ def perform(value):
         arm(tls)
         tls.do_handshake()
         require(tls.selected_alpn_protocol() in (None, 'http/1.1'), 'protocol_error')
-        require(not tls.get_inheritable() and time.monotonic() < deadline, 'deadline')
+        require(not tls.get_inheritable() and clock() < deadline, 'deadline')
         request = ('GET ' + destination['path'] + ' HTTP/1.1\r\nHost: ' + destination['host'] +
                    '\r\nAccept: application/atom+xml, application/xml, text/xml\r\nAccept-Encoding: identity' +
                    '\r\nConnection: close\r\nUser-Agent: science-reader-loopback-fixture/1\r\n\r\n').encode('ascii')
@@ -247,10 +263,11 @@ def perform(value):
         response.begin()
         result['status'] = response.status
         result['retry_after_seconds'] = retry_after(response)
+        result['retry_after_kind'] = retry_classification(response)
         result['framing'] = header_policy(response, value['request']['byte_ceiling'])
         body = response.read()
         require(len(body) <= value['request']['byte_ceiling'], 'body_limit')
-        require(time.monotonic() < deadline, 'deadline')
+        require(clock() < deadline, 'deadline')
         result['framing_complete'] = True
         result['kind'] = 'complete'
         result['reason'] = None
@@ -300,7 +317,7 @@ def perform(value):
         if raw is not None:
             close_owned(raw)
             result['local_cleanup']['socket_closed'] = result['local_cleanup']['socket_closed'] and raw.fileno() == -1
-        result['elapsed_ms'] = round((time.monotonic() - started) * 1000, 3)
+        result['elapsed_ms'] = round((clock() - started) * 1000, 3)
     return result
 
 

@@ -1,9 +1,10 @@
-# Local metadata executor integration proposal
+# Local metadata executor integration
 
-Status: plan only, against disabled migration 012 candidate at commit `19de3be`.
-No grant adapter, role credential, activation, source DNS/GET, scheduler or
-deployment is implemented here. The first integration uses a disposable local
-Postgres database and loopback TLS fixtures. It is not a deployed beta gateway.
+Status: reviewed contract with a local fixture implementation against disabled
+migration 012 at commit `19de3be`. The adapter, durable checkpoint replay and real
+PostgreSQL/loopback TLS tests are implemented; no provisioned role credential,
+hosted activation, source DNS/GET, scheduler or deployment is implemented. This
+is not a deployed beta gateway. Final validation evidence is listed below.
 
 ## Ownership and immutable inputs
 
@@ -20,15 +21,20 @@ The local action runner receives no admitter capability. The child receives none
 of the three. Role-scoped calls must not use `service_role` or silently escalate.
 For local tests only, the fixture database installs its test policy/authority in
 the harness, independently from the action runner; no such setup runs on hosted
-infrastructure.
+infrastructure. The local adapter starts as database owner and uses allowlisted
+`SET LOCAL ROLE` calls. That exercises RPC grants but does not implement separated
+login credentials; the future admitted runner must provide them.
 
 Freeze a finite bundle before launching: controller/RPC transport as
 `runner_sha256`, child/protocol/bootstrap as `transport_sha256`, parent witness
 validation/receipt serialization as `observer_sha256`, and reviewed runtime/OS
 ownership limits as `admission_sha256`. Hash exact captured bytes and a canonical
-manifest, not mutable source after execution. Pin Python/TLS/executable and
-dependency identities separately in that admission manifest. The current
-two-module `child_recipe_sha256` is not a substitute for these complete identities.
+manifest, not mutable source after execution. The implementation captures all ten
+Python modules, exact bootstrap, standalone parser and parser build manifest;
+records Python/TLS/Deno identities; and rechecks executable hashes at launch.
+Exact bundled parser output still needs source review for dynamic loaders. Local
+OS libraries/filesystem trust are not an immutable host image or hosted
+admission. The older transport-only `child_recipe_sha256` is not a substitute.
 
 ## One action, in order
 
@@ -45,7 +51,12 @@ two-module `child_recipe_sha256` is not a substitute for these complete identiti
    is alive. A random UUID or application wall-clock launch timestamp is not a
    kernel start identity. Implement and review the macOS/Linux identity adapter
    before any admitted use; absence of a supported adapter must refuse execution.
-3. Immediately before the grant transaction record `monotonic_ns()` as `m0`.
+3. Immediately before the grant transaction record
+   `clock_gettime_ns(CLOCK_MONOTONIC)` on macOS, or `CLOCK_BOOTTIME` on Linux,
+   as `m0`. These explicit sleep-inclusive kernel clocks share
+   one origin across parent/child processes; Python 3.9/macOS's process-relative
+   `time.monotonic_ns()` is unsuitable. Clock absence refuses the fixture;
+   suspend/resume experiments and deployed-host admission remain unperformed.
    Call `worker_claim_metadata_stage_v2` once. The role-scoped SQL adapter must
    retain the SELECT response until COMMIT acknowledgement succeeds. Streaming
    SELECT rows, socket EOF or a driver timeout do not establish committed grant
@@ -110,6 +121,9 @@ canonical JSON is not byte-equivalent. Validate every returned binding field,
 then retain that authenticated DB digest as the opaque receipt binding rather
 than silently recomputing it with a different serializer. The observer must
 validate the source DTO independently; the process binding alone proves no URL.
+Local canonical JSON uses sorted keys and compact UTF-8 (`ensure_ascii=False`),
+so actual wire/checkpoint limits match catalog and parser byte accounting rather
+than rejecting valid metadata after ASCII-escape expansion.
 
 The current TypeScript action runner uses 011 claim/close/fail RPCs and wall-clock
 source deadlines. It cannot be connected unchanged. Add a versioned executor
@@ -144,25 +158,29 @@ HTTP 404 maps to nonretryable `source_not_found`; 429 to retryable `rate_limited
 5xx to retryable `metadata_unavailable`; invalid 200 XML to nonretryable
 `invalid_source_metadata`. Other non-200 statuses do not become catalog success.
 
-Before live admission, tighten Retry-After observations: the fixture currently
-caps parsed values at 86,400 seconds and uses local wall time for HTTP dates.
-Those are fixture limits, not proof that clock skew or a longer server delay can
-be shortened safely. Preserve a finite absent/delta/date/invalid/over-limit
-classification for the future adapter. Unsupported delay evidence must block the
+The integration preserves a finite absent/delta/unsupported Retry-After
+classification. Only nonnegative integer delta-seconds up to 86,400 can settle
+the source hold. The older diagnostic parser's capped or wall-clock date result
+does not provide authority to shorten a longer or uncertain delay. Unsupported
+delay evidence blocks the
 database source lane for review: with 012 unchanged, retain `arxiv_connection`
 unresolved and send no source receipt. The exact executor receipt may commit.
 Merely stopping this local runner after a zero/shorter source receipt is unsafe:
 another scheduler could reuse the released gate. Never silently shorten delay.
-This is a DTO/policy prerequisite, not a change to applied SQL in this plan.
+This is implemented conservatively without changing 012.
 
 ## Lost acknowledgements and recovery
 
 Before requesting a grant, retain a bounded local intent containing job/claim,
 exact source DTO and recipe, process/boot identity, and a no-GO state. Checkpoints
-use bounded temporary files, flush and `fsync` the file, atomically rename within
+use bounded temporary files, flush and `fsync` the file, atomically publish a
+no-overwrite hard link within
 the owned run directory, and `fsync` that directory before sending the dependent
 grant/receipt/result mutation. Verify these filesystem operations on the local
-host; a failed durability checkpoint prevents that mutation. Never overwrite an
+host; a failed durability checkpoint prevents that mutation. Reopening validates
+bounded private files and successfully fsyncs each file and the directory before
+exposing any checkpoint for a dependent RPC. A visible final link alone is not
+durability. Never overwrite an
 already-frozen intent or receipt with different arguments. A lost or
 failed COMMIT acknowledgement means STOP and join without source I/O. A subsequent
 status lookup may reveal the committed attempt, but never grants GO. If its
@@ -171,15 +189,21 @@ not prove it cannot commit later. Once the exact attempt is visible, observer
 receipts can settle the already-ended child with unknown body/full charge.
 
 After exact join, checkpoint the witnessed process identity, disposition,
-bounded body/hash and immutable planned receipt/result arguments with the same
-durability sequence before any observer or result mutation. Retain them until
-their commits are resolved. Status-only recovery may
-reparse those same bytes; it never refetches to reconstruct missing output. Erase
+bounded body/hash and immutable planned receipt arguments before observer
+mutation. After parsing in step 8, checkpoint the exact result arguments,
+including `observed_at` and pinned inputs, before result mutation. Retain all
+checkpoints until their commits are resolved. Recovery replays previously
+attempted result arguments exactly; it cannot regenerate `observed_at`. It may
+reparse retained bytes only when no result mutation was attempted and the current
+result authority still permits it; it never refetches missing output. Erase
 the body only after the durable result/receipts are confirmed. A first local
 harness has one action and a finite artifact directory, not an unbounded daemon
 journal.
 
-Parent death is deliberately not auto-recovered in the first harness. A PID-only
+Parent death before a durable join witness is deliberately not auto-recovered.
+A saved positive witness permits bounded receipt/result replay; a later exact
+retained-handle join is appended as `terminal-witness.json`, preserving the
+earlier unresolved record. A PID-only
 record cannot recreate a `Popen.wait()` witness after reparenting. Leave SQL holds
 and authority recovery blocked unless a separately reviewed durable supervisor
 can supply the exact process/boot-scoped witness. There is no timer-based reclaim
@@ -212,3 +236,42 @@ OS isolation, resolver bounds and crash recovery remain later deployment work.
 
 These tests exercise one reviewable local action end to end. They do not authorize
 source traffic, hosted activation, new credentials or an always-on service.
+
+## Completed local validation
+
+The final suite passes 54 tests on Python 3.9.6 (69.083 seconds) and 3.13.3
+(61.437 seconds), using actual disposable PostgreSQL 001–012 schemas and actual
+loopback TLS. Saved logs are `.artifacts/source-gateway-integration-final.log`
+and `.artifacts/source-gateway-integration-python313.log`; their hashes and exact
+captured manifests are in `.artifacts/source-gateway-integration-evidence.json`.
+All 12 migration files remain byte-identical to the existing committed versions.
+The local fixture database count is zero after cleanup.
+
+The integration cases prove these bounded schedules:
+
+- SELECT succeeds but COMMIT fails; committed reply is lost; and the **same
+  original uncommitted transaction** is invisible to a status read, commits
+  later, then settles from its saved witness without a second grant or GET.
+- A durable GO checkpoint followed by cancellation, a different granted source
+  stage, and expired/partial/duplicate GO frames open no fixture connection.
+- Real Atom→license parsing preserves full timestamps and an 11,000-character
+  Unicode abstract through catalog storage, later grant, pinned parser input
+  and result. Unsupported licensing completes as source-only.
+- Lost observer/result acknowledgements replay the exact receipt and license
+  evidence `observed_at`; canonical receipt acknowledgement validation retains
+  the correct execution/resource identity.
+- Directory fsync failure after final-link publication sends no dependent RPC;
+  failed durable reopening still sends none; successful reopening reuses exact
+  arguments. A one-MiB body fits the pre-grant logical checkpoint envelope.
+- An initially unresolved wait followed by exact retained-handle join preserves
+  a separate terminal witness. Parent death after grant with no durable witness
+  leaves both SQL holds and cannot manufacture observer evidence on reopening.
+- Malformed XML, 404/503, incomplete 429 and both 204 framings preserve failure,
+  delay and payload accounting. Unsupported Retry-After retains the SQL source
+  hold after executor retirement.
+
+The parent-death fixture covers the granted/pre-GO boundary; it does not claim a
+durable supervisor after arbitrary host failure, power loss, suspension or a
+restored machine. Test instrumentation is explicitly outside the captured
+recipe. Runtime identity and local role checks are evidence for this fixture,
+not production credential separation or deployment admission.

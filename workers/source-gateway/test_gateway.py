@@ -95,7 +95,8 @@ class TLSServer:
         except (ssl.SSLError, BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
             pass  # Expected refusal/timeout scenarios, never raw diagnostic logs.
         except Exception as error:
-            self.error = error
+            if not (isinstance(error, OSError) and self.stop.is_set()):
+                self.error = error
         finally:
             if tls is not None:
                 tls.close()

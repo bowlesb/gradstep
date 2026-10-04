@@ -2,6 +2,8 @@
 import hashlib
 import json
 import re
+import sys
+import time
 from urllib.parse import urlencode
 
 MAX_BODY = 1_048_576
@@ -33,8 +35,31 @@ def require(condition, code):
         raise Refused(code)
 
 
+def clock_name():
+    # Apple CLOCK_MONOTONIC includes sleep; Linux requires CLOCK_BOOTTIME.
+    name = 'CLOCK_MONOTONIC' if sys.platform == 'darwin' else 'CLOCK_BOOTTIME' if sys.platform == 'linux' else None
+    require(name is not None and hasattr(time, 'clock_gettime_ns') and hasattr(time, name), 'shared_clock_unavailable')
+    return name
+
+
+def clock_ns():
+    """One kernel clock domain across this boot's parent and child processes.
+
+    Python 3.9's macOS time.monotonic() subtracts a process-local origin. Never
+    put that value in a cross-process permission. Supported fixture platforms
+    must expose the selected sleep-inclusive clock_gettime interface explicitly.
+    """
+    return time.clock_gettime_ns(getattr(time, clock_name()))
+
+
+def clock():
+    return clock_ns() / 1_000_000_000
+
+
 def canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
+    # SQL/catalog/parser limits count actual UTF-8 bytes. ASCII escaping can
+    # triple valid non-ASCII metadata and reject an otherwise bounded result.
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf8')
 
 
 def digest(value):
