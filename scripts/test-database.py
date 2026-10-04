@@ -5,32 +5,70 @@ import pathlib
 import subprocess
 import uuid
 import importlib.util
+import argparse
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BIN = pathlib.Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
-DB = 'science_reader_test_' + uuid.uuid4().hex[:12]
 BASE = ['-h', '127.0.0.1', '-p', '55431']
+# Every operation targets the disposable loopback fixture. Inherited libpq
+# services/options/users must not redirect or alter that authority.
+for key in list(os.environ):
+    if key.startswith('PG'):
+        del os.environ[key]
 
 def run(binary, args, **kwargs):
     return subprocess.run([str(BIN / binary), *BASE, *args], check=True, **kwargs)
 
-run('createdb', [DB])
-try:
-    for source in [ROOT / 'tests/database/bootstrap.sql', *sorted((ROOT / 'supabase/migrations').glob('*.sql')), *sorted((ROOT / 'tests/database').glob('test_*.sql'))]:
-        result = run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', DB, '-f', str(source)], capture_output=True, text=True)
-        print('PASS', source.relative_to(ROOT))
-    spec = importlib.util.spec_from_file_location('concurrency', ROOT / 'tests/database/concurrency.py')
-    concurrency = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(concurrency)
-    concurrency.verify(BIN, DB, BASE)
-    spec = importlib.util.spec_from_file_location('upgrade', ROOT / 'tests/database/upgrade.py')
-    upgrade = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(upgrade)
-    upgrade.verify(BIN, DB, BASE, ROOT)
-    print('Database:', DB)
-except subprocess.CalledProcessError as error:
-    print(error.stdout or '')
-    print(error.stderr or '')
-    raise
-finally:
-    run('dropdb', [DB])
+def module(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / f'tests/database/{name}.py')
+    result = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(result)
+    return result
+
+
+def phase(sources, checks):
+    db = 'science_reader_test_' + uuid.uuid4().hex[:12]
+    run('createdb', [db])
+    try:
+        # Application receipts use UTC days. Persist the fixture setting so all
+        # independent psql/race sessions share it, including around UTC midnight.
+        run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', 'postgres', '-c', f'ALTER DATABASE "{db}" SET timezone TO \'UTC\''], capture_output=True)
+        for source in [ROOT / 'tests/database/bootstrap.sql', *sources]:
+            run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(source)], capture_output=True, text=True)
+            print('PASS', source.relative_to(ROOT), flush=True)
+        for name in checks:
+            if name == 'upgrade':
+                module(name).verify(BIN, db, BASE, ROOT)
+            else:
+                module(name).verify(BIN, db, BASE)
+    except subprocess.CalledProcessError as error:
+        print(error.stdout or '')
+        print(error.stderr or '')
+        raise
+    finally:
+        run('dropdb', [db])
+
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--candidate', type=pathlib.Path, help='Explicit local 012 .sql.pending candidate; never deployed.')
+parser.add_argument('--metadata-only', action='store_true', help='Run only the isolated 012 schema and executor regressions.')
+args = parser.parse_args()
+migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
+if any(p.name > '202610030012_metadata_execution.sql' for p in migrations):
+    parser.error('a later migration needs an explicit test phase; refusing to silently skip it')
+if args.candidate and any(p.name.startswith('202610030012_') for p in migrations):
+    parser.error('012 already has an immutable .sql source; do not substitute a pending candidate')
+prefix = [p for p in migrations if p.name < '202610030012']
+candidate = args.candidate.resolve() if args.candidate else next((p for p in migrations if p.name.startswith('202610030012_')), None)
+if candidate is not None and (candidate.parent != ROOT / 'supabase/migrations' or
+        candidate.name not in ('202610030012_metadata_execution.sql.pending', '202610030012_metadata_execution.sql') or not candidate.is_file()):
+    parser.error('candidate must be the local 012 metadata execution migration')
+if args.metadata_only and candidate is None:
+    parser.error('--metadata-only requires the explicit 012 candidate or applied local source')
+if not args.metadata_only:
+    # 011's positive legacy execution tests remain real tests of the immutable
+    # 001--011 prefix. They cannot run after 012 deliberately revokes those APIs.
+    legacy_tests = [p for p in sorted((ROOT / 'tests/database').glob('test_*.sql')) if p.name != 'test_metadata_execution.sql']
+    phase([*prefix, *legacy_tests], ['concurrency', 'upgrade'])
+if candidate is not None:
+    phase([*prefix, candidate, ROOT / 'tests/database/test_metadata_execution.sql'], ['metadata_execution_concurrency'])

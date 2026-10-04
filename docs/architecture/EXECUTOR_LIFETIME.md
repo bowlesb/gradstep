@@ -1,11 +1,12 @@
 # Executor lifetime and external-operation settlement
 
-Status: **proposed additive contract, not implemented or admitted**. Reviewed against
+Status: **reviewed additive contract; metadata-only local implementation under review,
+not deployed or admitted**. Reviewed against
 immutable migration `202610030011_acquisition.sql`, SHA-256
 `30c2db5b6d1211dac4ccbbd93b732fb747a6dddcb06ceefc9970ba3bc3a09f03`.
 All acquisition, verification and original-read switches remain disabled. This
-document changes neither those switches nor 011. The next migration number must
-be assigned before implementation; do not edit or silently repurpose applied SQL.
+document changes neither those switches nor 011. The disabled local candidate is
+`202610030012_metadata_execution.sql.pending`; applied SQL remains immutable.
 
 ## Decision and present gaps
 
@@ -399,6 +400,78 @@ entire proved-drained authority and admit a new epoch, or abandon an unresolved
 path while retaining its cost/capacity. “It has been long enough” is not a fifth
 outcome. A reviewed hard bound can later automate the matching retirement step;
 record its policy and derivation as evidence instead of adding a magic timeout.
+
+## Metadata-only local implementation checkpoint
+
+Pending migration 012 implements only `atom` and `license` operations with
+`executor` and `arxiv_connection` receipts. It uses the shared record family
+above, leaving original download, verification, Storage reconciliation, deletion
+and original reads without operational grants. It installs no policy, login,
+secret, operational role membership, ingress, scheduler or network adapter. Authority starts
+disabled with predecessor recovery required. No hosted migration or admission is
+implied by local tests.
+
+Three `NOLOGIN` capabilities divide the API: `science_reader_metadata_executor`
+prepares and processes metadata jobs, `science_reader_execution_observer` records
+owned-child retirement, and `science_reader_executor_admitter` installs immutable
+policies and changes authority using an expected-revision comparison. The new
+grant/receipt/admission functions are unavailable to customer, service and PDF
+verifier roles. Each privileged function also checks the explicitly selected
+role; `current_user` inside a security-definer function is its owner and cannot
+identify the caller. Operational login provisioning and deployment admission are
+separate work. A supplied binding or evidence hash alone is not an attestation.
+
+Each new lookup has immutable `execution_contract='metadata-v2'` and reserves
+24 history units before work: three Atom attempts plus three license attempts,
+each with one existing acquisition step, one execution identity and two final
+resource receipts. Successful and failed outcomes update their own step rather
+than allocate another terminal row. Completion never shrinks that reservation.
+Legacy jobs retain their old contract and envelope; preparing a new generation
+does not rewrite their commands or manufacture retirement proof.
+
+The unchanged 32 MiB logical control ceiling reserves 32 units of 8 KiB for the
+authority and at most eight immutable policies. Admission accounts for source
+slots as well as jobs, commands, profiles and prepaid history. An otherwise empty
+pool therefore admits at most 150 distinct-source lookups (27 units each). This
+is a bounded logical-history allowance, not a measurement of PostgreSQL physical
+disk use or a production-scale capacity claim. Exhaustion denies new work while
+retaining room for already reserved receipts. Detached read/probe capacity is
+zero in this slice. Capacity changes require a separate reviewed configuration
+decision rather than grant-time top-ups or deletion of fences.
+
+A grant records one already identified child and returns permission only once.
+Exact replay returns state. Busy waits consume no attempt, history or transfer
+allowance. All unsettled children and source connections occupy the single lane
+across expiry, job completion and authority retirement. Only the observer can
+record an exact joined-child receipt. Unknown bodies retain their full 1 MiB
+charge; complete accepted framing permits payload-byte accounting. SQL starts
+the source cooldown when it accepts connection evidence, for at least three
+seconds and any longer Retry-After period. A metadata result needs the matching
+accepted response digest, current epoch and reporting deadline. Eligible license
+evidence must carry that same response digest.
+
+The migration conservatively treats any retained legacy source grant, original
+reservation or original-read grant as unresolved, including legacy records that
+claimed closure under the old contract. Such history blocks activation. There is
+no generic legacy reconciliation/conversion API in 012; empty staging admission
+must be established by inspection, and a nonempty old installation remains
+blocked until a separately reviewed recovery procedure exists.
+
+The [restore quarantine](BACKUP_AND_RESTORE.md) advances authority revision even
+for an empty or already blocked snapshot, preserves all evidence and holds, and
+requires new predecessor reconciliation. Local tests apply actual 001–012 schema
+and exercise stale activation, held connections and status-only grant replay.
+They do not establish encrypted-checkpoint recovery or hosted recovery.
+
+The development [source adapter](../../workers/source-gateway/README.md) currently
+uses real loopback TLS fixtures and isolated child processes only. Its owned
+executor scope is transport, framing, hashing and reference cleanup; the existing
+TypeScript XML parser and database result handling run outside that scope. Before
+integration, the parent must derive the exact target/request from the granted
+immutable job and compare it with the paused child's captured request and final
+result. A matching process binding alone does not identify the source request.
+Lost grant acknowledgement never starts I/O. An unknown parent/child lifetime
+retains its hold; a timer alone never produces a receipt.
 
 ## What the hosted experiment can establish
 

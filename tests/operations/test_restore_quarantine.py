@@ -21,7 +21,7 @@ RESTORE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RESTORE)
 
 
-class RestoreQuarantineTests(unittest.TestCase):
+class QuarantineDatabaseCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.database = 'science_reader_quarantine_' + uuid.uuid4().hex[:12]
@@ -42,6 +42,37 @@ class RestoreQuarantineTests(unittest.TestCase):
 
     def sql(self, source):
         return self.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', self.database], source)
+
+    def rows(self):
+        tables = self.sql("select tablename from pg_tables where schemaname='app_private' order by tablename;").splitlines()
+        return {table: json.loads(self.sql(
+            f"select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),'[]') from app_private.{table} t;"
+        )) for table in tables}
+
+    def assert_quarantined(self):
+        before = self.rows()
+        expected = copy.deepcopy(before)
+        fields = {'platform_budgets': ['work_enabled'],
+                  'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
+                  'paper_read_policy': ['enabled'], 'executor_authority': ['enabled']}
+        for table, names in fields.items():
+            for row in expected.get(table, []):
+                for name in names:
+                    row[name] = False
+        for row in expected.get('executor_authority', []):
+            row['recovery_required'] = True
+            row['revision'] += 1
+        RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), expected)
+        # Each restore fences a prior admission CAS, even if the copied authority
+        # was already disabled. It never releases holds or resets usage counters.
+        for row in expected.get('executor_authority', []):
+            row['revision'] += 1
+        RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), expected)
+
+
+class RestoreQuarantineTests(QuarantineDatabaseCase):
 
     def setUp(self):
         self.sql("""drop schema if exists app_private cascade;
@@ -99,27 +130,31 @@ class RestoreQuarantineTests(unittest.TestCase):
             ('2026-09-01','environment','source_bytes',5242880);
         """)
 
-    def rows(self):
-        tables = self.sql("select tablename from pg_tables where schemaname='app_private' order by tablename;").splitlines()
-        return {table: json.loads(self.sql(
-            f"select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),'[]') from app_private.{table} t;"
-        )) for table in tables}
-
-    def assert_quarantined(self):
-        before = self.rows()
-        expected = copy.deepcopy(before)
-        fields = {'platform_budgets': ['work_enabled'],
-                  'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
-                  'paper_read_policy': ['enabled']}
-        for table, names in fields.items():
-            for row in expected.get(table, []):
-                for name in names:
-                    row[name] = False
-        RESTORE.quarantine(self.sql)
-        self.assertEqual(self.rows(), expected)
-        # Repeating quarantine neither releases grants nor resets counters.
-        RESTORE.quarantine(self.sql)
-        self.assertEqual(self.rows(), expected)
+    def execution_evidence(self, held=True):
+        self.sql("""create table app_private.executor_authority (
+            singleton boolean primary key, enabled boolean not null,
+            recovery_required boolean not null, revision bigint not null,
+            epoch uuid not null, active_policy_id uuid, project_ref text,
+            recovery_evidence_sha256 bytea);
+          insert into app_private.executor_authority values
+            (true,true,false,7,'77777777-7777-7777-7777-777777777777',
+             '88888888-8888-8888-8888-888888888888','fixtureprojectonlyxx',decode(repeat('ab',32),'hex'));
+          create table app_private.execution_attempts (
+            id uuid primary key, epoch uuid, binding jsonb,
+            useful_deadline timestamptz, report_deadline timestamptz);
+          create table app_private.execution_quiescence (
+            attempt_id uuid, resource text, receipt_id uuid,
+            facts jsonb, accepted_at timestamptz);
+        """)
+        if held:
+            self.sql("""insert into app_private.execution_attempts values
+                ('99999999-9999-9999-9999-999999999999','77777777-7777-7777-7777-777777777777',
+                 '{"child_id":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}',
+                 '2000-01-01T00:00:00Z','2000-01-01T00:02:00Z');
+              insert into app_private.execution_quiescence values
+                ('99999999-9999-9999-9999-999999999999','executor',
+                 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','{"fixture":"joined"}','2000-01-01T00:03:00Z');
+            """)
 
     def test_pre011_snapshot_without_optional_tables(self):
         self.assert_quarantined()
@@ -144,6 +179,163 @@ class RestoreQuarantineTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'enabled'):
             RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), before)
+
+    def test_executor_quarantine_preserves_epoch_and_unresolved_socket_hold(self):
+        self.policies()
+        self.recovery_evidence()
+        self.execution_evidence()
+        self.assert_quarantined()
+        row = self.rows()['executor_authority'][0]
+        self.assertEqual(row['revision'], 9)
+        self.assertTrue(row['recovery_required'])
+        self.assertEqual(len(self.rows()['execution_attempts']), 1)
+        self.assertEqual([r['resource'] for r in self.rows()['execution_quiescence']], ['executor'])
+
+    def test_empty_execution_snapshot_still_requires_predecessor_reconciliation(self):
+        self.execution_evidence(held=False)
+        self.assert_quarantined()
+        self.assertEqual(self.rows()['execution_attempts'], [])
+        self.assertTrue(self.rows()['executor_authority'][0]['recovery_required'])
+
+    def test_already_quarantined_authority_still_fences_old_admission_revision(self):
+        self.execution_evidence()
+        self.sql('update app_private.executor_authority set enabled=false,recovery_required=true;')
+        self.assert_quarantined()
+        self.assertEqual(self.rows()['executor_authority'][0]['revision'], 9)
+
+    def test_incompatible_executor_table_rolls_back_all_prior_gate_changes(self):
+        self.policies()
+        self.execution_evidence()
+        self.sql('alter table app_private.executor_authority drop column recovery_required;')
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'recovery_required'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
+
+class ExecutorSchemaQuarantineTests(QuarantineDatabaseCase):
+    """Run the same restore hook against actual 001--012 relations and RPCs.
+
+    Policy hashes and child identities are deliberately synthetic. These tests
+    exercise database fencing, not admission of any real network executor.
+    """
+    POLICY_ID = 'c1200000-0000-0000-0000-000000000099'
+    JOB_ID = 'c1200000-0000-0000-0000-000000000098'
+    CLAIM_ID = 'c1200000-0000-0000-0000-000000000097'
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        migration_dir = ROOT / 'supabase/migrations'
+        applied_candidate = migration_dir / '202610030012_metadata_execution.sql'
+        candidate = applied_candidate if applied_candidate.is_file() else migration_dir / '202610030012_metadata_execution.sql.pending'
+        sources = [ROOT / 'tests/database/bootstrap.sql',
+                   *sorted(p for p in migration_dir.glob('*.sql') if p.name < '202610030012'), candidate]
+        for source in sources:
+            cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database, '-f', str(source)])
+
+    def setUp(self):
+        template = type(self).database
+        self.database = 'science_reader_quarantine_' + uuid.uuid4().hex[:12]
+        self.run_pg('createdb', ['-T', template, self.database])
+        self.addCleanup(self.run_pg, 'dropdb', [self.database])
+        self.sql(f"""
+          set role science_reader_executor_admitter;
+          select public.worker_install_metadata_executor_policy('{self.POLICY_ID}',
+            jsonb_build_object('version',1,'kind','metadata-owned-child-v1',
+              'connection_model','direct-owned-socket-v1','max_executors',1,
+              'runner_sha256',repeat('a',64),'transport_sha256',repeat('b',64),
+              'observer_sha256',repeat('c',64),'admission_sha256',repeat('d',64),
+              'max_useful_seconds',120,'max_report_seconds',120)::text);
+          select public.worker_activate_metadata_executor(1,'abcdefghijklmnopqrst',
+            '{self.POLICY_ID}',decode(repeat('e',64),'hex'));
+          reset role;
+          insert into auth.users values('c1200000-0000-0000-0000-000000000096');
+          select set_config('request.jwt.claim.sub','c1200000-0000-0000-0000-000000000096',false);
+          select public.v2_begin_import('c1200000-0000-0000-0000-000000000095','2403.50001',0,1);
+          set role science_reader_metadata_executor;
+          select public.worker_prepare_acquisition('{self.JOB_ID}','2403.50001',1);
+          select public.worker_link_import_acquisition('c1200000-0000-0000-0000-000000000096',
+            'c1200000-0000-0000-0000-000000000095',1,1,'{self.JOB_ID}');
+        """)
+
+    def role_json(self, role, statement):
+        return json.loads(self.sql(f'set role {role}; {statement}'))
+
+    def authority(self):
+        return self.role_json('science_reader_executor_admitter', 'select public.worker_metadata_authority_state();')
+
+    def assert_activation_rejected(self, revision, category):
+        with self.assertRaisesRegex(RuntimeError, category):
+            self.role_json('science_reader_executor_admitter', f"""
+              select public.worker_activate_metadata_executor({revision},'abcdefghijklmnopqrst',
+                '{self.POLICY_ID}',decode(repeat('f',64),'hex'));
+            """)
+
+    def assert_no_new_grant(self):
+        result = self.role_json('science_reader_metadata_executor', f"""
+          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}',gen_random_uuid(),'staging','{{}}');
+        """)
+        self.assertFalse(result['granted'])
+        self.assertEqual(result['action'], 'disabled')
+
+    def test_empty_actual_schema_still_blocks_restored_admission(self):
+        before = self.authority()
+        self.assertEqual(before['outstanding_executors'], 0)
+        self.assertTrue(before['enabled'])
+        self.assert_quarantined()
+        after = self.authority()
+        self.assertEqual(after['epoch'], before['epoch'])
+        self.assertEqual(after['revision'], before['revision'] + 2)
+        self.assertTrue(after['recovery_required'])
+        self.assertFalse(after['enabled'])
+        self.assert_activation_rejected(before['revision'], 'stale_executor_authority')
+        self.assert_no_new_grant()
+        self.assertEqual(self.authority(), after)
+
+    def test_actual_unsettled_connection_survives_and_prevents_activation(self):
+        binding = json.loads(self.sql("""
+          select jsonb_build_object('version',1,'project_ref',a.project_ref,
+            'environment',a.environment,'epoch',a.epoch,'policy_id',p.id,
+            'runner_sha256',encode(p.runner_sha256,'hex'),
+            'transport_sha256',encode(p.transport_sha256,'hex'),
+            'observer_sha256',encode(p.observer_sha256,'hex'),
+            'deployment_id','local-restore-fixture',
+            'host_id','c1200000-0000-0000-0000-000000000001',
+            'boot_id','c1200000-0000-0000-0000-000000000002',
+            'process_id',123,'process_start_id','123456',
+            'child_id','c1200000-0000-0000-0000-000000000003')
+          from app_private.executor_authority a join app_private.executor_policies p on p.id=a.active_policy_id;
+        """))
+        result = self.role_json('science_reader_metadata_executor', f"""
+          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}','{self.CLAIM_ID}',
+            'staging','{json.dumps(binding)}');
+        """)
+        self.assertTrue(result['granted'])
+        execution = result['execution']
+        facts = json.dumps({'binding_sha256': execution['binding_sha256'], 'disposition': 'exited'})
+        self.role_json('science_reader_execution_observer', f"""
+          select public.worker_record_metadata_quiescence('{execution['id']}',gen_random_uuid(),
+            'executor','owned_child_joined','{facts}');
+        """)
+        before = self.authority()
+        self.assertEqual(before['outstanding_executors'], 0)
+        self.assertEqual(before['outstanding_connections'], 1)
+        self.assert_quarantined()
+        after = self.authority()
+        self.assertEqual(after['epoch'], before['epoch'])
+        self.assertEqual(after['outstanding_connections'], 1)
+        self.assert_activation_rejected(before['revision'], 'stale_executor_authority')
+        self.assert_activation_rejected(after['revision'], 'executor_recovery_required')
+        self.assert_no_new_grant()
+        replay = self.role_json('science_reader_metadata_executor', f"""
+          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}','{self.CLAIM_ID}',
+            'staging','{json.dumps(binding)}');
+        """)
+        self.assertFalse(replay['granted'])
+        self.assertEqual(replay['action'], 'reconcile')
+        self.assertEqual(replay['execution']['pending_resources'], ['arxiv_connection'])
+        self.assertEqual(self.authority(), after)
 
 
 if __name__ == '__main__':

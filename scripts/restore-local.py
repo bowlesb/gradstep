@@ -52,7 +52,7 @@ def decrypt(source, key, target, maximum):
 def quarantine(sql):
     """Disable admission without releasing restored authority or reservations.
 
-    A pre-011 checkpoint has neither optional policy table. Dynamic statements
+    Older checkpoints lack some optional policy tables. Dynamic statements
     are deliberate: PostgreSQL must not resolve those relations on that path.
     The single DO statement rolls back every flag change if a present table is
     incompatible; the restore then fails and drops its disposable database.
@@ -65,6 +65,9 @@ def quarantine(sql):
       end if;
       if pg_catalog.to_regclass('app_private.paper_read_policy') is not null then
         execute 'update app_private.paper_read_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.executor_authority') is not null then
+        execute 'update app_private.executor_authority set enabled=false, recovery_required=true, revision=revision+1';
       end if;
     end
     $restore_quarantine$;""")
@@ -131,7 +134,10 @@ def restore(checkpoint, environment, fixture=None):
                 if not re.fullmatch(r'[a-z_][a-z_0-9]*',role):
                     raise RuntimeError('Unsupported restored role name')
                 if role not in existing_roles:
-                    sql(f'create role "{role}" nologin;',database='postgres'); roles.append(role)
+                    # Restore ACL references, never runnable credentials or
+                    # inherited/elevated authority. Existing cluster roles are
+                    # deliberately outside this disposable drill's ownership.
+                    sql(f'create role "{role}" nologin noinherit nosuperuser nocreatedb nocreaterole noreplication nobypassrls;',database='postgres'); roles.append(role)
             run('createdb',[db]); created = True
             sql('drop schema public;')  # Empty template schema in this newly created local DB only.
             run('pg_restore',['--exit-on-error','--single-transaction','--no-owner','--dbname',db,str(work/'database.dump')])
