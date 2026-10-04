@@ -2,6 +2,52 @@
 
 Status: product decisions approved; foundation implementation underway. No delivery milestone below is complete merely because its design exists.
 
+## Immediate usable-app checkpoint — 2026-10-04
+
+The owner asked whether the project will reach a working app. Completion must be
+measured by one real journey, not the count of isolated proofs. Close the current
+authored chat-rendering proof, then prioritize the following dependency order.
+The existing source-text display remains usable while rich native chat adoption
+has its separate lifecycle/layout work; it must not block connecting an answer.
+
+1. Connect one bounded arXiv import action: existing Linux supervisor, reviewed
+   012 grants/receipts, captured metadata parser and 011 library projection.
+   Follow with original acquisition, Storage and verified PDF publication.
+   Initial execution may be serialized to one active paper, while ownership,
+   fencing, quotas and retry semantics remain the final contracts.
+2. Implement the additive paid OCR protocol already designed in
+   [MATHPIX_PIPELINE](architecture/MATHPIX_PIPELINE.md): immutable quote/consent,
+   ledger holds, one-time submission grant, uncertain-outcome reconciliation,
+   durable raw output/asset collection, exact-byte sharing and publication.
+   Provider transport alone is not this workflow; do not enable its paid switch
+   before its transaction and failure schedules pass.
+3. Publish actual Mathpix provenance and a complete reader artifact, expose an
+   authenticated bounded download and connect it to the native verified
+   encrypted installer. The current renderer/native profile admits authored
+   samples only; real OCR output cannot be mislabeled as an authored fixture.
+4. Connect one metered paper-question route with captured consent/context,
+   server reservation, provider usage settlement and encrypted assistant-event
+   storage. The current Send path saves/syncs the user event but calls no AI.
+5. Verify one real sign-in path and the complete journey on Simulator, then on
+   the phone only after the owner resumes physical-device work. Google and email
+   remain launch requirements, but both need not precede the first owner journey.
+
+Acceptance: **Add an eligible equation-heavy paper → one charged conversion →
+authenticated download → offline equations/figures → one charged answer →
+terminate/reopen with the answer intact.** Re-adding identical eligible bytes
+must reuse the conversion without another OCR charge. Preserve the approved
+privacy, budget, identity and data-layout rules throughout. StoreKit products,
+broader search, admin hosting and browser delivery remain committed work after
+this first usable journey, rather than prerequisites to testing it.
+
+Known external readiness gaps are an owned Linux deployment destination,
+dedicated Mathpix/AI-provider access with verified rate/retention settings, and
+actual provider sign-in acceptance. The stopped local VM, fixture providers and
+auth configuration readbacks do not satisfy those gaps. Local implementation of
+the adapter and OCR protocol can continue before these account inputs arrive.
+The separate [deployment manifest](architecture/DEPLOYMENT_MANIFEST.md) records
+Google console, SMTP/domain and Apple provisioning requirements.
+
 ## 0. Architecture checkpoint
 
 Record key-custody and browser launch decisions. Review the data model, tenancy rules, sync semantics, monetary invariants, provider privacy constraints, compatibility strategy, and backup destination. Confirm live billing/account capabilities and a costed deployment manifest before provisioning. The user emphasized that infrastructure decisions must not be deferred into temporary schema/hosting shortcuts.
