@@ -56,7 +56,7 @@ create table app_private.executor_policies (
  canonical_policy text not null check(octet_length(canonical_policy)<=8192),
  definition jsonb not null check(jsonb_typeof(definition)='object' and canonical_policy::jsonb=definition
   and policy_sha256=sha256(convert_to(canonical_policy,'UTF8'))),
- kind text not null check(kind='metadata-owned-child-v1'),
+ kind text not null check(kind in ('metadata-owned-child-v1','metadata-linux-scope-v1')),
  runner_sha256 bytea not null check(octet_length(runner_sha256)=32),
  transport_sha256 bytea not null check(octet_length(transport_sha256)=32),
  observer_sha256 bytea not null check(octet_length(observer_sha256)=32),
@@ -74,9 +74,13 @@ create table app_private.executor_authority (
  epoch uuid not null default gen_random_uuid(), enabled boolean not null default false,
  recovery_required boolean not null default true,
  active_policy_id uuid references app_private.executor_policies(id),
+ admitted_host_id uuid, admitted_boot_id uuid,
+ admitted_deployment_id text check(admitted_deployment_id ~ '^[A-Za-z0-9_.:-]{1,128}$'),
  max_executors integer not null default 1 check(max_executors=1),
  recovery_evidence_sha256 bytea check(recovery_evidence_sha256 is null or octet_length(recovery_evidence_sha256)=32),
- check(not enabled or (not recovery_required and project_ref is not null and active_policy_id is not null))
+ check(not enabled or (not recovery_required and project_ref is not null and active_policy_id is not null)),
+ check((admitted_host_id is null and admitted_boot_id is null and admitted_deployment_id is null)
+  or (admitted_host_id is not null and admitted_boot_id is not null and admitted_deployment_id is not null))
 );
 insert into app_private.executor_authority(singleton) values(true);
 create table app_private.execution_attempts (
@@ -89,10 +93,15 @@ create table app_private.execution_attempts (
  binding_sha256 bytea not null check(binding_sha256=sha256(convert_to(binding::text,'UTF8'))),
  host_id uuid not null, boot_id uuid not null, process_id bigint not null check(process_id between 1 and 2147483647),
  process_start_id text not null check(process_start_id ~ '^[0-9]{1,20}$'), child_id uuid not null unique,
+ scope_id uuid,
  useful_deadline timestamptz not null, report_deadline timestamptz not null,
  byte_ceiling bigint not null check(byte_ceiling=1048576), charge_period date not null,
  created_at timestamptz not null default clock_timestamp(),
  unique(job_id,operation_id), unique(host_id,boot_id,process_id,process_start_id),
+ unique(host_id,boot_id,scope_id),
+ check(((binding->'version'='1'::jsonb and scope_id is null and not (binding ? 'scope'))
+  or (binding->'version'='2'::jsonb and scope_id is not null and scope_id=operation_id
+   and binding#>'{scope,scope_id}'=to_jsonb(scope_id::text))) is true),
  foreign key(job_id,operation_id) references app_private.acquisition_steps(job_id,operation_id),
  check(useful_deadline>created_at and report_deadline>=useful_deadline and report_deadline<=created_at+interval '120 seconds')
 );
@@ -102,7 +111,7 @@ create table app_private.execution_quiescence (
  attempt_id uuid not null references app_private.execution_attempts(id),
  resource text not null check(resource in ('executor','arxiv_connection')),
  receipt_id uuid not null unique, request_sha256 bytea not null check(octet_length(request_sha256)=32),
- evidence_kind text not null check(evidence_kind='owned_child_joined'),
+ evidence_kind text not null check(evidence_kind in ('owned_child_joined','owned_scope_retired_v1')),
  facts jsonb not null check(jsonb_typeof(facts)='object' and octet_length(facts::text)<=2048),
  accepted_at timestamptz not null default clock_timestamp(),
  primary key(attempt_id,resource)
@@ -264,7 +273,8 @@ begin
  if p_id is null or p_canonical_policy is null or octet_length(p_canonical_policy)>8192 then raise exception 'invalid_executor_policy'; end if;
  d:=p_canonical_policy::jsonb; digest:=sha256(convert_to(p_canonical_policy,'UTF8'));
  if jsonb_typeof(d) is distinct from 'object' or (select count(*) from jsonb_object_keys(d))<>10
-  or d->'version' is distinct from '1'::jsonb or d->>'kind' is distinct from 'metadata-owned-child-v1'
+  or d->'version' is distinct from '1'::jsonb or d->>'kind' is null
+  or d->>'kind' not in ('metadata-owned-child-v1','metadata-linux-scope-v1')
   or d->>'connection_model' is distinct from 'direct-owned-socket-v1' or d->'max_executors' is distinct from '1'::jsonb
   or (d-'version'-'kind'-'connection_model'-'max_executors'-'runner_sha256'-'transport_sha256'-'observer_sha256'-'admission_sha256'-'max_useful_seconds'-'max_report_seconds')<>'{}'::jsonb
   then raise exception 'invalid_executor_policy'; end if;
@@ -296,6 +306,7 @@ begin
   then raise exception 'executor_authority_required' using errcode='42501'; end if;
  return (select jsonb_build_object('revision',revision,'project_ref',project_ref,'environment',environment,'epoch',epoch,
   'enabled',enabled,'recovery_required',recovery_required,'policy_id',active_policy_id,
+  'admitted_host_id',admitted_host_id,'admitted_boot_id',admitted_boot_id,'admitted_deployment_id',admitted_deployment_id,
   'legacy_unsettled',app_private.legacy_execution_unsettled(),
   'outstanding_executors',(select count(*) from app_private.execution_attempts e where app_private.execution_pending(e.id,'executor')),
   'outstanding_connections',(select count(*) from app_private.execution_attempts e where app_private.execution_pending(e.id,'arxiv_connection')))
@@ -323,25 +334,51 @@ begin
  if a.enabled or p_project_ref is null or p_project_ref!~'^[a-z]{20}$'
   or (a.project_ref is not null and a.project_ref<>p_project_ref)
   or p_recovery_evidence_sha256 is null or octet_length(p_recovery_evidence_sha256)<>32
-  or not exists(select 1 from app_private.executor_policies where id=p_policy_id)
+  or not exists(select 1 from app_private.executor_policies where id=p_policy_id and kind='metadata-owned-child-v1')
   then raise exception 'invalid_executor_activation'; end if;
  if app_private.legacy_execution_unsettled() or exists(select 1 from app_private.execution_attempts e
   where app_private.execution_pending(e.id,'executor') or app_private.execution_pending(e.id,'arxiv_connection'))
   then raise exception 'executor_recovery_required'; end if;
  -- No elapsed deadline, host experiment, or arbitrary JSON can discharge holds.
  update app_private.executor_authority set project_ref=p_project_ref,active_policy_id=p_policy_id,epoch=gen_random_uuid(),
-  enabled=true,recovery_required=false,recovery_evidence_sha256=p_recovery_evidence_sha256,revision=revision+1 where singleton;
+  enabled=true,recovery_required=false,recovery_evidence_sha256=p_recovery_evidence_sha256,revision=revision+1,
+  admitted_host_id=null,admitted_boot_id=null,admitted_deployment_id=null where singleton;
+ update app_private.acquisition_policy set metadata_enabled=true where singleton;
+ return public.worker_metadata_authority_state();
+end $$;
+
+-- Distinct admission prevents a legacy activation from silently selecting the
+-- Linux evidence contract without its reviewed host/boot/deployment identity.
+create function public.worker_activate_metadata_executor_v2(p_expected_revision bigint,p_project_ref text,p_policy_id uuid,
+ p_host_id uuid,p_boot_id uuid,p_deployment_id text,p_recovery_evidence_sha256 bytea) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare a app_private.executor_authority;
+begin
+ perform app_private.require_executor_role('science_reader_executor_admitter');
+ select * into strict a from app_private.executor_authority where singleton for update;
+ if p_expected_revision is distinct from a.revision then raise exception 'stale_executor_authority'; end if;
+ if a.enabled or p_project_ref is null or p_project_ref!~'^[a-z]{20}$'
+  or (a.project_ref is not null and a.project_ref<>p_project_ref)
+  or p_host_id is null or p_boot_id is null or p_deployment_id is null or p_deployment_id!~'^[A-Za-z0-9_.:-]{1,128}$'
+  or p_recovery_evidence_sha256 is null or octet_length(p_recovery_evidence_sha256)<>32
+  or not exists(select 1 from app_private.executor_policies where id=p_policy_id and kind='metadata-linux-scope-v1')
+  then raise exception 'invalid_executor_activation'; end if;
+ if app_private.legacy_execution_unsettled() or exists(select 1 from app_private.execution_attempts e
+  where app_private.execution_pending(e.id,'executor') or app_private.execution_pending(e.id,'arxiv_connection'))
+  then raise exception 'executor_recovery_required'; end if;
+ update app_private.executor_authority set project_ref=p_project_ref,active_policy_id=p_policy_id,epoch=gen_random_uuid(),
+  enabled=true,recovery_required=false,recovery_evidence_sha256=p_recovery_evidence_sha256,revision=revision+1,
+  admitted_host_id=p_host_id,admitted_boot_id=p_boot_id,admitted_deployment_id=p_deployment_id where singleton;
  update app_private.acquisition_policy set metadata_enabled=true where singleton;
  return public.worker_metadata_authority_state();
 end $$;
 
 create function app_private.validate_metadata_executor_binding(b jsonb,a app_private.executor_authority,p app_private.executor_policies) returns void
 language plpgsql set search_path='' as $$
-declare k text;
+declare k text; scope jsonb;
 begin
  if b is null or jsonb_typeof(b)<>'object' or octet_length(b::text)>2048
-  or (b-'version'-'project_ref'-'environment'-'epoch'-'policy_id'-'runner_sha256'-'transport_sha256'-'observer_sha256'-'deployment_id'-'host_id'-'boot_id'-'process_id'-'process_start_id'-'child_id')<>'{}'::jsonb
-  or (select count(*) from jsonb_object_keys(b))<>14 or b->'version' is distinct from '1'::jsonb
+  or (b-'version'-'project_ref'-'environment'-'epoch'-'policy_id'-'runner_sha256'-'transport_sha256'-'observer_sha256'-'deployment_id'-'host_id'-'boot_id'-'process_id'-'process_start_id'-'child_id'-'scope')<>'{}'::jsonb
   or b->>'project_ref' is distinct from a.project_ref or b->>'environment' is distinct from a.environment
   or b->>'epoch' is distinct from a.epoch::text or b->>'policy_id' is distinct from p.id::text
   or b->>'runner_sha256' is distinct from encode(p.runner_sha256,'hex')
@@ -356,6 +393,35 @@ begin
   if jsonb_typeof(b->k) is distinct from 'string' or b->>k!~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
    then raise exception 'invalid_executor_binding'; end if;
  end loop;
+ if p.kind='metadata-owned-child-v1' then
+  if (select count(*) from jsonb_object_keys(b))<>14 or b->'version' is distinct from '1'::jsonb or b ? 'scope'
+   then raise exception 'invalid_executor_binding'; end if;
+ elsif p.kind='metadata-linux-scope-v1' then
+  if (select count(*) from jsonb_object_keys(b))<>15 or b->'version' is distinct from '2'::jsonb
+   or a.admitted_host_id is null or a.admitted_boot_id is null or a.admitted_deployment_id is null
+   or b->>'host_id' is distinct from a.admitted_host_id::text or b->>'boot_id' is distinct from a.admitted_boot_id::text
+   or b->>'deployment_id' is distinct from a.admitted_deployment_id then raise exception 'invalid_executor_binding'; end if;
+  foreach k in array array['project_ref','environment','epoch','policy_id','runner_sha256','transport_sha256','observer_sha256',
+   'deployment_id','host_id','boot_id','process_start_id','child_id'] loop
+   if jsonb_typeof(b->k) is distinct from 'string' then raise exception 'invalid_executor_binding'; end if;
+  end loop;
+  scope:=b->'scope';
+  if jsonb_typeof(scope) is distinct from 'object' then raise exception 'invalid_executor_binding'; end if;
+  if (select count(*) from jsonb_object_keys(scope))<>6
+   or (scope-'kind'-'scope_id'-'invocation_id'-'cgroup_device'-'cgroup_inode'-'capture_sha256')<>'{}'::jsonb
+   or scope->>'kind' is distinct from 'linux-systemd-cgroup-v1'
+   then raise exception 'invalid_executor_binding'; end if;
+  foreach k in array array['kind','scope_id','invocation_id','cgroup_device','cgroup_inode','capture_sha256'] loop
+   if jsonb_typeof(scope->k) is distinct from 'string' then raise exception 'invalid_executor_binding'; end if;
+  end loop;
+  if scope->>'scope_id'!~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+   or scope->>'invocation_id'!~'^[0-9a-f]{32}$' or scope->>'capture_sha256'!~'^[0-9a-f]{64}$'
+   or scope->>'cgroup_device'!~'^(0|[1-9][0-9]{0,19})$' or scope->>'cgroup_inode'!~'^[1-9][0-9]{0,19}$'
+   then raise exception 'invalid_executor_binding'; end if;
+  if (scope->>'cgroup_device')::numeric>18446744073709551615 or (scope->>'cgroup_inode')::numeric>18446744073709551615
+   then raise exception 'invalid_executor_binding'; end if;
+ else raise exception 'invalid_executor_binding';
+ end if;
 end $$;
 
 create function public.worker_claim_metadata_stage_v2(p_job_id uuid,p_claim_id uuid,p_environment text,p_executor_binding jsonb) returns jsonb
@@ -384,6 +450,8 @@ begin
  if p_environment<>a.environment then raise exception 'arxiv_outbound_disabled'; end if;
  select * into strict ep from app_private.executor_policies where id=a.active_policy_id;
  perform app_private.validate_metadata_executor_binding(p_executor_binding,a,ep);
+ if ep.kind='metadata-linux-scope-v1' and p_executor_binding#>>'{scope,scope_id}' is distinct from p_claim_id::text
+  then raise exception 'invalid_executor_binding'; end if;
  select * into strict p from app_private.acquisition_policy;
  if not p.metadata_enabled or p.gateway_environment<>p_environment then return jsonb_build_object('granted',false,'action','disabled','job',app_private.acquisition_job_entry(j.id)); end if;
  if j.status in ('complete','failed','no_interest') then return jsonb_build_object('granted',false,'action','terminal','job',app_private.acquisition_job_entry(j.id)); end if;
@@ -395,7 +463,9 @@ begin
  if j.next_attempt_at>clock_timestamp() or g.next_allowed_at>clock_timestamp() or (j.status='leased' and j.lease_until>clock_timestamp()) then
   return jsonb_build_object('granted',false,'action','wait','reason','cooldown','next_allowed_at',greatest(j.next_attempt_at,g.next_allowed_at,case when j.status='leased' then j.lease_until end),'job',app_private.acquisition_job_entry(j.id)); end if;
  if exists(select 1 from app_private.execution_attempts x where x.child_id=(p_executor_binding->>'child_id')::uuid
-  or (x.host_id,x.boot_id,x.process_id,x.process_start_id)=((p_executor_binding->>'host_id')::uuid,(p_executor_binding->>'boot_id')::uuid,(p_executor_binding->>'process_id')::bigint,p_executor_binding->>'process_start_id')) then raise exception 'executor_binding_already_used'; end if;
+  or (x.host_id,x.boot_id,x.process_id,x.process_start_id)=((p_executor_binding->>'host_id')::uuid,(p_executor_binding->>'boot_id')::uuid,(p_executor_binding->>'process_id')::bigint,p_executor_binding->>'process_start_id')
+  or (x.host_id,x.boot_id,x.scope_id)=((p_executor_binding->>'host_id')::uuid,(p_executor_binding->>'boot_id')::uuid,(p_executor_binding#>>'{scope,scope_id}')::uuid))
+  then raise exception 'executor_binding_already_used'; end if;
  perform 1 from app_private.acquisition_transfer_capacity where singleton for update;
  d:=(clock_timestamp() at time zone 'UTC')::date; month:=date_trunc('month',clock_timestamp() at time zone 'UTC')::date;
  perform 1 from app_private.acquisition_transfer_windows where scope='environment'
@@ -433,9 +503,10 @@ begin
   network_token,network_granted_at,network_byte_ceiling,network_period)
  values(j.id,p_claim_id,digest,'metadata_stage_v2',j.generation+1,j.stage,attempt,started,1048576,month);
  insert into app_private.execution_attempts(id,job_id,operation_id,generation,kind,request_sha256,epoch,policy_id,project_ref,environment,binding,binding_sha256,
-  host_id,boot_id,process_id,process_start_id,child_id,useful_deadline,report_deadline,byte_ceiling,charge_period,created_at)
+  host_id,boot_id,process_id,process_start_id,child_id,scope_id,useful_deadline,report_deadline,byte_ceiling,charge_period,created_at)
  values(attempt,j.id,p_claim_id,j.generation+1,j.stage,digest,a.epoch,ep.id,a.project_ref,a.environment,p_executor_binding,sha256(convert_to(p_executor_binding::text,'UTF8')),
   (p_executor_binding->>'host_id')::uuid,(p_executor_binding->>'boot_id')::uuid,(p_executor_binding->>'process_id')::bigint,p_executor_binding->>'process_start_id',(p_executor_binding->>'child_id')::uuid,
+  (p_executor_binding#>>'{scope,scope_id}')::uuid,
   started+make_interval(secs=>least(ep.useful_seconds,p.stage_lease_seconds)),started+make_interval(secs=>least(ep.report_seconds,p.stage_lease_seconds)),1048576,month,started);
  update app_private.acquisition_jobs set generation=generation+1,claim_id=p_claim_id,status='leased',state_revision=state_revision+1,
   lease_until=started+make_interval(secs=>least(ep.report_seconds,p.stage_lease_seconds)),hard_deadline=null,
@@ -449,11 +520,12 @@ end $$;
 create function public.worker_record_metadata_quiescence(p_attempt_id uuid,p_receipt_id uuid,p_resource text,p_evidence_kind text,p_facts jsonb) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare e app_private.execution_attempts; q app_private.execution_quiescence; s app_private.acquisition_steps; g app_private.arxiv_network_gate;
- digest bytea; measured bigint; retry integer; frame text;
+ digest bytea; measured bigint; retry integer; frame text; k text; scoped boolean;
 begin
  perform app_private.require_executor_role('science_reader_execution_observer');
  if p_attempt_id is null or p_receipt_id is null or p_resource is null or p_resource not in ('executor','arxiv_connection')
-  or p_evidence_kind is distinct from 'owned_child_joined' or p_facts is null or jsonb_typeof(p_facts)<>'object' or octet_length(p_facts::text)>2048
+  or p_evidence_kind is null or p_evidence_kind not in ('owned_child_joined','owned_scope_retired_v1')
+  or p_facts is null or jsonb_typeof(p_facts)<>'object' or octet_length(p_facts::text)>2048
   then raise exception 'invalid_execution_evidence'; end if;
  digest:=sha256(convert_to(jsonb_build_array('metadata-quiescence-v1',p_attempt_id,p_resource,p_evidence_kind,p_facts)::text,'UTF8'));
  perform 1 from app_private.executor_authority where singleton for update;
@@ -472,14 +544,39 @@ begin
   -- The observer receives the existing canonical receipt for future recovery.
   return jsonb_build_object('replayed',true,'receipt_id',q.receipt_id,'execution',app_private.execution_entry(p_attempt_id));
  end if;
- if p_facts->>'binding_sha256' is distinct from encode(e.binding_sha256,'hex')
-  or p_facts->>'disposition' is null or p_facts->>'disposition' not in ('exited','killed') then raise exception 'execution_evidence_binding'; end if;
+ if p_facts->>'binding_sha256' is distinct from encode(e.binding_sha256,'hex') then raise exception 'execution_evidence_binding'; end if;
+ scoped:=p_evidence_kind='owned_scope_retired_v1';
+ if scoped then
+  -- A trusted external observer validates the retained scope/fence documents.
+  -- These bounded bindings are not kernel attestations and cannot imply a wait
+  -- status, response body, refund or metadata result.
+  if e.scope_id is null or e.binding->'version' is distinct from '2'::jsonb
+   or not exists(select 1 from app_private.executor_policies where id=e.policy_id and kind='metadata-linux-scope-v1')
+   or p_facts->'scope_id' is distinct from to_jsonb(e.scope_id::text)
+   or p_facts->'capture_sha256' is distinct from e.binding#>'{scope,capture_sha256}' then raise exception 'execution_evidence_binding'; end if;
+  foreach k in array array['binding_sha256','capture_sha256','fence_sha256','observation_sha256'] loop
+   if jsonb_typeof(p_facts->k) is distinct from 'string' or p_facts->>k!~'^[0-9a-f]{64}$'
+    then raise exception 'invalid_execution_evidence'; end if;
+  end loop;
+ elsif p_facts->>'disposition' is null or p_facts->>'disposition' not in ('exited','killed') then raise exception 'execution_evidence_binding';
+ end if;
  if p_resource='executor' then
-  if (p_facts-'binding_sha256'-'disposition')<>'{}'::jsonb then raise exception 'invalid_execution_evidence'; end if;
+  if scoped then
+   if (p_facts-'binding_sha256'-'scope_id'-'capture_sha256'-'fence_sha256'-'observation_sha256')<>'{}'::jsonb
+    or (select count(*) from jsonb_object_keys(p_facts))<>5 then raise exception 'invalid_execution_evidence'; end if;
+  elsif (p_facts-'binding_sha256'-'disposition')<>'{}'::jsonb then raise exception 'invalid_execution_evidence';
+  end if;
  else
-  if (p_facts-'binding_sha256'-'disposition'-'framing'-'peer_eof'-'actual_bytes'-'body_sha256'-'status_code'-'retry_after_seconds')<>'{}'::jsonb
-   or (select count(*) from jsonb_object_keys(p_facts))<>8
-   or jsonb_typeof(p_facts->'peer_eof') is distinct from 'boolean'
+  if scoped then
+   if (p_facts-'binding_sha256'-'scope_id'-'capture_sha256'-'fence_sha256'-'observation_sha256'
+    -'framing'-'peer_eof'-'actual_bytes'-'body_sha256'-'status_code'-'retry_after_seconds')<>'{}'::jsonb
+    or (select count(*) from jsonb_object_keys(p_facts))<>11
+    or p_facts->'framing' is distinct from '"unknown"'::jsonb or p_facts->'peer_eof' is distinct from 'false'::jsonb
+    then raise exception 'invalid_execution_evidence'; end if;
+  elsif (p_facts-'binding_sha256'-'disposition'-'framing'-'peer_eof'-'actual_bytes'-'body_sha256'-'status_code'-'retry_after_seconds')<>'{}'::jsonb
+   or (select count(*) from jsonb_object_keys(p_facts))<>8 then raise exception 'invalid_execution_evidence';
+  end if;
+  if jsonb_typeof(p_facts->'peer_eof') is distinct from 'boolean'
    or jsonb_typeof(p_facts->'retry_after_seconds') is distinct from 'number' or p_facts->>'retry_after_seconds'!~'^(0|[1-9][0-9]{0,4})$'
    or (p_facts->>'retry_after_seconds')::integer>86400 then raise exception 'invalid_execution_evidence'; end if;
   frame:=p_facts->>'framing'; retry:=(p_facts->>'retry_after_seconds')::integer;
@@ -500,6 +597,9 @@ begin
     then raise exception 'invalid_execution_evidence'; end if;
    measured:=(p_facts->>'actual_bytes')::bigint;
   end if;
+  -- Applies to both joined-child and scope-retired evidence under the Linux
+  -- policy. Keep the original v1 fixture ordering unchanged.
+  if e.scope_id is not null and app_private.execution_pending(e.id,'executor') then raise exception 'executor_retirement_required'; end if;
   select * into strict s from app_private.acquisition_steps where job_id=e.job_id and operation_id=e.operation_id for no key update;
   if s.network_token is distinct from e.id or s.network_closed_at is not null or g.token is distinct from e.id
    then raise exception 'execution_gate_integrity'; end if;
@@ -510,6 +610,8 @@ begin
  values(e.id,p_resource,p_receipt_id,digest,p_evidence_kind,p_facts);
  if p_resource='arxiv_connection' then
   if measured is not null then
+   -- Refund only this attempt's original month. A late receipt does not create
+   -- credit in today's window, and no receipt refunds the daily request count.
    update app_private.acquisition_transfer_windows set charged=charged-(e.byte_ceiling-measured)
     where period=e.charge_period and scope='environment' and kind='source_bytes' and charged>=e.byte_ceiling-measured;
    if not found then raise exception 'execution_charge_integrity'; end if;
@@ -683,7 +785,7 @@ do $$ declare t text; r text; f record; allowed text[]; begin
     'worker_prepare_acquisition','worker_retry_lookup','worker_acquisition_state','worker_import_state','worker_scan_acquisition_imports',
     'worker_link_import_acquisition','worker_project_import_acquisition']
    when 'science_reader_execution_observer' then array['worker_record_metadata_quiescence','worker_metadata_execution_state','worker_scan_unsettled_metadata_executions','worker_metadata_authority_state']
-   else array['worker_install_metadata_executor_policy','worker_retire_metadata_executor','worker_activate_metadata_executor','worker_metadata_authority_state','worker_scan_unsettled_metadata_executions'] end;
+   else array['worker_install_metadata_executor_policy','worker_retire_metadata_executor','worker_activate_metadata_executor','worker_activate_metadata_executor_v2','worker_metadata_authority_state','worker_scan_unsettled_metadata_executions'] end;
   for f in select oid::regprocedure as sig,proname from pg_proc where pronamespace='public'::regnamespace and proname=any(allowed) loop
    execute format('grant execute on function %s to %I',f.sig,r);
   end loop;
@@ -693,7 +795,7 @@ do $$ declare t text; r text; f record; allowed text[]; begin
  for f in select oid::regprocedure as sig from pg_proc where pronamespace='public'::regnamespace and proname in (
   'worker_claim_metadata_stage_v2','worker_finish_metadata_stage_v2','worker_fail_metadata_stage_v2','worker_record_metadata_quiescence',
   'worker_metadata_execution_state','worker_scan_unsettled_metadata_executions','worker_scan_metadata_jobs_v2','worker_metadata_authority_state',
-  'worker_install_metadata_executor_policy','worker_retire_metadata_executor','worker_activate_metadata_executor') loop
+  'worker_install_metadata_executor_policy','worker_retire_metadata_executor','worker_activate_metadata_executor','worker_activate_metadata_executor_v2') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role,science_reader_pdf_verifier',f.sig);
  end loop;
 end $$;

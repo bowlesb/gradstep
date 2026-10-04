@@ -1,10 +1,10 @@
 # Linux metadata executor admission
 
-Status, 2026-10-04: **independently reviewed for disabled local implementation;
-not implemented or admitted**. This
-document proposes a narrow extension to the unapplied
+Status, 2026-10-04: **database delta implemented, independently reviewed and
+tested locally; combined Linux runtime not implemented or admitted**. The
+extension lives only in the unapplied
 [`012` candidate](../../supabase/migrations/202610030012_metadata_execution.sql.pending).
-It changes no SQL, enabled flag, credential or executable. Applied migrations
+No hosted migration, enabled flag or credential changed. Applied migrations
 001–011 remain immutable. Its scope is one Atom or license action, not original
 PDF acquisition, verification, Mathpix or a general scheduler.
 
@@ -33,10 +33,35 @@ cannot migrate out or restart. It does not claim that arbitrary remote server
 work stopped. A stop command, expired lease, missing directory, PID disappearance
 or client timeout is insufficient. No elapsed-time release is added.
 
-## Proposed database delta
+## Local database delta
 
 Reuse `executor_policies`, `executor_authority`, `execution_attempts` and the two
 prepaid `execution_quiescence` rows. Add no orchestration table or event stream.
+
+The frozen SQL SHA-256 is
+`63239b21c78870c157c4c297d582de7e18c09ebf242f823dfc9c63419a32df7b`;
+the final contract-test hash is
+`01f6d58693df740e5bd8332f3e7ab5a6e73fb74a6af52ddeac0ee129691816e6`.
+Independent review covers authority/binding pins, scope uniqueness, immutable
+receipt ordering/replay, unknown-body accounting, original-period refunds,
+role separation and v1 compatibility. The separate rolled-back Linux test block
+also exercises normal joined-executor proof followed by unknown-body scope
+source retirement, without inferring a successful response or refund.
+
+The full local runner passed the immutable 001–011 SQL, concurrency and upgrade
+checks, then stopped on an extra parenthesis in the new test fixture. That
+test-only correction is preserved in the final hash; the focused rerun passed
+the candidate SQL contracts and all ten existing real-session/upgrade schedules.
+Evidence is `.artifacts/metadata-linux-full.log` and
+`metadata-linux-focused.log`; the first log retains its failed ending.
+Six additional real-caller compatibility checks pass in
+`metadata-linux-compatibility.log`: actual-schema empty/unsettled restore
+quarantine, normal Atom transport through catalog publication, lost grant
+acknowledgement without GO, and exact replay after lost receipt/result
+acknowledgements. These use disposable loopback PostgreSQL databases and TLS
+fixtures; no temporary databases remain. They do not connect the Linux cgroup
+fixture to SQL or establish deployed confinement, separate credentials or source
+admission.
 
 **Policy.** Add kind `metadata-linux-scope-v1`, retaining the current ten policy
 keys, `version: 1`, `connection_model: direct-owned-socket-v1`, one executor and
