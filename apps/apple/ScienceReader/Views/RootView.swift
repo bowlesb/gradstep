@@ -238,50 +238,48 @@ struct LibraryView: View {
                     }
                 } else {
                     List(model.libraryRows) { entry in
-                        switch entry {
-                        case .paper(let paper):
-                            #if OFFLINE_RESOURCE_MEASUREMENTS
-                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: paper.id)
-                            #endif
-                            Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics) }
-                                .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
-                                .accessibilityIdentifier("paper.\(paper.id.wire)")
-                                .contextMenu {
-                                    if !paper.isSample {
-                                        Button("Remove from library", systemImage: "minus.circle", role: .destructive) { Task { await model.removePaper(paper) } }
+                        #if OFFLINE_RESOURCE_MEASUREMENTS
+                        let resourceDocumentID: UUID? = {
+                            if case .paper(let paper) = entry { return paper.id }
+                            return nil
+                        }()
+                        let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: resourceDocumentID)
+                        #endif
+                        VStack(alignment: .leading, spacing: 0) {
+                            switch entry {
+                            case .paper(let paper):
+                                Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics) }
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("paper.\(paper.id.wire)")
+                                    .contextMenu {
+                                        if !paper.isSample {
+                                            Button("Remove from library", systemImage: "minus.circle", role: .destructive) { Task { await model.removePaper(paper) } }
+                                                .disabled(!model.canChangeLibrary)
+                                        }
+                                    }
+                            case .pending(let item):
+                                ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                                    .accessibilityIdentifier("import.\(item.id.wire)")
+                                    .contextMenu {
+                                        if item.phase == .failed && item.retryable {
+                                            Button("Retry import", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
+                                                .disabled(!model.canChangeLibrary)
+                                        }
+                                        Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.changeImport(item, retry: false) } }
                                             .disabled(!model.canChangeLibrary)
                                     }
-                                }
-                        case .pending(let item):
-                            #if OFFLINE_RESOURCE_MEASUREMENTS
-                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: nil)
-                            #endif
-                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
-                                .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
-                                .accessibilityIdentifier("import.\(item.id.wire)")
-                                .contextMenu {
-                                    if item.phase == .failed && item.retryable {
-                                        Button("Retry import", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
+                            case .queued(let command):
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(command.display ?? "Queued paper").font(.headline)
+                                    Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
+                                }.frame(maxWidth: .infinity, alignment: .leading)
+                                    .accessibilityIdentifier("import.\(command.id.wire)")
+                                    .contextMenu {
+                                        Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.cancelLibraryChange(command) } }
                                             .disabled(!model.canChangeLibrary)
                                     }
-                                    Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.changeImport(item, retry: false) } }
-                                        .disabled(!model.canChangeLibrary)
-                                }
-                        case .queued(let command):
-                            #if OFFLINE_RESOURCE_MEASUREMENTS
-                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: nil)
-                            #endif
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(command.display ?? "Queued paper").font(.headline)
-                                Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                                .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
-                                .accessibilityIdentifier("import.\(command.id.wire)")
-                                .contextMenu {
-                                    Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.cancelLibraryChange(command) } }
-                                        .disabled(!model.canChangeLibrary)
-                                }
-                        }
+                            }
+                        }.listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                     }.listStyle(.plain).refreshable { await model.refreshLibrary() }
                         .overlay(alignment: .top) {
                             if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }

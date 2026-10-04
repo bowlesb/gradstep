@@ -1,6 +1,6 @@
 # Native offline resource acceptance
 
-Status, 2026-10-04: the isolated optimized Simulator fixture, three original performance journeys and two subsequent post-restore sampling journeys pass, with independently reviewed measurement boundaries. Background search removes the large synchronous scan; the maximum library still requires a memory/restore investigation. This is not resource acceptance. Offline functional evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
+Status, 2026-10-04: the isolated optimized Simulator fixture and repeated performance journeys pass, with independently reviewed measurement boundaries. Background search removes the large synchronous scan. A constant-row List layout reduces row construction and repeated post-restore footprint, but peak memory and remaining library growth still need investigation. This is not resource acceptance. Offline functional evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
 
 ## Measurement boundaries
 
@@ -244,5 +244,110 @@ Evidence and source/binary identities are in
 `.artifacts/offline-row-evaluation-{empty,restore}-evidence.json`,
 `offline-row-evaluation-source.{json,patch}` and `offline-row-evaluation-build.log`;
 the collector is `run-offline-row-evaluation.py` in the same artifact directory.
+
+## Constant-row library layout
+
+The layout places the existing paper/import/queued switch inside one leading,
+zero-spacing `VStack` for each List element. The identical row insets move to that
+container; child content, selection, identifiers, context actions and disabled
+guards stay the same. The diagnostic hook remains at content-closure entry, so
+moving the switch cannot hide builder evaluations. Independent source review is
+clear.
+
+Both candidate count cycles pass with the same complete dataset. Initial and
+returned Library each construct **12 row descriptions across six documents**,
+instead of 8,000 across all 4,000. Paper-body counts remain five across five
+documents. Empty-library and Settings counts remain zero; no invalid IDs occur.
+This establishes reduced row construction in the exercised workflow, not an
+allocation count or a guarantee about every scrolling/search state.
+
+Separate launches omit the row-count flag and retain the original three-stage
+allocation protocol. Both pass and terminate explicitly, with the task VM
+stopped and no build, XCTest or accessibility inspection overlapping them.
+
+| Candidate phase | Empty malloc in use | Full malloc in use | Full current footprint |
+| --- | --- | --- | --- |
+| Initial Library | 12.3 MiB | 176.3 MiB | 235.6 MiB |
+| Settings | 14.4 MiB | 173.3 MiB | 224.3 MiB |
+| Returned Library | 13.8 MiB | 177.5 MiB | 235.3 MiB |
+
+The full-case allocator block counts are 373,805 → 372,267 → 376,661, and final
+sample offsets are 1,033, 1,025 and 1,028 ms. All 4,000 papers, search collections
+and one unopened installation remain present. Compared with the preceding
+unmodified presentation cycle, Library malloc use is about 68 MiB lower and the
+large presentation-associated decrease/rebound is absent. These are single-run
+diagnostics, with separate allocator/footprint readings; they do not replace the
+repeated measurements below. Restore/model
+publication takes 4.020 seconds in this full-library diagnostic.
+
+All three ordinary fixture UI checks pass: iPhone search/open/return/no-match/
+scope separation, the same iPad journey, and iPad Browse → paper conversation.
+Independent visual review of five captures finds no material row-spacing,
+sparse-metadata or tablet-chat regression. These checks do not cover VoiceOver,
+edge-of-row taps, sparse-row selection or pending-import context menus.
+
+Evidence is `.artifacts/offline-row-stack-{counts,cycle}-{empty,restore}-evidence.json`,
+the corresponding stdout and bounded collectors, and
+`offline-row-stack-source.{json,patch}`. The installed diagnostic binary matches
+SHA-256 `6faffaf1f35aa62fbd8f42a9b38ee51371de7803cdae47d61074517e78df145f`.
+UI results and source/binary/capture identities are in
+`library-row-{iphone,ipad}-ui.xcresult` and `library-row-ui-source.json` in the same
+artifact directory.
+
+### Repeated sampling and search after the layout change
+
+The same three selected optimized journeys pass in
+`.artifacts/offline-row-performance.xcresult`, with no failures or skips. Each
+retains six invocations: the framework discards invocation 0, and the five
+following fresh-process runs are reported here. Counter/attribution/cycle flags
+are absent. The generated test specification retains both disabled runtime
+checker policies, and app/Core use `-O` without coverage or sanitizers. No build,
+VM or package download/unpacking overlapped the measurements.
+
+| Current app footprint after the joins | Empty library | Complete 4,000-row library |
+| --- | --- | --- |
+| Initial reading | 37.1–39.6 MiB | 245.8–287.2 MiB |
+| Requested 250 ms | 45.2–48.4 MiB | 260.4–287.6 MiB |
+| Requested 500 ms | 43.4–53.2 MiB | 260.4–287.6 MiB |
+| Requested 1,000 ms | 44.6–45.0 MiB | **260.4–287.6 MiB** |
+
+The full-library final samples occur at 1,016–1,033 ms. The earlier repeated
+baseline's corresponding range was 339.4–365.1 MiB, with an empty control of
+44.4–44.9 MiB. These are separate run groups, not paired per-process savings.
+Every run preserves the full catalog, search fields and one unopened installed
+bundle. The reduced row construction and lower post-restore footprint justify
+the narrow layout change without truncation or a storage/schema change.
+
+The sampling journey's full restore/model phase is 4.121–4.224 seconds, with
+81.4–87.0 ms publication. Its XCTest launch-through-samples clock is 6.414–6.599
+seconds and includes the deliberate one-second sampling window. Empty restoration
+is 210–249 ms. In the separate complete-library no-match journey, the background
+scan takes 803.5–810.3 ms, request-to-result 808.8–815.9 ms, initial main-actor
+metadata preparation 10.2–13.4 ms, and result publication 0.050–0.061 ms. Search
+still examines all 4,000 rows and returns the expected empty result.
+
+The sampling journey's application-targeted XCTest peak remains
+362,077–392,240 kB, versus 57,367–57,793 kB for the control (decimal tool units).
+This layout does not resolve the restoration peak. Post-restore growth remains
+above the 180 MiB investigation trigger even across the observed control range.
+Review bounded local metadata ownership and restoration next; preserve complete
+encrypted persistence, cursor correctness and full-field search. Live refresh,
+different-paper cycles, total WebContent use and supported physical-device
+headroom remain unverified.
+
+All raw attachments and CSV metrics are retained under
+`offline-row-performance-{attachments,metrics}/`. The source/binary/test-policy
+manifest is `offline-row-performance-source.json`; the validated numeric summary
+and its finite extraction recipe are `offline-row-performance-summary.json`
+and `summarize-offline-row-performance.py`, all under `.artifacts/`. The first
+summary attempt incorrectly required a publication event for the empty account;
+the corrected extractor requires it for the full catalog only. No app, test or
+raw evidence was changed or rerun for that correction.
+
+Independent artifact review confirms the source/installed-binary identities,
+all stdout records, attachment-to-test mapping, warm-up exclusion and all five
+CSV/app-measurement iterations. The layout change is retained. The no-match
+worker values are app-phase measurements collected after XCTest's restoration
+interval, not part of that interval's clock or peak.
 
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).

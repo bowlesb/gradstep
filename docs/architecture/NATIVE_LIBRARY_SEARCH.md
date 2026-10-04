@@ -31,3 +31,12 @@ The complete native suite in `.artifacts/native-search-verified.xcresult` passes
 All three optimized resource journeys pass in `.artifacts/offline-resource-search.xcresult`. Across five measured iterations after warm-up, the no-match worker takes 789–808 ms and request-to-result takes 795–814 ms. Initial main-actor candidate preparation takes 10.5–12.9 ms; accepted no-match publication takes 0.046–0.058 ms. Query changes reuse that prepared metadata. These values measure the identified code phases; they are not a complete frame-time trace or physical-device acceptance. Raw attachments, metrics, generated checker policies and exact source/binary hashes are preserved beside the result bundle.
 
 Both normal iPhone Simulator journeys pass in `.artifacts/native-search-ui.xcresult`: search → open → return → no-match recovery → external-scope separation, and encrypted install → terminate → relaunch → Contents/equation/figure/chat. These run the ordinary UI and the existing isolated fixtures, with no provider traffic or physical phone access.
+
+The subsequent constant-row List layout leaves matching, metadata ownership and
+navigation unchanged. Its optimized complete-library no-match rerun passes five
+measured iterations: 803.5–810.3 ms background work, 808.8–815.9 ms request latency,
+10.2–13.4 ms initial main-actor preparation and 0.050–0.061 ms publication.
+iPhone/iPad search/open/return/no-match/scope journeys also pass. Reduced row
+construction and post-restore footprint are recorded in
+[Native resource acceptance](NATIVE_RESOURCE_ACCEPTANCE.md#constant-row-library-layout);
+whole-catalog restoration and remaining metadata memory still need review.
