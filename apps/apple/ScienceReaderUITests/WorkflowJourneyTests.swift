@@ -406,13 +406,137 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Reader returns to the same passage")
     }
 
+    func testTouchEquationActionsSaveExactMathAndReturnToThePassage() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--draft-fixture", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons[sampleID].tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 5))
+        app.buttons["Table of contents"].tap()
+        let headingName = "2. Read the equations in context"
+        let headingButton = app.buttons[headingName]
+        XCTAssertTrue(headingButton.waitForExistence(timeout: 5)); headingButton.tap()
+        let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Scaled dot-product attention turns")).firstMatch
+        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The normalization in Equation")).firstMatch
+        XCTAssertTrue(before.waitForExistence(timeout: 5)); XCTAssertTrue(after.waitForExistence(timeout: 5))
+        let arrived = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: arrived, object: nil)], timeout: 5), .completed)
+        func tapEquation() {
+            // This authored fixture has one display equation between these
+            // paragraphs. Use a real touch in its measured screen interval.
+            let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
+            web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width / 2, dy: y)).tap()
+        }
+        let define = app.buttons["reader.selection.define"]
+        let equationY = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
+        let right = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.8, dy: equationY))
+        let left = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.2, dy: equationY))
+        right.press(forDuration: 0.05, thenDragTo: left)
+        XCTAssertFalse(define.exists, "Panning a wide equation must not activate its actions")
+        capture(app, "Wide equation pans without activating actions")
+        left.press(forDuration: 0.05, thenDragTo: right)
+        tapEquation()
+        XCTAssertTrue(define.waitForExistence(timeout: 5), "A touch on SVG math must expose the native actions")
+        capture(app, "Touching an equation offers the paper selection actions")
+        app.buttons["reader.selection.clear"].tap()
+        XCTAssertFalse(define.exists)
+        let location = before.frame.minY - web.frame.minY
+        tapEquation(); XCTAssertTrue(define.waitForExistence(timeout: 5)); define.tap()
+        let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 8), "The exact equation environment reaches encrypted local chat")
+        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        app.buttons["chat.returnToPaper"].tap()
+        XCTAssertTrue(before.waitForExistence(timeout: 5))
+        XCTAssertEqual(before.frame.minY - web.frame.minY, location, accuracy: 6)
+        XCTAssertFalse(define.exists)
+        capture(app, "Equation question returns to the same passage")
+    }
+
+    func testFigureSheetUsesOfflineImageAndReturnsToItsReadingPosition() throws {
+        let app = launch()
+        app.buttons[sampleID].tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 5))
+        app.buttons["Table of contents"].tap()
+        let section = app.buttons["2. Read the equations in context"]
+        XCTAssertTrue(section.waitForExistence(timeout: 5)); section.tap()
+        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure: Queries and keys")).firstMatch
+        for _ in 0..<10 {
+            if figure.exists, figure.isHittable, figure.frame.minY >= web.frame.minY, figure.frame.minY < web.frame.maxY - 80 { break }
+            web.swipeUp()
+        }
+        XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
+        let readingOffset = figure.frame.minY - web.frame.minY
+        figure.tap()
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
+        let detail = app.webViews.allElementsBoundByIndex.last!
+        let image = detail.images.firstMatch
+        XCTAssertTrue(image.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(image.frame.minY, done.frame.maxY, "The dismiss control must not cover the figure at large text sizes")
+        let caption = detail.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 1. A simplified attention data flow.")).firstMatch
+        XCTAssertTrue(caption.waitForExistence(timeout: 5)); XCTAssertTrue(caption.isHittable)
+        capture(app, "Offline figure and readable caption in the detail sheet")
+        done.tap()
+        XCTAssertTrue(figure.waitForExistence(timeout: 5))
+        XCTAssertEqual(figure.frame.minY - web.frame.minY, readingOffset, accuracy: 6)
+        capture(app, "Closing the figure preserves the paper position")
+    }
+
+    func testTouchTextSelectionKeepsEveryActionReachable() throws {
+        let app = launch()
+        app.buttons[sampleID].tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 5))
+        app.buttons["Table of contents"].tap()
+        let section = app.buttons["1. Start with the question"]
+        XCTAssertTrue(section.waitForExistence(timeout: 5)); section.tap()
+        let paragraph = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass identifies")).firstMatch
+        XCTAssertTrue(paragraph.waitForExistence(timeout: 5)); XCTAssertTrue(paragraph.isHittable)
+        let point = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+            dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18))
+        point.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5))
+        for action in ["define", "relevance", "similar", "ingest", "clear"] {
+            let button = app.buttons["reader.selection." + action]
+            XCTAssertTrue(button.isHittable)
+            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(button.frame.minX, 0)
+            XCTAssertLessThanOrEqual(button.frame.maxX, app.frame.maxX)
+        }
+        if app.buttons["reader.selection.relevance"].frame.minY >= app.buttons["reader.selection.define"].frame.maxY {
+            for action in ["relevance", "similar", "ingest"] {
+                XCTAssertGreaterThanOrEqual(app.buttons["reader.selection." + action].frame.width, app.frame.width - 56,
+                    "A full-width fallback row should be tappable across the row")
+            }
+        }
+        capture(app, "Native text selection with all paper actions reachable")
+        app.buttons["reader.selection.clear"].tap()
+        XCTAssertFalse(app.buttons["reader.selection.define"].exists)
+    }
+
     func testBrowseAskShowsPaperChatOnTablet() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad split layout")
         let app = launch()
         defer { XCUIDevice.shared.orientation = .portrait }
         app.buttons[sampleID].tap()
+        let introduction = app.webViews.firstMatch.staticTexts["An interactive reading sample · 2026"]
+        XCTAssertTrue(introduction.waitForExistence(timeout: 5), "Wait for the reader presentation before rotating")
         XCUIDevice.shared.orientation = .landscapeLeft
-        app.segmentedControls.buttons["Browse"].tap()
+        let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: nil)], timeout: 5) == .completed else {
+            capture(app, "Interface did not rotate to landscape")
+            XCTFail("The iPad interface remained in \(app.frame) after the device orientation changed")
+            return
+        }
+        let browse = app.segmentedControls.buttons["Browse"]
+        XCTAssertTrue(browse.waitForExistence(timeout: 5), "Wait for the landscape layout to finish before selecting Browse")
+        browse.tap()
         app.buttons["Paper options"].tap()
         app.buttons["Ask about this paper"].tap()
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)

@@ -1,0 +1,10 @@
+{
+  "title": "Reading machine learning papers",
+  "authors": ["Science Reader project"],
+  "purpose": "Original application reading fixture, authored for offline layout, equation selection, figure and navigation tests.",
+  "attribution": "Adapted from the project's original reader-sample.html. All prose and diagram artwork are authored fixture material. Standard mathematical expressions are used for rendering tests; no research results are reproduced.",
+  "distribution": "Bundled application sample and local regression tests.",
+  "artwork_generator": "make-figures.mjs (original pixel-letter and diagram artwork; no external fonts or images)",
+  "is_provider_output": false,
+  "external_sources": []
+}

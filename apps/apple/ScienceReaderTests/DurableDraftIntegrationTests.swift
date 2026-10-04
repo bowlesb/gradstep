@@ -6,6 +6,66 @@ import XCTest
 #if targetEnvironment(simulator)
 @MainActor
 final class DurableDraftIntegrationTests: XCTestCase {
+    func testDeferredSelectionCannotSendAChangedConversationOrDraft() async throws {
+        let model = ReaderModel(configuration: nil)
+        try await model.configureDurableDraftFixture(reset: true)
+        model.selectionAction(.define, quote: "the selected expression")
+        let selectedPrompt = model.chatInput
+        model.newChat(general: true)
+        model.chatInput = "Do not send this newer draft"
+        await model.flushDrafts()
+        await Task.yield()
+        XCTAssertTrue(model.privateState.events.isEmpty)
+        XCTAssertEqual(model.chatInput, "Do not send this newer draft")
+        XCTAssertTrue(model.unsentDrafts.contains { $0.text == selectedPrompt })
+    }
+
+    func testVerifiedEquationSourceReachesEncryptedHistoryAndSurvivesReopen() async throws {
+        var model: ReaderModel? = ReaderModel(configuration: nil)
+        try await model!.configureDurableDraftFixture(reset: true)
+        let bundle = try XCTUnwrap(model!.selectedPaper?.readerBundle)
+        let equation = try XCTUnwrap(bundle.index.equations.first)
+        let scope = try XCTUnwrap(model!.readerDocumentScope)
+        let selection = ReaderSelection(manifestSHA256: bundle.manifestSHA256,
+            parts: [.init(kind: "equation", blockID: equation.blockID, equationID: equation.id)])
+        let quote = try selection.resolvedQuote(in: bundle)
+        model!.selectionAction(.define, selection: selection, scope: scope)
+        let sent = expectation(description: "Selection action commits the captured question")
+        let observation = Task { @MainActor in
+            for _ in 0..<100 {
+                if model?.chatMessages.count == 1 { sent.fulfill(); return }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+        }
+        await fulfillment(of: [sent], timeout: 5)
+        observation.cancel()
+        await model!.flushDrafts()
+        XCTAssertEqual(model!.chatMessages.first?.payload.text, "Define this in the context of the paper: " + quote)
+        let conversation = try XCTUnwrap(model!.activeConversation)
+        model = nil
+        let reopened = ReaderModel(configuration: nil)
+        try await reopened.configureDurableDraftFixture(reset: false)
+        reopened.openConversation(conversation)
+        XCTAssertEqual(reopened.chatMessages.map(\.payload.text), ["Define this in the context of the paper: " + quote])
+        XCTAssertEqual(reopened.chatInput, "")
+    }
+
+    func testOldSelectionScopeCannotCreateAQuestionAfterPaperChange() throws {
+        let model = ReaderModel(configuration: nil)
+        model.openSample()
+        let scope = try XCTUnwrap(model.readerDocumentScope)
+        let bundle = try XCTUnwrap(model.selectedPaper?.readerBundle)
+        let equation = try XCTUnwrap(bundle.index.equations.first)
+        let selection = ReaderSelection(manifestSHA256: bundle.manifestSHA256,
+            parts: [.init(kind: "equation", blockID: equation.blockID, equationID: equation.id)])
+        model.selectedPaper = nil
+        model.newChat(general: true); model.chatInput = "Keep this draft"
+        model.selectionAction(.define, selection: selection, scope: scope)
+        XCTAssertTrue(model.generalChat)
+        XCTAssertEqual(model.chatInput, "Keep this draft")
+        XCTAssertEqual(model.selectedQuote, "")
+    }
+
     func testAccountWorkspaceRestoresDraftsAndDoesNotRestoreASentQuestion() async throws {
         var first: ReaderModel? = ReaderModel(configuration: nil)
         try await first!.configureDurableDraftFixture(reset: true)

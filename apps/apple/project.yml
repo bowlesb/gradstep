@@ -28,6 +28,10 @@ targets:
     platform: iOS
     sources:
       - path: ScienceReader
+        excludes: [Resources/ReaderSamples, Resources/reader-sample.html]
+      - path: ScienceReader/Resources/ReaderSamples
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: ScienceReaderCore
     settings:

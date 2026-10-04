@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import ScienceReaderCore
 
 /// Transient reading state for one immutable document artifact. It contains no paper text.
 struct PaperReadingLocation: Equatable {
@@ -25,10 +26,18 @@ struct PaperHeading: Equatable, Identifiable {
     let title: String
 }
 
+private struct PaperLoadIdentity: Hashable {
+    let scope: ReaderDocumentScope
+    let revision: UUID
+}
+
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
-    @State private var selectedText = ""
+    @State private var selection: ReaderSelection?
+    @State private var readerFailed = false
+    @State private var reloadID = UUID()
+    @State private var selectionClearID = UUID()
     @State private var figure: String?
     @State private var loadingPaper = true
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
@@ -36,21 +45,21 @@ struct PaperView: View {
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
-        return "\(paper.id.uuidString)/\(paper.artifactID?.uuidString ?? "unversioned")"
+        return "\(paper.id.uuidString)/\(paper.artifactID?.uuidString ?? "unversioned")/\(paper.readerBundle?.manifestSHA256 ?? "unverified")"
     }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let paper = model.selectedPaper, let file = paper.fileURL, let readingKey, let readerScope = model.readerDocumentScope {
+                if let paper = model.selectedPaper, let bundle = paper.readerBundle, let readingKey, let readerScope = model.readerDocumentScope {
                     VStack(spacing: 0) {
                         if paper.isSample {
                             Text("Offline sample").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 5).background(Color.secondary.opacity(0.05))
                         }
-                        PaperWebView(url: file, locationKey: readingKey,
+                        PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
-                                     reduceMotion: reduceMotion, onLoading: {
+                                     reduceMotion: reduceMotion, selectionClearID: selectionClearID, onLoading: {
                                          if model.readerDocumentScope == readerScope { loadingPaper = $0 }
                                      },
                                      onLocation: { key, location in
@@ -61,23 +70,26 @@ struct PaperView: View {
                                          if model.paperJump?.id == id { model.paperJump = nil }
                                      },
                                      onSelection: {
-                                         if model.readerDocumentScope == readerScope { selectedText = $0 }
+                                         if model.readerDocumentScope == readerScope { selection = $0 }
                                      }, onHeadings: {
                                          if model.readerDocumentScope == readerScope { model.headings = $0 }
                                      }, onFigure: {
                                          if model.readerDocumentScope == readerScope { figure = $0 }
+                                     }, onFailure: {
+                                         if model.readerDocumentScope == readerScope { readerFailed = true; selection = nil; model.headings = [] }
                                      })
-                            .id(readerScope)
+                            .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
+                            .overlay { if readerFailed {
+                                ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
+                                    description: { Text("The reading bundle couldn’t be loaded completely.") }
+                                    actions: { Button("Try again") { readerFailed = false; loadingPaper = true; reloadID = UUID() } }
+                                    .background(Color(uiColor: .systemBackground))
+                            } }
                             .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
-                        if !selectedText.isEmpty {
-                            HStack(spacing: 0) {
-                                ForEach(SelectionAction.allCases, id: \.self) { action in
-                                    Button(action.rawValue) { model.selectionAction(action, quote: selectedText); selectedText = "" }
-                                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).frame(minHeight: 44)
-                                }
-                            }.padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.bottom, 4).transition(.opacity)
+                        if let selection {
+                            selectionControls(selection, scope: readerScope)
                         }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedText.isEmpty)
+                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                 } else if model.selectedPaper != nil {
                     ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
                 } else {
@@ -110,113 +122,105 @@ struct PaperView: View {
             }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
-                    if let figure { FigureWebView(html: figure) }
-                    else { Color.clear }
-                }.overlay(alignment: .topTrailing) { Button("Done") { figure = nil }.padding().background(.regularMaterial, in: Capsule()).padding() }
+                    Group {
+                        if let figure, let bundle = model.selectedPaper?.readerBundle { FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize) }
+                        else { Color.clear }
+                    }
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { figure = nil } } }
+                }
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
-            selectedText = ""; figure = nil; showContents = false
-            loadingPaper = model.selectedPaper?.fileURL != nil
+            selection = nil; figure = nil; showContents = false; readerFailed = false
+            loadingPaper = model.selectedPaper?.readerBundle != nil
         }
+    }
+
+    private func selectionControls(_ selection: ReaderSelection, scope: ReaderDocumentScope) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                ForEach(SelectionAction.allCases, id: \.self) { selectionButton($0, selection: selection, scope: scope) }
+                clearSelectionButton
+            }
+            HStack(spacing: 12) {
+                Grid(horizontalSpacing: 20, verticalSpacing: 4) {
+                    GridRow {
+                        selectionButton(.define, selection: selection, scope: scope)
+                        selectionButton(.relevance, selection: selection, scope: scope)
+                    }
+                    GridRow {
+                        selectionButton(.similar, selection: selection, scope: scope)
+                        selectionButton(.ingest, selection: selection, scope: scope)
+                    }
+                }
+                clearSelectionButton
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack { selectionButton(.define, selection: selection, scope: scope, expanded: true); clearSelectionButton }
+                ForEach([SelectionAction.relevance, .similar, .ingest], id: \.self) {
+                    selectionButton($0, selection: selection, scope: scope, expanded: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: .infinity)
+        .modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.bottom, 4).transition(.opacity)
+    }
+
+    private func selectionButton(_ action: SelectionAction, selection: ReaderSelection, scope: ReaderDocumentScope, expanded: Bool = false) -> some View {
+        Button {
+            model.selectionAction(action, selection: selection, scope: scope)
+            self.selection = nil; selectionClearID = UUID()
+        } label: {
+            Text(action.rawValue).font(.subheadline.weight(.semibold)).fixedSize()
+                .frame(minWidth: 44, maxWidth: expanded ? .infinity : nil, minHeight: 44, alignment: expanded ? .leading : .center)
+                .contentShape(Rectangle())
+        }.accessibilityIdentifier("reader.selection." + action.rawValue.lowercased())
+    }
+
+    private var clearSelectionButton: some View {
+        Button { selection = nil; selectionClearID = UUID() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+            .accessibilityLabel("Clear selection").accessibilityIdentifier("reader.selection.clear")
     }
 }
 
 struct PaperWebView: UIViewRepresentable {
     let url: URL
+    var bundle: VerifiedReaderBundle? = nil
+    var figureID: String? = nil
     let locationKey: String
     let location: PaperReadingLocation?
     let fontSize: Double
     let jump: PaperJumpRequest?
     let reduceMotion: Bool
+    var selectionClearID: UUID? = nil
     let onLoading: (Bool) -> Void
     let onLocation: (String, PaperReadingLocation) -> Void
     let onJumpApplied: (UUID) -> Void
-    let onSelection: (String) -> Void
+    let onSelection: (ReaderSelection?) -> Void
     let onHeadings: ([PaperHeading]) -> Void
     let onFigure: (String) -> Void
+    var onFailure: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let script = """
-        (() => {
-          const post = value => window.webkit.messageHandlers.reader.postMessage(value);
-          // Renderer IDs are part of the immutable artifact: section/equation
-          // references already point at them. Missing or ambiguous IDs get a
-          // private Contents key; never rewrite an existing artifact anchor.
-          const counts = new Map();
-          document.querySelectorAll('[id]').forEach(element => counts.set(element.id,(counts.get(element.id)||0)+1));
-          const used = new Set(counts.keys());
-          const headings = [...document.querySelectorAll('h1,h2,h3')]
-            .filter(element=>(element.textContent||'').trim()).slice(0,500);
-          const headingTargets = new Map();
-          const items = headings.map((element,index) => {
-            const valid = element.id && element.id.length<=512 && !/[\\u0000-\\u0020\\u007f]/.test(element.id) && counts.get(element.id)===1;
-            let key=element.id;
-            if (!valid) {
-              const stem='sr-heading-'+index;
-              let id=stem, suffix=0;
-              while (used.has(id)) id=stem+'-'+(++suffix);
-              used.add(id); key=id;
-            }
-            headingTargets.set(key,element);
-            return {id:key,title:(element.textContent||'').trim().slice(0,2000)};
-          });
-          window.__scienceReaderJumpToHeading = (key,reduced) => {
-            const heading=headingTargets.get(key);
-            if (!heading) return false;
-            heading.scrollIntoView({behavior:reduced?'instant':'smooth',block:'start'});
-            return true;
-          };
-          post({type:'headings',items});
-          const blocks = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,figure,table,pre')];
-          window.__scienceReaderLocation = () => {
-            const index = blocks.findIndex(element => {
-              const rect = element.getBoundingClientRect();
-              return rect.height > 0 && rect.bottom > 0;
-            });
-            const rect = index >= 0 ? blocks[index].getBoundingClientRect() : null;
-            return {block:index, fraction:rect ? -rect.top / Math.max(1,rect.height) : 0,
-                    height:rect ? Math.max(1,rect.height) : 1, y:Math.max(0,window.scrollY)};
-          };
-          window.__scienceReaderRestore = location => {
-            const block = blocks[location.block];
-            const rect = block?.getBoundingClientRect();
-            const y = rect ? window.scrollY + rect.top + location.fraction * Math.max(1,rect.height) : location.y;
-            window.scrollTo({top:Math.max(0,y),behavior:'instant'});
-          };
-          let positionTimer;
-          const postPosition = () => post({type:'position',...window.__scienceReaderLocation()});
-          window.addEventListener('scroll',() => {
-            if (positionTimer) return;
-            positionTimer=setTimeout(()=> { positionTimer=null; postPosition(); },120);
-          },{passive:true});
-          window.addEventListener('scrollend',postPosition);
-          let timer;
-          document.addEventListener('selectionchange',() => {
-            clearTimeout(timer);
-            timer=setTimeout(()=>post({type:'selection',text:(window.getSelection()?.toString() || '').trim().slice(0,20000)}),180);
-          });
-          document.querySelectorAll('figure').forEach((element,index)=> {
-            const open = () => {
-              if (window.getSelection()?.toString()) return;
-              const detail = element.cloneNode(true);
-              ['role','tabindex','aria-label'].forEach(name=>detail.removeAttribute(name));
-              post({type:'figure',html:detail.outerHTML});
-            };
-            element.setAttribute('role','button'); element.setAttribute('tabindex','0');
-            element.setAttribute('aria-label','Open figure '+(index+1));
-            element.addEventListener('click',open);
-            element.addEventListener('keydown',event=> {
-              if (event.key==='Enter' || event.key===' ') { event.preventDefault(); open(); }
-            });
-          });
-        })();
-        """
-        configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
-        configuration.userContentController.add(context.coordinator, name: "reader")
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        if let bundle { configuration.setURLSchemeHandler(ReaderBundleSchemeHandler(bundle: bundle), forURLScheme: "reader-bundle") }
+        let script = Bundle.main.url(forResource: "reader-bridge", withExtension: "js")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        var info: [String: Any] = [:]
+        if let bundle, let indexData = try? JSONEncoder().encode(bundle.index),
+           let index = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any] {
+            info = index; info["manifest_sha256"] = bundle.manifestSHA256
+            if let figureID { info["figure_id"] = figureID }
+        }
+        let json = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
+        let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
+        configuration.userContentController.addUserScript(WKUserScript(source: prelude + script,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
         let web = WKWebView(frame: .zero, configuration: configuration)
         web.isOpaque = false; web.backgroundColor = .systemBackground
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
@@ -232,17 +236,20 @@ struct PaperWebView: UIViewRepresentable {
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url
-            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            context.coordinator.invalidateLoad()
+            if bundle != nil { context.coordinator.navigation = web.load(URLRequest(url: url)) }
+            else { context.coordinator.navigation = web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
         }
         guard context.coordinator.ready else { return }
-        web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'", arguments: ["size": fontSize], in: nil, in: .page, completionHandler: nil)
+        context.coordinator.clearSelectionIfNeeded(in: web)
+        web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'", arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
         context.coordinator.applyJump(in: web)
     }
 
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
         coordinator.saveFinalLocation(in: web)
         coordinator.active = false
-        web.configuration.userContentController.removeScriptMessageHandler(forName: "reader")
+        web.configuration.userContentController.removeScriptMessageHandler(forName: "reader", contentWorld: .defaultClient)
         web.stopLoading()
     }
 
@@ -251,17 +258,24 @@ struct PaperWebView: UIViewRepresentable {
         var loadedURL: URL?
         var ready = false
         var active = true
+        var navigation: WKNavigation?
         private var loadingID = UUID()
         private var inFlightJumpID: UUID?
         private var lastJumpID: UUID?
         private var latestLocation: PaperReadingLocation?
         private var sampledOffsetY = 0.0
-        init(_ parent: PaperWebView) { self.parent = parent }
+        private var lastSelectionClearID: UUID?
+        init(_ parent: PaperWebView) { self.parent = parent; lastSelectionClearID = parent.selectionClearID }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard active, message.frameInfo.isMainFrame, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
-            case "selection": if let text = body["text"] as? String, text.utf8.count <= 80_000 { parent.onSelection(text.count > 2 ? text : "") }
+            case "selection":
+                guard ready, let bundle = parent.bundle, let value = body["selection"] as? [String: Any],
+                      JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value),
+                      data.count <= 100_000, let selection = try? JSONDecoder().decode(ReaderSelection.self, from: data),
+                      let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { parent.onSelection(nil); return }
+                parent.onSelection(selection)
             case "headings":
                 if let items = body["items"] as? [[String: String]], items.count <= 500 {
                     let headings = items.compactMap { item -> PaperHeading? in
@@ -272,13 +286,17 @@ struct PaperWebView: UIViewRepresentable {
                     guard headings.count == items.count, Set(headings.map(\.id)).count == headings.count else { return }
                     parent.onHeadings(headings)
                 }
-            case "figure": if let html = body["html"] as? String, html.utf8.count <= 1_000_000 { parent.onFigure(html) }
+            case "figure":
+                if ready, let bundle = parent.bundle, body["manifest_sha256"] as? String == bundle.manifestSHA256,
+                   let id = body["id"] as? String, bundle.index.figures.contains(where: { $0.id == id }) { parent.onFigure(id) }
+            case "invalid": invalidateLoad(); navigation = nil; parent.onLoading(false); parent.onFailure()
             case "position": if ready, let web = message.webView { remember(body, in: web) }
             default: break
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard active, navigation === self.navigation else { return }
             let load = loadingID
             let location: Any
             if let saved = parent.location {
@@ -287,14 +305,17 @@ struct PaperWebView: UIViewRepresentable {
             let arguments: [String: Any] = ["size": parent.fontSize, "location": location]
             webView.callAsyncJavaScript("""
                 document.documentElement.style.fontSize = size + 'px';
-                await document.fonts.ready;
+                await window.__scienceReaderReady;
                 await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
                 if (location) window.__scienceReaderRestore(location);
                 return window.__scienceReaderLocation();
-                """, arguments: arguments, in: nil, in: .page) { [weak self, weak webView] result in
+                """, arguments: arguments, in: nil, in: .defaultClient) { [weak self, weak webView] result in
                     guard let self, let webView, self.active, self.loadingID == load else { return }
+                    guard case .success(let value) = result, let body = value as? [String: Any] else {
+                        self.parent.onLoading(false); self.parent.onFailure(); return
+                    }
                     self.ready = true
-                    if case .success(let value) = result, let body = value as? [String: Any] { self.remember(body, in: webView) }
+                    self.remember(body, in: webView)
                     self.parent.onLoading(false)
                     self.applyJump(in: webView)
                 }
@@ -307,7 +328,7 @@ struct PaperWebView: UIViewRepresentable {
             let load = loadingID
             web.callAsyncJavaScript("""
                 return window.__scienceReaderJumpToHeading(id,reduced);
-                """, arguments: ["id": request.headingID, "reduced": parent.reduceMotion], in: nil, in: .page) { [weak self, weak web] result in
+                """, arguments: ["id": request.headingID, "reduced": parent.reduceMotion], in: nil, in: .defaultClient) { [weak self, weak web] result in
                     guard let self, let web, self.active, self.loadingID == load else { return }
                     self.inFlightJumpID = nil
                     if case .success(let value) = result, value as? Bool == true {
@@ -316,6 +337,12 @@ struct PaperWebView: UIViewRepresentable {
                     }
                     if self.parent.jump?.id != request.id { self.applyJump(in: web) }
                 }
+        }
+
+        func clearSelectionIfNeeded(in web: WKWebView) {
+            guard let id = parent.selectionClearID, id != lastSelectionClearID else { return }
+            lastSelectionClearID = id
+            web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
         }
 
         private func remember(_ body: [String: Any], in web: WKWebView) {
@@ -336,31 +363,52 @@ struct PaperWebView: UIViewRepresentable {
             parent.onLocation(parent.locationKey, latestLocation.adjusted(by: delta))
         }
 
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        func invalidateLoad() {
             loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil
+        }
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            guard active, navigation === self.navigation else { return }
             parent.onLoading(true)
         }
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { parent.onLoading(false) }
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { parent.onLoading(false) }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail(navigation) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(navigation) }
+        private func fail(_ navigation: WKNavigation?) {
+            guard active, navigation === self.navigation else { return }
+            invalidateLoad(); self.navigation = nil; parent.onLoading(false); parent.onFailure()
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard active else { return }
+            invalidateLoad(); navigation = nil
+            parent.onLoading(false); parent.onFailure()
+        }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             guard let destination = navigationAction.request.url else { return .cancel }
-            if destination.isFileURL, let loadedURL,
-               destination.standardizedFileURL.path.hasPrefix(loadedURL.deletingLastPathComponent().standardizedFileURL.path + "/") { return .allow }
+            if let bundle = parent.bundle {
+                if bundle.permitsNavigation(to: destination), navigationAction.targetFrame?.isMainFrame == true { return .allow }
+            } else if destination.isFileURL, let loadedURL,
+                      destination.standardizedFileURL.path == loadedURL.standardizedFileURL.path { return .allow }
             if navigationAction.navigationType == .linkActivated, destination.scheme == "https" { await UIApplication.shared.open(destination) }
             return .cancel
         }
     }
 }
 
-struct FigureWebView: UIViewRepresentable {
-    let html: String
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        let web = WKWebView(frame: .zero, configuration: configuration)
-        web.loadHTMLString("<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; img-src data: file:; style-src 'unsafe-inline'\"><style>:root{color-scheme:light dark}body{font-family:system-ui;padding:70px 16px}svg,img{max-width:100%;height:auto}figure{margin:0}figcaption{margin-top:24px;font-size:15px}</style></head><body>\(html)</body></html>", baseURL: nil)
-        return web
+struct FigureWebView: View {
+    let bundle: VerifiedReaderBundle
+    let figureID: String
+    var baseFontSize: Double = 17
+    @State private var failed = false
+    @State private var loading = true
+    @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    var body: some View {
+        PaperWebView(url: bundle.entryURL, bundle: bundle, figureID: figureID,
+                     locationKey: bundle.manifestSHA256 + "/" + figureID, location: nil,
+                     fontSize: baseFontSize * bodySize / 17, jump: nil, reduceMotion: true, onLoading: { loading = $0 },
+                     onLocation: { _, _ in }, onJumpApplied: { _ in }, onSelection: { _ in },
+                     onHeadings: { _ in }, onFigure: { _ in }, onFailure: { failed = true })
+            .overlay { if failed { ContentUnavailableView("Couldn’t open figure", systemImage: "photo").background(Color(uiColor: .systemBackground)) }
+                else if loading { ProgressView("Opening figure…").allowsHitTesting(false) } }
     }
-    func updateUIView(_ web: WKWebView, context: Context) {}
 }

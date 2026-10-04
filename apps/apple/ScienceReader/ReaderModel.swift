@@ -23,6 +23,7 @@ struct Paper: Identifiable, Sendable {
     var isSample = false
     var sourceID: String?
     var sourceRevision: Int?
+    var readerBundle: VerifiedReaderBundle? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 }
 
@@ -51,6 +52,7 @@ struct ReaderDocumentScope: Hashable {
     let paperID: UUID
     let artifactID: UUID?
     let fileURL: URL?
+    let manifestSHA256: String?
 }
 
 struct ChatFollowRequest: Equatable {
@@ -82,7 +84,7 @@ final class ReaderModel {
     var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
     var selectedPaper: Paper? {
         didSet {
-            if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL {
+            if oldValue?.id != selectedPaper?.id || oldValue?.artifactID != selectedPaper?.artifactID || oldValue?.fileURL != selectedPaper?.fileURL || oldValue?.readerBundle?.manifestSHA256 != selectedPaper?.readerBundle?.manifestSHA256 {
                 headings = []; paperJump = nil; selectedQuote = ""
             }
         }
@@ -193,7 +195,7 @@ final class ReaderModel {
     private var publishedPendingCount = 0
     var readerSessionID: UUID { sessionID }
     var readerDocumentScope: ReaderDocumentScope? {
-        selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL) }
+        selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL, manifestSHA256: $0.readerBundle?.manifestSHA256) }
     }
     private let configuration: BackendConfiguration?
 
@@ -612,7 +614,8 @@ final class ReaderModel {
                                  authors: item.metadata?.authors.joined(separator: ", ") ?? "",
                                  year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
                                  abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [],
-                                 fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision)
+                                 fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision,
+                                 readerBundle: file == nil ? nil : cached?.readerBundle)
                 }
                 let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
                 // Samples have no server membership. Preserve the local sample
@@ -686,10 +689,13 @@ final class ReaderModel {
         } catch { chatWorkspace.failDiscard(removal); queueDraft(id); show(error) }
     }
     func openSample() {
+        let bundle: VerifiedReaderBundle
+        do { bundle = try ReaderBundleLoader.sample() }
+        catch { self.error = "The offline sample couldn’t be verified. Try reinstalling this development build."; return }
         let paper = Paper(id: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!, title: "Reading machine learning papers", authors: "Science Reader · offline sample", year: 2026,
             abstract: "A local reading fixture with equations, a wide table, figure, and references. It demonstrates the reader without uploading a paper or using credits.",
-            keywords: ["attention", "optimization", "evaluation"], fileURL: Bundle.main.url(forResource: "reader-sample", withExtension: "html"),
-            artifactID: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000002"), isSample: true)
+            keywords: ["attention", "optimization", "evaluation"], fileURL: bundle.entryURL,
+            artifactID: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000002"), isSample: true, readerBundle: bundle)
         if !papers.contains(where: { $0.id == paper.id }) { papers.append(paper) }
         select(paper)
     }
@@ -707,7 +713,21 @@ final class ReaderModel {
         if email == nil { showSignIn = true }
         // This build saves encrypted questions only; there is no provider route
         // to consent to yet. Provider consent must bind a captured future turn.
-        else { Task { await sendMessage() } }
+        else {
+            let scope = sessionID, context = chatContext, composer = chatComposerID, prompt = chatInput, documentScope = readerDocumentScope
+            Task {
+                guard sessionID == scope, chatContext == context, chatComposerID == composer,
+                      chatInput == prompt, readerDocumentScope == documentScope else { return }
+                await sendMessage()
+            }
+        }
+    }
+
+    func selectionAction(_ action: SelectionAction, selection: ReaderSelection, scope: ReaderDocumentScope) {
+        guard readerDocumentScope == scope, let bundle = selectedPaper?.readerBundle,
+              bundle.manifestSHA256 == scope.manifestSHA256,
+              let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { return }
+        selectionAction(action, quote: quote)
     }
 
     func newChat(general: Bool) {
