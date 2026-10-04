@@ -1,6 +1,6 @@
 # Native offline resource acceptance
 
-Status, 2026-10-04: the isolated optimized Simulator fixture and three performance journeys pass, with an independently reviewed measurement boundary. The baseline identifies unacceptable synchronous search and a memory/restore investigation; it is not resource acceptance. The independently reviewed offline functional checkpoint is `cd1b724`; its evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
+Status, 2026-10-04: the isolated optimized Simulator fixture, three original performance journeys and two subsequent post-restore sampling journeys pass, with independently reviewed measurement boundaries. Background search removes the large synchronous scan; the maximum library still requires a memory/restore investigation. This is not resource acceptance. Offline functional evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
 
 ## Measurement boundaries
 
@@ -81,5 +81,24 @@ Application-targeted XCTest peaks are 351,952–362,060 kB during full restorati
 The initial empty-control journey overlapped a short local filename scan, so its values are not used for comparison. The isolated repeat in `.artifacts/offline-resource-search-control.xcresult` passes with five measured iterations: 212–247 ms app restoration, 3.499–3.552 seconds XCTest clock and 58,038–58,120 kB peak application memory. No build, VM or filename scan overlapped the maximum-library/opening journeys or this repeat. The original run and its note remain intact.
 
 The ownership review identified two separate paths: completed native cache-save tasks retained an unnecessary presentation result, and the model retained previously opened paper bundles after selection changes. The [retention follow-up](NATIVE_OFFLINE_BUNDLES.md) fixes both and passes model/UI regressions; it does not establish measured savings. Measure a settled checkpoint after restore/search/write completion and then passive footprint samples; include different-paper open/close cycles, since reopening one fixture cannot reveal per-paper accumulation. Preserve the complete encrypted catalog/cursor and full search coverage.
+
+## Post-restore footprint observations
+
+The independently reviewed format-3 probe starts sampling only after the restoration function has returned and the actual search, bundle-coordinator work and accepted local writes have joined. It retains scalar validation state and existing owners, not the decoded restoration result. Before each reading and completion it requires the same account/session, search and library ownership, complete row counts, Library destination and unopened selection. Requested offsets use absolute monotonic deadlines; actual elapsed times are recorded, and a missing current-footprint metric fails the test. No allocator purge, forced collection or intermediate probe-publication work is inserted between readings.
+
+Both journeys pass in `.artifacts/offline-resource-settled.xcresult`, using the same optimized target, runtime and maximum dataset. All six invocation attachments are retained; invocation 0 is the framework-discarded warm-up and the following five are reported below. No build, VM, database test or source acquisition overlapped the measurement. Source/binary/test-policy hashes and the exact source delta against `4a7d412` are in `.artifacts/offline-resource-settled-source.json` and `offline-resource-settled-source.patch`; raw attachments, XCTest CSV metrics and a derived numeric summary are in the matching `-attachments/`, `-metrics/` and `-summary.json` artifacts.
+
+| Current application footprint | Empty library, five runs | Maximum library, five runs |
+| --- | --- | --- |
+| Initial reading after the joins | 38.3–39.7 MiB | 250.9–365.6 MiB |
+| Requested 250 ms reading | 45.8–47.9 MiB | 339.6–365.1 MiB |
+| Requested 500 ms reading | 43.6–51.8 MiB | 339.6–365.1 MiB |
+| Requested 1,000 ms reading | 44.4–44.9 MiB | **339.4–365.1 MiB** |
+
+The maximum-library 250 ms readings actually occur at 261–652 ms, and the 500 ms readings at 506–652 ms; deadlines do not manufacture regularly spaced observations when the main actor is occupied. Final readings occur at 1,005–1,036 ms. The initial low observation does not persist into later readings. These snapshots are not stable-heap measurements, and the probe does not identify which allocations or UI work explain the growth.
+
+The unchanged app restore phase takes 214–265 ms for the control and 4.180–4.241 seconds for the maximum case. XCTest launch-through-samples clocks are 3.509–3.566 and 6.491–7.509 seconds respectively; they include the intentional one-second sampling window. Application-targeted XCTest interval peaks are 57,547–58,104 kB and 363,060–390,683 kB respectively, in the tool's decimal units. The app's lifetime peak and XCTest's interval peak remain distinct from the current footprints in the table.
+
+The large catalog remains above the provisional retained-growth investigation trigger across the final readings, even allowing for the control's variation. Review bounded local presentation and search before accepting the whole-library hydration design; preserve every authenticated row, the complete cursor, full-field search semantics and encrypted persistence. Do not simply reduce the valid catalog or metadata contract to meet a benchmark. This offline-only journey does not exercise live cache-save publication or different-paper accumulation, so it establishes neither savings from those fixes nor WebContent/physical-device headroom. Repeated open/close cycles, live refresh, allocation attribution and total reader memory remain open.
 
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).

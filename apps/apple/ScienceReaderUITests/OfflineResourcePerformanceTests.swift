@@ -21,6 +21,12 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         let endAppFootprintBytes: UInt64?
         let appLifetimePeakBytes: UInt64?
     }
+    private struct SettledFootprint: Decodable {
+        let requestedOffsetMS: Int
+        let elapsedMS: Double
+        let appFootprintBytes: UInt64?
+        let appLifetimePeakBytes: UInt64?
+    }
     private struct Probe: Decodable {
         let format: Int
         let pid: Int32
@@ -37,6 +43,8 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         let searchSourceElapsedMS: Double?
         let searchWorkerElapsedMS: Double?
         let searchPublicationElapsedMS: Double?
+        let settledStartMS: Double?
+        let settledSamples: [SettledFootprint]?
         let webContentPeakBytes: UInt64?
         let appIntervalPeakBytes: UInt64?
         func event(_ phase: Phase) -> Event? { events.first { $0.phase == phase.rawValue } }
@@ -118,6 +126,24 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             attach(app, caseID: "maximum-no-match-search", invocation: invocation)
             app.terminate(); invocation += 1
         }
+    }
+
+    /// The measured launch includes the deliberate passive sampling window.
+    /// Restore latency remains the original app phase, and these snapshots
+    /// are neither interval peaks nor proof of stable retained memory.
+    func testEmptyLibraryPostRestoreFootprintSamples() throws {
+        let app = XCUIApplication()
+        configure(app, mode: "empty")
+        app.launch()
+        _ = try require(app, phase: .restore, rows: 0)
+        app.terminate()
+        measureSettledFootprints(app, mode: "empty", rows: 0)
+    }
+
+    func testMaximumLibraryPostRestoreFootprintSamples() throws {
+        let app = XCUIApplication()
+        try seed(app)
+        measureSettledFootprints(app, mode: "restore", rows: 4_000)
     }
 
     /// Restore outside the measured interval, then use the same row tap,
@@ -218,8 +244,9 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         app.terminate()
     }
 
-    private func configure(_ app: XCUIApplication, mode: String) {
+    private func configure(_ app: XCUIApplication, mode: String, settled: Bool = false) {
         app.launchArguments = ["--offline-resource-fixture", "--offline-resource-mode", mode]
+        if settled { app.launchArguments.append("--offline-resource-settled") }
         // Root's isolated target owns its bundle identifier/configuration.
         // XCUIApplication() deliberately follows that target binding.
     }
@@ -236,6 +263,27 @@ final class OfflineResourcePerformanceTests: XCTestCase {
          XCTMemoryMetric(application: app), XCTCPUMetric(application: app)]
     }
 
+    private func measureSettledFootprints(_ app: XCUIApplication, mode: String, rows: Int) {
+        var invocation = 0
+        measure(metrics: launchMetrics(app), options: options()) {
+            configure(app, mode: mode, settled: true)
+            startMeasuring()
+            app.launch()
+            // No selection, query, or other interaction is issued before all
+            // four readings; only the small numeric status is observed.
+            let result = wait(app) { $0.settledSamples?.count == 4 || $0.failure != 0 }
+            stopMeasuring()
+            attach(app, caseID: rows == 0 ? "empty-post-restore-samples" : "maximum-post-restore-samples",
+                   invocation: invocation, settled: true)
+            assertSettled(result, rows: rows)
+            if rows > 0 {
+                XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 5),
+                              "The complete library must remain normally visible after sampling.")
+            }
+            app.terminate(); invocation += 1
+        }
+    }
+
     private func raw(_ app: XCUIApplication) -> Data? {
         let status = app.staticTexts["offline.resource.status"]
         guard status.exists, let text = status.value as? String, let data = text.data(using: .utf8), data.count <= 16_384 else { return nil }
@@ -246,7 +294,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         var latest: Probe?
         let ready = NSPredicate { _, _ in
             guard let data = self.raw(app), let probe = try? JSONDecoder().decode(Probe.self, from: data),
-                  probe.format == 2, probe.events.count <= 6 else { return false }
+                  probe.format == 3, probe.events.count <= 6, (probe.settledSamples?.count ?? 0) <= 4 else { return false }
             latest = probe
             return predicate(probe)
         }
@@ -273,11 +321,37 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         if rows > 0 { XCTAssertGreaterThan(value?.ciphertextBytes ?? 0, expectedPayload, file: file, line: line) }
     }
 
-    private func attach(_ app: XCUIApplication, caseID: String, invocation: Int) {
+    private func assertSettled(_ value: Probe?, rows: Int, file: StaticString = #filePath, line: UInt = #line) {
+        assertRestored(value, rows: rows, file: file, line: line)
+        guard let value, let start = value.settledStartMS, let samples = value.settledSamples,
+              let restore = value.event(.restore) else {
+            XCTFail("Missing post-restore sample evidence.", file: file, line: line); return
+        }
+        XCTAssertTrue(start.isFinite, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(start + 0.000_001, restore.startMS + restore.elapsedMS,
+                                   "Sampling begins after the separate restoration phase.", file: file, line: line)
+        XCTAssertEqual(samples.map(\.requestedOffsetMS), [0, 250, 500, 1_000], file: file, line: line)
+        var previousElapsed = -1.0
+        for sample in samples {
+            XCTAssertTrue(sample.elapsedMS.isFinite, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(sample.elapsedMS, Double(sample.requestedOffsetMS), file: file, line: line)
+            XCTAssertGreaterThan(sample.elapsedMS, previousElapsed, file: file, line: line)
+            XCTAssertNotNil(sample.appFootprintBytes, "An unavailable metric is not a zero-footprint success.", file: file, line: line)
+            XCTAssertGreaterThan(sample.appFootprintBytes ?? 0, 0, file: file, line: line)
+            previousElapsed = sample.elapsedMS
+        }
+        XCTAssertNil(value.event(.open), file: file, line: line)
+        XCTAssertNil(value.event(.readerReady), file: file, line: line)
+        XCTAssertNil(value.event(.search), "This journey does not issue a no-match query.", file: file, line: line)
+        XCTAssertNil(value.event(.figure), file: file, line: line)
+        XCTAssertNil(value.appIntervalPeakBytes, "XCTest retains the actual interval peak separately.", file: file, line: line)
+    }
+
+    private func attach(_ app: XCUIApplication, caseID: String, invocation: Int, settled: Bool = false) {
         guard let data = raw(app), let probe = try? JSONSerialization.jsonObject(with: data) else {
             XCTFail("Missing raw resource measurements for \(caseID)"); return
         }
-        let value: [String: Any] = ["format": 1, "case": caseID, "invocation": invocation,
+        var value: [String: Any] = ["format": 1, "case": caseID, "invocation": invocation,
             "xctest_discards_first_interval": true, "app_probe": probe,
             "xctest_interval_cpu_and_memory": "See the unmodified application-targeted xcresult measurements.",
             "webcontent_peak_bytes": NSNull(), "physical_device_acceptance": false,
@@ -285,6 +359,13 @@ final class OfflineResourcePerformanceTests: XCTestCase {
                 "publication": 100, "search_source_main_actor": 100, "search_publication_main_actor": 100],
             "budgets_are_acceptance_claims": false,
             "runtime": ProcessInfo.processInfo.operatingSystemVersionString]
+        if settled {
+            value["measurement_window"] = "Launch through four passive post-restore samples; includes the requested 1000 ms sampling window."
+            value["restore_latency"] = "The unchanged restore app phase; not the launch-through-samples clock."
+            value["samples_are_peaks_or_stability_proof"] = false
+            value["offline_restore_only"] = true
+            value["live_cache_save_exercised"] = false
+        }
         guard let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]), encoded.count <= 32_768 else {
             XCTFail("Invalid resource measurement attachment"); return
         }

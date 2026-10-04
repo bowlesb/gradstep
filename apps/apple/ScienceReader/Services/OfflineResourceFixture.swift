@@ -11,7 +11,7 @@ import SwiftUI
 /// persistence, model publication, input copying and native image admission.
 enum OfflineResourceFixture {
     enum Mode: String, Sendable { case seed, restore, empty }
-    enum Failure: Int, Error { case invalidArguments = 1, invalidFixture, missingSeed, unexpectedState }
+    enum Failure: Int, Error { case invalidArguments = 1, invalidFixture, missingSeed, unexpectedState, unavailableMetric }
 
     static let account = UUID(uuidString: "cccccccc-4000-4000-8000-000000000001")!
     static let deployment = "https://offline-resource-fixture.invalid"
@@ -36,6 +36,8 @@ enum OfflineResourceFixture {
               arguments.indices.contains(index + 1), let mode = Mode(rawValue: arguments[index + 1]) else {
             throw Failure.invalidArguments
         }
+        let settledFlags = arguments.filter { $0 == "--offline-resource-settled" }.count
+        guard settledFlags <= 1, settledFlags == 0 || mode != .seed else { throw Failure.invalidArguments }
         return mode
     }
 
@@ -210,6 +212,8 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var searchSourceElapsedMS: Double?
     @ObservationIgnored private var searchWorkerElapsedMS: Double?
     @ObservationIgnored private var searchPublicationElapsedMS: Double?
+    @ObservationIgnored private var settledStartMS: Double?
+    @ObservationIgnored private var settledSamples: [SettledFootprint]?
 
     private struct Stamp {
         let nanoseconds: UInt64
@@ -236,8 +240,22 @@ final class OfflineResourceProbe {
             try c.encode(appLifetimePeakBytes, forKey: .appLifetimePeakBytes)
         }
     }
+    private struct SettledFootprint: Encodable {
+        let requestedOffsetMS: Int
+        let elapsedMS: Double
+        let appFootprintBytes: UInt64?
+        let appLifetimePeakBytes: UInt64?
+        enum CodingKeys: String, CodingKey { case requestedOffsetMS, elapsedMS, appFootprintBytes, appLifetimePeakBytes }
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(requestedOffsetMS, forKey: .requestedOffsetMS)
+            try c.encode(elapsedMS, forKey: .elapsedMS)
+            try c.encode(appFootprintBytes, forKey: .appFootprintBytes)
+            try c.encode(appLifetimePeakBytes, forKey: .appLifetimePeakBytes)
+        }
+    }
     private struct Report: Encodable {
-        let format = 2
+        let format = 3
         let pid: Int32
         let mode: Int
         let rows: Int
@@ -252,9 +270,11 @@ final class OfflineResourceProbe {
         let searchSourceElapsedMS: Double?
         let searchWorkerElapsedMS: Double?
         let searchPublicationElapsedMS: Double?
+        let settledStartMS: Double?
+        let settledSamples: [SettledFootprint]?
         let webContentPeakBytes: UInt64? = nil
         let appIntervalPeakBytes: UInt64? = nil
-        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, searchSourceElapsedMS, searchWorkerElapsedMS, searchPublicationElapsedMS, webContentPeakBytes, appIntervalPeakBytes }
+        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, searchSourceElapsedMS, searchWorkerElapsedMS, searchPublicationElapsedMS, settledStartMS, settledSamples, webContentPeakBytes, appIntervalPeakBytes }
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(format, forKey: .format); try c.encode(pid, forKey: .pid); try c.encode(mode, forKey: .mode)
@@ -266,6 +286,8 @@ final class OfflineResourceProbe {
             try c.encode(searchSourceElapsedMS, forKey: .searchSourceElapsedMS)
             try c.encode(searchWorkerElapsedMS, forKey: .searchWorkerElapsedMS)
             try c.encode(searchPublicationElapsedMS, forKey: .searchPublicationElapsedMS)
+            try c.encode(settledStartMS, forKey: .settledStartMS)
+            try c.encode(settledSamples, forKey: .settledSamples)
             try c.encode(webContentPeakBytes, forKey: .webContentPeakBytes)
             // The interval metric is retained by XCTest in xcresult, not
             // fabricated from the largest of a few app-side snapshots.
@@ -278,6 +300,7 @@ final class OfflineResourceProbe {
         generation = UUID(); serial = 0; publishedSerial = 0; rows = 0; installations = 0; ciphertextBytes = 0
         openedMemberBytes = nil; seeded = false; failure = 0
         searchSourceElapsedMS = nil; searchWorkerElapsedMS = nil; searchPublicationElapsedMS = nil
+        settledStartMS = nil; settledSamples = nil
         publish()
     }
 
@@ -333,6 +356,57 @@ final class OfflineResourceProbe {
         searchWorkerElapsedMS = workerElapsedMS; searchPublicationElapsedMS = publicationElapsedMS
         finish(.search, count: count)
     }
+
+    /// Call only after the restore function has returned and the model has
+    /// joined its search, coordinator and accepted persistence work, checked
+    /// activation ended, and validated the unchanged complete library. This
+    /// observes current app footprint without collecting or purging anything;
+    /// it does not establish a retained-heap size, peak or stable plateau.
+    func sampleSettledFootprints(isCurrent: @MainActor () -> Bool) async {
+        guard failure == 0 else { return }
+        guard ProcessInfo.processInfo.arguments.contains("--offline-resource-settled"),
+              mode == .empty || mode == .restore, settledStartMS == nil,
+              completed[.restore] != nil, started.isEmpty, openedMemberBytes == nil, isCurrent() else {
+            fail(.unexpectedState); return
+        }
+        let samplingGeneration = generation
+        let samplingOrigin = DispatchTime.now().uptimeNanoseconds
+        settledStartMS = Double(samplingOrigin - origin) / 1_000_000
+        var samples: [SettledFootprint] = []
+        samples.reserveCapacity(4)
+        for offset in [0, 250, 500, 1_000] {
+            let deadline = samplingOrigin + UInt64(offset) * 1_000_000
+            do {
+                // Sleep toward one absolute schedule. Scheduler delay is
+                // retained in elapsedMS rather than called an exact offset.
+                while DispatchTime.now().uptimeNanoseconds < deadline {
+                    let now = DispatchTime.now().uptimeNanoseconds
+                    if now < deadline { try await Task.sleep(nanoseconds: deadline - now) }
+                }
+                try Task.checkCancellation()
+            } catch {
+                guard generation == samplingGeneration else { return }
+                settledSamples = samples; fail(.unexpectedState); return
+            }
+            guard generation == samplingGeneration, failure == 0 else { return }
+            guard started.isEmpty, openedMemberBytes == nil, isCurrent() else {
+                settledSamples = samples; fail(.unexpectedState); return
+            }
+            let reading = stamp()
+            samples.append(SettledFootprint(requestedOffsetMS: offset,
+                elapsedMS: Double(reading.nanoseconds - samplingOrigin) / 1_000_000,
+                appFootprintBytes: reading.footprint, appLifetimePeakBytes: reading.lifetimePeak))
+            guard reading.footprint != nil else {
+                settledSamples = samples; fail(.unavailableMetric); return
+            }
+        }
+        guard isCurrent() else { settledSamples = samples; fail(.unexpectedState); return }
+        settledSamples = samples
+        // Publish once: intermediate JSON/observation work is not introduced
+        // between the four passive readings. Existing app work runs normally.
+        publish()
+    }
+
     func fail(_ code: OfflineResourceFixture.Failure) { failure = code.rawValue; publish() }
 
     private func publish() {
@@ -342,7 +416,8 @@ final class OfflineResourceProbe {
             expectedMemberBytes: mode == .empty ? 0 : OfflineResourceFixture.payloadBytes,
             openedMemberBytes: openedMemberBytes, debugAssertions: _isDebugAssertConfiguration(), seeded: seeded, failure: failure,
             events: completed.values.sorted { $0.phase < $1.phase }, searchSourceElapsedMS: searchSourceElapsedMS,
-            searchWorkerElapsedMS: searchWorkerElapsedMS, searchPublicationElapsedMS: searchPublicationElapsedMS)
+            searchWorkerElapsedMS: searchWorkerElapsedMS, searchPublicationElapsedMS: searchPublicationElapsedMS,
+            settledStartMS: settledStartMS, settledSamples: settledSamples)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(report), bytes.count <= 16_384,
               let value = String(data: bytes, encoding: .utf8) else { return }

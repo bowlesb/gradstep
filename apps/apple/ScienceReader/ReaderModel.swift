@@ -447,7 +447,29 @@ final class ReaderModel {
         if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
             do {
                 guard let mode = try OfflineResourceFixture.launchMode() else { throw OfflineResourceFixture.Failure.invalidArguments }
+                let fixtureSession = sessionID
                 try await configureOfflineResourceFixture(mode: mode)
+                if ProcessInfo.processInfo.arguments.contains("--offline-resource-settled") {
+                    // The restoration function has returned: no decoded
+                    // presentation result is retained by this sampling frame.
+                    let persistence = localPersistence
+                    guard let coordinator = readerBundles else { throw OfflineResourceFixture.Failure.unexpectedState }
+                    await waitForLibrarySearch()
+                    await coordinator.waitUntilIdle()
+                    await persistence.waitForAcceptedWrites()
+                    let expectedRows = mode == .empty ? 0 : OfflineResourceFixture.rowCount
+                    let expectedSearch = currentLibrarySearchKey
+                    await OfflineResourceProbe.shared.sampleSettledFootprints { [weak self] in
+                        guard let self else { return false }
+                        return self.sessionID == fixtureSession && self.accountID == OfflineResourceFixture.account &&
+                            self.readerBundles === coordinator && self.localPersistence === persistence &&
+                            !self.workOwnership.isActivating && !self.librarySearchPending && self.librarySearchIssue == nil &&
+                            self.currentLibrarySearchKey == expectedSearch && self.libraryQuery.isEmpty &&
+                            self.tab == .library && self.wideMode == .library && self.offlineCacheIssue == nil &&
+                            self.readerOpenAttempt == nil && self.openingPaperID == nil && self.selectedPaper == nil &&
+                            self.papers.count == expectedRows && self.libraryRows.count == expectedRows
+                    }
+                }
             } catch {
                 OfflineResourceProbe.shared.fail(.unexpectedState)
                 show(error)
