@@ -34,6 +34,9 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         let seeded: Bool
         let failure: Int
         let events: [Event]
+        let searchSourceElapsedMS: Double?
+        let searchWorkerElapsedMS: Double?
+        let searchPublicationElapsedMS: Double?
         let webContentPeakBytes: UInt64?
         let appIntervalPeakBytes: UInt64?
         func event(_ phase: Phase) -> Event? { events.first { $0.phase == phase.rawValue } }
@@ -83,7 +86,8 @@ final class OfflineResourcePerformanceTests: XCTestCase {
 
     /// Measures normal decrypt/restore/model publication through first visible
     /// row. The full-library no-match search then runs through the real field;
-    /// its app-side compute timing and memory snapshots are separate events.
+    /// its request latency, worker time and main-actor publication are separate
+    /// measurements. Worker latency is not a main-thread stall.
     func testMaximumLibraryRestorationAndNoMatchSearch() throws {
         let app = XCUIApplication()
         try seed(app)
@@ -108,6 +112,9 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             XCTAssertEqual(searched?.failure, 0)
             XCTAssertEqual(searched?.event(.search)?.count, 0, "Compute the real no-match result across all 4,000 rows.")
             XCTAssertEqual(searched?.rows, 4_000, "Searching cannot replace the complete cached presentation.")
+            XCTAssertNotNil(searched?.searchSourceElapsedMS)
+            XCTAssertGreaterThan(searched?.searchWorkerElapsedMS ?? 0, 0)
+            XCTAssertNotNil(searched?.searchPublicationElapsedMS)
             attach(app, caseID: "maximum-no-match-search", invocation: invocation)
             app.terminate(); invocation += 1
         }
@@ -239,7 +246,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         var latest: Probe?
         let ready = NSPredicate { _, _ in
             guard let data = self.raw(app), let probe = try? JSONDecoder().decode(Probe.self, from: data),
-                  probe.format == 1, probe.events.count <= 6 else { return false }
+                  probe.format == 2, probe.events.count <= 6 else { return false }
             latest = probe
             return predicate(probe)
         }
@@ -274,7 +281,8 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             "xctest_discards_first_interval": true, "app_probe": probe,
             "xctest_interval_cpu_and_memory": "See the unmodified application-targeted xcresult measurements.",
             "webcontent_peak_bytes": NSNull(), "physical_device_acceptance": false,
-            "provisional_review_budgets_ms": ["restore": 5_000, "open_plus_webkit": 3_000, "publication": 100, "search": 100],
+            "provisional_review_budgets_ms": ["restore": 5_000, "open_plus_webkit": 3_000,
+                "publication": 100, "search_source_main_actor": 100, "search_publication_main_actor": 100],
             "budgets_are_acceptance_claims": false,
             "runtime": ProcessInfo.processInfo.operatingSystemVersionString]
         guard let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]), encoded.count <= 32_768 else {

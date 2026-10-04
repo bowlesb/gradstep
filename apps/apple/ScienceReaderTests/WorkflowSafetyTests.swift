@@ -184,7 +184,7 @@ final class WorkflowSafetyTests: XCTestCase {
         XCTAssertEqual(workspace.conversation(in: "general"), current.conversationID)
     }
 
-    func testSearchTrimsWhitespaceAndMatchesWordsAcrossOptionalFields() {
+    func testSearchTrimsWhitespaceAndMatchesWordsAcrossOptionalFields() async {
         let model = ReaderModel(configuration: nil)
         let abstracts = model.showAbstracts, topics = model.showTopics
         defer { model.showAbstracts = abstracts; model.showTopics = topics }
@@ -192,17 +192,23 @@ final class WorkflowSafetyTests: XCTestCase {
         let sparse = paper(title: "Sparse Models")
         model.papers = [sparse, attention]
         model.libraryQuery = " \n ATTENTION\t lovelace  optimization "
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [attention.id])
         model.showAbstracts = false; model.showTopics = false
         model.libraryQuery = "memory optimization"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [attention.id], "Hidden optional fields remain searchable")
         model.libraryQuery = "sparse"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [sparse.id])
         model.libraryQuery = " \n\t "
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [sparse.id, attention.id])
         model.librarySort = "Title"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [attention.id, sparse.id])
         model.libraryQuery = "attention unknown"
+        await model.waitForLibrarySearch()
         XCTAssertTrue(model.filteredPapers.isEmpty)
     }
 

@@ -70,16 +70,16 @@ struct ChatFollowRequest: Equatable {
 final class ReaderModel {
     var tab: ReaderTab = .library
     var wideMode: WideMode = .library
-    var papers: [Paper] = []
-    private(set) var libraryImports: [LibraryImportRecord] = []
+    var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
+    private(set) var libraryImports: [LibraryImportRecord] = [] { didSet { if libraryImports != oldValue { librarySearchSourceChanged() } } }
     private(set) var libraryRefreshing = false
     private(set) var libraryIssue: String?
     private(set) var libraryHasSnapshot = false
     private var libraryService: LibraryService?
     private var libraryPublicationGeneration: UInt64 = 0
     private var libraryRefreshAttempt: UUID?
-    private var libraryCreationSequences: [UUID: Int64] = [:]
-    private var presentedImportIDs: Set<UUID> = []
+    private var libraryCreationSequences: [UUID: Int64] = [:] { didSet { if libraryCreationSequences != oldValue { librarySearchSourceChanged() } } }
+    private var presentedImportIDs: Set<UUID> = [] { didSet { if presentedImportIDs != oldValue { librarySearchSourceChanged() } } }
     private var completeLibrary: LibrarySnapshot?
     private var libraryPublicationDeferred = false
     private var deferredLibraryObservation: LibraryCompleteObservation?
@@ -90,8 +90,8 @@ final class ReaderModel {
     private(set) var readerOpenIssue: String?
     private(set) var offlineCacheIssue: String?
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
-    private var libraryCommandGeneration: Int64 = -1
-    private(set) var libraryCommands: [LocalLibraryCommand] = []
+    private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { librarySearchSourceChanged() } } }
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
     var librarySignInRequired: Bool { accountID == nil }
@@ -104,9 +104,9 @@ final class ReaderModel {
             }
         }
     }
-    var libraryQuery = ""
+    var libraryQuery = "" { didSet { if libraryQuery != oldValue { queueLibrarySearch() } } }
     var discoveryQuery = ""
-    var librarySort = "Recent"
+    var librarySort = "Recent" { didSet { if librarySort != oldValue { queueLibrarySearch() } } }
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
     var showAbstracts = UserDefaults.standard.object(forKey: "library.showAbstracts") as? Bool ?? true { didSet { UserDefaults.standard.set(showAbstracts, forKey: "library.showAbstracts") } }
@@ -205,7 +205,7 @@ final class ReaderModel {
     private var started = false
     private var workOwnership = ReaderWorkOwnership()
     private var sessionID: UUID { workOwnership.accountSessionID }
-    private var accountID: UUID?
+    private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged() } } }
     private var publishedGeneration: Int64 = -1
     private var publishedPendingCount = 0
     var readerSessionID: UUID { sessionID }
@@ -215,61 +215,194 @@ final class ReaderModel {
     private let configuration: BackendConfiguration?
     private let readerBundleVerification: ReaderBundleCoordinator.Verification
     private let readerBundleDirectoryReader: ReaderBundleCoordinator.DirectoryReader
+    private let librarySearchWorker: LibrarySearchCoordinator.Worker?
+    private(set) var libraryRows: [LibraryListEntry] = []
+    private(set) var librarySearchPending = false
+    private(set) var librarySearchIssue: String?
+    @ObservationIgnored private var librarySearchCoordinator: LibrarySearchCoordinator?
+    @ObservationIgnored private var librarySearchPreparation: Task<Void, Never>?
+    @ObservationIgnored private var librarySearchSourceRevision: UInt64 = 0
+    @ObservationIgnored private var librarySearchSourceDirty = true
+    @ObservationIgnored private var librarySearchCandidates: [LibrarySearchCandidate] = []
+    @ObservationIgnored private var libraryRowLookup: [String: LibraryListEntry] = [:]
+    @ObservationIgnored private var libraryMatchedIDs: [String] = []
+    @ObservationIgnored private var librarySearchTicket: LibrarySearchTicket?
+    @ObservationIgnored private var librarySearchCandidateRevision: UInt64 = 0
+    @ObservationIgnored private var completedLibrarySearchKey: LibrarySearchKey?
 
     init(configuration: BackendConfiguration? = .bundled(), client: BackendClient? = nil,
          readerBundleVerification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
-         readerBundleDirectoryReader: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) }) {
+         readerBundleDirectoryReader: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) },
+         librarySearchWorker: LibrarySearchCoordinator.Worker? = nil) {
         self.configuration = configuration; self.backend = client
         self.readerBundleVerification = readerBundleVerification; self.readerBundleDirectoryReader = readerBundleDirectoryReader
+        self.librarySearchWorker = librarySearchWorker
     }
 
     var configured: Bool { configuration != nil }
     var filteredPapers: [Paper] {
-        let terms = libraryQuery.split(whereSeparator: \.isWhitespace).map(String.init)
-        let matching = papers.filter { paper in
-            let fields = [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords
-            return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
-        }
-        return librarySort == "Title" ? matching.sorted { $0.title.localizedCompare($1.title) == .orderedAscending } : matching
+        libraryRows.compactMap { if case .paper(let paper) = $0 { return paper }; return nil }
     }
-    var libraryRows: [LibraryListEntry] {
+
+    private var currentLibrarySearchKey: LibrarySearchKey {
+        LibrarySearchKey(sessionID: sessionID, accountID: accountID,
+            sourceRevision: librarySearchSourceRevision, query: libraryQuery,
+            sort: librarySort == "Title" ? .title : .recent, commandRevision: libraryCommandGeneration)
+    }
+
+    var librarySearchKeepsCurrentRows: Bool {
+        guard let completed = completedLibrarySearchKey else { return false }
+        let current = currentLibrarySearchKey
+        return completed.sessionID == current.sessionID && completed.accountID == current.accountID &&
+            completed.query == current.query && completed.sort == current.sort
+    }
+
+    private func libraryPapersChanged(from previous: [Paper]) {
+        // Installing verified bytes changes row presentation, not searchable
+        // metadata. Keep the worker's snapshot free of reading bundles.
+        let currentIDs = Set(papers.map(\.id))
+        libraryRowLookup = libraryRowLookup.filter {
+            if case .paper(let paper) = $0.value { return currentIDs.contains(paper.id) }
+            return true
+        }
+        for paper in papers {
+            let row = LibraryListEntry.paper(paper)
+            libraryRowLookup[row.id] = row
+        }
+        if librarySearchKeepsCurrentRows {
+            // A local removal disappears synchronously, including while a
+            // replacement search is still joining its cancelled predecessor.
+            libraryRows = libraryMatchedIDs.compactMap { libraryRowLookup[$0] }
+        }
+        let sameText = previous.count == papers.count && zip(previous, papers).allSatisfy { old, new in
+            old.id == new.id && old.title == new.title && old.authors == new.authors &&
+            old.abstract == new.abstract && old.keywords == new.keywords &&
+            old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision
+        }
+        if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
+    }
+
+    private func librarySearchSourceChanged() {
+        librarySearchSourceRevision &+= 1
+        librarySearchSourceDirty = true
+        queueLibrarySearch()
+    }
+
+    private func queueLibrarySearch() {
+        // Invalidate synchronously. A -> B -> A is new intent even when a
+        // cancellation-ignoring older A finishes with the same query text.
+        librarySearchCoordinator?.invalidate()
+        librarySearchTicket = nil
+        if !librarySearchKeepsCurrentRows {
+            libraryMatchedIDs = []; libraryRows = []; completedLibrarySearchKey = nil
+        }
+        librarySearchPending = true; librarySearchIssue = nil
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
         OfflineResourceProbe.shared.beginSearch(query: libraryQuery)
         #endif
-        let terms = libraryQuery.split(whereSeparator: \.isWhitespace).map(String.init)
-        let imports = libraryImports.filter { item in
-            let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
-            let fields = [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
-                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? [])
-            return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
-        }
-        // Cached mappings suppress duplicate display rows only. They never
-        // acknowledge or reconcile the durable command itself.
-        let knownImports = presentedImportIDs
-        let localImports = libraryCommands.filter { command in
-            guard case .beginImport(let source, let revision, _) = command.mutation,
-                  command.isUnfinished, !knownImports.contains(command.id) else { return false }
-            let fields = [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")]
-            return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
-        }
-        let rows = filteredPapers.map(LibraryListEntry.paper) + imports.map(LibraryListEntry.pending) + localImports.map(LibraryListEntry.queued)
-        func sequence(_ row: LibraryListEntry) -> Int64 {
-            switch row { case .paper(let paper): libraryCreationSequences[paper.id] ?? Int64.max
-            case .pending(let item): item.createdSequence
-            case .queued: Int64.max }
-        }
-        let sorted = rows.enumerated().sorted { lhs, rhs in
-            if librarySort == "Title" {
-                let comparison = lhs.element.title.localizedCompare(rhs.element.title)
-                return comparison == .orderedSame ? lhs.element.id < rhs.element.id : comparison == .orderedAscending
+        guard librarySearchPreparation == nil else { return }
+        // One queued turn coalesces synchronous library/command publication.
+        // Query changes reuse the immutable metadata snapshot.
+        librarySearchPreparation = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.librarySearchPreparation = nil
+            var mayReuse = self.librarySearchKeepsCurrentRows &&
+                self.completedLibrarySearchKey?.sourceRevision == self.librarySearchCandidateRevision
+            if self.librarySearchSourceDirty { mayReuse = self.prepareLibrarySearchSource() && mayReuse }
+            if self.librarySearchKeepsCurrentRows {
+                self.libraryRows = self.libraryMatchedIDs.compactMap { self.libraryRowLookup[$0] }
             }
-            let left = sequence(lhs.element), right = sequence(rhs.element)
-            return left == right ? lhs.offset < rhs.offset : left > right
-        }.map(\.element)
+            if mayReuse {
+                self.completedLibrarySearchKey = self.currentLibrarySearchKey
+                self.librarySearchPending = false
+                return
+            }
+            if self.librarySearchCoordinator == nil {
+                let publish: @MainActor (LibrarySearchEvent) -> Void = { [weak self] in self?.acceptLibrarySearch($0) }
+                if let worker = self.librarySearchWorker {
+                    self.librarySearchCoordinator = LibrarySearchCoordinator(worker: worker, publish: publish)
+                } else { self.librarySearchCoordinator = LibrarySearchCoordinator(publish: publish) }
+            }
+            self.librarySearchTicket = self.librarySearchCoordinator?.submit(
+                key: self.currentLibrarySearchKey, candidates: self.librarySearchCandidates)
+        }
+    }
+
+    private func prepareLibrarySearchSource() -> Bool {
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
-        OfflineResourceProbe.shared.finishSearch(query: libraryQuery, count: sorted.count)
+        let start = DispatchTime.now().uptimeNanoseconds
         #endif
-        return sorted
+        var candidates: [LibrarySearchCandidate] = []
+        var lookup: [String: LibraryListEntry] = [:]
+        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64) {
+            candidates.append(LibrarySearchCandidate(id: row.id, title: row.title,
+                fields: fields, recentSequence: sequence, position: candidates.count))
+            lookup[row.id] = row
+        }
+        for paper in papers {
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords,
+                   sequence: libraryCreationSequences[paper.id] ?? Int64.max)
+        }
+        for item in libraryImports {
+            let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
+            append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
+                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []), sequence: item.createdSequence)
+        }
+        for command in libraryCommands {
+            // Cached mappings suppress duplicate presentation only; they do
+            // not resolve the durable command or authorize a mutation.
+            guard case .beginImport(let source, let revision, _) = command.mutation,
+                  command.isUnfinished, !presentedImportIDs.contains(command.id) else { continue }
+            append(.queued(command), fields: [command.display ?? "", source + (revision.map { "v\($0)" } ?? "")],
+                   sequence: Int64.max)
+        }
+        let equivalent = candidates == librarySearchCandidates
+        librarySearchCandidates = candidates; libraryRowLookup = lookup
+        librarySearchCandidateRevision = librarySearchSourceRevision
+        librarySearchSourceDirty = false
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        OfflineResourceProbe.shared.searchSourceBuilt(rows: candidates.count,
+            elapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+        #endif
+        return equivalent
+    }
+
+    private func acceptLibrarySearch(_ event: LibrarySearchEvent) {
+        switch event {
+        case .completed(let result):
+            guard librarySearchTicket == result.ticket, currentLibrarySearchKey == result.ticket.key else { return }
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            let start = DispatchTime.now().uptimeNanoseconds
+            #endif
+            let rows = result.rowIDs.compactMap { libraryRowLookup[$0] }
+            guard rows.count == result.rowIDs.count else {
+                librarySearchPending = false; librarySearchIssue = "Search couldn’t finish. Try again."
+                return
+            }
+            libraryMatchedIDs = result.rowIDs; libraryRows = rows
+            completedLibrarySearchKey = result.ticket.key
+            librarySearchPending = false; librarySearchIssue = nil
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            OfflineResourceProbe.shared.searchCompleted(query: result.ticket.key.query,
+                workerElapsedMS: result.workerElapsedMilliseconds,
+                publicationElapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000,
+                count: rows.count)
+            #endif
+        case .failed(let ticket):
+            guard librarySearchTicket == ticket, currentLibrarySearchKey == ticket.key else { return }
+            librarySearchPending = false; librarySearchIssue = "Search couldn’t finish. Try again."
+        }
+    }
+
+    func retryLibrarySearch() { queueLibrarySearch() }
+
+    /// Join the accepted search, including replacements, without polling or
+    /// creating a second synchronous search path for tests or callers.
+    func waitForLibrarySearch() async {
+        while librarySearchPreparation != nil || librarySearchPending {
+            if let preparation = librarySearchPreparation { await preparation.value }
+            if let coordinator = librarySearchCoordinator { await coordinator.waitForIdle() }
+        }
     }
     var chatBranches: [ConversationBranch] {
         guard let conversation = activeConversation, !chatWasDeleted else { return [] }
@@ -548,6 +681,8 @@ final class ReaderModel {
 
     private func clearAccountView() {
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
+        librarySearchCandidates = []; libraryRowLookup = [:]
+        librarySearchSourceChanged()
         let oldCommands = libraryCommandCoordinator; libraryCommandCoordinator = nil
         oldCommands?.close()
         let oldBundles = readerBundles; readerBundles = nil

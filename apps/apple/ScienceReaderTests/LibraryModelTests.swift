@@ -341,11 +341,13 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertNil(model.libraryIssue)
         XCTAssertEqual(model.papers.map(\.id), [server.documentID], "Paper uses document identity, never membership/import identity")
         XCTAssertEqual(model.libraryImports.map(\.id), [server.importID])
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2)
         XCTAssertEqual(model.papers.first?.keywords, ["cs.LG", "stat.ML"])
         XCTAssertEqual(model.papers.first?.year, 2024)
         XCTAssertEqual(model.papers.first?.sourceReference, "2404.00001v1")
         model.libraryQuery = "stat.ml"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 1, "Public source categories participate in native search")
         model.libraryQuery = ""
         model.openSample()
@@ -364,6 +366,7 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.selectedPaper?.fileURL, cached.fileURL, "Failed refresh preserves the last complete presentation")
 
         model.libraryQuery = "2404.00001"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2)
         server.deliver(server.changes([server.item(), server.pending(state: 3, resolved: true)], through: 3))
         await model.refreshLibrary()
@@ -373,8 +376,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(model.papers.contains { $0.isSample })
         XCTAssertEqual(model.selectedPaper?.fileURL, cached.fileURL)
         XCTAssertEqual(model.chatInput, "Keep this private draft")
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 1, "The same source-ID search survives import resolution")
         model.libraryQuery = "2404.00001v1"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 1, "An exact-version source reference is searchable")
         model.libraryQuery = ""
 
@@ -410,8 +415,10 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(model.libraryImports.first?.phase, .sourceOnly)
         XCTAssertNil(model.libraryImports.first?.documentID)
         model.libraryQuery = "Ada"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2, "Source-only metadata stays searchable beside the actual saved document")
         model.librarySort = "Title"
+        await model.waitForLibrarySearch()
         XCTAssertEqual(Set(model.libraryRows.map(\.id)).count, 2, "Identical titles cannot collide across paper/import identities")
     }
 
@@ -442,7 +449,9 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertTrue(pending.everSubmitted); XCTAssertNil(pending.receipt)
         XCTAssertEqual(try fixture.savedCommandCount(), 1, "The pending row must actually exist in SQLite")
         XCTAssertEqual(model.papers.map(\.id), [server.documentID])
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 3)
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.filter { $0.id == "import/\(pending.id.wire)" }.count, 1)
         try await capture(window, name: "Durable local import beside saved library after HTTP failure")
         model.showLibraryChanges = true
@@ -458,8 +467,10 @@ final class LibraryModelTests: XCTestCase {
         await fulfillment(of: [replay], timeout: 5)
         XCTAssertNil(model.libraryIssue)
         XCTAssertEqual(model.libraryImports.filter { $0.id == pending.id }.count, 1)
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.filter { $0.id == "import/\(pending.id.wire)" }.count, 1,
                        "A complete server observation replaces the local overlay before its replay response")
+        await model.waitForLibrarySearch()
         XCTAssertFalse(model.libraryRows.contains { if case .queued(let value) = $0 { return value.id == pending.id }; return false })
         let attempts = server.commands()
         XCTAssertEqual(attempts.map(\.endpoint), ["v2_begin_import", "v2_begin_import"])
@@ -468,6 +479,7 @@ final class LibraryModelTests: XCTestCase {
         try await observe("Add receipt fully reconciled") { model.libraryCommands.isEmpty }
         XCTAssertEqual(try fixture.savedCommandCount(), 0)
         XCTAssertNil(model.libraryCommandIssue)
+        await model.waitForLibrarySearch()
         XCTAssertEqual(Set(model.libraryRows.map(\.id)).count, model.libraryRows.count)
         try await capture(window, name: "Accepted server import without duplicate pending row")
 
@@ -489,6 +501,7 @@ final class LibraryModelTests: XCTestCase {
         }
         XCTAssertEqual(model.papers.map(\.id), [server.documentID])
         XCTAssertEqual(model.libraryImports.map(\.id), [server.importID])
+        await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2)
         XCTAssertEqual(server.commands().map(\.endpoint), ["v2_begin_import", "v2_begin_import", "v2_cancel_import"])
         XCTAssertNil(model.error)

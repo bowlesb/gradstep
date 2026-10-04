@@ -184,11 +184,21 @@ struct LibraryView: View {
                 if model.searchExternal {
                     ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
                         .accessibilityIdentifier("search.external.unavailable")
+                } else if model.librarySearchPending && !model.librarySearchKeepsCurrentRows {
+                    Spacer()
+                    ProgressView(model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Loading library…" : "Searching…")
+                        .accessibilityIdentifier("library.searching")
+                    Spacer()
+                } else if let issue = model.librarySearchIssue {
+                    ContentUnavailableView {
+                        Label("Couldn’t search", systemImage: "magnifyingglass")
+                    } description: { Text(issue) }
+                        actions: { Button("Try again") { model.retryLibrarySearch() } }
                 } else if model.libraryRefreshing && !model.libraryHasSnapshot && model.libraryRows.isEmpty {
                     Spacer()
                     ProgressView("Loading library…")
                     Spacer()
-                } else if model.libraryRows.isEmpty && !model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                } else if !model.librarySearchPending && model.libraryRows.isEmpty && !model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     ContentUnavailableView {
                         Label("No matching papers", systemImage: "magnifyingglass")
                     } description: {
@@ -196,7 +206,7 @@ struct LibraryView: View {
                     } actions: {
                         Button("Clear search") { model.libraryQuery = "" }.accessibilityIdentifier("search.clear")
                     }
-                } else if model.libraryRows.isEmpty {
+                } else if !model.librarySearchPending && model.libraryRows.isEmpty {
                     ContentUnavailableView {
                         Label(model.searchExternal ? "Find papers" : "Your library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
                     } description: {
@@ -242,6 +252,9 @@ struct LibraryView: View {
                                 }
                         }
                     }.listStyle(.plain).refreshable { await model.refreshLibrary() }
+                        .overlay(alignment: .top) {
+                            if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
+                        }
                 }
             }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)

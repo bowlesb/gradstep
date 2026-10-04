@@ -207,6 +207,9 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var openedMemberBytes: Int?
     @ObservationIgnored private var seeded = false
     @ObservationIgnored private var failure = 0
+    @ObservationIgnored private var searchSourceElapsedMS: Double?
+    @ObservationIgnored private var searchWorkerElapsedMS: Double?
+    @ObservationIgnored private var searchPublicationElapsedMS: Double?
 
     private struct Stamp {
         let nanoseconds: UInt64
@@ -234,7 +237,7 @@ final class OfflineResourceProbe {
         }
     }
     private struct Report: Encodable {
-        let format = 1
+        let format = 2
         let pid: Int32
         let mode: Int
         let rows: Int
@@ -246,9 +249,12 @@ final class OfflineResourceProbe {
         let seeded: Bool
         let failure: Int
         let events: [Event]
+        let searchSourceElapsedMS: Double?
+        let searchWorkerElapsedMS: Double?
+        let searchPublicationElapsedMS: Double?
         let webContentPeakBytes: UInt64? = nil
         let appIntervalPeakBytes: UInt64? = nil
-        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, webContentPeakBytes, appIntervalPeakBytes }
+        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, searchSourceElapsedMS, searchWorkerElapsedMS, searchPublicationElapsedMS, webContentPeakBytes, appIntervalPeakBytes }
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(format, forKey: .format); try c.encode(pid, forKey: .pid); try c.encode(mode, forKey: .mode)
@@ -257,6 +263,9 @@ final class OfflineResourceProbe {
             try c.encode(openedMemberBytes, forKey: .openedMemberBytes)
             try c.encode(debugAssertions, forKey: .debugAssertions)
             try c.encode(seeded, forKey: .seeded); try c.encode(failure, forKey: .failure); try c.encode(events, forKey: .events)
+            try c.encode(searchSourceElapsedMS, forKey: .searchSourceElapsedMS)
+            try c.encode(searchWorkerElapsedMS, forKey: .searchWorkerElapsedMS)
+            try c.encode(searchPublicationElapsedMS, forKey: .searchPublicationElapsedMS)
             try c.encode(webContentPeakBytes, forKey: .webContentPeakBytes)
             // The interval metric is retained by XCTest in xcresult, not
             // fabricated from the largest of a few app-side snapshots.
@@ -268,6 +277,7 @@ final class OfflineResourceProbe {
         self.mode = mode; started = [:]; completed = [:]; origin = DispatchTime.now().uptimeNanoseconds
         generation = UUID(); serial = 0; publishedSerial = 0; rows = 0; installations = 0; ciphertextBytes = 0
         openedMemberBytes = nil; seeded = false; failure = 0
+        searchSourceElapsedMS = nil; searchWorkerElapsedMS = nil; searchPublicationElapsedMS = nil
         publish()
     }
 
@@ -310,12 +320,18 @@ final class OfflineResourceProbe {
         rows = summary.rows; installations = 1; seeded = true; publish()
     }
 
-    /// Surround the existing computed libraryRows work; do not substitute a
-    /// fixture search. Status publication is deferred so this numeric probe
-    /// never mutates observable view state during a SwiftUI body evaluation.
+    /// The search phase is submit-to-accepted-result latency. Worker time and
+    /// main-actor snapshot/publication time are reported separately; moving a
+    /// scan off the UI thread does not make its computation disappear.
     func beginSearch(query: String) { if query == OfflineResourceFixture.noMatchQuery { begin(.search) } }
-    func finishSearch(query: String, count: Int) {
-        if query == OfflineResourceFixture.noMatchQuery { finish(.search, count: count) }
+    func searchSourceBuilt(rows: Int, elapsedMS: Double) {
+        guard mode == .restore, rows == OfflineResourceFixture.rowCount else { return }
+        searchSourceElapsedMS = elapsedMS; publish()
+    }
+    func searchCompleted(query: String, workerElapsedMS: Double, publicationElapsedMS: Double, count: Int) {
+        guard mode == .restore, query == OfflineResourceFixture.noMatchQuery else { return }
+        searchWorkerElapsedMS = workerElapsedMS; searchPublicationElapsedMS = publicationElapsedMS
+        finish(.search, count: count)
     }
     func fail(_ code: OfflineResourceFixture.Failure) { failure = code.rawValue; publish() }
 
@@ -325,7 +341,8 @@ final class OfflineResourceProbe {
             rows: rows, installations: installations, ciphertextBytes: ciphertextBytes,
             expectedMemberBytes: mode == .empty ? 0 : OfflineResourceFixture.payloadBytes,
             openedMemberBytes: openedMemberBytes, debugAssertions: _isDebugAssertConfiguration(), seeded: seeded, failure: failure,
-            events: completed.values.sorted { $0.phase < $1.phase })
+            events: completed.values.sorted { $0.phase < $1.phase }, searchSourceElapsedMS: searchSourceElapsedMS,
+            searchWorkerElapsedMS: searchWorkerElapsedMS, searchPublicationElapsedMS: searchPublicationElapsedMS)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(report), bytes.count <= 16_384,
               let value = String(data: bytes, encoding: .utf8) else { return }
