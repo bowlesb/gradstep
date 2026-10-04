@@ -42,6 +42,10 @@ enum OfflineResourceFixture {
         guard attributionFlags <= 1, attributionFlags == 0 || (settledFlags == 1 && mode != .seed) else {
             throw Failure.invalidArguments
         }
+        let presentationFlags = arguments.filter { $0 == "--offline-resource-presentation-cycle" }.count
+        guard presentationFlags <= 1, presentationFlags == 0 || attributionFlags == 1 else {
+            throw Failure.invalidArguments
+        }
         #if !OFFLINE_RESOURCE_MEASUREMENTS
         guard attributionFlags == 0 else { throw Failure.invalidArguments }
         #endif
@@ -223,6 +227,15 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var settledSamples: [SettledFootprint]?
     #if OFFLINE_RESOURCE_MEASUREMENTS
     @ObservationIgnored private var attributionEmitted = false
+    @ObservationIgnored private var presentationCycleStarted = false
+    @ObservationIgnored private var mountedDestinations = Set<ReaderTab>()
+    @ObservationIgnored private var destinationMountSerial: UInt64 = 0
+
+    private struct AllocatorSnapshot: Encodable {
+        let blocksInUse: UInt64
+        let bytesInUse: UInt64
+        let bytesAllocated: UInt64
+    }
     #endif
 
     private struct Stamp {
@@ -313,6 +326,9 @@ final class OfflineResourceProbe {
         settledStartMS = nil; settledSamples = nil
         #if OFFLINE_RESOURCE_MEASUREMENTS
         attributionEmitted = false
+        presentationCycleStarted = false
+        // RootView may have mounted before fixture activation. Its current
+        // lifecycle acknowledgements belong to the view, not the store reset.
         #endif
         publish()
     }
@@ -446,6 +462,121 @@ final class OfflineResourceProbe {
     }
 
     #if OFFLINE_RESOURCE_MEASUREMENTS
+    func destinationAppearance(_ destination: ReaderTab, appeared: Bool) {
+        guard ProcessInfo.processInfo.arguments.contains("--offline-resource-presentation-cycle"),
+              destination == .library || destination == .settings else { return }
+        if appeared {
+            mountedDestinations.insert(destination)
+            destinationMountSerial &+= 1
+        } else {
+            mountedDestinations.remove(destination)
+        }
+    }
+
+    /// One ordinary destination cycle without an accessibility observer.
+    /// Mount/disappearance callbacks acknowledge the real SwiftUI branches;
+    /// the caller keeps catalog/search/account/selection ownership unchanged.
+    func samplePresentationCycle(isCurrent: @MainActor (ReaderTab) -> Bool,
+                                 select: @MainActor (ReaderTab) -> Void) async {
+        guard ProcessInfo.processInfo.arguments.contains("--offline-resource-presentation-cycle") else { return }
+        guard !presentationCycleStarted, attributionEmitted, failure == 0,
+              mode == .empty || mode == .restore, settledSamples?.count == 4,
+              openedMemberBytes == nil, isCurrent(.library) else { fail(.unexpectedState); return }
+        presentationCycleStarted = true
+        let cycleGeneration = generation
+        do {
+            try await awaitDestination(.library, generation: cycleGeneration, isCurrent: isCurrent)
+            for (index, destination) in [ReaderTab.settings, .library].enumerated() {
+                let previousMount = destinationMountSerial
+                select(destination)
+                try await awaitDestination(destination, generation: cycleGeneration, isCurrent: isCurrent)
+                guard destinationMountSerial > previousMount else { throw OfflineResourceFixture.Failure.unexpectedState }
+                let mountSerial = destinationMountSerial
+                let samplingOrigin = DispatchTime.now().uptimeNanoseconds
+                var samples: [SettledFootprint] = []
+                samples.reserveCapacity(4)
+                for offset in [0, 250, 500, 1_000] {
+                    let deadline = samplingOrigin + UInt64(offset) * 1_000_000
+                    while DispatchTime.now().uptimeNanoseconds < deadline {
+                        let now = DispatchTime.now().uptimeNanoseconds
+                        if now < deadline { try await Task.sleep(nanoseconds: deadline - now) }
+                    }
+                    try Task.checkCancellation()
+                    guard generation == cycleGeneration, failure == 0, started.isEmpty,
+                          openedMemberBytes == nil, destinationMountSerial == mountSerial,
+                          mountedDestinations == [destination], isCurrent(destination) else {
+                        throw OfflineResourceFixture.Failure.unexpectedState
+                    }
+                    let reading = stamp()
+                    guard reading.footprint != nil else { throw OfflineResourceFixture.Failure.unavailableMetric }
+                    samples.append(SettledFootprint(requestedOffsetMS: offset,
+                        elapsedMS: Double(reading.nanoseconds - samplingOrigin) / 1_000_000,
+                        appFootprintBytes: reading.footprint, appLifetimePeakBytes: reading.lifetimePeak))
+                }
+                // No suspension between the final currentness check and the
+                // numeric checkpoint. Publication occurs only after sampling.
+                guard isCurrent(destination), mountedDestinations == [destination] else {
+                    throw OfflineResourceFixture.Failure.unexpectedState
+                }
+                emitPresentationCheckpoint(stage: index + 1, destination: destination,
+                    mountSerial: mountSerial, samplingOrigin: samplingOrigin, samples: samples)
+            }
+        } catch {
+            guard generation == cycleGeneration else { return }
+            fail((error as? OfflineResourceFixture.Failure) ?? .unexpectedState)
+        }
+    }
+
+    private func awaitDestination(_ destination: ReaderTab, generation expectedGeneration: UUID,
+                                  isCurrent: @MainActor (ReaderTab) -> Bool) async throws {
+        let deadline = DispatchTime.now().uptimeNanoseconds + 3_000_000_000
+        while true {
+            try Task.checkCancellation()
+            guard generation == expectedGeneration, failure == 0, isCurrent(destination),
+                  started.isEmpty, openedMemberBytes == nil else { throw OfflineResourceFixture.Failure.unexpectedState }
+            guard DispatchTime.now().uptimeNanoseconds < deadline else { throw OfflineResourceFixture.Failure.unexpectedState }
+            if mountedDestinations == [destination] { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    private func emitPresentationCheckpoint(stage: Int, destination: ReaderTab, mountSerial: UInt64,
+                                            samplingOrigin: UInt64, samples: [SettledFootprint]) {
+        struct Checkpoint: Encodable {
+            let format = 1
+            let pid: Int32
+            let mode: Int
+            let stage: Int
+            let destination: Int
+            let mountSerial: UInt64
+            let rows: Int
+            let installations: Int
+            let windowStartUptimeNanoseconds: UInt64
+            let uptimeNanoseconds: UInt64
+            let unixMilliseconds: Double
+            let allocator: AllocatorSnapshot
+            let samples: [SettledFootprint]
+        }
+        let allocator = allocatorSnapshot()
+        let checkpoint = Checkpoint(pid: ProcessInfo.processInfo.processIdentifier, mode: mode == .restore ? 2 : 3,
+            stage: stage, destination: destination == .library ? 1 : 2, mountSerial: mountSerial,
+            rows: rows, installations: installations, windowStartUptimeNanoseconds: samplingOrigin,
+            uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            unixMilliseconds: Date().timeIntervalSince1970 * 1_000, allocator: allocator, samples: samples)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let bytes = try? encoder.encode(checkpoint), bytes.count <= 16_384 else { return }
+        var line = Data("TIMESTEP_PRESENTATION_CHECKPOINT ".utf8)
+        line.append(bytes); line.append(10)
+        try? FileHandle.standardOutput.write(contentsOf: line)
+    }
+
+    private func allocatorSnapshot() -> AllocatorSnapshot {
+        var statistics = malloc_statistics_t()
+        malloc_zone_statistics(nil, &statistics)
+        return AllocatorSnapshot(blocksInUse: UInt64(statistics.blocks_in_use),
+            bytesInUse: UInt64(statistics.size_in_use), bytesAllocated: UInt64(statistics.size_allocated))
+    }
+
     /// One numeric checkpoint for launch-time allocation traces. It occurs
     /// after the unchanged sampling/ownership guards, never between readings.
     /// No accessibility observer, allocator purge or library content is added.
@@ -453,11 +584,6 @@ final class OfflineResourceProbe {
         guard ProcessInfo.processInfo.arguments.contains("--offline-resource-attribution"),
               !attributionEmitted, report.failure == 0, report.settledSamples?.count == 4,
               report.openedMemberBytes == nil, mode == .empty || mode == .restore else { return }
-        struct AllocatorSnapshot: Encodable {
-            let blocksInUse: UInt64
-            let bytesInUse: UInt64
-            let bytesAllocated: UInt64
-        }
         struct Checkpoint: Encodable {
             let format = 1
             let uptimeNanoseconds: UInt64
@@ -468,13 +594,10 @@ final class OfflineResourceProbe {
         // The public API defines nil as the sum over all malloc zones. These
         // are current allocator counters, not physical memory or peak usage.
         // Query only after passive sampling; no memory-pressure/purge call.
-        var statistics = malloc_statistics_t()
-        malloc_zone_statistics(nil, &statistics)
+        let allocator = allocatorSnapshot()
         let checkpoint = Checkpoint(uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
             unixMilliseconds: Date().timeIntervalSince1970 * 1_000,
-            allocator: AllocatorSnapshot(blocksInUse: UInt64(statistics.blocks_in_use),
-                bytesInUse: UInt64(statistics.size_in_use), bytesAllocated: UInt64(statistics.size_allocated)),
-            report: report)
+            allocator: allocator, report: report)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(checkpoint), bytes.count <= 16_384 else { return }
         var line = Data("TIMESTEP_ALLOCATION_CHECKPOINT ".utf8)

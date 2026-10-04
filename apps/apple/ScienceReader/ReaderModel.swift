@@ -482,16 +482,31 @@ final class ReaderModel {
                     await persistence.waitForAcceptedWrites()
                     let expectedRows = mode == .empty ? 0 : OfflineResourceFixture.rowCount
                     let expectedSearch = currentLibrarySearchKey
-                    await OfflineResourceProbe.shared.sampleSettledFootprints { [weak self] in
+                    let expectedCandidateRevision = librarySearchCandidateRevision
+                    let expectedCandidateCount = librarySearchCandidates.count
+                    let expectedLookupCount = libraryRowLookup.count
+                    let expectedMatchCount = libraryMatchedIDs.count
+                    let isCurrent: @MainActor (ReaderTab) -> Bool = { [weak self] destination in
                         guard let self else { return false }
                         return self.sessionID == fixtureSession && self.accountID == OfflineResourceFixture.account &&
                             self.readerBundles === coordinator && self.localPersistence === persistence &&
                             !self.workOwnership.isActivating && !self.librarySearchPending && self.librarySearchIssue == nil &&
                             self.currentLibrarySearchKey == expectedSearch && self.libraryQuery.isEmpty &&
-                            self.tab == .library && self.wideMode == .library && self.offlineCacheIssue == nil &&
+                            self.tab == destination && self.wideMode == .library && self.offlineCacheIssue == nil &&
                             self.readerOpenAttempt == nil && self.openingPaperID == nil && self.selectedPaper == nil &&
-                            self.papers.count == expectedRows && self.libraryRows.count == expectedRows
+                            self.papers.count == expectedRows && self.libraryRows.count == expectedRows &&
+                            self.librarySearchCandidateRevision == expectedCandidateRevision &&
+                            self.librarySearchCandidates.count == expectedCandidateCount &&
+                            self.libraryRowLookup.count == expectedLookupCount && self.libraryMatchedIDs.count == expectedMatchCount
                     }
+                    await OfflineResourceProbe.shared.sampleSettledFootprints { isCurrent(.library) }
+                    #if OFFLINE_RESOURCE_MEASUREMENTS
+                    await OfflineResourceProbe.shared.samplePresentationCycle(isCurrent: isCurrent) { [weak self] destination in
+                        // The ordinary compact-layout tab action assigns the
+                        // same destination; wideMode remains Library here.
+                        self?.tab = destination
+                    }
+                    #endif
                 }
             } catch {
                 OfflineResourceProbe.shared.fail(.unexpectedState)

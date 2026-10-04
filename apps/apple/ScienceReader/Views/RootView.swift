@@ -101,9 +101,17 @@ struct RootView: View {
         switch tab {
         case .feed: FeedView(model: model)
         case .library: LibraryView(model: model)
+            #if OFFLINE_RESOURCE_MEASUREMENTS
+            .onAppear { OfflineResourceProbe.shared.destinationAppearance(.library, appeared: true) }
+            .onDisappear { OfflineResourceProbe.shared.destinationAppearance(.library, appeared: false) }
+            #endif
         case .paper: PaperView(model: model)
         case .chat: ChatView(model: model)
         case .settings: SettingsView(model: model)
+            #if OFFLINE_RESOURCE_MEASUREMENTS
+            .onAppear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: true) }
+            .onDisappear { OfflineResourceProbe.shared.destinationAppearance(.settings, appeared: false) }
+            #endif
         }
     }
 

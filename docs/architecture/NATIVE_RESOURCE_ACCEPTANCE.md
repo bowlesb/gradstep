@@ -160,4 +160,50 @@ source/binary manifest and exact diagnostic delta in
 `offline-attribution-counters-source.{json,patch}`. The bounded launch/validation
 recipe is `.artifacts/run-offline-attribution-counters.py`.
 
+## Same-process presentation cycle
+
+The explicit resource-only `--offline-resource-presentation-cycle` flag adds one
+Library → Settings → Library cycle after the original allocation checkpoint.
+It assigns the same destination property as the ordinary tab action. Actual
+`RootView` appearance/disappearance callbacks must acknowledge the new branch
+and retirement of the old branch before each four-reading passive window.
+A three-second acknowledgement deadline rejects late transitions; the external
+collector also bounds the whole process. The callbacks establish view lifecycle,
+not completed rendering or release of every object.
+
+Every sample checks the same account/session, persistence/coordinator owners,
+source/search key and candidate revision, collection counts, empty query,
+unchanged selection and destination. Only scalar guards are captured; no catalog
+copy, data clearing, forced collection or cache purge is introduced. Failure or
+incomplete output invalidates the cycle. The original allocation checkpoint
+protocol remains unchanged; two distinct numeric records must follow in order,
+with matching PID/mode/counts and increasing mount/time values.
+
+Independent source review is clear and the optimized build passes. One empty
+and one full-library cycle pass without XCTest, accessibility polling, concurrent
+builds or VM activity. Both exact app processes were terminated afterward.
+
+| Phase | Empty malloc in use | Full malloc in use | Full current footprint |
+| --- | --- | --- | --- |
+| Initial Library | 12.0 MiB | 244.8 MiB | 350.8 MiB |
+| Settings | 14.2 MiB | 174.3 MiB | 267.4 MiB |
+| Returned Library | 13.5 MiB | 245.9 MiB | 295.9 MiB |
+
+All 4,000 papers, one installed bundle and search collections remained present.
+The full-library block counts were 958,661 → 372,794 → 961,175, while allocator
+reservation remained 435.3 MiB throughout. Full-case final offsets were 1,032,
+1,003 and 1,021 ms. The decrease and rebound support a substantial allocation
+cost associated with Library presentation. They do not isolate an individual
+SwiftUI object, prove a leak or justify a particular paging design. Physical
+footprint varies separately; its difference is not exact ownership attribution.
+The offline fixture also lacks the live reconciler/complete-observation owners,
+so this does not establish live-refresh memory acceptance.
+
+Evidence is `.artifacts/offline-presentation-{empty,restore}-evidence.json` and
+its raw stdout, `.artifacts/offline-presentation-source.{json,patch}`,
+`offline-presentation-build.log` and `run-offline-presentation-cycle.py`.
+The app binary is SHA-256
+`9d24f8478a200cde6597e4cb61e3aa5217a87d661783ee59dfe909348f927446`;
+the previous diagnostic and repeated benchmark binaries remain preserved.
+
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).
