@@ -137,6 +137,18 @@ test('OAI latest-license evidence never authorizes an older or unseen version', 
   assert.deepEqual(await arxivReuseEvidence(raw(undefined, ['v1']), pinned(), observed), { eligible: false, reason: 'revision_unverified' });
 });
 
+test('OAI GetRecord missing identifiers remain distinct from other or ambiguous errors', async () => {
+  const error = (elements: string, namespace = 'http://www.openarchives.org/OAI/2.0/') =>
+    bytes(`<OAI-PMH xmlns="${namespace}">${elements}</OAI-PMH>`);
+  await assert.rejects(arxivReuseEvidence(error('<error code="idDoesNotExist">Unknown identifier</error>'), pinned(), observed), /source_not_found/);
+  for (const elements of ['<error code="badArgument"/>', '<error code="unknownCode"/>',
+    '<error code="idDoesNotExist"/><error code="badArgument"/>', '<error code="idDoesNotExist"/><GetRecord/>']) {
+    await assert.rejects(arxivReuseEvidence(error(elements), pinned(), observed), /source_unavailable/);
+  }
+  await assert.rejects(arxivReuseEvidence(error('<error code="idDoesNotExist"><markup/></error>'), pinned(), observed), /invalid_source_metadata/);
+  await assert.rejects(arxivReuseEvidence(error('<error code="idDoesNotExist"/>', 'https://example.invalid/OAI/'), pinned(), observed), /invalid_source_metadata/);
+});
+
 test('license evidence requires valid Raw dates matching the pinned Atom update instant', async () => {
   for (const change of [
     (xml: string) => xml.replaceAll(/<date>[^<]*<\/date>/g, ''),

@@ -187,7 +187,17 @@ export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord,
   if (ref.revision === null || !Number.isFinite(Date.parse(observedAt)) || new Date(observedAt).toISOString() !== observedAt) throw new SourceError('invalid_source_metadata');
   const root = sourceXML(bytes);
   if (root.uri !== OAI || root.local !== 'OAI-PMH') throw new SourceError('invalid_source_metadata');
-  if (children(root, OAI, 'error').length) throw new SourceError('source_unavailable');
+  const errors = children(root, OAI, 'error');
+  if (errors.length) {
+    // GetRecord's idDoesNotExist is an absent identifier, not malformed paper
+    // metadata: https://www.openarchives.org/OAI/openarchivesprotocol.html#GetRecord
+    if (errors.length === 1 && !children(root, OAI, 'GetRecord').length &&
+        errors[0].attributes['{}code'] === 'idDoesNotExist') {
+      plain(errors[0], 4096, false); // Validate structure; never expose provider text.
+      throw new SourceError('source_not_found');
+    }
+    throw new SourceError('source_unavailable');
+  }
   const get = one(root, OAI, 'GetRecord')!, record = one(get, OAI, 'record')!, header = one(record, OAI, 'header')!;
   if (header.attributes['{}status'] === 'deleted') throw new SourceError('source_not_found');
   const identity = plain(one(header, OAI, 'identifier'), 256);
