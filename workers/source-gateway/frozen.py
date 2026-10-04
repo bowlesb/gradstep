@@ -8,7 +8,8 @@ import sys
 from protocol import canonical, decode, digest, require, clock_name
 
 FILES = ('protocol.py', 'transport.py', 'supervisor.py', 'identity.py', 'journal.py',
-         'frozen.py', 'child.py', 'paused_child.py', 'local_postgres.py', 'integrate.py')
+         'frozen.py', 'child.py', 'paused_child.py', 'local_postgres.py', 'integrate.py',
+         'rpc_support.py', 'execution_contract.py')
 # This exact string is itself included in the recipe identity, then passed as
 # Python's -c program. Project modules execute only bytes read into this loader.
 BOOTSTRAP = '''import hashlib,importlib.abc,importlib.util,json,os,pathlib,sys,types

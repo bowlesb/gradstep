@@ -1259,3 +1259,37 @@ Automatic APT remains deliberately inhibited. Restoring the normal APT and
 service policy is a separate reviewed action and has not been performed. This
 transaction establishes the guarded Linux prerequisite layer; it does not
 complete hosting, database migrations, or application deployment.
+
+### Restricted caller checkpoint — 2026-10-04
+
+`linux/restricted_rpc.py` now implements the finite Linux-fixture connection
+descriptor, separate executor/observer/admitter RPC allowlists, private password
+and CA files, verified TLS with default client certificates disabled, and
+SELECT → COMMIT → acknowledgement handling. Before an RPC, the connection checks
+the actual login, database, TLS, exact capability membership/options, absence of
+owner/privileged roles and stable SQL string handling. The observer can read the
+same execution state during recovery. Unicode NEL/line/paragraph separators in
+valid JSON remain inside the JSON record; only LF separates psql records.
+
+Shared pipe transport and pure source/deadline/execution/witness checks live in
+`rpc_support.py` and `execution_contract.py`. The Mac fixture retains its existing
+local database guard and owner-session limitations. Its frozen bundle includes
+both modules. Linux can reuse these helpers without importing the Mac database
+caller or its coordinator. The prospective existing-source union is 133,139
+bytes; adding the earlier 88,806-byte parser/manifest estimate leaves 40,199
+bytes for the remaining glue/manifests/units. This is planning evidence only:
+the final actual Linux graph still needs measurement before admission.
+
+Independent source review cleared caller SHA-256
+`019a5fa0aaa3494d627bb9657375c83cee9aabe648ab9b92e61ce8cd6b5a0871`.
+Fourteen new offline tests pass; the complete Linux-oriented local suite is
+43 pass / 13 expected Linux-only skips. Eight existing coordination checks and
+all 23 real disposable Mac PostgreSQL/loopback transport integration tests pass
+after helper extraction. The latter log is
+`.artifacts/linux-restricted-caller/mac-integration.log`.
+
+No VM, hosted SQL, credential provisioning or source/provider action was run for
+this checkpoint. The new caller has not yet connected to the Linux PostgreSQL
+17 fixture. Actual restricted-login/TLS/negative-permission checks, combined
+controller/guardian journal enforcement, grant-to-GO integration and scope-only
+recovery remain required. Candidate 012 retains its frozen hash above.

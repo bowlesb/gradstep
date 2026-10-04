@@ -251,3 +251,19 @@ account deletion. No PostgreSQL/Deno/Node/esbuild package was installed: the
 targeted guest inventory found them absent. Combined Linux SQL execution,
 production credential separation, host admission and live source traffic remain
 unfinished. Candidate 012 and all applied SQL files are unchanged.
+
+## Restricted database caller checkpoint — 2026-10-04
+
+The later guarded PostgreSQL dependency installation is recorded in the
+[admission document](../../../docs/architecture/LINUX_METADATA_ADMISSION.md#guarded-linux-dependency-transaction);
+the no-package statement above describes the earlier prerequisite run.
+
+`restricted_rpc.py` now provides the separate capability callers for the planned
+combined fixture, using explicit verified TLS and a private local descriptor.
+It shares bounded pipe transport and pure validators with the existing Mac
+integration without importing that integration's owner connection. Source review
+and 14 new offline tests pass. The full local Linux-oriented suite now has
+43 passing tests and 13 Linux-only skips; all 23 existing Mac database/transport
+integration checks also pass after extraction. These are not actual Linux
+database connection tests. The combined action and its recovery remain
+unfinished; no hosted worker or source networking was enabled.
