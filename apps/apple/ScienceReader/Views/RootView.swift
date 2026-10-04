@@ -46,6 +46,11 @@ struct RootView: View {
                 }
             }
         }
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        .overlay(alignment: .topTrailing) {
+            if OfflineResourceProbe.shared.mode != nil { OfflineResourceStatusView() }
+        }
+        #endif
         .overlay {
             if scenePhase != .active {
                 ZStack {

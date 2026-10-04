@@ -12,18 +12,27 @@
 		0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */; };
 		0DB9E535292D2D1CB9A4FCAF /* ReaderPNGValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */; };
 		1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
+		1164DC8D2D2BE9D6EE1912AB /* OfflineResourcePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */; };
 		142F91E67E1BB140E6BF9583 /* ChatTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */; };
+		16FED8D8994DFA9F0D621F87 /* LibraryCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */; };
 		19D21897B7DE8D3A6CE01371 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */; };
+		1D8610524D972A37C4E98E21 /* offline-resource in Resources */ = {isa = PBXBuildFile; fileRef = 78F26AC3CC887892BFD85E25 /* offline-resource */; };
 		2068FF43BBD2F54711A95852 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
+		23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AE39314F13A59D175222F59 /* KeychainVault.swift */; };
 		2B06FCF690BB99B86685709C /* LiveSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F440B89B75174BCEE986FB90 /* LiveSyncTests.swift */; };
 		2CDCF4C402B06CE842CAE54F /* ReaderBundleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA835CA7767FB4EF7E692A1 /* ReaderBundleCoordinator.swift */; };
 		3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */; };
 		3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */; };
+		4227B858FEF35F678A195784 /* LibraryCommandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */; };
 		43EE6FF90A8103163D91B9F8 /* LibraryServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF518EB70CCDBD0C070E910 /* LibraryServiceTests.swift */; };
+		481B2B8B4516EE4864337030 /* reader-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = 0CF87627F536131311AEBD1D /* reader-bridge.js */; };
 		49566966D6565B0057AFF733 /* RetirementSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680E5298C08C531C63EDCE08 /* RetirementSafetyTests.swift */; };
+		49575A2717A65753A3DEAAF2 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
+		4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
 		5308EDFADB8ED35DE33DF84B /* LibraryCommandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */; };
 		544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */; };
 		55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = 0CF87627F536131311AEBD1D /* reader-bridge.js */; };
+		56A2187503493F3399981625 /* ReaderBundleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA835CA7767FB4EF7E692A1 /* ReaderBundleCoordinator.swift */; };
 		577E406704CB145DD0595722 /* DraftQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7741ECADEE690DBE29C60740 /* DraftQueueTests.swift */; };
 		5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
 		5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */; };
@@ -31,31 +40,54 @@
 		66F54F280A5A30A81AEEF232 /* ReaderDraftQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */; };
 		69FFC6AB0D50BFE7E7090F61 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
 		6E79A84877F64CFD3D7DA853 /* PaperWebViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */; };
+		74A4180D876E3097503ACBB1 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD48DC7B746589499F3F6C03 /* ScienceReaderCore */; };
+		74FBD6C35779F342FA2A69EC /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
 		75E904FF52D43C762C5FD2AF /* EnrollmentSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15CECF5E28F723846BFFD1E /* EnrollmentSafetyTests.swift */; };
 		7707551B28B8897B64FD97F1 /* ConversationBranchSelections.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D007555EFC3298556E72D3 /* ConversationBranchSelections.swift */; };
+		7886FA4E53948C5AC01576B9 /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		7B6ECC0C4064EDE1348737C6 /* BranchPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */; };
 		7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
+		81F4B31C1ED5D7F66D4686E4 /* OfflineResourceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */; };
+		8302B96AC73E77B70A85A0DF /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
 		85A35CD26D64E2734B3292D1 /* ReaderBundleLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030E1CFB76A0DFDEDF57638C /* ReaderBundleLoaderTests.swift */; };
+		8648D78ABCD4824DBD42A2EA /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
 		88E57253CF742E3D4236D3F6 /* OfflineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 886420F874B0D50DA6109672 /* OfflineModelTests.swift */; };
 		8B2DB555A391F27C94B6D6BC /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */; };
+		8B62E95A35E7D85E8FBA4F47 /* ReaderPNGValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */; };
 		8C871D53BC76304C7AA87F41 /* ScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */; };
+		8E638D0309161003781DD05B /* ReaderBundleLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */; };
+		951EFA319EF9D270231D50C0 /* ChatWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD219A12430C6D440465F911 /* ChatWorkspace.swift */; };
 		968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AE39314F13A59D175222F59 /* KeychainVault.swift */; };
+		A18BB875B8088DAE581EF4F0 /* WorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */; };
+		A2103D4B5129E2E105847B22 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
 		A97CC2B0617F36ACBD086534 /* LibraryCommandCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */; };
 		AB0AB94E5391C7CD99B0840E /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
 		B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		B48D6C99998D6CEFF119D2D9 /* OAuthSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FCEB742527F9BFC5998184 /* OAuthSafetyTests.swift */; };
+		B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D007555EFC3298556E72D3 /* ConversationBranchSelections.swift */; };
 		BB789A68504EB01EA15320EA /* UnsentDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7F302ABE65AC6232843382 /* UnsentDraftTests.swift */; };
+		C18B2C6966B5F6B5E4B2CEDB /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */; };
 		C24D31B2AD151D8FB4E53DA3 /* ReaderBundleLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */; };
+		C3DFD8E2E499A8428B2F8270 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */; };
 		C6F0F36164B3962D90F26435 /* DurableWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */; };
 		C85C6F3BA0684808A9D3B155 /* ChatWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD219A12430C6D440465F911 /* ChatWorkspace.swift */; };
 		C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */; };
+		CF3F86D0DCB5E1CDC69D02E6 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
+		D425678EA644AA4CF16CF5D3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
+		D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
+		D5FC50CB49940EBB76428C02 /* ScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */; };
 		D7C1B9FA356C53FEB40F18D0 /* WorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */; };
 		D90FA618E733A6DA84FF9297 /* ReaderSamples in Resources */ = {isa = PBXBuildFile; fileRef = 7B70D15BE449FE77F2DCF2AE /* ReaderSamples */; };
 		DB725B375938298DF1ABFABD /* ReaderBundleCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86DE318B8974074F6F1BDC6F /* ReaderBundleCoordinatorTests.swift */; };
+		E4DC587F25584B44A530A3E2 /* ReaderDraftQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */; };
+		E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */; };
+		EA930FCDCF72BF13197365C9 /* OfflineResourceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */; };
 		EC0430AA3538CEB8C949502C /* LibraryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4322D94A725E781DDD6CE62A /* LibraryModelTests.swift */; };
 		EFDD0C95FBC49CE9EE5021B0 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */; };
 		F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */; };
 		FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
+		FCC586596B435AF7180731D7 /* ReaderSamples in Resources */ = {isa = PBXBuildFile; fileRef = 7B70D15BE449FE77F2DCF2AE /* ReaderSamples */; };
+		FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */; };
 		FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
 /* End PBXBuildFile section */
 
@@ -66,6 +98,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 6ECC4E28C6EFE03B55653FD1;
 			remoteInfo = ScienceReader;
+		};
+		4D6A3C0A629B4B7643AD477B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83D038C58C532C63B403044F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E0A3962D148B662E17823DB0;
+			remoteInfo = ScienceReaderResourceProbe;
 		};
 		B35E2F6BCEDC5FA639625AE6 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -88,18 +127,22 @@
 		2673CB0144CC1585AD755137 /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
 		26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryChangesView.swift; sourceTree = "<group>"; };
 		27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2EBF787F7B1C6797526C2C97 /* ScienceReaderResourceProbeUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderResourceProbeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinatorTests.swift; sourceTree = "<group>"; };
 		39FCEB742527F9BFC5998184 /* OAuthSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthSafetyTests.swift; sourceTree = "<group>"; };
 		4322D94A725E781DDD6CE62A /* LibraryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelTests.swift; sourceTree = "<group>"; };
 		44EA809E32C50B2747229C55 /* ScienceReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46DD9E9113B03CAE53BF0271 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineResourceFixture.swift; sourceTree = "<group>"; };
 		4E95203AFDE6CC762825DA86 /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
 		5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandTransport.swift; sourceTree = "<group>"; };
 		60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperWebViewTests.swift; sourceTree = "<group>"; };
+		65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineResourcePerformanceTests.swift; sourceTree = "<group>"; };
 		680E5298C08C531C63EDCE08 /* RetirementSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetirementSafetyTests.swift; sourceTree = "<group>"; };
 		6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSafetyTests.swift; sourceTree = "<group>"; };
 		7741ECADEE690DBE29C60740 /* DraftQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftQueueTests.swift; sourceTree = "<group>"; };
+		78F26AC3CC887892BFD85E25 /* offline-resource */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "offline-resource"; path = "ScienceReader/Resources/offline-resource"; sourceTree = SOURCE_ROOT; };
 		7AE39314F13A59D175222F59 /* KeychainVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainVault.swift; sourceTree = "<group>"; };
 		7B70D15BE449FE77F2DCF2AE /* ReaderSamples */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReaderSamples; path = ScienceReader/Resources/ReaderSamples; sourceTree = SOURCE_ROOT; };
 		7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurableWorkspaceTests.swift; sourceTree = "<group>"; };
@@ -114,6 +157,7 @@
 		93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurableDraftIntegrationTests.swift; sourceTree = "<group>"; };
 		9CF518EB70CCDBD0C070E910 /* LibraryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryServiceTests.swift; sourceTree = "<group>"; };
 		A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchPresentationTests.swift; sourceTree = "<group>"; };
+		A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReaderResourceProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A87576DE63B383CD1FD6B82E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPNGValidator.swift; sourceTree = "<group>"; };
 		B9EB19E7A51033177B6309A6 /* WorkflowSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowSafetyTests.swift; sourceTree = "<group>"; };
@@ -134,6 +178,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		0FC67E290C53AB820B080E6C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				74A4180D876E3097503ACBB1 /* ScienceReaderCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BFE32679E2C26E57C814A45A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -165,6 +217,7 @@
 				5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */,
 				1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */,
 				81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */,
+				4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */,
 				BFA835CA7767FB4EF7E692A1 /* ReaderBundleCoordinator.swift */,
 				E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */,
 				C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */,
@@ -179,6 +232,7 @@
 			isa = PBXGroup;
 			children = (
 				46DD9E9113B03CAE53BF0271 /* Assets.xcassets */,
+				78F26AC3CC887892BFD85E25 /* offline-resource */,
 				0CF87627F536131311AEBD1D /* reader-bridge.js */,
 				7B70D15BE449FE77F2DCF2AE /* ReaderSamples */,
 			);
@@ -189,6 +243,8 @@
 			isa = PBXGroup;
 			children = (
 				44EA809E32C50B2747229C55 /* ScienceReader.app */,
+				A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */,
+				2EBF787F7B1C6797526C2C97 /* ScienceReaderResourceProbeUITests.xctest */,
 				83219A1C314B8263C3120D73 /* ScienceReaderTests.xctest */,
 				27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */,
 			);
@@ -279,6 +335,7 @@
 		E596EB9BE443307AB3C5F579 /* ScienceReaderUITests */ = {
 			isa = PBXGroup;
 			children = (
+				65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */,
 				927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */,
 				BFF06459C158D4A571E6BDFA /* WorkflowJourneyTests.swift */,
 			);
@@ -326,6 +383,24 @@
 			productReference = 44EA809E32C50B2747229C55 /* ScienceReader.app */;
 			productType = "com.apple.product-type.application";
 		};
+		8967A0CA79F4B0C10B8C6FC9 /* ScienceReaderResourceProbeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 37823B6F98BB8669BCB35537 /* Build configuration list for PBXNativeTarget "ScienceReaderResourceProbeUITests" */;
+			buildPhases = (
+				52B540263B010AB98014DD10 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				893A9F1DD6A9EAB948A4DF65 /* PBXTargetDependency */,
+			);
+			name = ScienceReaderResourceProbeUITests;
+			packageProductDependencies = (
+			);
+			productName = ScienceReaderResourceProbeUITests;
+			productReference = 2EBF787F7B1C6797526C2C97 /* ScienceReaderResourceProbeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		9C6A883CE8AECF4C05CB639D /* ScienceReaderTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 9F66AAFA15AE1EDC7CA7B4C2 /* Build configuration list for PBXNativeTarget "ScienceReaderTests" */;
@@ -346,6 +421,26 @@
 			productReference = 83219A1C314B8263C3120D73 /* ScienceReaderTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		E0A3962D148B662E17823DB0 /* ScienceReaderResourceProbe */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DF50934554DCC626F6B1D493 /* Build configuration list for PBXNativeTarget "ScienceReaderResourceProbe" */;
+			buildPhases = (
+				F06FB3EF6F15BD567E9D4746 /* Sources */,
+				E03C2B4461189B1D31962943 /* Resources */,
+				0FC67E290C53AB820B080E6C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScienceReaderResourceProbe;
+			packageProductDependencies = (
+				BD48DC7B746589499F3F6C03 /* ScienceReaderCore */,
+			);
+			productName = ScienceReaderResourceProbe;
+			productReference = A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -364,7 +459,16 @@
 						DevelopmentTeam = 3BJ33TT599;
 						ProvisioningStyle = Automatic;
 					};
+					8967A0CA79F4B0C10B8C6FC9 = {
+						DevelopmentTeam = 3BJ33TT599;
+						ProvisioningStyle = Automatic;
+						TestTargetID = E0A3962D148B662E17823DB0;
+					};
 					9C6A883CE8AECF4C05CB639D = {
+						DevelopmentTeam = 3BJ33TT599;
+						ProvisioningStyle = Automatic;
+					};
+					E0A3962D148B662E17823DB0 = {
 						DevelopmentTeam = 3BJ33TT599;
 						ProvisioningStyle = Automatic;
 					};
@@ -388,6 +492,8 @@
 			projectRoot = "";
 			targets = (
 				6ECC4E28C6EFE03B55653FD1 /* ScienceReader */,
+				E0A3962D148B662E17823DB0 /* ScienceReaderResourceProbe */,
+				8967A0CA79F4B0C10B8C6FC9 /* ScienceReaderResourceProbeUITests */,
 				9C6A883CE8AECF4C05CB639D /* ScienceReaderTests */,
 				2FE16AF9D3A2801D3320809A /* ScienceReaderUITests */,
 			);
@@ -402,6 +508,17 @@
 				1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */,
 				D90FA618E733A6DA84FF9297 /* ReaderSamples in Resources */,
 				55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E03C2B4461189B1D31962943 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				49575A2717A65753A3DEAAF2 /* Assets.xcassets in Resources */,
+				FCC586596B435AF7180731D7 /* ReaderSamples in Resources */,
+				1D8610524D972A37C4E98E21 /* offline-resource in Resources */,
+				481B2B8B4516EE4864337030 /* reader-bridge.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -423,6 +540,7 @@
 				5308EDFADB8ED35DE33DF84B /* LibraryCommandTransport.swift in Sources */,
 				8B2DB555A391F27C94B6D6BC /* LibraryService.swift in Sources */,
 				AB0AB94E5391C7CD99B0840E /* OfflineReaderFixture.swift in Sources */,
+				EA930FCDCF72BF13197365C9 /* OfflineResourceFixture.swift in Sources */,
 				5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */,
 				2CDCF4C402B06CE842CAE54F /* ReaderBundleCoordinator.swift in Sources */,
 				C24D31B2AD151D8FB4E53DA3 /* ReaderBundleLoader.swift in Sources */,
@@ -436,6 +554,14 @@
 				8C871D53BC76304C7AA87F41 /* ScreenshotCapture.swift in Sources */,
 				EFDD0C95FBC49CE9EE5021B0 /* SupportService.swift in Sources */,
 				D7C1B9FA356C53FEB40F18D0 /* WorkflowFixture.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		52B540263B010AB98014DD10 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1164DC8D2D2BE9D6EE1912AB /* OfflineResourcePerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -474,6 +600,38 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F06FB3EF6F15BD567E9D4746 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				74FBD6C35779F342FA2A69EC /* BackendClient.swift in Sources */,
+				FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */,
+				951EFA319EF9D270231D50C0 /* ChatWorkspace.swift in Sources */,
+				B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */,
+				D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */,
+				23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */,
+				E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */,
+				16FED8D8994DFA9F0D621F87 /* LibraryCommandCoordinator.swift in Sources */,
+				4227B858FEF35F678A195784 /* LibraryCommandTransport.swift in Sources */,
+				C18B2C6966B5F6B5E4B2CEDB /* LibraryService.swift in Sources */,
+				8648D78ABCD4824DBD42A2EA /* OfflineReaderFixture.swift in Sources */,
+				81F4B31C1ED5D7F66D4686E4 /* OfflineResourceFixture.swift in Sources */,
+				4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */,
+				56A2187503493F3399981625 /* ReaderBundleCoordinator.swift in Sources */,
+				8E638D0309161003781DD05B /* ReaderBundleLoader.swift in Sources */,
+				E4DC587F25584B44A530A3E2 /* ReaderDraftQueue.swift in Sources */,
+				7886FA4E53948C5AC01576B9 /* ReaderModel.swift in Sources */,
+				8B62E95A35E7D85E8FBA4F47 /* ReaderPNGValidator.swift in Sources */,
+				CF3F86D0DCB5E1CDC69D02E6 /* ReportComposer.swift in Sources */,
+				8302B96AC73E77B70A85A0DF /* ReportsView.swift in Sources */,
+				D425678EA644AA4CF16CF5D3 /* RootView.swift in Sources */,
+				A2103D4B5129E2E105847B22 /* ScienceReaderApp.swift in Sources */,
+				D5FC50CB49940EBB76428C02 /* ScreenshotCapture.swift in Sources */,
+				C3DFD8E2E499A8428B2F8270 /* SupportService.swift in Sources */,
+				A18BB875B8088DAE581EF4F0 /* WorkflowFixture.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -487,9 +645,36 @@
 			target = 6ECC4E28C6EFE03B55653FD1 /* ScienceReader */;
 			targetProxy = 4A294F2989F27AAD42DA707F /* PBXContainerItemProxy */;
 		};
+		893A9F1DD6A9EAB948A4DF65 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E0A3962D148B662E17823DB0 /* ScienceReaderResourceProbe */;
+			targetProxy = 4D6A3C0A629B4B7643AD477B /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		271BA78976B53910CF2D2DAF /* Internal */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Config/ResourceProbe-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = OFFLINE_RESOURCE_MEASUREMENTS;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Internal;
+		};
 		5C44D0D4DA24030C357E915C /* Internal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -721,6 +906,24 @@
 			};
 			name = Release;
 		};
+		AEC4DB6D09AC83BDDE36A416 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe.uitests";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReaderResourceProbe;
+			};
+			name = Release;
+		};
 		BEEAB2D0DD6EAA55F17E90E2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -755,6 +958,24 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 			};
 			name = Debug;
+		};
+		DED69F5A63E72E73B45F39A6 /* Internal */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe.uitests";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReaderResourceProbe;
+			};
+			name = Internal;
 		};
 		E35C9641EDBAF90BBBBEE51E /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -826,6 +1047,28 @@
 			};
 			name = Debug;
 		};
+		E61CA3336146FDCCBA4BC4A7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Config/ResourceProbe-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = OFFLINE_RESOURCE_MEASUREMENTS;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		E9815F6B9B9A64BFA8D00889 /* Internal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -843,9 +1086,59 @@
 			};
 			name = Internal;
 		};
+		F909D7EA1A9FDA47D179293C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe.uitests";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = ScienceReaderResourceProbe;
+			};
+			name = Debug;
+		};
+		F9FA9676BBC2C8AA1EEFCE4C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Config/ResourceProbe-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.sciencereader.ios.resource-probe";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = iphonesimulator;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = OFFLINE_RESOURCE_MEASUREMENTS;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		37823B6F98BB8669BCB35537 /* Build configuration list for PBXNativeTarget "ScienceReaderResourceProbeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F909D7EA1A9FDA47D179293C /* Debug */,
+				DED69F5A63E72E73B45F39A6 /* Internal */,
+				AEC4DB6D09AC83BDDE36A416 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		528C17632B46485E1594FEAA /* Build configuration list for PBXNativeTarget "ScienceReader" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -886,6 +1179,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		DF50934554DCC626F6B1D493 /* Build configuration list for PBXNativeTarget "ScienceReaderResourceProbe" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F9FA9676BBC2C8AA1EEFCE4C /* Debug */,
+				271BA78976B53910CF2D2DAF /* Internal */,
+				E61CA3336146FDCCBA4BC4A7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -901,6 +1204,10 @@
 			productName = ScienceReaderCore;
 		};
 		82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ScienceReaderCore;
+		};
+		BD48DC7B746589499F3F6C03 /* ScienceReaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ScienceReaderCore;
 		};

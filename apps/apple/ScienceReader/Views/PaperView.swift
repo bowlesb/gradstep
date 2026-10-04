@@ -74,9 +74,18 @@ struct PaperView: View {
                                      }, onHeadings: {
                                          if model.readerDocumentScope == readerScope { model.headings = $0 }
                                      }, onFigure: {
-                                         if model.readerDocumentScope == readerScope { figure = $0 }
+                                         if model.readerDocumentScope == readerScope {
+                                             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                             OfflineResourceProbe.shared.begin(.figure)
+                                             #endif
+                                             figure = $0
+                                         }
                                      }, onFailure: {
                                          if model.readerDocumentScope == readerScope { readerFailed = true; selection = nil; model.headings = [] }
+                                     }, onReady: {
+                                         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                         if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
+                                         #endif
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay { if readerFailed {
@@ -131,7 +140,13 @@ struct PaperView: View {
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
                     Group {
-                        if let figure, let bundle = model.selectedPaper?.readerBundle { FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize) }
+                        if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
+                            FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize, onReady: {
+                                #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
+                                #endif
+                            })
+                        }
                         else { Color.clear }
                     }
                     .navigationBarTitleDisplayMode(.inline)
@@ -209,6 +224,7 @@ struct PaperWebView: UIViewRepresentable {
     let onHeadings: ([PaperHeading]) -> Void
     let onFigure: (String) -> Void
     var onFailure: () -> Void = {}
+    var onReady: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeUIView(context: Context) -> WKWebView {
@@ -325,6 +341,7 @@ struct PaperWebView: UIViewRepresentable {
                     self.ready = true
                     self.remember(body, in: webView)
                     self.parent.onLoading(false)
+                    self.parent.onReady()
                     self.applyJump(in: webView)
                 }
         }
@@ -407,6 +424,7 @@ struct FigureWebView: View {
     let bundle: VerifiedReaderBundle
     let figureID: String
     var baseFontSize: Double = 17
+    var onReady: () -> Void = {}
     @State private var failed = false
     @State private var loading = true
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
@@ -415,7 +433,7 @@ struct FigureWebView: View {
                      locationKey: bundle.manifestSHA256 + "/" + figureID, location: nil,
                      fontSize: baseFontSize * bodySize / 17, jump: nil, reduceMotion: true, onLoading: { loading = $0 },
                      onLocation: { _, _ in }, onJumpApplied: { _ in }, onSelection: { _ in },
-                     onHeadings: { _ in }, onFigure: { _ in }, onFailure: { failed = true })
+                     onHeadings: { _ in }, onFigure: { _ in }, onFailure: { failed = true }, onReady: onReady)
             .overlay { if failed { ContentUnavailableView("Couldn’t open figure", systemImage: "photo").background(Color(uiColor: .systemBackground)) }
                 else if loading { ProgressView("Opening figure…").allowsHitTesting(false) } }
     }

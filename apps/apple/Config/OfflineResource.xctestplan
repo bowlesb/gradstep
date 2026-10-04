@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "id": "AE8304A9-178A-4009-BC25-5606F02FF7D9",
+      "name": "Optimized Simulator",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {
+    "codeCoverage": false,
+    "environmentVariableEntries": [
+      { "key": "SCIENCE_READER_RESOURCE_TESTS", "value": "1", "enabled": true }
+    ],
+    "mainThreadCheckerDetectionPolicy": { "enabled": false },
+    "threadPerformanceCheckerRuntimeIssueDetection": { "enabled": false },
+    "targetForVariableExpansion": {
+      "containerPath": "container:ScienceReader.xcodeproj",
+      "identifier": "E0A3962D148B662E17823DB0",
+      "name": "ScienceReaderResourceProbe"
+    }
+  },
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:ScienceReader.xcodeproj",
+        "identifier": "8967A0CA79F4B0C10B8C6FC9",
+        "name": "ScienceReaderResourceProbeUITests"
+      }
+    }
+  ],
+  "version": 1
+}

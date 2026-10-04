@@ -28,7 +28,7 @@ targets:
     platform: iOS
     sources:
       - path: ScienceReader
-        excludes: [Resources/ReaderSamples, Resources/reader-sample.html]
+        excludes: [Resources/ReaderSamples, Resources/reader-sample.html, Resources/offline-resource]
       - path: ScienceReader/Resources/ReaderSamples
         type: folder
         buildPhase: resources
@@ -52,7 +52,9 @@ targets:
   ScienceReaderUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [ScienceReaderUITests]
+    sources:
+      - path: ScienceReaderUITests
+        excludes: [OfflineResourcePerformanceTests.swift]
     dependencies:
       - target: ScienceReader
     settings:
@@ -71,7 +73,89 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.tests
         GENERATE_INFOPLIST_FILE: YES
+  # This app runs the same reader/model with an isolated synthetic account.
+  # Its resources and URL configuration are separate from all shipping builds.
+  ScienceReaderResourceProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: ScienceReader
+        excludes: [Info.plist, Resources/ReaderSamples, Resources/reader-sample.html, Resources/offline-resource]
+      - path: ScienceReader/Resources/ReaderSamples
+        type: folder
+        buildPhase: resources
+      - path: ScienceReader/Resources/offline-resource
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: ScienceReaderCore
+    info:
+      path: Config/ResourceProbe-Info.plist
+      properties:
+        CFBundleDisplayName: Timestep Resource Probe
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        ScienceReaderEnvironment: offline-resource
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.resource-probe
+        SUPPORTED_PLATFORMS: iphonesimulator
+        SKIP_INSTALL: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: OFFLINE_RESOURCE_MEASUREMENTS
+        SWIFT_OPTIMIZATION_LEVEL: -O
+        SWIFT_COMPILATION_MODE: wholemodule
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+  ScienceReaderResourceProbeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ScienceReaderUITests/OfflineResourcePerformanceTests.swift]
+    dependencies:
+      - target: ScienceReaderResourceProbe
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.resource-probe.uitests
+        SUPPORTED_PLATFORMS: iphonesimulator
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: ScienceReaderResourceProbe
 schemes:
+  ScienceReader-ResourceProbe:
+    build:
+      targets:
+        ScienceReaderResourceProbe: [run, test, profile]
+        ScienceReaderResourceProbeUITests: [test]
+    run:
+      config: Release
+      debugEnabled: false
+      enableGPUFrameCaptureMode: disabled
+      enableGPUValidationMode: false
+      disableMainThreadChecker: true
+      disableThreadPerformanceChecker: true
+    test:
+      config: Release
+      debugEnabled: false
+      gatherCoverageData: false
+      testPlans:
+        - path: Config/OfflineResource.xctestplan
+          defaultPlan: true
+      captureScreenshotsAutomatically: false
+      enableGPUFrameCaptureMode: disabled
+      enableGPUValidationMode: false
+      disableMainThreadChecker: true
+      targets:
+        - name: ScienceReaderResourceProbeUITests
+          parallelizable: false
+          randomExecutionOrder: false
+      environmentVariables:
+        SCIENCE_READER_RESOURCE_TESTS: "1"
   ScienceReader-Internal:
     build:
       targets:

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1430"
+   version = "1.7">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES"
+      runPostActionsOnFailure = "NO">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "E0A3962D148B662E17823DB0"
+               BuildableName = "ScienceReaderResourceProbe.app"
+               BlueprintName = "ScienceReaderResourceProbe"
+               ReferencedContainer = "container:ScienceReader.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "8967A0CA79F4B0C10B8C6FC9"
+               BuildableName = "ScienceReaderResourceProbeUITests.xctest"
+               BlueprintName = "ScienceReaderResourceProbeUITests"
+               ReferencedContainer = "container:ScienceReader.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Release"
+      selectedDebuggerIdentifier = ""
+      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      shouldUseLaunchSchemeArgsEnv = "NO"
+      disableMainThreadChecker = "YES"
+      onlyGenerateCoverageForSpecifiedTargets = "NO"
+      systemAttachmentLifetime = "keepNever">
+      <TestPlans>
+         <TestPlanReference
+            default = "YES"
+            reference = "container:Config/OfflineResource.xctestplan">
+         </TestPlanReference>
+      </TestPlans>
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "E0A3962D148B662E17823DB0"
+            BuildableName = "ScienceReaderResourceProbe.app"
+            BlueprintName = "ScienceReaderResourceProbe"
+            ReferencedContainer = "container:ScienceReader.xcodeproj">
+         </BuildableReference>
+      </MacroExpansion>
+      <Testables>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "8967A0CA79F4B0C10B8C6FC9"
+               BuildableName = "ScienceReaderResourceProbeUITests.xctest"
+               BlueprintName = "ScienceReaderResourceProbeUITests"
+               ReferencedContainer = "container:ScienceReader.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+      </Testables>
+      <CommandLineArguments>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "SCIENCE_READER_RESOURCE_TESTS"
+            value = "1"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Release"
+      selectedDebuggerIdentifier = ""
+      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      disableMainThreadChecker = "YES"
+      disablePerformanceAntipatternChecker = "YES"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      enableGPUFrameCaptureMode = "3"
+      enableGPUValidationMode = "1"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "E0A3962D148B662E17823DB0"
+            BuildableName = "ScienceReaderResourceProbe.app"
+            BlueprintName = "ScienceReaderResourceProbe"
+            ReferencedContainer = "container:ScienceReader.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+      <CommandLineArguments>
+      </CommandLineArguments>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "E0A3962D148B662E17823DB0"
+            BuildableName = "ScienceReaderResourceProbe.app"
+            BlueprintName = "ScienceReaderResourceProbe"
+            ReferencedContainer = "container:ScienceReader.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>

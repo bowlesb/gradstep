@@ -233,6 +233,9 @@ final class ReaderModel {
         return librarySort == "Title" ? matching.sorted { $0.title.localizedCompare($1.title) == .orderedAscending } : matching
     }
     var libraryRows: [LibraryListEntry] {
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        OfflineResourceProbe.shared.beginSearch(query: libraryQuery)
+        #endif
         let terms = libraryQuery.split(whereSeparator: \.isWhitespace).map(String.init)
         let imports = libraryImports.filter { item in
             let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
@@ -255,7 +258,7 @@ final class ReaderModel {
             case .pending(let item): item.createdSequence
             case .queued: Int64.max }
         }
-        return rows.enumerated().sorted { lhs, rhs in
+        let sorted = rows.enumerated().sorted { lhs, rhs in
             if librarySort == "Title" {
                 let comparison = lhs.element.title.localizedCompare(rhs.element.title)
                 return comparison == .orderedSame ? lhs.element.id < rhs.element.id : comparison == .orderedAscending
@@ -263,6 +266,10 @@ final class ReaderModel {
             let left = sequence(lhs.element), right = sequence(rhs.element)
             return left == right ? lhs.offset < rhs.offset : left > right
         }.map(\.element)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        OfflineResourceProbe.shared.finishSearch(query: libraryQuery, count: sorted.count)
+        #endif
+        return sorted
     }
     var chatBranches: [ConversationBranch] {
         guard let conversation = activeConversation, !chatWasDeleted else { return [] }
@@ -301,6 +308,18 @@ final class ReaderModel {
 
     func start() async {
         guard !started else { return }; started = true
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
+            do {
+                guard let mode = try OfflineResourceFixture.launchMode() else { throw OfflineResourceFixture.Failure.invalidArguments }
+                try await configureOfflineResourceFixture(mode: mode)
+            } catch {
+                OfflineResourceProbe.shared.fail(.unexpectedState)
+                show(error)
+            }
+            return
+        }
+        #endif
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
             do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture")) }
@@ -629,8 +648,21 @@ final class ReaderModel {
             if case .failure = restored.installations {
                 offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
             }
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            if let mode = OfflineResourceProbe.shared.mode, mode != .seed {
+                let presentation = try restored.presentation.get(), list = try restored.installations.get()
+                guard mode == .empty || presentation?.committedCursor == Int64(OfflineResourceFixture.rowCount) else {
+                    throw OfflineResourceFixture.Failure.unexpectedState
+                }
+                OfflineResourceProbe.shared.restored(rows: presentation?.entries.count ?? 0,
+                    installations: list.installations.count, ciphertextBytes: list.ciphertextBytes)
+            }
+            #endif
         } catch {
             guard sessionID == scope, workOwnership.owns(activation) else { return }
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            if OfflineResourceProbe.shared.mode != nil { OfflineResourceProbe.shared.fail(.unexpectedState) }
+            #endif
             offlineCacheIssue = "Offline reading couldn’t be restored. Your saved data has been preserved."
         }
     }
@@ -746,6 +778,10 @@ final class ReaderModel {
     }
 
     private func presentLibraryEntries(_ entries: [LibraryEntry]) {
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        OfflineResourceProbe.shared.begin(.publication)
+        defer { OfflineResourceProbe.shared.finish(.publication, count: entries.count) }
+        #endif
         let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let items = entries.compactMap { if case .item(let item) = $0, item.visible { return item }; return nil }
         let next = items.map { item in
@@ -822,6 +858,9 @@ final class ReaderModel {
         guard !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let attempt = UUID(), scope = sessionID
         do {
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            OfflineResourceProbe.shared.begin(.open)
+            #endif
             let opening = try coordinator.open(installation)
             readerOpenAttempt = attempt; readerOpenBinding = installation.binding; openingPaperID = paper.id
             Task {
@@ -838,6 +877,14 @@ final class ReaderModel {
                     let displayed = current.displaying(result.bundle)
                     self.papers = self.papers.map { $0.id == displayed.id ? displayed : $0 }
                     self.selectedPaper = displayed
+                    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                    if OfflineResourceProbe.shared.mode != nil {
+                        let bytes = result.bundle.manifest.members.reduce(0) { $0 + (result.bundle.data(for: $1.path)?.count ?? 0) }
+                        let pixels = result.bundle.manifest.members.filter { $0.role == "image" }
+                            .reduce(0) { $0 + ($1.width ?? 0) * ($1.height ?? 0) }
+                        OfflineResourceProbe.shared.opened(memberBytes: bytes, imagePixels: pixels)
+                    }
+                    #endif
                 } catch {
                     guard self.sessionID == scope, self.readerOpenAttempt == attempt, !(error is CancellationError) else { return }
                     self.readerOpenIssue = "This downloaded copy couldn’t be opened."
@@ -1065,6 +1112,40 @@ final class ReaderModel {
         checkpointAllDrafts()
         await localPersistence.waitForAcceptedWrites()
     }
+
+    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+    private func configureOfflineResourceFixture(mode: OfflineResourceFixture.Mode) async throws {
+        let probe = OfflineResourceProbe.shared
+        probe.configure(mode)
+        let directory = try OfflineResourceFixture.directory(for: mode)
+        if mode == .seed, FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+        try OfflineResourceFixture.requireExistingSeed(at: directory, mode: mode)
+        probe.begin(.restore)
+        let fixtureDevice = try OfflineResourceFixture.device()
+        guard let keys = fixtureDevice.bundle else { throw ReaderError.missingKey }
+        accountID = fixtureDevice.accountID; device = fixtureDevice
+        let activation = workOwnership.beginActivation()
+        defer { workOwnership.finishActivation(activation) }
+        let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
+            accountID: fixtureDevice.accountID, localKey: fixtureDevice.localStoreKey, keys: keys)
+        let snapshot = await local.snapshot()
+        prepareDrafts(snapshot: snapshot, scope: sessionID); publish(snapshot)
+        checkpointAllDrafts()
+        let cacheScope = try LibraryCommandScope(accountID: fixtureDevice.accountID,
+            deploymentID: OfflineResourceFixture.deployment)
+        let coordinator = ReaderBundleCoordinator(scope: cacheScope, persistence: localPersistence)
+        readerBundles = coordinator
+        if mode == .seed {
+            probe.didSeed(try await OfflineResourceFixture.seed(using: coordinator))
+        } else {
+            await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID,
+                activation: activation, deploymentID: OfflineResourceFixture.deployment)
+        }
+        tab = .library; wideMode = .library
+    }
+    #endif
 
     #if DEBUG && targetEnvironment(simulator)
     /// The reset flag is explicit installation intent in this test-only
