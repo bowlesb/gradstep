@@ -307,6 +307,308 @@ an owner session constitutes provisioned separation. Journal and source bytes
 are private local state, not logs. Budgeted deployment, bounded local disk,
 backup/restore quarantine and host identity remain admission inputs.
 
+## Combined adapter launcher proposal — not implemented
+
+This section is the proposed next local implementation, pending review. It does
+not admit a host, change candidate 012 or authorize starting/installing the guest.
+Use two dedicated locked, non-login OS accounts: proposed fixture UID/GID
+`62401` for the transport supervisor and `62402` for the source child. Refuse
+existing ID/name collisions; do not repurpose `nobody`. Freeze the chosen numeric
+IDs in the host admission recipe. Neither account has other services, a login
+shell, supplementary groups, sudo/polkit rules or database credentials.
+
+Prefer a short **SETPCAP-assisted bootstrap** over retaining dormant capability
+bounding bits. The service initially runs the fixed root-owned launcher as
+`User=0`, `Group=0`, with only `CAP_SETUID CAP_SETGID CAP_SETPCAP` in its capability
+bounding set, an empty ambient set, `NoNewPrivileges=yes`, no keep-caps behavior
+and no privileged `+`/`!` command prefix. Its argv contains only the fixed bundle
+and derived scope identity. Python uses `-I -S -B`, a finite environment, no
+shell, no user-site loading and no source input before the drop. The launcher is
+single-threaded; its only pre-drop inputs are trusted captured code/configuration
+and bounded kernel state.
+
+The fixed sequence is:
+
+1. Check root real/effective/saved/filesystem IDs, `NoNewPrivs=1`, the exact three
+   permitted/effective/bounding capabilities, empty inheritable/ambient sets and
+   one thread. Clear supplementary groups. Refuse unexpected securebits; lock
+   `KEEP_CAPS` and `NO_SETUID_FIXUP` **off**, and ambient capability raising off.
+   Set dumpable to zero. Every syscall result is checked.
+2. While SETPCAP is still effective, drop every supported bounding bit with
+   `PR_CAPBSET_DROP`; verify the entire bounding set is zero. Drop SETPCAP from
+   the permitted/effective sets too, retaining only SETUID/SETGID for the next
+   two steps. Do not exec another privileged launcher. Linux's bounding-set
+   operation changes the bounding set without removing the current permitted
+   SETUID/SETGID authority. [Linux 6.8 capability implementation](https://raw.githubusercontent.com/torvalds/linux/v6.8/security/commoncap.c),
+   [bounding-set API](https://man7.org/linux/man-pages/man2/PR_CAPBSET_DROP.2const.html).
+3. Create the one child with the captured absolute Python/entrypoint and
+   `Popen(user=62402, group=62402, extra_groups=(), close_fds=True,
+   pass_fds=(), start_new_session=True, umask=0o077)`. Inherit only its three
+   anonymous control/output pipes, never a socket, credential, journal directory
+   FD or supervisor control FD. Do not use `preexec_fn`. Keep the original
+   Popen handle; do not recreate it from a PID. CPython 3.12.3 performs group/UID
+   changes before exec; the child must still verify its resulting saved IDs.
+   [CPython implementation](https://raw.githubusercontent.com/python/cpython/v3.12.3/Modules/_posixsubprocess.c),
+   [Popen credential parameters](https://docs.python.org/3.12/library/subprocess.html).
+4. Before reading application READY/GO/body data or opening the request record,
+   permanently drop the parent with `setgroups([])`,
+   `setresgid(62401,62401,62401)`, then `setresuid(62401,62401,62401)`. Set/check
+   dumpable zero again after the identity change. Require all five capability
+   sets — effective, permitted, inheritable, ambient **and bounding** — to be
+   zero; real/effective/saved/filesystem UID/GID must all equal the supervisor's
+   IDs, groups must be empty, and keep-caps/fixup checks must still match.
+   [Permanent ID changes](https://man7.org/linux/man-pages/man2/setresuid.2.html),
+   [dumpable resets](https://man7.org/linux/man-pages/man2/PR_SET_DUMPABLE.2const.html).
+5. The captured child entrypoint performs the equivalent post-exec self-check
+   for its different IDs, zero capability sets, no-new-privileges, empty groups
+   and dumpable zero **before reading stdin**. Only then may the unprivileged
+   supervisor send the finite request and consume READY. The outside guardian
+   verifies both actual `/proc` identities, capability/NNP fields, parentage and
+   memberships before capture and again before GO. Self-reported JSON alone
+   does not replace those checks. Failed initialization means no grant/GO;
+   the outside guardian retires the scope.
+
+`NoNewPrivileges` is compatible with the privileged drop syscalls above: its
+irreversible restriction covers privilege acquisition through exec, not an
+already-authorized `setuid`. No keep-caps/ambient setting may defeat the intended
+drop. The alternative with only SETUID/SETGID could clear active privileges but
+would leave those two bounding bits; it relies additionally on NNP to prevent
+exec-based reacquisition. It is **not** the selected all-zero policy, and there
+is no automatic fallback to it if SETPCAP/bootstrap verification fails.
+[Kernel NNP contract](https://www.kernel.org/doc/html/latest/userspace-api/no_new_privs.html),
+[systemd 255 execution settings](https://raw.githubusercontent.com/systemd/systemd/v255/man/systemd.exec.xml).
+
+After separation, the supervisor can still wait for its exact child but cannot
+signal a different UID without additional authority. Adapt cancellation and
+timeout handling accordingly: close the control pipe where possible, wait only
+within the remaining bounded allowance, then report unresolved and request the
+outside guardian's existing fence/whole-scope stop. Add no retained CAP_KILL,
+privileged signal helper, PID-based replacement handle or invented exit status.
+A normal exact wait plus complete response retains the existing joined-child
+path; a lost supervisor instead requires scope evidence and full charging.
+[Linux signal permissions](https://man7.org/linux/man-pages/man2/kill.2.html),
+[child-wait semantics](https://man7.org/linux/man-pages/man2/waitpid.2.html).
+
+The unit keeps the reviewed protections and requires
+`SystemCallArchitectures=native` plus
+`RestrictAddressFamilies=AF_INET AF_INET6`. Explicitly deny `socketpair`,
+`io_uring_setup`, `io_uring_enter`, `io_uring_register`, `ptrace`,
+`process_vm_readv`, `process_vm_writev` and `pidfd_getfd` through the unit's
+syscall filter. There is no socket activation, inherited socket or inherited
+io_uring FD. Address-family filtering alone covers `socket(2)`, not alternative
+socket-creation paths: Linux 6.8's io_uring socket operation directly calls
+`__sys_socket_file`. Blocking all three io_uring syscalls and alternative ABIs
+is part of this synchronous Python policy, not an optional hardening measure.
+[systemd 255 address-family limits](https://raw.githubusercontent.com/systemd/systemd/v255/man/systemd.exec.xml),
+[Linux 6.8 io_uring socket creation](https://raw.githubusercontent.com/torvalds/linux/v6.8/io_uring/net.c).
+Control communication uses anonymous pipes and guarded files, not a source-owned
+Unix socket. Keep `RestrictNamespaces=yes`, `ProtectControlGroups=yes`, no
+delegation, read-only system files and inaccessible credential/guardian paths.
+For this strictly single-threaded transport, propose `TasksMax=2` on the service
+and retained slice: supervisor plus source child, with parser/DB work outside.
+This also prevents a source child from leaving a live descendant during a normal
+parent-wait path. If its supervisor dies, only scope evidence remains valid.
+Task limits count threads too; actual Python/TLS behavior must pass rather than
+silently increasing the limit. [systemd task accounting](https://raw.githubusercontent.com/systemd/systemd/v255/man/systemd.resource-control.xml).
+`TasksMax=2` does not replace the syscall restrictions. Before admission, a
+bounded negative probe in the actual service context must verify the effective
+native-ABI policy and denial of all three io_uring syscalls, `socketpair` and
+non-allowed address families without attempting an external connection.
+The fixture remains loopback-only. These are proposed restrictions, not evidence
+that BPF/seccomp/ptrace or cgroup escape attempts have already been tested.
+
+The required adapter changes are explicit; the current fixture helpers cannot
+be reused unchanged:
+
+- Split `PausedChild` construction into **spawn only**, with no request-file
+  read, stdin write or READY consumption, followed by a separate bounded
+  request/READY handshake after the supervisor's permanent drop. Keep the same
+  exact Popen handle across both phases. Its current constructor performs that
+  handshake immediately, so adding `user`/`group` arguments alone is insufficient.
+- Add a Linux identity check pinned to the **source** UID/GID `62402`, not the
+  supervisor's current UID. Read all four `Uid` and `Gid` values and `Groups`
+  from `/proc/<pid>/status`, plus the required capability/NNP fields; retain
+  exact PPID, kernel start ID, boot, invocation and cgroup checks. Do not infer
+  these IDs from ownership of the `/proc/<pid>` directory; one inode owner does
+  not establish all UID/GID fields. The outside guardian performs the process
+  checks; a process that cannot inspect a peer must not substitute self-report.
+  Preserve the existing same-UID fixture's separate contract.
+- Add the dedicated large-witness publisher/recovery path below. The current
+  `linux/common.publish` has a 64 KiB limit and creates a new temporary before
+  checking whether the destination exists. Raising that limit would not provide
+  the required crash-safe two-slot bound.
+
+## Ingress ownership and reserved action envelope — proposed
+
+Keep the authoritative journal at the derived root-owned `0700` path above.
+Place service input/control under a separate root-owned `0750` scope directory,
+group-readable only by the supervisor, and give that supervisor a private `0700`
+ingress subdirectory. The source UID cannot traverse either. Both processes may
+read the shared root-owned immutable bundle; neither can modify it. Only the
+guardian writes capture, grant/GO checkpoints, fences, observations, receipt
+arguments and acknowledgements. The executor supplies its bounded grant/result
+messages; it cannot submit a parent-wait witness on the supervisor's behalf.
+The service receives no database/Supabase environment or credential FD.
+
+The supervisor publishes one closed, fsynced, no-overwrite ingress witness. The
+guardian checks owner, regular-file type, source/attempt/process identity, exact
+schema, body length/hash and retained wait provenance, then copies those exact
+bytes into a root-owned no-overwrite checkpoint and syncs file and directory.
+Only after that barrier may it unlink/sync the ingress copy. An incomplete or
+changed ingress file is not recovered as a successful body. Source bytes occur
+once in the retained witness; parser input checkpoints contain a hash/reference,
+not another base64 copy. A later terminal witness contains no body. A scope
+observation never manufactures a normal witness.
+
+Use **two fixed body slots**, each at most `MAX_OUTPUT=1,572,864` bytes: one
+supervisor-owned ingress inode and one guardian-owned publication inode. Each
+slot has only a fixed pending name and a fixed final name; a pending/final pair
+may be hardlinks to the **same** inode. Do not allocate random body temporaries.
+The supervisor publishes once and is never restarted to reproduce a witness.
+Before accepting its final name, the guardian requires the producer's file to
+be closed and stable and accounts for any retained pending alias. An incomplete
+ingress slot remains unavailable body evidence; it does not trigger a second
+source request.
+
+The guardian serializes publication/recovery for this action with one local
+exclusive lock, never inherited by the service. A busy lock is not taken over
+on a timer. This lock protects file operations only; it is not a grant or proof
+of resource retirement. Under that lock, recovery inventories the fixed names
+before allocation and rejects unexpected files, excess names/bytes, symlinks,
+non-regular files, wrong ownership or unexplained link counts. Open and inspect
+through trusted directory FDs with no symlink following. Then apply these rules:
+
+1. **A guardian final already exists:** validate its complete witness against
+   the captured action and any retained ingress copy, and successfully fsync
+   its FD and the guardian directory before relying on it. A prior crash may
+   have exposed the final link before its directory sync completed. Do not copy
+   the body again. Any guardian pending name must alias that exact inode; a
+   different pending inode is a protocol violation that retains the action for
+   review, not permission to allocate or discard another body. Remove/sync the
+   known alias, then remove/sync the matching ingress names after the durable
+   guardian barrier. A valid final with ingress already absent is normal replay.
+2. **Only a guardian pending inode exists:** retain and account for it. If it
+   is complete, validate it against the still-retained closed ingress before
+   publication. If it is partial, and is the single root-owned unlinked-to-final
+   slot (`st_nlink=1`), bounded copying may truncate/rewrite that **same inode**
+   from validated ingress; it must not allocate a replacement temporary. Never
+   truncate an inode that has a final alias. Missing/changed ingress or an
+   unexplained alias makes this path unresolved; do not manufacture a body or
+   fall back to a new body inode.
+3. **Neither guardian name exists:** exclusively create the fixed pending slot
+   and copy at most `MAX_OUTPUT` bytes from validated ingress into that one inode.
+   A retained partial ingress or guardian slot already consumes its full
+   reservation; it is not free space for an additional copy.
+4. Fsync the complete guardian pending inode, link it to the final name without
+   replacement, then fsync the directory. Only after that barrier may pending
+   aliases and ingress names be removed and their directories synced. If the
+   final link already exists, return to rule 1 without a fresh allocation.
+   Any failed barrier blocks dependent receipt/result RPCs and leaves the same
+   bounded slots for recovery.
+
+The ordinary JSON-journal reopen path must recognize and validate these fixed
+pending/final slots through this recovery routine before exposing the witness
+as durable. Do not call the existing generic publisher on a large witness, even
+on replay. In particular, final-link → directory-fsync → crash before ingress
+unlink leaves both full inodes; a retry validates that final and creates **no
+third `MAX_OUTPUT` body**. The separate 64 KiB temporary allowance below cannot
+be borrowed for a body copy.
+
+Reserve the following **serialized-byte** envelope before a grant. The two
+body slots include simultaneous ingress and guardian publication; hard-link
+publication may add a name, not another body inode. Allow at most one ordinary
+checkpoint publication at a time.
+
+| Reserved category | Maximum bytes |
+|---|---:|
+| Two witness storage slots, each existing `MAX_OUTPUT` | 3,145,728 |
+| Eight metadata records at 64 KiB: input, intent, grant, grant-status, parser-input, parser-output, result, result-ack | 524,288 |
+| Eight 16 KiB records: capacity, capture, fence, observation, both receipt arguments and both acknowledgements | 131,072 |
+| Six 4 KiB controls: READY, GO intent/control, privilege check, stop request, terminal witness | 24,576 |
+| Captured source/parser/manifest and rendered-unit allowance | 262,144 |
+| One simultaneous ordinary publication temporary | 65,536 |
+| **Total** | **4,153,344** |
+
+This leaves 40,960 bytes below the existing 4 MiB bound. Enforce each named slot,
+the total and at most 32 action file names across journal, ingress/control,
+rendered units and temporary publications; do not independently allow 32 files
+in every directory. A hardlink alias consumes a name even though its body bytes
+are counted once by inode. The planned maximum is 30 names: 22 metadata/control
+records, four witness names, two rendered unit files, one ordinary publication
+temporary and one zero-byte action lock. Retained partials and aliases count;
+resolve the existing ordinary temporary before allocating another. No per-poll
+records, unbudgeted lock files or raw diagnostic logs enter this set.
+If the actual captured graph or worst-case RPC/Unicode envelope exceeds a slot,
+reject before granting and review the layout; do not truncate metadata or raise
+limits while an action is running.
+
+The concrete storage choice for review is a shared, content-addressed immutable
+bundle instead of copying its many members into every attempt. Its full bounded
+source size remains charged in the table even though its member files are outside
+the 32 mutable action names. This differs from the Mac fixture's conservative
+per-attempt bundle file count and must be explicit in the Linux implementation.
+Retain referenced bundles until their journals settle. Executable/runtime storage,
+filesystem metadata and PostgreSQL are separate bounded host disk inputs; 4 MiB
+is not a promise of physical allocation or RAM usage. Require a separate free
+disk reserve before admission, and never delete unresolved evidence to make room.
+
+## Guest readiness and finite dependency plan — no installation performed
+
+The retained [`platform-and-cleanup.json`](../../.artifacts/linux-lima/platform-and-cleanup.json)
+and [`review-bundle.json`](../../.artifacts/linux-lima/review-bundle.json) establish
+Ubuntu 24.04.4/aarch64, Linux 6.8.0-117, systemd 255.4, Python 3.12.3 and OpenSSL
+3.0.13. The previous tests also invoked the guest's OpenSSL CLI. The saved
+preflight/configuration disables package resolution and upgrades. Neither the
+logs nor manifests inventory PostgreSQL, Deno, Node or esbuild: their guest
+availability is **unknown**, not proven absent. The local checkout has only
+Darwin-arm64 Deno/esbuild executables. No guest was booted for this assessment.
+
+After approval to use the isolated guest, first inspect only the required
+executables/package versions and ID collisions. If missing, the finite dependency
+set is:
+
+- PostgreSQL **17** server/client, matching the hosted major, from the PostgreSQL
+  project's signed Noble/arm64 repository. Review the exact minor/package
+  dependency transaction first; no distribution upgrade, automatic main-cluster
+  creation or enabled database service. The harness initializes a fresh private
+  cluster and loopback certificate-verified TLS, then creates disposable distinct
+  capability logins after migrations. No owner-session SET ROLE substitutes for
+  those callers. [Official Ubuntu packages](https://www.postgresql.org/download/linux/ubuntu/).
+- The exact lockfile tarballs `@deno/linux-arm64-glibc@2.9.6` and
+  `@esbuild/linux-arm64@0.28.2`, verified against their existing SHA-512 integrity
+  entries before bounded extraction. The native executables can be invoked
+  directly; Node/npm, a compiler toolchain and install scripts are not required
+  for the current parser builder. Copy only its captured TS inputs and existing
+  `saxes@6.0.0`/`xmlchars@2.2.0` JS/JSON graph. Downloads, if required, are package
+  preparation only and need the separately reviewed install step; no arXiv call.
+
+Build a **new Linux parser identity** using the unchanged captured
+[`build-metadata-parser.py`](../../scripts/build-metadata-parser.py) under the
+actual guest Python, pinned Linux esbuild and pinned Linux Deno. Retain the
+builder/source/compiler/runtime/output hashes and exact Deno version, and keep
+the runtime-hash equality check. Compare the generated JS against the reviewed
+current parser output; a changed output requires review. Do not relabel the Mac
+manifest or require its machine-specific Deno hash on Linux. Freeze the resulting
+Linux parser and gateway bundle together, including the actual Python/Deno/psql
+executable identities and observed systemd/kernel/TLS versions. Hashes preserve
+provenance; they do not establish OS admission by themselves.
+
+Before combined SQL tests, the narrow launcher checks must show all real,
+effective, saved and filesystem IDs and all capability sets, empty groups,
+NNP/keep-caps/dumpable behavior, denied privilege reacquisition, source denial of
+supervisor controls/credentials/ptrace/FD export/cgroup writes, and a real normal
+cross-UID wait. Failure injection must include a drop syscall failure, attempted
+extra task, cancellation that cannot signal the child, and guardian retirement
+without a forged wait result. The maximum-body test must observe both copies and
+every publication name at the worst overlap. Inject restart after partial copy,
+file fsync, final link, directory fsync and before ingress unlink; include a
+retained hardlink alias. Recovery must reuse the existing pending inode or final
+publication, never allocate a third body, and stay below both byte/name limits.
+Failed repeated fsync must cause zero dependent RPCs. Conflicting pending/final
+inodes, changed ingress and unexpected names remain unresolved without deletion.
+These gates precede any claim that the combined local adapter is ready; cloud
+host/account selection and source-network admission remain separate.
+
 ## Smallest decisive integration checks
 
 Run real disposable PostgreSQL plus the Linux lifecycle and loopback TLS; no
