@@ -50,6 +50,66 @@ The current local format is **encrypted metadata 6 / SQLite schema 5**, with val
 
 Do not decrypt cache bodies during private-history/draft recovery. Missing, oversized or corrupt cache children fail the affected presentation/bundle retrieval, retain their bytes and charged capacity, and never reset private data. Private writes preserve cache roots even when a child is unreadable. An authenticated valid directory permits explicit removal of a damaged bundle without decrypting its damaged members. Corruption of the authenticated main metadata or underlying database remains subject to the existing store-wide fail-closed rules.
 
+## Planned bounded restoration projection
+
+The repeated [constant-row layout measurements](NATIVE_RESOURCE_ACCEPTANCE.md#constant-row-library-layout)
+reduce presentation overhead but still exceed the library memory investigation
+trigger. The next reviewed slice targets transient overlap during restoration:
+`presentation` currently retains every decoded `LibraryEntry` while native code
+builds its Paper/import collections and joined author strings. This plan is not
+a measured improvement or a whole-catalog memory bound.
+
+Keep the encrypted row/checkpoint schema, ciphertext limits, complete cursor and
+existing materialization API. Add a complete-only
+`cachedLibraryProjection<Row: Sendable>(scope:project:)` read whose synchronous,
+`@Sendable` projector maps one validated `LibraryEntry` to an optional final row.
+Core constructs the result only after the entire read transaction succeeds. Its
+scope, committed cursor, capture time and validated entry count remain separate
+from its projected row count. The result is presentation evidence, never a live
+`LibraryCompleteObservation` or command authority.
+
+Share validation with the existing materializer. Authenticate the root and
+checkpoint and require the exact stored row-ID set. For each bounded sealed row,
+verify its size, digest, AAD, format, identity, reader policy, state sequence and
+complete entry contract before projection. Retain compact item-ID/document-ID,
+duplicate-document and import-target facts to validate all cross-row links at
+the end; a corrupt last row or missing target must fail the whole result. Check
+cancellation between rows and again after final validation, before returning.
+The projector neither awaits nor publishes UI or mutates the store. Discard an
+unreturned projection on every error/cancellation. No new table, migration,
+plaintext index, outbox write or weaker integrity check is part of this slice.
+
+Native projection values contain complete display/search metadata, immutable
+pins and small visibility/mapping/sequence/capability facts. Preserve visible
+pending-import metadata and hidden import IDs needed for display deduplication.
+Do not retain whole item DTOs, reader payloads, model/coordinator references or
+mutation capabilities in the item projector. The MainActor then applies one
+complete projection after the existing account, activation, store/coordinator
+and winning-live-publication checks; selected verified bytes may be carried only
+from current eligible state. Keep the existing full-field matching and global
+sort semantics. A generic projector can itself retain data, so this design only
+removes the extra whole decoded DTO accumulation in the native path. It does not
+bound all retained metadata or change live service/reconciler observations.
+
+Author joining and metadata conversion remain inside the full restore clock.
+If joining moves off-main, distinguish that projection subphase from final
+MainActor publication; do not compare the shortened publication interval as if
+it represented all of the former work. Retain the complete restore/search/write
+joins and scalar guards before footprint sampling.
+
+Required evidence: materializer/projection agreement for all 4,000 maximum rows,
+Unicode/optional metadata, hidden mappings and global search/sort; late-row
+corruption, duplicate documents, wrong/missing import targets and extra/missing
+children rejecting the whole projection; cancellation/account replacement/live
+snapshot races; unchanged quarantine/outage/install semantics; and no database
+or private-history mutation from reads. Repeat the optimized empty/full restore,
+full-field no-match and opening workflows after implementation and independent
+review. If remaining retention still exceeds the trigger, separately design a
+lightweight complete catalog with bounded row hydration and a root-bound search
+view. Re-decrypting all rows on each keystroke could add seconds, contend with
+the store writer and delay cancellation; do not adopt that tradeoff without
+measurement. No paged-search or storage redesign is selected here.
+
 ## Minimal APIs and transactions
 
 The implemented Core APIs require the active store/account scope. Native image validation and session retirement remain the caller's responsibility.
