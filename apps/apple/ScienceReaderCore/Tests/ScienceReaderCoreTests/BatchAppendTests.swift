@@ -89,15 +89,15 @@ import Testing
     @Test func conflictingRetryAndStaleWriterCannotPublishPartialBatches() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
-        let stale = try fixture.reopen(), turn = firstTurn()
-        let saved = try await fixture.store.appendBatch(turn, deviceID: fixture.device)
+        let stale = fixture.store, current = try fixture.reopen(), turn = firstTurn()
+        let saved = try await current.appendBatch(turn, deviceID: fixture.device)
         let newNote = (id: UUID(), event: PrivateEvent(kind: .note, text: "Must not leak from failed batch"))
         var changed = turn[1]; changed.event.text = "A different question under the same ID"
         await #expect(throws: ReaderError.eventConflict) {
-            try await fixture.store.appendBatch([newNote, changed], deviceID: fixture.device)
+            try await current.appendBatch([newNote, changed], deviceID: fixture.device)
         }
-        #expect(await fixture.store.pending() == saved)
-        #expect(await fixture.store.state().events.count == 2)
+        #expect(await current.pending() == saved)
+        #expect(await current.state().events.count == 2)
         await #expect(throws: ReaderError.storeChanged) { try await stale.appendBatch(firstTurn(), deviceID: fixture.device) }
         #expect(await stale.pending().isEmpty)
         #expect(await stale.state().events.isEmpty)
@@ -191,18 +191,20 @@ import Testing
         #expect(try await fixture.store.appendBatch(turn, deviceID: fixture.device) == saved)
         #expect(await fixture.store.snapshot() == acknowledged)
         let reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == acknowledged)
+        #expect(await reopened.snapshot() == LocalStoreSnapshot(state: acknowledged.state, generation: acknowledged.generation + 1,
+            pendingCount: acknowledged.pendingCount, drafts: acknowledged.drafts))
 
         try await reopened.acknowledge(saved[1])
         let complete = await reopened.snapshot()
-        #expect(complete.generation == 3 && complete.pendingCount == 0 && complete.state == appended.state)
+        #expect(complete.generation == 4 && complete.pendingCount == 0 && complete.state == appended.state)
         let remote = try ReaderCrypto.seal(PrivateEvent(kind: .note, text: "An incoming annotation"), id: UUID(), deviceID: UUID(), keys: fixture.keys)
         try await reopened.ingest([RemoteEvent(cursor: 1, envelope: remote, digest: remote.sha256)])
         let received = await reopened.snapshot()
-        #expect(received.generation == 4 && received.pendingCount == 0 && received.state.events.count == 3)
+        #expect(received.generation == 5 && received.pendingCount == 0 && received.state.events.count == 3)
         #expect(received.state.events[remote.id] != nil)
         let final = try fixture.reopen()
-        #expect(await final.snapshot() == received)
+        #expect(await final.snapshot() == LocalStoreSnapshot(state: received.state, generation: received.generation + 1,
+            pendingCount: received.pendingCount, drafts: received.drafts))
         // Earlier values remain stable even when later generations are
         // published first by independent asynchronous UI continuations.
         #expect(initial.state.events.isEmpty && initial.pendingCount == 0)
@@ -228,6 +230,7 @@ import Testing
         await #expect(throws: (any Error).self) { try await fixture.store.appendBatch(firstTurn(), deviceID: fixture.device) }
         #expect(await fixture.store.snapshot() == before)
         let reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == LocalStoreSnapshot(state: before.state, generation: before.generation + 1,
+            pendingCount: before.pendingCount, drafts: before.drafts))
     }
 }

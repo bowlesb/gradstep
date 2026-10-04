@@ -54,6 +54,10 @@ import Testing
         }
     }
 
+    private func afterReopen(_ value: LocalStoreSnapshot) -> LocalStoreSnapshot {
+        .init(state: value.state, generation: value.generation + 1, pendingCount: value.pendingCount, drafts: value.drafts)
+    }
+
     private func makeLegacy(_ fixture: Fixture, format: Int) throws -> Data {
         let database = try SQLiteConnection(url: fixture.url)
         let aad = Data("science-reader/local-metadata/v2/\(fixture.account.wire)".utf8)
@@ -66,9 +70,9 @@ import Testing
         var fields = try #require(JSONSerialization.jsonObject(with: plain) as? [String: Any])
         fields["format"] = format; fields.removeValue(forKey: "drafts")
         fields.removeValue(forKey: "libraryCommands"); fields.removeValue(forKey: "libraryCommandSequence")
-        fields.removeValue(forKey: "libraryCommandScope")
+        fields.removeValue(forKey: "libraryCommandScope"); fields.removeValue(forKey: "offlineCache")
         let sealed = try #require(AES.GCM.seal(JSONSerialization.data(withJSONObject: fields), using: key, authenticating: aad).combined)
-        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_drafts; DROP TABLE local_library_commands; PRAGMA user_version=2")
+        try database.execute("BEGIN IMMEDIATE; DROP TABLE local_reader_bundle_members; DROP TABLE local_reader_bundle_headers; DROP TABLE local_reader_bundle_index; DROP TABLE local_library_cache_entries; DROP TABLE local_library_cache_checkpoint; DROP TABLE local_drafts; DROP TABLE local_library_commands; PRAGMA user_version=2")
         try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(sealed)])
         try database.execute("COMMIT")
         return sealed
@@ -83,7 +87,7 @@ import Testing
         let before = await fixture.store.snapshot()
         #expect(before.generation == 2 && before.pendingCount == 0 && before.state.events.isEmpty)
         let reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         #expect(Set(before.drafts.map(\.id)) == [general.id, paper.id])
         for file in try FileManager.default.contentsOfDirectory(at: fixture.directory, includingPropertiesForKeys: nil) {
             let bytes = try Data(contentsOf: file)
@@ -110,7 +114,7 @@ import Testing
         var conflict = latest; conflict.text = "Same revision, different text"
         await #expect(throws: ReaderError.eventConflict) { try await fixture.store.saveDraft(conflict) }
         #expect(await fixture.store.snapshot() == committed)
-        #expect(try await fixture.reopen().snapshot() == committed)
+        #expect(try await fixture.reopen().snapshot() == afterReopen(committed))
     }
 
     @Test func sendAndConsumptionCommitTogetherAndExactRetriesDoNotDuplicate() async throws {
@@ -155,7 +159,7 @@ import Testing
         }
         #expect(await fixture.store.snapshot() == before)
         let reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         try database.execute("DROP TRIGGER interrupt_draft_send")
         let saved = try await reopened.commitDraftSubmission(turn.events, deviceID: fixture.device, consuming: turn.consumption)
         #expect(saved.draft.text.isEmpty && saved.envelopes.count == 2)
@@ -301,9 +305,10 @@ import Testing
         oversized.text = "Private"; oversized.selectedHead = UUID()
         await #expect(throws: ReaderError.invalidEvent) { try await fixture.store.saveDraft(oversized) }
         #expect(await fixture.store.snapshot() == before)
-        #expect(try await fixture.reopen().snapshot() == before)
+        let reopened = try fixture.reopen()
+        #expect(await reopened.snapshot() == afterReopen(before))
         let replacement = changed(last, text: "Editing an existing draft still works at capacity")
-        #expect(try await fixture.store.saveDraft(replacement) == replacement)
+        #expect(try await reopened.saveDraft(replacement) == replacement)
     }
 
     @Test func totalCiphertextAndSingleRowBoundsNeverTruncateDrafts() async throws {
@@ -319,7 +324,7 @@ import Testing
             try await fixture.store.saveDraft(draft(String(repeating: "\u{0}", count: 60_000)))
         }
         #expect(await fixture.store.snapshot() == before)
-        #expect(try await fixture.reopen().snapshot() == before)
+        #expect(try await fixture.reopen().snapshot() == afterReopen(before))
     }
 
     @Test func emptyCoordinationRowsAreBoundedAndCollectedOnlyByAFreshOwner() async throws {
@@ -400,13 +405,13 @@ import Testing
         let conversation = try #require(followup.conversationID)
         try await fixture.store.append(PrivateEvent(kind: .tombstone, entityID: conversation), deviceID: fixture.device)
         let before = await fixture.store.snapshot(), reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         #expect(before.drafts == [followup] && before.state.isDeleted(conversation))
         let retry = submission(followup)
         await #expect(throws: ReaderError.invalidEvent) {
             try await reopened.commitDraftSubmission(retry.events, deviceID: fixture.device, consuming: retry.consumption)
         }
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         var headless = changed(followup, text: "Still recoverable without a selected tip")
         headless.selectedHead = nil
         try await reopened.saveDraft(headless)
@@ -428,12 +433,12 @@ import Testing
         incomplete.conversationID = conversation; incomplete.selectedHead = UUID()
         try await fixture.store.saveDraft(incomplete)
         let before = await fixture.store.snapshot(), reopened = try fixture.reopen()
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         let pending = submission(incomplete)
         await #expect(throws: ReaderError.invalidEvent) {
             try await reopened.commitDraftSubmission(pending.events, deviceID: fixture.device, consuming: pending.consumption)
         }
-        #expect(await reopened.snapshot() == before)
+        #expect(await reopened.snapshot() == afterReopen(before))
         var ready = changed(incomplete, text: "The first question")
         ready.selectedHead = root.id
         let first = submission(ready)
@@ -476,6 +481,6 @@ import Testing
             try await fixture.store.commitDraftSubmission(turn.events, deviceID: fixture.device, consuming: turn.consumption)
         }
         #expect(await fixture.store.snapshot() == before)
-        #expect(try await fixture.reopen().snapshot() == before)
+        #expect(try await fixture.reopen().snapshot() == afterReopen(before))
     }
 }

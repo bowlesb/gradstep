@@ -235,7 +235,7 @@ public struct LibraryReconciler: Equatable, Sendable {
         for entry in observations {
             try entry.validate()
             if let old = entries[entry.id] {
-                try validateIdentity(old, entry)
+                try validateLibraryIdentity(old, entry)
                 if entry.stateSequence < old.stateSequence { older += 1; continue }
                 if entry.stateSequence == old.stateSequence {
                     guard entry == old else { throw LibraryProtocolError.conflictingRevision(entry.id, entry.stateSequence) }
@@ -266,7 +266,7 @@ public struct LibraryReconciler: Equatable, Sendable {
     }
 }
 
-private func validateIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
+func validateLibraryIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
     guard old.createdSequence == new.createdSequence else { throw LibraryProtocolError.identityConflict(new.id) }
     switch (old, new) {
     case (.item(let lhs), .item(let rhs)):

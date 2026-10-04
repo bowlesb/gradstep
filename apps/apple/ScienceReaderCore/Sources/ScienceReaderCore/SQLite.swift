@@ -57,14 +57,16 @@ final class SQLiteConnection: @unchecked Sendable {
         }
     }
 
-    static func blob(_ statement: OpaquePointer, _ column: Int32) throws -> Data {
+    static func blob(_ statement: OpaquePointer, _ column: Int32, maximumBytes: Int = Int.max) throws -> Data {
         guard sqlite3_column_type(statement, column) == SQLITE_BLOB,
+              Int(sqlite3_column_bytes(statement, column)) <= maximumBytes,
               let bytes = sqlite3_column_blob(statement, column) else { throw ReaderError.corruptData }
         return Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, column)))
     }
 
-    static func text(_ statement: OpaquePointer, _ column: Int32) throws -> String {
+    static func text(_ statement: OpaquePointer, _ column: Int32, maximumBytes: Int = Int.max) throws -> String {
         guard sqlite3_column_type(statement, column) == SQLITE_TEXT,
+              Int(sqlite3_column_bytes(statement, column)) <= maximumBytes,
               let text = sqlite3_column_text(statement, column) else { throw ReaderError.corruptData }
         return String(cString: text)
     }

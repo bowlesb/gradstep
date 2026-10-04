@@ -37,8 +37,8 @@ import Testing
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appendingPathComponent("state.sqlite"), account = UUID(), key = ReaderCrypto.randomKey(), keys = KeyBundle.generate(accountID: account)
-        let first = try EncryptedStore(url: path, accountID: account, localKey: key, keys: keys)
         let stale = try EncryptedStore(url: path, accountID: account, localKey: key, keys: keys)
+        let first = try EncryptedStore(url: path, accountID: account, localKey: key, keys: keys)
         let payload = PrivateEvent(kind: .note, text: "durable first edit"), device = UUID(), id = UUID()
         let envelope = try await first.append(payload, deviceID: device, id: id)
         #expect(try await first.append(payload, deviceID: device, id: id) == envelope)

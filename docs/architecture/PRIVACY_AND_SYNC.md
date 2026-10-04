@@ -63,7 +63,7 @@ This unreleased format replaces the development-only whole-file checkpoint. Exis
 
 ### Device-local encrypted drafts
 
-Drafts were introduced in metadata format 4 / SQLite schema 3. The current format 5 / schema 4 adds the separate [durable library command queue](NATIVE_LIBRARY_COMMANDS.md), retaining draft/history domains and upgrading the complete store atomically. The draft invariants below remain unchanged.
+Drafts were introduced in metadata format 4 / SQLite schema 3, followed by the separate [durable library command queue](NATIVE_LIBRARY_COMMANDS.md) in format 5 / schema 4. The current metadata format 6 / SQLite schema 5 adds [account-scoped offline bundle and complete-library caches](NATIVE_OFFLINE_BUNDLES.md), retaining draft/history domains and upgrading the complete store atomically. A fresh actor reopening an existing store advances its writer generation. Cache children are not loaded during private-history recovery; damage to a derived cache child does not reset private records. The draft invariants below remain unchanged.
 
 Unsent signed-in chat drafts use mutable encrypted `local_drafts` rows in the same account-scoped SQLite store as history. They are not cloud events and do not enter the sync outbox. Guest drafts remain in memory; the product must call them session-only. A saved local draft is available on this device, not on another phone or the future browser reader.
 

@@ -94,10 +94,16 @@ public struct LibraryEntryID: Hashable, Sendable {
 }
 
 /// Normalize PostgreSQL timestamp spellings before comparing equal revisions.
-public struct LibraryTimestamp: Decodable, Equatable, Sendable {
+public struct LibraryTimestamp: Codable, Equatable, Sendable {
     public let date: Date
 
     public init(from decoder: any Decoder) throws {
+        if decoder.userInfo[OfflineCacheCodec.dateKey] as? Bool == true {
+            let value = try decoder.singleValueContainer().decode(Double.self)
+            guard value.isFinite else { throw LibraryProtocolError.invalidEntry }
+            date = Date(timeIntervalSinceReferenceDate: value)
+            return
+        }
         let value = try decoder.singleValueContainer().decode(String.self)
         guard value.utf8.count <= 64 else { throw LibraryProtocolError.invalidEntry }
         let parser = ISO8601DateFormatter()
@@ -106,6 +112,16 @@ public struct LibraryTimestamp: Decodable, Equatable, Sendable {
         parser.formatOptions = [.withInternetDateTime]
         guard let date = fractional ?? parser.date(from: value) else { throw LibraryProtocolError.invalidEntry }
         self.date = date
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if encoder.userInfo[OfflineCacheCodec.dateKey] as? Bool == true {
+            try container.encode(date.timeIntervalSinceReferenceDate)
+        } else {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            try container.encode(formatter.string(from: date))
+        }
     }
 }
 
@@ -138,12 +154,12 @@ public struct LibraryMetadata: Codable, Equatable, Sendable {
     }
 }
 
-public enum LibraryDocumentScope: String, Decodable, Sendable {
+public enum LibraryDocumentScope: String, Codable, Sendable {
     case sharedCatalog = "shared_catalog"
     case ownerPrivate = "owner_private"
 }
 
-public enum LibraryReadiness: Equatable, Decodable, Sendable {
+public enum LibraryReadiness: Equatable, Codable, Sendable {
     case unverified
     case pdfReady
     case convertedReady
@@ -161,10 +177,21 @@ public enum LibraryReadiness: Equatable, Decodable, Sendable {
         default: self = .unknown(value)
         }
     }
+    public func encode(to encoder: any Encoder) throws {
+        let value: String
+        switch self {
+        case .unverified: value = "unverified"
+        case .pdfReady: value = "pdf_ready"
+        case .convertedReady: value = "converted_ready"
+        case .unavailable: value = "unavailable"
+        case .unknown(let raw): value = raw
+        }
+        var container = encoder.singleValueContainer(); try container.encode(value)
+    }
 }
 
 /// Optional additive capabilities. Unknown values never authorize a read.
-public enum LibraryAssetAvailability: Equatable, Decodable, Sendable {
+public enum LibraryAssetAvailability: Equatable, Codable, Sendable {
     case available, unavailable, quarantined
     case unknown(String)
 
@@ -178,9 +205,19 @@ public enum LibraryAssetAvailability: Equatable, Decodable, Sendable {
         default: self = .unknown(value)
         }
     }
+    public func encode(to encoder: any Encoder) throws {
+        let value: String
+        switch self {
+        case .available: value = "available"
+        case .unavailable: value = "unavailable"
+        case .quarantined: value = "quarantined"
+        case .unknown(let raw): value = raw
+        }
+        var container = encoder.singleValueContainer(); try container.encode(value)
+    }
 }
 
-public struct LibraryItemRecord: Decodable, Equatable, Sendable {
+public struct LibraryItemRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public let documentID: UUID
     public let createdSequence: Int64
@@ -264,13 +301,13 @@ public struct LibraryItemRecord: Decodable, Equatable, Sendable {
     }
 }
 
-public enum LibraryImportPhase: String, Decodable, Sendable {
+public enum LibraryImportPhase: String, Codable, Sendable {
     case accepted, resolving, acquiring, failed, ready, cancelled
     case sourceOnly = "source_only"
     case membershipConflict = "membership_conflict"
 }
 
-public enum LibraryImportErrorCode: String, Decodable, Sendable {
+public enum LibraryImportErrorCode: String, Codable, Sendable {
     case metadataUnavailable = "metadata_unavailable"
     case downloadFailed = "download_failed"
     case pdfInvalid = "pdf_invalid"
@@ -279,7 +316,7 @@ public enum LibraryImportErrorCode: String, Decodable, Sendable {
     case membershipConflict = "membership_conflict"
 }
 
-public struct LibraryImportRecord: Decodable, Equatable, Sendable {
+public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public let createdSequence: Int64
     public let stateSequence: Int64
@@ -332,7 +369,7 @@ public struct LibraryImportRecord: Decodable, Equatable, Sendable {
     }
 }
 
-public enum LibraryEntry: Decodable, Equatable, Sendable, Identifiable {
+public enum LibraryEntry: Codable, Equatable, Sendable, Identifiable {
     case item(LibraryItemRecord)
     case `import`(LibraryImportRecord)
 
@@ -345,6 +382,15 @@ public enum LibraryEntry: Decodable, Equatable, Sendable, Identifiable {
         case .import: self = .import(try LibraryImportRecord(from: decoder))
         }
         try validate()
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.kind, forKey: .kind)
+        switch self {
+        case .item(let item): try item.encode(to: encoder)
+        case .import(let imported): try imported.encode(to: encoder)
+        }
     }
 
     public var id: LibraryEntryID {

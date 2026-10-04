@@ -37,9 +37,10 @@ private struct LocalMetadata: Codable, Equatable {
     var libraryCommands: [String: Data]?
     var libraryCommandSequence: Int64?
     var libraryCommandScope: LibraryCommandScope?
+    var offlineCache: OfflineCacheRoots?
     init(accountID: UUID) {
-        self.format = 5; self.accountID = accountID; self.drafts = [:]
-        self.libraryCommands = [:]; self.libraryCommandSequence = 0
+        self.format = 6; self.accountID = accountID; self.drafts = [:]
+        self.libraryCommands = [:]; self.libraryCommandSequence = 0; self.offlineCache = .init()
     }
 }
 
@@ -94,6 +95,7 @@ public actor EncryptedStore {
     private var draftBytes: [UUID: Int]
     private var libraryJournal: LibraryCommandJournal
     private let libraryWriterID = UUID()
+    private var readerInstallTicket: ReaderInstallTicket?
     private var needsReopen = false
     private static let maximumPending = 1_000
     private static let maximumPendingBytes = 16 * 1024 * 1024
@@ -134,8 +136,9 @@ public actor EncryptedStore {
         database = try SQLiteConnection(url: url)
         try database.execute("PRAGMA trusted_schema=OFF; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=128;")
         if !exists {
-            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=4;")
+            try database.execute("BEGIN IMMEDIATE; CREATE TABLE records(ordinal INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, sealed BLOB NOT NULL); CREATE TABLE metadata(id INTEGER PRIMARY KEY CHECK(id=1), sealed BLOB NOT NULL); CREATE TABLE local_drafts(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL); PRAGMA application_id=1397903940; PRAGMA user_version=5;")
             do {
+                try database.execute(OfflineCacheStorage.createTables)
                 let sealed = try Self.sealMetadata(LocalMetadata(accountID: accountID), key: symmetricKey)
                 try database.update("INSERT INTO metadata(id,sealed) VALUES(1,?)", values: [.blob(sealed)])
                 try database.execute("COMMIT")
@@ -143,12 +146,12 @@ public actor EncryptedStore {
         }
         try database.execute("BEGIN")
         var loaded = try Self.readMetadata(database, key: symmetricKey, accountID: accountID)
-        guard [2, 3, 4, 5].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
+        guard [2, 3, 4, 5, 6].contains(loaded.format) else { throw ReaderError.unsupportedFormat }
         let schemaVersion = try database.statement("PRAGMA user_version") { statement -> Int32 in
             guard sqlite3_step(statement) == SQLITE_ROW else { throw ReaderError.corruptData }
             return sqlite3_column_int(statement, 0)
         }
-        guard schemaVersion == (loaded.format == 5 ? 4 : loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
+        guard schemaVersion == (loaded.format == 6 ? 5 : loaded.format == 5 ? 4 : loaded.format == 4 ? 3 : 2) else { throw ReaderError.unsupportedFormat }
         guard loaded.cursor >= 0, loaded.count >= 0, loaded.generation >= 0, loaded.chain.count == 32,
               loaded.outbox.count <= Self.maximumPending, Set(loaded.outbox).count == loaded.outbox.count else { throw ReaderError.corruptData }
         var count: Int64 = 0; var chain = Data(repeating: 0, count: 32)
@@ -199,7 +202,7 @@ public actor EncryptedStore {
             guard loaded.drafts == nil else { throw ReaderError.corruptData }
         }
         var commands = LibraryCommandJournal()
-        if loaded.format == 5 {
+        if loaded.format >= 5 {
             guard let manifest = loaded.libraryCommands, manifest.count <= LibraryCommandJournal.maximumRows,
                   let sequence = loaded.libraryCommandSequence, sequence >= 0 else { throw ReaderError.corruptData }
             commands.scope = loaded.libraryCommandScope; commands.sequence = sequence
@@ -229,13 +232,20 @@ public actor EncryptedStore {
             guard loaded.libraryCommands == nil, loaded.libraryCommandSequence == nil,
                   loaded.libraryCommandScope == nil else { throw ReaderError.corruptData }
         }
+        if loaded.format == 6 {
+            guard let roots = loaded.offlineCache else { throw ReaderError.corruptData }
+            try roots.validate(accountID: accountID)
+            if let scope = roots.scope, let commands = loaded.libraryCommandScope {
+                guard scope == commands else { throw ReaderError.corruptData }
+            }
+        } else { guard loaded.offlineCache == nil else { throw ReaderError.corruptData } }
         try database.execute("COMMIT")
 
         // Only a fresh store owner may collect coordination rows. Its metadata
         // generation change fences any previous actor still holding callbacks.
         // Ordinary same-account activation reuses this actor and never prunes.
         let pruned = drafts.filter { $0.value.discarded || $0.value.draft.text.isEmpty }.map(\.key)
-        if loaded.format < 5 || !pruned.isEmpty || !commands.rows.isEmpty {
+        if exists {
             guard loaded.generation < Int64.max else { throw ReaderError.storageUnavailable }
             var migrated = loaded
             try database.execute("BEGIN IMMEDIATE")
@@ -249,6 +259,10 @@ public actor EncryptedStore {
                     try database.execute("CREATE TABLE local_library_commands(id TEXT PRIMARY KEY NOT NULL, sealed BLOB NOT NULL)")
                     migrated.libraryCommands = [:]; migrated.libraryCommandSequence = 0
                 }
+                if loaded.format < 6 {
+                    try database.execute(OfflineCacheStorage.createTables)
+                    migrated.offlineCache = .init()
+                }
                 let previousCommands = commands
                 try commands.reopen()
                 for row in commands.rows.values where previousCommands.rows[row.id] != row {
@@ -260,8 +274,8 @@ public actor EncryptedStore {
                     try database.update("DELETE FROM local_drafts WHERE id=?", values: [.text(id.wire)])
                     migrated.drafts?.removeValue(forKey: id.wire)
                 }
-                migrated.format = 5; migrated.generation += 1
-                try database.execute("PRAGMA user_version=4")
+                migrated.format = 6; migrated.generation += 1
+                try database.execute("PRAGMA user_version=5")
                 try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(migrated, key: symmetricKey))])
                 try database.execute("COMMIT")
             } catch { if database.inTransaction { try? database.execute("ROLLBACK") }; throw error }
@@ -288,6 +302,120 @@ public actor EncryptedStore {
         try validateLibraryAuthority()
         return LocalLibraryCommandSnapshot(generation: metadata.generation,
             commands: libraryJournal.rows.values.sorted { $0.handle.localSequence < $1.handle.localSequence })
+    }
+
+    public func cachedLibraryPresentation(scope: LibraryCommandScope) throws -> CachedLibraryPresentation? {
+        try withOfflineCache(scope: scope) { try $0.presentation($1) }
+    }
+
+    @discardableResult
+    public func saveLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
+                                         capturedAt: Date = Date()) throws -> CachedLibraryPresentation {
+        guard observation.accountID == accountID else { throw ReaderError.wrongAccount }
+        let prepared = try withOfflineCache(scope: scope) { try $0.preparePresentation(observation, roots: $1, capturedAt: capturedAt) }
+        if let mutation = prepared.0 { try persistOfflineCache(mutation) }
+        return prepared.1
+    }
+
+    public func listInstalledReaderBundles(scope: LibraryCommandScope) throws -> InstalledReaderBundleList {
+        try withOfflineCache(scope: scope) { try $0.list($1, generation: metadata.generation) }
+    }
+
+    public func beginReaderInstall(binding: ReaderArtifactBinding) throws -> ReaderInstallTicket {
+        try binding.validate()
+        let installationID = try withOfflineCache(scope: binding.scope) { storage, roots -> UUID in
+            let index = try storage.index(roots).value
+            let existing = index.installations.first { $0.artifactID == binding.artifactID }
+            if let existing {
+                guard try existing.binding(scope: binding.scope) == binding else { throw OfflineCacheError.invalidBinding }
+            }
+            let current = try storage.eligibility(binding: binding, roots: roots, existing: existing?.eligibility ?? .init())
+            guard current.block == nil, current.membershipVisible != false else { throw OfflineCacheError.blocked }
+            guard existing != nil || index.installations.count < OfflineCacheLimits.installedBundles else { throw OfflineCacheError.capacityExceeded }
+            return existing?.id ?? UUID()
+        }
+        if let current = readerInstallTicket {
+            guard current.binding == binding else { throw OfflineCacheError.installBusy }
+            return current
+        }
+        let ticket = ReaderInstallTicket(id: UUID(), binding: binding, writerID: libraryWriterID, installationID: installationID)
+        readerInstallTicket = ticket
+        return ticket
+    }
+
+    /// An ended ticket is harmless; it never cancels a later install. There is
+    /// no database mutation, so retirement may always release its own ticket.
+    public func cancelReaderInstall(_ ticket: ReaderInstallTicket) throws {
+        guard ticket.writerID == libraryWriterID else { throw OfflineCacheError.staleTicket }
+        if readerInstallTicket == ticket { readerInstallTicket = nil }
+    }
+
+    /// Core verification is not PNG/ImageIO admission. Native callers must run
+    /// ReaderBundleLoader before accepting this commit and after reopening.
+    @discardableResult
+    public func commitReaderInstall(_ ticket: ReaderInstallTicket, bundle: VerifiedReaderBundle) throws -> InstalledReaderBundle {
+        guard ticket.writerID == libraryWriterID else { throw OfflineCacheError.staleTicket }
+        let prepared = try withOfflineCache(scope: ticket.binding.scope) { storage, roots in
+            if readerInstallTicket != ticket {
+                let existing = try storage.installed(ticket.installationID, roots: roots)
+                guard try existing.binding(scope: ticket.binding.scope) == ticket.binding else { throw OfflineCacheError.staleTicket }
+            }
+            return try storage.prepareInstall(ticket.binding, id: ticket.installationID, bundle: bundle, roots: roots)
+        }
+        if let mutation = prepared.0 { try persistOfflineCache(mutation) }
+        if readerInstallTicket == ticket { readerInstallTicket = nil }
+        return prepared.1
+    }
+
+    public func readReaderBundle(id: UUID, scope: LibraryCommandScope) throws -> StoredReaderBundlePayload {
+        try withOfflineCache(scope: scope) { try $0.read(id, roots: $1, writerID: libraryWriterID) }
+    }
+
+    public func validateReaderOpen(_ token: ReaderBundleOpenToken) throws -> InstalledReaderBundle {
+        guard token.writerID == libraryWriterID else { throw OfflineCacheError.staleTicket }
+        return try withOfflineCache(scope: token.binding.scope) { storage, roots in
+            let value = try storage.installed(token.installationID, roots: roots)
+            guard value.revision == token.revision, try value.binding(scope: token.binding.scope) == token.binding
+            else { throw OfflineCacheError.revisionConflict }
+            let summary = try value.summary(scope: token.binding.scope)
+            guard summary.canOpen else { throw OfflineCacheError.blocked }
+            return summary
+        }
+    }
+
+    public func removeReaderBundle(id: UUID, expectedRevision: Int64, scope: LibraryCommandScope) throws {
+        let prepared = try withOfflineCache(scope: scope) { try $0.prepareRemoval(id, revision: expectedRevision, roots: $1) }
+        try persistOfflineCache(prepared.0)
+        if readerInstallTicket?.binding == prepared.1 { readerInstallTicket = nil }
+    }
+
+    private func withOfflineCache<T>(scope: LibraryCommandScope,
+        _ body: (OfflineCacheStorage, OfflineCacheRoots) throws -> T) throws -> T {
+        try scope.validate()
+        guard scope.accountID == accountID else { throw ReaderError.wrongAccount }
+        guard let roots = metadata.offlineCache else { throw ReaderError.corruptData }
+        guard roots.scope == nil || roots.scope == scope,
+              metadata.libraryCommandScope == nil || metadata.libraryCommandScope == scope
+        else { throw LibraryCommandError.invalidScope }
+        // A coherent read snapshot cannot mix a new index with an old header.
+        // The later write transaction repeats the authoritative metadata CAS.
+        try database.execute("BEGIN")
+        do {
+            try validateLibraryAuthority()
+            let result = try body(OfflineCacheStorage(database: database, key: localKey, scope: scope), roots)
+            try database.execute("COMMIT")
+            return result
+        } catch {
+            if database.inTransaction { do { try database.execute("ROLLBACK") } catch { needsReopen = true } }
+            throw error
+        }
+    }
+
+    private func persistOfflineCache(_ mutation: OfflineCacheMutation) throws {
+        var next = metadata
+        do { try commit(records: [], next: &next, cache: mutation) }
+        catch { if error as? ReaderError == .storeChanged { needsReopen = true }; throw error }
+        metadata = next
     }
 
     @discardableResult
@@ -391,6 +519,9 @@ public actor EncryptedStore {
 
     private func persistLibraryJournal(_ journal: LibraryCommandJournal) throws {
         try journal.validate()
+        if let scope = metadata.offlineCache?.scope, let commandScope = journal.scope {
+            guard scope == commandScope else { throw LibraryCommandError.invalidScope }
+        }
         try validateLibraryAuthority()
         guard journal != libraryJournal else { return }
         var sealed: [UUID: Data] = [:]
@@ -795,7 +926,8 @@ public actor EncryptedStore {
 
     private func commit(records: [EventEnvelope], next: inout LocalMetadata, replacement: ReplacementMarker? = nil,
                         draft: (row: StoredDraft, sealed: Data)? = nil,
-                        library: (journal: LibraryCommandJournal, sealed: [UUID: Data])? = nil) throws {
+                        library: (journal: LibraryCommandJournal, sealed: [UUID: Data])? = nil,
+                        cache: OfflineCacheMutation? = nil) throws {
         guard !needsReopen, metadata.generation < Int64.max else { throw ReaderError.storageUnavailable }
         try database.execute("BEGIN IMMEDIATE")
         do {
@@ -822,7 +954,12 @@ public actor EncryptedStore {
                 next.libraryCommandScope = library.journal.scope
                 next.libraryCommandSequence = library.journal.sequence
             }
-            next.format = 5
+            if let cache {
+                guard let scope = cache.roots.scope else { throw OfflineCacheError.invalidBinding }
+                try OfflineCacheStorage(database: database, key: localKey, scope: scope).apply(cache)
+                next.offlineCache = cache.roots
+            }
+            next.format = 6
             next.generation += 1
             try database.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(Self.sealMetadata(next, key: localKey))])
             try database.execute("COMMIT")
