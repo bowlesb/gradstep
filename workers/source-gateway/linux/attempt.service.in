@@ -1,0 +1,51 @@
+[Unit]
+Description=Timestep isolated loopback lifecycle fixture @ATTEMPT@
+Requires=@SLICE@
+After=@SLICE@
+ConditionPathExists=@ROOT@/input.json
+ConditionPathExists=!@ROOT@/observer/stop-fence.json
+StartLimitIntervalSec=infinity
+StartLimitBurst=1
+
+[Service]
+Type=exec
+User=65534
+Group=65534
+Slice=@SLICE@
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 -I -S -B @ROOT@/bundle/bootstrap.py @ROOT@/bundle linux_controller @ROOT@
+Restart=no
+RemainAfterExit=yes
+KillMode=control-group
+SendSIGKILL=yes
+TimeoutStartSec=5s
+TimeoutStopSec=2s
+RuntimeMaxSec=20s
+UMask=0077
+StandardInput=null
+StandardOutput=null
+StandardError=null
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@ROOT@/data
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+TasksMax=8
+MemoryMax=128M
+LimitNOFILE=64
+
+# No Install section: never enabled at boot or restarted after uncertain work.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Timestep retained lifecycle fixture group @ATTEMPT@
+StopWhenUnneeded=no
+
+[Slice]
+TasksMax=8
+MemoryMax=128M
+
+# Keep this never-reused parent slice until its empty observation is durable.
+# The observer runs outside it. No controller may delegate or modify cgroups.

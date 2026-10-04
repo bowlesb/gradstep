@@ -1,0 +1,55 @@
+# REVIEW BEFORE BOOT. Use a fresh, task-only LIMA_HOME; never ~/.colima/_lima.
+# No host filesystem mounts, inherited SSH agent, container runtime or installer.
+minimumLimaVersion: 2.1.4
+vmType: vz
+arch: aarch64
+cpus: 1
+memory: 1GiB
+disk: 20GiB
+images:
+  - location: /Users/benbowlwes/Library/Caches/colima/caches/b0992ab88f5a3c0c436bbb3065c01466f20dc1dd0eb0a60299d410176f21a1c3
+    arch: aarch64
+    digest: sha256:1fc0354f4f99734ce3886628cc7af8b0437c1a1d391b126bd09cba0df35ee53f
+mounts: []
+additionalDisks: []
+mountInotify: false
+containerd:
+  system: false
+  user: false
+upgradePackages: false
+propagateProxyEnv: false
+hostResolver:
+  enabled: false
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+  forwardX11Trusted: false
+  overVsock: true
+portForwards:
+  - guestPortRange: [1, 65535]
+    ignore: true
+vmOpts:
+  vz:
+    rosetta:
+      enabled: false
+      binfmt: false
+nestedVirtualization: false
+user:
+  name: fixture
+  uid: 1000
+  home: /home/fixture
+  shell: /bin/bash
+provision:
+  - mode: dependency
+    skipDefaultDependencyResolution: true
+    script: |
+      #!/bin/sh
+      exit 0
+  - mode: data
+    path: /etc/timestep-source-lifecycle-fixture.json
+    owner: root:root
+    permissions: "0444"
+    overwrite: false
+    content: |
+      {"schema_version":1,"mode":"loopback_lifecycle_fixture","source_network_enabled":false,"hosted_admitted":false}
