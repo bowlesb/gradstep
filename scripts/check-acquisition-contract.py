@@ -184,8 +184,9 @@ def main():
         return request(base + '/' + path, body, headers, method, expected)
 
     def query(sql, read_only=False):
+        # Management's query POST returns 201 on this staging project.
         return request('https://api.supabase.com/v1/projects/' + PROJECT + '/database/query', {'query': sql, 'read_only': read_only},
-                       {'Authorization': 'Bearer ' + management, 'Content-Type': 'application/json'})[1]
+                       {'Authorization': 'Bearer ' + management, 'Content-Type': 'application/json'}, expected=(200, 201))[1]
 
     def cleanup(account, run_id):
         status, user = api('auth/v1/admin/users/' + account, admin=True, method='GET', expected=(200, 404))
@@ -245,7 +246,7 @@ def main():
             json.dump({'project': PROJECT, 'account': account, 'run_id': run_id}, handle)
         created_attempted = True
         _, user = api('auth/v1/admin/users', {'id': account, 'email': email, 'password': password, 'email_confirm': True,
-                    'app_metadata': {'science_reader_check': 'acquisition-011', 'check_run_id': run_id}}, admin=True)
+                    'app_metadata': {'science_reader_check': 'acquisition-011', 'check_run_id': run_id}}, admin=True, expected=(200, 201))
         check_fixture_user(user, account, run_id)
         _, session = api('auth/v1/token?grant_type=password', {'email': email, 'password': password})
         if not isinstance(session, dict) or not isinstance(session.get('access_token'), str) or not session['access_token']:

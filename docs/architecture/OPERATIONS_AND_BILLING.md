@@ -1,6 +1,6 @@
 # Infrastructure, spending, and recovery
 
-Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–009 are applied. Private support storage and encrypted-history capacity limits are deployed and tested. Production, provider processing, independent backups, and distribution remain in progress.
+Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–011 are applied and immutable. Private support storage, encrypted-history capacity limits, and library/import/acquisition SQL contracts are deployed and tested. Metadata, original acquisition, verification, and original reads remain disabled; no runtime acquisition is deployed. Production, provider processing, independent backups, and distribution remain in progress.
 
 ## Environments and deployment
 
@@ -11,6 +11,14 @@ Status: implementation underway; product decisions approved. The separate Scienc
 - Recommended admin hosting is a static React application on managed static hosting, backed by authenticated Supabase APIs. Cloudflare Pages is a candidate; account access, domain, and final cost are not yet verified. No server secrets belong in the bundle. [Cloudflare Pages limits](https://developers.cloudflare.com/pages/platform/limits/)
 - Backend schema, functions, roles/grants, buckets, cron/queue configuration, and environment-specific nonsecret settings are versioned. Use the same reviewed migrations in staging and production. No first-request schema creation or undocumented dashboard fixes.
 - Apply least-privilege service identities. Provider, Apple signing, database, and management credentials are distinct. Establish dedicated Science Reader provider keys/workspaces so monitoring or limits cannot interrupt TextBrain.
+
+## Acquisition staging checkpoint — 011
+
+On 2026-10-03, reviewed migration 011 was applied with SHA-256 `30c2db5b6d1211dac4ccbbd93b732fb747a6dddcb06ceefc9970ba3bc3a09f03` (commit `a33f807`); the authoritative `science_reader_migrations.versions` prefix was verified. The pre-011 encrypted backup restored all 92 tables and the applied ledger locally before deployment. Hosted evidence is in `.artifacts/acquisition-011/hosted-migration.log` and `hosted-contract.log`: real Auth/REST isolation checks and rolled-back metadata/source-only/cancel/replay fixtures pass, and the tagged account was removed. These checks made no arXiv, Storage, verifier, or paid-provider call.
+
+`metadata_enabled`, `original_enabled`, `verification_enabled`, and `paper_read_policy.enabled` are false. The active verification profile is null, the profile table is empty, and the narrow verifier role has no login/credential. Atomic source claim+permit admission and its quotas are installed; no acquisition ingress, schedule or live transport is deployed. The pure metadata runner passes 19 focused cases and the 56-test backend suite, using mocked transports (`.artifacts/acquisition-runner-backend-suite.log`).
+
+Internal beta defaults include 1,000 source requests/day, 1 GiB/month source-byte admission, 512 MiB/2,000 retained-or-reserved original objects, four active reservations, and a 5 MiB/50-page pilot profile ceiling. Worker reads and customer reads each have a 2 GiB/environment/month limit; customer reads additionally cap at 256 MiB/account/month. Control records, receipts and read grants have separate bounds in [ACQUISITION.md](ACQUISITION.md). These are installed safeguards, not measured invoice ceilings or paid-plan allowances. PDF execution admission, global connection lifetime, storage/read adapters, runtime reconciliation and independent backup operations must pass before enabling the corresponding path. Mathpix authorization/processing stays separate and disabled.
 
 ## $100 private-beta operating budget
 
@@ -54,9 +62,9 @@ Use atomic work-key claims so two users cannot both fund/submit the same shared 
 
 If this funding rule proves confusing in the benchmark, propose a platform-funded shared conversion allowance with per-user new-page quotas before publishing the rate card. Do not silently change the rule after charging subscribers.
 
-### Import cancellation and retry contract — designed, not implemented
+### Import cancellation and retry — installed account contract, pending paid workflow
 
-This 2026-10-03 review extends the intended behavior; it does not claim deployed import, cancellation, or retry APIs. The [data contract](DATA_MODEL.md#discovery-and-import-contract--designed-not-implemented) separates account import/membership from shared work. Migrations 001–009 remain immutable. Review lock order, operation identity, quotas, compatibility, and recovery in additive 010+ migrations before enabling provider traffic.
+Migrations 010/011 install durable account import/membership commands, replay/removal fences, bounded acquisition claims, and separate account projections; hosted contract checks pass. The [data contract](DATA_MODEL.md) and [acquisition contract](ACQUISITION.md) separate account intent from shared work. The funding/submission behaviors below remain requirements for the future paid-processing implementation; they are not established by a source-only database fixture. Migrations 001–011 are immutable. Review additive paid authorization, attempt identity, lock order, quotas and recovery before any provider traffic.
 
 A quote binds verified page count, document/options, rate version, credit ceiling, service spend ceiling, and expiry. Record the user's authorization before a new paid operation is reserved. Final authorization rechecks current cache/work state atomically: an already-ready result or concurrent existing job cannot create another OCR charge. Display saved/imported membership separately from readable/artifact-ready status.
 
@@ -78,7 +86,7 @@ Search, feed refresh, metadata classification, downloads, and paper assets need 
 
 ### Discovery and import failure schedules required
 
-These are executable tests to build, not passed evidence. Use deterministic provider/network stubs first; run the same observable contract fixtures against native and browser clients. Record workflow screenshots, transition outcomes, timings, and credit/submission counts without logging private content.
+The combined live discovery/paid/rendering schedules below remain release obligations. Local and hosted 010/011 fixtures already cover their database membership, replay, cancellation, quota and source-only portions; they do not establish paid-provider or end-to-end acquisition behavior. Use deterministic provider/network stubs first; run the same observable contract fixtures against native and browser clients. Record workflow screenshots, transition outcomes, timings, and credit/submission counts without logging private content.
 
 - Double-add, add from two devices, and simultaneous adds by two accounts: one eligible OCR submission, one funding operation, no duplicate account membership.
 - Resolve arXiv/DOI aliases to equal bytes, then use a different revision or annotated PDF: reuse only the authorized exact file.
@@ -134,6 +142,8 @@ Wire protocol, encrypted payload, database migration, renderer, and pricing vers
 Run migrations from a clean database and from the prior released schema. Test RLS/grants under real anon/authenticated/operator roles, not only with a service role. Use provider stubs and Apple sandbox scenarios before limited, metered live checks. Destructive changes require a concrete restore/roll-forward plan and suitable authorization; the clean initial database does not make future customer data disposable.
 
 ## Backups and restore
+
+The pre-011 encrypted checkpoint restored 92 tables locally before application. The post-011 checkpoint `.artifacts/backups/20261004T000013Z-52920c7237a9` exported 798,108 database bytes and zero verified objects; local quarantine restore recovered 112 tables, the applied ledger and zero objects in 1.44 seconds. Reports are `.artifacts/post-acquisition-backup.json` and `post-acquisition-restore.json`. Neither local drill establishes hosted Auth/MFA disaster recovery, an independent off-site destination, or the target recovery SLA.
 
 Supabase database backups include object metadata, not Storage file bytes. Back up originals, converted bundles, private ciphertext blobs, and support attachments according to their lifecycles as well as Postgres. Keep a checksummed manifest for a restorable checkpoint and use an independent backup destination within budget. The destination and credentials must be selected before real beta data is accepted. [Supabase backup scope](https://supabase.com/docs/guides/platform/backups)
 
