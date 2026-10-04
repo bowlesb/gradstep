@@ -762,6 +762,245 @@ after stop. Recheck both reserves and the captured dpkg state before another
 phase. No further boot, payload fetch, package script or installation is implied
 by this completed simulation.
 
+### Phase 2 payload inspection completed; installation still proposed
+
+The 12 frozen archives were downloaded from their exact official HTTPS URLs with
+no proxy, redirect or retry, then matched against all lengths and SHA-256 values
+in the Phase 1 closure before inspection. Their total remains 62,322,758 bytes.
+Host-only archive inspection retained all control files, member inventories and
+relevant helper/configuration/unit text; it read 254,387,413 regular-file bytes
+without installing them. No maintainer script, downloaded executable, guest
+service or database was run. The guest remained stopped throughout.
+
+The pinned Linux tool tarballs also verify against the lockfile SHA-512 SRI and
+npm registry signatures. Together they use 45,280,793 compressed bytes, below
+96 MiB. Each contains exactly three regular files: package JSON, README and its
+binary (`package/deno` or `package/bin/esbuild`), with no links or lifecycle
+scripts. Bounded extraction retained them as non-executable mode 0400 files.
+Deno uses 84,906,430 extracted bytes, below 96 MiB; esbuild uses 10,289,789 bytes,
+below 16 MiB. Their package identities are 2.9.6 and 0.28.2; runtime versions have
+**not** been observed by execution. The AArch64 ELF hashes are respectively
+`d08d392418df53f4e6e88a08909c0e1bccbf9adcead7232df72b6ad6075ec416`
+and `90bd269553d258e80b19e3ccab4f98f0831f87442a2f056510ce24fd1b425fc2`.
+Registry signatures do not substitute for a reviewed provenance attestation.
+
+The verified scripts make the following installation effects explicit:
+
+| Payload | Effects requiring the later install scope |
+|---|---|
+| `postgresql-common` | Creates postgres user/group/home, adds ssl-cert membership, owns config/socket/log/cache directories, registers pg_config diversion, manages createcluster.conf through ucf, builds dictionaries, writes `/etc/apt/apt.conf.d/02autoremove-postgresql`, reloads systemd, registers SysV startup and requests enable/start of postgresql.service. Its legacy cleanup can remove old PG APT/sysctl files. |
+| `postgresql-17` | Its shared configure helper normally creates `17/main`, updates alternatives/APT policy, reloads systemd and invokes PostgreSQL startup. Explicit `create_main_cluster = false` must already be effective before this package is configured. |
+| `ssl-cert` | Direct postinst creates the ssl-cert group and snakeoil key/certificate/hash link, adjusts `/etc/ssl/private` using dpkg-statoverride, then enables/starts ssl-cert.service. Service denial does **not** suppress the direct certificate operation. |
+| `locales` | Debconf/configuration can migrate `/etc/default/locale` to `/etc/locale.conf`, populate locale.gen and invoke locale-gen. Its default regeneration removes existing locale archives/directories except `C.utf8`; this is not harmless on an arbitrary host. |
+| Client packages and libraries | Client packages manage obsolete conffiles and manpage alternatives. Five library packages activate ldconfig; libjson-perl has no maintainer script. Existing trigger handlers still require the narrow pre-install check below. |
+
+No cron or sysusers payload is present. PostgreSQL supplies one tmpfiles rule
+for socket/log directories, a generator that attaches only auto-start clusters,
+and seven backup/WAL service/timer templates in addition to its two main units.
+Those templates have no instance enabled by the inspected package scripts.
+The logrotate configuration only rotates the package log directory; logrotate
+itself is not in the resolved transaction. Dictionary triggers can write the PG
+cache and links from existing hunspell/myspell inputs, so those inputs belong
+in the collision inventory too.
+
+The smallest proposed installation is still **two bounded package stages**, with
+these preconditions and suppression, not a general machine provisioning script:
+
+1. Recheck host/guest reserves, exact dpkg state, inactive package managers and
+   the 12 payload hashes. Read the existing dpkg configuration, trigger registry,
+   applicable installed trigger scripts, init-system-helpers and ucf helpers.
+   The Phase 1 package list includes libc-bin and systemd but no man-db; do not
+   infer the full trigger set from the new packages' own trigger files. Refuse
+   unexpected execution hooks, pending configuration or changed dependencies.
+2. Before mutation, capture the exact unit/mask/wants/SysV links, PG account/group,
+   directories/diversions/alternatives, service policy, the exact legacy
+   `/etc/apt/apt.conf.d/01autoremove-postgresql*` and PG sysctl paths, and the
+   logrotate file plus its ucf/ucfr registrations (which common purges on first
+   configuration). Also capture the
+   ssl-cert group/statoverride and certificate **metadata only**, locale files,
+   generated locale directories, debconf values, `/var/lib/locales/supported.d/*`,
+   `/usr/local/share/i18n/SUPPORTED` and custom locale inputs, plus the dictionary
+   input inventory.
+   Require no existing PG state or conflicting policy/unit/diversion. Existing
+   custom certificate state, generated locales other than `C.utf8`, active locale
+   selections or custom dictionary inputs require review; never overwrite them
+   by assuming the disposable base is empty. Phase 1's bare template show query
+   failed; its separate complete unit-file inventory establishes absence, not
+   that failed query. Those additional reads were deferred to the read-only
+   pre-install checkpoint below.
+3. With an absent policy-rc.d confirmed, create a temporary owned policy returning
+   101 and persistent administrator masks for the exact ten shipped PG/ssl-cert
+   units/templates. Check the installed helper preserves administrator masks;
+   its own unmask bookkeeping is not a replacement for that check. Keep these
+   masks while the fixture uses its separate explicit cluster unit. Reject
+   activation and verify masks after each configure step. Package scripts may
+   still create enable links; disable only those newly owned PG/ssl-cert links
+   afterward, and disable the newly registered PostgreSQL SysV links.
+   [Policy denial](https://manpages.debian.org/bookworm/init-system-helpers/invoke-rc.d.8.en.html),
+   [systemd invocation helper](https://manpages.debian.org/bookworm/init-system-helpers/deb-systemd-invoke.1p.en.html).
+4. In a fresh isolated APT configuration using the **real** dpkg status for the
+   approved mutation, retain the installed-version pins, disable inherited hooks
+   and network acquisition, and simulate the exact local files again. Install
+   the 11 non-server archives first with `--no-download --no-remove --no-upgrade
+   --no-install-recommends`, noninteractive debconf and no forced dependencies.
+   Preseed no generated locales and default `None` only after the locale checks
+   permit it; use explicit `C.UTF-8` for the fixture. Accept package-owned postgres,
+   snakeoil material, locale-file migration, alternatives, cache and APT policy
+   changes as recorded effects of this stage, never as fixture credentials.
+5. After postgresql-common has finished its ucf processing, set the owned
+   createcluster.conf to explicit `create_main_cluster = false` and
+   `start_conf = 'disabled'`, preserving the reviewed template's other settings.
+   Require the effective pg_conftool boolean to be `off` and the start setting
+   `disabled`, with no conflicting include files or cluster. Only then install
+   the final exact postgresql-17 archive. This ordering avoids asking ucf to
+   preserve a pre-created policy file during its first configuration.
+6. Verify all 12 exact versions configured, dpkg audit clean, no cluster/server
+   process/listener or active package unit, persistent masks intact, generated
+   startup links disabled and all global changes confined to the reviewed set.
+   Remove the temporary policy only after these checks and its exact owned hash
+   match; retain it on uncertainty. Stop the guest on failure without automatic
+   repair, purge or broad rollback. The tools/parser build and disposable SQL
+   fixture are subsequent explicit actions, not part of package configuration.
+
+This authorizes no install by itself. The package scripts and proposed masks
+have been read, but suppression on the actual guest, existing-helper/trigger
+behavior, fresh collision checks and observed Linux tool execution remain
+unverified. Phase 2 evidence is retained under
+`.artifacts/linux-dependency-review/phase2-5913d6512f49/`:
+`acquisition.json` binds all verified payloads; `package-inspection.json` binds
+control/data inventories and saved text; `tool-inspection.json` binds the exact
+safe tool members. The finite final manifest supplies their hashes and bounds.
+No source-network, provider, hosted migration or credential authority changed.
+
+### Read-only pre-install checkpoint and exact runner candidate
+
+The authorized follow-up inventory started only `timestep-lifecycle-646`, read
+the installed helpers/configuration and collision state, then stopped that guest
+normally. Its dpkg status still matches Phase 1, with no pending triggers or
+active package manager observed. No package, service, account, credential or
+configuration mutation was performed. The 29-file evidence manifest is
+`.artifacts/linux-dependency-review/preinstall-54a1f27d5129/manifest.json`, SHA-256
+`16dd9c019ff77f773cbddcdcd599418c4edad78fef58e25ce746f7e690e54a29`.
+After stop, host free space was 11,081,187,328 bytes; guest free space observed
+during inventory was 18,461,831,168 bytes. These are historical observations;
+the reserved margins still require fresh checks before installation.
+
+The only applicable installed trigger is libc-bin's `ldconfig` branch. Dpkg has
+no execution hook in its captured configuration; its existing documentation and
+translation exclusions remain intact. Actual systemd helpers preserve the
+administrator masks when their own mask bookkeeping is absent, and policy101
+prevents their start request. The ten package units, associated helper state,
+aliases/drop-ins, PostgreSQL paths/accounts/diversions/alternatives, dictionary
+inputs and legacy configuration collisions are absent. Both automatic-APT timers
+are enabled and active; their services were inactive. The runner must inhibit
+them across both stages rather than treating that observation as a durable lock.
+
+`/etc/locale.conf` is exactly `LANG=C.UTF-8`, with the existing legacy symlink;
+only `C.utf8` is generated and no custom locale inputs/selections were found.
+The ssl-cert account and snakeoil paths are absent; `/etc/ssl/private` is empty.
+Only certificate/private-key **metadata** was inspected. NSS uses files for
+accounts and files/DNS for hosts; there is no hostname entry, so the reviewed
+certificate helper's `hostname -f` fallback matters. No adduser local hook is
+present. These findings permit a concrete candidate, not an installation claim.
+
+The proposed runner is
+`.artifacts/linux-dependency-review/install-proposal-b57f82ca019e/install.py`,
+SHA-256 `d49310ea286f257e8ef3baf87cdb51a11787a2835c7bc778964d91ab78ce5337`,
+with its exact command, input paths and failure model in `REVIEW.md` and the
+frozen inputs in that directory's `manifest.json`. Its policy
+SHA-256 is
+`0285457efb2bf7ef5e14149194d5c59b86d124e0011beaa708ccec9677e21e93`.
+It rechecks the captured helper/collision facts, original package status, exact
+twelve archives and every non-directory payload destination before mutation.
+Two additional preconditions remain **unexecuted**: `/etc/ucf.conf` must be absent
+or comment-only, and debconf must use only the finite standard local File/Stack
+database configuration. Other configuration refuses before package mutation;
+the password database is never read or exported by those checks.
+
+The candidate runs with an explicit small environment inside a distinct private
+network namespace, checks down-loopback-only interfaces, local hostname/NSS and
+systemd AF_UNIX control, and strips inherited PG/Perl/APT/loader overrides. This
+blocks direct IP networking, without asserting that every proxy path through an
+existing Unix service is removed. Namespace compatibility has not been tested.
+It durably records and creates persistent masks for both APT timers/services and
+all ten package units, plus temporary policy101. It only stops the timers after
+checking inverse stop dependencies; an active/racing package transaction causes
+refusal and is never stopped. Package/helper children use explicit umask022;
+private evidence stays under umask077 with exact owned file modes.
+
+The two simulated package stages are the eleven prerequisites, then the server
+only after effective `off`/`disabled` cluster policy is verified. The existing
+locale must survive unchanged. Source/tool/parser/SQL work is outside this
+runner. It reserves its own bounded log/checkpoint bytes before publication and
+continues draining/waiting when package output exceeds a cap or a log write
+fails; it never kills apt/dpkg on an elapsed timer. Package filesystem growth is
+checked between stages, not misrepresented as an enforced disk quota. Incomplete
+installation retains masks and policy across boots, with no automatic repair or
+retry. Verified success still leaves automatic APT inhibited. The separate
+`restore-automatic-apt` action requires a later explicit root decision and
+revalidation; it retains the package-service masks. If restored timers start a
+normal package job, that job must finish before guest shutdown.
+
+Seven host-only boundary tests pass using temporary files and fake children:
+exact permissions under private umask, allocation refusal before publication or
+spawn, output-overflow/write-error drain and wait, inverse timer-stop refusal,
+and preserved file identity. They establish no real package, namespace or service
+outcome. Independent review cleared the frozen runner and verified all nine
+manifest members, modes and hashes. The retained architecture snapshot predates
+that closing verdict. Invocation and automatic-APT restoration remain separately
+subject to root authorization; the guest stays stopped and source/hosted admission
+stays off.
+
+### First install refusal and corrected namespace-observer candidate
+
+Root authorized the first frozen runner's INSTALL action once. It refused at
+the initial interface check, before creating service guards or invoking package
+commands. The original dpkg hash remains
+`1d32ae764c3bf460d6b73a815a235cd8d52da790997e11953658501805faf1be`;
+no owned mask or policy was created. The exact guest was stopped normally after
+two quiet-package checks. The original staging directory and single transaction
+checkpoint remain intact; no automatic retry, repair or restoration occurred.
+The 39-file attempt/diagnostic manifest is
+`.artifacts/linux-dependency-review/install-attempt-0eab15cf9302/manifest.json`,
+SHA-256 `70348929f30e446f03c2ba06fc007fe6f43dc7239e9b33f72504d24335801af3`.
+It retains 63,008,598 bytes, primarily the exact transfer archive. Host free space
+after stop was 9,983,467,520 bytes; fresh reserves are still required next time.
+
+The independently reviewed read-only diagnosis found the error in the observer:
+the process was in a distinct private namespace, but inherited `/sys/class/net`
+showed the original namespace's docker0/eth0/lo and its up loopback flags. A fresh
+socket/ioctl in the current namespace found only lo/index1, flags8/down and no
+IPv4 address. The existing `ip` utility independently reported the same down
+loopback, empty address information, and empty IPv4/IPv6 route arrays across all
+tables. Raw proc IPv6 null/unreachable entries were retained only as diagnostic
+data. No interface, route, mount or network setting was changed.
+[Kernel sysfs namespace tagging](https://docs.kernel.org/networking/sysfs-tagging.html).
+
+The new candidate is isolated under
+`.artifacts/linux-dependency-review/install-proposal-13e0bc58497a/`, with fresh
+staging/transaction identities. Runner SHA-256 is
+`3664f410751db106bbfe43f0d9a25ffa35f25ca3340aaa074e68a79edd8871f3`;
+policy SHA-256 is
+`36ff7843a8cc835f70effb6d2f98ee20ab5aaa2d76d14c308006d1d704872642`.
+Its `DELTA.md`, exact source/policy diffs and manifest identify the limited change:
+replace both sysfs checks with four fixed, successful current-namespace `ip` JSON
+queries, each bounded to 64 KiB, plus the fresh-socket corroboration. The exact
+existing `/usr/bin/ip` is pinned at 812,352 bytes and SHA-256
+`0729cf10c20144fcfe1c758eb618102cf438d9f1573399264e999ffd230b85ed`.
+Only a down loopback, empty addresses and empty routes in both families pass;
+extra interfaces, UP state, malformed/duplicate/nonfinite/truncated data,
+nonzero exit and output overflow refuse. Distinct namespace identity, NSS and
+systemd checks remain. No remount or proc-sentinel workaround is introduced.
+
+All package identities/choreography, suppression, locale/cluster checks, failure
+retention and separate restoration remain unchanged. The baseline and inventory
+derivative are byte-identical to the first candidate. Thirteen host-only tests
+pass, covering the original ownership/bounds checks and the new parser, helper
+failure and inherited-sysfs-independence cases. Independent source review cleared
+the correction. The corrected runner has not been invoked and needs a new root
+authorization after the final manifest verification.
+The remaining real debconf/UCF/NSS/service and unchanged-state gates still apply.
+
 ### Combined fixture bootstrap and distinct callers
 
 Create one private cluster with versioned absolute `initdb`/`postgres`/`psql`
@@ -958,3 +1197,65 @@ download/verification/read and paid-provider paths disabled; obtaining metadata
 does not complete the reader. Provision no host or credentials from this
 document, and make no additional commitment beyond the agreed $100/month
 incremental beta budget.
+
+### Guarded Linux dependency transaction
+
+The first corrected invocation ran the isolated namespace and read-only
+preflight checks, created fourteen reviewed masks and the owned `policy-rc.d`,
+then refused before APT configuration because masking the two APT timers left
+them `masked/failed/failed/resources` with no job. The APT services and
+PostgreSQL/ssl-cert units were masked and job-free. That refusal is frozen in
+`.artifacts/linux-dependency-review/install-attempt-31c96248d05b/`, manifest
+SHA-256 `c51064d5334da77e1d764162fc49a82bb1b22e2991ecc454b4d3910436e08c16`.
+The original dpkg status SHA was
+`1d32ae764c3bf460d6b73a815a235cd8d52da790997e11953658501805faf1be`.
+
+The continuation was then advanced only through fresh, hash-bound staging
+directories. Each refusal retained its state and suppression; no candidate was
+retried in place. The archived boundaries are:
+
+* `.artifacts/linux-dependency-review/install-attempt-cont-20261004-96750ae2bffb/`
+  (`26c85a19aad2f3ca4691aefa77f9c34a363a2d83ca79f7ff1ac0729b6bb454ee`):
+  canonical APT handoff refused because `--no-download` passed a basename to
+  dpkg when the archive was not present in APT's cache.
+* `.artifacts/linux-dependency-review/install-attempt-cache-20261004-34a1869f7e5c/`
+  (`8a8c79e4a5031f029c5b2c9c388ed1397719048c76e7ed7b743242914943d4d6`):
+  the cache candidate refused before its transaction because reboot changed
+  the preserved archive-lock mode from `0600` to `0640`.
+* `.artifacts/linux-dependency-review/install-attempt-cachebind-20261004-1011a0509d87/`
+  (`6db79d6a6a3db4ad6b782691af8ae4ffa09dde8f6b5dd9b3babffd65d9272d35`):
+  a binder schema bug expected ownership fields that candidate manifests do
+  not contain; the guest state was empty and package state was untouched.
+* `.artifacts/linux-dependency-review/install-attempt-cachebind2-20261004-8a965ff43a76/`
+  (`4995ce2b056c2ff57c17e25965842eb8f7f650350eaf8d8131cdcf41b8d19e14`):
+  the frozen upstream state exposed four exact post-reboot metadata deltas
+  (archive lock, two APT logs, and the terminal log) with unchanged bytes.
+* `.artifacts/linux-dependency-review/install-attempt-cachebind3-20261004-2e7fd9de9faa/`
+  (`42222bca561eb8801ff27a85c052bce5ca631840e91293bbbbcb0b95ab50819b`):
+  preflight found exactly the two debconf records deliberately seeded before
+  the failed APT stage; it created a 23-file journal but did not run a package
+  stage. Dpkg status and audit remained unchanged and clean.
+
+The final cachebind4 transaction is complete under
+`.artifacts/linux-dependency-review/install-attempt-cachebind4-20261004-d77f61eccc21/`,
+attempt manifest SHA-256
+`8e0b03b753dcaaab6d06beb58bb255fd2157d1d94831a4c2fa6c9745e2d7fd5c`, candidate
+manifest SHA-256
+`d77f61eccc217d96816090b8f590372af816bb62878cccd3951a5a3ba0048421`, and
+runner SHA-256
+`1f80c88a26271d0faa91ea2eb544b72af3415858af3b172fdb23586e9a787fb9`. It
+created an offline canonical APT archive cache, completed both package stages,
+and verified all twelve exact requested archives. The success journal has 128
+state files and SHA-256
+`70aedd055660b1733bb61d3f42495175751918f89c3a721d73f7f097d58d0dfa`; the
+final `/var/lib/dpkg/status` SHA-256 is
+`7aecd81bad376b84d330cb2930ee26697aad6cf5753e9fb8f3b857427e553ed1` and
+`dpkg --audit` is clean. No package process remains, no PostgreSQL cluster or
+server process exists, and the fourteen reviewed masks plus the exact
+`policy-rc.d` remain. The success journal records `tools_executed=false` and
+`sql_executed=false`; no source/provider request or credential was used.
+
+Automatic APT remains deliberately inhibited. Restoring the normal APT and
+service policy is a separate reviewed action and has not been performed. This
+transaction establishes the guarded Linux prerequisite layer; it does not
+complete hosting, database migrations, or application deployment.
