@@ -4,6 +4,15 @@ import Foundation
 import Testing
 @testable import ScienceReaderCore
 
+private final class ProjectionVisits: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func visit() -> Int { lock.withLock { value += 1; return value } }
+    var count: Int { lock.withLock { value } }
+}
+
+private enum ProjectionFixtureFailure: Error, Equatable { case projector }
+
 @Suite(.serialized) struct OfflineCacheTests {
     private struct Fixture {
         let directory: URL
@@ -71,7 +80,11 @@ import Testing
     }
     private func observation(_ account: UUID, rows: [[String: Any]], cursor: Int64) throws -> LibraryCompleteObservation {
         var reconciler = LibraryReconciler(accountID: account)
-        let sorted = rows.sorted { ($0["created_seq"] as! Int64) < ($1["created_seq"] as! Int64) }
+        let sorted = rows.sorted {
+            let left = ($0["created_seq"] as! Int64, $0["id"] as! String, $0["kind"] as! String)
+            let right = ($1["created_seq"] as! Int64, $1["id"] as! String, $1["kind"] as! String)
+            return left < right
+        }
         let chunks = sorted.isEmpty ? [[]] : stride(from: 0, to: sorted.count, by: 20).map { Array(sorted[$0..<min($0 + 20, sorted.count)]) }
         for (position, chunk) in chunks.enumerated() {
             let more = position + 1 < chunks.count
@@ -103,6 +116,211 @@ import Testing
         try db.statement("SELECT sealed FROM \(table) WHERE id=1") { statement in
             guard sqlite3_step(statement) == SQLITE_ROW else { throw ReaderError.corruptData }
             return try SQLiteConnection.blob(statement, 0)
+        }
+    }
+
+    private func imported(id: UUID = UUID(), created: Int64, target: (UUID, UUID)? = nil) -> [String: Any] {
+        ["kind": "import", "id": id.wire, "created_seq": created, "state_seq": created,
+         "intent_revision": 1, "visible": target == nil, "phase": target == nil ? "accepted" : "ready",
+         "source": "arxiv", "source_id": "2404.00001", "source_url": "https://arxiv.org/abs/2404.00001",
+         "document_id": target.map { $0.1.wire as Any } ?? NSNull(),
+         "library_item_id": target.map { $0.0.wire as Any } ?? NSNull(), "retryable": false]
+    }
+
+    private func checkpoint(_ f: Fixture, _ db: SQLiteConnection) throws -> CachePresentationCheckpoint {
+        let sealed = try raw(db, "local_library_cache_checkpoint")
+        return try OfflineCacheCodec.decode(CachePresentationCheckpoint.self, from:
+            OfflineCacheCodec.open(sealed, digest: OfflineCacheCodec.digest(sealed), domain: "presentation",
+                scope: f.scope, key: SymmetricKey(data: f.key), maximum: OfflineCacheLimits.presentationCheckpointBytes))
+    }
+
+    /// Deliberately authenticate a semantically malformed child and checkpoint.
+    /// Reopening exercises normal root authentication rather than a test-only
+    /// store entry point; the read must still reject invalid cross-row facts.
+    private func rewriteCache(_ f: Fixture, edit: (inout [String: CacheLibraryRow]) throws -> Void) throws {
+        let db = try SQLiteConnection(url: f.url), key = SymmetricKey(data: f.key)
+        let before = try checkpoint(f, db)
+        var rows: [String: CacheLibraryRow] = [:]
+        for (name, ref) in before.rows {
+            let sealed = try db.statement("SELECT sealed FROM local_library_cache_entries WHERE id=?", values: [.text(ref.rowID.wire)]) {
+                guard sqlite3_step($0) == SQLITE_ROW else { throw ReaderError.corruptData }
+                return try SQLiteConnection.blob($0, 0)
+            }
+            rows[name] = try OfflineCacheCodec.decode(CacheLibraryRow.self, from:
+                OfflineCacheCodec.open(sealed, digest: ref.digest, domain: "presentation-row", scope: f.scope,
+                    identity: [ref.rowID.wire], key: key, maximum: OfflineCacheLimits.presentationRowBytes))
+        }
+        try edit(&rows)
+        var refs: [String: CacheEntryReference] = [:], children: [(UUID, Data)] = []
+        for (name, row) in rows {
+            let sealed = try OfflineCacheCodec.seal(OfflineCacheCodec.encode(row), domain: "presentation-row",
+                scope: f.scope, identity: [row.rowID.wire], key: key, maximum: OfflineCacheLimits.presentationRowBytes)
+            refs[name] = .init(rowID: row.rowID, digest: OfflineCacheCodec.digest(sealed), bytes: sealed.count,
+                               documentID: OfflineCacheCodec.documentID(row.entry))
+            children.append((row.rowID, sealed))
+        }
+        let checkpoint = CachePresentationCheckpoint(format: before.format, scope: before.scope,
+            cursor: before.cursor, capturedAt: before.capturedAt, rows: refs)
+        let sealed = try OfflineCacheCodec.seal(OfflineCacheCodec.encode(checkpoint), domain: "presentation",
+            scope: f.scope, key: key, maximum: OfflineCacheLimits.presentationCheckpointBytes)
+        let aad = Data("science-reader/local-metadata/v2/\(f.account.wire)".utf8)
+        let plain = try AES.GCM.open(AES.GCM.SealedBox(combined: raw(db, "metadata")), using: key, authenticating: aad)
+        var metadata = try #require(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        var roots = try #require(metadata["offlineCache"] as? [String: Any])
+        roots["presentation"] = OfflineCacheCodec.digest(sealed).base64EncodedString()
+        metadata["offlineCache"] = roots
+        let sealedMetadata = try #require(AES.GCM.seal(json(metadata), using: key, authenticating: aad).combined)
+        try db.execute("BEGIN IMMEDIATE")
+        do {
+            for (id, bytes) in children {
+                try db.update("UPDATE local_library_cache_entries SET sealed=? WHERE id=?", values: [.blob(bytes), .text(id.wire)])
+            }
+            try db.update("UPDATE local_library_cache_checkpoint SET sealed=? WHERE id=1", values: [.blob(sealed)])
+            try db.update("UPDATE metadata SET sealed=? WHERE id=1", values: [.blob(sealedMetadata)])
+            try db.execute("COMMIT")
+        } catch { try? db.execute("ROLLBACK"); throw error }
+    }
+
+    private func replacing(_ row: CacheLibraryRow, fields: [String: Any]) throws -> CacheLibraryRow {
+        var value = try #require(JSONSerialization.jsonObject(with: OfflineCacheCodec.encode(row.entry)) as? [String: Any])
+        for (name, field) in fields { value[name] = field }
+        return .init(format: row.format, rowID: row.rowID,
+            entry: try OfflineCacheCodec.decode(LibraryEntry.self, from: json(value)), readerPolicy: nil)
+    }
+
+    @Test func projectedCheckpointPreservesContentsOrderScopeAndPrivateState() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), first = try f.binding(bundle), second = try f.binding(bundle)
+            let sharedID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+            var row = item(binding: first, id: sharedID)
+            row["metadata"] = ["title": "Équations 東京", "authors": ["Zoë", "李"],
+                "abstract": "Full searchable \n metadata", "categories": ["cs.LG", "数学"],
+                "published_at": "2024-04-03", "updated_at": "2024-05-01", "venue": "Fixture"]
+            let observed = try observation(f.account, rows: [item(binding: second, created: 2),
+                row, imported(id: sharedID, created: 1, target: (sharedID, first.documentID))], cursor: 2)
+            let cached = try await f.store.saveLibraryPresentation(observed, scope: f.scope)
+            let note = try await f.store.append(.init(kind: .note, text: "Keep private state"), deviceID: UUID())
+            let before = await f.store.snapshot(), pending = await f.store.pending()
+            let db = try SQLiteConnection(url: f.url), metadata = try raw(db, "metadata")
+            let projected = try #require(await f.store.cachedLibraryProjection(scope: f.scope, project: { $0 }))
+            #expect(projected.scope == f.scope && projected.committedCursor == cached.committedCursor)
+            #expect(projected.capturedAt == cached.capturedAt && projected.validatedEntryCount == 3)
+            #expect(Dictionary(uniqueKeysWithValues: projected.rows.map { ($0.id, $0) }) == cached.entries)
+            #expect(projected.rows == cached.entries.values.sorted { LibraryOrderingKey($0) < LibraryOrderingKey($1) })
+            #expect(projected.rows.prefix(2).map(\.id.kind) == [.import, .item])
+            let filtered = try #require(await f.store.cachedLibraryProjection(scope: f.scope) { entry -> UUID? in
+                guard case .item(let item) = entry else { return nil }; return item.documentID
+            })
+            #expect(filtered.validatedEntryCount == 3 && filtered.rows == [first.documentID, second.documentID])
+            let after = await f.store.snapshot(), remaining = await f.store.pending()
+            #expect(after == before && remaining == pending && pending == [note])
+            #expect(try raw(db, "metadata") == metadata)
+            let foreign = try LibraryCommandScope(accountID: UUID(), deploymentID: f.scope.deploymentID)
+            await #expect(throws: ReaderError.wrongAccount) { try await f.store.cachedLibraryProjection(scope: foreign) { $0.id } }
+            let wrongDeployment = try LibraryCommandScope(accountID: f.account, deploymentID: "https://another.invalid")
+            await #expect(throws: LibraryCommandError.invalidScope) { try await f.store.cachedLibraryProjection(scope: wrongDeployment) { $0.id } }
+        }
+    }
+
+    @Test(arguments: ["duplicate_document", "missing_import_target", "wrong_import_document"])
+    func authenticatedInvalidCrossRowFactsRejectBothReaders(_ kind: String) async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), first = try f.binding(bundle), second = try f.binding(bundle)
+            let firstID = UUID(), secondID = UUID(), importID = UUID()
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [item(binding: first, id: firstID),
+                item(binding: second, id: secondID, created: 2),
+                imported(id: importID, created: 3, target: (firstID, first.documentID))], cursor: 3), scope: f.scope)
+            try rewriteCache(f) { rows in
+                let target = kind == "duplicate_document" ? LibraryEntryID(kind: .item, entityID: secondID)
+                    : LibraryEntryID(kind: .import, entityID: importID)
+                let name = OfflineCacheCodec.entryKey(target), row = try #require(rows[name])
+                let fields: [String: Any]
+                switch kind {
+                case "duplicate_document": fields = ["document_id": first.documentID.wire]
+                case "missing_import_target": fields = ["library_item_id": UUID().wire]
+                default: fields = ["document_id": UUID().wire]
+                }
+                rows[name] = try replacing(row, fields: fields)
+            }
+            let store = try f.reopen(), before = await store.snapshot(), visits = ProjectionVisits()
+            await #expect(throws: OfflineCacheError.invalidObservation) {
+                try await store.cachedLibraryProjection(scope: f.scope) { entry in _ = visits.visit(); return entry.id }
+            }
+            if kind != "duplicate_document" { #expect(visits.count == 3, "Cross-row links are checked before any complete result escapes") }
+            await #expect(throws: OfflineCacheError.invalidObservation) { try await store.cachedLibraryPresentation(scope: f.scope) }
+            #expect(await store.snapshot() == before)
+            _ = try await store.append(.init(kind: .note, text: "Cache failure preserves private writes"), deviceID: UUID())
+        }
+    }
+
+    @Test(arguments: ["last_row", "missing_child", "extra_child"])
+    func projectedReadRejectsCorruptOrInexactChildrenWithoutAPartialResult(_ kind: String) async throws {
+        try await withFixture { f in
+            let bundle = try bundle()
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [item(binding: f.binding(bundle)),
+                item(binding: f.binding(bundle), created: 2)], cursor: 2), scope: f.scope)
+            let db = try SQLiteConnection(url: f.url), checkpoint = try checkpoint(f, db)
+            let name = try #require(checkpoint.rows.keys.sorted().last), ref = try #require(checkpoint.rows[name])
+            switch kind {
+            case "last_row":
+                try db.update("UPDATE local_library_cache_entries SET sealed=zeroblob(?) WHERE id=?", values: [.integer(Int64(ref.bytes)), .text(ref.rowID.wire)])
+            case "missing_child": try db.update("DELETE FROM local_library_cache_entries WHERE id=?", values: [.text(ref.rowID.wire)])
+            default: try db.update("INSERT INTO local_library_cache_entries(id,sealed) VALUES(?,zeroblob(28))", values: [.text(UUID().wire)])
+            }
+            let visits = ProjectionVisits()
+            await #expect(throws: OfflineCacheError.corruptCache) {
+                try await f.store.cachedLibraryProjection(scope: f.scope) { _ in _ = visits.visit(); return Int?.none }
+            }
+            #expect(visits.count == (kind == "last_row" ? 1 : 0), "Even a projector that discards every row must validate all children")
+            await #expect(throws: OfflineCacheError.corruptCache) { try await f.store.cachedLibraryPresentation(scope: f.scope) }
+        }
+    }
+
+    @Test(arguments: [0, 1, 3])
+    func projectedReadChecksCancellationBeforeBetweenAndAfterRows(_ cancelAt: Int) async throws {
+        try await withFixture { f in
+            let bundle = try bundle()
+            let rows = try (1...3).map { try item(binding: f.binding(bundle), created: Int64($0)) }
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: rows, cursor: 3), scope: f.scope)
+            let store = f.store, scope = f.scope, before = await store.snapshot(), visits = ProjectionVisits()
+            let work = Task.detached {
+                if cancelAt == 0 { withUnsafeCurrentTask { $0?.cancel() } }
+                return try await store.cachedLibraryProjection(scope: scope) { entry -> LibraryEntryID? in
+                    if visits.visit() == cancelAt { withUnsafeCurrentTask { $0?.cancel() } }
+                    // Returning nil also tests final cancellation with no sort
+                    // comparator invocation to accidentally supply the check.
+                    return nil
+                }
+            }
+            await #expect(throws: CancellationError.self) { try await work.value }
+            let after = await store.snapshot()
+            #expect(visits.count == cancelAt && after == before)
+            #expect(try await store.cachedLibraryPresentation(scope: scope)?.entries.count == 3)
+        }
+    }
+
+    @Test func projectorFailureDoesNotMutateAndCancelledAcceptedWritesStillDrain() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), binding = try f.binding(bundle)
+            var row = item(binding: binding)
+            let first = try observation(f.account, rows: [row], cursor: 1)
+            try await f.store.saveLibraryPresentation(first, scope: f.scope)
+            let store = f.store, scope = f.scope, before = await store.snapshot()
+            await #expect(throws: ProjectionFixtureFailure.projector) {
+                try await store.cachedLibraryProjection(scope: scope) { _ -> Int? in throw ProjectionFixtureFailure.projector }
+            }
+            #expect(await store.snapshot() == before)
+            row["state_seq"] = Int64(2); row["render_availability"] = "quarantined"; row["render_availability_revision"] = 2
+            let changed = try observation(f.account, rows: [row], cursor: 2)
+            let work = Task.detached {
+                withUnsafeCurrentTask { $0?.cancel() }
+                let old = try await store.cachedLibraryPresentation(scope: scope)
+                let saved = try await store.saveLibraryPresentation(changed, scope: scope)
+                return (old?.committedCursor, saved.committedCursor)
+            }
+            let result = try await work.value
+            #expect(result.0 == 1 && result.1 == 2)
+            #expect(try await store.cachedLibraryPresentation(scope: scope)?.entries == changed.entries)
         }
     }
 
@@ -449,6 +667,10 @@ import Testing
             let restarted = try f.reopen(), restoreStarted = Date()
             #expect(try await restarted.cachedLibraryPresentation(scope: f.scope) == saved)
             let restoreSeconds = Date().timeIntervalSince(restoreStarted)
+            let projected = try #require(await restarted.cachedLibraryProjection(scope: f.scope, project: { $0 }))
+            #expect(projected.validatedEntryCount == 4_000 && projected.committedCursor == saved.committedCursor)
+            #expect(projected.rows == saved.entries.values.sorted { LibraryOrderingKey($0) < LibraryOrderingKey($1) })
+            #expect(Dictionary(uniqueKeysWithValues: projected.rows.map { ($0.id, $0) }) == saved.entries)
             print("offline_cache_fixture rows=4000 sealed_bytes=\(sizes.2) max_row=\(sizes.1) commit_wall_s=\(commitSeconds) restore_wall_s=\(restoreSeconds)")
         }
     }

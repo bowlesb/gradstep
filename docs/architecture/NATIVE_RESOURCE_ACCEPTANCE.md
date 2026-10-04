@@ -1,6 +1,6 @@
 # Native offline resource acceptance
 
-Status, 2026-10-04: the isolated optimized Simulator fixture and repeated performance journeys pass, with independently reviewed measurement boundaries. Background search removes the large synchronous scan. A constant-row List layout reduces row construction and repeated post-restore footprint, but peak memory and remaining library growth still need investigation. This is not resource acceptance. Offline functional evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
+Status, 2026-10-04: the isolated optimized Simulator fixture and repeated performance journeys pass. Background search removes the large synchronous scan, the constant-row List layout reduces presentation overhead, and per-row restoration projection substantially reduces this offline fixture's application memory. Its latest observed memory ranges are below the provisional library investigation triggers. Live refresh, total reader/WebContent memory, repeated different-paper cycles and supported-device headroom remain unverified; this is not whole-app resource acceptance. Offline functional evidence is in [Native offline bundles](NATIVE_OFFLINE_BUNDLES.md).
 
 ## Measurement boundaries
 
@@ -349,5 +349,90 @@ all stdout records, attachment-to-test mapping, warm-up exclusion and all five
 CSV/app-measurement iterations. The layout change is retained. The no-match
 worker values are app-phase measurements collected after XCTest's restoration
 interval, not part of that interval's clock or peak.
+
+## Per-row restoration projection
+
+The [authenticated projection](NATIVE_OFFLINE_BUNDLES.md#authenticated-per-row-restoration-projection)
+converts one fully validated cached entry at a time into native presentation
+data, avoiding the simultaneous complete decoded-item collection. It preserves
+the encrypted schema, all metadata, complete cursor, import links and existing
+global search. Independent source review is clear; Core and native functional
+checks pass. Format 4 adds a cache-wait/validation/mapping duration and makes the
+offline publication event final MainActor application only. Author joining
+remains inside the unchanged full restoration clock.
+
+All four optimized journeys pass in
+`.artifacts/offline-projection-performance.xcresult`: empty and full post-restore
+sampling, full-library no-match search, and maximum installed-paper opening with
+Contents and a 16M-pixel figure. There are zero failures/skips. Each retains six
+invocations, with invocation 0 discarded and five fresh-process runs measured.
+The app/Core use `-O` without coverage/sanitizers; both emitted runtime-checker
+policies are disabled. No build, VM or package download/unpacking overlapped the
+measurements. Counters and attribution/cycle flags were absent.
+
+| Current app footprint after the joins | Empty library | Complete 4,000-row library |
+| --- | --- | --- |
+| Initial reading | 37.3–40.1 MiB | 123.0–171.9 MiB |
+| Requested 250 ms | 45.7–48.2 MiB | 137.6–186.5 MiB |
+| Requested 500 ms | 43.7–51.7 MiB | 137.6–186.5 MiB |
+| Requested 1,000 ms | 44.7–45.1 MiB | **137.6–186.5 MiB** |
+
+Full-library final readings occur at 1,011–1,033 ms. The immediately preceding
+layout-only build measured 260.4–287.6 MiB at that point, with an empty control
+of 44.6–45.0 MiB. These are separate groups, not paired-process savings or a
+stable-heap attribution. Every run retains all 4,000 rows, full search metadata
+and one unopened installed bundle. The observed growth is below the 180 MiB
+investigation trigger even across the control range; this evidence does not
+require a paging/schema change or reduced metadata contract.
+
+| App phase | Five measured iterations |
+| --- | --- |
+| Empty account activation/restore | 211–275 ms |
+| Complete restore, sampling journey | **4,138–4,191 ms** |
+| Cache waiting, validation and native mapping within that restore | 3,830–3,895 ms |
+| Final MainActor application within that restore | 10.9–11.5 ms |
+| Full no-match background scan | 787.2–797.2 ms |
+| Search request through accepted result | 792.5–802.6 ms |
+| Initial MainActor search preparation | 10.9–11.5 ms |
+| Accepted no-match publication | 0.047–0.051 ms |
+| Selected bundle native opening | 257.4–265.0 ms |
+| Subsequent reader WebKit readiness | 983.6–1,035.0 ms |
+| Figure readiness, outside XCTest's opening interval | 671.6–703.8 ms |
+
+Restoration latency is essentially unchanged from the preceding 4.121–4.224 s
+range. The earlier 81–87 ms publication event included author joining; comparing
+it directly with the new final-application phase would omit moved work. The
+separate search journey restores in 4.144–4.230 s. Its search and the opening
+journey's Contents/figure actions happen after their XCTest measurement stops;
+they have separate app timings, not XCTest search/figure peaks.
+
+The sampling journey's application-targeted XCTest peak is **145,398–196,680 kB**,
+down from the preceding 362,077–392,240 kB. Empty peaks are 57,481–57,973 kB. The
+search journey's restoration interval peaks at 148,822–200,366 kB; opening peaks
+at 209,181–237,345 kB. These are decimal tool units, distinct from current
+footprints and app-lifetime peaks. They establish neither WebContent memory nor
+an opening-memory delta from an independently measured process.
+
+XCTest clocks are 3.446–3.535 s for empty sampling and 6.379–6.533 s for full
+sampling, both including the intentional one-second sampling period. Launch
+through the first visible full-library row is 6.543–6.653 s; row tap through
+reader readiness is 2.565–2.596 s. Opening stays within its provisional 3 s gate
+in these iterations. End-to-end startup, live cache saves, repeated different
+papers, total reader memory and physical-device acceptance remain open.
+
+Raw attachments/CSV metrics, the source/build manifest, installed-binary identity
+and validated summary are under `.artifacts/offline-projection-performance-*`.
+The format-4 extractor is `summarize-offline-projection-performance.py`; format-3
+evidence remains intact. It validates 39 JSON records, one figure capture, all
+four metric groups and 27 distinct attached processes including warm-ups/seeds.
+The first concurrent exports collided on xcresulttool's `database.sqlite3`
+materialization; sequential metrics export succeeded. No measurement was rerun
+or altered for that export failure.
+
+Independent review reproduces the ranges from the raw records, verifies all
+source/binary/export/result identities and confirms the measurement boundaries.
+All twelve ordinary phone/tablet workflow captures and the resource figure show
+no material layout regression. The projection is retained. Raw LaTeX in saved
+chat remains the separate rich-content rendering gap.
 
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).

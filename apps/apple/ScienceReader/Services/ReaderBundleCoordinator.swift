@@ -44,8 +44,11 @@ struct OpenedReaderBundle: Sendable {
 }
 
 struct ReaderOfflineRestoration: Sendable {
-    let presentation: Result<CachedLibraryPresentation?, Error>
+    let presentation: Result<CachedLibraryProjection<LibraryPresentationRow>?, Error>
     let installations: Result<InstalledReaderBundleList, Error>
+    /// Cache read + authentication/validation + native mapping, including time
+    /// awaiting the store actor. Directory loading/publication is separate.
+    let projectionElapsedMilliseconds: Double?
 }
 
 /// One activated account owns installation, native image admission and lazy
@@ -101,13 +104,22 @@ final class ReaderBundleCoordinator {
         try requireOpen()
         let scope = scope, readDirectory = readDirectory
         let task = try persistence.acceptWrite { store in
-            let presentation: Result<CachedLibraryPresentation?, Error>
+            let presentation: Result<CachedLibraryProjection<LibraryPresentationRow>?, Error>
             let installations: Result<InstalledReaderBundleList, Error>
-            do { presentation = .success(try await store.cachedLibraryPresentation(scope: scope)) }
+            var projectionElapsed: Double?
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            let started = ContinuousClock.now
+            #endif
+            do { presentation = .success(try await store.cachedLibraryProjection(scope: scope, project: LibraryPresentationRow.project)) }
             catch { presentation = .failure(error) }
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            let elapsed = started.duration(to: .now).components
+            projectionElapsed = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1_000_000_000_000_000
+            #endif
             do { installations = .success(try await readDirectory(store, scope)) }
             catch { installations = .failure(error) }
-            return ReaderOfflineRestoration(presentation: presentation, installations: installations)
+            return ReaderOfflineRestoration(presentation: presentation, installations: installations,
+                                            projectionElapsedMilliseconds: projectionElapsed)
         }
         let result = try await task.value
         try requireOpen()

@@ -308,6 +308,16 @@ public actor EncryptedStore {
         try withOfflineCache(scope: scope) { try $0.presentation($1) }
     }
 
+    /// The synchronous projector runs on this store's actor, one validated row
+    /// at a time. It must not publish partial state, await, or mutate the store.
+    /// No projection escapes unless the entire checkpoint and all links pass.
+    public func cachedLibraryProjection<Row: Sendable>(scope: LibraryCommandScope,
+        project: @Sendable (LibraryEntry) throws -> Row?) throws -> CachedLibraryProjection<Row>? {
+        let result = try withOfflineCache(scope: scope) { try $0.projectPresentation($1, project: project) }
+        try Task.checkCancellation()
+        return result
+    }
+
     @discardableResult
     public func saveLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
                                          capturedAt: Date = Date()) throws -> CachedLibraryPresentation {

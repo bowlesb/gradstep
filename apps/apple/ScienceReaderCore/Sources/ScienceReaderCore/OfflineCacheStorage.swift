@@ -109,11 +109,36 @@ struct OfflineCacheStorage {
     }
 
     func presentation(_ roots: OfflineCacheRoots) throws -> CachedLibraryPresentation? {
+        // This path also prepares accepted cache mutations. Preserve its
+        // existing drain semantics even when its caller has been cancelled.
+        guard let projected = try projectPresentation(roots, cancellation: .acceptedWork, project: { $0 }) else { return nil }
+        return .init(scope: projected.scope, committedCursor: projected.committedCursor,
+                     capturedAt: projected.capturedAt,
+                     entries: Dictionary(uniqueKeysWithValues: projected.rows.map { ($0.id, $0) }))
+    }
+
+    func projectPresentation<Row: Sendable>(_ roots: OfflineCacheRoots,
+        project: @Sendable (LibraryEntry) throws -> Row?) throws -> CachedLibraryProjection<Row>? {
+        try projectPresentation(roots, cancellation: .cooperativeRead, project: project)
+    }
+
+    private enum PresentationCancellation {
+        case acceptedWork, cooperativeRead
+        func check() throws {
+            if self == .cooperativeRead { try Task.checkCancellation() }
+        }
+    }
+
+    private func projectPresentation<Row: Sendable>(_ roots: OfflineCacheRoots,
+        cancellation: PresentationCancellation,
+        project: @Sendable (LibraryEntry) throws -> Row?) throws -> CachedLibraryProjection<Row>? {
+        try cancellation.check()
         let checkpoint = try checkpoint(roots)
         let expected = Set(checkpoint?.rows.values.map(\.rowID.wire) ?? [])
         var actual = Set<String>()
         try database.statement("SELECT id FROM local_library_cache_entries LIMIT 4001") { statement in
             while true {
+                try cancellation.check()
                 let result = sqlite3_step(statement)
                 if result == SQLITE_DONE { break }
                 guard result == SQLITE_ROW else { throw DatabaseFailure(code: result) }
@@ -123,30 +148,70 @@ struct OfflineCacheStorage {
             }
         }
         guard actual == expected else { throw OfflineCacheError.corruptCache }
+        try cancellation.check()
         guard let checkpoint else { return nil }
-        var entries: [LibraryEntryID: LibraryEntry] = [:]
-        for (name, ref) in checkpoint.rows {
+        var validation = PresentationValidation(cursor: checkpoint.cursor)
+        var rows: [(key: LibraryOrderingKey, value: Row)] = []
+        rows.reserveCapacity(checkpoint.rows.count)
+        // An explicit local order makes projection/corruption schedules stable;
+        // global display/search sorting remains the caller's responsibility.
+        for name in checkpoint.rows.keys.sorted() {
+            try cancellation.check()
+            let ref = checkpoint.rows[name]!
             let id = try OfflineCacheCodec.entryID(name)
-            entries[id] = try row(ref, entryID: id, cursor: checkpoint.cursor)
+            // This scope owns at most one complete decoded entry. A native
+            // metadata projector does not accumulate the original item DTOs.
+            let entry = try row(ref, entryID: id, cursor: checkpoint.cursor)
+            try validation.append(entry, id: id)
+            if let value = try project(entry) { rows.append((LibraryOrderingKey(entry), value)) }
         }
-        try validateEntries(entries, cursor: checkpoint.cursor)
-        return .init(scope: scope, committedCursor: checkpoint.cursor, capturedAt: checkpoint.capturedAt, entries: entries)
+        try validation.finish()
+        try rows.sort { left, right in
+            try cancellation.check()
+            return left.key < right.key
+        }
+        let projected = rows.map(\.value)
+        try cancellation.check()
+        return .init(scope: scope, committedCursor: checkpoint.cursor, capturedAt: checkpoint.capturedAt,
+                     validatedEntryCount: checkpoint.rows.count, rows: projected)
     }
 
     private func validateEntries(_ entries: [LibraryEntryID: LibraryEntry], cursor: Int64) throws {
-        guard cursor >= 0, entries.count <= LibraryWire.maximumRetainedEntries else { throw OfflineCacheError.invalidObservation }
+        var validation = PresentationValidation(cursor: cursor)
+        for (id, entry) in entries { try validation.append(entry, id: id) }
+        try validation.finish()
+    }
+
+    /// Cross-row validation retains identities/links only, never metadata. The
+    /// write admission and both read APIs share these exact entry/link rules.
+    private struct PresentationValidation {
+        let cursor: Int64
+        var ids = Set<LibraryEntryID>()
         var documents = Set<UUID>()
-        for (id, entry) in entries {
+        var items: [UUID: UUID] = [:]
+        var imports: [(itemID: UUID, documentID: UUID?)] = []
+
+        mutating func append(_ entry: LibraryEntry, id: LibraryEntryID) throws {
+            guard cursor >= 0, ids.count < LibraryWire.maximumRetainedEntries,
+                  ids.insert(id).inserted else { throw OfflineCacheError.invalidObservation }
             try entry.validate()
             guard id == entry.id, entry.stateSequence <= cursor else { throw OfflineCacheError.invalidObservation }
             switch entry {
             case .item(let item):
                 guard documents.insert(item.documentID).inserted else { throw OfflineCacheError.invalidObservation }
+                items[item.id] = item.documentID
             case .import(let value):
                 if let target = value.libraryItemID {
-                    guard case .item(let item) = entries[.init(kind: .item, entityID: target)],
-                          item.documentID == value.documentID else { throw OfflineCacheError.invalidObservation }
+                    imports.append((target, value.documentID))
                 }
+            }
+        }
+
+        func finish() throws {
+            guard cursor >= 0 else { throw OfflineCacheError.invalidObservation }
+            for link in imports {
+                guard let document = items[link.itemID], document == link.documentID
+                else { throw OfflineCacheError.invalidObservation }
             }
         }
     }

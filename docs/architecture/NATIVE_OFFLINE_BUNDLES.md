@@ -1,6 +1,6 @@
 # Native offline reading bundles
 
-Status, 2026-10-04: **Core persistence and native installation/reopening are implemented and independently reviewed.** The encrypted install–terminate–relaunch journey passes on iPhone and iPad Simulators. It uses a Simulator-only Debug synthetic account/library fixture, the existing authored bundle and real encrypted SQLite storage. It does not invent membership for a real server account or exempt the sample from eligibility rules. Library, Paper, Contents, figures and chat retain their navigation. The current native suite reports 175 cases, three expected live/device skips and no failures, including the later search/retention regressions. Production artifact delivery, real-account offline acceptance and the final [Mathpix pipeline](MATHPIX_PIPELINE.md) remain separate gates.
+Status, 2026-10-04: **Core persistence and native installation/reopening are implemented and independently reviewed.** The encrypted install–terminate–relaunch journey passes on iPhone and iPad Simulators. It uses a Simulator-only Debug synthetic account/library fixture, the existing authored bundle and real encrypted SQLite storage. It does not invent membership for a real server account or exempt the sample from eligibility rules. Library, Paper, Contents, figures and chat retain their navigation. The current native suite has 210 passing tests, three expected live/device skips and no failures, including the later search, retention, authentication and restoration-projection regressions. Production artifact delivery, real-account offline acceptance and the final [Mathpix pipeline](MATHPIX_PIPELINE.md) remain separate gates.
 
 The [Core verifier](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/ReaderBundle.swift) retains exact authenticated `manifestData`. The [native loader](../../apps/apple/ScienceReader/Services/ReaderBundleLoader.swift) has directory and memory entry points sharing PNG/container/ImageIO admission. [OfflineCache](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OfflineCache.swift) and [OfflineCacheStorage](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OfflineCacheStorage.swift) provide encrypted complete-presentation and bundle persistence through `EncryptedStore`. The [native coordinator](../../apps/apple/ScienceReader/Services/ReaderBundleCoordinator.swift) owns install/open verification, accepted writes, removal, cache ordering and retirement. ReaderModel restores the directory and complete presentation before network synchronization, then hydrates only a selected paper.
 
@@ -50,19 +50,21 @@ The current local format is **encrypted metadata 6 / SQLite schema 5**, with val
 
 Do not decrypt cache bodies during private-history/draft recovery. Missing, oversized or corrupt cache children fail the affected presentation/bundle retrieval, retain their bytes and charged capacity, and never reset private data. Private writes preserve cache roots even when a child is unreadable. An authenticated valid directory permits explicit removal of a damaged bundle without decrypting its damaged members. Corruption of the authenticated main metadata or underlying database remains subject to the existing store-wide fail-closed rules.
 
-## Planned bounded restoration projection
+## Authenticated per-row restoration projection
 
 The repeated [constant-row layout measurements](NATIVE_RESOURCE_ACCEPTANCE.md#constant-row-library-layout)
 reduce presentation overhead but still exceed the library memory investigation
-trigger. The next reviewed slice targets transient overlap during restoration:
-`presentation` currently retains every decoded `LibraryEntry` while native code
-builds its Paper/import collections and joined author strings. This plan is not
-a measured improvement or a whole-catalog memory bound.
+trigger. The implemented, independently reviewed projection targets transient
+overlap during restoration: the previous native path retained every decoded
+`LibraryEntry` while building Paper/import collections and joined author strings.
+The new path maps each authenticated row directly to native presentation data.
+This is not a whole-catalog memory bound.
 
 Keep the encrypted row/checkpoint schema, ciphertext limits, complete cursor and
-existing materialization API. Add a complete-only
+existing materialization API. The complete-only
 `cachedLibraryProjection<Row: Sendable>(scope:project:)` read whose synchronous,
-`@Sendable` projector maps one validated `LibraryEntry` to an optional final row.
+`@Sendable` projector maps one validated `LibraryEntry` to an optional final row
+does not retain the original item DTO in the native result.
 Core constructs the result only after the entire read transaction succeeds. Its
 scope, committed cursor, capture time and validated entry count remain separate
 from its projected row count. The result is presentation evidence, never a live
@@ -79,6 +81,13 @@ The projector neither awaits nor publishes UI or mutates the store. Discard an
 unreturned projection on every error/cancellation. No new table, migration,
 plaintext index, outbox write or weaker integrity check is part of this slice.
 
+Direct Core projection reads check cancellation before and between rows, during
+canonical sorting and after final validation. The legacy materializer also
+prepares accepted cache mutations, so it preserves its existing uncancelled
+drain behavior. Native restoration is registered as accepted coordinator work:
+it drains on retirement, then account/activation guards reject late publication.
+It does not promise immediate cancellation of the underlying native read.
+
 Native projection values contain complete display/search metadata, immutable
 pins and small visibility/mapping/sequence/capability facts. Preserve visible
 pending-import metadata and hidden import IDs needed for display deduplication.
@@ -87,24 +96,45 @@ mutation capabilities in the item projector. The MainActor then applies one
 complete projection after the existing account, activation, store/coordinator
 and winning-live-publication checks; selected verified bytes may be carried only
 from current eligible state. Keep the existing full-field matching and global
-sort semantics. A generic projector can itself retain data, so this design only
+sort semantics. Core returns the existing `LibraryOrderingKey` order, making
+equal-date input order deterministic rather than depending on Dictionary
+iteration; normal Library search still performs its selected global sort.
+A generic projector can itself retain data, so this design only
 removes the extra whole decoded DTO accumulation in the native path. It does not
 bound all retained metadata or change live service/reconciler observations.
 
 Author joining and metadata conversion remain inside the full restore clock.
-If joining moves off-main, distinguish that projection subphase from final
-MainActor publication; do not compare the shortened publication interval as if
-it represented all of the former work. Retain the complete restore/search/write
-joins and scalar guards before footprint sampling.
+Probe format 4 records cache-actor waiting, authentication, validation and native
+mapping in `restoreProjectionElapsedMS`, separately from final MainActor
+publication. The shorter publication phase cannot be compared with the earlier
+phase as if author joining had disappeared. The full restore clock and complete
+restore/search/write joins remain unchanged before footprint sampling.
 
-Required evidence: materializer/projection agreement for all 4,000 maximum rows,
-Unicode/optional metadata, hidden mappings and global search/sort; late-row
-corruption, duplicate documents, wrong/missing import targets and extra/missing
-children rejecting the whole projection; cancellation/account replacement/live
-snapshot races; unchanged quarantine/outage/install semantics; and no database
-or private-history mutation from reads. Repeat the optimized empty/full restore,
-full-field no-match and opening workflows after implementation and independent
-review. If remaining retention still exceeds the trigger, separately design a
+The full Core run passes 128 Swift Testing tests plus four OAuth XCTest tests
+in `.artifacts/native-projection-core-final.log`. Its 19 cache tests include
+all-4,000-row content/order agreement, late-row corruption, duplicate documents,
+wrong/missing import targets, extra/missing children, all-nil projection,
+projector failures, cancellation and unchanged private state. A cancelled legacy
+read followed by an accepted quarantine save verifies preserved drain behavior.
+
+The native run passes 210 tests with three expected skips in
+`.artifacts/offline-projection-native-reviewed.xcresult`. New real-SQLite
+schedules cover complete/Unicode/optional metadata, hidden mappings, full-field
+AND search and global ordering, plus sign-out while a completed projection is
+held before publication. Existing activation, live-publication, quarantine,
+outage and selection checks remain. The first metadata test incorrectly treated
+token-refresh arrival as completion of local restoration; the corrected test
+observes actual snapshot publication or a cache error before joining search.
+The first failed run is preserved; no production change was needed for that fix.
+
+Both search/open/return/scope and encrypted-relaunch/equation/figure/chat journeys
+pass on each iPhone/iPad Simulator (four tests), in
+`offline-projection-{iphone,ipad}-ui.xcresult` under `.artifacts/`. Exact source,
+binary and capture hashes are in `offline-projection-native-source.json`.
+Optimized resource results are recorded separately in
+[Native resource acceptance](NATIVE_RESOURCE_ACCEPTANCE.md).
+
+If remaining retention still exceeds the trigger, separately design a
 lightweight complete catalog with bounded row hydration and a root-bound search
 view. Re-decrypting all rows on each keystroke could add seconds, contend with
 the store writer and delay cancellation; do not adopt that tradeoff without
@@ -117,6 +147,7 @@ The implemented Core APIs require the active store/account scope. Native image v
 | API | Required behavior |
 | --- | --- |
 | `cachedLibraryPresentation(scope)` | Restore the last complete presentation only; no live observation or command authority. |
+| `cachedLibraryProjection(scope, project)` | Authenticate and validate the same complete checkpoint, then return projected rows in canonical order without accumulating every original DTO; never partial publication or live authority. |
 | `saveLibraryPresentation(observation, scope)` | Accept an owned live `LibraryCompleteObservation`; atomically save complete rows/cursor and installed-copy eligibility guards. |
 | `listInstalledReaderBundles(scope)` | Return at most 100 summaries, charged bytes and the authenticated store generation from the same read transaction, including blocked, damaged-header and no-longer-visible copies. No member hydration. |
 | `beginReaderInstall(binding)`, `cancelReaderInstall(ticket)` | One ephemeral writer-owned operation ticket; cancelling an ended exact ticket is idempotent and cannot cancel a later operation. Cancellation does not change membership. |
@@ -170,7 +201,7 @@ Reopen through the shared memory loader after decryption. Retain the immutable c
 
 ## Current evidence and remaining verification
 
-The full Core package passes **123 Swift Testing tests plus 4 separate OAuth XCTest tests (127 total)** in `.artifacts/offline-cache-core-final.log`. This local run targets `arm64e-apple-macos14.0`. Coverage includes exact manifest restart, format-5 migration and migration rollback, earlier-format upgrade fixtures, fresh-writer fencing, partial-write rollback, cancellation/removal, sticky quarantine through removal/reinstall, ordinary-outage access-token continuity and five separate corrupt-cache-child cases while private history/drafts remain usable.
+The full Core package passes **128 Swift Testing tests plus 4 separate OAuth XCTest tests (132 total)** in `.artifacts/native-projection-core-final.log`. This local run targets `arm64e-apple-macos14.0`. Coverage includes exact manifest restart, format-5 migration and migration rollback, earlier-format upgrade fixtures, fresh-writer fencing, partial-write rollback, cancellation/removal, sticky quarantine through removal/reinstall, ordinary-outage access-token continuity, corrupt-cache-child cases while private history/drafts remain usable, and the projection regressions above.
 
 The maximum presentation fixture round-trips all 4,000 entries with 32,768-byte metadata, escaped/unknown fields and exact timestamps. Sealed rows total **137,816,679 bytes**, with a **34,455-byte maximum row**. The local wall times were about 2.57 seconds to commit and 2.33 seconds to restore. Separate real storage tests exercise 512 members, the 101st-copy refusal and the byte quota: after fifteen 32 MiB plaintext bundles, another 32 MiB bundle is refused without partial writes, while a 31 MiB bundle fits. Reopening/listing reads the compact directory rather than every member.
 

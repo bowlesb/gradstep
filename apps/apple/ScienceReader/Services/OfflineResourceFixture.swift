@@ -227,6 +227,7 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var searchSourceElapsedMS: Double?
     @ObservationIgnored private var searchWorkerElapsedMS: Double?
     @ObservationIgnored private var searchPublicationElapsedMS: Double?
+    @ObservationIgnored private var restoreProjectionElapsedMS: Double?
     @ObservationIgnored private var settledStartMS: Double?
     @ObservationIgnored private var settledSamples: [SettledFootprint]?
     #if OFFLINE_RESOURCE_MEASUREMENTS
@@ -347,7 +348,7 @@ final class OfflineResourceProbe {
         }
     }
     private struct Report: Encodable {
-        let format = 3
+        let format = 4
         let pid: Int32
         let mode: Int
         let rows: Int
@@ -362,11 +363,12 @@ final class OfflineResourceProbe {
         let searchSourceElapsedMS: Double?
         let searchWorkerElapsedMS: Double?
         let searchPublicationElapsedMS: Double?
+        let restoreProjectionElapsedMS: Double?
         let settledStartMS: Double?
         let settledSamples: [SettledFootprint]?
         let webContentPeakBytes: UInt64? = nil
         let appIntervalPeakBytes: UInt64? = nil
-        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, searchSourceElapsedMS, searchWorkerElapsedMS, searchPublicationElapsedMS, settledStartMS, settledSamples, webContentPeakBytes, appIntervalPeakBytes }
+        enum CodingKeys: String, CodingKey { case format, pid, mode, rows, installations, ciphertextBytes, expectedMemberBytes, openedMemberBytes, debugAssertions, seeded, failure, events, searchSourceElapsedMS, searchWorkerElapsedMS, searchPublicationElapsedMS, restoreProjectionElapsedMS, settledStartMS, settledSamples, webContentPeakBytes, appIntervalPeakBytes }
         func encode(to encoder: any Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(format, forKey: .format); try c.encode(pid, forKey: .pid); try c.encode(mode, forKey: .mode)
@@ -378,6 +380,7 @@ final class OfflineResourceProbe {
             try c.encode(searchSourceElapsedMS, forKey: .searchSourceElapsedMS)
             try c.encode(searchWorkerElapsedMS, forKey: .searchWorkerElapsedMS)
             try c.encode(searchPublicationElapsedMS, forKey: .searchPublicationElapsedMS)
+            try c.encode(restoreProjectionElapsedMS, forKey: .restoreProjectionElapsedMS)
             try c.encode(settledStartMS, forKey: .settledStartMS)
             try c.encode(settledSamples, forKey: .settledSamples)
             try c.encode(webContentPeakBytes, forKey: .webContentPeakBytes)
@@ -392,6 +395,7 @@ final class OfflineResourceProbe {
         generation = UUID(); serial = 0; publishedSerial = 0; rows = 0; installations = 0; ciphertextBytes = 0
         openedMemberBytes = nil; seeded = false; failure = 0
         searchSourceElapsedMS = nil; searchWorkerElapsedMS = nil; searchPublicationElapsedMS = nil
+        restoreProjectionElapsedMS = nil
         settledStartMS = nil; settledSamples = nil
         #if OFFLINE_RESOURCE_MEASUREMENTS
         attributionEmitted = false
@@ -429,6 +433,15 @@ final class OfflineResourceProbe {
             fail(.unexpectedState); return
         }
         finish(.restore, count: rows)
+    }
+
+    /// Format 4 records accepted cache-read actor waiting, authentication,
+    /// whole-catalog validation and per-row native metadata conversion together.
+    /// It excludes directory loading and final MainActor application, while the
+    /// unchanged full restore interval includes all of those phases.
+    func restorationProjected(elapsedMS: Double) {
+        guard elapsedMS.isFinite, elapsedMS >= 0 else { fail(.unexpectedState); return }
+        restoreProjectionElapsedMS = elapsedMS
     }
 
     func opened(memberBytes: Int, imagePixels: Int) {
@@ -519,6 +532,7 @@ final class OfflineResourceProbe {
             openedMemberBytes: openedMemberBytes, debugAssertions: _isDebugAssertConfiguration(), seeded: seeded, failure: failure,
             events: completed.values.sorted { $0.phase < $1.phase }, searchSourceElapsedMS: searchSourceElapsedMS,
             searchWorkerElapsedMS: searchWorkerElapsedMS, searchPublicationElapsedMS: searchPublicationElapsedMS,
+            restoreProjectionElapsedMS: restoreProjectionElapsedMS,
             settledStartMS: settledStartMS, settledSamples: settledSamples)
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
         guard let bytes = try? encoder.encode(report), bytes.count <= 16_384,

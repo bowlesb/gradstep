@@ -48,6 +48,20 @@ public struct CachedLibraryPresentation: Equatable, Sendable {
     public let entries: [LibraryEntryID: LibraryEntry]
 }
 
+/// A presentation projection of one fully authenticated cache checkpoint. The
+/// projected row count can be smaller than the validated entry count, including
+/// zero. This value conveys no live observation or library-command authority.
+/// The caller's projector may retain data; only decoding is bounded per row.
+public struct CachedLibraryProjection<Row: Sendable>: Sendable {
+    public let scope: LibraryCommandScope
+    public let committedCursor: Int64
+    public let capturedAt: Date
+    public let validatedEntryCount: Int
+    /// Protocol source order: creation sequence, entry UUID, then kind. Search
+    /// can preserve its normal source-position tie break after projection.
+    public let rows: [Row]
+}
+
 public enum ReaderBundleBlock: String, Codable, Sendable {
     case quarantined, incompatible, artifactChanged
 }

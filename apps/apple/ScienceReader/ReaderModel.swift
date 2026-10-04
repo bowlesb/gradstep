@@ -965,7 +965,7 @@ final class ReaderModel {
                 // A disk presentation never creates a live observation, nor
                 // replaces a complete network publication that already won.
                 if let presentation, completeLibrary == nil {
-                    presentLibraryEntries(Array(presentation.entries.values))
+                    presentLibraryProjection(presentation.rows, validatedEntryCount: presentation.validatedEntryCount)
                 }
             case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your notes and conversations are still available."
             }
@@ -978,7 +978,10 @@ final class ReaderModel {
                 guard mode == .empty || presentation?.committedCursor == Int64(OfflineResourceFixture.rowCount) else {
                     throw OfflineResourceFixture.Failure.unexpectedState
                 }
-                OfflineResourceProbe.shared.restored(rows: presentation?.entries.count ?? 0,
+                if let elapsed = restored.projectionElapsedMilliseconds {
+                    OfflineResourceProbe.shared.restorationProjected(elapsedMS: elapsed)
+                } else { throw OfflineResourceFixture.Failure.unexpectedState }
+                OfflineResourceProbe.shared.restored(rows: presentation?.validatedEntryCount ?? 0,
                     installations: list.installations.count, ciphertextBytes: list.ciphertextBytes)
             }
             #endif
@@ -1103,38 +1106,53 @@ final class ReaderModel {
 
     private func presentLibraryEntries(_ entries: [LibraryEntry]) {
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        // Live publication still includes native metadata mapping. Offline
+        // projection does that within its separate measured cache-read phase.
         OfflineResourceProbe.shared.begin(.publication)
         defer { OfflineResourceProbe.shared.finish(.publication, count: entries.count) }
         #endif
+        applyLibraryProjection(entries.compactMap(LibraryPresentationRow.project))
+    }
+
+    private func presentLibraryProjection(_ rows: [LibraryPresentationRow], validatedEntryCount: Int) {
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        // Format 4: final MainActor application only. Author joining and cache
+        // validation are included in restoreProjectionElapsedMS and restore.
+        OfflineResourceProbe.shared.begin(.publication)
+        defer { OfflineResourceProbe.shared.finish(.publication, count: validatedEntryCount) }
+        #endif
+        applyLibraryProjection(rows)
+    }
+
+    private func applyLibraryProjection(_ rows: [LibraryPresentationRow]) {
         let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let items = entries.compactMap { if case .item(let item) = $0, item.visible { return item }; return nil }
+        let items = rows.compactMap { if case .item(let item) = $0 { return item }; return nil }
         let next = items.map { item in
+            let paper = item.paper
             // Only the selected binding may carry decoded bytes through a
             // metadata refresh. Other installed copies remain on disk.
-            let previousRow = previous[item.documentID]
-            let cached = selectedPaper?.id == item.documentID && selectedPaper?.artifactID == item.artifactID &&
+            let previousRow = previous[paper.id]
+            let cached = selectedPaper?.id == paper.id && selectedPaper?.artifactID == paper.artifactID &&
                 selectedPaper?.readerBundle?.manifestSHA256 == previousRow?.readerBundle?.manifestSHA256
                 ? previousRow : nil
-            let installed = readerBundles?.installation(documentID: item.documentID, artifactID: item.artifactID)
+            let installed = readerBundles?.installation(documentID: paper.id, artifactID: paper.artifactID)
             let readable: Bool
             if let installed {
                 readable = readerBundles?.permits(installed) == true && installed.binding.manifestSHA256 == cached?.readerBundle?.manifestSHA256
             } else { readable = item.canReadStructured }
-            let file = readable && cached?.artifactID == item.artifactID ? cached?.fileURL : nil
-            return Paper(id: item.documentID, title: item.metadata?.title ?? "Untitled paper",
-                         authors: item.metadata?.authors.joined(separator: ", ") ?? "",
-                         year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
-                         abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [],
-                         fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision,
+            let file = readable && cached?.artifactID == paper.artifactID ? cached?.fileURL : nil
+            return Paper(id: paper.id, title: paper.title, authors: paper.authors, year: paper.year,
+                         abstract: paper.abstract, keywords: paper.keywords, fileURL: file,
+                         artifactID: paper.artifactID, sourceID: paper.sourceID, sourceRevision: paper.sourceRevision,
                          readerBundle: file == nil ? nil : cached?.readerBundle)
         }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
         // Samples have no server membership. Preserve the local sample
         // without letting it replace a real document-backed item.
         papers = next + samples
-        presentedImportIDs = Set(entries.compactMap { if case .import(let item) = $0 { return item.id }; return nil })
-        libraryImports = entries.compactMap { if case .import(let item) = $0, item.visible { return item }; return nil }
-        libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.documentID, $0.createdSequence) })
+        presentedImportIDs = Set(rows.compactMap { if case .imported(let id, _) = $0 { return id }; return nil })
+        libraryImports = rows.compactMap { if case .imported(_, let item) = $0 { return item }; return nil }
+        libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.paper.id, $0.createdSequence) })
         libraryHasSnapshot = true
         if let selectedPaper, !selectedPaper.isSample {
             self.selectedPaper = papers.first { $0.id == selectedPaper.id }

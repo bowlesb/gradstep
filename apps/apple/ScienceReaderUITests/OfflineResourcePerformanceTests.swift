@@ -43,6 +43,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         let searchSourceElapsedMS: Double?
         let searchWorkerElapsedMS: Double?
         let searchPublicationElapsedMS: Double?
+        let restoreProjectionElapsedMS: Double?
         let settledStartMS: Double?
         let settledSamples: [SettledFootprint]?
         let webContentPeakBytes: UInt64?
@@ -110,7 +111,9 @@ final class OfflineResourcePerformanceTests: XCTestCase {
             attach(app, caseID: "maximum-restore", invocation: invocation)
             assertRestored(result, rows: 4_000)
             XCTAssertTrue(firstRow, "Restore must publish the normal Library row, without a fixture fallback.")
-            XCTAssertEqual(result?.event(.publication)?.count, 4_000, "Record existing author joining and model publication.")
+            XCTAssertEqual(result?.event(.publication)?.count, 4_000, "Record final MainActor application of the complete projection.")
+            XCTAssertGreaterThan(result?.restoreProjectionElapsedMS ?? -1, 0,
+                                 "Cache authentication/validation and author joining remain inside full restore.")
 
             let search = app.searchFields.firstMatch
             XCTAssertTrue(search.waitForExistence(timeout: 5))
@@ -294,7 +297,7 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         var latest: Probe?
         let ready = NSPredicate { _, _ in
             guard let data = self.raw(app), let probe = try? JSONDecoder().decode(Probe.self, from: data),
-                  probe.format == 3, probe.events.count <= 6, (probe.settledSamples?.count ?? 0) <= 4 else { return false }
+                  probe.format == 4, probe.events.count <= 6, (probe.settledSamples?.count ?? 0) <= 4 else { return false }
             latest = probe
             return predicate(probe)
         }
@@ -316,6 +319,12 @@ final class OfflineResourcePerformanceTests: XCTestCase {
         XCTAssertEqual(value?.installations, rows == 0 ? 0 : 1, file: file, line: line)
         XCTAssertEqual(value?.expectedMemberBytes, rows == 0 ? 0 : expectedPayload, file: file, line: line)
         XCTAssertEqual(value?.event(.restore)?.count, rows, file: file, line: line)
+        if let projection = value?.restoreProjectionElapsedMS, let restore = value?.event(.restore) {
+            XCTAssertTrue(projection.isFinite, file: file, line: line)
+            XCTAssertGreaterThanOrEqual(projection, 0, file: file, line: line)
+            XCTAssertLessThanOrEqual(projection, restore.elapsedMS,
+                "The projection subphase must remain inside the unchanged full restore interval.", file: file, line: line)
+        } else { XCTFail("Missing format-4 projection interval.", file: file, line: line) }
         XCTAssertNil(value?.openedMemberBytes, "Restoration must not hydrate the installed bundle.", file: file, line: line)
         XCTAssertNil(value?.webContentPeakBytes, "App-only metrics do not measure WebContent.", file: file, line: line)
         if rows > 0 { XCTAssertGreaterThan(value?.ciphertextBytes ?? 0, expectedPayload, file: file, line: line) }

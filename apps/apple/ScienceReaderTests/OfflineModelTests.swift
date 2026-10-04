@@ -272,6 +272,128 @@ final class OfflineModelTests: XCTestCase {
         XCTAssertTrue(fixture.server.requests().allSatisfy { $0 == "token" })
     }
 
+    func testProjectedRestoreKeepsCompleteMetadataOptionalFallbacksAndGlobalSearchOrder() async throws {
+        // Seed the complete checkpoint directly before the first model writer;
+        // changing an existing pinned metadata record would be invalid input.
+        let fixture = try OfflineModelFixture(expired: true, paperCount: 2,
+            verification: ReaderBundleInput.verify,
+            directory: { try await $0.listInstalledReaderBundles(scope: $1) })
+        addTeardownBlock { await fixture.close() }
+        let model = fixture.model, first = fixture.catalog, second = try XCTUnwrap(fixture.additionalCatalogs.first)
+        var firstRow = first.row(state: 6), secondRow = second.row(state: 6)
+        let fullAbstract = String(repeating: "Complete searchable text. ", count: 300) + "tailneedle"
+        firstRow["metadata"] = ["title": "Équations 東京", "authors": ["Zoë", "李"], "abstract": fullAbstract,
+            "categories": ["cs.LG", "数学"], "published_at": "2024-04-03", "updated_at": "2024-05-01", "venue": "Fixture"]
+        secondRow["metadata"] = ["title": "Beta optional", "authors": [], "categories": []]
+        let optionalID = UUID(), removedID = UUID(), pendingID = UUID(), readyID = UUID()
+        var optional = first.row(state: 6)
+        optional["id"] = UUID().wire; optional["document_id"] = optionalID.wire; optional["created_seq"] = 3
+        for field in ["approval_id", "version_id", "metadata_id", "source", "source_id", "source_revision",
+                      "metadata", "metadata_recorded_at", "source_url", "original_object_id", "artifact_id"] {
+            optional[field] = NSNull()
+        }
+        optional["scope"] = "owner_private"; optional["readiness"] = "unverified"
+        optional["render_availability"] = "unavailable"; optional["original_availability"] = "unavailable"
+        var removed = first.row(state: 6)
+        removed["id"] = UUID().wire; removed["document_id"] = removedID.wire; removed["created_seq"] = 4
+        removed["visible"] = false; removed["membership_revision"] = 2; removed["last_remove_seq"] = 6
+        func imported(_ id: UUID, ready: Bool) -> [String: Any] {
+            ["kind": "import", "id": id.wire, "created_seq": ready ? 6 : 5, "state_seq": 6,
+             "intent_revision": 1, "visible": !ready, "phase": ready ? "ready" : "source_only", "source": "arxiv",
+             "source_id": ready ? "2404.00001" : "2501.00001", "requested_revision": ready ? 1 : 2,
+             "source_revision": ready ? 1 : 2, "metadata_id": ready ? first.metadata.wire : UUID().wire,
+             "version_id": ready ? first.version.wire : UUID().wire,
+             "metadata": ready ? firstRow["metadata"]! : ["title": "Alpha pending", "authors": ["PendingAuthor"],
+                "abstract": "missing-tail", "categories": ["cs.AI"]],
+             "metadata_recorded_at": "2026-10-03T10:00:00Z",
+             "source_url": ready ? "https://arxiv.org/abs/2404.00001v1" : "https://arxiv.org/abs/2501.00001v2",
+             "document_id": ready ? (first.document.wire as Any) : NSNull(),
+             "library_item_id": ready ? (first.item.wire as Any) : NSNull(), "retryable": false]
+        }
+        let ordered = try await fixture.seedPresentation(rows: [firstRow, secondRow, optional, removed,
+            imported(pendingID, ready: false), imported(readyID, ready: true)], cursor: 6)
+        let liveMapped = ordered.compactMap(LibraryPresentationRow.project)
+        XCTAssertEqual(liveMapped.count, 5, "Only the removed item is omitted; hidden import identity remains")
+        XCTAssertTrue(liveMapped.contains { if case .imported(let id, nil) = $0 { return id == readyID }; return false })
+
+        let starting = Task { await model.start() }
+        addTeardownBlock { fixture.server.releaseRefresh(); await starting.value }
+        await fulfillment(of: [fixture.server.refreshArrived], timeout: 5)
+        // Support refresh can request a token before activation finishes its
+        // cache read; the network barrier is not a restoration-complete signal.
+        try await observe("The complete metadata projection publishes while refresh remains held") {
+            model.libraryHasSnapshot || model.offlineCacheIssue != nil
+        }
+        XCTAssertNil(model.offlineCacheIssue)
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.papers.map(\.id), [first.document, second.document, optionalID])
+        XCTAssertEqual(model.libraryImports.map(\.id), [pendingID])
+        for projected in liveMapped {
+            guard case .item(let item) = projected else { continue }
+            let actual = try XCTUnwrap(model.papers.first { $0.id == item.paper.id })
+            XCTAssertEqual(actual.title, item.paper.title); XCTAssertEqual(actual.authors, item.paper.authors)
+            XCTAssertEqual(actual.year, item.paper.year); XCTAssertEqual(actual.abstract, item.paper.abstract)
+            XCTAssertEqual(actual.keywords, item.paper.keywords); XCTAssertEqual(actual.artifactID, item.paper.artifactID)
+            XCTAssertEqual(actual.sourceID, item.paper.sourceID); XCTAssertEqual(actual.sourceRevision, item.paper.sourceRevision)
+            XCTAssertNil(actual.readerBundle); XCTAssertNil(actual.fileURL)
+        }
+        let paper = try XCTUnwrap(model.papers.first)
+        XCTAssertEqual(paper.title, "Équations 東京"); XCTAssertEqual(paper.authors, "Zoë, 李")
+        XCTAssertEqual(paper.abstract, fullAbstract); XCTAssertEqual(paper.year, 2024)
+        XCTAssertEqual(paper.keywords, ["cs.LG", "数学"]); XCTAssertEqual(paper.sourceReference, "2404.00001v1")
+        let fallback = try XCTUnwrap(model.papers.first { $0.id == optionalID })
+        XCTAssertEqual(fallback.title, "Untitled paper"); XCTAssertEqual(fallback.authors, "")
+        XCTAssertNil(fallback.year); XCTAssertEqual(fallback.abstract, ""); XCTAssertTrue(fallback.keywords.isEmpty)
+        XCTAssertNil(fallback.sourceReference); XCTAssertNil(fallback.artifactID)
+        XCTAssertFalse(model.papers.contains { $0.id == removedID })
+        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)", "paper/\(optionalID.wire)",
+            "paper/\(second.document.wire)", "paper/\(first.document.wire)"], "Recent order spans pending imports and every restored paper")
+
+        model.libraryQuery = "  東京 Zoë tailneedle 数学 2404.00001v1  "
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.libraryRows.map(\.id), ["paper/\(first.document.wire)"], "AND terms may match separate untruncated fields")
+        model.libraryQuery = "PendingAuthor missing-tail cs.AI 2501.00001v2"
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)"])
+        model.libraryQuery = "tailneedle absent-token"
+        await model.waitForLibrarySearch()
+        XCTAssertTrue(model.libraryRows.isEmpty)
+        model.libraryQuery = ""; model.librarySort = "Title"
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)", "paper/\(second.document.wire)",
+            "paper/\(first.document.wire)", "paper/\(optionalID.wire)"])
+        XCTAssertFalse(model.canChangeLibrary, "Projection remains cached presentation while live Auth is held")
+        XCTAssertTrue(fixture.server.requests().allSatisfy { $0 == "token" })
+    }
+
+    func testSignOutDuringCompletedProjectionDrainsRestoreWithoutPublishingIntoGuest() async throws {
+        let gate = OfflineModelRestorationGate()
+        let fixture = try await fixture(directory: { try await gate.read($0, scope: $1) }), model = fixture.model
+        addTeardownBlock { await gate.release() }
+        await gate.arm()
+        let starting = Task { await model.start() }
+        addTeardownBlock { await gate.release(); await starting.value }
+        // DirectoryReader runs after Core's complete projection. Hold that
+        // result before the coordinator/model can apply any of its rows.
+        await fulfillment(of: [gate.arrived], timeout: 5)
+        XCTAssertTrue(model.papers.isEmpty)
+        await model.signOut()
+        model.openSample()
+        let guest = try XCTUnwrap(model.selectedPaper)
+        XCTAssertTrue(guest.isSample)
+        XCTAssertEqual(model.papers.map(\.id), [guest.id])
+        await gate.release()
+        await starting.value
+        await model.waitForLocalRetirement()
+        await model.waitForLibrarySearch()
+        XCTAssertEqual(model.papers.map(\.id), [guest.id])
+        XCTAssertEqual(model.selectedPaper?.id, guest.id)
+        XCTAssertFalse(model.isSignedIn); XCTAssertNil(model.offlineCacheIssue)
+        XCTAssertFalse(model.canChangeLibrary)
+        let restored = try await fixture.reopenStore().cachedLibraryPresentation(scope: fixture.scope)
+        XCTAssertEqual(restored?.entries.count, 1, "Retirement drains the read; sign-out does not delete the encrypted cache")
+    }
+
     func testSignOutDuringNativeVerificationCannotReplaceANewGuestReader() async throws {
         let gate = OfflineModelVerificationGate()
         let fixture = try await fixture(verification: { try await gate.verify($0) }), model = fixture.model
@@ -591,6 +713,22 @@ private final class OfflineModelFixture {
         try reconciler.accept(LibraryWire.decodeChanges(catalog.changes(after: 3, through: 3)), for: next)
         try await store.saveLibraryPresentation(reconciler.completeObservation(), scope: scope)
         return [pending.intentID, resolved.intentID]
+    }
+
+    func seedPresentation(rows: [[String: Any]], cursor: Int64) async throws -> [LibraryEntry] {
+        let store = try reopenStore()
+        let last = try XCTUnwrap(rows.last)
+        let baseline: [String: Any] = ["format": 2, "account_id": catalog.account.wire,
+            "baseline_cursor": cursor, "retained_after": 0, "entries": rows, "has_more": false,
+            "next_cursor": ["format": 2, "account_id": catalog.account.wire, "through": cursor,
+                "created_seq": last["created_seq"]!, "id": last["id"]!, "kind": last["kind"]!]]
+        var reconciler = LibraryReconciler(accountID: catalog.account)
+        let first = try reconciler.nextRequest()
+        try reconciler.accept(LibraryWire.decodeBaseline(OfflineModelCatalog.bytes(baseline)), for: first)
+        let next = try reconciler.nextRequest()
+        try reconciler.accept(LibraryWire.decodeChanges(catalog.changes(after: cursor, through: cursor)), for: next)
+        try await store.saveLibraryPresentation(reconciler.completeObservation(), scope: scope)
+        return reconciler.orderedEntries
     }
 
     func requireKeyRecovery() throws {

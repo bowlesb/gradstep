@@ -40,3 +40,5 @@ iPhone/iPad search/open/return/no-match/scope journeys also pass. Reduced row
 construction and post-restore footprint are recorded in
 [Native resource acceptance](NATIVE_RESOURCE_ACCEPTANCE.md#constant-row-library-layout);
 whole-catalog restoration and remaining metadata memory still need review.
+
+The subsequent [per-row restoration projection](NATIVE_OFFLINE_BUNDLES.md#authenticated-per-row-restoration-projection) preserves all native search fields and canonical input order. Real encrypted-store tests cover Unicode, optional fields, hidden import mappings, cross-field AND terms and global sorting. The new optimized no-match journey scans the same 4,000-row catalog: 787.2–797.2 ms worker time, 792.5–802.6 ms request latency, 10.9–11.5 ms initial MainActor preparation and 0.047–0.051 ms accepted publication. Both iPhone/iPad search journeys pass. This verifies search continuity alongside lower offline restoration memory; it does not establish live-refresh or physical-device acceptance.
