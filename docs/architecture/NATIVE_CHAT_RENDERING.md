@@ -1,7 +1,7 @@
 # Native chat formatting
 
-Status, 2026-10-04: **Design and local packaging proof in progress. No rich-chat
-renderer is integrated.** The native transcript currently displays saved source
+Status, 2026-10-04: **Direct typesetter component passes browser and macOS WebKit
+checks. No rich-chat renderer is integrated.** The native transcript displays saved source
 through SwiftUI text in a self-sizing `UITableView`. Its completed-turn scrolling,
 keyboard, selection and encrypted-restart journeys already have regression
 evidence. Saved equation questions still expose raw LaTeX. This document plans
@@ -37,9 +37,14 @@ tokenizer and direct MathJax bundles built at 331,226 and 2,371,968 bytes.
 The browser execution probe ran in a local Chromium 153.0.8010.12 page with
 network requests, console calls and page errors counted. Inline fractions and
 small macros rendered, and a fresh realm rejected a macro defined in the prior
-realm. The attention `equation` environment and `align` fixtures failed in the
-direct engine, so the existing Mathpix environment semantics are not yet
-preserved. A short macro expansion produced 13,313,390 bytes before the
+realm. The initial report incorrectly classified the attention `equation` and
+`align` fixtures as TeX failures. A subsequent audit using the identical bundle
+(`a73e4804…a8ea88`) found a verifier bug: `LiteAdaptor.childNodes` requires an
+element, but the traversal called it on equation-label text nodes. Conversion
+succeeded; inspection then threw a `TypeError`, which the probe incorrectly
+reported as `tex_error`. The original reports are preserved as superseded
+evidence, not engine incompatibility. A short macro expansion produced
+13,313,390 bytes before the
 post-generation 1 MiB output rejection; MathJax `maxBuffer` limits parser
 concatenation rather than cumulative SVG allocation. This is negative evidence:
 source/output limits and `maxBuffer` do not establish a WebContent heap or CPU
@@ -54,15 +59,64 @@ typesetter, or maintain a reviewed parser fork. It cannot claim that the broad
 Mathpix plugin is safe merely because unsupported tokens are rejected later.
 
 The graph and browser artifacts have no production authority. The next proof
-must establish a compatible bounded tokenizer, exact source sidecars, and fresh
-`WKContentWorld` execution with page JavaScript disabled before any Swift chat
-row or renderer package is added.
+must establish a compatible bounded tokenizer, exact source sidecars and output
+validation before any Swift chat row or shipping renderer package is added.
 
-A successful browser build is insufficient. The next proof must execute in an
-actual `WKContentWorld` with page JavaScript disabled, local resources only and
-the proposed native bridge. Ordinary browser or Node tests do not establish that
-environment. Preserve the regular transcript until the candidate meets the
+A successful browser build is insufficient. The component now executes in an
+actual macOS `WKContentWorld` with page JavaScript disabled, local resources only
+and a native bridge, as recorded below. This does not establish iOS layout or
+view ownership. Preserve the regular transcript until the candidate meets the
 native adoption checks below.
+
+### Reproducible component proof
+
+The checked-in harness is `scripts/chat-renderer-proof/`; generated bundle,
+dependency graph, notices and results are in
+`.artifacts/chat-typesetter-component/`. It uses the existing pinned MathJax
+3.2.2 dependency, with only base, AMS and newcommand TeX packages, SVG fonts
+bundled as paths, no autoload/require/HTML packages and an empty base URL.
+The graph has no external, disabled or Node imports. Nothing from this directory
+is part of an app target or hosted worker.
+
+Both Chromium 153.0.8010.12 and macOS 26.3.1 WebKit pass the same 18 authored
+fixtures. The complete attention equation, numbered align, unnumbered equation,
+inline fraction and matrix succeed. Labels exercise text-node traversal;
+verification failures are separate from TeX failures. Fresh realms reject a
+previous realm's macro; a consumed realm refuses another invocation. Resource
+commands, an expansion loop, oversized source and deliberately lowered factory,
+text, SVG-node and serialization-estimate limits are covered.
+
+The native harness uses a fresh named content world and nonpersistent store per
+fixture. Page JavaScript is disabled, and a page-script marker stays absent even
+though the fixture's CSP permits that inline script. The page world cannot see
+the typesetter global. A main-frame, invocation-bound message/reply bridge
+accepts only a small metrics result. All 18 cases report one owned in-memory
+document load, no additional resource entries, no rejected navigation/request,
+no CSP violation and no console/error calls. No generated HTML or source is
+returned through the message/reply bridge or inserted into the page DOM. These are component execution checks, not
+selection, accessibility, display or network-process telemetry.
+
+The previous 13.3 MB expansion now stops during compilation after 2,000 MML
+node creations, with only the 12 fixed lite-document nodes and no SVG generation.
+Counts include creator-map calls, text updates, clone operations, style/class
+changes and escaped serialization estimates. Source HTML never enters the lite
+parser. The compiled tree is checked before the same MathItem proceeds to SVG;
+it is not compiled a second time. Limits are cumulative, without refunds.
+
+This improves early refusal but **does not establish a hard heap or CPU bound**:
+`maxMacros` is per parser; parser strings, constructor arguments, recursive
+compilation and other intermediates are not fully metered. The estimate does
+not bound peak serialization allocation. The fixed fixtures do not establish
+safe execution of arbitrary customer input. Timeout aborts the harness and
+never opens a replacement slot; it does not prove WebContent termination.
+
+Independent source review recommends app-owned math rules with a narrowly
+enabled markdown-it profile. Importing selected `mdPluginRaw` exports still
+imports its broad conversion graph. Stock normalization and paragraph trimming
+need explicit source-span handling; code fences, escaped delimiters, comments,
+nested environments, blank lines and repeated formulas are required fixtures.
+The tokenizer, source sidecars, independent output sanitizer, aggregate message
+budget, retirement lifecycle and iOS presentation remain unimplemented.
 
 ## Mathematical identity and admission
 
