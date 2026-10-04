@@ -221,6 +221,73 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Saved question reopens once without resurrecting its draft")
     }
 
+    func testInstalledEncryptedPaperSurvivesRelaunchWithEquationsFiguresAndChat() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
+        app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        // Installation is already durable when the fixture publishes its row.
+        // The next process does not call the compiled sample loader at all.
+        app.terminate()
+        app.launchArguments = ["--offline-reader-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        app.buttons[paperID].tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 8))
+        app.buttons["Table of contents"].tap()
+        let heading = app.buttons["2. Read the equations in context"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5)); heading.tap()
+        let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Scaled dot-product attention turns")).firstMatch
+        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The normalization in Equation")).firstMatch
+        let positioned = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: positioned, object: nil)], timeout: 5), .completed)
+        let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
+        web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width / 2, dy: y)).tap()
+        let define = app.buttons["reader.selection.define"]
+        XCTAssertTrue(define.waitForExistence(timeout: 5))
+        let paperOffset = before.frame.minY - web.frame.minY
+        capture(app, "Equation actions from the encrypted installed paper after relaunch")
+        define.tap()
+        let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 8))
+        app.buttons["chat.returnToPaper"].tap()
+        let returned = NSPredicate { _, _ in before.exists && abs(before.frame.minY - web.frame.minY - paperOffset) < 6 }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: returned, object: nil)], timeout: 5), .completed)
+        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure: Queries and keys")).firstMatch
+        for _ in 0..<8 {
+            if figure.exists, figure.isHittable { break }
+            // Small measured drags avoid jumping past the figure and then
+            // repeatedly scrolling away from it. Both directions are valid.
+            let below = !figure.exists || figure.frame.midY > web.frame.midY
+            let from = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.7 : 0.4))
+            let to = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: below ? 0.4 : 0.7))
+            from.press(forDuration: 0.05, thenDragTo: to)
+            let visible = NSPredicate { _, _ in figure.exists && figure.isHittable }
+            if XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: visible, object: nil)], timeout: 1) == .completed { break }
+        }
+        XCTAssertTrue(figure.waitForExistence(timeout: 5)); XCTAssertTrue(figure.isHittable)
+        figure.tap()
+        let done = app.buttons["Done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Couldn’t open figure"].exists)
+        capture(app, "Figure reopened from encrypted local member bytes")
+        done.tap()
+        // A second process must recover the saved question as well as the paper.
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        app.buttons[paperID].tap()
+        XCTAssertTrue(web.waitForExistence(timeout: 8))
+        app.buttons["tab.chat"].tap()
+        app.buttons["Chat history"].tap()
+        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", #"\begin{equation}"#)).firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
+        XCTAssertTrue(question.waitForExistence(timeout: 5))
+        capture(app, "Encrypted question restored alongside the installed paper")
+    }
+
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
         app.buttons["tab.chat"].tap()

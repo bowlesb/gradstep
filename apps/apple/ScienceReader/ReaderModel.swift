@@ -25,6 +25,12 @@ struct Paper: Identifiable, Sendable {
     var sourceRevision: Int?
     var readerBundle: VerifiedReaderBundle? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
+
+    func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
+        Paper(id: id, title: title, authors: authors, year: year, abstract: abstract, keywords: keywords,
+              fileURL: bundle?.entryURL, artifactID: artifactID, isSample: isSample,
+              sourceID: sourceID, sourceRevision: sourceRevision, readerBundle: bundle)
+    }
 }
 
 enum LibraryListEntry: Identifiable {
@@ -73,14 +79,23 @@ final class ReaderModel {
     private var libraryPublicationGeneration: UInt64 = 0
     private var libraryRefreshAttempt: UUID?
     private var libraryCreationSequences: [UUID: Int64] = [:]
+    private var presentedImportIDs: Set<UUID> = []
     private var completeLibrary: LibrarySnapshot?
+    private var libraryPublicationDeferred = false
+    private var deferredLibraryObservation: LibraryCompleteObservation?
+    private var readerBundles: ReaderBundleCoordinator?
+    private var readerOpenAttempt: UUID?
+    private var readerOpenBinding: ReaderArtifactBinding?
+    private(set) var openingPaperID: UUID?
+    private(set) var readerOpenIssue: String?
+    private(set) var offlineCacheIssue: String?
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1
     private(set) var libraryCommands: [LocalLibraryCommand] = []
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
     var librarySignInRequired: Bool { accountID == nil }
-    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && !workOwnership.isActivating && !needsRecovery }
+    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary != nil && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
     var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
     var selectedPaper: Paper? {
         didSet {
@@ -198,9 +213,14 @@ final class ReaderModel {
         selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL, manifestSHA256: $0.readerBundle?.manifestSHA256) }
     }
     private let configuration: BackendConfiguration?
+    private let readerBundleVerification: ReaderBundleCoordinator.Verification
+    private let readerBundleDirectoryReader: ReaderBundleCoordinator.DirectoryReader
 
-    init(configuration: BackendConfiguration? = .bundled(), client: BackendClient? = nil) {
+    init(configuration: BackendConfiguration? = .bundled(), client: BackendClient? = nil,
+         readerBundleVerification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
+         readerBundleDirectoryReader: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) }) {
         self.configuration = configuration; self.backend = client
+        self.readerBundleVerification = readerBundleVerification; self.readerBundleDirectoryReader = readerBundleDirectoryReader
     }
 
     var configured: Bool { configuration != nil }
@@ -220,7 +240,9 @@ final class ReaderModel {
                 + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? [])
             return terms.allSatisfy { term in fields.contains { $0.localizedStandardContains(term) } }
         }
-        let knownImports = Set(completeLibrary?.imports.map(\.id) ?? [])
+        // Cached mappings suppress duplicate display rows only. They never
+        // acknowledge or reconcile the durable command itself.
+        let knownImports = presentedImportIDs
         let localImports = libraryCommands.filter { command in
             guard case .beginImport(let source, let revision, _) = command.mutation,
                   command.isUnfinished, !knownImports.contains(command.id) else { return false }
@@ -280,6 +302,11 @@ final class ReaderModel {
     func start() async {
         guard !started else { return }; started = true
         #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
+            do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture")) }
+            catch { show(error) }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--draft-fixture") {
             do { try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture")) }
             catch { show(error) }
@@ -368,21 +395,41 @@ final class ReaderModel {
     }
 
     @discardableResult
-    private func activate(_ device: LocalDevice, scope: UUID) async throws -> ReaderWorkOwnership.StoreScope {
+    func activate(_ device: LocalDevice, scope: UUID) async throws -> ReaderWorkOwnership.StoreScope {
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }
         guard let bundle = device.bundle, let backend, let configuration, let keys else { throw ReaderError.missingKey }
         try bundle.validate(accountID: device.accountID)
         let activation = workOwnership.beginActivation()
         var activated = false
         defer {
-            workOwnership.finishActivation(activation)
             if !activated, workOwnership.owns(activation) {
                 syncStatus = "Saved on this device · Sync paused"
                 syncIssue = "Private library setup did not finish. Try restoring this device again."
+                // A failed key activation must not strand the prior local
+                // reader in its temporary pause. Its store still validates
+                // authority before any decrypted bytes can be reopened.
+                resumeLibraryPublication()
+                libraryCommandCoordinator?.resume()
+                Task { [weak self] in
+                    guard let self, self.workOwnership.owns(activation), self.accountID == device.accountID else { return }
+                    self.openLocalPaperIfNeeded()
+                }
             }
+            workOwnership.finishActivation(activation)
         }
         let persistence = localPersistence
+        // A superseded key activation may already be updating this writer.
+        // Join it even if our caller is cancelled, before any owned cleanup
+        // can resume work or register a deferred library checkpoint.
+        await persistence.waitForActivation()
+        guard workOwnership.owns(activation), accountID == device.accountID else { throw CancellationError() }
+        readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil
         await libraryCommandCoordinator?.pause()
+        guard workOwnership.owns(activation), accountID == device.accountID else { throw CancellationError() }
+        // Command callbacks have joined; at most the single model refresh can
+        // still complete. No new pull starts while activation owns this phase.
+        libraryPublicationDeferred = true
+        await readerBundles?.pause()
         guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
         let previousSync = sync; sync = nil
         if let previousSync { retirementQueue.stop(previousSync) }
@@ -406,14 +453,23 @@ final class ReaderModel {
         publish(snapshot)
         checkpointAllDrafts()
         recoveryCode = nil; needsRecovery = false; showRecovery = false
-        activated = true
-        workOwnership.finishActivation(activation)
+        // Cached identity and device keys already suffice for local reading.
+        // Do this before support flushing, key refresh, or any sync request.
+        await prepareOfflineLibrary(accountID: device.accountID, scope: scope, activation: activation,
+                                    deploymentID: configuration.url.absoluteString)
+        guard sessionID == scope, workOwnership.owns(activation) else { throw CancellationError() }
+        resumeLibraryPublication()
         do { try await prepareLibraryCommands(accountID: device.accountID, scope: scope) }
         catch {
             guard sessionID == scope, workOwnership.owns(activation) else { throw CancellationError() }
             libraryCommandCoordinator?.close(); libraryCommandCoordinator = nil
             libraryCommandIssue = "Library changes are paused. Reopen the app to check the saved queue."
         }
+        guard sessionID == scope, workOwnership.owns(activation) else { throw CancellationError() }
+        activated = true
+        workOwnership.finishActivation(activation)
+        libraryCommandCoordinator?.resume()
+        openLocalPaperIfNeeded()
         await synchronize()
         return activation
     }
@@ -475,16 +531,20 @@ final class ReaderModel {
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
         let oldCommands = libraryCommandCoordinator; libraryCommandCoordinator = nil
         oldCommands?.close()
+        let oldBundles = readerBundles; readerBundles = nil
+        oldBundles?.close()
+        readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
         let oldLibrary = libraryService; libraryService = nil
         Task { await oldLibrary?.invalidate() }
-        libraryImports = []; libraryCreationSequences = [:]; libraryPublicationGeneration = 0
+        libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
         libraryRefreshAttempt = nil; libraryRefreshing = false; libraryHasSnapshot = false; libraryIssue = nil
         completeLibrary = nil; libraryCommands = []; libraryCommandGeneration = -1
+        libraryPublicationDeferred = false; deferredLibraryObservation = nil
         libraryCommandIssue = nil; showLibraryChanges = false; showImport = false
         publishedGeneration = -1; publishedPendingCount = 0
         support?.cancel(); support = nil
         draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
-        retirementQueue.retire(sync: sync, persistence: localPersistence, commands: oldCommands)
+        retirementQueue.retire(sync: sync, persistence: localPersistence, commands: oldCommands, bundles: oldBundles)
         sync = nil
         device = nil; localPersistence = ReaderLocalPersistence(); keys = nil
         privateState = PrivateState(); papers = []; selectedPaper = nil; chatPaperID = nil
@@ -499,7 +559,7 @@ final class ReaderModel {
     }
 
     func refreshLibrary() async {
-        guard let accountID else { return }
+        guard let accountID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let scope = sessionID
         await loadLibrary(accountID: accountID, scope: scope)
         if sessionID == scope, !workOwnership.isActivating { await libraryCommandCoordinator?.retry() }
@@ -507,7 +567,7 @@ final class ReaderModel {
 
     private func prepareLibraryCommands(accountID: UUID, scope: UUID) async throws {
         guard sessionID == scope, self.accountID == accountID, let configuration, let backend else { throw CancellationError() }
-        if let existing = libraryCommandCoordinator { existing.resume(); return }
+        if libraryCommandCoordinator != nil { return }
         let library = libraryService ?? LibraryService(scope: .init(accountID: accountID, readerSessionID: scope), transport: backend)
         libraryService = library
         let commandScope = try LibraryCommandScope(accountID: accountID, deploymentID: configuration.url.absoluteString)
@@ -526,7 +586,53 @@ final class ReaderModel {
         libraryCommandCoordinator = coordinator
         try await coordinator.restore()
         guard sessionID == scope, libraryCommandCoordinator === coordinator else { throw CancellationError() }
-        coordinator.resume()
+    }
+
+    private func prepareOfflineLibrary(accountID: UUID, scope: UUID, activation: ReaderWorkOwnership.StoreScope,
+                                       deploymentID: String) async {
+        guard sessionID == scope, self.accountID == accountID, workOwnership.owns(activation) else { return }
+        do {
+            let cacheScope = try LibraryCommandScope(accountID: accountID, deploymentID: deploymentID)
+            let coordinator: ReaderBundleCoordinator
+            if let existing = readerBundles {
+                guard existing.scope == cacheScope else { throw LibraryCommandError.invalidScope }
+                coordinator = existing; coordinator.resume()
+            } else {
+                coordinator = ReaderBundleCoordinator(scope: cacheScope, persistence: localPersistence,
+                    verify: readerBundleVerification, readDirectory: readerBundleDirectoryReader, report: { [weak self] issue in
+                    guard let self, self.sessionID == scope, self.accountID == accountID else { return }
+                    self.offlineCacheIssue = issue
+                })
+                readerBundles = coordinator
+                // Recovery may have obtained a live library before local keys
+                // existed. Preserve that authority when its first cache opens.
+                if let observation = deferredLibraryObservation {
+                    try coordinator.applyLiveObservation(observation)
+                } else if let observation = completeLibrary?.observation {
+                    // This publication predates the pause. Its write can start
+                    // now, leaving the single deferred slot for a refresh that
+                    // is still in flight; observe preserves their disk order.
+                    try coordinator.observe(observation)
+                }
+            }
+            let restored = try await coordinator.restore()
+            guard sessionID == scope, self.accountID == accountID, workOwnership.owns(activation), readerBundles === coordinator else { return }
+            switch restored.presentation {
+            case .success(let presentation):
+                // A disk presentation never creates a live observation, nor
+                // replaces a complete network publication that already won.
+                if let presentation, completeLibrary == nil {
+                    presentLibraryEntries(Array(presentation.entries.values))
+                }
+            case .failure: offlineCacheIssue = "Your saved library couldn’t be opened. Your notes and conversations are still available."
+            }
+            if case .failure = restored.installations {
+                offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
+            }
+        } catch {
+            guard sessionID == scope, workOwnership.owns(activation) else { return }
+            offlineCacheIssue = "Offline reading couldn’t be restored. Your saved data has been preserved."
+        }
     }
 
     func importPaper(_ input: String) async throws {
@@ -575,7 +681,8 @@ final class ReaderModel {
     }
 
     private func loadLibrary(accountID: UUID, scope: UUID) async {
-        guard let backend, sessionID == scope, self.accountID == accountID else { return }
+        guard let backend, sessionID == scope, self.accountID == accountID,
+              !libraryRefreshing, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let libraryScope = LibraryScope(accountID: accountID, readerSessionID: scope)
         let service: LibraryService
         if let existing = libraryService { service = existing }
@@ -604,37 +711,140 @@ final class ReaderModel {
     private func publishLibrary(_ snapshot: LibrarySnapshot) {
         guard snapshot.scope.accountID == accountID, snapshot.scope.readerSessionID == sessionID else { return }
         if snapshot.generation > libraryPublicationGeneration {
-                completeLibrary = snapshot
-                let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                let items = snapshot.items.filter(\.visible)
-                let next = items.map { item in
-                    let cached = previous[item.documentID]
-                    let file = item.canReadStructured && cached?.artifactID == item.artifactID ? cached?.fileURL : nil
-                    return Paper(id: item.documentID, title: item.metadata?.title ?? "Untitled paper",
-                                 authors: item.metadata?.authors.joined(separator: ", ") ?? "",
-                                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
-                                 abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [],
-                                 fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision,
-                                 readerBundle: file == nil ? nil : cached?.readerBundle)
-                }
-                let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
-                // Samples have no server membership. Preserve the local sample
-                // without letting it replace a real document-backed item.
-                papers = next + samples
-                libraryImports = snapshot.imports.filter(\.visible)
-                libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.documentID, $0.createdSequence) })
-                libraryPublicationGeneration = snapshot.generation; libraryHasSnapshot = true
-                if let selectedPaper, !selectedPaper.isSample {
-                    self.selectedPaper = papers.first { $0.id == selectedPaper.id }
-                    if self.selectedPaper == nil {
-                        if tab == .paper { tab = .library }
-                        if wideMode == .reader || wideMode == .browse { wideMode = .library }
+            completeLibrary = snapshot
+            do {
+                if libraryPublicationDeferred {
+                    try readerBundles?.applyLiveObservation(snapshot.observation)
+                    // One model refresh is allowed to cross activation. If a
+                    // future caller breaks that bound, retain live policy but
+                    // halt persistence instead of skipping a sticky block.
+                    guard deferredLibraryObservation == nil else {
+                        readerBundles?.haltCachePersistence()
+                        throw ReaderError.storageUnavailable
                     }
-                }
+                    deferredLibraryObservation = snapshot.observation
+                } else { try readerBundles?.observe(snapshot.observation) }
+            }
+            catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            presentLibraryEntries(snapshot.entries)
+            libraryPublicationGeneration = snapshot.generation
         }
     }
 
-    func select(_ paper: Paper) { selectedPaper = paper; chatPaperID = paper.id; tab = .paper; if wideMode != .browse { wideMode = .reader }; generalChat = false }
+    /// Synchronous registration preserves accepted observation order before
+    /// another refresh or command drain may start, including cancellation.
+    private func resumeLibraryPublication() {
+        readerBundles?.resume()
+        if let observation = deferredLibraryObservation {
+            do {
+                guard let readerBundles else { throw ReaderError.storageUnavailable }
+                try readerBundles.observe(observation)
+            } catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+        }
+        deferredLibraryObservation = nil
+        libraryPublicationDeferred = false
+    }
+
+    private func presentLibraryEntries(_ entries: [LibraryEntry]) {
+        let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let items = entries.compactMap { if case .item(let item) = $0, item.visible { return item }; return nil }
+        let next = items.map { item in
+            let cached = previous[item.documentID]
+            let installed = readerBundles?.installation(documentID: item.documentID, artifactID: item.artifactID)
+            let readable: Bool
+            if let installed {
+                readable = readerBundles?.permits(installed) == true && installed.binding.manifestSHA256 == cached?.readerBundle?.manifestSHA256
+            } else { readable = item.canReadStructured }
+            let file = readable && cached?.artifactID == item.artifactID ? cached?.fileURL : nil
+            return Paper(id: item.documentID, title: item.metadata?.title ?? "Untitled paper",
+                         authors: item.metadata?.authors.joined(separator: ", ") ?? "",
+                         year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
+                         abstract: item.metadata?.abstract ?? "", keywords: item.metadata?.categories ?? [],
+                         fileURL: file, artifactID: item.artifactID, sourceID: item.sourceID, sourceRevision: item.sourceRevision,
+                         readerBundle: file == nil ? nil : cached?.readerBundle)
+        }
+        let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
+        // Samples have no server membership. Preserve the local sample
+        // without letting it replace a real document-backed item.
+        papers = next + samples
+        presentedImportIDs = Set(entries.compactMap { if case .import(let item) = $0 { return item.id }; return nil })
+        libraryImports = entries.compactMap { if case .import(let item) = $0, item.visible { return item }; return nil }
+        libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.documentID, $0.createdSequence) })
+        libraryHasSnapshot = true
+        if let selectedPaper, !selectedPaper.isSample {
+            self.selectedPaper = papers.first { $0.id == selectedPaper.id }
+            if self.selectedPaper == nil {
+                readerBundles?.cancelOpening()
+                readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil
+                if tab == .paper { tab = .library }
+                if wideMode == .reader || wideMode == .browse { wideMode = .library }
+            }
+            else { openLocalPaperIfNeeded() }
+        }
+    }
+
+    func select(_ paper: Paper) {
+        // UI closures may retain a previously loaded row across quarantine,
+        // removal or account changes. Resolve its current membership first.
+        guard let current = papers.first(where: {
+            $0.id == paper.id && $0.artifactID == paper.artifactID && $0.isSample == paper.isSample
+        }), current.isSample || accountID != nil else { return }
+        selectedPaper = current; chatPaperID = current.id; tab = .paper
+        if wideMode != .browse { wideMode = .reader }
+        generalChat = false
+        openLocalPaperIfNeeded()
+    }
+
+    func retryOpeningSelectedPaper() { openLocalPaperIfNeeded() }
+
+    private func openLocalPaperIfNeeded() {
+        if let paper = selectedPaper, !paper.isSample, let bundle = paper.readerBundle {
+            let installed = readerBundles?.localCopy(documentID: paper.id, artifactID: paper.artifactID)
+            if installed?.binding.manifestSHA256 != bundle.manifestSHA256 {
+                let metadata = paper.displaying(nil)
+                papers = papers.map { $0.id == paper.id ? metadata : $0 }
+                selectedPaper = metadata
+            }
+        }
+        if readerOpenAttempt != nil, let paper = selectedPaper, paper.readerBundle == nil,
+           let coordinator = readerBundles,
+           let installation = coordinator.localCopy(documentID: paper.id, artifactID: paper.artifactID),
+           installation.binding == readerOpenBinding { return }
+        readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil
+        readerBundles?.cancelOpening()
+        guard let paper = selectedPaper, !paper.isSample, paper.readerBundle == nil,
+              let coordinator = readerBundles,
+              let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return }
+        guard coordinator.permits(installation) else {
+            readerOpenIssue = "This downloaded copy is currently unavailable."
+            return
+        }
+        guard !workOwnership.isActivating, !libraryPublicationDeferred else { return }
+        let attempt = UUID(), scope = sessionID
+        do {
+            let opening = try coordinator.open(installation)
+            readerOpenAttempt = attempt; readerOpenBinding = installation.binding; openingPaperID = paper.id
+            Task {
+                defer {
+                    if self.sessionID == scope, self.readerOpenAttempt == attempt {
+                        self.openingPaperID = nil; self.readerOpenAttempt = nil; self.readerOpenBinding = nil
+                    }
+                }
+                do {
+                    let result = try await opening.value
+                    guard self.sessionID == scope, self.readerBundles === coordinator, self.readerOpenAttempt == attempt,
+                          let current = self.selectedPaper, current.id == paper.id, current.artifactID == paper.artifactID,
+                          coordinator.permits(result.installation) else { return }
+                    let displayed = current.displaying(result.bundle)
+                    self.papers = self.papers.map { $0.id == displayed.id ? displayed : $0 }
+                    self.selectedPaper = displayed
+                } catch {
+                    guard self.sessionID == scope, self.readerOpenAttempt == attempt, !(error is CancellationError) else { return }
+                    self.readerOpenIssue = "This downloaded copy couldn’t be opened."
+                }
+            }
+        } catch { readerOpenIssue = "This downloaded copy couldn’t be opened." }
+    }
 
     func askAboutSelectedPaper() {
         guard let selectedPaper else { return }
@@ -645,6 +855,7 @@ final class ReaderModel {
         guard let event = privateState.revisions(for: id).first, event.payload.kind == .conversation else { return }
         if let documentID = event.payload.documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }; generalChat = false; wideMode = .reader
+            openLocalPaperIfNeeded()
         } else { generalChat = true; wideMode = .chat }
         activeConversation = id; tab = .chat
     }
@@ -656,6 +867,7 @@ final class ReaderModel {
         if let documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }
             generalChat = false; wideMode = .reader
+            openLocalPaperIfNeeded()
         } else { generalChat = true; wideMode = .chat }
         if let checkpoint = chatWorkspace.checkpoint(for: id), let conversation = checkpoint.conversationID,
            let head = checkpoint.selectedHead {
@@ -855,6 +1067,40 @@ final class ReaderModel {
     }
 
     #if DEBUG && targetEnvironment(simulator)
+    /// The reset flag is explicit installation intent in this test-only
+    /// account. Relaunch reads only encrypted rows; it never reloads the sample
+    /// resource as a substitute for a missing or damaged installed copy.
+    func configureOfflineReaderFixture(reset: Bool) async throws {
+        let fixtureDevice = try OfflineReaderFixture.device()
+        guard let keys = fixtureDevice.bundle else { throw ReaderError.missingKey }
+        let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("offline-reader-fixture", isDirectory: true)
+        if reset, FileManager.default.fileExists(atPath: directory.path) { try FileManager.default.removeItem(at: directory) }
+        accountID = fixtureDevice.accountID; email = "offline-fixture@example.invalid"; device = fixtureDevice
+        let activation = workOwnership.beginActivation()
+        defer { workOwnership.finishActivation(activation) }
+        let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
+            accountID: fixtureDevice.accountID, localKey: fixtureDevice.localStoreKey, keys: keys)
+        let snapshot = await local.snapshot()
+        prepareDrafts(snapshot: snapshot, scope: sessionID); publish(snapshot)
+        checkpointAllDrafts()
+        workOwnership.finishActivation(activation)
+        let cacheScope = try LibraryCommandScope(accountID: fixtureDevice.accountID, deploymentID: OfflineReaderFixture.deployment)
+        let coordinator = ReaderBundleCoordinator(scope: cacheScope, persistence: localPersistence)
+        readerBundles = coordinator
+        if reset {
+            _ = try await coordinator.observe(OfflineReaderFixture.observation()).value
+            let authored = try ReaderBundleLoader.sample()
+            let binding = try ReaderArtifactBinding(scope: cacheScope, documentID: OfflineReaderFixture.document,
+                artifactID: OfflineReaderFixture.artifact, manifestSHA256: ReaderBundleLoader.sampleManifestSHA256)
+            let members = Dictionary(uniqueKeysWithValues: authored.manifest.members.map { ($0.path, authored.data(for: $0.path)!) })
+            _ = try await coordinator.install(binding: binding, manifestData: authored.manifestData, members: members).value
+        }
+        await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID, activation: activation,
+                                    deploymentID: OfflineReaderFixture.deployment)
+        tab = .library; wideMode = .library
+    }
+
     /// Synthetic process-restart journeys use the real encrypted SQLite path,
     /// with public fixture keys and no Auth, networking, or provider setup.
     func configureDurableDraftFixture(reset: Bool) async throws {
@@ -946,6 +1192,7 @@ final class ReaderLocalPersistence {
     private var localKey: Data?
     private var storageURL: URL?
     private var writes: [UUID: Task<Void, Never>] = [:]
+    private var activationWaiters: [CheckedContinuation<Void, Never>] = []
 
     func performWrite(_ operation: @escaping @Sendable (EncryptedStore) async throws -> [EventEnvelope]) async throws -> [EventEnvelope] {
         try await acceptWrite(operation).value
@@ -970,7 +1217,11 @@ final class ReaderLocalPersistence {
         try keys.validate(accountID: accountID)
         guard localKey.count == 32 else { throw ReaderError.invalidKey }
         isActivating = true
-        defer { isActivating = false }
+        defer {
+            isActivating = false
+            let waiters = activationWaiters; activationWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
         // Writes themselves are not cancelled when activation or sign-out
         // begins: they belong to the old account and may already be committing.
         await waitForAcceptedWrites()
@@ -993,6 +1244,14 @@ final class ReaderLocalPersistence {
 
     func retire() { isRetired = true }
 
+    /// An accepted key update belongs to this writer until it settles.
+    /// Cancellation of a replacement owner does not shorten that lifetime.
+    func waitForActivation() async {
+        while isActivating {
+            await withCheckedContinuation { activationWaiters.append($0) }
+        }
+    }
+
     func waitForAcceptedWrites() async {
         for task in Array(writes.values) { _ = await task.result }
     }
@@ -1004,11 +1263,13 @@ final class ReaderLocalPersistence {
 final class ReaderRetirementQueue {
     private var pending: (id: UUID, task: Task<Void, Never>)?
 
-    func retire(sync: CloudSync?, persistence: ReaderLocalPersistence, commands: LibraryCommandCoordinator? = nil) {
+    func retire(sync: CloudSync?, persistence: ReaderLocalPersistence, commands: LibraryCommandCoordinator? = nil,
+                bundles: ReaderBundleCoordinator? = nil) {
         commands?.close()
+        bundles?.close()
         persistence.retire()
         sync?.cancel()
-        enqueue(sync: sync, persistence: persistence, commands: commands)
+        enqueue(sync: sync, persistence: persistence, commands: commands, bundles: bundles)
     }
 
     func stop(_ sync: CloudSync) {
@@ -1016,13 +1277,18 @@ final class ReaderRetirementQueue {
         enqueue(sync: sync, persistence: nil)
     }
 
-    private func enqueue(sync: CloudSync?, persistence: ReaderLocalPersistence?, commands: LibraryCommandCoordinator? = nil) {
+    private func enqueue(sync: CloudSync?, persistence: ReaderLocalPersistence?, commands: LibraryCommandCoordinator? = nil,
+                         bundles: ReaderBundleCoordinator? = nil) {
         let previous = pending?.task, id = UUID()
         let task = Task { [weak self] in
             if let previous { await previous.value }
             if let commands { await commands.stop() }
+            if let bundles { await bundles.stop() }
             if let sync { await sync.stop() }
-            if let persistence { await persistence.waitForAcceptedWrites() }
+            if let persistence {
+                await persistence.waitForActivation()
+                await persistence.waitForAcceptedWrites()
+            }
             if self?.pending?.id == id { self?.pending = nil }
         }
         pending = (id, task)

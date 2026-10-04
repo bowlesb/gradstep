@@ -91,7 +91,15 @@ struct PaperView: View {
                         }
                     }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                 } else if model.selectedPaper != nil {
-                    ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
+                    if model.openingPaperID == model.selectedPaper?.id {
+                        ProgressView("Opening paper…").accessibilityIdentifier("paper.openingLocalCopy")
+                    } else if let issue = model.readerOpenIssue {
+                        ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
+                            description: { Text(issue) }
+                            actions: { Button("Try again") { model.retryOpeningSelectedPaper() } }
+                    } else {
+                        ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
+                    }
                 } else {
                     ContentUnavailableView("Open a paper", systemImage: "doc.text", description: Text("Choose a paper from your library to start reading."))
                 }

@@ -171,6 +171,11 @@ struct LibraryView: View {
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 10)
                 }
+                if !model.searchExternal, let issue = model.offlineCacheIssue {
+                    Text(issue).font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 10)
+                        .accessibilityIdentifier("library.offlineIssue")
+                }
                 if model.searchExternal {
                     ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
                         .accessibilityIdentifier("search.external.unavailable")

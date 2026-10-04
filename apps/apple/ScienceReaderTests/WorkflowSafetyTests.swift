@@ -23,7 +23,8 @@ final class WorkflowSafetyTests: XCTestCase {
 
         let replacement = Paper(id: original.id, title: original.title, authors: original.authors,
             year: original.year, abstract: original.abstract, keywords: original.keywords,
-            fileURL: original.fileURL, artifactID: UUID())
+            fileURL: original.fileURL, artifactID: UUID(), isSample: true)
+        model.papers = [replacement]
         model.select(replacement)
         XCTAssertNotEqual(model.readerDocumentScope, originalScope, "Late callbacks belong to the old immutable artifact")
         XCTAssertTrue(model.headings.isEmpty)
@@ -220,7 +221,8 @@ final class WorkflowSafetyTests: XCTestCase {
     }
 
     func testAskFromBrowseEntersReaderAndKeepsThePaperConversationDraft() {
-        let model = ReaderModel(configuration: nil), selected = paper(title: "Selected paper")
+        let model = ReaderModel(configuration: nil)
+        var selected = paper(title: "Selected paper"); selected.isSample = true
         model.papers = [selected]; model.wideMode = .browse; model.select(selected)
         let conversation = UUID()
         model.activeConversation = conversation; model.chatInput = "Follow-up for this paper"
