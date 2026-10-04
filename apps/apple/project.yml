@@ -37,6 +37,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios
+        CODE_SIGN_ENTITLEMENTS: Config/ScienceReader.entitlements
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ScienceReader/Info.plist
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

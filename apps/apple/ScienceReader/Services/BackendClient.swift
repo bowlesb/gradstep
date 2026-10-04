@@ -5,17 +5,26 @@ struct BackendConfiguration: Sendable {
     let url: URL
     let anonKey: String
     let environment: String
+    let authCallbackURL: URL?
+
+    init(url: URL, anonKey: String, environment: String,
+         authCallbackURL: URL? = AuthenticationConfiguration.callbackURL) {
+        self.url = url; self.anonKey = anonKey; self.environment = environment
+        self.authCallbackURL = authCallbackURL
+    }
 
     static func bundled() -> BackendConfiguration? {
         guard let source = Bundle.main.object(forInfoDictionaryKey: "ScienceReaderSupabaseURL") as? String,
               let url = URL(string: source), url.scheme == "https", url.host != nil,
               let key = Bundle.main.object(forInfoDictionaryKey: "ScienceReaderSupabaseAnonKey") as? String, !key.isEmpty else { return nil }
-        return BackendConfiguration(url: url, anonKey: key, environment: Bundle.main.object(forInfoDictionaryKey: "ScienceReaderEnvironment") as? String ?? "staging")
+        return BackendConfiguration(url: url, anonKey: key,
+            environment: Bundle.main.object(forInfoDictionaryKey: "ScienceReaderEnvironment") as? String ?? "staging",
+            authCallbackURL: AuthenticationConfiguration.callback(in: .main))
     }
 }
 
 struct AuthSession: Codable, Sendable {
-    struct User: Codable, Sendable { let id: UUID; let email: String? }
+    struct User: Codable, Equatable, Sendable { let id: UUID; let email: String? }
     let access_token: String
     let refresh_token: String
     let expires_at: TimeInterval
@@ -52,13 +61,23 @@ enum BackendError: LocalizedError {
     }
 }
 
-actor BackendClient: LibraryTransport, LibraryCommandTransport {
+actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBackend {
     private let config: BackendConfiguration
     private var session: AuthSession?
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
     private let network: URLSession
-    private enum SignInPhase { case google(OAuthPKCEAttempt), apple(AppleSignInNonce), exchanging, completed }
+    private let authNetwork: URLSession
+    private let credentials: any AuthenticationCredentialStore
+    private var credentialCleanupAttempt: UUID?
+    private var signInRequest: (id: UUID, task: Task<Data, Error>)?
+    private var logoutTask: (id: UUID, task: Task<Void, Never>)?
+    private enum EmailPhase { case prepared, sending, ready, verifying, failed }
+    private enum SignInPhase {
+        case google(OAuthPKCEAttempt), apple(AppleSignInNonce)
+        case email(address: String, phase: EmailPhase)
+        case exchanging, completed
+    }
     private struct SignInAttempt {
         let id: UUID
         let generation: UInt64
@@ -66,22 +85,42 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
     }
     private var signInAttempt: SignInAttempt?
 
-    init(configuration: BackendConfiguration, network: URLSession? = nil) throws {
+    init(configuration: BackendConfiguration, network: URLSession? = nil,
+         credentials: any AuthenticationCredentialStore = KeychainAuthenticationCredentialStore()) throws {
         self.config = configuration
+        self.credentials = credentials
         let settings = URLSessionConfiguration.ephemeral
         settings.timeoutIntervalForRequest = 60
         settings.waitsForConnectivity = false
         self.network = network ?? URLSession(configuration: settings)
-        if let bytes = try KeychainVault.read("\(configuration.environment).auth-session") {
-            session = try JSONDecoder().decode(AuthSession.self, from: bytes)
+        // Preserve injected URLProtocol fixtures while fixing auth-only limits;
+        // support/library payload policy remains independent.
+        let authSettings = network?.configuration ?? URLSessionConfiguration.ephemeral
+        authSettings.timeoutIntervalForRequest = 30
+        authSettings.timeoutIntervalForResource = 60
+        authSettings.waitsForConnectivity = false
+        authSettings.urlCache = nil; authSettings.httpCookieStorage = nil
+        authSettings.urlCredentialStorage = nil; authSettings.httpShouldSetCookies = false
+        authSettings.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.authNetwork = URLSession(configuration: authSettings)
+        let stored: Data?
+        do { stored = try credentials.read("\(configuration.environment).auth-session") }
+        catch { throw AuthenticationError.credentialStorage }
+        if let stored {
+            session = try Self.decodeSession(stored)
         }
     }
 
     func currentUser() -> AuthSession.User? { session?.user }
 
+    deinit { authNetwork.invalidateAndCancel() }
+
     func beginGoogleSignIn() throws -> GoogleAuthorization {
+        try Task.checkCancellation()
+        try requireAuthenticationConfiguration()
+        guard config.authCallbackURL == AuthenticationConfiguration.callbackURL else { throw AuthenticationError.configuration }
         try beginAuthenticationChange()
-        let attempt = try OAuthPKCEAttempt(callbackURL: URL(string: "com.sciencereader.ios://auth-callback")!)
+        let attempt = try OAuthPKCEAttempt(callbackURL: AuthenticationConfiguration.callbackURL)
         let url = try attempt.authorizationURL(supabaseURL: config.url)
         signInAttempt = SignInAttempt(id: attempt.id, generation: authGeneration, phase: .google(attempt))
         return GoogleAuthorization(id: attempt.id, url: url, callbackURL: attempt.callbackURL)
@@ -91,12 +130,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
         guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
               case .google(let pkce) = attempt.phase else { throw CancellationError() }
         let code = try pkce.authorizationCode(from: callbackURL)
-        return try await exchangeSignIn(attempt, grant: "pkce", body: ReaderCrypto.encode([
+        return try await exchangeSignIn(attempt, route: .token(.pkce), body: ReaderCrypto.encode([
             "auth_code": code, "code_verifier": pkce.verifier
         ]))
     }
 
     func beginAppleSignIn() throws -> AppleAuthorization {
+        try Task.checkCancellation()
+        try requireAuthenticationConfiguration()
         try beginAuthenticationChange()
         let nonce = AppleSignInNonce(), id = UUID()
         signInAttempt = SignInAttempt(id: id, generation: authGeneration, phase: .apple(nonce))
@@ -106,63 +147,152 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
     func finishAppleSignIn(id: UUID, identityToken: String) async throws -> AuthSession.User {
         guard let attempt = signInAttempt, attempt.id == id, attempt.generation == authGeneration,
               case .apple(let nonce) = attempt.phase else { throw CancellationError() }
-        guard !identityToken.isEmpty, identityToken.utf8.count <= 32_768 else { throw OAuthFlowError.invalidCallback }
-        return try await exchangeSignIn(attempt, grant: "id_token", body: ReaderCrypto.encode([
+        guard Self.validToken(identityToken) else { throw OAuthFlowError.invalidCallback }
+        return try await exchangeSignIn(attempt, route: .token(.idToken), body: ReaderCrypto.encode([
             "provider": "apple", "id_token": identityToken, "nonce": nonce.raw
         ]))
+    }
+
+    func prepareEmailSignIn(email: String) throws -> EmailAuthorization {
+        try Task.checkCancellation()
+        try requireAuthenticationConfiguration()
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.validEmail(address) else { throw AuthenticationError.invalidEmail }
+        try beginAuthenticationChange()
+        let id = UUID()
+        signInAttempt = SignInAttempt(id: id, generation: authGeneration, phase: .email(address: address, phase: .prepared))
+        return EmailAuthorization(id: id, email: address)
+    }
+
+    func sendEmailCode(id: UUID) async throws -> EmailCodeDelivery {
+        guard let attempt = signInAttempt, owns(attempt), attempt.id == id,
+              case .email(let address, .prepared) = attempt.phase else { throw CancellationError() }
+        struct Body: Encodable { let email: String; let create_user = true }
+        let body = try ReaderCrypto.encode(Body(email: address))
+        signInAttempt?.phase = .email(address: address, phase: .sending)
+        let delivery: EmailCodeDelivery
+        do {
+            let data = try await performSignInRequest(.emailSend, body: body, generation: attempt.generation)
+            guard let object = try? JSONSerialization.jsonObject(with: data), object is [String: Any] else { throw AuthenticationError.invalidResponse }
+            delivery = .sent
+        } catch {
+            guard owns(attempt) else { throw CancellationError() }
+            if let failure = error as? AuthenticationError,
+               failure == .connection || failure == .invalidResponse {
+                // A malformed or incomplete reply cannot establish whether
+                // the code was delivered. Keep manual verification available,
+                // without accepting a session or repeating this send.
+                delivery = .unconfirmed
+            }
+            else {
+                // A throttled resend may leave an earlier delivered code valid.
+                // Keep verification available, but never repeat this send ID.
+                if case AuthenticationError.rateLimited = error {
+                    signInAttempt?.phase = .email(address: address, phase: .ready)
+                } else { signInAttempt?.phase = .email(address: address, phase: .failed) }
+                throw error
+            }
+        }
+        guard owns(attempt) else { throw CancellationError() }
+        signInAttempt?.phase = .email(address: address, phase: .ready)
+        return delivery
+    }
+
+    func finishEmailSignIn(id: UUID, code: String) async throws -> AuthSession.User {
+        guard let attempt = signInAttempt, owns(attempt), attempt.id == id,
+              case .email(let address, .ready) = attempt.phase else { throw CancellationError() }
+        guard code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { throw AuthenticationError.invalidCode }
+        signInAttempt?.phase = .email(address: address, phase: .verifying)
+        let next: AuthSession
+        do {
+            let data = try await performSignInRequest(.emailVerify,
+                body: ReaderCrypto.encode(["email": address, "token": code, "type": "email"]), generation: attempt.generation)
+            guard owns(attempt) else { throw CancellationError() }
+            next = try Self.decodeSession(data)
+        } catch {
+            guard owns(attempt) else { throw CancellationError() }
+            // An explicit correction/retry is allowed. No HTTP error repeats a
+            // token exchange automatically, and concurrent verification fails.
+            signInAttempt?.phase = .email(address: address, phase: .ready)
+            throw error
+        }
+        try save(next)
+        signInAttempt?.phase = .completed
+        return next.user
     }
 
     func cancelSignIn(id: UUID) throws {
         // Also covers cancellation while an exchange is in flight, or between
         // session persistence and UI delivery. A newer attempt has another ID.
-        guard signInAttempt?.id == id else { return }
+        guard signInAttempt?.id == id || credentialCleanupAttempt == id else { return }
         try beginAuthenticationChange()
     }
 
-    private func exchangeSignIn(_ attempt: SignInAttempt, grant: String, body: Data) async throws -> AuthSession.User {
+    private func exchangeSignIn(_ attempt: SignInAttempt, route: AuthRoute, body: Data) async throws -> AuthSession.User {
         try Task.checkCancellation()
         signInAttempt?.phase = .exchanging
+        let next: AuthSession
         do {
-            let data = try await raw(path: "auth/v1/token?grant_type=\(grant)", body: body, token: nil)
+            let data = try await performSignInRequest(route, body: body, generation: attempt.generation)
             try Task.checkCancellation()
-            guard attempt.generation == authGeneration, signInAttempt?.id == attempt.id else { throw CancellationError() }
-            let next = try JSONDecoder().decode(AuthSession.self, from: data)
-            try save(next)
-            // Retain only identity/generation so a cancellation that beats UI
-            // delivery can still invalidate this result. Discard nonce/verifier.
-            signInAttempt?.phase = .completed
-            return next.user
+            guard owns(attempt) else { throw CancellationError() }
+            next = try Self.decodeSession(data)
         } catch {
-            if signInAttempt?.id == attempt.id { signInAttempt = nil }
+            guard owns(attempt) else { throw CancellationError() }
+            signInAttempt = nil
             throw error
         }
+        try save(next)
+        // Retain identity/generation until UI acceptance; discard secrets.
+        signInAttempt?.phase = .completed
+        return next.user
     }
 
     func signIn(email: String, password: String) async throws -> AuthSession.User {
+        try Task.checkCancellation()
+        guard email.utf8.count <= 320, password.utf8.count <= AuthenticationConfiguration.maximumTokenBytes else { throw AuthenticationError.invalidResponse }
+        try requireAuthenticationConfiguration()
         try beginAuthenticationChange()
         let generation = authGeneration
-        let data = try await raw(path: "auth/v1/token?grant_type=password", body: ReaderCrypto.encode(["email": email, "password": password]), token: nil)
+        let data = try await performSignInRequest(.token(.password), body: ReaderCrypto.encode(["email": email, "password": password]), generation: generation)
         guard generation == authGeneration else { throw CancellationError() }
-        let next = try JSONDecoder().decode(AuthSession.self, from: data)
+        let next = try Self.decodeSession(data)
         try save(next)
         return next.user
     }
 
     func signUp(email: String, password: String) async throws {
+        try Task.checkCancellation()
+        guard email.utf8.count <= 320, password.utf8.count <= AuthenticationConfiguration.maximumTokenBytes else { throw AuthenticationError.invalidResponse }
+        try requireAuthenticationConfiguration()
         try beginAuthenticationChange()
         let generation = authGeneration
-        let data = try await raw(path: "auth/v1/signup", body: ReaderCrypto.encode(["email": email, "password": password]), token: nil)
+        let data = try await performSignInRequest(.signUp, body: ReaderCrypto.encode(["email": email, "password": password]), generation: generation)
         guard generation == authGeneration else { throw CancellationError() }
-        if let next = try? JSONDecoder().decode(AuthSession.self, from: data) { try save(next) }
-        else { throw BackendError.emailConfirmation }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], object["access_token"] == nil,
+           object["id"] as? String != nil { throw BackendError.emailConfirmation }
+        try save(Self.decodeSession(data))
     }
 
     func signOut() async throws {
-        let previous = session
+        try retireAuthentication()
+    }
+
+    /// Completes local retirement without holding the next sign-in behind a
+    /// remote request. The captured old token can only revoke its own session;
+    /// a new preparation cancels that best-effort request independently.
+    func retireAuthentication() throws {
+        let previousAccessToken = session?.access_token
         try beginAuthenticationChange()
-        // Local sign-out is complete even offline. A stale refresh cannot save
-        // the old session back into Keychain after this generation changes.
-        if let previous { _ = try? await raw(path: "auth/v1/logout?scope=local", body: Data("{}".utf8), token: previous.access_token) }
+        guard let previousAccessToken else { return }
+        let id = UUID()
+        let task = Task {
+            _ = try? await self.authRaw(.logout, body: Data("{}".utf8), token: previousAccessToken)
+            // Late success/error cannot clear a newer logout's owner, change
+            // authentication generation, or publish any credentials.
+            if self.logoutTask?.id == id { self.logoutTask = nil }
+        }
+        logoutTask = (id, task)
     }
 
     func rpc<P: Encodable & Sendable, R: Decodable & Sendable>(_ function: String, params: P, accountID: UUID? = nil, as type: R.Type = R.self) async throws -> R {
@@ -236,9 +366,47 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
     }
 
     private func beginAuthenticationChange() throws {
-        try KeychainVault.delete("\(config.environment).auth-session")
+        let attemptID = invalidateAuthenticationMemory()
+        do {
+            try credentials.delete("\(config.environment).auth-session")
+            credentialCleanupAttempt = nil
+        } catch {
+            credentialCleanupAttempt = attemptID
+            throw AuthenticationError.credentialStorage
+        }
+    }
+
+    /// Always retire network/in-memory authority before fallible local I/O.
+    /// A subsequent preparation retries cleanup before allocating new secrets.
+    private func invalidateAuthenticationMemory() -> UUID? {
+        let attemptID = signInAttempt?.id ?? credentialCleanupAttempt
         authGeneration &+= 1
-        refreshTask?.task.cancel(); refreshTask = nil; session = nil; signInAttempt = nil
+        refreshTask?.task.cancel(); refreshTask = nil
+        signInRequest?.task.cancel(); signInRequest = nil
+        logoutTask?.task.cancel(); logoutTask = nil
+        session = nil; signInAttempt = nil
+        return attemptID
+    }
+
+    private func owns(_ attempt: SignInAttempt) -> Bool {
+        attempt.generation == authGeneration && signInAttempt?.id == attempt.id
+    }
+
+    private func performSignInRequest(_ route: AuthRoute, body: Data, generation: UInt64) async throws -> Data {
+        try Task.checkCancellation()
+        guard generation == authGeneration else { throw CancellationError() }
+        let id = UUID(), task = Task { try await self.authRaw(route, body: body) }
+        signInRequest = (id, task)
+        defer { if signInRequest?.id == id { signInRequest = nil } }
+        do {
+            let result = try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            try Task.checkCancellation()
+            guard generation == authGeneration else { throw CancellationError() }
+            return result
+        } catch {
+            guard generation == authGeneration else { throw CancellationError() }
+            throw error
+        }
     }
 
     private func authorized(path: String, body: Data?, method: String = "POST", mediaType: String = "application/json", accountID: UUID?,
@@ -270,21 +438,187 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
         if let existing = refreshTask, existing.generation == generation { task = existing.task }
         else {
             task = Task { () throws -> AuthSession in
-                let bytes = try await self.raw(path: "auth/v1/token?grant_type=refresh_token", body: ReaderCrypto.encode(["refresh_token": current.refresh_token]), token: nil)
-                return try JSONDecoder().decode(AuthSession.self, from: bytes)
+                let bytes = try await self.authRaw(.token(.refreshToken), body: ReaderCrypto.encode(["refresh_token": current.refresh_token]))
+                return try Self.decodeSession(bytes)
             }
             refreshTask = (generation, task)
         }
         defer { if refreshTask?.generation == generation { refreshTask = nil } }
-        let next = try await task.value
+        let next: AuthSession
+        do { next = try await task.value }
+        catch {
+            guard generation == authGeneration, session?.user.id == current.user.id else { throw CancellationError() }
+            throw error
+        }
+        try Task.checkCancellation()
         guard generation == authGeneration, session?.user.id == current.user.id, next.user.id == current.user.id else { throw CancellationError() }
         try save(next)
         return next.access_token
     }
 
     private func save(_ next: AuthSession) throws {
-        try KeychainVault.write(ReaderCrypto.encode(next), name: "\(config.environment).auth-session")
+        do { try credentials.write(ReaderCrypto.encode(next), name: "\(config.environment).auth-session") }
+        catch {
+            // A storage implementation can fail after writing. Refuse local
+            // success, invalidate memory, and attempt to remove that ambiguity.
+            let attemptID = invalidateAuthenticationMemory()
+            do {
+                try credentials.delete("\(config.environment).auth-session")
+                credentialCleanupAttempt = nil
+            } catch { credentialCleanupAttempt = attemptID }
+            throw AuthenticationError.credentialStorage
+        }
         session = next
+    }
+
+    private enum AuthGrant: String { case pkce, idToken = "id_token", password, refreshToken = "refresh_token" }
+    private enum AuthRoute {
+        case token(AuthGrant), emailSend, emailVerify, signUp, logout
+        var path: String {
+            switch self {
+            case .token(let grant): "auth/v1/token?grant_type=\(grant.rawValue)"
+            case .emailSend: "auth/v1/otp"
+            case .emailVerify: "auth/v1/verify"
+            case .signUp: "auth/v1/signup"
+            case .logout: "auth/v1/logout?scope=local"
+            }
+        }
+        func accepts(_ status: Int) -> Bool {
+            if case .logout = self { return status == 200 || status == 204 }
+            return status == 200
+        }
+    }
+
+    private func requireAuthenticationConfiguration() throws {
+        guard let url = URLComponents(url: config.url, resolvingAgainstBaseURL: false),
+              url.scheme == "https", url.host?.isEmpty == false,
+              url.user == nil, url.password == nil, url.port == nil,
+              url.path.isEmpty || url.path == "/", url.query == nil, url.fragment == nil,
+              !config.anonKey.isEmpty, config.anonKey.utf8.count <= 16_384,
+              config.anonKey.utf8.allSatisfy({ (33...126).contains($0) }),
+              config.environment != "offline-resource" else { throw AuthenticationError.configuration }
+    }
+
+    private static func validToken(_ value: String) -> Bool {
+        !value.isEmpty && value.utf8.count <= AuthenticationConfiguration.maximumTokenBytes &&
+            value.utf8.allSatisfy { (33...126).contains($0) }
+    }
+
+    private static func validEmail(_ address: String) -> Bool {
+        guard (1...320).contains(address.utf8.count) else { return false }
+        let parts = address.split(separator: "@", omittingEmptySubsequences: false)
+        return parts.count == 2 && parts.allSatisfy { !$0.isEmpty } &&
+            !address.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) || CharacterSet.controlCharacters.contains($0) }
+    }
+
+    private static func decodeSession(_ data: Data) throws -> AuthSession {
+        guard data.count <= AuthenticationConfiguration.maximumResponseBytes else { throw AuthenticationError.invalidResponse }
+        struct Wire: Decodable {
+            let access_token: String
+            let refresh_token: String
+            let expires_at: TimeInterval?
+            let expires_in: TimeInterval?
+            let token_type: String?
+            let user: AuthSession.User
+        }
+        guard let wire = try? JSONDecoder().decode(Wire.self, from: data),
+              validToken(wire.access_token), validToken(wire.refresh_token),
+              wire.token_type == nil || wire.token_type?.lowercased() == "bearer",
+              wire.user.email.map({ $0.utf8.count <= 320 && !$0.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) }) ?? true
+        else { throw AuthenticationError.invalidResponse }
+        let expiry: TimeInterval
+        if let absolute = wire.expires_at { expiry = absolute }
+        else if let interval = wire.expires_in, interval.isFinite, interval > 0, interval <= 31_536_000 {
+            // GoTrue REST may send expires_in without the SDK-derived expires_at.
+            expiry = Date().timeIntervalSince1970 + interval
+        } else { throw AuthenticationError.invalidResponse }
+        // Expired cached sessions (including epoch zero) may still refresh.
+        guard expiry.isFinite, expiry >= 0, expiry <= 253_402_300_799 else { throw AuthenticationError.invalidResponse }
+        return AuthSession(access_token: wire.access_token, refresh_token: wire.refresh_token,
+                           expires_at: expiry, user: wire.user)
+    }
+
+    /// Auth has a separate bounded session so resource deadlines also apply to
+    /// injected transports. No redirect, response body or retry policy can
+    /// widen the fixed route; errors contain only finite local categories.
+    private func authRaw(_ route: AuthRoute, body: Data, token: String? = nil) async throws -> Data {
+        try Task.checkCancellation()
+        try requireAuthenticationConfiguration()
+        guard body.count <= AuthenticationConfiguration.maximumRequestBytes,
+              let url = URL(string: "/" + route.path, relativeTo: config.url)?.absoluteURL else { throw AuthenticationError.invalidResponse }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
+        request.httpMethod = "POST"; request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        do {
+            let (bytes, rawResponse) = try await authNetwork.bytes(for: request, delegate: LibraryRedirectPolicy())
+            defer { bytes.task.cancel() }
+            guard let response = rawResponse as? HTTPURLResponse, response.url == url,
+                  response.expectedContentLength <= Int64(AuthenticationConfiguration.maximumResponseBytes),
+                  response.value(forHTTPHeaderField: "Content-Encoding").map({ $0.lowercased() == "identity" }) ?? true
+            else { throw AuthenticationError.invalidResponse }
+            let declared: Int?
+            if let text = response.value(forHTTPHeaderField: "Content-Length") {
+                guard !text.isEmpty, text.utf8.count <= 10, text.utf8.allSatisfy({ (48...57).contains($0) }),
+                      let count = Int(text), count <= AuthenticationConfiguration.maximumResponseBytes else { throw AuthenticationError.invalidResponse }
+                declared = count
+            } else { declared = nil }
+            let data = try await withTaskCancellationHandler {
+                var data = Data()
+                data.reserveCapacity(min(declared ?? 4_096, AuthenticationConfiguration.maximumResponseBytes))
+                for try await byte in bytes {
+                    guard data.count < AuthenticationConfiguration.maximumResponseBytes else { throw AuthenticationError.invalidResponse }
+                    data.append(byte)
+                }
+                try Task.checkCancellation()
+                guard declared == nil || declared == data.count else { throw AuthenticationError.invalidResponse }
+                return data
+            } onCancel: { bytes.task.cancel() }
+            try Task.checkCancellation()
+            guard route.accepts(response.statusCode) else {
+                if (200..<400).contains(response.statusCode) { throw AuthenticationError.invalidResponse }
+                throw Self.authFailure(route: route, response: response, data: data)
+            }
+            return data
+        } catch {
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
+            if let error = error as? AuthenticationError { throw error }
+            throw AuthenticationError.connection
+        }
+    }
+
+    private static func authFailure(route: AuthRoute, response: HTTPURLResponse, data: Data) -> AuthenticationError {
+        struct Failure: Decodable {
+            let code: String?
+            let errorCode: String?
+            enum CodingKeys: String, CodingKey { case code; case errorCode = "error_code" }
+            init(from decoder: any Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                code = try? c.decode(String.self, forKey: .code)
+                errorCode = try? c.decode(String.self, forKey: .errorCode)
+            }
+        }
+        let failure = try? JSONDecoder().decode(Failure.self, from: data)
+        let codes = [failure?.code, failure?.errorCode].compactMap { $0 }
+        // A gateway/server failure cannot become definitive business evidence
+        // merely because its body happens to contain a familiar code.
+        if (500...599).contains(response.statusCode) { return .connection }
+        if response.statusCode == 429 || codes.contains(where: { ["over_email_send_rate_limit", "over_request_rate_limit", "over_send_rate_limit"].contains($0) }) {
+            let value = response.value(forHTTPHeaderField: "Retry-After")
+            let retry = value.flatMap { text -> Int? in
+                guard !text.isEmpty, text.utf8.count <= 5, text.utf8.allSatisfy({ (48...57).contains($0) }),
+                      let seconds = Int(text), (0...86_400).contains(seconds) else { return nil }
+                return seconds
+            }
+            return .rateLimited(retryAfterSeconds: retry)
+        }
+        if codes.contains(where: { ["provider_disabled", "email_provider_disabled", "otp_disabled", "signup_disabled"].contains($0) }) { return .configuration }
+        if codes.contains("email_address_invalid") { return .invalidEmail }
+        if case .emailVerify = route, codes.contains(where: { ["otp_expired", "invalid_credentials"].contains($0) }) { return .invalidCode }
+        return .rejected
     }
 
     private func raw(path: String, body: Data?, token: String?, method: String = "POST", mediaType: String = "application/json",
@@ -348,8 +682,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport {
     }
 }
 
-/// Library RPCs stay on their configured origin. Do not follow a redirect before parsing
-/// a supposedly trusted structured error or forward credentials to its target.
+/// Library and auth requests stay on their configured origin. Never follow a
+/// redirect before parsing an error or forward credentials to its target.
 private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {

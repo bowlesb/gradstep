@@ -174,6 +174,12 @@ final class ReaderModel {
     var syncIssue: String?
     var error: String?
     var showSignIn = false
+    private(set) var authentication: AuthenticationCoordinator?
+    private(set) var signInPresentationID: UUID?
+    private(set) var accountPreparationIssue: String?
+    @ObservationIgnored private var accountPreparationTask: Task<Void, Never>?
+    @ObservationIgnored private var authenticationRetirement: Task<Void, Never>?
+    @ObservationIgnored private var pendingRecoveryPresentation: (sessionID: UUID, accountID: UUID)?
     var showAllChats = false
     var showDiagrams = false
     var showReport = false
@@ -236,12 +242,29 @@ final class ReaderModel {
          readerBundleVerification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
          readerBundleDirectoryReader: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) },
          librarySearchWorker: LibrarySearchCoordinator.Worker? = nil) {
-        self.configuration = configuration; self.backend = client
+        var resolvedConfiguration = configuration
+        var resolvedClient = client
+        var fixtureFailed = false
+        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        if AuthenticationWorkflowFixture.isEnabled {
+            do {
+                let fixture = try AuthenticationWorkflowFixture.makeBackend()
+                resolvedConfiguration = fixture.configuration; resolvedClient = fixture.client
+            } catch {
+                // A requested local fixture must never fall back to the bundled
+                // backend or a real provider when its isolated setup fails.
+                resolvedConfiguration = nil; resolvedClient = nil; fixtureFailed = true
+            }
+        }
+        #endif
+        self.configuration = resolvedConfiguration; self.backend = resolvedClient
         self.readerBundleVerification = readerBundleVerification; self.readerBundleDirectoryReader = readerBundleDirectoryReader
         self.librarySearchWorker = librarySearchWorker
+        if fixtureFailed { error = "The local sign-in fixture couldn’t be prepared." }
     }
 
     var configured: Bool { configuration != nil }
+    var isSignedIn: Bool { accountID != nil }
     var filteredPapers: [Paper] {
         libraryRows.compactMap { if case .paper(let paper) = $0 { return paper }; return nil }
     }
@@ -493,31 +516,144 @@ final class ReaderModel {
             return
         }
         #endif
+        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        if AuthenticationWorkflowFixture.isEnabled {
+            openSample(); tab = .library; wideMode = .library
+        }
+        #endif
         if ProcessInfo.processInfo.arguments.contains("--reader-fixture") { openSample() }
         guard let configuration else { return }
         let scope = sessionID
         do {
             let client = try backend ?? BackendClient(configuration: configuration); backend = client
-            if let user = await client.currentUser(), sessionID == scope { email = user.email; accountID = user.id; try await signedIn(user, client: client, scope: scope) }
+            if let user = await client.currentUser(), sessionID == scope {
+                email = user.email; accountID = user.id
+                beginAccountPreparation(user, client: client, scope: scope)
+                await accountPreparationTask?.value
+            }
         } catch { if sessionID == scope { show(error) } }
     }
 
-    func authenticate(email: String, password: String, create: Bool) async {
-        guard let backend else { show(BackendError.unavailable); return }
-        guard !isBusy else { return }
+    func openSignIn() {
+        guard !isSignedIn else {
+            if needsRecovery || recoveryCode != nil || accountPreparationIssue != nil { requestRecoveryPresentation() }
+            return
+        }
+        // Retain the previous sheet's identity through its actual onDismiss.
+        // A new presentation cannot inherit that old dismissal callback.
+        guard signInPresentationID == nil else { return }
+        do {
+            if backend == nil, let configuration { backend = try BackendClient(configuration: configuration) }
+        } catch { show(error); return }
+        beginAuthenticationContext()
+        guard let backend else {
+            signInPresentationID = UUID(); showSignIn = true
+            return
+        }
+        let owner = AuthenticationCoordinator(backend: backend, predecessor: authenticationRetirement) { [weak self] acceptance in
+            self?.acceptAuthentication(acceptance) ?? false
+        }
+        authentication = owner
+        signInPresentationID = owner.open(readerSessionID: sessionID).id
+        showSignIn = true
+    }
+
+    func closeSignIn(presentationID: UUID) {
+        guard signInPresentationID == presentationID else { return }
+        authentication?.close(presentationID: presentationID)
+        showSignIn = false
+    }
+
+    func authenticationSheetDismissed() {
+        guard let id = signInPresentationID else { return }
+        if let authentication {
+            authentication.didDismiss(presentationID: id)
+            retainAuthenticationRetirement(authentication)
+        }
+        authentication = nil; signInPresentationID = nil; showSignIn = false
+        if let pending = pendingRecoveryPresentation,
+           pending.sessionID == sessionID, pending.accountID == accountID {
+            pendingRecoveryPresentation = nil; showRecovery = true
+        }
+    }
+
+    private func acceptAuthentication(_ acceptance: AuthenticationCoordinator.Acceptance) -> Bool {
+        guard acceptance.presentationID == signInPresentationID,
+              authentication?.presentation?.id == acceptance.presentationID,
+              authentication?.phase == .accepted(accountID: acceptance.user.id),
+              acceptance.readerSessionID == sessionID, accountID == nil, let backend else { return false }
+        accountID = acceptance.user.id; email = acceptance.user.email
+        // Register account work before requesting dismissal; no await occurs
+        // between coordinator validation, model acceptance and this handoff.
+        beginAccountPreparation(acceptance.user, client: backend, scope: acceptance.readerSessionID)
+        showSignIn = false
+        return true
+    }
+
+    private func beginAccountPreparation(_ user: AuthSession.User, client: BackendClient, scope: UUID) {
+        guard sessionID == scope, accountID == user.id, accountPreparationTask == nil else { return }
+        accountPreparationIssue = nil; isBusy = true
+        accountPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if self.sessionID == scope, self.accountID == user.id {
+                    self.accountPreparationTask = nil; self.isBusy = false
+                }
+            }
+            do { try await self.signedIn(user, client: client, scope: scope) }
+            catch {
+                guard self.sessionID == scope, self.accountID == user.id else { return }
+                self.accountPreparationIssue = "Couldn’t prepare your private library. Your saved work is still on this device."
+                self.requestRecoveryPresentation()
+            }
+        }
+    }
+
+    func retryAccountPreparation() async {
+        guard let backend, let accountID, accountPreparationTask == nil else { return }
+        let scope = sessionID
+        guard let user = await backend.currentUser(), user.id == accountID, sessionID == scope else { return }
+        beginAccountPreparation(user, client: backend, scope: scope)
+        await accountPreparationTask?.value
+    }
+
+    private func requestRecoveryPresentation() {
+        guard let accountID else { return }
+        if signInPresentationID != nil {
+            pendingRecoveryPresentation = (sessionID, accountID)
+        } else { showRecovery = true }
+    }
+
+    private func retainAuthenticationRetirement(_ owner: AuthenticationCoordinator) {
+        let predecessor = authenticationRetirement
+        authenticationRetirement = Task {
+            await predecessor?.value
+            await owner.waitForRetirement()
+        }
+    }
+
+    private func beginAuthenticationContext() {
         // Only an unauthenticated local draft may cross initial sign-in. Never
         // carry a signed-in account's private context into another account.
-        let guestDraft = accountID == nil && self.email == nil && chatComposerID != nil ? chatInput : nil
-        let guestPaper = accountID == nil && self.email == nil && selectedPaper?.isSample == true ? selectedPaper : nil
+        let wasGuest = accountID == nil
+        let guestDraft = wasGuest && chatComposerID != nil ? chatInput : nil
+        let guestPaper = wasGuest && selectedPaper?.isSample == true ? selectedPaper : nil
         let guestGeneral = generalChat
         let guestTab = tab, guestMode = wideMode
         clearAccountView()
-        if let guestDraft {
+        if wasGuest {
             if let guestPaper { papers = [guestPaper]; select(guestPaper) }
             generalChat = guestGeneral || guestPaper == nil
-            chatInput = String(guestDraft.prefix(20_000))
+            if let guestDraft { chatInput = String(guestDraft.prefix(20_000)) }
             tab = guestTab; wideMode = guestMode
         }
+    }
+
+    /// Kept for deterministic development fixtures, not the customer sheet.
+    func authenticate(email: String, password: String, create: Bool) async {
+        guard let backend else { show(BackendError.unavailable); return }
+        guard !isBusy else { return }
+        beginAuthenticationContext()
         let scope = sessionID
         isBusy = true; defer { if sessionID == scope { isBusy = false } }
         do {
@@ -548,8 +684,8 @@ final class ReaderModel {
         guard sessionID == scope, accountID == user.id else { throw BackendError.signInRequired }
         switch preparation {
         case .ready(let device): try await activate(device, scope: scope)
-        case .saveRecoveryCode(let code): recoveryCode = code; needsRecovery = false; showRecovery = true
-        case .recoveryRequired: recoveryCode = nil; needsRecovery = true; showRecovery = true
+        case .saveRecoveryCode(let code): recoveryCode = code; needsRecovery = false; requestRecoveryPresentation()
+        case .recoveryRequired: recoveryCode = nil; needsRecovery = true; requestRecoveryPresentation()
         }
         await loadLibrary(accountID: user.id, scope: scope)
     }
@@ -628,7 +764,7 @@ final class ReaderModel {
         prepareDrafts(snapshot: snapshot, scope: scope)
         publish(snapshot)
         checkpointAllDrafts()
-        recoveryCode = nil; needsRecovery = false; showRecovery = false
+        recoveryCode = nil; needsRecovery = false; showRecovery = false; pendingRecoveryPresentation = nil
         // Cached identity and device keys already suffice for local reading.
         // Do this before support flushing, key refresh, or any sync request.
         await prepareOfflineLibrary(accountID: device.accountID, scope: scope, activation: activation,
@@ -676,7 +812,7 @@ final class ReaderModel {
             syncStatus = "Saved on this device · Sync paused"
             syncIssue = (error as? LocalizedError)?.errorDescription ?? "Sync could not finish. Your saved work remains on this device."
             if let keyError = error as? ReaderError, keyError == .missingKey || keyError == .staleEpoch {
-                recoveryCode = nil; needsRecovery = true; showRecovery = true
+                recoveryCode = nil; needsRecovery = true; requestRecoveryPresentation()
             } else if reportErrors { show(error) }
         }
     }
@@ -687,7 +823,7 @@ final class ReaderModel {
             if afterMenu { try? await Task.sleep(for: .milliseconds(350)) }
             guard sessionID == scope else { return }
             reportScreen = "\(tab.rawValue) / \(wideMode.rawValue)"
-            reportScreenshot = showRecovery || showSignIn ? nil : ScreenshotCapture.currentWindow()
+            reportScreenshot = showRecovery || signInPresentationID != nil ? nil : ScreenshotCapture.currentWindow()
             showReport = true
         }
     }
@@ -696,7 +832,14 @@ final class ReaderModel {
         guard let backend else { return }
         clearAccountView()
         let scope = sessionID
-        do { try await backend.signOut() } catch { if sessionID == scope { show(error) } }
+        let predecessor = authenticationRetirement
+        let task = Task { [weak self] in
+            await predecessor?.value
+            do { try await backend.signOut() }
+            catch { if let self, self.sessionID == scope { self.show(error) } }
+        }
+        authenticationRetirement = task
+        await task.value
     }
 
     /// Sign-out clears presentation immediately; wait here before retiring any
@@ -704,6 +847,13 @@ final class ReaderModel {
     func waitForLocalRetirement() async { await retirementQueue.wait() }
 
     private func clearAccountView() {
+        if let authentication {
+            authentication.invalidate()
+            retainAuthenticationRetirement(authentication)
+        }
+        authentication = nil; showSignIn = false
+        accountPreparationTask?.cancel(); accountPreparationTask = nil
+        accountPreparationIssue = nil; pendingRecoveryPresentation = nil
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
         librarySearchCandidates = []; libraryRowLookup = [:]
         librarySearchSourceChanged()
@@ -1156,7 +1306,7 @@ final class ReaderModel {
         ]
         newChat(general: false); chatInput = prompts[action] ?? quote
         tab = .chat; wideMode = .reader
-        if email == nil { showSignIn = true }
+        if !isSignedIn { openSignIn() }
         // This build saves encrypted questions only; there is no provider route
         // to consent to yet. Provider consent must bind a captured future turn.
         else {
@@ -1186,7 +1336,7 @@ final class ReaderModel {
         guard generalChat || canUsePaperChat else { return }
         guard !chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard chatContextComplete else { error = chatWasDeleted ? "This conversation was deleted. Start a new chat to continue." : "Sync this conversation before continuing; an earlier message is still missing."; return }
-        guard let store, let device else { showSignIn = true; return }
+        guard let store, let device else { openSignIn(); return }
         guard !isGenerating, accountID == device.accountID else { return }
         let scope = sessionID
         let storeScope = workOwnership.storeScope, persistence = localPersistence

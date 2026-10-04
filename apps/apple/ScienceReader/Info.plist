@@ -9,9 +9,11 @@
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
   <key>UILaunchScreen</key><dict/>
+  <key>UIAppFonts</key><array><string>GoogleSans-Medium.ttf</string></array>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
   <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
   <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>sciencereader</string></array></dict></array>
+  <key>ScienceReaderAuthCallbackURL</key><string>sciencereader://auth/callback</string>
   <key>ScienceReaderSupabaseURL</key><string>$(SCIENCE_READER_SUPABASE_URL)</string>
   <key>ScienceReaderSupabaseAnonKey</key><string>$(SCIENCE_READER_SUPABASE_ANON_KEY)</string>
   <key>ScienceReaderEnvironment</key><string>$(SCIENCE_READER_ENVIRONMENT)</string>

@@ -6,7 +6,7 @@ struct ScienceReaderApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
-                .tint(Color(red: 99/255, green: 102/255, blue: 241/255))
+                .tint(Color.accentColor)
                 .preferredColorScheme(model.appearance == "dark" ? .dark : model.appearance == "light" ? .light : nil)
                 .task { await model.start() }
         }

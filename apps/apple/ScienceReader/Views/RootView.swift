@@ -59,7 +59,11 @@ struct RootView: View {
                 }.allowsHitTesting(false).accessibilityHidden(true)
             }
         }
-        .sheet(isPresented: $model.showSignIn) { AuthenticationView(model: model) }
+        .sheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
+            if let presentationID = model.signInPresentationID {
+                AuthenticationView(model: model, presentationID: presentationID).id(presentationID)
+            }
+        }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
@@ -81,6 +85,16 @@ struct RootView: View {
                 }
             }
         }
+    }
+
+    private var signInPresentation: Binding<Bool> {
+        // SwiftUI may deliver the dismissal after this body has changed. Keep
+        // the ID that this binding actually presented, rather than cancelling
+        // whichever attempt happens to be current when the callback arrives.
+        let presentationID = model.signInPresentationID
+        return Binding(get: { model.showSignIn }, set: { presented in
+            if !presented, let presentationID { model.closeSignIn(presentationID: presentationID) }
+        })
     }
 
     @ViewBuilder private func destination(_ tab: ReaderTab) -> some View {
@@ -138,8 +152,8 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if model.email == nil {
-                    Button { model.showSignIn = true } label: {
+                if !model.isSignedIn {
+                    Button { model.openSignIn() } label: {
                         HStack {
                             Image(systemName: "lock.icloud").font(.system(size: 20))
                             Text("Sign in to sync").font(.subheadline).fixedSize(horizontal: false, vertical: true)
@@ -265,12 +279,12 @@ struct LibraryView: View {
                         Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
                         Button("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
                         Button("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
-                            .disabled(model.email == nil || model.libraryRefreshing)
+                            .disabled(!model.isSignedIn || model.libraryRefreshing)
                     } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Library options")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        if model.librarySignInRequired { model.showSignIn = true } else { model.showImport = true }
+                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
                     } label: { Image(systemName: "plus") }.accessibilityLabel("Add a paper")
                 }
             }
@@ -410,7 +424,7 @@ struct ChatView: View {
                             .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Save message").accessibilityIdentifier("chat.send")
                     }.padding(12)
                     if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
-                    else if model.email != nil || model.chatHasSaved { Text(model.syncStatus).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
+                    else if model.isSignedIn || model.chatHasSaved { Text(model.syncStatus).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
                 }
             }
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
@@ -468,13 +482,20 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Account") {
-                    if let email = model.email {
-                        Label(email, systemImage: "person.crop.circle"); LabeledContent("Sync", value: model.syncStatus)
+                    if model.isSignedIn {
+                        Label(model.email.flatMap { $0.isEmpty ? nil : $0 } ?? "Signed in", systemImage: "person.crop.circle")
+                        LabeledContent("Sync", value: model.syncStatus)
                         if let issue = model.syncIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
-                        Button("Sign out") { Task { await model.signOut() } }
+                        if let issue = model.accountPreparationIssue {
+                            Text(issue).font(.footnote).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("account.preparationIssue")
+                            Button("Try again") { Task { await model.retryAccountPreparation() } }
+                                .disabled(model.isBusy).accessibilityIdentifier("account.retryPreparation")
+                        }
+                        Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
                         Text("Encrypted pending work stays on this device for your next sign-in.").font(.footnote).foregroundStyle(.secondary)
                     }
-                    else { Button("Sign in or create an account") { model.showSignIn = true } }
+                    else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
                     LabeledContent("Environment", value: "Private beta · staging")
                 }
                 Section("Reading") {
@@ -485,7 +506,7 @@ struct SettingsView: View {
                 Section("Your research") {
                     Button("All chats") { model.showAllChats = true }
                     Button("All diagrams") { model.showDiagrams = true }
-                    Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }.disabled(model.email == nil)
+                    Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }.disabled(!model.isSignedIn)
                 }
                 Section("Privacy") {
                     Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.").font(.footnote).foregroundStyle(.secondary)
@@ -544,32 +565,6 @@ struct HistoryView: View {
     }
 }
 
-struct AuthenticationView: View {
-    @Bindable var model: ReaderModel
-    @State private var email = ""
-    @State private var password = ""
-    @State private var create = false
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Email", text: $email).textContentType(.emailAddress).keyboardType(.emailAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    SecureField("Password", text: $password).textContentType(create ? .newPassword : .password)
-                } footer: { if create { Text("Use at least 12 characters. We’ll send an email to confirm your account.") } }
-                Section {
-                    Button { Task { await model.authenticate(email: email, password: password, create: create) } } label: {
-                        HStack { Text(create ? "Create account" : "Sign in"); Spacer(); if model.isBusy { ProgressView() } }
-                    }.disabled(model.isBusy || email.isEmpty || password.isEmpty || !model.configured)
-                    Toggle("Create a new account", isOn: $create)
-                }
-                if !model.configured { Text("Cloud account setup is in progress for this development build. The offline reader sample is available.").foregroundStyle(.secondary).font(.footnote) }
-            }.navigationTitle("Science Reader").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
-        }
-    }
-}
-
 struct RecoveryView: View {
     @Bindable var model: ReaderModel
     @State private var input = ""
@@ -578,8 +573,11 @@ struct RecoveryView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text(model.needsRecovery ? "Restore your private library" : "Save your recovery code").font(.title2.weight(.semibold))
-                    Text("Your private conversations and notes are encrypted. If you lose all approved devices and this code, we cannot recover that content.")
+                    Text(model.needsRecovery ? "Restore your private library" : (model.recoveryCode != nil ? "Save your recovery code" : "Set up this device"))
+                        .font(.title2.weight(.semibold))
+                    if model.needsRecovery || model.recoveryCode != nil {
+                        Text("Your private conversations and notes are encrypted. If you lose all approved devices and this code, we cannot recover that content.")
+                    }
                 }
                 if model.needsRecovery {
                     Section("Recovery code") {
@@ -593,8 +591,21 @@ struct RecoveryView: View {
                         Button("Continue") { Task { await model.finishRecovery() } }.disabled(!saved || model.isBusy)
                     }
                 }
+                if let issue = model.accountPreparationIssue {
+                    Section {
+                        Text(issue).font(.footnote).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("account.preparationIssue")
+                        Button("Try again") { Task { await model.retryAccountPreparation() } }
+                            .disabled(model.isBusy).accessibilityIdentifier("account.retryPreparation")
+                    }
+                }
                 if model.isBusy { ProgressView() }
             }.navigationTitle("Private library").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
+                    }
+                }
         }
     }
 }
