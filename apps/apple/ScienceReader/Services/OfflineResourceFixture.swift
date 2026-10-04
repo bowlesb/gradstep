@@ -46,6 +46,10 @@ enum OfflineResourceFixture {
         guard presentationFlags <= 1, presentationFlags == 0 || attributionFlags == 1 else {
             throw Failure.invalidArguments
         }
+        let rowEvaluationFlags = arguments.filter { $0 == "--offline-resource-row-evaluation" }.count
+        guard rowEvaluationFlags <= 1, rowEvaluationFlags == 0 || presentationFlags == 1 else {
+            throw Failure.invalidArguments
+        }
         #if !OFFLINE_RESOURCE_MEASUREMENTS
         guard attributionFlags == 0 else { throw Failure.invalidArguments }
         #endif
@@ -230,11 +234,76 @@ final class OfflineResourceProbe {
     @ObservationIgnored private var presentationCycleStarted = false
     @ObservationIgnored private var mountedDestinations = Set<ReaderTab>()
     @ObservationIgnored private var destinationMountSerial: UInt64 = 0
+    @ObservationIgnored private var rowEvaluation: RowEvaluationState?
 
     private struct AllocatorSnapshot: Encodable {
         let blocksInUse: UInt64
         let bytesInUse: UInt64
         let bytesAllocated: UInt64
+    }
+
+    private struct RowEvaluationMetric: Encodable {
+        let total: UInt64
+        let unique: Int
+        let invalid: UInt64
+    }
+
+    private struct RowEvaluationCounter {
+        // Two counters own 126 UInt64 words (1,008 bytes), never row values,
+        // identifiers, strings or a dictionary of the full catalog.
+        private var words = [UInt64](repeating: 0, count: 63)
+        private var total: UInt64 = 0
+        private var unique = 0
+        private var invalid: UInt64 = 0
+
+        var metric: RowEvaluationMetric { RowEvaluationMetric(total: total, unique: unique, invalid: invalid) }
+
+        mutating func reset() {
+            for index in words.indices { words[index] = 0 }
+            total = 0; unique = 0; invalid = 0
+        }
+
+        mutating func record(_ documentID: UUID?) {
+            // Overflow cannot silently wrap into a plausible small count.
+            guard total < UInt64.max else { invalid = UInt64.max; return }
+            total += 1
+            guard let documentID, let index = Self.documentIndex(documentID) else { invalid += 1; return }
+            let word = index / 64, bit = UInt64(1) << (index % 64)
+            if words[word] & bit == 0 { words[word] |= bit; unique += 1 }
+        }
+
+        private static func documentIndex(_ identifier: UUID) -> Int? {
+            let bytes = identifier.uuid
+            guard bytes.0 == 0xcc, bytes.1 == 0xcc, bytes.2 == 0xcc, bytes.3 == 0xcc,
+                  bytes.4 == 0x40, bytes.5 == 0, bytes.6 == 0x40, bytes.7 == 0,
+                  bytes.8 == 0x80, bytes.9 == 0 else { return nil }
+            // The fixture encodes role * 10,000 + row in the last six bytes.
+            // Role 1 is a document; all other roles and out-of-range rows fail.
+            let suffix = (UInt64(bytes.10) << 40) | (UInt64(bytes.11) << 32) |
+                (UInt64(bytes.12) << 24) | (UInt64(bytes.13) << 16) |
+                (UInt64(bytes.14) << 8) | UInt64(bytes.15)
+            guard suffix >= 10_001, suffix <= 14_000 else { return nil }
+            return Int(suffix - 10_001)
+        }
+    }
+
+    /// Unobserved diagnostic state. Recording must not read `mode`, `statusJSON`
+    /// or any model property and thereby add dependencies to a row's body.
+    private final class RowEvaluationState {
+        let mode: Int
+        var stage = 0
+        var startUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+        var emitted = false
+        var builders = RowEvaluationCounter()
+        var paperBodies = RowEvaluationCounter()
+
+        init(mode: Int) { self.mode = mode }
+
+        func reset(stage: Int) {
+            builders.reset(); paperBodies.reset()
+            self.stage = stage; emitted = false
+            startUptimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+        }
     }
     #endif
 
@@ -327,6 +396,10 @@ final class OfflineResourceProbe {
         #if OFFLINE_RESOURCE_MEASUREMENTS
         attributionEmitted = false
         presentationCycleStarted = false
+        // configure runs before restoration publishes any library rows. No
+        // counter allocation or row instrumentation is enabled without opt-in.
+        rowEvaluation = ProcessInfo.processInfo.arguments.contains("--offline-resource-row-evaluation") && mode != .seed
+            ? RowEvaluationState(mode: mode == .restore ? 2 : 3) : nil
         // RootView may have mounted before fixture activation. Its current
         // lifecycle acknowledgements belong to the view, not the store reset.
         #endif
@@ -462,6 +535,16 @@ final class OfflineResourceProbe {
     }
 
     #if OFFLINE_RESOURCE_MEASUREMENTS
+    func recordLibraryRowBuilder(documentID: UUID?) {
+        guard let rowEvaluation, !rowEvaluation.emitted else { return }
+        rowEvaluation.builders.record(documentID)
+    }
+
+    func recordPaperRowBody(documentID: UUID) {
+        guard let rowEvaluation, !rowEvaluation.emitted else { return }
+        rowEvaluation.paperBodies.record(documentID)
+    }
+
     func destinationAppearance(_ destination: ReaderTab, appeared: Bool) {
         guard ProcessInfo.processInfo.arguments.contains("--offline-resource-presentation-cycle"),
               destination == .library || destination == .settings else { return }
@@ -488,6 +571,9 @@ final class OfflineResourceProbe {
             try await awaitDestination(.library, generation: cycleGeneration, isCurrent: isCurrent)
             for (index, destination) in [ReaderTab.settings, .library].enumerated() {
                 let previousMount = destinationMountSerial
+                // Count transition construction too: a body may run before
+                // the destination's onAppear acknowledgement.
+                rowEvaluation?.reset(stage: index + 1)
                 select(destination)
                 try await awaitDestination(destination, generation: cycleGeneration, isCurrent: isCurrent)
                 guard destinationMountSerial > previousMount else { throw OfflineResourceFixture.Failure.unexpectedState }
@@ -520,6 +606,7 @@ final class OfflineResourceProbe {
                 }
                 emitPresentationCheckpoint(stage: index + 1, destination: destination,
                     mountSerial: mountSerial, samplingOrigin: samplingOrigin, samples: samples)
+                emitRowEvaluationCheckpoint(stage: index + 1, destination: destination)
             }
         } catch {
             guard generation == cycleGeneration else { return }
@@ -577,6 +664,35 @@ final class OfflineResourceProbe {
             bytesInUse: UInt64(statistics.size_in_use), bytesAllocated: UInt64(statistics.size_allocated))
     }
 
+    private func emitRowEvaluationCheckpoint(stage: Int, destination: ReaderTab) {
+        guard let rowEvaluation, rowEvaluation.stage == stage, !rowEvaluation.emitted else { return }
+        struct Checkpoint: Encodable {
+            let format = 1
+            let pid: Int32
+            let mode: Int
+            let stage: Int
+            let destination: Int
+            let mountSerial: UInt64
+            let rows: Int
+            let installations: Int
+            let startUptimeNanoseconds: UInt64
+            let uptimeNanoseconds: UInt64
+            let builders: RowEvaluationMetric
+            let paperBodies: RowEvaluationMetric
+        }
+        let checkpoint = Checkpoint(pid: ProcessInfo.processInfo.processIdentifier, mode: rowEvaluation.mode,
+            stage: stage, destination: destination == .library ? 1 : 2, mountSerial: destinationMountSerial,
+            rows: rows, installations: installations, startUptimeNanoseconds: rowEvaluation.startUptimeNanoseconds,
+            uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            builders: rowEvaluation.builders.metric, paperBodies: rowEvaluation.paperBodies.metric)
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        guard let bytes = try? encoder.encode(checkpoint), bytes.count <= 2_048 else { return }
+        var line = Data("TIMESTEP_ROW_EVALUATION_CHECKPOINT ".utf8)
+        line.append(bytes); line.append(10)
+        rowEvaluation.emitted = true
+        try? FileHandle.standardOutput.write(contentsOf: line)
+    }
+
     /// One numeric checkpoint for launch-time allocation traces. It occurs
     /// after the unchanged sampling/ownership guards, never between readings.
     /// No accessibility observer, allocator purge or library content is added.
@@ -604,6 +720,7 @@ final class OfflineResourceProbe {
         line.append(bytes); line.append(10)
         attributionEmitted = true
         try? FileHandle.standardOutput.write(contentsOf: line)
+        emitRowEvaluationCheckpoint(stage: 0, destination: .library)
     }
     #endif
 

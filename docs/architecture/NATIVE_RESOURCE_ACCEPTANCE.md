@@ -206,4 +206,43 @@ The app binary is SHA-256
 `9d24f8478a200cde6597e4cb61e3aa5217a87d661783ee59dfe909348f927446`;
 the previous diagnostic and repeated benchmark binaries remain preserved.
 
+One subsequent unchanged-binary launch enabled Apple's
+`-LogForEachSlowPath YES` diagnostic. It completed and was terminated normally,
+but produced no slow-path warning in stdout, stderr or the bounded process-only
+unified-log query. This absence is inconclusive without a positive control and
+does not establish constant-row optimization. Its numeric values are not used
+as a performance comparison. Evidence is
+`.artifacts/offline-list-slowpath-restore-counters-evidence.json` and companion
+logs. [Apple's ForEach diagnostic and constant-row guidance](https://developer.apple.com/documentation/swiftui/foreach).
+
+The next resource-only diagnostic opts into
+`--offline-resource-row-evaluation`, requiring the entire presentation-cycle
+flag chain. It records List content-closure calls separately from `PaperRow.body`
+calls. Two fixed bitsets use 1,008 bytes and identify only the fixture's 4,000
+synthetic document ordinals; no catalog values or strings are retained. Counters
+reset before catalog publication and before each tab selection. Hooks read only
+unobserved counter state, so they add no model observation dependency.
+
+Independent source review is clear and the optimized build passes. One empty
+and one full-library cycle each produced all six ordered records: the existing
+three checkpoints and three separately prefixed scalar count summaries, with
+matching PID, mode, counts, stage/mount order and bounded monotonic windows.
+All invalid-ID counts are zero, and both app processes were terminated afterward.
+
+| Full-library phase | Builder calls / unique documents | Paper body calls / unique documents |
+| --- | --- | --- |
+| Initial Library | 8,000 / 4,000 | 5 / 5 |
+| Settings | 0 / 0 | 0 / 0 |
+| Returned Library | 8,000 / 4,000 | 5 / 5 |
+
+The empty control reports zero for both counters throughout. This establishes
+collection-wide construction of row descriptions while paper-body evaluation
+remains limited to a few rows in this workflow. It does not count allocations,
+identify retained row objects or prove a particular optimization will help.
+Counter-instrumented memory/timing is not used as a benchmark comparison.
+Evidence and source/binary identities are in
+`.artifacts/offline-row-evaluation-{empty,restore}-evidence.json`,
+`offline-row-evaluation-source.{json,patch}` and `offline-row-evaluation-build.log`;
+the collector is `run-offline-row-evaluation.py` in the same artifact directory.
+
 References: [Apple memory-performance testing](https://developer.apple.com/documentation/xcode/preventing-memory-use-regressions), [Apple performance-test configuration](https://developer.apple.com/documentation/xcode/writing-and-running-performance-tests), [WebKit process architecture](https://docs.webkit.org/Getting%20Started/Introduction.html), [XcodeGen project specification](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md).

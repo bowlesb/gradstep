@@ -240,6 +240,9 @@ struct LibraryView: View {
                     List(model.libraryRows) { entry in
                         switch entry {
                         case .paper(let paper):
+                            #if OFFLINE_RESOURCE_MEASUREMENTS
+                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: paper.id)
+                            #endif
                             Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics) }
                                 .buttonStyle(.plain).listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                                 .accessibilityIdentifier("paper.\(paper.id.wire)")
@@ -250,6 +253,9 @@ struct LibraryView: View {
                                     }
                                 }
                         case .pending(let item):
+                            #if OFFLINE_RESOURCE_MEASUREMENTS
+                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: nil)
+                            #endif
                             ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
                                 .listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
                                 .accessibilityIdentifier("import.\(item.id.wire)")
@@ -262,6 +268,9 @@ struct LibraryView: View {
                                         .disabled(!model.canChangeLibrary)
                                 }
                         case .queued(let command):
+                            #if OFFLINE_RESOURCE_MEASUREMENTS
+                            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: nil)
+                            #endif
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(command.display ?? "Queued paper").font(.headline)
                                 Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
@@ -355,6 +364,9 @@ struct PaperRow: View {
     var showTopics = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var body: some View {
+        #if OFFLINE_RESOURCE_MEASUREMENTS
+        let _ = OfflineResourceProbe.shared.recordPaperRowBody(documentID: paper.id)
+        #endif
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Text(paper.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary).fixedSize(horizontal: false, vertical: true)
