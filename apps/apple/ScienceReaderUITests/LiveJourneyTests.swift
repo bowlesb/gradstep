@@ -11,6 +11,7 @@ final class LiveJourneyTests: XCTestCase {
     private var arxivID: String { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_ARXIV"] ?? "2305.18290" }
     private var titlePrefix: String { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_TITLE"] ?? "Direct Preference Optimization" }
     private var question: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_QUESTION"] }
+    private var searchQuery: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_SEARCH"] }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -65,10 +66,25 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 30))
         let addEnabled = NSPredicate(format: "isEnabled == true")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: addEnabled, object: add)], timeout: 60), .completed)
-        add.tap()
-        let reference = app.textFields["import.reference"]
-        XCTAssertTrue(reference.waitForExistence(timeout: 10)); reference.tap(); reference.typeText(arxivID)
-        app.buttons["import.add"].tap()
+        if let searchQuery {
+            // Discover through the Library's arXiv search and add from results.
+            app.segmentedControls.buttons["arXiv"].tap()
+            let field = app.searchFields.firstMatch
+            XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(searchQuery + "\n")
+            let addResult = app.buttons["discover.add.\(arxivID)"]
+            XCTAssertTrue(addResult.waitForExistence(timeout: 60), "Search did not return \(arxivID)")
+            capture(app, "arXiv search results")
+            addResult.tap()
+            let added = NSPredicate(format: "exists == false")
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: added, object: addResult)], timeout: 30), .completed)
+            capture(app, "Added from search")
+            app.segmentedControls.buttons["Library"].tap()
+        } else {
+            add.tap()
+            let reference = app.textFields["import.reference"]
+            XCTAssertTrue(reference.waitForExistence(timeout: 10)); reference.tap(); reference.typeText(arxivID)
+            app.buttons["import.add"].tap()
+        }
         capture(app, "Import queued")
 
         // Conversion runs on the server; refresh until the readable paper appears.

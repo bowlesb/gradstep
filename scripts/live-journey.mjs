@@ -34,7 +34,8 @@ const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader'
 const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_ARXIV: arxiv, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_TITLE: title,
-  ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}) } });
+  ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}),
+  ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}) } });
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });
 const status = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
 log = log.replaceAll(password, '[redacted]');
