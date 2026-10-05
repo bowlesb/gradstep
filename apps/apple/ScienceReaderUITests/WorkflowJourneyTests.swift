@@ -358,6 +358,49 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Diagram reopened from All diagrams")
     }
 
+    /// Discovery audit (records every issue, fails on none): Library, reader,
+    /// chat with an answer and diagram, the diagram itself, and Settings.
+    /// Run with `TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test …`; read the `AXAUDIT` lines.
+    func testAccessibilityAuditOfMainScreens() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["SCIENCE_READER_AX_AUDIT"] == "1", "Opt-in discovery audit")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        var report: [String] = []
+        func audit(_ screen: String) throws {
+            capture(app, "Audited: \(screen)")
+            try app.performAccessibilityAudit { issue in
+                let element = issue.element.map { "\($0.elementType.rawValue) id=\($0.identifier) label=\($0.label.prefix(60))" } ?? "-"
+                report.append("AXAUDIT \(screen) | \(issue.auditType.rawValue) | \(issue.compactDescription) | \(element)")
+                return true
+            }
+        }
+        try audit("Library")
+        app.buttons[sampleID].tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
+        try audit("Reader")
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("Draw the attention computation")
+        app.buttons["chat.send"].tap()
+        let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        if app.keyboards.count > 0 { app.tables["chat.transcript"].swipeDown() }
+        try audit("Chat")
+        open.tap()
+        XCTAssertTrue(app.webViews.firstMatch.staticTexts["Softmax"].waitForExistence(timeout: 10))
+        try audit("Diagram")
+        app.buttons["Done"].tap()
+        app.buttons["tab.settings"].tap()
+        try audit("Settings")
+        let attachment = XCTAttachment(string: report.joined(separator: "\n"))
+        attachment.name = "Accessibility audit"; attachment.lifetime = .keepAlways; add(attachment)
+        for line in report { print(line) }
+    }
+
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
         app.buttons["tab.chat"].tap()

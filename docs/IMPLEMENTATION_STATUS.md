@@ -88,6 +88,12 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
 - **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
+- **Accessibility**: an opt-in XCTest audit (`TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1`, test
+  `testAccessibilityAuditOfMainScreens`) covers Library, reader, chat with an answer and diagram, the diagram and
+  Settings. First run (2026-10-05): the custom tab bar is flagged for capped Dynamic Type (it follows Apple's
+  pattern: capped size plus the large content viewer); chat text, bullets and "View diagram" are flagged for contrast,
+  probably where content sits under the translucent composer/tab bar — needs a closer look; truncated library rows
+  and non-interactive diagram labels are expected. No VoiceOver walkthrough on a device yet.
 - **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
   better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
