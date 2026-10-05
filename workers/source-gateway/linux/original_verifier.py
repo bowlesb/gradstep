@@ -29,6 +29,8 @@ MAX_BYTES = 5_242_880
 MAX_USEFUL_MS = 5000
 STARTUP_SECONDS = 5
 JOIN_SECONDS = .5
+LINUX_CHILD_UID = 62402
+LINUX_CHILD_GID = 62402
 REASONS = {'input_mismatch', 'input_changed', 'bundle_changed', 'receiver_failure', 'deadline'}
 OUTCOMES = {'verified', 'malformed', 'encrypted', 'unsupported', 'parser_resource_limit',
             'resource_limit', 'internal_error', 'input_limit', 'page_limit', 'binding_mismatch'}
@@ -140,12 +142,36 @@ class VerifierSession:
     are a capability restriction, not a substitute for Linux host isolation.
     """
     def __init__(self, bundle, value, *, input_fd):
+        self._spawn(bundle, value, input_fd=input_fd)
+        self.handshake()
+
+    @classmethod
+    def spawn_paused(cls, bundle, value, *, input_fd, child_uid=None, child_gid=None):
+        """Prepare and spawn only; the caller drops privileges before handshake.
+
+        Explicit child IDs select the fixed Linux Deno identity. The caller
+        must be the single-threaded, captured supervisor bootstrap while the
+        effective GID is temporarily selected for the inherited control pipe.
+        No input/control bytes are sent here. Post-spawn failure retains the
+        exact owner in VerifierStartError; no cross-UID signal is guaranteed.
+        """
+        session = cls.__new__(cls)
+        session._spawn(bundle, value, input_fd=input_fd, child_uid=child_uid, child_gid=child_gid)
+        return session
+
+    def _spawn(self, bundle, value, *, input_fd, child_uid=None, child_gid=None):
+        if child_uid is not None or child_gid is not None:
+            require(sys.platform == 'linux' and type(child_uid) is int and type(child_gid) is int
+                    and child_uid == LINUX_CHILD_UID and child_gid == LINUX_CHILD_GID,
+                    'invalid_child_identity')
         self.bundle = bundle
         self._value = validate_input(value, bundle)
         self._input = canonical(self._value)
         self.input_sha256 = digest(self._input)
         self.child, self._control, self._input_fd = None, None, None
+        self._control_metadata = None
         self._ready, self.sent_go = False, False
+        self._handshake_started = False
         self._deadline_ns, self._go, self._spawn_ns, self._retired_ns = None, None, None, None
         self._fatal, self._report = None, None
         self._watchdog_done, self._watchdog = threading.Event(), None
@@ -165,7 +191,7 @@ class VerifierSession:
             self._input_identity = _file_identity(info)
             self._input_fd = os.dup(input_fd)
             bundle.verify()
-            child_control, writer = os.pipe()
+            child_control, writer = self._control_pipe(child_gid)
             # Own the raw writer even if fdopen setup itself fails.
             try:
                 self._control = os.fdopen(writer, 'wb', buffering=0)
@@ -189,8 +215,10 @@ class VerifierSession:
                     str(bundle.receiver_entry), str(child_control), bundle.sha256]
             self._spawn_ns = clock_ns()
             try:
+                identity = {} if child_uid is None else {'user': child_uid, 'group': child_gid}
                 self.child = Wait4Child.spawn(argv, stdin=self._input_fd, pass_fds=(child_control,),
-                                              cwd=str(bundle.root), env={'LC_ALL': 'C', 'DENO_DIR': str(bundle.root)})
+                                              cwd=str(bundle.root), env={'LC_ALL': 'C', 'DENO_DIR': str(bundle.root)},
+                                              **identity)
             except SpawnError as error:
                 self.child = error.owner
                 raise
@@ -200,7 +228,6 @@ class VerifierSession:
             except BaseException:
                 self._ipc_uncertain = True
                 raise
-            self._handshake()
         except BaseException:
             if child_control is not None:
                 closing, child_control = child_control, None
@@ -209,20 +236,84 @@ class VerifierSession:
                 except BaseException:
                     self._ipc_uncertain = True
             if self.child is not None:
-                try:
-                    self._fail('handshake_failed')
-                    self._collect()
-                    if self._observe() is not None:
-                        self._close_all()
-                except BaseException:
-                    pass  # Keep the exact owner; no fabricated retirement.
+                self._failed_start()
                 raise VerifierStartError(self) from None
             self._close_all()
             raise
 
+    def _control_pipe(self, child_gid):
+        reader, writer = None, None
+        try:
+            if child_gid is None:
+                reader, writer = os.pipe()
+            else:
+                previous = os.getegid()
+                try:
+                    os.setegid(child_gid)
+                    require(os.getegid() == child_gid, 'control_group_failed')
+                    reader, writer = os.pipe()
+                finally:
+                    # Restore even if the first setter raised after changing
+                    # credentials. A failed restore forbids child creation.
+                    try:
+                        os.setegid(previous)
+                        require(os.getegid() == previous, 'control_group_restore_failed')
+                    except BaseException:
+                        raise Refused('control_group_restore_failed') from None
+                # /proc/self/fd reopening checks the pipe inode's ownership.
+                # The original write-end capability remains with the parent;
+                # only the read end is inherited by the fixed Deno identity.
+                os.fchmod(reader, 0o440)
+            info = os.fstat(reader)
+            if child_gid is not None:
+                require(stat.S_ISFIFO(info.st_mode) and info.st_gid == child_gid
+                        and stat.S_IMODE(info.st_mode) == 0o440, 'control_group_failed')
+            self._control_metadata = {'child_fd': reader, 'device': str(info.st_dev), 'inode': str(info.st_ino),
+                                      'uid': info.st_uid, 'gid': info.st_gid, 'mode': stat.S_IMODE(info.st_mode)}
+            return reader, writer
+        except BaseException:
+            for number in (reader, writer):
+                if number is not None:
+                    try:
+                        os.close(number)
+                    except BaseException:
+                        self._ipc_uncertain = True  # Never retry a raw FD integer.
+            raise
+
+    def _failed_start(self):
+        try:
+            self._fail('handshake_failed')
+            self._collect()
+            if self._observe() is not None:
+                self._close_all()
+        except BaseException:
+            pass  # Keep the exact owner; no fabricated retirement.
+
+    def handshake(self):
+        """Send captured input and consume exactly one READY handshake attempt.
+
+        bundle.verify() and launch-path access already completed before spawn;
+        this phase uses only captured bundle properties and existing FDs, so
+        it can run after the supervisor's permanent privilege drop.
+        """
+        require(not self._handshake_started and not self.sent_go and self._fatal is None
+                and self._report is None, 'session_consumed')
+        self._handshake_started = True
+        try:
+            self._check_input(before_go=True)
+            self._handshake()
+        except BaseException:
+            self._failed_start()
+            raise VerifierStartError(self) from None
+
     @property
     def value(self):
         return decode(self._input)
+
+    @property
+    def control_metadata(self):
+        """Captured pipe setup only; not an independent child-privilege proof."""
+        return None if self._control_metadata is None else dict(self._control_metadata)
 
     def _observe(self):
         result = self.child.observe() if self.child is not None else None

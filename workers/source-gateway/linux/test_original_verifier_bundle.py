@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -297,7 +298,11 @@ class OriginalVerifierBundleTests(unittest.TestCase):
         def sync(fd):
             synced.append((os.fstat(fd).st_dev, os.fstat(fd).st_ino))
             return real_fsync(fd)
-        with patch.object(package.os, 'write', side_effect=short), patch.object(package.os, 'fsync', side_effect=sync):
+        # A Mock records every 64KiB argument before the deliberate 71-byte
+        # short write. Keeping thousands of those copies exhausted the1GiB
+        # Linux test VM. These direct replacements test the same real short
+        # writes and barriers without retaining payload copies in call history.
+        with patch.object(package.os, 'write', new=short), patch.object(package.os, 'fsync', new=sync):
             bundle = self.capture()
         bundle.verify()
         info = self.parent.stat()
@@ -343,6 +348,241 @@ class OriginalVerifierBundleTests(unittest.TestCase):
         self.assertEqual(set(path.name for path in caught.exception.root.iterdir()),
                          set(package.FILE_LIMITS) | {'bundle.json'})
         self.assertEqual(stat.S_IMODE(caught.exception.root.stat().st_mode), 0o500)
+
+    def installed_manifest(self):
+        value = self.capture().manifest
+        value['format'] = 'original-verifier-bundle-v2'
+        value['installation'] = dict(package.INSTALLATION)
+        value['deno']['identity'].update(uid=0, gid=0, mode=0o555)
+        return value
+
+    def test_v2_schema_is_closed_and_cannot_be_silently_applied_to_v1(self):
+        value = self.installed_manifest()
+        self.assertEqual(package._manifest(package._canonical(value)), value)
+        for mutate in (
+                lambda item: item.update(format='original-verifier-bundle-v1'),
+                lambda item: item.pop('installation'),
+                lambda item: item['installation'].update(extra=True),
+                lambda item: item['installation'].update(policy='portable'),
+                lambda item: item['installation'].update(uid=False),
+                lambda item: item['installation'].update(uid=62402),
+                lambda item: item['installation'].update(gid=62401),
+                lambda item: item['installation'].update(directory_mode=0o500),
+                lambda item: item['installation'].update(file_mode=0o400),
+                lambda item: item['deno']['identity'].update(uid=62402),
+                lambda item: item['deno']['identity'].update(mode=0o500),
+                lambda item: item['deno']['identity'].update(gid=62402, mode=0o501)):
+            changed = package._decode(package._canonical(value))
+            mutate(changed)
+            with self.subTest(value=changed), self.assertRaises(ValueError):
+                package._manifest(package._canonical(changed))
+
+    def test_installed_apis_refuse_nonroot_and_nonlinux_before_any_file_access(self):
+        for platform, uid in (('darwin', 0), ('linux', 62401), ('linux', 62402)):
+            with self.subTest(platform=platform, uid=uid), \
+                    patch.object(package.sys, 'platform', platform), \
+                    patch.object(package.os, 'geteuid', return_value=uid), \
+                    patch.object(package, '_open_build_bundle') as lookup, \
+                    patch.object(package, '_directory') as directory:
+                with self.assertRaisesRegex(ValueError, 'verifier_linux_root_required'):
+                    package.install_verifier_bundle(self.parent, package.BUILD_ID, self.deno)
+                with self.assertRaisesRegex(ValueError, 'verifier_linux_root_required'):
+                    package.open_installed_verifier_bundle(self.parent, '0' * 64)
+                lookup.assert_not_called()
+                directory.assert_not_called()
+
+    def test_installed_manifest_properties_remain_available_after_drop(self):
+        value = self.installed_manifest()
+        encoded = package._canonical(value)
+        bundle = package.FrozenVerifierBundle(self.parent / 'never-opened', encoded, (1, 2))
+        with patch.object(package.sys, 'platform', 'linux'), \
+                patch.object(package.os, 'geteuid', return_value=62401), \
+                patch.object(package, '_directory', side_effect=AssertionError('unexpected file access')):
+            self.assertEqual(bundle.manifest, value)
+            self.assertEqual(bundle.build_identity_sha256, package.BUILD_ID)
+            self.assertEqual(bundle.profile_sha256, package.PROFILE_SHA256)
+            self.assertEqual(bundle.profile_id, package.PROFILE_ID)
+            self.assertEqual(bundle.deno_path, self.deno)
+            self.assertEqual(bundle.deno_sha256, value['deno']['sha256'])
+            self.assertEqual(bundle.receiver_entry, bundle.root / package.ENTRYPOINT)
+            self.assertEqual(bundle.package_sha256, hashlib.sha256(encoded).hexdigest())
+            with self.assertRaisesRegex(ValueError, 'verifier_linux_root_required'):
+                bundle.verify()
+
+    def test_fixed_reader_group_and_reopen_digest_refuse_before_lookup(self):
+        # Only these front-door guards are simulated. Actual ownership/mode
+        # installation is exercised by the Linux-root class below.
+        with patch.object(package.sys, 'platform', 'linux'), \
+                patch.object(package.os, 'geteuid', return_value=0), \
+                patch.object(package, '_open_build_bundle') as lookup, \
+                patch.object(package, '_directory') as directory:
+            for group in (0, True, 62401, '62402', [], None):
+                with self.subTest(group=group), self.assertRaisesRegex(ValueError, 'verifier_reader_group'):
+                    package.install_verifier_bundle(self.parent, package.BUILD_ID, self.deno, reader_gid=group)
+            for digest in ('', 'A' * 64, [], None):
+                with self.subTest(digest=digest), self.assertRaisesRegex(ValueError, 'verifier_manifest_digest'):
+                    package.open_installed_verifier_bundle(self.parent, digest)
+            lookup.assert_not_called()
+            directory.assert_not_called()
+
+
+@unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0,
+                     'installed package ownership requires Linux root')
+class InstalledVerifierBundleTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        OriginalVerifierBundleTests.setUpClass.__func__(cls)
+
+    def setUp(self):
+        # /tmp is deliberately inadmissible: its writable ancestor would allow
+        # aliases/replacements. This finite root-owned fixture has safe ancestry.
+        self.temp = tempfile.TemporaryDirectory(prefix='timestep-verifier-bundle-', dir='/var/lib')
+        self.base = Path(self.temp.name)
+        self.base.chmod(0o755)
+        self.parent, self.source, self.receiver = (self.base / name for name in ('packages', 'build', 'receiver'))
+        for path in (self.parent, self.source, self.receiver):
+            path.mkdir(mode=0o755)
+            path.chmod(0o755)
+        for name, raw in self.assets.items():
+            (self.source / name).write_bytes(raw)
+        (self.source / 'bundle.json').write_bytes(package._canonical({
+            'format': 1, 'identity_sha256': package.BUILD_ID, 'files': self.original_hashes}))
+        self.wrapper = b'// Synthetic installed receiver; never executed.\n'
+        (self.receiver / package.ENTRYPOINT).write_bytes(self.wrapper)
+        self.deno = self.base / 'synthetic-deno-not-executed'
+        self.deno.write_bytes(b'synthetic Linux executable identity fixture\n')
+        self.deno.chmod(0o555)
+
+    def tearDown(self):
+        for path in self.parent.iterdir():
+            if path.is_dir() and not path.is_symlink():
+                path.chmod(0o700)
+        self.temp.cleanup()
+
+    def install(self):
+        with patch.object(package, '_SOURCE', self.receiver), \
+                patch.object(package, '_open_build_bundle', return_value=self.source):
+            return package.install_verifier_bundle(self.parent, package.BUILD_ID, self.deno)
+
+    def test_install_and_reopen_exact_graph_without_changing_private_capture(self):
+        with patch.object(package, '_SOURCE', self.receiver), \
+                patch.object(package, '_open_build_bundle', return_value=self.source):
+            private = package.capture_verifier_bundle(self.parent, package.BUILD_ID, self.deno)
+        original = {path.name: (path.read_bytes(), path.stat().st_mode, path.stat().st_gid)
+                    for path in private.root.iterdir()}
+        bundle = self.install()
+        self.assertNotEqual(private.root, bundle.root)
+        self.assertEqual(bundle.manifest['format'], 'original-verifier-bundle-v2')
+        self.assertEqual(bundle.manifest['installation'], package.INSTALLATION)
+        self.assertEqual((bundle.root.stat().st_uid, bundle.root.stat().st_gid), (0, 62402))
+        self.assertEqual(stat.S_IMODE(bundle.root.stat().st_mode), 0o550)
+        self.assertEqual(set(path.name for path in bundle.root.iterdir()), set(package.FILE_LIMITS) | {'bundle.json'})
+        for path in bundle.root.iterdir():
+            info = path.stat()
+            self.assertEqual((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode), info.st_nlink), (0, 62402, 0o440, 1))
+        for name, raw in self.assets.items():
+            self.assertEqual((bundle.root / name).read_bytes(), raw)
+        with patch.object(package, '_open_build_bundle', side_effect=AssertionError('mutable build lookup')):
+            reopened = package.open_installed_verifier_bundle(bundle.root, bundle.sha256)
+        self.assertEqual(reopened, bundle)
+        self.assertEqual({path.name: (path.read_bytes(), path.stat().st_mode, path.stat().st_gid)
+                          for path in private.root.iterdir()}, original)
+        private.verify()
+        with self.assertRaises(ValueError):
+            package.open_installed_verifier_bundle(private.root, private.sha256)
+
+    def test_root_and_member_owner_group_mode_are_exact(self):
+        bundle = self.install()
+        os.chown(bundle.root, 0, 0)
+        with self.assertRaisesRegex(ValueError, 'verifier_directory_group'):
+            bundle.verify()
+        os.chown(bundle.root, 0, 62402)
+        for mode in (0o500, 0o555, 0o750):
+            bundle.root.chmod(mode)
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, 'verifier_directory_mode'):
+                bundle.verify()
+        bundle.root.chmod(0o550)
+        member = bundle.root / package.ENTRYPOINT
+        os.chown(member, 0, 0)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_group'):
+            bundle.verify()
+        os.chown(member, 0, 62402)
+        member.chmod(0o444)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_mode'):
+            bundle.verify()
+        member.chmod(0o440)
+        os.chown(member, 62402, 62402)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_identity'):
+            bundle.verify()
+
+    def test_reader_must_traverse_every_ancestor_and_execute_runtime(self):
+        self.parent.chmod(0o700)
+        with self.assertRaisesRegex(ValueError, 'verifier_reader_traversal'):
+            self.install()
+        self.parent.chmod(0o755)
+        self.base.chmod(0o700)
+        with self.assertRaisesRegex(ValueError, 'verifier_reader_traversal'):
+            self.install()
+        self.base.chmod(0o755)
+        self.deno.chmod(0o500)
+        with self.assertRaisesRegex(ValueError, 'verifier_installed_runtime'):
+            self.install()
+        self.deno.chmod(0o555)
+        os.chown(self.deno, 62402, 62402)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_identity'):
+            self.install()
+        self.assertEqual(list(self.parent.iterdir()), [])
+
+    def test_reopen_rejects_manifest_member_and_runtime_tamper(self):
+        bundle = self.install()
+        with self.assertRaisesRegex(ValueError, 'verifier_manifest_changed'):
+            package.open_installed_verifier_bundle(bundle.root, '0' * 64)
+        member = bundle.root / package.ENTRYPOINT
+        member.chmod(0o640)
+        member.write_bytes(self.wrapper + b'changed')
+        member.chmod(0o440)
+        with self.assertRaisesRegex(ValueError, 'verifier_member_changed'):
+            package.open_installed_verifier_bundle(bundle.root, bundle.sha256)
+        member.chmod(0o640)
+        member.write_bytes(self.wrapper)
+        member.chmod(0o440)
+        self.deno.chmod(0o755)
+        self.deno.write_bytes(b'changed installed runtime\n')
+        self.deno.chmod(0o555)
+        with self.assertRaisesRegex(ValueError, 'verifier_runtime_changed'):
+            package.open_installed_verifier_bundle(bundle.root, bundle.sha256)
+
+    def test_reopen_rejects_aliases_extra_files_and_replaced_root_identity(self):
+        bundle = self.install()
+        member = bundle.root / package.ENTRYPOINT
+        alias = self.base / 'alias'
+        os.link(member, alias)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_identity'):
+            package.open_installed_verifier_bundle(bundle.root, bundle.sha256)
+        alias.unlink()
+        bundle.root.chmod(0o750)
+        (bundle.root / 'unexpected').write_bytes(b'no cache')
+        bundle.root.chmod(0o550)
+        with self.assertRaisesRegex(ValueError, 'verifier_file_set'):
+            package.open_installed_verifier_bundle(bundle.root, bundle.sha256)
+        bundle.root.chmod(0o750)
+        (bundle.root / 'unexpected').unlink()
+        saved = bundle.root.with_name(bundle.root.name + '-retained')
+        bundle.root.rename(saved)
+        shutil.copytree(saved, bundle.root)
+        os.chown(bundle.root, 0, 62402)
+        bundle.root.chmod(0o550)
+        with self.assertRaisesRegex(ValueError, 'verifier_directory_changed'):
+            bundle.verify()
+
+    def test_install_chown_failure_retains_only_its_new_partial_capture(self):
+        with patch.object(package.os, 'fchown', side_effect=OSError(errno.EPERM, 'synthetic ownership failure')):
+            with self.assertRaises(package.VerifierCaptureError) as caught:
+                self.install()
+        self.assertEqual(caught.exception.root.parent, self.parent)
+        self.assertEqual(list(self.parent.iterdir()), [caught.exception.root])
+        self.assertEqual(stat.S_IMODE(caught.exception.root.stat().st_mode), 0o700)
+        self.assertEqual(list(caught.exception.root.iterdir()), [])
 
 
 if __name__ == '__main__':

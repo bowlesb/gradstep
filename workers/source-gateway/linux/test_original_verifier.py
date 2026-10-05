@@ -9,9 +9,12 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
+import stat
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import uuid
@@ -69,6 +72,144 @@ const result={format:'original-verifier-result-v1',local_fixture_only:true,claim
  profileID:'qpdf-wasm-pilot-v1',profileSHA256:value.request.parser_profile_sha256,
  wasmSHA256:'a868862bb5a6879e93d2d0ea41ba38186ce0418a7990a7109fecdd6505467d1b',elapsedMS:1}};
 '''
+
+
+class VerifierControlPipeTests(unittest.TestCase):
+    """Real pipe ownership, simulated credentials; not a Linux drop proof."""
+    def setUp(self):
+        self.session = receiver.VerifierSession.__new__(receiver.VerifierSession)
+        self.session._ipc_uncertain = False
+        self.session._control_metadata = None
+        self.fds = []
+        self.identities = {}
+        self.actual_stat = os.fstat
+
+    def tearDown(self):
+        for number in self.fds:
+            try:
+                info = self.actual_stat(number)
+                if (info.st_dev, info.st_ino) == self.identities[number]:
+                    os.close(number)
+            except OSError:
+                pass  # Refused setup may already have closed this exact pipe.
+
+    def pipe(self):
+        pair = self.actual_pipe()
+        self.fds.extend(pair)
+        for number in pair:
+            info = self.actual_stat(number)
+            self.identities[number] = (info.st_dev, info.st_ino)
+        return pair
+
+    def assert_closed(self):
+        for number in self.fds:
+            with self.assertRaises(OSError):
+                os.fstat(number)
+
+    def test_group_pipe_is_readonly_and_prior_gid_restored_before_return(self):
+        previous, selected = 12345, receiver.LINUX_CHILD_GID
+        effective, pipe_group, mode, events = [previous], {}, {}, []
+        self.actual_pipe = os.pipe
+        actual_stat = os.fstat
+        def setgid(value):
+            events.append(('setegid', value))
+            effective[0] = value
+        def created():
+            pair = self.pipe()
+            pipe_group.update({number: effective[0] for number in pair})
+            events.append(('pipe', effective[0]))
+            return pair
+        def chmod(number, value):
+            self.assertEqual(effective[0], previous)
+            mode[number] = value
+            events.append(('chmod', value))
+        def info(number):
+            observed = actual_stat(number)
+            return SimpleNamespace(st_mode=stat.S_IFIFO | mode[number], st_gid=pipe_group[number],
+                                   st_uid=observed.st_uid, st_dev=observed.st_dev, st_ino=observed.st_ino)
+        with patch.object(receiver.os, 'getegid', side_effect=lambda: effective[0]), \
+             patch.object(receiver.os, 'setegid', side_effect=setgid), \
+             patch.object(receiver.os, 'pipe', side_effect=created), \
+             patch.object(receiver.os, 'fchmod', side_effect=chmod), \
+             patch.object(receiver.os, 'fstat', side_effect=info):
+            reader, writer = self.session._control_pipe(selected)
+        self.assertEqual(events, [('setegid', selected), ('pipe', selected),
+                                  ('setegid', previous), ('chmod', 0o440)])
+        self.assertEqual(effective[0], previous)
+        self.assertEqual(self.session.control_metadata['child_fd'], reader)
+        self.assertEqual((self.session.control_metadata['gid'], self.session.control_metadata['mode']),
+                         (selected, 0o440))
+        copied = self.session.control_metadata
+        copied['gid'] = 0
+        self.assertEqual(self.session.control_metadata['gid'], selected)
+        os.write(writer, b'P')
+        self.assertEqual(os.read(reader, 1), b'P')
+
+    def test_failed_restore_closes_both_pipe_ends_and_has_no_ready_metadata(self):
+        effective = [12345]
+        previous = effective[0]
+        self.actual_pipe = os.pipe
+        def setgid(value):
+            if value == previous:
+                raise PermissionError('injected credential restore failure')
+            effective[0] = value
+        with patch.object(receiver.os, 'getegid', side_effect=lambda: effective[0]), \
+             patch.object(receiver.os, 'setegid', side_effect=setgid), \
+             patch.object(receiver.os, 'pipe', side_effect=self.pipe), \
+             patch.object(receiver.os, 'fchmod') as chmod:
+            with self.assertRaisesRegex(Refused, 'control_group_restore_failed'):
+                self.session._control_pipe(receiver.LINUX_CHILD_GID)
+            chmod.assert_not_called()
+        self.assertEqual(len(self.fds), 2)
+        self.assert_closed()
+        self.assertIsNone(self.session.control_metadata)
+
+    def test_set_or_pipe_failure_still_attempts_credential_restore(self):
+        for fault in ('set_after_change', 'pipe'):
+            with self.subTest(fault=fault):
+                previous, effective, calls = 12345, [12345], []
+                def setgid(value):
+                    calls.append(value)
+                    effective[0] = value
+                    if fault == 'set_after_change' and value != previous:
+                        raise OSError('injected after credential change')
+                with patch.object(receiver.os, 'getegid', side_effect=lambda: effective[0]), \
+                     patch.object(receiver.os, 'setegid', side_effect=setgid), \
+                     patch.object(receiver.os, 'pipe', side_effect=OSError('injected pipe refusal')) as create:
+                    with self.assertRaises(OSError):
+                        self.session._control_pipe(receiver.LINUX_CHILD_GID)
+                self.assertEqual(calls, [receiver.LINUX_CHILD_GID, previous])
+                self.assertEqual(effective[0], previous)
+                self.assertEqual(create.call_count, 0 if fault == 'set_after_change' else 1)
+
+    def test_mode_failure_restores_gid_and_attempts_both_closes(self):
+        previous, effective = 12345, [12345]
+        self.actual_pipe = os.pipe
+        with patch.object(receiver.os, 'getegid', side_effect=lambda: effective[0]), \
+             patch.object(receiver.os, 'setegid', side_effect=lambda value: effective.__setitem__(0, value)), \
+             patch.object(receiver.os, 'pipe', side_effect=self.pipe), \
+             patch.object(receiver.os, 'fchmod', side_effect=OSError('injected chmod refusal')):
+            with self.assertRaises(OSError):
+                self.session._control_pipe(receiver.LINUX_CHILD_GID)
+        self.assertEqual(effective[0], previous)
+        self.assertEqual(len(self.fds), 2)
+        self.assert_closed()
+
+    def test_explicit_verifier_identity_is_fixed_and_checked_before_input_or_spawn(self):
+        options = ({'child_uid': 62402}, {'child_gid': 62402}, {'child_uid': True, 'child_gid': 62402},
+                   {'child_uid': 62402, 'child_gid': False}, {'child_uid': 0, 'child_gid': 0},
+                   {'child_uid': -1, 'child_gid': -1}, {'child_uid': 62401, 'child_gid': 62401},
+                   {'child_uid': 62402, 'child_gid': 62401}, {'child_uid': '62402', 'child_gid': 62402})
+        with patch.object(receiver.Wait4Child, 'spawn') as spawn:
+            with patch.object(receiver.sys, 'platform', 'linux'):
+                for item in options:
+                    with self.subTest(item=item), self.assertRaisesRegex(Refused, 'invalid_child_identity'):
+                        receiver.VerifierSession.spawn_paused(None, None, input_fd=-1, **item)
+            with patch.object(receiver.sys, 'platform', 'darwin'):
+                with self.assertRaisesRegex(Refused, 'invalid_child_identity'):
+                    receiver.VerifierSession.spawn_paused(None, None, input_fd=-1,
+                                                          child_uid=62402, child_gid=62402)
+            spawn.assert_not_called()
 
 
 @unittest.skipUnless(DENO.is_file() and (ROOT / '.artifacts/pdf-verifier/builds' / BUILD).is_dir(),
@@ -138,6 +279,15 @@ class OriginalVerifierTests(unittest.TestCase):
         self.children.append(child)
         return child
 
+    def start_paused(self, value, fd):
+        try:
+            child = receiver.VerifierSession.spawn_paused(self.bundle, value, input_fd=fd)
+        except receiver.VerifierStartError as error:
+            self.children.append(error.session)
+            raise
+        self.children.append(child)
+        return child
+
     def go(self, child, milliseconds=5000):
         child.go(str(uuid.uuid4()), 'a' * 64, clock_ns() + milliseconds * 1_000_000)
 
@@ -183,6 +333,105 @@ class OriginalVerifierTests(unittest.TestCase):
             self.go(child)
         # Deno cache may not add writable state to this immutable file set.
         self.bundle.verify()
+
+    def test_spawn_paused_owns_input_without_handshake_and_uses_no_bundle_reads_afterward(self):
+        value, fd, _ = self.input_file(self.fixture('pages-1.pdf'), unlinked=True)
+        expected = copy.deepcopy(value)
+        with patch.object(receiver.VerifierSession, '_write', side_effect=AssertionError('no pre-handshake input')):
+            child = self.start_paused(value, fd)
+        self.assertFalse(child._ready or child._handshake_started or child.sent_go)
+        self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 0)
+        self.assertIsNone(child.child.observe())
+        with self.assertRaisesRegex(Refused, 'session_consumed'):
+            self.go(child)
+        value['request']['candidate_sha256'] = 'f' * 64
+        self.assertEqual(child.value, expected)
+        # These are the bundle's real filesystem-reading paths. The child
+        # already has its exact argv and will validate assets after GO itself.
+        with patch.object(packaging.FrozenVerifierBundle, 'verify', side_effect=AssertionError('post-drop verify')), \
+             patch.object(packaging, '_read', side_effect=AssertionError('post-drop bundle read')), \
+             patch.object(packaging, '_runtime', side_effect=AssertionError('post-drop runtime read')):
+            child.handshake()
+            with self.assertRaisesRegex(Refused, 'session_consumed'):
+                child.handshake()
+            self.go(child)
+            result = child.finish()
+        self.assertTrue(result['verified'], result)
+        self.assertEqual(result['result']['parser_result']['pages'], 1)
+
+    def test_paused_handshake_failure_retains_exact_child_and_cannot_be_retried(self):
+        value, fd, path = self.input_file(self.fixture('pages-1.pdf'))
+        child = self.start_paused(value, fd)
+        owner = child.child
+        path.write_bytes(path.read_bytes() + b' ')  # Change the sealed FD before application input.
+        with patch.object(receiver.VerifierSession, '_write') as write:
+            with self.assertRaises(receiver.VerifierStartError) as refused:
+                child.handshake()
+            self.assertIs(refused.exception.session, child)
+            self.assertIs(child.child, owner)
+            with self.assertRaisesRegex(Refused, 'session_consumed'):
+                child.handshake()
+            write.assert_not_called()
+        result = child.stop()
+        self.assertTrue(result['child_retired'], result)
+        self.assertFalse(result['verified'])
+        self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 0)
+
+    def test_denied_child_signal_retains_paused_owner_until_external_retirement(self):
+        value, fd, _ = self.input_file(self.fixture('pages-1.pdf'))
+        child = self.start_paused(value, fd)
+        owner = child.child
+        # Simulated cross-UID denial; the test's actual owner can still retire
+        # its local child afterward. No scope-termination claim is made here.
+        with patch.object(owner, 'signal', return_value=False) as signal_attempt, \
+             patch.object(receiver, 'JOIN_SECONDS', .02):
+            result = child.stop()
+            signal_attempt.assert_called_once_with(signal.SIGKILL)
+        self.assertFalse(result['child_retired'] or result['complete'] or result['verified'])
+        self.assertFalse(result['ipc_cleanup_complete'])
+        self.assertIsNone(result['result'])
+        self.assertIs(child.child, owner)
+        self.assertIsNone(owner.retirement)
+        self.assertIsNotNone(child._input_fd)
+        self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 0)
+        self.assertTrue(owner.signal(signal.SIGKILL))
+        stopped = child.stop()
+        self.assertTrue(stopped['child_retired'] and stopped['ipc_cleanup_complete'], stopped)
+        self.assertFalse(stopped['verified'])
+
+    def test_linux_seam_passes_only_control_reader_and_fixed_pair_after_setup(self):
+        value, fd, _ = self.input_file(self.fixture('pages-1.pdf'))
+        started_ns = clock_ns()  # sys.platform below also affects protocol's real clock selector.
+        created, launches = [], []
+        pipe = receiver.VerifierSession._control_pipe
+        def make_pipe(session, group):
+            self.assertEqual(group, receiver.LINUX_CHILD_GID)
+            pair = pipe(session, None)  # Actual local pipes; kernel GID behavior is tested on Linux separately.
+            created.extend(pair)
+            return pair
+        def refuse_spawn(argv, **kwargs):
+            launches.append((argv, kwargs))
+            self.assertEqual(kwargs['pass_fds'], (created[0],))
+            self.assertNotIn(created[1], kwargs['pass_fds'])
+            self.assertEqual((kwargs['user'], kwargs['group']), (62402, 62402))
+            self.assertEqual(os.lseek(kwargs['stdin'], 0, os.SEEK_CUR), 0)
+            self.assertIn('/proc/self/fd/' + str(created[0]), next(x for x in argv if x.startswith('--allow-read=')))
+            raise Refused('fixture_before_child')
+        with patch.object(receiver.sys, 'platform', 'linux'), \
+             patch.object(receiver, 'clock_ns', return_value=started_ns), \
+             patch.object(packaging.FrozenVerifierBundle, 'verify'), \
+             patch.object(receiver.VerifierSession, '_control_pipe', new=make_pipe), \
+             patch.object(receiver.Wait4Child, 'spawn', side_effect=refuse_spawn), \
+             patch.object(receiver.VerifierSession, '_write') as write:
+            with self.assertRaisesRegex(Refused, 'fixture_before_child'):
+                receiver.VerifierSession.spawn_paused(self.bundle, value, input_fd=fd,
+                                                      child_uid=62402, child_gid=62402)
+            write.assert_not_called()
+        self.assertEqual(len(launches), 1)
+        for number in created:
+            with self.assertRaises(OSError):
+                os.fstat(number)
+        self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 0)
 
     def test_frozen_parser_outcomes_and_fresh_heap_after_resource_refusal(self):
         cases = [('pages-50.pdf', 'verified'), ('pages-51.pdf', 'page_limit'),

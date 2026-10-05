@@ -2,14 +2,16 @@
 
 This module never runs Deno, a parser, build commands, or network operations.
 The original complete build is verified before its six execution assets are
-copied unchanged. Only the private captured graph is a receiver import source.
+copied unchanged. Only the captured graph is a receiver import source. Portable
+v1 is owner-private; installed Linux v2 is root-owned and readable by one fixed
+receiver group. An installation always creates a new directory.
 
 Read-only modes prevent accidental writes by the ordinary receiver; they do
 not make files immutable against root/their owner. The selected absolute Deno
 file is not copied: verify() checks its identity and full hash immediately before
 launch, trusting the same owner not to replace it between that check and exec.
-Its digest does not pin the operating system or shared libraries. Cross-UID
-access, Linux supervision and SQL/host admission are outside this package.
+Its digest does not pin the operating system or shared libraries. The installed
+mode policy is not Linux supervision or SQL/host admission.
 """
 from dataclasses import dataclass, field
 import hashlib
@@ -18,6 +20,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 import types
 import uuid
 
@@ -33,6 +36,9 @@ MAX_MANIFEST = 16_384
 MAX_PAYLOAD = 2_097_152
 MAX_DENO = 268_435_456
 CHUNK = 65_536
+READER_GID = 62402
+INSTALLATION = {'policy': 'linux-root-reader-v1', 'uid': 0, 'gid': READER_GID,
+                'directory_mode': 0o550, 'file_mode': 0o440}
 _SOURCE = Path(__file__).absolute().parent
 _STORE_SOURCE = _SOURCE.parents[1] / 'pdf-verifier' / 'build_store.py'
 _MANIFEST_KEYS = {'format', 'local_fixture_only', 'hosted_admitted', 'entrypoint',
@@ -88,7 +94,7 @@ def _absolute(value):
     return Path(value)
 
 
-def _directory(path, *, owned=False, mode=None):
+def _directory(path, *, owned=False, mode=None, group=None, reader_gid=None):
     """Walk from / without following any symlink or writable foreign ancestor."""
     path = _absolute(path)
     fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -97,6 +103,9 @@ def _directory(path, *, owned=False, mode=None):
             info = os.fstat(fd)
             _require(info.st_uid in (0, os.geteuid()) and not info.st_mode & 0o022,
                      'verifier_untrusted_ancestor')
+            if reader_gid is not None:
+                _require(info.st_mode & (0o010 if info.st_gid == reader_gid else 0o001),
+                         'verifier_reader_traversal')
             next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                               dir_fd=fd)
             previous, fd = fd, next_fd
@@ -106,6 +115,10 @@ def _directory(path, *, owned=False, mode=None):
                  and not info.st_mode & 0o022, 'verifier_untrusted_directory')
         _require(not owned or info.st_uid == os.geteuid(), 'verifier_directory_owner')
         _require(mode is None or stat.S_IMODE(info.st_mode) == mode, 'verifier_directory_mode')
+        _require(group is None or info.st_gid == group, 'verifier_directory_group')
+        if reader_gid is not None:
+            _require(info.st_mode & (0o010 if info.st_gid == reader_gid else 0o001),
+                     'verifier_reader_traversal')
         return fd
     except BaseException:
         os.close(fd)
@@ -117,7 +130,7 @@ def _stable(before, after):
              'verifier_file_changed')
 
 
-def _read(directory, name, maximum, *, mode=None, owner=None, hashed=False, executable=False):
+def _read(directory, name, maximum, *, mode=None, owner=None, group=None, hashed=False, executable=False):
     fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
     try:
         before = os.fstat(fd)
@@ -126,6 +139,7 @@ def _read(directory, name, maximum, *, mode=None, owner=None, hashed=False, exec
                  and 0 < before.st_size <= maximum, 'verifier_file_identity')
         _require(mode is None or stat.S_IMODE(before.st_mode) == mode, 'verifier_file_mode')
         _require(owner is None or before.st_uid == owner, 'verifier_file_owner')
+        _require(group is None or before.st_gid == group, 'verifier_file_group')
         _require(not executable or (before.st_mode & 0o111 and not before.st_mode & 0o7000),
                  'verifier_runtime_not_executable')
         raw, digest, count = bytearray(), hashlib.sha256(), 0
@@ -154,11 +168,14 @@ def _read_path(path, maximum):
         os.close(directory)
 
 
-def _runtime(path):
+def _runtime(path, *, reader_gid=None):
     path = _absolute(path)
-    directory = _directory(path.parent)
+    directory = _directory(path.parent, reader_gid=reader_gid)
     try:
         digest, info = _read(directory, path.name, MAX_DENO, hashed=True, executable=True)
+        if reader_gid is not None:
+            _require(info.st_uid == 0 and info.st_mode & (0o010 if info.st_gid == reader_gid else 0o001),
+                     'verifier_installed_runtime')
         return {'path': str(path), 'bytes': info.st_size, 'sha256': digest,
                 'identity': {'device': str(info.st_dev), 'inode': str(info.st_ino),
                              'uid': info.st_uid, 'gid': info.st_gid, 'mode': stat.S_IMODE(info.st_mode),
@@ -193,13 +210,22 @@ def _assets(captured):
 
 def _manifest(raw):
     value = _decode(raw)
-    _require(type(value) is dict and set(value) == _MANIFEST_KEYS and _canonical(value) == raw,
+    installed = type(value) is dict and value.get('format') == 'original-verifier-bundle-v2'
+    keys = _MANIFEST_KEYS | {'installation'} if installed else _MANIFEST_KEYS
+    _require(type(value) is dict and set(value) == keys and _canonical(value) == raw,
              'verifier_manifest_shape')
-    _require(value['format'] == 'original-verifier-bundle-v1'
+    _require(value['format'] in ('original-verifier-bundle-v1', 'original-verifier-bundle-v2')
              and value['local_fixture_only'] is True and value['hosted_admitted'] is False
              and value['entrypoint'] == ENTRYPOINT and value['build_identity_sha256'] == BUILD_ID
              and value['profile_id'] == PROFILE_ID and value['profile_sha256'] == PROFILE_SHA256,
              'verifier_manifest_binding')
+    if installed:
+        policy = value['installation']
+        _require(type(policy) is dict and set(policy) == set(INSTALLATION)
+                 and policy['policy'] == INSTALLATION['policy']
+                 and all(type(policy[key]) is int and policy[key] == INSTALLATION[key]
+                         for key in ('uid', 'gid', 'directory_mode', 'file_mode')),
+                 'verifier_installation_policy')
     files = value['files']
     _require(type(files) is dict and set(files) == set(FILE_LIMITS), 'verifier_file_set')
     for name, entry in files.items():
@@ -223,7 +249,15 @@ def _manifest(raw):
     _require(_integer(identity['uid'], 2**32 - 1) and _integer(identity['gid'], 2**32 - 1)
              and _integer(identity['mode'], 0o7777) and identity['mode'] & 0o111
              and not identity['mode'] & 0o7022, 'verifier_runtime_record')
+    if installed:
+        _require(identity['uid'] == 0
+                 and identity['mode'] & (0o010 if identity['gid'] == READER_GID else 0o001),
+                 'verifier_installed_runtime')
     return value
+
+
+def _linux_root():
+    _require(sys.platform == 'linux' and os.geteuid() == 0, 'verifier_linux_root_required')
 
 
 @dataclass(frozen=True)
@@ -274,7 +308,13 @@ class FrozenVerifierBundle:
     def verify(self):
         """Fail closed before launch; never follows mutable workspace imports."""
         manifest = self.manifest
-        directory = _directory(self.root, owned=True, mode=0o500)
+        installed = manifest['format'] == 'original-verifier-bundle-v2'
+        if installed:
+            _linux_root()
+        directory_mode, file_mode = (0o550, 0o440) if installed else (0o500, 0o400)
+        reader_gid = READER_GID if installed else None
+        directory = _directory(self.root, owned=True, mode=directory_mode,
+                               group=reader_gid, reader_gid=reader_gid)
         try:
             info = os.fstat(directory)
             _require((info.st_dev, info.st_ino) == self._root_identity, 'verifier_directory_changed')
@@ -284,20 +324,23 @@ class FrozenVerifierBundle:
                     names.add(entry.name)
                     _require(len(names) <= len(FILE_LIMITS) + 1, 'verifier_file_set')
             _require(names == set(FILE_LIMITS) | {'bundle.json'}, 'verifier_file_set')
-            raw, _ = _read(directory, 'bundle.json', MAX_MANIFEST, mode=0o400, owner=os.geteuid())
+            raw, _ = _read(directory, 'bundle.json', MAX_MANIFEST, mode=file_mode,
+                           owner=os.geteuid(), group=reader_gid)
             _require(raw == self.manifest_bytes, 'verifier_manifest_changed')
             captured = {}
             for name, limit in FILE_LIMITS.items():
-                raw, _ = _read(directory, name, limit, mode=0o400, owner=os.geteuid())
+                raw, _ = _read(directory, name, limit, mode=file_mode, owner=os.geteuid(), group=reader_gid)
                 _require({'bytes': len(raw), 'sha256': _sha(raw)} == manifest['files'][name],
                          'verifier_member_changed')
                 captured[name] = raw
             _assets(captured)
         finally:
             os.close(directory)
-        _require(_runtime(manifest['deno']['path']) == manifest['deno'], 'verifier_runtime_changed')
+        _require(_runtime(manifest['deno']['path'], reader_gid=reader_gid) == manifest['deno'],
+                 'verifier_runtime_changed')
         # Rebind the name after the potentially larger executable hash read.
-        directory = _directory(self.root, owned=True, mode=0o500)
+        directory = _directory(self.root, owned=True, mode=directory_mode,
+                               group=reader_gid, reader_gid=reader_gid)
         try:
             info = os.fstat(directory)
             _require((info.st_dev, info.st_ino) == self._root_identity, 'verifier_directory_changed')
@@ -318,6 +361,45 @@ def capture_verifier_bundle(parent, explicit_build_id, exact_deno_path):
     parent must already be owned and beneath trusted, non-writable ancestors.
     A partial destination is retained on failure; no original build is changed.
     """
+    return _capture(parent, explicit_build_id, exact_deno_path, installed=False)
+
+
+def install_verifier_bundle(parent, explicit_build_id, exact_deno_path, *, reader_gid=READER_GID):
+    """Create a new root-owned Linux v2 graph for the fixed unprivileged reader.
+
+    The existing parent and all ancestors must be root-owned, non-writable by
+    other users, and searchable by UID/GID62402 without supplementary groups.
+    Capture/verify happen before the supervisor drops. No runtime is executed.
+    """
+    _linux_root()
+    _require(type(reader_gid) is int and reader_gid == READER_GID, 'verifier_reader_group')
+    return _capture(parent, explicit_build_id, exact_deno_path, installed=True)
+
+
+def open_installed_verifier_bundle(root, expected_sha256):
+    """Reopen exactly one installed v2 capture before the root caller drops.
+
+    Return an owned manifest and current root identity after full verification;
+    properties remain memory-only afterward. Root is trusted against later
+    replacement. This does not reopen portable v1 or inspect a mutable build.
+    """
+    _linux_root()
+    _require(_hash_string(expected_sha256), 'verifier_manifest_digest')
+    root = _absolute(root)
+    directory = _directory(root, owned=True, mode=0o550, group=READER_GID, reader_gid=READER_GID)
+    try:
+        info = os.fstat(directory)
+        raw, _ = _read(directory, 'bundle.json', MAX_MANIFEST, mode=0o440, owner=0, group=READER_GID)
+        _require(_sha(raw) == expected_sha256, 'verifier_manifest_changed')
+        _require(_manifest(raw)['format'] == 'original-verifier-bundle-v2', 'verifier_installed_required')
+        result = FrozenVerifierBundle(root, raw, (info.st_dev, info.st_ino))
+    finally:
+        os.close(directory)
+    result.verify()
+    return result
+
+
+def _capture(parent, explicit_build_id, exact_deno_path, *, installed):
     _require(type(explicit_build_id) is str and explicit_build_id == BUILD_ID, 'verifier_build_not_allowed')
     source = _absolute(_open_build_bundle(explicit_build_id))
     source_fd = _directory(source)
@@ -336,16 +418,20 @@ def capture_verifier_bundle(parent, explicit_build_id, exact_deno_path):
         os.close(source_fd)
     _assets(captured)
     captured[ENTRYPOINT] = _read_path(_SOURCE / ENTRYPOINT, FILE_LIMITS[ENTRYPOINT])
-    runtime = _runtime(exact_deno_path)
-    manifest = {'format': 'original-verifier-bundle-v1', 'local_fixture_only': True,
+    reader_gid = READER_GID if installed else None
+    runtime = _runtime(exact_deno_path, reader_gid=reader_gid)
+    manifest = {'format': 'original-verifier-bundle-v2' if installed else 'original-verifier-bundle-v1',
+                'local_fixture_only': True,
                 'hosted_admitted': False, 'entrypoint': ENTRYPOINT, 'build_identity_sha256': BUILD_ID,
                 'profile_id': PROFILE_ID, 'profile_sha256': PROFILE_SHA256,
                 'files': {name: {'bytes': len(raw), 'sha256': _sha(raw)} for name, raw in captured.items()},
                 'payload_bytes': sum(map(len, captured.values())), 'deno': runtime}
+    if installed:
+        manifest['installation'] = dict(INSTALLATION)
     encoded = _canonical(manifest)
     _manifest(encoded)
     parent = _absolute(parent)
-    parent_fd = _directory(parent, owned=True)
+    parent_fd = _directory(parent, owned=True, reader_gid=reader_gid)
     name = 'original-verifier-' + uuid.uuid4().hex
     root = parent / name
     directory = None
@@ -356,6 +442,8 @@ def capture_verifier_bundle(parent, explicit_build_id, exact_deno_path):
         created = True
         directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
                             dir_fd=parent_fd)
+        if installed:
+            os.fchown(directory, 0, READER_GID)
         os.fchmod(directory, 0o700)
         info = os.fstat(directory)
         for filename, raw in {**captured, 'bundle.json': encoded}.items():
@@ -367,11 +455,13 @@ def capture_verifier_bundle(parent, explicit_build_id, exact_deno_path):
                     sent = os.write(fd, raw[offset:offset + CHUNK])
                     _require(sent > 0, 'verifier_write_failed')
                     offset += sent
-                os.fchmod(fd, 0o400)
+                if installed:
+                    os.fchown(fd, 0, READER_GID)
+                os.fchmod(fd, 0o440 if installed else 0o400)
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        os.fchmod(directory, 0o500)
+        os.fchmod(directory, 0o550 if installed else 0o500)
         os.fsync(directory)
         os.fsync(parent_fd)
         result = FrozenVerifierBundle(root, encoded, (info.st_dev, info.st_ino))

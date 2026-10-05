@@ -350,6 +350,58 @@ class Wait4ChildTests(unittest.TestCase):
                     subject.Wait4Child.spawn([sys.executable, '-c', 'pass'], env={})
                 self.assertEqual(raised.exception.code, 'sigchld_owner_required')
 
+    def test_numeric_linux_identity_is_forwarded_with_empty_groups_only(self):
+        launches = []
+        def capture(_child, **kwargs):
+            launches.append(kwargs)
+            raise OSError('fixture stops before process creation')
+        with patch.object(subject.sys, 'platform', 'linux'), \
+             patch.object(subject.subprocess.Popen, '__init__', new=capture):
+            with self.assertRaises(subject.SpawnError) as refused:
+                subject.Wait4Child.spawn([sys.executable, '-c', 'pass'], env={}, user=62402, group=62402)
+        self.assertIsNone(refused.exception.owner.pid)
+        self.assertEqual(len(launches), 1)
+        self.assertEqual((launches[0]['user'], launches[0]['group'], launches[0]['extra_groups']),
+                         (62402, 62402, ()))
+        self.assertNotIn('preexec_fn', launches[0])
+        self.assertTrue(launches[0]['close_fds'])
+        self.assertFalse(launches[0]['shell'])
+
+    def test_identity_validation_refuses_before_any_constructor_or_capacity_use(self):
+        count = len(subject._RETAINED)
+        bad = ({'user': 62402}, {'group': 62402}, {'user': True, 'group': 62402},
+               {'user': 62402, 'group': False}, {'user': 0, 'group': 62402},
+               {'user': 62402, 'group': 0}, {'user': -1, 'group': 62402},
+               {'user': 62402, 'group': -1}, {'user': '62402', 'group': 62402},
+               {'user': 62402, 'group': '62402'}, {'user': 1 << 31, 'group': 62402},
+               {'user': 62402, 'group': 1 << 31})
+        with patch.object(subject.subprocess.Popen, '__init__') as create:
+            with patch.object(subject.sys, 'platform', 'linux'):
+                for options in bad:
+                    with self.subTest(options=options), self.assertRaisesRegex(subject.Wait4Error, 'invalid_identity'):
+                        subject.Wait4Child.spawn([sys.executable, '-c', 'pass'], env={}, **options)
+                with self.assertRaises(TypeError):
+                    subject.Wait4Child.spawn([sys.executable, '-c', 'pass'], env={},
+                                            user=62402, group=62402, extra_groups=[62401])
+            with patch.object(subject.sys, 'platform', 'darwin'):
+                with self.assertRaisesRegex(subject.Wait4Error, 'invalid_identity'):
+                    subject.Wait4Child.spawn([sys.executable, '-c', 'pass'], env={}, user=62402, group=62402)
+            create.assert_not_called()
+        self.assertEqual(len(subject._RETAINED), count)
+
+    def test_default_spawn_does_not_add_identity_or_group_changes(self):
+        launches = []
+        initialize = subprocess.Popen.__init__
+        def capture(child, **kwargs):
+            launches.append(kwargs)
+            initialize(child, **kwargs)
+        with patch.object(subject.subprocess.Popen, '__init__', new=capture):
+            owner = self.start('raise SystemExit(0)')
+        self.assertEqual(joined(owner)['returncode'], 0)
+        self.assertEqual(len(launches), 1)
+        for key in ('user', 'group', 'extra_groups', 'preexec_fn'):
+            self.assertNotIn(key, launches[0])
+
 
 if __name__ == '__main__':
     unittest.main()

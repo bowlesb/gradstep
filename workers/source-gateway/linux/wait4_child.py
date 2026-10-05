@@ -45,7 +45,7 @@ def _require(condition, code):
         raise Wait4Error(code)
 
 
-def _launch_arguments(argv, stdin, stdout, stderr, pass_fds, env, cwd):
+def _launch_arguments(argv, stdin, stdout, stderr, pass_fds, env, cwd, user=None, group=None):
     _require(type(argv) in (list, tuple) and 1 <= len(argv) <= 64, 'invalid_spawn')
     arguments = tuple(argv)
     _require(1 <= len(arguments) <= 64 and all(type(x) is str and x and '\0' not in x for x in arguments),
@@ -70,9 +70,17 @@ def _launch_arguments(argv, stdin, stdout, stderr, pass_fds, env, cwd):
         cwd = os.fspath(cwd)
         _require(type(cwd) is str and '\0' not in cwd and os.path.isabs(cwd)
                  and len(cwd.encode('utf8')) <= 4096, 'invalid_spawn')
-    return dict(args=arguments, stdin=stdin, stdout=stdout, stderr=stderr,
-                pass_fds=descriptors, env=environment, cwd=cwd, close_fds=True,
-                bufsize=0, text=False, shell=False)
+    launch = dict(args=arguments, stdin=stdin, stdout=stdout, stderr=stderr,
+                  pass_fds=descriptors, env=environment, cwd=cwd, close_fds=True,
+                  bufsize=0, text=False, shell=False)
+    if user is not None or group is not None:
+        # These are numeric IDs only: no name-service lookup, root target,
+        # supplementary-group inheritance or caller-supplied group list. The
+        # enclosing fixed Linux policy chooses the particular positive pair.
+        _require(sys.platform == 'linux' and type(user) is int and type(group) is int
+                 and 0 < user < (1 << 31) and 0 < group < (1 << 31), 'invalid_identity')
+        launch.update(user=user, group=group, extra_groups=())
+    return launch
 
 
 def _usage(value, platform):
@@ -110,11 +118,11 @@ class Wait4Child:
 
     @classmethod
     def spawn(cls, argv, *, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-              pass_fds=(), env, cwd=None):
+              pass_fds=(), env, cwd=None, user=None, group=None):
         _require(sys.platform in ('darwin', 'linux') and hasattr(os, 'wait4'), 'wait4_unavailable')
         _require(signals.getsignal(signals.SIGCHLD) == signals.SIG_DFL, 'sigchld_owner_required')
         try:
-            launch = _launch_arguments(argv, stdin, stdout, stderr, pass_fds, env, cwd)
+            launch = _launch_arguments(argv, stdin, stdout, stderr, pass_fds, env, cwd, user, group)
         except (ValueError, TypeError, UnicodeError, OverflowError):
             raise Wait4Error('invalid_spawn') from None
         owner = cls()

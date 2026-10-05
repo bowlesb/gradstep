@@ -440,3 +440,49 @@ The frozen build, existing spool and all migrations remain unchanged. Linux
 process/thread limits, cross-UID FD access, complete host measurements, SQL
 integration and real Supabase Storage settlement remain required. No VM,
 physical device, hosted service or provider was changed for this checkpoint.
+
+## Linux verifier compatibility — verified 2026-10-04
+
+`verifier_probe.py` connects the paused receiver to the isolated Linux guest's
+systemd service, privilege separation and retained cgroup. The captured runtime
+uses a reaper (UID 62403), supervisor (62401) and Deno (62402), with exclusive
+wait4 ownership at each parent. The original read-only spool FD reaches Deno
+without reading it before GO. Portable private bundle v1 stays unchanged; an
+explicit installed v2 bundle gives only Deno's fixed group read access.
+
+Eight actual schedules pass: valid PDF, wrong hash, each role's death, guardian
+stop, missing GO and fresh recovery. Every case proves the same scope empty,
+denies restart and cleans up its spool slots and owned units. An active,
+process-free target keeps the service's exit facts from being garbage-collected
+before observation; it is stopped after exit capture and restart denial.
+The local policy allows the anonymous socketpair required by Deno's signal
+handler. This is not complete Unix IPC confinement or production admission.
+
+The full Mac suite is 357 total: 335 passing and 22 Linux/opt-in skips. Sixty
+installed-bundle, runtime and guardian contract tests also pass inside the guest.
+The exact commands for these contract suites are:
+
+```sh
+PYTHONPATH=workers/source-gateway:workers/source-gateway/linux python3 -B -m unittest discover -s workers/source-gateway/linux -p 'test_*.py'
+PYTHONPATH=workers/source-gateway:workers/source-gateway/linux python3 -B -m unittest test_original_verifier_bundle test_verifier_probe_runtime test_verifier_probe -v
+```
+
+Actual systemd schedules require root in the explicitly marked isolated guest,
+fresh captured sources, a new `/opt/timestep-verifier-lab/<run>/evidence`
+directory and the retained pinned Linux Deno executable. Never run the guardian
+on an ordinary host or reuse a spent case. Root runtime operations remain
+separate from source-only agent reviews.
+
+The death injections occur while the roles are paused; guardian stop exercises
+a living watcher's deadline. The final valid case uses a new service. These
+checks do not cover mid-WASM interruption, guardian death or resumed attempts.
+After preserving the reports, all owned case directories were removed and the
+isolated VM was stopped; source/evidence archives remain.
+
+[Compatibility design and evidence](../../../docs/architecture/LINUX_VERIFIER_COMPATIBILITY.md)
+records source/runtime hashes, raw measurements, earlier failed captures and
+remaining enforcement boundaries. The final run is
+`.artifacts/linux-verifier-compatibility/probe-c5f2c9ea5235/`; no live PDF source,
+Supabase Storage, Mathpix or other provider is used. This evaluates a local
+hosting option; it neither provisions a separate production worker nor proves
+that Supabase cannot run the parser. Both pending migrations remain unhosted.

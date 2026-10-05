@@ -1,15 +1,17 @@
 # Original acquisition execution — local integration
 
-Status: **independently reviewed design; spool, portable transfer/verifier handoff
-and disabled candidate 013 locally tested; no hosted migration, runtime admission,
+Status: **independently reviewed design; spool, portable transfer/verifier handoff,
+Linux verifier compatibility and disabled candidate 013 locally tested; no hosted migration, runtime admission,
 Storage integration or live source traffic**.
 This document defines the next
 original-only slice after the tested Linux metadata action. It does not change
 applied 001–011, pending 012, any enabled flag, the PDF parser profile, or the paid
 Mathpix contract. The isolated binary spool and SQL prerequisites are implemented
 below; their tests need no source or Storage credentials. Actual loopback
-transfers now feed the unchanged parser through a sealed readback FD. Connecting
-that workflow to durable SQL and the admitted Linux host remains unfinished.
+transfers now feed the unchanged parser through a sealed readback FD. A separate
+Linux compatibility fixture verifies the paused cross-UID handoff and exact
+waits. Connecting the complete workflow to durable SQL and an admitted host
+remains unfinished.
 
 Reviewed source boundaries:
 
@@ -631,9 +633,12 @@ quota is a rate limit, not a total-CPU budget.
 The proposed immutable host measurement policy is
 `owned-process-rss-upper-envelope-v1`: a fresh fixed verifier set consisting of
 the Deno process and its dedicated supervisor, with exact Linux `wait4` rusage
-for every reaped member. Convert KiB to bytes and sum each process's maximum RSS,
-conservatively double-counting shared pages and maxima occurring at different
-times. This upper envelope, not a sampled RSS or cgroup peak, is the proposed
+for each waited child. Linux's supervisor wait includes CPU from children it
+reaped, and its `ru_maxrss` includes their maximum; these are not disjoint
+own-process records. Preserve both raw records and compute the conservative
+overlapping envelope as `1024 * (S.ru_maxrss + D.ru_maxrss)`. Do not sum S and D
+CPU. Reaper RSS is separate supervision overhead. This upper envelope, not a
+sampled RSS or cgroup peak, is the proposed
 meaning of the new profile's `peak_host_bytes`. Record raw per-process identity,
 rusage and aggregation evidence separately; bind its digest to the receipt.
 Measure total CPU from the fresh retained verifier scope's `cpu.stat` before and
@@ -641,8 +646,10 @@ after, and full wrapper wall duration from the admitted clock. Startup, WASM
 compilation, input copy, parser and teardown costs are included.
 
 This host policy is **not admitted**. Existing metadata/transfer helpers use
-`waitpid`; the new portable receiver owns direct-child `wait4` evidence only.
-It does not measure the complete Linux supervisor/process set. Lost wait
+`waitpid`; the portable receiver owns direct-child `wait4` evidence. The
+[Linux compatibility fixture](LINUX_VERIFIER_COMPATIBILITY.md) now additionally
+retains both supervisor and Deno waits and fresh-slice CPU/charged-memory facts.
+It does not establish the complete lifetime process/thread policy. Lost wait
 authority/rusage after parent death means
 unknown, even if the cgroup is later empty. Host admission must prove the complete
 process/thread set, exact zero/initial counters and preserved final counters,
@@ -854,13 +861,14 @@ below, and candidate 013 passes the local SQL authority, role, envelope,
 concurrency and populated-upgrade checks. Separate portable source/upload/
 stored-read components now implement the binary handoff described below. The
 portable receiver connects that handoff to the frozen parser and records actual
-direct-child rusage. Next connect the components to the Linux guardian, complete
-host measurements and durable SQL/action ordering. Combine them
+direct-child rusage. The separate Linux verifier fixture now passes paused
+cross-UID execution, paired waits, failure retirement and restart denial. Next
+finish the admitted host policy and durable SQL/action ordering. Combine them
 in one opt-in disposable-PG/loopback fixture before any hosted credentials or
 outbound switch is considered.
 
 The remaining substantive admission decisions are the exact Linux verifier
-process/thread policy and rusage implementation, the reviewed Storage success/
+process/thread and enforcement policy, the reviewed Storage success/
 read-settlement response schema, and the actual narrow deployment/credential
 binding. They block positive live admission, not isolated spool or SQL work.
 Existing cloud-account selection and an approved fixed/variable budget are needed

@@ -2,8 +2,8 @@
  *
  * The parent owns the inherited read-only stdin FD, absolute deadline and exact
  * child wait. This receiver's relative checks cannot interrupt synchronous WASM.
- * Captured files are trusted same-owner read-only inputs, not a hostile-owner
- * filesystem boundary. No parser module is imported before GO and payload hash.
+ * Portable files trust their owner; installed Linux files trust root and use
+ * one fixed reader group. No parser module is imported before GO/payload hash.
  */
 const BUILD = "39980de20b9cd8717d10318e8f0c0a8869bf184c1292fe31987fe34c6e707610";
 const PROFILE_SHA = "c8478d6e1b1f7a8631132789a471a7f525123f40d2e893890254fb1660b54962";
@@ -12,6 +12,7 @@ const MAX_PDF = 5_242_880;
 const MAX_INPUT = 16_384;
 const MAX_CONTROL = 4_096;
 const CHUNK = 65_536;
+const READER_GID = 62402;
 const ROOT = new URL("./", import.meta.url);
 const ENCODER = new TextEncoder();
 const DECODER = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
@@ -178,11 +179,13 @@ function sameStat(before, after, reason = "input_changed") {
     require((before[key]?.getTime() ?? null) === (after[key]?.getTime() ?? null), reason);
   }
 }
-async function boundedFile(name, maximum) {
+async function boundedFile(name, maximum, installed = false) {
   const path = new URL(name, ROOT);
   const before = await Deno.lstat(path);
   require(before.isFile && !before.isSymlink && integer(before.size, 1, maximum) &&
-    (before.mode === null || (before.mode & 0o7777) === 0o400), "bundle_changed");
+    (installed ? before.uid === 0 && before.gid === READER_GID && before.nlink === 1 &&
+      typeof before.mode === "number" && (before.mode & 0o7777) === 0o440 :
+      before.mode === null || (before.mode & 0o7777) === 0o400), "bundle_changed");
   const file = await Deno.open(path, { read: true });
   try {
     sameStat(before, await file.stat(), "bundle_changed");
@@ -204,16 +207,25 @@ async function manifest(expectedSHA) {
   const directory = new URL(ROOT.href);
   directory.pathname = directory.pathname.replace(/\/$/, "");
   const root = await Deno.lstat(directory);
-  require(root.isDirectory && !root.isSymlink && (root.mode === null || (root.mode & 0o7777) === 0o500));
-  const raw = await boundedFile("bundle.json", MAX_INPUT);
+  const installed = typeof root.mode === "number" && (root.mode & 0o7777) === 0o550;
+  require(root.isDirectory && !root.isSymlink && (installed ? Deno.build.os === "linux" &&
+    root.uid === 0 && root.gid === READER_GID : root.mode === null || (root.mode & 0o7777) === 0o500));
+  const raw = await boundedFile("bundle.json", MAX_INPUT, installed);
   require(await sha(raw) === expectedSHA);
   const value = parseCanonical(raw);
-  require(record(value, ["format", "local_fixture_only", "hosted_admitted", "entrypoint", "build_identity_sha256",
-    "profile_id", "profile_sha256", "files", "payload_bytes", "deno"]) &&
-    value.format === "original-verifier-bundle-v1" && value.local_fixture_only === true &&
+  const keys = ["format", "local_fixture_only", "hosted_admitted", "entrypoint", "build_identity_sha256",
+    "profile_id", "profile_sha256", "files", "payload_bytes", "deno"];
+  require(record(value, installed ? [...keys, "installation"] : keys) &&
+    value.format === (installed ? "original-verifier-bundle-v2" : "original-verifier-bundle-v1") && value.local_fixture_only === true &&
     value.hosted_admitted === false && value.entrypoint === "original_verifier.mjs" &&
     value.build_identity_sha256 === BUILD && value.profile_id === PROFILE_ID && value.profile_sha256 === PROFILE_SHA &&
     record(value.files, Object.keys(LIMITS)));
+  if (installed) {
+    const policy = value.installation;
+    require(record(policy, ["policy", "uid", "gid", "directory_mode", "file_mode"]) &&
+      policy.policy === "linux-root-reader-v1" && policy.uid === 0 && policy.gid === READER_GID &&
+      policy.directory_mode === 0o550 && policy.file_mode === 0o440);
+  }
   let payload = 0;
   for (const [name, maximum] of Object.entries(LIMITS)) {
     const entry = value.files[name];
@@ -230,6 +242,8 @@ async function manifest(expectedSHA) {
   for (const key of ["device", "inode", "mtime_ns", "ctime_ns"]) require(decimal(deno.identity[key], key === "inode"));
   require(integer(deno.identity.uid, 0, 4_294_967_295) && integer(deno.identity.gid, 0, 4_294_967_295) &&
     integer(deno.identity.mode, 0, 0o7777) && (deno.identity.mode & 0o111) !== 0 && (deno.identity.mode & 0o7022) === 0);
+  if (installed) require(deno.identity.uid === 0 &&
+    (deno.identity.mode & (deno.identity.gid === READER_GID ? 0o010 : 0o001)) !== 0);
   const names = [];
   for await (const entry of Deno.readDir(ROOT)) {
     require(names.length < 8);
@@ -284,7 +298,7 @@ async function assets(packageManifest, checkBudget) {
   try {
     const files = new Map();
     for (const [name, limit] of Object.entries(LIMITS)) {
-      const raw = await boundedFile(name, limit);
+      const raw = await boundedFile(name, limit, packageManifest.format === "original-verifier-bundle-v2");
       require(raw.length === packageManifest.files[name].bytes && await sha(raw) === packageManifest.files[name].sha256, "bundle_changed");
       files.set(name, raw);
       checkBudget();
