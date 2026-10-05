@@ -13,6 +13,7 @@
 		09A87E139F241BE09E1C6F24 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 73C48F72EBEC7F248AD25F9F /* SwiftMath */; };
 		0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */; };
 		0DB9E535292D2D1CB9A4FCAF /* ReaderPNGValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */; };
+		0E3141986A83FA8413E82487 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */; };
 		0E33D12C235E344D6D428738 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CCA6B141496516544EC2620 /* AuthenticationView.swift */; };
 		1019868E9B645E8CD0473484 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 46DD9E9113B03CAE53BF0271 /* Assets.xcassets */; };
 		1164DC8D2D2BE9D6EE1912AB /* OfflineResourcePerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */; };
@@ -109,6 +110,7 @@
 		C6F0F36164B3962D90F26435 /* DurableWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */; };
 		C85C6F3BA0684808A9D3B155 /* ChatWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD219A12430C6D440465F911 /* ChatWorkspace.swift */; };
 		C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */; };
+		CC091EB2F87A2258224BA1A7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */; };
 		CF3F86D0DCB5E1CDC69D02E6 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
 		D425678EA644AA4CF16CF5D3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
 		D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
@@ -165,6 +167,7 @@
 		02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSupportTests.swift; sourceTree = "<group>"; };
 		030E1CFB76A0DFDEDF57638C /* ReaderBundleLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderBundleLoaderTests.swift; sourceTree = "<group>"; };
 		03742A4949DCA5611E5FF883 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		09F00A3E50BBA6CA58D4062C /* DiagramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramView.swift; sourceTree = "<group>"; };
 		0A7005386659A627AA9009A5 /* DeviceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceKeys.swift; sourceTree = "<group>"; };
 		0CF87627F536131311AEBD1D /* reader-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "reader-bridge.js"; sourceTree = "<group>"; };
@@ -318,6 +321,7 @@
 				3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */,
 				12D61D9D4705606671656C1A /* mermaid.min.js */,
 				78F26AC3CC887892BFD85E25 /* offline-resource */,
+				08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */,
 				0CF87627F536131311AEBD1D /* reader-bridge.js */,
 				7B70D15BE449FE77F2DCF2AE /* ReaderSamples */,
 			);
@@ -612,6 +616,7 @@
 				95D81C5717F57CC6BE141ABC /* GoogleSans-Medium.ttf in Resources */,
 				4BA22147F0D1261E3747391C /* GoogleSans-OFL.txt in Resources */,
 				B422CD71DBFDFA34FF6388D7 /* GoogleSignIn-PROVENANCE.md in Resources */,
+				0E3141986A83FA8413E82487 /* PrivacyInfo.xcprivacy in Resources */,
 				D90FA618E733A6DA84FF9297 /* ReaderSamples in Resources */,
 				A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */,
 				55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */,
@@ -626,6 +631,7 @@
 				1E182A1B85ED02FE82DAC648 /* GoogleSans-Medium.ttf in Resources */,
 				AC9F6CBCB7AE7D8AFED96D75 /* GoogleSans-OFL.txt in Resources */,
 				7BC3644F9BF56309E3F859CB /* GoogleSignIn-PROVENANCE.md in Resources */,
+				CC091EB2F87A2258224BA1A7 /* PrivacyInfo.xcprivacy in Resources */,
 				FCC586596B435AF7180731D7 /* ReaderSamples in Resources */,
 				6A9FB40EA22828F4E4F61F58 /* mermaid.min.js in Resources */,
 				1D8610524D972A37C4E98E21 /* offline-resource in Resources */,
@@ -968,7 +974,7 @@
 		7AD1214921ED311866B5F557 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/ScienceReader.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -1022,7 +1028,7 @@
 		9DBA5574F5AB168CD12CEEED /* Internal */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/ScienceReader.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -1077,7 +1083,7 @@
 		BEEAB2D0DD6EAA55F17E90E2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Config/ScienceReader.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

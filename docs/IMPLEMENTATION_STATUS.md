@@ -81,13 +81,19 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
 - **Real sign-in**: Apple/Google provider journeys and email-code delivery (needs a dedicated SMTP sender);
   new signups are still disabled. Simulator tests use a Debug-only synthetic-account hook.
 - **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
-  whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first (0 of 904 real-paper equations
-  fall back, from 57).
+  whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
+  registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
 - **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
   better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
   paper assets, independent backups, admin hosting, production environment.
-- **Product**: StoreKit subscriptions and allowances, TestFlight, browser reader, iPad/accessibility passes
-  on real papers, physical-device checks (paused by the owner).
+- **Product**: StoreKit subscriptions and allowances, TestFlight, browser reader, accessibility pass on real
+  papers, physical-device checks (paused by the owner), account deletion (App Store requirement).
+- **TestFlight readiness** (prepared 2026-10-05): app icon (the legacy Science Reader artwork, placeholder until
+  the name/brand is decided) and a privacy manifest (`PrivacyInfo.xcprivacy`: UserDefaults CA92.1, system boot
+  time 35F9.1; collected data draft — email, user ID, other user content, customer support — for owner review
+  against the App Store privacy label). Still owner decisions: export-compliance answer
+  (`ITSAppUsesNonExemptEncryption`; the app uses standard CryptoKit encryption for private history), App Store
+  Connect record, bundle ID registration and signing.
 - **Applied-but-unused**: migration 011's acquisition tables/RPCs remain in the database; a later additive
   migration can drop them.

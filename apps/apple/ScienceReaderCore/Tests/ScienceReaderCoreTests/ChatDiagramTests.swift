@@ -27,5 +27,12 @@ struct ChatDiagramTests {
         try state.apply(AppliedEvent(id: UUID(), deviceID: device, payload: PrivateEvent(kind: .diagram, entityID: UUID(), text: "{}")))
         #expect(state.diagrams().map(\.id) == [firstID])
         #expect(state.diagramsByMessage() == [message: ChatDiagramLink(id: firstID, title: "First")])
+        // Deleting the conversation removes its diagrams from the list.
+        let conversation = UUID()
+        let inChat = try #require(ChatDiagram(title: "In chat", source: "graph TD; e-->f", messageID: UUID()))
+        try state.apply(AppliedEvent(id: UUID(), deviceID: device, payload: PrivateEvent(kind: .diagram, entityID: UUID(), conversationID: conversation, text: inChat.encodedText())))
+        #expect(state.diagrams().count == 2)
+        try state.apply(AppliedEvent(id: UUID(), deviceID: device, payload: PrivateEvent(kind: .tombstone, entityID: conversation)))
+        #expect(state.diagrams().map(\.id) == [firstID])
     }
 }

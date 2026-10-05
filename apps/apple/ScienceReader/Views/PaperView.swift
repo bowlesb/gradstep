@@ -266,13 +266,13 @@ struct PaperWebView: UIViewRepresentable {
         }
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
-        // Math fit depends on the text size, so refit only when it changes.
-        web.callAsyncJavaScript("""
-            if (document.documentElement.style.fontSize !== size + 'px') {
-              document.documentElement.style.fontSize = size + 'px';
-              window.__scienceReaderFit?.();
-            }
-            """, arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
+        // Math fit depends on the text size, so refit only when it changes
+        // (compared here: WebKit rounds the size it stores).
+        if context.coordinator.appliedFontSize != fontSize {
+            context.coordinator.appliedFontSize = fontSize
+            web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'; window.__scienceReaderFit?.();",
+                                    arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
+        }
         context.coordinator.applyJump(in: web)
     }
 
@@ -289,6 +289,7 @@ struct PaperWebView: UIViewRepresentable {
         var ready = false
         var active = true
         var navigation: WKNavigation?
+        var appliedFontSize: Double?
         private var loadingID = UUID()
         private var inFlightJumpID: UUID?
         private var lastJumpID: UUID?
@@ -346,6 +347,7 @@ struct PaperWebView: UIViewRepresentable {
                         self.parent.onLoading(false); self.parent.onFailure(); return
                     }
                     self.ready = true
+                    self.appliedFontSize = arguments["size"] as? Double
                     self.remember(body, in: webView)
                     self.parent.onLoading(false)
                     self.parent.onReady()
@@ -396,7 +398,7 @@ struct PaperWebView: UIViewRepresentable {
         }
 
         func invalidateLoad() {
-            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil
+            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil
         }
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard active, navigation === self.navigation else { return }

@@ -42,6 +42,7 @@
   // to the column and the rest scrolls inside its own box (never the page).
   const MIN_SCALE = 0.75;
   const fitted = new Set();
+  let lastPosition = null;
   const installLayout = () => {
     const style = document.createElement('style');
     style.textContent = [
@@ -120,7 +121,9 @@
     new ResizeObserver(() => {
       if (document.documentElement.clientWidth === width) return;
       width = document.documentElement.clientWidth;
-      const location = window.__scienceReaderLocation();
+      // WebKit has already reflowed for the new width: keep the place last
+      // reported while reading, not the position after the reflow.
+      const location = lastPosition ?? window.__scienceReaderLocation();
       window.__scienceReaderFit(); window.__scienceReaderRestore(location);
     }).observe(document.documentElement);
 
@@ -185,7 +188,7 @@
     clearEquation();
     window.getSelection()?.removeAllRanges();
   };
-  const postPosition = () => post({type:'position',...window.__scienceReaderLocation()});
+  const postPosition = () => { lastPosition = window.__scienceReaderLocation(); post({type:'position',...lastPosition}); };
   window.addEventListener('scroll',() => {
     if (positionTimer || config?.figure_id) return;
     positionTimer = setTimeout(() => {positionTimer=null;postPosition();},120);

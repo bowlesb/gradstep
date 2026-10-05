@@ -71,8 +71,11 @@ private struct MermaidWebView: UIViewRepresentable {
               const input = \(input), post = value => window.webkit.messageHandlers.diagram.postMessage(value);
               try {
                 if (!input || typeof globalThis.mermaid?.render !== 'function') throw new Error('unavailable');
+                // Directives in the (untrusted) source cannot override these keys.
                 globalThis.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: input.dark ? 'dark' : 'default',
-                  fontFamily: '-apple-system, system-ui, sans-serif' });
+                  fontFamily: '-apple-system, system-ui, sans-serif',
+                  secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering',
+                    'dompurifyConfig', 'themeCSS', 'themeVariables', 'theme', 'fontFamily', 'htmlLabels'] });
                 const { svg } = await globalThis.mermaid.render('sr-diagram', input.source);
                 document.getElementById('diagram').innerHTML = svg;
                 post({ ok: true });

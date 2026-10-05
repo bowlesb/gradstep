@@ -7,9 +7,12 @@ fenced code/tables as monospaced text, inert links) with inline `\( \)`/`$ $` an
 `ChatRichTextView` typesets math with SwiftMath 1.7.3 (CoreText, Latin Modern Math), scaling wide display equations
 to fit. Stored text is never changed. `ChatMathTypesetting.prepare` first rewrites LaTeX SwiftMath cannot parse into
 supported equivalents (`\operatorname`→`\mathrm`, `\boldsymbol`→`\bm`, `\dfrac`→`\frac`, sizing commands dropped,
-`\underset`/`\overset` as scripts, `align*`→`aligned` with two columns per row, `gather`/`array`→`matrix`,
-`\tag`, Unicode for `\triangleq`/`\lesssim`/…). Measured with SwiftMath's parser: 57 of 904 distinct equations
-from six real papers (6.3%) fell back to source before; 0 after. Anything still unsupported shows its source.
+`\underset`/`\overset` as scripts, `align*`→`aligned` with two columns per row and `gather`/`array`→`matrix`, both
+split only outside nested environments, `\tag`). SwiftMath silently skips non-ASCII characters, so symbols it lacks
+(`\lesssim`, `\triangleq`, `\coloneqq`, `\iint`, …) stay commands and the app registers them from
+`ChatMathTypesetting.customSymbols` (glyphs verified to draw). Measured with SwiftMath's parser: 57 of 904 distinct
+equations from six real papers (6.3%) fell back to source before; all parse after (the three using registered
+symbols parse once the app registers them). Anything still unsupported shows its source.
 
 The plan below (WebKit typesetter) is superseded and kept for history.
 

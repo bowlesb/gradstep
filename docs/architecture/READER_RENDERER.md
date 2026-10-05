@@ -19,7 +19,8 @@ Reading flow: before rendering, `flow.ts` joins a paragraph that Mathpix split a
 the first half stops mid-sentence and the second starts in lower case; page footnotes and figures/tables found
 between the halves keep their order and move after the joined paragraph. Only that marker is used (column breaks,
 display-math continuations and complete sentences are untouched). On six real papers this removed every
-page-break split (3–5 per paper) with identical equation and figure counts.
+page-break split (3–5 per paper) with identical equation and figure counts. `RENDERER_REVISION` is 2 from this
+change (manifests record the new build hash); conversions rendered earlier keep their bundles.
 
 Device presentation (`reader-bridge.js`, applied to every bundle version without changing content): per-cell
 `columnalign` (WebKit ignores it on `mtable`/`mtr`, which centered aligned derivations), equation numbers pinned
@@ -59,4 +60,4 @@ Native `ReaderProfile` applies these to this renderer only; the authored `timest
 
 Process CPU includes V8 background threads; both runs also pass under a 150 MB heap cap. Node and Deno produce byte-identical bundles. The DPO bundle is 767 KB (HTML 262 KB, index 181 KB, four JPEGs 303 KB). A synthetic 1.36 MB source (DPO ×12, 3,240 equations) took 1.7 s wall / 2.7 s process CPU and 136 MB heap, so sources near the 2 MiB cap may exceed the Edge CPU budget. Deployment size is unmeasured: the npm graph is large (`deno info` reports 122 MB of package files) and may need pre-bundling.
 
-The committed app fixture `ReaderSamples/d874c0ed…` is this renderer's output for the DPO capture, with CC BY 4.0 attribution in its `NOTICE.txt`; `tests/backend/reader-render.test.ts` checks it byte-for-byte when the capture is present locally.
+The committed app fixture `ReaderSamples/cd902bcd…` is this renderer's output for the DPO capture, with CC BY 4.0 attribution in its `NOTICE.txt`; `tests/backend/reader-render.test.ts` checks it byte-for-byte when the capture is present locally.

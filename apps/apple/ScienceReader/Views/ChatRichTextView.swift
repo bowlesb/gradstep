@@ -82,8 +82,25 @@ struct ChatRichTextView: View {
     private final class Box { let value: Rendered?; init(_ value: Rendered?) { self.value = value } }
     private let cache: NSCache<NSString, Box> = { let cache = NSCache<NSString, Box>(); cache.countLimit = 600; return cache }()
 
+    /// Commands SwiftMath lacks, defined once from the shared table (it skips
+    /// raw non-ASCII characters, so they cannot be written as Unicode text).
+    private static let customSymbols: Void = {
+        for symbol in ChatMathTypesetting.customSymbols {
+            let atom: MTMathAtom? = switch symbol.kind {
+            // MTMathAtom's initializer is internal: copy a symbol of the same type.
+            case .relation: MTMathAtomFactory.atom(forLatexSymbol: "leq")?.copy()
+            case .ordinary: MTMathAtomFactory.atom(forLatexSymbol: "infty")?.copy()
+            case .largeOperator: MTMathAtomFactory.operatorWithName(symbol.character, limits: false)
+            }
+            guard let atom else { continue }
+            atom.nucleus = symbol.character
+            MTMathAtomFactory.add(latexSymbol: symbol.name, value: atom)
+        }
+    }()
+
     func render(_ latex: String, size: Double, display: Bool, dark: Bool) -> Rendered? {
         guard latex.utf8.count <= 4_000 else { return nil }
+        _ = Self.customSymbols
         let key = "\(display ? "d" : "i")|\(Int(size * 10))|\(dark ? 1 : 0)|\(latex)" as NSString
         if let hit = cache.object(forKey: key) { return hit.value }
         let color: UIColor = dark ? .white : .black

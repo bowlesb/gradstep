@@ -63,3 +63,20 @@ The user accepted both remaining recommendations on 2026-10-02. Account recovery
 Incremental means new costs attributable to Science Reader: new Supabase compute/projects, any plan increase necessary for them, admin/worker hosting, backups, storage/egress, and API consumption. Existing TextBrain costs are not silently reassigned to this budget. Shared-account invoices must be attributed before deciding which costs fit.
 
 The $100 is an operating budget, not permission to purchase unrelated services or an estimate for the user's time. Reserve fixed costs and contingency before allocating the variable API allowance. In-app credits do not equal dollars or a provider's credits unless an explicit published conversion policy says so.
+
+## Open decision: account deletion (proposal, 2026-10-05)
+
+App Store review requires in-app account deletion for apps with account creation. Recommended, for owner review:
+
+- **Settings → Account → Delete account** with a typed confirmation. Deletion is a server operation (requires a
+  connection); the device then erases its local encrypted store and keys.
+- **Deleted immediately**: encrypted history events and key envelopes (unreadable without device keys anyway),
+  library items/imports, private (`owner_private`) documents and their Storage objects, support reports and
+  screenshots, device registrations, the Auth user (and Apple token revocation when Sign in with Apple is live).
+- **Kept, de-identified**: credit ledger, operations and provider-usage rows needed for accounting and the platform
+  budget (account ID replaced by a deletion tombstone ID); shared CC BY/CC0 conversions other accounts rely on.
+- **Purchases**: an active App Store subscription is managed by Apple; the app links to subscription management
+  before deletion. Unused credits are forfeited (state this in the confirmation).
+- Backups expire deleted data on the backup retention schedule (BACKUP_AND_RESTORE).
+
+Not implemented; the retention split (what is kept de-identified, and for how long) is the owner's call.

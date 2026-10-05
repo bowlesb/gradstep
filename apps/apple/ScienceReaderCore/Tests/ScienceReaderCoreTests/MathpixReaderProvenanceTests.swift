@@ -191,5 +191,5 @@ struct MathpixReaderProvenanceTests {
         let selection = ReaderSelection(manifestSHA256: bundle.manifestSHA256, parts: [.init(kind: "equation", blockID: equation.blockID, equationID: equation.id)])
         #expect(try selection.resolvedQuote(in: bundle).hasPrefix("\\[\\begin{equation*}"))
     }
-    static let dpoManifestSHA256 = "d874c0ed679eb2949b89506415c1e8e407f0fb910636bab8bf8677f87563c638"
+    static let dpoManifestSHA256 = "cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71"
 }

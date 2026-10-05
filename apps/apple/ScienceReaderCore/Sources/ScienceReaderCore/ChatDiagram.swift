@@ -43,10 +43,13 @@ public struct ChatDiagramLink: Equatable, Sendable {
 }
 
 public extension PrivateState {
-    /// Saved diagrams, newest revision of each, in stable order.
+    /// Saved diagrams, newest revision of each, in stable order. A diagram of
+    /// a deleted conversation is gone with it.
     func diagrams() -> [(id: UUID, diagram: ChatDiagram)] {
         entities(kind: .diagram).compactMap { id in
-            revisions(for: id).first.flatMap { ChatDiagram.decode($0.payload.text) }.map { (id, $0) }
+            guard let event = revisions(for: id).first,
+                  event.payload.conversationID.map({ !isDeleted($0) }) ?? true else { return nil }
+            return ChatDiagram.decode(event.payload.text).map { (id, $0) }
         }
     }
 

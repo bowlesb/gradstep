@@ -951,7 +951,7 @@ final class ReaderModel {
         feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
         generalChat = true
         email = nil; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
-        showAllChats = false; showDiagrams = false
+        showAllChats = false; showDiagrams = false; presentedDiagram = nil
         showReportsAfterComposer = false; error = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
     }
@@ -1823,8 +1823,16 @@ final class ReaderModel {
                                                              documentID: generation.turn.documentID, text: diagram.encodedText())))
         }
         let entries = batch
-        let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: deviceID) }
-        let envelopes = try await write.value
+        let envelopes: [EventEnvelope]
+        do {
+            let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: deviceID) }
+            envelopes = try await write.value
+        } catch ReaderError.localCapacityExceeded where entries.count > 1 {
+            // Near the offline capacity limit the answer matters more than its diagram.
+            let answer = [(id: id, event: event)]
+            let write = try persistence.acceptWrite { local in try await local.appendBatch(answer, deviceID: deviceID) }
+            envelopes = try await write.value
+        }
         let snapshot = await store.snapshot()
         guard sessionID == scope else { return }
         branchSelections.complete(choice, head: envelopes.first?.id)

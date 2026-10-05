@@ -45,3 +45,23 @@ test('page footnotes between the halves move after the joined paragraph', () => 
 test('a paragraph spanning several pages joins every break', () => {
   assert.equal(joinPageSplits('one\n\\pagebreak\n\ntwo\n\\pagebreak\n\nthree.'), 'one two three.');
 });
+
+test('a paragraph over three pages with a page-one footnote joins both breaks', () => {
+  const source = 'One starts here and\n\n\\footnotetext{\nA note.\n}\n\\pagebreak\n\ncontinues on page two and\n\\pagebreak\n\nends on page three.\n\nNext.';
+  assert.equal(joinPageSplits(source),
+    'One starts here and continues on page two and ends on page three.\n\n\\footnotetext{\nA note.\n}\n\nNext.');
+});
+
+test('one-line floats are recognized on either side of the break', () => {
+  assert.equal(joinPageSplits('stops mid\n\\pagebreak\n\n\\begin{figure}\\includegraphics{a.jpg}\\end{figure}\nand continues.\n\nLater paragraph.'),
+    'stops mid and continues.\n\n\\begin{figure}\\includegraphics{a.jpg}\\end{figure}\n\nLater paragraph.');
+  assert.equal(joinPageSplits('stops mid\n\n\\begin{table}\\caption{T}\\end{table}\n\\pagebreak\n\nand continues.'),
+    'stops mid and continues.\n\n\\begin{table}\\caption{T}\\end{table}');
+});
+
+test('pathological lines stay fast', () => {
+  const started = performance.now();
+  joinPageSplits('word' + ' '.repeat(40_000) + '\n\\pagebreak\n\nnext line');
+  joinPageSplits(('x'.repeat(200) + '\n\\pagebreak\n\n').repeat(2_000));
+  assert.ok(performance.now() - started < 500, `took ${performance.now() - started} ms`);
+});

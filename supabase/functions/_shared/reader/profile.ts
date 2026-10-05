@@ -9,7 +9,7 @@ export const BUNDLE_FORMAT = 'reader-bundle-v1';
 export const INDEX_FORMAT = 'reader-index-v1';
 export const PROVENANCE_FORMAT = 'mathpix-reader-provenance-v2';
 // Bump whenever rendering output can change for the same input bytes.
-export const RENDERER_REVISION = 1;
+export const RENDERER_REVISION = 2;
 export const PACKAGES = Object.freeze({ 'markdown-it': '9.1.0', 'mathpix-markdown-it': '3.0.1', htmlparser2: '12.0.0' });
 export const MATH_OPTIONS = Object.freeze({
   include_latex: false, include_mathml: true, include_svg: false, include_asciimath: false,
