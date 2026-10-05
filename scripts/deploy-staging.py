@@ -20,6 +20,7 @@ parser.add_argument('environment', choices=['staging'])
 parser.add_argument('--skip-migrations', action='store_true')
 parser.add_argument('--functions', nargs='*', help='Subset of functions to deploy')
 parser.add_argument('--rotate-pipeline-secret', action='store_true', help='Generate a new worker secret and update the function and Vault')
+parser.add_argument('--chat-web-search', choices=['on', 'off'], help='Override infra chat_web_search (Anthropic web search in chat)')
 args = parser.parse_args()
 manifest = json.loads((ROOT/'infra/account.json').read_text())
 project = manifest['projects'][args.environment]['id']
@@ -81,12 +82,14 @@ if 'PIPELINE_SECRET' not in env or args.rotate_pipeline_secret:
     os.chmod(env_path, 0o600)
     env['PIPELINE_SECRET'] = value
     print('Generated a new dedicated pipeline secret in the local environment file')
+web_search = args.chat_web_search or ('on' if config.get('chat_web_search') else 'off')
 function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
-                    {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']}]
+                    {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
+                    {'name': 'CHAT_WEB_SEARCH', 'value': web_search}]
 for name in ['MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'ANTHROPIC_API_KEY']:
     if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
 request(base + '/secrets', mgmt, function_secrets)
-print('Set function secrets:', ', '.join(s['name'] for s in function_secrets))
+print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search})')
 
 for name in (args.functions if args.functions is not None else config['functions']):
     if not (ROOT/'supabase/functions'/name/'index.ts').exists():

@@ -3,6 +3,7 @@
 // text; logs carry only operation IDs, codes and counts.
 import {
   ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
+  WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL, webSearchHoldMicrousd,
   type ChatTurn, type PaperContext, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -144,8 +145,18 @@ Do not say whether it was added; the app reports that. If the passage does not r
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
 Never write Mermaid, SVG or HTML diagram markup in the answer text.`;
 
-export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null): string {
-  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${action === 'ingest' ? INGEST_INSTRUCTIONS : DIAGRAM_INSTRUCTIONS}`;
+const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on.`;
+
+export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null, webSearch = false): string {
+  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS : `${DIAGRAM_INSTRUCTIONS}${webSearch ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
+  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`;
+}
+
+/** Cited web sources, appended to the answer as inert text (titles cleaned). */
+export function sourcesText(sources: readonly { url: string; title: string | null }[]): string {
+  const rows = sources.filter(source => /^https:\/\//.test(source.url)).slice(0, 8)
+    .map((source, index) => `${index + 1}. ${source.title ? `${display(source.title)} — ` : ''}${source.url.replace(/\s/g, '').slice(0, 500)}`);
+  return rows.length ? `\n\nSources:\n${rows.join('\n')}` : '';
 }
 
 const MERMAID_TYPES = /^(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|mindmap|timeline|journey|quadrantChart|xychart-beta|block-beta|sankey-beta|gitGraph|requirementDiagram|packet-beta|architecture-beta|kanban|radar-beta)\b/;
@@ -217,6 +228,8 @@ export interface ChatDependencies {
   sleep?: (ms: number) => Promise<void>;
   deadlineMs?: number;
   ingestDeadlineMs?: number;
+  /** Offer Anthropic's web search (server setting; off by default). */
+  webSearch?: boolean;
   /** Ingest: the arXiv paper that strictly matches the citation, if any. */
   findPaper?: (request: PaperRequest, signal: AbortSignal) => Promise<FindResult>;
   /** Ingest: adds one arXiv paper to the caller's library (as the caller). */
@@ -262,9 +275,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
-  const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action), paper, turns: request.turns,
-    selection: request.selection, tools: [request.action === 'ingest' ? ADD_PAPER_TOOL : CREATE_DIAGRAM_TOOL] });
+  const search = request.action !== 'ingest' && deps.webSearch === true;
+  const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
+    selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL] : [CREATE_DIAGRAM_TOOL, ...(search ? [WEB_SEARCH_TOOL] : [])] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
+  if (search) { hold.microusd += webSearchHoldMicrousd(); hold.credits = creditsFor(hold.microusd); }
   const digest = await deps.sha256Hex(encoder.encode(canonicalRequest(request)));
   if (signal.aborted) return;
 
@@ -304,7 +319,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     signal.removeEventListener('abort', stop);
   }
 
-  const actual = Math.ceil(priceAttempts(outcome.attempts));
+  const actual = Math.ceil(priceAttempts(outcome.attempts) + (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD);
   // The customer is never charged above the hold, but the platform budget
   // records the true provider cost: an overrun freezes new paid work.
   const credits = Math.min(creditsFor(actual), hold.credits);
@@ -337,6 +352,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       cache_read_input_tokens: sum.cache_read_input_tokens + attempt.usage.cacheRead,
       output_tokens: sum.output_tokens + attempt.usage.output,
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
+    // Web results must be shown with the answer that used them.
+    if (outcome.sources?.length && !signal.aborted) {
+      const text = sourcesText(outcome.sources);
+      if (text) { emit({ event: 'delta', data: { text } }); wroteText = true; }
+    }
     // Diagram: relayed once to the device, which stores it encrypted.
     const drawing = request.action !== 'ingest' && outcome.stopReason === 'tool_use'
       ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;

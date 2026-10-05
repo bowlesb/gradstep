@@ -44,6 +44,7 @@ Deno.serve(async request => {
     },
     generate: client ? (params, options) => streamChat(client, params, options) : null,
     sha256Hex: sha256,
+    webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
     findPaper: async (wanted, signal) => {
       // One paced request at a time, stopping at the first clear match. A
       // failed query does not hide the others; all failing is "unavailable".

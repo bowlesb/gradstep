@@ -48,6 +48,23 @@ Settings/Library → All diagrams lists saved diagrams. Rendering is on device w
 Mermaid runs in `securityLevel: 'strict'` from an app-owned user script. A diagram that cannot be drawn shows its
 source. This restores the legacy app's diagrams in a narrower form (Mermaid only; no arbitrary HTML/SVG).
 
+## Web search (built, off)
+
+The legacy app searched the web (Tavily) for anything outside the paper. The chat function can offer Anthropic's
+server-side `web_search_20260209` (max 3 searches, no client loop: one provider call) when `CHAT_WEB_SEARCH=on`
+(`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`). It is **off** on staging.
+When on: instructions ask for searches only for information beyond the paper; the hold adds 3 × ($0.01 + 30k input
+tokens) (a DPO question's hold rose from ~65 to 150 credits); settlement adds $0.01 per search
+(`usage.server_tool_use.web_search_requests`, or searches seen in the stream when cut short); cited sources from
+the final message are appended as an inert "Sources" list. Verified live on 2026-10-05 with the switch briefly on:
+searches ran and were charged exactly (tokens + $0.01/search), but the answers carried no citation objects (the
+model named sources in prose), so no Sources list appeared.
+
+Before enabling (owner decisions): consent copy must say that queries Claude writes may go to Anthropic's search
+provider; Anthropic requires cited web results to be shown visibly and clickably, which conflicts with the app's
+inert-link policy (a source list that opens Safari after a tap would be the minimal change); and the larger hold
+affects small credit balances.
+
 ## Money
 
 Rate version `beta-credits-v1`: credits = ⌈micro-USD / 5,000⌉ (1 credit ≈ $0.01 at 2× provider cost).

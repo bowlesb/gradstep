@@ -75,6 +75,7 @@ async function ask(question, extra = {}) {
   }
   log('chat http', response.status, error ? `error ${error.code}` : `done ${JSON.stringify(done)}`);
   console.log('--- answer ---\n' + answer.slice(0, 1200) + (answer.length > 1200 ? '…' : '') + '\n--------------');
+  if (args.answerOut) writeFileSync(args.answerOut, answer);
 }
 if (args.question !== 'none') {
   await ask(args.question ?? 'In two sentences, what objective does DPO optimize and why does it avoid an explicit reward model? Cite the equation.');

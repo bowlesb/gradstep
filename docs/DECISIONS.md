@@ -80,3 +80,10 @@ App Store review requires in-app account deletion for apps with account creation
 - Backups expire deleted data on the backup retention schedule (BACKUP_AND_RESTORE).
 
 Not implemented; the retention split (what is kept de-identified, and for how long) is the owner's call.
+
+## Open decision: web search in chat (2026-10-05)
+
+Built behind a server switch and **off** (see [chat](architecture/CHAT.md#web-search-built-off)). Restores the legacy
+app's web search. Enabling needs: consent copy that names Anthropic's search provider as a recipient of search
+queries, a tappable source list (Anthropic's display requirement for cited web results), and acceptance of the
+larger per-question hold (~150 credits for a 27-page paper).

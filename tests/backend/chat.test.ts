@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
+  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import {
-  canonicalRequest, chatInstructions, diagramRequest, ingestReport, paperRequest, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructions, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 
@@ -288,6 +288,45 @@ test('the ingest budget bounds post-settlement work', async () => {
   assert.equal(h.events.at(-1)?.event, 'done');
 });
 
+test('web search is offered only when the server enables it, and never on Ingest', async () => {
+  const seen: unknown[] = [];
+  const capture = (generateText: string) => async (params: unknown, stream: StreamOptions) => {
+    seen.push((params as { tools?: unknown }).tools); stream.onText(generateText); return completeOutcome();
+  };
+  const off = harness({ generate: capture('a') });
+  await runChat(off.deps, paperBody(), off.emit, new AbortController().signal);
+  const on = harness({ generate: capture('b') }); on.deps.webSearch = true;
+  await runChat(on.deps, paperBody(), on.emit, new AbortController().signal);
+  const ingest = harness({ generate: capture('c') }); ingest.deps.webSearch = true;
+  await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
+  assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL], [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
+  assert.deepEqual(WEB_SEARCH_TOOL, { type: 'web_search_20260209', name: 'web_search', max_uses: 3 });
+  assert.match(chatInstructions('paper', null, true), /You can search the web/);
+  assert.doesNotMatch(chatInstructions('paper', null, false), /search the web/);
+  // The hold grows by the search allowance.
+  const holdOff = Number(off.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
+  const holdOn = Number(on.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
+  assert.ok(holdOn >= holdOff + webSearchHoldMicrousd());
+});
+
+test('searches are charged and cited sources are shown with the answer', async () => {
+  const h = harness({ generate: async (_p, stream) => {
+    stream.onText('DPO has follow-ups such as IPO.');
+    return completeOutcome({ webSearches: 2, sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'A General Theoretical Paradigm [IPO]' },
+      { url: 'javascript:alert(1)', title: 'bad' }, { url: 'https://example.org/blog', title: null }] });
+  } });
+  h.deps.webSearch = true;
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  // 900 input at $2 + 300 output at $10 = 4,800 micro-USD, plus two searches at $0.01.
+  assert.equal(settle.p_actual_microusd, 24_800); assert.equal(settle.p_actual_credits, 5);
+  assert.equal(h.calls.find(c => c.name === 'worker_record_provider_usage')!.params.p_microusd, 24_800);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
+  assert.equal((h.events[1].data as { text: string }).text,
+    '\n\nSources:\n1. A General Theoretical Paradigm IPO — https://arxiv.org/abs/2310.12036\n2. https://example.org/blog');
+  assert.equal(sourcesText([]), '');
+});
+
 test('SSE frames and bounded body reading', async () => {
   assert.equal(sseFrame({ event: 'delta', data: { text: 'a\nb' } }), 'event: delta\ndata: {"text":"a\\nb"}\n\n');
   const ok = new Request('https://x.invalid', { method: 'POST', body: JSON.stringify(generalBody()) });
@@ -551,6 +590,26 @@ test('the SDK adapter returns client tool calls from the final message', async (
   assert.equal(outcome.stopReason, 'tool_use');
   assert.deepEqual(outcome.toolCalls, [{ name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
   assert.equal(JSON.stringify(ADD_PAPER_TOOL).includes('eager_input_streaming'), false);
+});
+
+test('the SDK adapter counts web searches and collects cited sources', async () => {
+  const searching = { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } };
+  const cited = [
+    { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '', citations: [] } },
+    { type: 'content_block_delta', index: 2, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url: 'https://arxiv.org/abs/2310.12036',
+      title: 'IPO', cited_text: 'x', encrypted_index: 'e' } } },
+    { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'IPO generalizes DPO.' } },
+    { type: 'content_block_stop', index: 2 },
+  ];
+  const client = fakeClient(sseResponse([start, ...text(0, 'Searching.'), searching, { type: 'content_block_stop', index: 1 }, ...cited,
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { ...usage0, output_tokens: 70, server_tool_use: { web_search_requests: 1, web_fetch_requests: 0 } } },
+    { type: 'message_stop' }]));
+  const received: string[] = [];
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: t => received.push(t), inputEstimateTokens: 2000 });
+  assert.deepEqual(received, ['Searching.', 'IPO generalizes DPO.']);
+  assert.equal(outcome.webSearches, 1);
+  assert.deepEqual(outcome.sources, [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }]);
 });
 
 test('the SDK adapter reports refusals with their category', async () => {

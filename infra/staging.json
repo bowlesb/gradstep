@@ -34,5 +34,6 @@
     "chat",
     "discover"
   ],
-  "pipeline_schedule": "* * * * *"
+  "pipeline_schedule": "* * * * *",
+  "chat_web_search": false
 }

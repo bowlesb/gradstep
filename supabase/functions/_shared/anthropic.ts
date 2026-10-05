@@ -132,8 +132,23 @@ export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
   },
 };
 
+/** Anthropic's server-side web search (the legacy app searched the web with
+ * Tavily). Off unless the server enables it; at most three searches. */
+export const WEB_SEARCH_MAX_USES = 3;
+/** $10 per 1,000 searches. */
+export const WEB_SEARCH_MICROUSD = 10_000;
+export const WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20260209 = {
+  type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES,
+};
+/** Extra hold when search is offered: each search's fee plus ~30k tokens of
+ * results read back as input (the base hold already covers re-reading the
+ * prompt in later server-side iterations). */
+export function webSearchHoldMicrousd(): number {
+  return WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + 30_000 * SONNET.input);
+}
+
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
-  tools?: readonly Anthropic.Beta.Messages.BetaTool[] })
+  tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[] })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text', text: input.instructions }];
   if (input.paper) {
@@ -191,6 +206,10 @@ export interface ProviderOutcome {
   exact: boolean;
   /** Client tool calls in the final message (unvalidated input). */
   toolCalls?: { name: string; input: unknown }[];
+  /** Web searches performed (reported, or seen in the stream when cut short). */
+  webSearches?: number;
+  /** Web sources cited by the answer (must be shown with it). */
+  sources?: { url: string; title: string | null }[];
 }
 
 /**
@@ -219,7 +238,7 @@ export interface StreamOptions {
 export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming,
   options: StreamOptions): Promise<ProviderOutcome> {
   const now = options.now ?? Date.now;
-  let messageID: string | null = null, model: string | null = null, startedAt = 0, visible = 0, sawFallback = false;
+  let messageID: string | null = null, model: string | null = null, startedAt = 0, visible = 0, sawFallback = false, searchesSeen = 0;
   let startUsage: Usage | null = null;
   const partial = (failure: ProviderFailure, billedWithoutStart: boolean): ProviderOutcome => {
     if (!messageID) {
@@ -234,7 +253,7 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     const [start] = attemptsFromUsage(sawFallback ? null : model, startUsage);
     const usage = start ? { ...start.usage, output: Math.max(start.usage.output, output) } : { ...emptyUsage(), input: options.inputEstimateTokens, output };
     return { status: 'failed', failure, messageID, model, stopReason: null, refusalCategory: null,
-      attempts: [{ model: sawFallback ? null : model, usage, estimated: true }], exact: false };
+      attempts: [{ model: sawFallback ? null : model, usage, estimated: true }], exact: false, ...(searchesSeen ? { webSearches: searchesSeen } : {}) };
   };
   let stream: ReturnType<typeof client.beta.messages.stream> | undefined;
   try {
@@ -245,6 +264,8 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
         messageID = event.message.id; model = event.message.model; startUsage = event.message.usage; startedAt = now();
       } else if (event.type === 'content_block_start' && (event.content_block as { type: string }).type === 'fallback') {
         sawFallback = true;
+      } else if (event.type === 'content_block_start' && event.content_block.type === 'server_tool_use' && event.content_block.name === 'web_search') {
+        searchesSeen++;
       } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
         visible += event.delta.text.length;
         options.onText(event.delta.text);
@@ -253,13 +274,21 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     const message = await stream.finalMessage();
     const attempts = attemptsFromUsage(message.model, message.usage);
     const toolCalls: { name: string; input: unknown }[] = [];
+    const sources = new Map<string, string | null>();
     for (const block of message.content as Anthropic.Beta.Messages.BetaContentBlock[]) {
       // Only the serving attempt's calls count: a fallback restarts the turn.
-      if ((block as { type: string }).type === 'fallback') toolCalls.length = 0;
+      if ((block as { type: string }).type === 'fallback') { toolCalls.length = 0; sources.clear(); }
       else if (block.type === 'tool_use') toolCalls.push({ name: block.name, input: block.input });
+      else if (block.type === 'text') {
+        for (const citation of block.citations ?? []) {
+          if (citation.type === 'web_search_result_location' && !sources.has(citation.url)) sources.set(citation.url, citation.title);
+        }
+      }
     }
+    const webSearches = Math.max(searchesSeen, count(message.usage.server_tool_use?.web_search_requests));
     return { status: 'complete', failure: null, messageID: message.id, model: message.model, stopReason: message.stop_reason,
-      refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}) };
+      refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}),
+      ...(webSearches ? { webSearches } : {}), ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
   } catch (error) {
     stream?.abort();
     if (error instanceof Anthropic.APIUserAbortError || options.signal.aborted) return partial('aborted', true);
