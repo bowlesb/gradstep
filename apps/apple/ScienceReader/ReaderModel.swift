@@ -1907,6 +1907,40 @@ final class ReaderModel {
         }
     }
 
+    #if INTERNAL
+    /// What a test-session reviewer needs to know about the visible state
+    /// (docs/SESSION_REVIEW.md): screen, sheet, messages shown, activity. IDs are
+    /// shortened; no paper or chat text.
+    var sessionState: [String: String] {
+        let sheet: String? = showSignIn ? "sign_in" : showRecovery ? "recovery" : chatConsentPrompt != nil ? "chat_consent"
+            : showStore ? "store" : showImport ? "import" : showLibraryChanges ? "library_changes" : showAllChats ? "all_chats"
+            : showDiagrams ? "diagrams" : presentedDiagram != nil ? "diagram" : showReport ? "report" : showReports ? "reports" : nil
+        var state: [String: String] = ["tab": tab.rawValue, "signed_in": isSignedIn ? "1" : "0", "sync": syncStatus]
+        if let sheet { state["sheet"] = sheet }
+        if let paper = selectedPaper { state["paper"] = String(paper.id.uuidString.prefix(8)) }
+        if let opening = openingPaperID { state["opening_paper"] = String(opening.uuidString.prefix(8)) }
+        if chatStreamingMessageID != nil { state["answering"] = "1" }
+        if isBusy { state["busy"] = "1" }
+        if libraryRefreshing { state["library_refreshing"] = "1" }
+        let active = libraryImports.filter { [.resolving, .acquiring].contains($0.phase) }.count
+        if active > 0 { state["imports_active"] = String(active) }
+        let failed = libraryImports.filter { $0.phase == .failed }.count
+        if failed > 0 { state["imports_failed"] = String(failed) }
+        // Messages the reader sees (app-authored text).
+        if let error { state["error"] = error }
+        if let issue = chatAnswerIssue { state["chat_issue"] = issue.code }
+        if let issue = chatDraftIssue { state["chat_draft_issue"] = issue }
+        if let issue = readerOpenIssue { state["reader_issue"] = issue }
+        if let issue = libraryIssue { state["library_issue"] = issue }
+        if let issue = offlineCacheIssue { state["offline_issue"] = issue }
+        if let issue = creditBalanceIssue { state["credits_issue"] = issue }
+        if let issue = accountPreparationIssue { state["account_issue"] = issue }
+        if let notice = storeNotice { state["store_notice"] = notice }
+        if let balance = creditBalance { state["credits"] = String(balance.available) }
+        return state
+    }
+    #endif
+
     // MARK: App Store purchases (docs/architecture/PURCHASES.md)
 
     var showStore = false

@@ -98,6 +98,9 @@ struct RootView: View {
         .alert("Science Reader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
+        #if INTERNAL
+        .modifier(SessionCaptureHooks(model: model))
+        #endif
         .onChange(of: scenePhase) { _, phase in
             Task {
                 await model.flushDrafts()
@@ -670,6 +673,9 @@ struct SettingsView: View {
                     Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Claude may search the web for some questions; those searches go to Anthropic’s search provider. Private PDF uploads and reports you submit are accessible to the services that process them.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Testing") {
+                    #if INTERNAL
+                    SessionCaptureSettings()
+                    #endif
                     Button("Report this screen", systemImage: "ladybug") { model.beginReport() }
                     Button("My reports", systemImage: "tray") { model.showReports = true }.disabled(model.support == nil)
                     LabeledContent("Version", value: Self.version)

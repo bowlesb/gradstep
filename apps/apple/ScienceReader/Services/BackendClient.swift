@@ -762,11 +762,21 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let data: Data, response: URLResponse
-        if let maximumResponseBytes {
-            (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes)
-        } else {
-            (data, response) = try await network.data(for: request)
+        let started = ProcessInfo.processInfo.systemUptime
+        do {
+            if let maximumResponseBytes {
+                (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes)
+            } else {
+                (data, response) = try await network.data(for: request)
+            }
+        } catch {
+            SessionTimeline.shared.record("request", ["method": method, "path": SessionTimeline.describe(path: path), "status": "failed",
+                                                      "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
+            throw error
         }
+        SessionTimeline.shared.record("request", ["method": method, "path": SessionTimeline.describe(path: path),
+            "status": String((response as? HTTPURLResponse)?.statusCode ?? 0), "bytes": String(data.count),
+            "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
         guard let response = response as? HTTPURLResponse else { throw BackendError.transport }
         guard (200..<300).contains(response.statusCode) else {
             struct Failure: Decodable { let code: String?; let message: String?; let error_code: String? }
