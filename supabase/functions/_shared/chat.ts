@@ -138,32 +138,43 @@ const GENERAL_INSTRUCTIONS = `This is a general research conversation that is no
 
 const INGEST_INSTRUCTIONS = `The reader used "Ingest" on the selected passage: they want the paper it references added to their library.
 Identify that paper, using the paper's bibliography when the passage is an in-text citation. Write one short sentence naming it
-(title, first author, year), then call add_paper once with its exact title (and the arXiv id only if it appears in the text).
+(title, first author, year), then call add_paper once with its exact title, first author and year (and the arXiv id only if it appears in the text).
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
 export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null): string {
   return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}${action === 'ingest' ? `\n\n${INGEST_INSTRUCTIONS}` : ''}`;
 }
 
-export interface PaperRequest { title: string; year: number | null; arxivID: string | null }
+export interface PaperRequest { title: string; year: number | null; firstAuthor: string | null; arxivID: string | null }
 /** Validates the model's add_paper input (untrusted: paper text can steer it). */
 export function paperRequest(input: unknown): PaperRequest | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const value = input as Record<string, unknown>;
-  if (Object.keys(value).some(key => !['title', 'year', 'arxiv_id'].includes(key))) return null;
+  if (Object.keys(value).some(key => !['title', 'year', 'first_author', 'arxiv_id'].includes(key))) return null;
   const title = typeof value.title === 'string' ? value.title.replace(/\s+/g, ' ').trim() : '';
   if (title.length < 3 || title.length > 400) return null;
   const year = Number.isInteger(value.year) && (value.year as number) >= 1900 && (value.year as number) <= 2100 ? value.year as number : null;
+  const author = typeof value.first_author === 'string' ? value.first_author.replace(/\s+/g, ' ').trim() : '';
   const arxivID = typeof value.arxiv_id === 'string' && value.arxiv_id.length <= 64 ? value.arxiv_id.trim() : null;
-  return { title, year, arxivID };
+  return { title, year, firstAuthor: author.length >= 2 && author.length <= 200 ? author : null, arxivID };
 }
 export interface FoundPaper { source_id: string; title: string; year: number | null }
+export type FindResult = { status: 'found'; paper: FoundPaper } | { status: 'not_found' | 'unavailable' };
+export type IngestResult = 'added' | 'present' | 'failed' | 'not_found' | 'unavailable' | 'stopped';
 const display = (text: string) => text.replace(/[\u0000-\u001f\u007f*_`[\]<>\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-export function ingestReport(request: PaperRequest, found: FoundPaper | null, result: 'added' | 'failed' | 'not_found'): string {
-  if (result === 'not_found' || !found) return `\n\nI couldn't find “${display(request.title)}” on arXiv, so it wasn't added. Science Reader can add arXiv papers only.`;
-  if (result === 'failed') return `\n\nI found “${display(found.title)}” (arXiv:${found.source_id}) but couldn't add it right now. You can add it from Library → arXiv.`;
-  return `\n\nAdded “${display(found.title)}” (arXiv:${found.source_id}) to your library. It is converting now.`;
+export function ingestReport(request: PaperRequest, found: FoundPaper | null, result: IngestResult): string {
+  const wanted = `“${display(request.title)}”`;
+  const paper = found ? `“${display(found.title)}” (arXiv:${found.source_id})` : wanted;
+  switch (result) {
+    case 'added': return `\n\nQueued ${paper} for your library.`;
+    case 'present': return `\n\n${paper} is already in your library.`;
+    case 'failed': return `\n\nI found ${paper} but couldn't add it right now. You can add it from Library → arXiv.`;
+    case 'not_found': return `\n\nI couldn't find ${wanted} on arXiv, so it wasn't added. Science Reader can add arXiv papers only.`;
+    default: return `\n\nI couldn't search arXiv right now, so ${wanted} wasn't added. Try again later or add it from Library → arXiv.`;
+  }
 }
+/** Ingest work after settlement: bounded so the answer still completes. */
+export const INGEST_DEADLINE_MS = 45_000;
 
 export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number> } }
@@ -186,10 +197,11 @@ export interface ChatDependencies {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   deadlineMs?: number;
-  /** Ingest: the arXiv paper whose title strictly matches, if any. */
-  findPaper?: (request: PaperRequest) => Promise<FoundPaper | null>;
+  ingestDeadlineMs?: number;
+  /** Ingest: the arXiv paper that strictly matches the citation, if any. */
+  findPaper?: (request: PaperRequest, signal: AbortSignal) => Promise<FindResult>;
   /** Ingest: adds one arXiv paper to the caller's library (as the caller). */
-  importPaper?: (sourceID: string) => Promise<'added' | 'failed'>;
+  importPaper?: (sourceID: string, signal: AbortSignal) => Promise<'added' | 'present' | 'failed'>;
 }
 
 const RESERVE_ERRORS: Record<string, ChatErrorCode> = {
@@ -283,13 +295,19 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
     if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused' } }); return; }
-    // Ingest: at most one add per request, only of a title-matched arXiv paper.
-    const call = request.action === 'ingest' ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
+    // Ingest: at most one add per request, only of a strictly matched arXiv
+    // paper, only when the turn ended in the tool call (not cut off).
+    const call = request.action === 'ingest' && outcome.stopReason === 'tool_use'
+      ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
     const wanted = call ? paperRequest(call.input) : null;
     if (call && !wanted) deps.log({ event: 'chat_ingest_invalid_input', operation_id: request.operationID });
     if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
-      const found = await deps.findPaper(wanted).catch(() => null);
-      const result = found ? await deps.importPaper(found.source_id).catch(() => 'failed' as const) : 'not_found' as const;
+      const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
+      const search = await deps.findPaper(wanted, budget).catch((): FindResult => ({ status: 'unavailable' }));
+      const found = search.status === 'found' ? search.paper : null;
+      let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
+      if (signal.aborted) result = 'stopped';
+      else if (found) result = budget.aborted ? 'unavailable' : await deps.importPaper(found.source_id, budget).catch(() => 'failed' as const);
       deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
       if (!signal.aborted) emit({ event: 'delta', data: { text: ingestReport(wanted, found, result) } });
     }
@@ -299,6 +317,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       cache_read_input_tokens: sum.cache_read_input_tokens + attempt.usage.cacheRead,
       output_tokens: sum.output_tokens + attempt.usage.output,
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
+    if (signal.aborted) return;
     // A tool call ends the provider turn; the server completed it.
     const stopReason = outcome.stopReason === 'tool_use' ? 'end_turn' : outcome.stopReason ?? 'end_turn';
     emit({ event: 'done', data: { stop_reason: stopReason, credits, usage } });

@@ -108,11 +108,11 @@ export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
     properties: {
       title: { type: 'string', description: "The referenced paper's full title, exactly as in the bibliography." },
       year: { type: 'integer', description: 'Publication year, if known.' },
+      first_author: { type: 'string', description: "The first author's name as cited (e.g. \"J. Schulman\")." },
       arxiv_id: { type: 'string', description: 'The arXiv identifier, only if it appears in the paper text.' },
     },
     required: ['title'],
   },
-  eager_input_streaming: true,
 };
 
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null; tools?: boolean })
@@ -236,7 +236,9 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     const attempts = attemptsFromUsage(message.model, message.usage);
     const toolCalls: { name: string; input: unknown }[] = [];
     for (const block of message.content as Anthropic.Beta.Messages.BetaContentBlock[]) {
-      if (block.type === 'tool_use') toolCalls.push({ name: block.name, input: block.input });
+      // Only the serving attempt's calls count: a fallback restarts the turn.
+      if ((block as { type: string }).type === 'fallback') toolCalls.length = 0;
+      else if (block.type === 'tool_use') toolCalls.push({ name: block.name, input: block.input });
     }
     return { status: 'complete', failure: null, messageID: message.id, model: message.model, stopReason: message.stop_reason,
       refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}) };

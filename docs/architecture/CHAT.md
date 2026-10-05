@@ -16,19 +16,24 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 ## Ingest (selection action)
 
 The existing Ingest action ("Find and add the paper referenced in this passage") sends `action: "ingest"`. Only then
-does the request carry one client tool, `add_paper {title, year?, arxiv_id?}`, plus instructions to identify the
-referenced paper (using the paper's bibliography for in-text citations) and call the tool once. It stays a single
-provider call, so the hold and settlement are unchanged (the tool schema counts toward the hold).
+does the request carry one client tool, `add_paper {title, year?, first_author?, arxiv_id?}`, plus instructions to
+identify the referenced paper (using the paper's bibliography for in-text citations) and call the tool once. It stays
+a single provider call, so the hold and settlement are unchanged (the tool schema counts toward the hold).
 
-After settlement the server validates the tool input strictly, searches arXiv by title through the shared arXiv
-pacing (optional id lookup, oldest-first title phrase, then all title words; stops at the first clear match) and
-accepts only a strict title match (token F1 ≥ 0.9, or an exact main title of 3+ words before a colon). It then calls
-`v2_begin_import` **as the user** (their JWT, current library head as the observed cursor) — exactly the app's Add,
-so the normal conversion, credit holds and quotas apply. At most one paper per request; the result is appended to
-the answer as inert text (`Added “…” (arXiv:…)`, not found, or could not be added). A `tool_use` stop is reported
-as `end_turn`. The app refreshes the library when an Ingest answer completes. Paper text could steer the model to a
-different title (prompt injection); the bound is one title-matched arXiv paper per explicit Ingest, which the reader
-can cancel in the Library.
+After settlement, and only when the turn ended in the tool call (`stop_reason: tool_use`, calls after the last
+fallback block), the server validates the input strictly and searches arXiv through the shared pacing (optional id
+lookup, oldest-first title phrase, then all title words; one paced request at a time, stopping at the first match).
+`matchPaper` accepts a candidate only with a near-identical title (token F1 ≥ 0.9, or an exact main title of 3+
+words before a colon), the cited year within [year−3, year+1], the cited first author among the first three
+authors, and no negation-word difference; without an author the title must be exact, and titles under four words
+need author and year. A visible library entry or active import for that source reports "already in your library";
+otherwise `v2_begin_import` runs **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
+validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Post-settlement work has
+a 45 s budget; Stop cancels it and nothing is imported. Results are appended as inert text: queued, already in the
+library, not found on arXiv, arXiv unavailable, or could not be added. A `tool_use` stop is reported as `end_turn`.
+The app refreshes the library when an Ingest answer completes. Paper text could steer the model to a different
+title (prompt injection); the bound is one strictly matched arXiv paper per explicit Ingest, which the reader can
+cancel in the Library.
 
 ## Money
 

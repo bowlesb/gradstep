@@ -129,18 +129,20 @@ test('ingest requests carry the add_paper tool and instructions; others carry no
 });
 
 test('add_paper input is validated strictly and reports are inert text', () => {
-  assert.deepEqual(paperRequest({ title: '  Direct  Preference Optimization ', year: 2023, arxiv_id: '2305.18290' }),
-    { title: 'Direct Preference Optimization', year: 2023, arxivID: '2305.18290' });
-  assert.deepEqual(paperRequest({ title: 'Attention Is All You Need', year: 17 }), { title: 'Attention Is All You Need', year: null, arxivID: null });
+  assert.deepEqual(paperRequest({ title: '  Direct  Preference Optimization ', year: 2023, first_author: ' R.  Rafailov', arxiv_id: '2305.18290' }),
+    { title: 'Direct Preference Optimization', year: 2023, firstAuthor: 'R. Rafailov', arxivID: '2305.18290' });
+  assert.deepEqual(paperRequest({ title: 'Attention Is All You Need', year: 17 }), { title: 'Attention Is All You Need', year: null, firstAuthor: null, arxivID: null });
   for (const bad of [null, [], 'title', {}, { title: 'ab' }, { title: 'x'.repeat(401) }, { title: 'Valid title', extra: 1 }, { title: 7 }]) {
     assert.equal(paperRequest(bad), null);
   }
-  const request = { title: 'A [link](https://evil.example) `x` <b>', year: null, arxivID: null };
+  const request = { title: 'A [link](https://evil.example) `x` <b>', year: null, firstAuthor: null, arxivID: null };
   const report = ingestReport(request, null, 'not_found');
   assert.ok(!/[[\]`<>]/.test(report)); assert.match(report, /couldn't find/);
-  assert.match(ingestReport(request, { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 }, 'added'),
-    /Added “Direct Preference Optimization” \(arXiv:2305\.18290\) to your library/);
-  assert.match(ingestReport(request, { source_id: '2305.18290', title: 'DPO', year: 2023 }, 'failed'), /couldn't add it right now/);
+  const dpo = { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 };
+  assert.match(ingestReport(request, dpo, 'added'), /Queued “Direct Preference Optimization” \(arXiv:2305\.18290\) for your library/);
+  assert.match(ingestReport(request, dpo, 'present'), /is already in your library/);
+  assert.match(ingestReport(request, dpo, 'failed'), /couldn't add it right now/);
+  assert.match(ingestReport(request, null, 'unavailable'), /couldn't search arXiv right now/);
 });
 
 function ingestBody() {
@@ -155,14 +157,14 @@ test('ingest adds one title-matched paper after settlement and reports it in the
   const found: unknown[] = [], imported: string[] = [];
   let tools: unknown;
   const h = harness({ generate: async (params, stream) => { tools = (params as { tools?: unknown }).tools; return toolGenerate({ title: 'Direct Preference Optimization', year: 2023 })(params, stream); } });
-  h.deps.findPaper = async wanted => { found.push(wanted); return { source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 }; };
+  h.deps.findPaper = async wanted => { found.push(wanted); return { status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 } }; };
   h.deps.importPaper = async id => { imported.push(id); assert.ok(names(h.calls).includes('worker_settle_operation')); return 'added'; };
   await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
   assert.deepEqual(tools, [ADD_PAPER_TOOL]);
-  assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, arxivID: null }]);
+  assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, firstAuthor: null, arxivID: null }]);
   assert.deepEqual(imported, ['2305.18290']);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
-  assert.match((h.events[1].data as { text: string }).text, /^\n\nAdded “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
+  assert.match((h.events[1].data as { text: string }).text, /^\n\nQueued “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
   assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
   assert.deepEqual(h.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'added' }]);
 });
@@ -170,7 +172,7 @@ test('ingest adds one title-matched paper after settlement and reports it in the
 test('ingest reports a missing paper, ignores invalid tool input and never adds for non-ingest requests', async () => {
   const missing = harness({ generate: toolGenerate({ title: 'A Paper Not On arXiv' }) });
   let imports = 0;
-  missing.deps.findPaper = async () => null; missing.deps.importPaper = async () => { imports++; return 'added'; };
+  missing.deps.findPaper = async () => ({ status: 'not_found' }); missing.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(missing.deps, ingestBody(), missing.emit, new AbortController().signal);
   assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv/);
   assert.equal(imports, 0);
@@ -188,10 +190,48 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   assert.equal(imports, 0); assert.equal(ordinary.events.at(-1)?.event, 'done');
 
   const failing = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
-  failing.deps.findPaper = async () => ({ source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 });
+  failing.deps.findPaper = async () => ({ status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } });
   failing.deps.importPaper = async () => { throw new Error('library_active_import_limit'); };
   await runChat(failing.deps, ingestBody(), failing.emit, new AbortController().signal);
   assert.match((failing.events[1].data as { text: string }).text, /couldn't add it right now/);
+
+  const busy = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+  busy.deps.findPaper = async () => { throw new Error('search_busy'); }; busy.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(busy.deps, ingestBody(), busy.emit, new AbortController().signal);
+  assert.match((busy.events[1].data as { text: string }).text, /couldn't search arXiv right now/);
+
+  // A tool call cut off by max_tokens is never executed.
+  const truncated = harness({ generate: async (_p, stream) => { stream.onText('That is DPO.');
+    return completeOutcome({ stopReason: 'max_tokens', toolCalls: [{ name: 'add_paper', input: { title: 'Direct Pref' } }] }); } });
+  truncated.deps.findPaper = async () => { throw new Error('must not search'); }; truncated.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(truncated.deps, ingestBody(), truncated.emit, new AbortController().signal);
+  assert.equal(imports, 0); assert.equal((truncated.events.at(-1)?.data as { stop_reason: string }).stop_reason, 'max_tokens');
+});
+
+test('stopping during the ingest search settles the answer and never imports', async () => {
+  const client = new AbortController();
+  let imports = 0;
+  const h = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization', first_author: 'R. Rafailov', year: 2023 }) });
+  h.deps.findPaper = async (_wanted, signal) => {
+    client.abort(); assert.ok(signal.aborted);
+    return { status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } };
+  };
+  h.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(h.deps, ingestBody(), h.emit, client.signal);
+  assert.equal(imports, 0);
+  assert.ok(names(h.calls).includes('worker_settle_operation'));
+  assert.deepEqual(h.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'stopped' }]);
+  assert.ok(!h.events.some(e => e.event === 'done'));
+});
+
+test('the ingest budget bounds post-settlement work', async () => {
+  const h = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+  h.deps.ingestDeadlineMs = 20;
+  h.deps.findPaper = (_wanted, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  h.deps.importPaper = async () => 'added';
+  await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
+  assert.match((h.events[1].data as { text: string }).text, /couldn't search arXiv right now/);
+  assert.equal(h.events.at(-1)?.event, 'done');
 });
 
 test('SSE frames and bounded body reading', async () => {
@@ -456,6 +496,7 @@ test('the SDK adapter returns client tool calls from the final message', async (
   const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
   assert.equal(outcome.stopReason, 'tool_use');
   assert.deepEqual(outcome.toolCalls, [{ name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
+  assert.equal(JSON.stringify(ADD_PAPER_TOOL).includes('eager_input_streaming'), false);
 });
 
 test('the SDK adapter reports refusals with their category', async () => {

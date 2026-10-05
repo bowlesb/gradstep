@@ -142,16 +142,36 @@ export function titleSimilarity(a: string, b: string): number {
   return common === 0 ? 0 : 2 * common / (x.length + y.length);
 }
 
-/** The best candidate for a wanted title, only if it clearly matches: a
- * wrong paper costs the reader a conversion, so near-misses are rejected. */
-export function bestTitleMatch<T extends { title: string; year: number | null }>(title: string, year: number | null, candidates: readonly T[]): T | null {
+export interface TitleQuery { title: string; year: number | null; firstAuthor: string | null; arxivID: string | null }
+const NEGATIONS = new Set(['not', 'no', 'without', 'non', 'beyond']);
+function surname(name: string): string {
+  const family = name.includes(',') ? name.split(',')[0] : name.trim().split(/\s+/).at(-1) ?? '';
+  return family.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}]/gu, '');
+}
+
+/** The candidate a citation refers to, only if it clearly matches: a wrong
+ * paper costs the reader a conversion, so near-misses are rejected. Requires
+ * a near-identical title (or an exact main title before a subtitle), a
+ * plausible year, the cited first author among the first authors, and no
+ * negation difference ("… are not …"). Without an author, the title must be
+ * exact; titles under four words also need the author and year. */
+export function matchPaper<T extends { source_id: string; title: string; year: number | null; authors: readonly string[] }>(query: TitleQuery, candidates: readonly T[]): T | null {
+  const wantedWords = titleWords(query.title);
+  const author = query.firstAuthor ? surname(query.firstAuthor) : '';
   let best: { item: T; score: number } | null = null;
   for (const item of candidates) {
-    let score = titleSimilarity(title, item.title);
-    // Citations often drop a subtitle: an exact main title (3+ words) counts.
+    let score = titleSimilarity(query.title, item.title);
     const main = item.title.split(':')[0];
-    if (main !== item.title && titleWords(main).length >= 3 && titleSimilarity(title, main) === 1) score = Math.max(score, 0.95);
-    if (year !== null && item.year !== null && Math.abs(item.year - year) <= 1) score += 0.01;
+    if (main !== item.title && titleWords(main).length >= 3 && titleSimilarity(query.title, main) === 1) score = Math.max(score, 0.95);
+    const words = titleWords(item.title), wanted = new Set(wantedWords), found = new Set(words);
+    if ([...NEGATIONS].some(word => wanted.has(word) !== found.has(word))) continue;
+    const yearKnown = query.year !== null && item.year !== null;
+    if (yearKnown && (item.year! < query.year! - 3 || item.year! > query.year! + 1)) continue;
+    const authorMatch = author.length > 1 && item.authors.slice(0, 3).some(name => surname(name) === author);
+    if (author && item.authors.length && !authorMatch) continue;
+    if (!author && score < 1) continue;
+    if (wantedWords.length < 4 && !(authorMatch && yearKnown) && item.source_id !== query.arxivID) continue;
+    if (query.arxivID && item.source_id === query.arxivID) score += 0.05;
     if (!best || score > best.score) best = { item, score };
   }
   return best && best.score >= 0.9 ? best.item : null;
@@ -160,15 +180,21 @@ export function bestTitleMatch<T extends { title: string; year: number | null }>
 /** Runs arXiv API queries through the shared pacing (`slot` reserves request
  * slots and returns the wait). Used by the discover function and Ingest. */
 export async function searchArxiv(urls: readonly string[], fetcher: typeof fetch,
-  slot: (slots: number) => Promise<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>): Promise<DiscoveryResult[]> {
+  slot: (slots: number) => Promise<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>, signal?: AbortSignal): Promise<DiscoveryResult[]> {
   if (!urls.length) return [];
+  const pause = (ms: number) => new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(new Error('aborted')); return; }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
+  });
   const reserved = await slot(urls.length);
   if (!reserved.reserved) throw new Error('search_busy');
-  if (reserved.wait_ms > 0) await new Promise(resolve => setTimeout(resolve, reserved.wait_ms));
+  if (reserved.wait_ms > 0) await pause(reserved.wait_ms);
   const lists: DiscoveryResult[][] = [];
   for (const [index, url] of urls.entries()) {
-    if (index > 0) await new Promise(resolve => setTimeout(resolve, reserved.spacing_ms ?? 3000));
-    const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(20_000),
+    if (index > 0) await pause(reserved.spacing_ms ?? 3000);
+    const timeout = AbortSignal.timeout(20_000);
+    const response = await fetcher(url, { redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       headers: { accept: 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
     if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('search_unavailable'); }
     const bytes = new Uint8Array(await response.arrayBuffer());

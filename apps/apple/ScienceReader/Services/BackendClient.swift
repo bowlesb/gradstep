@@ -356,7 +356,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let generation = authGeneration
         guard let expected = session?.user.id, expected == accountID else { throw BackendError.signInRequired }
         let body = try request.encoded()
-        let token = try await accessToken()
+        // A paid answer can stream for minutes and the server acts as the user
+        // afterwards (Ingest), so start it with a token that outlives it.
+        let token = try await accessToken(validFor: 300)
         guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
         guard let url = URL(string: "/functions/v1/chat", relativeTo: config.url)?.absoluteURL,
               url.scheme == "https", url.host == config.url.host else { throw BackendError.unavailable }
@@ -533,9 +535,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
     }
 
-    private func accessToken() async throws -> String {
+    private func accessToken(validFor seconds: TimeInterval = 60) async throws -> String {
         guard let current = session else { throw BackendError.signInRequired }
-        if current.expires_at > Date().timeIntervalSince1970 + 60 { return current.access_token }
+        if current.expires_at > Date().timeIntervalSince1970 + seconds { return current.access_token }
         let generation = authGeneration
         let task: Task<AuthSession, Error>
         if let existing = refreshTask, existing.generation == generation { task = existing.task }

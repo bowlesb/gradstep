@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivRecentURL, arxivTitleURLs, bestTitleMatch, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
+import { arxivRecentURL, arxivTitleURLs, matchPaper, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -65,19 +65,34 @@ test('ingest title lookups: optional id, then title phrase and title words', () 
   assert.ok(arxivTitleURLs('Adam: A Method', 'not an id').every(url => !new URL(url).searchParams.has('id_list')));
 });
 
-test('ingest title matching is strict', () => {
+test('ingest matching needs title, year window, first author and no negation difference', () => {
   assert.equal(titleSimilarity('Attention Is All You Need', 'Attention is all you need.'), 1);
-  const candidates = [
-    { source_id: '2405.00001', title: 'Attention Is Not All You Need', year: 2024 },
-    { source_id: '1706.03762', title: 'Attention Is All You Need', year: 2017 },
+  const q = (title: string, year: number | null, firstAuthor: string | null, arxivID: string | null = null) => ({ title, year, firstAuthor, arxivID });
+  const attention = [
+    { source_id: '2405.00001', title: 'Attention Is Not All You Need', year: 2024, authors: ['A. Other'] },
+    { source_id: '1706.03762', title: 'Attention Is All You Need', year: 2017, authors: ['Ashish Vaswani', 'Noam Shazeer'] },
   ];
-  assert.equal(bestTitleMatch('Attention is all you need', 2017, candidates)?.source_id, '1706.03762');
-  assert.equal(bestTitleMatch('Attention mechanisms survey', null, candidates), null);
-  assert.equal(bestTitleMatch('LoRA: Low-Rank Adaptation of Large Language Models', 2021,
-    [{ source_id: '2106.09685', title: 'LoRA: Low-Rank Adaptation of Large Language Models', year: 2021 }])?.source_id, '2106.09685');
-  // A citation without the subtitle matches an exact main title of 3+ words only.
-  const dpo = [{ source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 }];
-  assert.equal(bestTitleMatch('Direct Preference Optimization', 2023, dpo)?.source_id, '2305.18290');
-  assert.equal(bestTitleMatch('Preference Optimization', 2023, dpo), null);
-  assert.equal(bestTitleMatch('Mamba', 2023, [{ source_id: '2312.00752', title: 'Mamba: Linear-Time Sequence Modeling with Selective State Spaces', year: 2023 }]), null);
+  assert.equal(matchPaper(q('Attention is all you need', 2017, 'A. Vaswani'), attention)?.source_id, '1706.03762');
+  assert.equal(matchPaper(q('Attention mechanisms survey', null, null), attention), null);
+  // Negation, wrong author and implausible year are rejected.
+  const reasoners = [{ source_id: '2401.1', title: 'Large Language Models are not Zero-Shot Reasoners', year: 2024, authors: ['X. Y'] }];
+  assert.equal(matchPaper(q('Large Language Models are Zero-Shot Reasoners', 2022, 'T. Kojima'), reasoners), null);
+  const ppo = [{ source_id: '1707.06347', title: 'Proximal Policy Optimization Algorithms', year: 2017, authors: ['John Schulman', 'Filip Wolski'] }];
+  assert.equal(matchPaper(q('Proximal policy optimization algorithms', 2017, 'J. Schulman'), ppo)?.source_id, '1707.06347');
+  assert.equal(matchPaper(q('Proximal policy optimization algorithms', 2017, 'Schulman, John'), ppo)?.source_id, '1707.06347');
+  assert.equal(matchPaper(q('Proximal policy optimization algorithms', 2017, 'R. Sutton'), ppo), null);
+  assert.equal(matchPaper(q('Proximal policy optimization algorithms', 2022, 'J. Schulman'), ppo), null);
+  // Without an author the title must be exact.
+  assert.equal(matchPaper(q('Proximal policy optimization algorithm', null, null), ppo), null);
+  assert.equal(matchPaper(q('Proximal Policy Optimization Algorithms', null, null), ppo)?.source_id, '1707.06347');
+  // A citation without the subtitle matches an exact main title of 3+ words.
+  const dpo = [{ source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023, authors: ['Rafael Rafailov'] }];
+  assert.equal(matchPaper(q('Direct Preference Optimization', 2023, 'R. Rafailov'), dpo)?.source_id, '2305.18290');
+  assert.equal(matchPaper(q('Preference Optimization', 2023, 'R. Rafailov'), dpo), null);
+  // Short titles need author and year (or the id); "Deep Learning" 2015 is not a 2018 namesake.
+  const deep = [{ source_id: '1801.1', title: 'Deep Learning', year: 2018, authors: ['Someone Else'] }];
+  assert.equal(matchPaper(q('Deep learning', 2015, 'Y. LeCun'), deep), null);
+  assert.equal(matchPaper(q('Deep learning', null, null), deep), null);
+  assert.equal(matchPaper(q('Adam: A Method for Stochastic Optimization', 2015, 'D. P. Kingma'),
+    [{ source_id: '1412.6980', title: 'Adam: A Method for Stochastic Optimization', year: 2014, authors: ['Diederik P. Kingma', 'Jimmy Ba'] }])?.source_id, '1412.6980');
 });

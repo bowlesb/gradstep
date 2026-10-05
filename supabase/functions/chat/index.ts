@@ -2,7 +2,7 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
-import { arxivTitleURLs, bestTitleMatch, searchArxiv, type DiscoveryResult } from '../_shared/discover.ts';
+import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult } from '../_shared/discover.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -44,28 +44,39 @@ Deno.serve(async request => {
     },
     generate: client ? (params, options) => streamChat(client, params, options) : null,
     sha256Hex: sha256,
-    findPaper: async wanted => {
-      // One paced request at a time, stopping at the first clear match.
+    findPaper: async (wanted, signal) => {
+      // One paced request at a time, stopping at the first clear match. A
+      // failed query does not hide the others; all failing is "unavailable".
       const slot = async (slots: number) => {
         const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
         if (error) throw new Error('search_busy');
         return data;
       };
       const seen: DiscoveryResult[] = [];
+      let answered = false;
       for (const url of arxivTitleURLs(wanted.title, wanted.arxivID)) {
-        seen.push(...await searchArxiv([url], fetch, slot));
-        const match = bestTitleMatch(wanted.title, wanted.year, seen);
-        if (match) return { source_id: match.source_id, title: match.title, year: match.year };
+        if (signal.aborted) break;
+        try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { continue; }
+        const match = matchPaper(wanted, seen);
+        if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } };
       }
-      return null;
+      return { status: answered && !signal.aborted ? 'not_found' : 'unavailable' };
     },
-    importPaper: async sourceID => {
-      // The caller's own library command, exactly like the app's Add; the
-      // observed cursor is the library's current head (a fresh intent).
-      const page = await user.rpc('v2_library_page', { p_cursor: null, p_limit: 1 });
-      const cursor = page.data?.baseline_cursor;
-      if (page.error || typeof cursor !== 'number') return 'failed';
-      const { data, error } = await user.rpc('v2_begin_import', { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: cursor });
+    importPaper: async (sourceID, signal) => {
+      // The caller's own library command, exactly like the app's Add. Skip
+      // papers already present or still importing (bounded look-up).
+      let cursor: unknown = null, head: unknown = null;
+      for (let page = 0; page < 3; page++) {
+        const { data, error } = await user.rpc('v2_library_page', { p_cursor: cursor, p_limit: 100 }).abortSignal(signal);
+        if (error || typeof data?.baseline_cursor !== 'number') return 'failed';
+        head ??= data.baseline_cursor;
+        const entries: { kind?: string; source_id?: string; visible?: boolean; phase?: string }[] = Array.isArray(data.entries) ? data.entries : [];
+        if (entries.some(e => e.source_id === sourceID && e.visible && (e.kind === 'item' || ['accepted', 'resolving', 'acquiring'].includes(e.phase ?? '')))) return 'present';
+        if (!data.has_more || !data.next_cursor) break;
+        cursor = data.next_cursor;
+      }
+      if (signal.aborted) return 'failed';
+      const { data, error } = await user.rpc('v2_begin_import', { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: head });
       return !error && data?.result?.status === 'applied' ? 'added' : 'failed';
     },
     log: entry => console.warn(JSON.stringify({ function: 'chat', ...entry })),
