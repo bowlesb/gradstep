@@ -27,6 +27,18 @@ Last updated: 2026-10-03. Requirements below come from the current user conversa
 | Infrastructure discipline | Plan data ownership, failure behavior, evolution, and operations before choosing tables/deploying |
 | Delivery quality | User explicitly prioritizes careful, maintainable implementation over speed; resolve structural issues and verify complete workflows before enabling them, without hacks or shortcuts |
 
+## First usable journey direction — 2026-10-04
+
+The user transferred work to a new agent and chose, for the first overnight build:
+
+| Decision | Requirement |
+|---|---|
+| Processing host | Build the add-paper → Mathpix → offline reader → paid answer journey on Supabase Edge Functions and database jobs. The Linux PDF-verifier work stays in the repository but is deferred until a real Linux host exists. |
+| Paid OCR bound | Bound Mathpix cost with the provider's `page_ranges` cap and a credit hold for that maximum, settled on the provider-reported page count, instead of requiring a trusted local page count before submission. Single submission grant, holds/settlement and uncertain-outcome quarantine remain required. |
+| Paid calls in staging | The Science Reader Mathpix and Anthropic keys retrieved from the authorized NAS project file (not shared with TextBrain) may be used in staging. Cap: **$10 for the 2026-10-04 overnight session**, counted against the $30/month provider allowance. Later caps are separate decisions. |
+| Staging changes | New additive migrations, Edge Function deployments, synthetic test accounts and operator-recorded credit grants are authorized in staging. Production remains unprovisioned. |
+| Paper-chat model | Claude Sonnet 5.5 (`claude-sonnet-5-5`). |
+
 ## Product decision checkpoint
 
 The user accepted both remaining recommendations on 2026-10-02. Account recovery does not recover encrypted history without an approved device or recovery code. No further product decision blocks foundation implementation.
