@@ -35,14 +35,29 @@ final class LiveJourneyTests: XCTestCase {
         let app = XCUIApplication()
         launch(app)
 
-        // New synthetic account: save the recovery code to finish device setup.
+        // New synthetic account: sign-in and key setup can take a while on a
+        // fresh install. Wait for the recovery sheet (then save the code) or for
+        // the signed-in library; never tap through the sheet.
         let saved = app.switches["I saved this code somewhere safe"]
-        if saved.waitForExistence(timeout: 30) {
-            saved.tap()
-            app.buttons["Continue"].tap()
+        let signedInLibrary = app.buttons["Add a paper"]
+        let setupDeadline = Date().addingTimeInterval(120)
+        var recovered = false
+        while Date() < setupDeadline {
+            if saved.exists {
+                capture(app, "Recovery code")
+                if (saved.value as? String) != "1" { saved.switches.firstMatch.exists ? saved.switches.firstMatch.tap() : saved.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap() }
+                let proceed = app.buttons["Continue"]
+                XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: proceed)], timeout: 10), .completed)
+                proceed.tap(); recovered = true
+                XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: saved)], timeout: 30), .completed)
+                break
+            }
+            if recovered == false && signedInLibrary.exists && !app.buttons["Sign in to sync"].exists && !app.switches.firstMatch.exists { sleep(3); if !saved.exists { break } }
+            sleep(1)
         }
         let library = app.buttons["tab.library"]
         XCTAssertTrue(library.waitForExistence(timeout: 30)); library.tap()
+        XCTAssertFalse(app.buttons["Sign in to sync"].exists, "Synthetic account did not stay signed in")
         capture(app, "Signed-in library")
 
         // Add the paper through the existing Library + flow.
