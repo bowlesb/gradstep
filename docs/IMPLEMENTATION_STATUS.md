@@ -77,7 +77,7 @@ capability and six-digit email-code settings configured (real provider sign-in s
 ## Spending (2026-10-04/05 overnight, staging)
 
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded by 2026-10-05 02:10 PDT: $2.67 of provider spend for October (Mathpix for twelve conversions and
+Recorded by 2026-10-05 03:15 PDT: $2.80 of provider spend for October (Mathpix for twelve conversions and
 Anthropic for answers, Ingest, diagram and web-search tests), nothing reserved; well under the $10 overnight cap.
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
