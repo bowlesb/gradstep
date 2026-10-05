@@ -145,7 +145,7 @@ Do not say whether it was added; the app reports that. If the passage does not r
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
 Never write Mermaid, SVG or HTML diagram markup in the answer text.`;
 
-const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on.`;
+const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on. If you used web search, end your answer with a line "Sources:" followed by one line per page you relied on (at most 8), each exactly in the form "1. Page title — https://…".`;
 
 export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null, webSearch = false): string {
   const tools = action === 'ingest' ? INGEST_INSTRUCTIONS : `${DIAGRAM_INSTRUCTIONS}${webSearch ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
@@ -305,11 +305,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
-  let wroteText = false;
+  let wroteText = false, answerTail = '';
   try {
     outcome = await deps.generate(params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
-      onText: text => { if (text.trim()) wroteText = true; if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
+      onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
     });
   } catch {
     outcome = { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
@@ -353,7 +353,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       output_tokens: sum.output_tokens + attempt.usage.output,
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
     // Web results must be shown with the answer that used them.
-    if (outcome.sources?.length && !signal.aborted) {
+    // Unless the answer already ends with its own Sources section.
+    if (outcome.sources?.length && !signal.aborted && !/\n\nSources:\n/.test(answerTail)) {
       const text = sourcesText(outcome.sources);
       if (text) { emit({ event: 'delta', data: { text } }); wroteText = true; }
     }

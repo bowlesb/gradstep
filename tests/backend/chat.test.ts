@@ -300,6 +300,9 @@ test('web search is offered only when the server enables it, and never on Ingest
   const ingest = harness({ generate: capture('c') }); ingest.deps.webSearch = true;
   await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
   assert.deepEqual(seen, [[CREATE_DIAGRAM_TOOL], [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL], [ADD_PAPER_TOOL]]);
+  // Every request completed (a fractional bigint amount once failed the reservation).
+  for (const run of [off, on, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
+  assert.ok(Number.isSafeInteger(webSearchHoldMicrousd(39_657)));
   assert.deepEqual(WEB_SEARCH_TOOL, { type: 'web_search_20260209', name: 'web_search', max_uses: 3 });
   assert.match(chatInstructions('paper', null, true), /You can search the web/);
   assert.doesNotMatch(chatInstructions('paper', null, false), /search the web/);
@@ -331,6 +334,17 @@ test('searches are charged and cited sources are shown with the answer', async (
   assert.equal(sourcesText([]), '');
 });
 
+test('an answer that lists its own sources gets no second list', async () => {
+  const h = harness({ generate: async (_p, stream) => {
+    stream.onText('IPO generalizes DPO.\n\nSources:\n1. IPO — https://arxiv.org/abs/2310.12036');
+    return completeOutcome({ webSearches: 1, sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }] });
+  } });
+  h.deps.webSearch = true;
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'done']);
+  assert.match(chatInstructions('paper', null, true), /end your answer with a line "Sources:"/);
+});
+
 test('SSE frames and bounded body reading', async () => {
   assert.equal(sseFrame({ event: 'delta', data: { text: 'a\nb' } }), 'event: delta\ndata: {"text":"a\\nb"}\n\n');
   const ok = new Request('https://x.invalid', { method: 'POST', body: JSON.stringify(generalBody()) });
@@ -353,8 +367,15 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
   const script: Script = {
     worker_consume_request: () => null,
     worker_chat_context: () => ({ bucket: 'paper-assets', path: 'artifacts/x/standalone.mmd', title: 'Attention' }),
-    worker_reserve_operation: params => ({ id: params.p_id, state: 'reserved', replayed: false }),
-    worker_settle_operation: () => null,
+    // The database columns are bigint: amounts must be whole numbers.
+    worker_reserve_operation: params => {
+      assert.ok(Number.isSafeInteger(params.p_credits) && Number.isSafeInteger(params.p_microusd), 'reservation amounts are integers');
+      return { id: params.p_id, state: 'reserved', replayed: false };
+    },
+    worker_settle_operation: params => {
+      assert.ok(Number.isSafeInteger(params.p_actual_credits) && Number.isSafeInteger(params.p_actual_microusd), 'settlement amounts are integers');
+      return null;
+    },
     worker_record_provider_usage: () => null,
     ...options.script,
   };

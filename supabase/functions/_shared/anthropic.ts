@@ -146,7 +146,7 @@ export const WEB_SEARCH_RESULT_TOKENS = 30_000;
  * re-reads the whole prompt (held at the uncached write rate) and the results
  * gathered so far (on average two reads of each search's results). */
 export function webSearchHoldMicrousd(promptTokens: number): number {
-  return WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input);
+  return Math.ceil(WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
 }
 
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
