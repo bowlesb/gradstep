@@ -848,10 +848,12 @@ request is necessary for these local schedules.
 
 The isolated `OriginalSpool` prerequisite passes the file-mechanics checks
 below, and candidate 013 passes the local SQL authority, role, envelope,
-concurrency and populated-upgrade checks. Next add the separate streaming source/upload/
-stored-read actions, followed by the receiving verifier wrapper and its honest
-host metrics. Combine them in one opt-in disposable-PG/loopback fixture before
-any hosted credentials or outbound switch is considered.
+concurrency and populated-upgrade checks. Separate portable source/upload/
+stored-read components now implement the binary handoff described below. Next
+add the receiving verifier wrapper and its honest host metrics, and connect the
+components to the Linux guardian and durable SQL/action ordering. Combine them
+in one opt-in disposable-PG/loopback fixture before any hosted credentials or
+outbound switch is considered.
 
 The remaining substantive admission decisions are the exact Linux verifier
 process/thread policy and rusage implementation, the reviewed Storage success/
@@ -988,3 +990,121 @@ connect `OriginalSpool` to SQL, fetch a PDF, contact an object service, run the 
 parser, or demonstrate actual cgroup retirement. The Linux integration and
 measured host evidence above remain required. No hosted state, provider, VM or
 physical device was changed for this checkpoint.
+
+## Portable original transfer boundary — 2026-10-04
+
+[`original_transport.py`](../../workers/source-gateway/linux/original_transport.py)
+implements separate source GET, object POST and stored-object GET actions against
+numeric loopback TLS fixtures. Its closed input carries the exact 21-field
+stage-request shape and an opaque PostgreSQL request hash; re-encoding the request
+in Python does not recreate that SQL hash. The wrapper validates shape and local
+binding, not a committed SQL grant. No live destination, resolver, proxy,
+credential, redirect, retry or PDF parser is available in this component.
+
+GET bodies leave through one nonblocking binary pipe in chunks of at most 64 KiB.
+They are capped at 5,242,880 bytes, with a separate 6,291,456-byte received HTTP
+plaintext ceiling. That ceiling excludes TLS framing/handshake and kernel traffic;
+it is not billable network accounting. The shared strict HTTP parser retains its
+16 KiB header, 64-field and 64 KiB aggregate chunk-line limits. Its new per-instance
+protocol limit defaults to the existing metadata value of 2 MiB. Metadata's 1 MiB
+body/base64 envelope and journal ceilings are unchanged.
+
+One absolute shared clock deadline bounds handshake, socket reads/writes and
+nonblocking pipe writes. Content-Length totals are checked explicitly after all
+bounded reads; the standard library can otherwise return a short final read
+without raising. Chunked success requires the final zero chunk, and a
+close-delimited body requires clean TLS EOF. Partial/empty/non-200 transfers cannot
+finish a PDF spool. Unsupported Retry-After remains a distinct classification,
+not an assumed safe zero cooldown. The future SQL adapter must retain its hold.
+
+POST consumes one borrowed, read-only regular FD. After GO and before any request
+byte, it checks size, hashes offset-independent reads and checks stable file
+identity. The upload sends fixed Content-Length with no overwrite; it checks the
+stream hash and file identity again. Only a complete bounded 201 response with the
+fixture's exact attempt/request/bucket/path/hash/length/committed ACK can succeed.
+Raw ACK data is capped at 4 KiB and replaced by its digest in the small control
+result. `sent_bytes` counts chunks whose `sendall` returned successfully: it is a
+diagnostic lower bound after failure, and zero never proves a POST did not reach
+the server. Missing or mismatched ACKs remain uncertain even when the fixture has
+committed the object. This ACK schema is deliberately **not** presented as
+Supabase Storage's response or a hosted settlement policy.
+
+[`original_session.py`](../../workers/source-gateway/linux/original_session.py)
+captures exactly four child modules (`protocol`, `transport`, `original_transport`
+and `original_child`) into a private bundle before spawning. Its loader executes
+the captured, verified bytes with isolated Python imports; READY binds input,
+bundle and process. GO binds the same attempt and absolute deadline, is consumed
+before the first send, and must be followed by control EOF. The child receives
+only the binary write pipe or read-only upload FD, never a spool directory.
+Network and upload payload reads wait for GO.
+
+The session concurrently drains binary/control/stderr, counts and hashes binary
+bytes, and forwards bounded chunks to the caller's `Producer`. A valid control
+result is insufficient: complete GET needs binary EOF, matching count/hash, and
+an actual wait for that exact child. Upload completion also requires its exact
+child wait. IPC cleanup is a separate reported fact. A close error keeps that
+fact uncertain even after the child has been waited; detached raw FD numbers are
+never retried because the OS may already have reused them. Still-open file
+objects remain referenced for later cleanup, and every independent close is
+attempted. Such cleanup uncertainty prevents candidate completion. A framed
+non-200 response may retain status/accounting facts while
+the session reports no candidate. The session never calls `Producer.finish`,
+seals, cleans up slots, releases a SQL hold or starts a successor on its own.
+Cancellation/append failures leave the caller's partial spool available for
+later reconciliation. Deadline checks around caller append do not constitute
+an OS bound on arbitrary filesystem/callback latency.
+
+The fixture [`original_tls_fixture.py`](../../workers/source-gateway/linux/original_tls_fixture.py)
+models one immutable object, at most sixteen connections and bounded request
+observations, including commit-before-lost-ACK, mismatched ACK, truncated readback
+and changed readback bytes. Separate actual child processes can exercise
+download → producer completion → guardian seal → read-only upload → acknowledged
+local cleanup → fresh stored-readback allocation → seal/hash comparison. The
+portable spool validators and request predecessor facts are explicitly synthetic;
+they are not trusted Linux/SQL/remote-writer proofs.
+
+The bundle identifies the Python executable and records Python/TLS versions. It
+does not measure or pin every OS/stdlib/TLS dependency, admit a Linux sandbox,
+observe cgroups, or implement guardian-death recovery. The parent coordinator is
+also still a portable component, not an admitted frozen execution recipe.
+Changing shared `transport.py` gives newly captured metadata recipes a new
+identity. Previously retained metadata bundles and their evidence are unchanged;
+they do not admit the new recipe. A new combined Linux runtime check is required
+before admitting it. Candidate migrations 012 and 013 remain unhosted.
+
+### Verified portable checkpoint
+
+All **48 new transport/session tests pass** on both Python 3.9.6/LibreSSL 2.8.3
+and Python 3.13.3/OpenSSL 3.5.0. The full Mac Linux-worker discovery run is
+**253 total, 237 passing, 16 Linux-only skips** in 12.920 seconds. The existing
+31 metadata transport/coordination regressions pass on both runtimes. The
+Python 3.13 core run combines those 31 with the 30 new transport tests; its
+18 session tests run separately.
+
+The tests include exact-limit streaming/upload, multi-read truncation, missing
+chunk termination, blocked/broken sinks, mismatched and oversized ACKs, changed
+upload inputs, final close errors, malformed control types, no pre-GO work,
+tampered captures, cancellation/disk-full retention, EOF without a result,
+a result without process retirement, and reused descriptor numbers after a close
+error. The maximum-size workflow uses three actual children and connections,
+compares the sealed readback to the fixed candidate, and refuses fresh readback
+allocation while the source slots still exist. Independent reviews corrected
+control validation and close-error ownership; the initial session run also
+needed two missing test-owned spool base directories to be created explicitly.
+
+Reproduce the complete portable run with the command in the isolated-spool
+checkpoint above, or run just the two new modules:
+
+```sh
+PYTHONPATH=workers/source-gateway:workers/source-gateway/linux python3 -B -m unittest test_original_transport test_original_session -v
+```
+
+Evidence is `.artifacts/original-transfer-summary.json` (SHA-256
+`d23b86056e326fb29f5a75d41ff39d58480d23cb24e467e83bfaa10afa78051e`),
+the five logs it identifies, and retained reproduction bundles under
+`.artifacts/original-transfer-bundles/`. The summary verifies unchanged source
+hashes through the final test window and all thirteen applied/pending migrations
+equal to the prior commit. The existing spool implementation is unchanged.
+No database, hosted service, provider, VM or physical device was changed for
+this checkpoint. SQL/guardian integration, measured verifier execution and
+real Storage response/settlement admission remain required.

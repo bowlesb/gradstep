@@ -385,5 +385,30 @@ and `.artifacts/original-spool-summary.json`.
 
 This is a file-mechanics checkpoint with injected trusted validators. It is not
 part of the admitted metadata bundle or a connected original-PDF execution path.
-There is no new SQL migration, source/Storage traffic, Linux runtime admission,
+
+## Portable original transfers — verified 2026-10-04
+
+`original_transport.py`, `original_child.py` and `original_session.py` implement
+separate loopback-only PDF download, single upload and stored readback actions.
+The child gets only a nonblocking binary pipe or read-only sealed input FD.
+READY/GO/control EOF precedes I/O; complete transfer facts, matching binary EOF
+and an actual child wait precede caller-controlled spool completion. The session
+preserves partials and reports IPC cleanup uncertainty separately from retirement.
+
+The maximum-size process/spool workflow passes through source download, guardian
+seal, read-only upload, exact fixture ACK, source-slot cleanup, new readback slots
+and final hash comparison. All 48 new cases pass on both local Python/TLS
+runtimes; full Mac discovery is 253 total, 237 passing and 16 Linux-only skips.
+The 31 metadata transport/coordination regressions also pass on both runtimes.
+Reproduction, evidence and reviewed boundaries are in
+[Original execution](../../../docs/architecture/ORIGINAL_EXECUTION.md#portable-original-transfer-boundary--2026-10-04).
+
+This does not combine original execution with SQL or Linux scope authority, run
+the verifier, or establish real Supabase response/settlement semantics. The
+portable bundle is not a production admission recipe. The shared strict parser's
+new per-instance protocol ceiling retains metadata defaults but changes newly
+captured source identities. Retained older bundles are untouched; new metadata
+captures need fresh combined Linux verification before admission. The VM remains
+stopped, and pending migrations 012/013 remain unhosted.
+There is no new SQL migration, live source/Storage traffic, Linux runtime admission,
 physical disk quota or verifier measurement claim. The existing guest stays off.

@@ -20,11 +20,15 @@ class BoundedFile:
     No plaintext is prefetched past HTTP framing into a buffer that would be
     discarded when HTTPResponse automatically closes its file at message EOF.
     """
-    def __init__(self, tls, deadline, body_limit):
+    def __init__(self, tls, deadline, body_limit, *, protocol_limit=MAX_PROTOCOL):
+        # Internal caller policy, never taken from the metadata envelope. The
+        # original binary transport supplies its own fixed wire ceiling.
+        require(type(protocol_limit) is int and protocol_limit > 0, 'protocol_limit')
         self.tls = tls
         self.raw = tls.makefile('rb', buffering=0)
         self.deadline = deadline
         self.body_limit = body_limit
+        self.protocol_limit = protocol_limit
         self.closed = False
         self.received = 0
         self.header_bytes = 0
@@ -40,7 +44,7 @@ class BoundedFile:
         require(amount > 0, 'protocol_error')
         self.tls.settimeout(remaining)
         try:
-            data = self.raw.read(min(amount, 16_384, MAX_PROTOCOL - self.received + 1))
+            data = self.raw.read(min(amount, 16_384, self.protocol_limit - self.received + 1))
         except ssl.SSLEOFError:
             self.peer_close = 'abrupt'
             raise Refused('tls_truncated') from None
@@ -48,7 +52,7 @@ class BoundedFile:
             self.peer_close = 'abrupt'
             raise Refused('transport') from None
         self.received += len(data)
-        require(self.received <= MAX_PROTOCOL, 'protocol_limit')
+        require(self.received <= self.protocol_limit, 'protocol_limit')
         if not data:
             self.peer_close = 'clean_tls'
         return data
@@ -57,7 +61,7 @@ class BoundedFile:
         result = bytearray()
         if amount == 0:
             return b''
-        require(amount == -1 or 0 < amount <= MAX_PROTOCOL, 'protocol_limit')
+        require(amount == -1 or 0 < amount <= self.protocol_limit, 'protocol_limit')
         while amount < 0 or len(result) < amount:
             # Unbounded HTTPResponse.read is used only for a close-delimited
             # body. Its body cap is enforced before another receive.

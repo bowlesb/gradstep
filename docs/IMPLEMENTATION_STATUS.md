@@ -93,19 +93,22 @@ Updated 2026-10-04. This is a development checkpoint, not a release declaration.
 
 - The retained Mathpix-output adapter now connects to the existing renderer and encrypted native reader under an explicit new profile. Independent source/artifact review is clear. It preserves standalone MMD, ZIP and auxiliary lines separately; rendering rechecks the complete archive inventory and maps only parsed image references into verified PNG members. Backend tests pass 95/95, local network-denied Deno adapter tests 25/25, renderer tests 31/31 plus a final eight-case fixture rerun, and Core tests 138/138. The generated synthetic reader `1423dcd3…` passes 19 native Loader/Coordinator checks and the same install → restart → Contents/equation → saved question → return/figure → restart journey as the unchanged authored `4851d817…` on both iPhone/iPad Simulators. The retained question appears once; raw outputs stay outside the mobile bundle. Captures were visually inspected. Evidence and reproduction are in [Mathpix pipeline](architecture/MATHPIX_PIPELINE.md#verified-local-checkpoint) and `.artifacts/mathpix-reader-{iphone,ipad}.xcresult`. This is synthetic compatibility, not a real Mathpix conversion, authenticated download or hosted publication. Chat still displays the saved equation as LaTeX text and provides no AI response. No migration, provider request or physical-phone action occurred.
 
+- The [portable original-PDF workflow](architecture/ORIGINAL_EXECUTION.md#portable-original-transfer-boundary--2026-10-04) now transfers actual bounded TLS bytes through separate captured children and the existing spool: download → seal → read-only upload → complete ACK → local cleanup → fresh stored readback → seal/hash comparison. All 48 new transport/session tests pass on Python 3.9.6/LibreSSL and 3.13.3/OpenSSL, as do the 31 existing metadata transport/coordination checks. Full portable Linux-worker discovery passes 237 checks with 16 Linux-only skips. Independent review corrected malformed control handling and close-error ownership, with actual reused-FD, truncated-body, blocked-sink, missing-ACK and partial-spool regressions. Evidence is `.artifacts/original-transfer-summary.json`; all thirteen migration files and the existing spool are unchanged. This is a loopback/process/file checkpoint with synthetic guardian gates, not SQL integration, cgroup/verifier host admission or live Supabase Storage. Newly captured metadata recipes need a new Linux check because the shared parser gained a per-instance protocol ceiling; older frozen bundles remain unchanged.
+
 ## Still required
 
-The [original execution design](architecture/ORIGINAL_EXECUTION.md) now has two
-independently reviewed prerequisites: the bounded producer/guardian spool and a
-disabled 013 SQL candidate. The spool has 26 passing portable tests; full
-Linux-worker discovery is 189 passing with 16 Linux-only skips. Disposable PG18
+The [original execution design](architecture/ORIGINAL_EXECUTION.md) now has three
+independently reviewed prerequisites: the bounded producer/guardian spool,
+portable process/transfer components, and a disabled 013 SQL candidate. The spool
+has 26 passing portable tests; current full Linux-worker discovery is 237 passing
+with 16 Linux-only skips. Disposable PG18
 SQL checks pass through synthetic publication and a `pdf_ready` library entry,
 including the complete six-attempt/28-slot retry envelope, 12 concurrency groups,
 five populated-upgrade groups, historical accounting cases and unchanged metadata
 regressions. The complete database run passes in 43.250 seconds, with source
 hashes unchanged throughout. All 13 restore
-quarantine tests pass. This does not connect the spool to SQL, live acquisition,
-Storage, or actual verifier host measurements; those integrations remain required
+quarantine tests pass. The portable transfer workflow does not connect the spool
+to SQL, live acquisition, Storage, or actual verifier host measurements; those integrations remain required
 below. Both 012 and 013 remain unapplied to Supabase.
 
 - Broader hosted integration and migration replay checks; hosted replacement-project restore drill. Local DB tests use PostgreSQL 18; hosted staging is PostgreSQL 17.11 and is the authoritative compatibility check. The local database/object restore drill passes.
