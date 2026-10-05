@@ -125,7 +125,7 @@ test('polling defers until complete, then captures raw output and settles on pro
   const pending = harness({ worker_pipeline_defer: p => { assert.equal(p.p_seconds, 4); return entry('ocr_wait'); } }, {
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'split', pages: 30, completedPages: 3, pipelineVersion: null, deleted: false, errorCode: null }; } } });
   await processPaper(pending.deps, waiting, policy, deadline);
-  assert.deepEqual(names(pending.calls), ['worker_pipeline_defer']);
+  assert.deepEqual(names(pending.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_defer']);
 
   const lines = new TextEncoder().encode(JSON.stringify({ pages: Array.from({ length: 30 }, (_, i) => ({ page: i + 1 })) }));
   let collected: Record<string, unknown> = {};
@@ -183,4 +183,56 @@ test('render integrity failure is permanent but resumable at render', async () =
     attempt: { id: 'a', state: 'collected', page_limit: 5, provider_job_id: 'j', submitted_at: null, raw_manifest_path: `raw/${'a'.repeat(64)}/manifest.json` } }), policy, deadline);
   const failed = calls.find(c => c.name === 'worker_pipeline_defer')!.params;
   assert.equal(failed.p_fail, true); assert.equal(failed.p_resume_stage, 'render'); assert.equal(failed.p_error_code, 'raw_integrity');
+});
+
+test('sync-only claims run no stage; arXiv pacing defers instead of sleeping long', async () => {
+  const syncOnly = harness({});
+  await processPaper(syncOnly.deps, entry('ocr_wait', { due: false }), policy, deadline);
+  assert.deepEqual(names(syncOnly.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  let slept = 0;
+  const paced = harness({ worker_pipeline_arxiv_slot: () => 90_000, worker_pipeline_defer: p => p }, { async sleep(ms) { slept += ms; } });
+  await processPaper(paced.deps, entry('download'), policy, deadline);
+  const defer = paced.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
+  assert.equal(slept, 0); assert.equal(defer.p_seconds, 90); assert.equal(defer.p_fail ?? false, false); assert.equal(defer.p_error_code, undefined);
+});
+
+test('funding that cannot be prepared is abandoned without a POST; low headroom defers before the grant', async () => {
+  const funded = entry('ocr_submit', { failures: 2, document_sha256: 'd'.repeat(64), original_path: 'originals/missing.pdf', original_bytes: 100, page_count: 3,
+    attempt: { id: 'a', state: 'funded', page_limit: 3, provider_job_id: null, submitted_at: null, raw_manifest_path: null } });
+  const missing = harness({ worker_pipeline_abandon_funding: p => { assert.equal(p.p_error_code, 'download_failed'); return entry('failed'); } });
+  await processPaper(missing.deps, funded, policy, deadline);
+  assert.ok(names(missing.calls).includes('worker_pipeline_abandon_funding'));
+  assert.ok(!names(missing.calls).includes('worker_pipeline_begin_submit'));
+  const original = await pdf(3);
+  const late = harness({ worker_pipeline_defer: p => p });
+  late.uploads.set('originals/x.pdf', original);
+  await processPaper(late.deps, { ...funded, failures: 0, original_path: 'originals/x.pdf', document_sha256: await sha256(original) }, policy, Date.parse('2026-10-05T06:01:00Z'));
+  assert.deepEqual(names(late.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_defer']);
+});
+
+test('unusable provider output fails the attempt (hold settles) instead of retrying forever', async () => {
+  const { MathpixError } = await import('../../supabase/functions/_shared/mathpix.ts');
+  const { deps, calls } = harness({ worker_pipeline_ocr_failed: p => { assert.equal(p.p_error_code, 'conversion_failed'); return entry('failed'); } }, {
+    mathpix: { ...harness({}).deps.mathpix,
+      async status(id) { return { providerJobID: id, state: 'completed', pages: 4, completedPages: 4, pipelineVersion: null, deleted: false, errorCode: null }; },
+      async conversion(id) { return { providerJobID: id, state: 'completed', errorCode: null }; },
+      async output() { throw new MathpixError('provider_body_limit'); } } });
+  await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
+    attempt: { id: 'a', state: 'submitted', page_limit: 4, provider_job_id: 'job-4', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
+  assert.ok(names(calls).includes('worker_pipeline_ocr_failed'));
+});
+
+test('a billed job id is recorded even when the first record attempt fails', async () => {
+  let tries = 0;
+  const original = await pdf(2);
+  const digest = await sha256(original);
+  const { deps, calls, uploads } = harness({
+    worker_pipeline_begin_submit: () => ({ ...entry('ocr_submit'), granted: true, attempt_id: '55555555-5555-4555-8555-555555555555' }),
+    worker_pipeline_submitted: p => { tries++; if (tries < 3) throw new PipelineRPCError('database_error'); assert.equal(p.p_attempt_id, '55555555-5555-4555-8555-555555555555'); return entry('ocr_wait'); },
+  }, { mathpix: { ...harness({}).deps.mathpix, async submitOnce() { return { state: 'accepted', providerJobID: 'job-5' }; } } });
+  uploads.set('originals/y.pdf', original);
+  await processPaper(deps, entry('ocr_submit', { document_sha256: digest, original_path: 'originals/y.pdf', original_bytes: original.length, page_count: 2,
+    attempt: { id: 'a', state: 'funded', page_limit: 2, provider_job_id: null, submitted_at: null, raw_manifest_path: null } }), policy, deadline);
+  assert.equal(tries, 3);
+  assert.deepEqual(names(calls).slice(-2), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });

@@ -47,6 +47,7 @@ create table app_private.pipeline_papers (
  approval_id uuid references app_private.catalog_asset_approvals(id),
  page_count integer check(page_count between 1 and 250),
  artifact_id uuid references app_private.render_artifacts(id),
+ ocr_run_id uuid references app_private.ocr_runs(id),
  stage text not null default 'metadata' check(stage in ('metadata','private_split','download','ocr_fund','ocr_submit','ocr_wait','render','done',
   'source_only','failed','needs_credits','ocr_uncertain')),
  resume_stage text check(resume_stage in ('metadata','download','ocr_fund','render')),
@@ -66,7 +67,7 @@ create table app_private.pipeline_papers (
 create unique index pipeline_shared_slot on app_private.pipeline_papers(source_id,requested_revision) where owner_id is null;
 create unique index pipeline_private_slot on app_private.pipeline_papers(owner_id,source_id,requested_revision) where owner_id is not null;
 create index pipeline_papers_due on app_private.pipeline_papers(next_attempt_at)
- where stage in ('metadata','download','ocr_fund','ocr_submit','ocr_wait','render');
+ where stage in ('metadata','private_split','download','ocr_fund','ocr_submit','ocr_wait','render');
 
 create table app_private.pipeline_imports (
  account_id uuid not null,
@@ -74,6 +75,8 @@ create table app_private.pipeline_imports (
  paper_id uuid not null references app_private.pipeline_papers(id),
  synced_revision bigint not null default 0,
  retry_requested boolean not null default false,
+ next_sync_at timestamptz not null default now(),
+ sync_failures integer not null default 0 check(sync_failures>=0),
  created_at timestamptz not null default now(),
  primary key(account_id,import_id),
  foreign key(account_id,import_id) references app_private.import_requests(account_id,id)
@@ -142,10 +145,13 @@ begin
   insert into app_private.pipeline_papers(source_id,requested_revision) values(new.source_id,coalesce(new.requested_revision,0))
    on conflict(source_id,requested_revision) where owner_id is null do nothing;
   select id into strict paper from app_private.pipeline_papers where owner_id is null and source_id=new.source_id and requested_revision=coalesce(new.requested_revision,0);
-  insert into app_private.pipeline_imports(account_id,import_id,paper_id) values(new.account_id,new.id,paper);
+  -- A new interest restarts a paper paused for credits or a resumable failure.
+  insert into app_private.pipeline_imports(account_id,import_id,paper_id,retry_requested)
+   select new.account_id,new.id,paper,exists(select 1 from app_private.pipeline_papers
+    where id=paper and stage in ('failed','needs_credits') and resume_stage is not null);
   perform app_private.pipeline_kick();
  elsif old.phase='failed' and new.desired_present and new.phase in ('accepted','acquiring') then
-  update app_private.pipeline_imports set retry_requested=true,synced_revision=0 where account_id=new.account_id and import_id=new.id;
+  update app_private.pipeline_imports set retry_requested=true,synced_revision=0,next_sync_at=now() where account_id=new.account_id and import_id=new.id;
   perform app_private.pipeline_kick();
  end if;
  return new;
@@ -187,29 +193,38 @@ create or replace function app_private.library_import_entry(a uuid,p_id uuid) re
  where i.account_id=a and i.id=p_id
 $$;
 
+create function app_private.pipeline_raw_path(p_run uuid) returns text language sql stable security definer set search_path='' as $$
+ select o.path from app_private.ocr_runs r join app_private.stored_objects o on o.id=r.raw_bundle_object_id where r.id=p_run
+$$;
 create function app_private.pipeline_entry(p app_private.pipeline_papers) returns jsonb language sql stable security definer set search_path='' as $$
  select jsonb_build_object('id',p.id,'source_id',p.source_id,'requested_revision',p.requested_revision,'revision',p.revision,
   'owner_id',p.owner_id,'stage',p.stage,'error_code',p.error_code,'generation',p.generation,'claim_id',p.claim_id,'state_revision',p.state_revision,
   'metadata_id',p.metadata_id,'eligible',p.eligible,'document_id',p.document_id,'original_object_id',p.original_object_id,
-  'approval_id',p.approval_id,'page_count',p.page_count,'artifact_id',p.artifact_id,'failures',p.failures,
+  'approval_id',p.approval_id,'page_count',p.page_count,'artifact_id',p.artifact_id,'failures',p.failures,'ocr_run_id',p.ocr_run_id,
+  'due',p.stage in ('metadata','private_split','download','ocr_fund','ocr_submit','ocr_wait','render') and p.next_attempt_at<=clock_timestamp(),
   'document_sha256',(select encode(d.sha256,'hex') from app_private.documents d where d.id=p.document_id),
   'original_path',(select o.path from app_private.stored_objects o where o.id=p.original_object_id),
   'original_bytes',(select o.byte_count from app_private.stored_objects o where o.id=p.original_object_id),
+  'raw_manifest_path',app_private.pipeline_raw_path(p.ocr_run_id),
   'attempt',(select jsonb_build_object('id',x.id,'state',x.state,'page_limit',x.page_limit,'provider_job_id',x.provider_job_id,
-    'ocr_run_id',x.ocr_run_id,'submitted_at',x.submitted_at,'raw_manifest_path',(select o.path from app_private.stored_objects o where o.id=x.raw_manifest_object_id))
+    'ocr_run_id',x.ocr_run_id,'submitted_at',x.submitted_at,'raw_manifest_path',app_private.pipeline_raw_path(x.ocr_run_id))
    from app_private.ocr_attempts x where x.paper_id=p.id order by x.created_at desc limit 1))
 $$;
 
 -- Fence: the caller must hold the current, unexpired claim of this paper.
--- Stage functions keep the claim; the worker then projects imports with
+-- Each fenced call renews the lease. NO KEY UPDATE keeps the customer's
+-- import trigger (FK KEY SHARE on the paper) from ever waiting on a worker.
+-- Stage functions keep the claim; the worker projects imports with
 -- worker_pipeline_sync_imports and ends with release or defer.
 create function app_private.pipeline_fenced(p_paper uuid,p_claim uuid,p_generation bigint) returns app_private.pipeline_papers
 language plpgsql security definer set search_path='' as $$
 declare p app_private.pipeline_papers;
 begin
- select * into p from app_private.pipeline_papers where id=p_paper for update;
+ select * into p from app_private.pipeline_papers where id=p_paper for no key update;
  if not found or p.claim_id is distinct from p_claim or p.generation is distinct from p_generation or p.lease_until<=clock_timestamp()
  then raise exception 'stale_pipeline_claim'; end if;
+ update app_private.pipeline_papers set lease_until=clock_timestamp()+make_interval(secs=>(select lease_seconds from app_private.pipeline_policy))
+  where id=p.id returning * into p;
  return p;
 end $$;
 create function app_private.pipeline_set_stage(p_paper uuid,p_stage text,p_error text default null,p_resume text default null,p_delay interval default '0') returns void
@@ -219,28 +234,33 @@ language sql security definer set search_path='' as $$
   failures=case when p_error is null then 0 else failures end
  where id=p_paper
 $$;
+-- Any interested, active import of this paper (optionally for one account).
+create function app_private.pipeline_interest(p_paper uuid,p_account uuid default null) returns boolean language sql stable security definer set search_path='' as $$
+ select exists(select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
+  where pi.paper_id=p_paper and (p_account is null or pi.account_id=p_account) and i.desired_present and i.phase in ('accepted','resolving','acquiring'))
+$$;
 
 create function public.worker_pipeline_claim(p_claim_id uuid) returns jsonb language plpgsql security definer set search_path='' as $$
-declare pol app_private.pipeline_policy; p app_private.pipeline_papers;
+declare pol app_private.pipeline_policy; p app_private.pipeline_papers; retries integer;
 begin
  if p_claim_id is null then raise exception 'invalid_claim'; end if;
  select * into strict pol from app_private.pipeline_policy;
  if not pol.enabled then return null; end if;
  select pp.* into p from app_private.pipeline_papers pp
  where (pp.lease_until is null or pp.lease_until<=clock_timestamp()) and (
+  -- Paid/provider stages continue regardless of interest.
   (pp.stage in ('ocr_submit','ocr_wait','render') and pp.next_attempt_at<=clock_timestamp())
-  or (pp.stage in ('metadata','download','ocr_fund') and pp.next_attempt_at<=clock_timestamp() and exists(
-   select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
-   where pi.paper_id=pp.id and i.desired_present and i.phase in ('accepted','resolving','acquiring')))
+  or (pp.stage in ('metadata','private_split','download','ocr_fund') and pp.next_attempt_at<=clock_timestamp() and app_private.pipeline_interest(pp.id))
   or exists(select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
    where pi.paper_id=pp.id and i.desired_present and i.phase in ('accepted','resolving','acquiring')
-   and (pi.synced_revision<pp.state_revision or pi.retry_requested)))
- order by pp.next_attempt_at,pp.id limit 1 for update skip locked;
+   and (pi.retry_requested or (pi.synced_revision<pp.state_revision and pi.next_sync_at<=clock_timestamp()))))
+ order by pp.next_attempt_at,pp.id limit 1 for no key update skip locked;
  if not found then return null; end if;
- if p.stage in ('failed','needs_credits') and exists(select 1 from app_private.pipeline_imports where paper_id=p.id and retry_requested) then
-  perform app_private.pipeline_set_stage(p.id,coalesce(p.resume_stage,'metadata'));
- end if;
  update app_private.pipeline_imports set retry_requested=false where paper_id=p.id and retry_requested;
+ get diagnostics retries=row_count;
+ if retries>0 and p.stage in ('failed','needs_credits') and p.resume_stage is not null then
+  perform app_private.pipeline_set_stage(p.id,p.resume_stage);
+ end if;
  update app_private.pipeline_papers set generation=generation+1,claim_id=p_claim_id,
   lease_until=clock_timestamp()+make_interval(secs=>pol.lease_seconds),updated_at=now() where id=p.id returning * into p;
  return app_private.pipeline_entry(p);
@@ -256,6 +276,8 @@ begin
  return greatest(0,ceil(extract(epoch from (slot-make_interval(secs=>spacing/1000.0)-clock_timestamp()))*1000))::integer;
 end $$;
 
+-- Releases the claim with a delay. Failing is allowed only in stages that hold
+-- no provider work (paid stages have their own explicit exits).
 create function public.worker_pipeline_defer(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_seconds integer,
  p_error_code text default null,p_fail boolean default false,p_resume_stage text default null) returns jsonb
 language plpgsql security definer set search_path='' as $$
@@ -265,6 +287,7 @@ begin
  if p_seconds is null or p_seconds not between 0 and 86400 then raise exception 'invalid_delay'; end if;
  if p_fail then
   if p_error_code is null then raise exception 'error_required'; end if;
+  if p.stage not in ('metadata','private_split','download','ocr_fund','render') then raise exception 'invalid_failure_stage'; end if;
   perform app_private.pipeline_set_stage(p.id,'failed',p_error_code,p_resume_stage);
  else
   update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+make_interval(secs=>p_seconds),error_code=p_error_code,
@@ -302,16 +325,20 @@ end $$;
 
 create function app_private.approve_private_asset(p app_private.pipeline_papers,p_document uuid,p_object uuid) returns uuid
 language plpgsql security definer set search_path='' as $$
-declare m app_private.catalog_metadata; existing uuid; result uuid:=gen_random_uuid();
+declare m app_private.catalog_metadata; existing uuid; result uuid:=gen_random_uuid(); pol app_private.library_policy;
+ v_evidence jsonb;
 begin
  select * into strict m from app_private.catalog_metadata where id=p.metadata_id;
- perform 1 from app_private.library_policy where singleton for update;
+ select * into strict pol from app_private.library_policy where singleton for update;
  select id into existing from app_private.catalog_asset_approvals where metadata_id=m.id and document_id=p_document and policy_version='owner-private-v1';
  if existing is not null then return existing; end if;
+ v_evidence:=jsonb_build_object('scope','owner_private','owner_id',p.owner_id,'source_id',m.source_id,'source_revision',m.source_revision,
+   'source_url','https://arxiv.org/abs/'||m.source_id||'v'||m.source_revision,'license_uri',p.license_uri);
+ if (select count(*) from app_private.catalog_asset_approvals)+1>pol.approval_rows
+ or (select coalesce(sum(octet_length(a.evidence::text)),0) from app_private.catalog_asset_approvals a)+octet_length(v_evidence::text)>pol.approval_bytes
+ then raise exception 'catalog_approval_limit'; end if;
  insert into app_private.version_documents values(m.version_id,p_document) on conflict do nothing;
- insert into app_private.catalog_asset_approvals values(result,m.version_id,p_document,m.id,p_object,p.license_uri,'owner-private-v1',
-  jsonb_build_object('scope','owner_private','owner_id',p.owner_id,'source_id',m.source_id,'source_revision',m.source_revision,
-   'source_url','https://arxiv.org/abs/'||m.source_id||'v'||m.source_revision,'license_uri',p.license_uri),now());
+ insert into app_private.catalog_asset_approvals values(result,m.version_id,p_document,m.id,p_object,p.license_uri,'owner-private-v1',v_evidence,now());
  return result;
 end $$;
 
@@ -329,7 +356,7 @@ begin
    values(link.account_id,p.source_id,p.requested_revision,p.revision,p.metadata_id,false,p.license_uri,'download')
    on conflict(owner_id,source_id,requested_revision) where owner_id is not null do nothing;
   select id into strict private from app_private.pipeline_papers where owner_id=link.account_id and source_id=p.source_id and requested_revision=p.requested_revision;
-  update app_private.pipeline_imports set paper_id=private,synced_revision=0 where account_id=link.account_id and import_id=link.import_id;
+  update app_private.pipeline_imports set paper_id=private,synced_revision=0,next_sync_at=now() where account_id=link.account_id and import_id=link.import_id;
   moved:=moved+1;
  end loop;
  return moved;
@@ -384,11 +411,12 @@ begin
  return app_private.pipeline_entry(p);
 end $$;
 
--- Chooses a funder among interested accounts and reserves the OCR ceiling.
+-- Reuses a finished render or retained raw OCR for identical bytes; otherwise
+-- chooses a funder among interested accounts and reserves the OCR ceiling.
 create function public.worker_pipeline_fund(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_page_limit integer,
  p_options_sha256 bytea,p_request_sha256 bytea) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare p app_private.pipeline_papers; pol app_private.pipeline_policy; run uuid; artifact uuid; candidate record; op uuid;
+declare p app_private.pipeline_papers; pol app_private.pipeline_policy; run uuid; raw_run uuid; artifact uuid; candidate record; op uuid;
  credits bigint; microusd bigint; funded boolean:=false; paused boolean:=false;
 begin
  p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
@@ -407,10 +435,23 @@ begin
   select * into p from app_private.pipeline_papers where id=p.id;
   return app_private.pipeline_entry(p)||jsonb_build_object('funding','reused');
  end if;
+ -- Retained raw OCR (another slot, an earlier renderer) is re-rendered free.
+ select r.id into raw_run from app_private.ocr_runs r join app_private.stored_objects o on o.id=r.raw_bundle_object_id
+  where r.document_id=p.document_id and r.provider='mathpix' and o.state='verified' order by (r.options_sha256=p_options_sha256) desc limit 1;
+ if raw_run is not null then
+  update app_private.pipeline_papers set ocr_run_id=raw_run where id=p.id;
+  perform app_private.pipeline_set_stage(p.id,'render');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','reused_raw');
+ end if;
  if exists(select 1 from app_private.ocr_attempts where document_id=p.document_id and state in ('funded','submitting','submitted','uncertain')) then
   -- Another source slot is converting identical bytes; wait for it.
   update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '15 seconds' where id=p.id;
   return app_private.pipeline_entry(p)||jsonb_build_object('funding','waiting');
+ end if;
+ if not exists(select 1 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date and work_enabled) then
+  update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '5 minutes',error_code='service_paused' where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','paused');
  end if;
  insert into app_private.ocr_runs(document_id,provider,options_sha256) values(p.document_id,'mathpix',p_options_sha256)
   on conflict(document_id,provider,options_sha256) do nothing;
@@ -430,49 +471,13 @@ begin
     elsif sqlerrm<>'insufficient_credits' then raise; end if;
   end;
  end loop;
- if funded then perform app_private.pipeline_set_stage(p.id,'ocr_submit');
+ if funded then
+  update app_private.pipeline_papers set ocr_run_id=run where id=p.id;
+  perform app_private.pipeline_set_stage(p.id,'ocr_submit');
  elsif paused then update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '5 minutes',error_code='service_paused' where id=p.id;
  else perform app_private.pipeline_set_stage(p.id,'needs_credits','insufficient_credits','ocr_fund'); end if;
  select * into p from app_private.pipeline_papers where id=p.id;
  return app_private.pipeline_entry(p)||jsonb_build_object('funding',case when funded then 'funded' when paused then 'paused' else 'needs_credits' end);
-end $$;
-
--- The only path to a paid POST. Grants once; a repeated begin means an earlier
--- holder may have posted, so the attempt becomes uncertain instead.
-create function public.worker_pipeline_begin_submit(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns jsonb
-language plpgsql security definer set search_path='' as $$
-declare p app_private.pipeline_papers; x app_private.ocr_attempts;
-begin
- p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
- if p.stage<>'ocr_submit' then raise exception 'invalid_pipeline_stage'; end if;
- select * into strict x from app_private.ocr_attempts where paper_id=p.id and state in ('funded','submitting') for update;
- if x.state='submitting' then
-  update app_private.ocr_attempts set state='uncertain',error_code='submission_unrecorded' where id=x.id;
-  perform app_private.pipeline_set_stage(p.id,'ocr_uncertain','submission_uncertain');
-  select * into p from app_private.pipeline_papers where id=p.id;
-  return app_private.pipeline_entry(p)||jsonb_build_object('granted',false);
- end if;
- update app_private.ocr_attempts set state='submitting',submitted_at=clock_timestamp() where id=x.id;
- perform public.worker_mark_submitted(x.funder_account_id,x.operation_id);
- return app_private.pipeline_entry(p)||jsonb_build_object('granted',true,'attempt_id',x.id);
-end $$;
-
-create function public.worker_pipeline_submitted(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_provider_job_id text,p_uncertain_reason text default null) returns jsonb
-language plpgsql security definer set search_path='' as $$
-declare p app_private.pipeline_papers; x app_private.ocr_attempts;
-begin
- p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
- select * into strict x from app_private.ocr_attempts where paper_id=p.id and state='submitting' for update;
- if (p_provider_job_id is null)=(p_uncertain_reason is null) then raise exception 'invalid_submission_result'; end if;
- if p_provider_job_id is not null then
-  update app_private.ocr_attempts set state='submitted',provider_job_id=p_provider_job_id where id=x.id;
-  perform app_private.pipeline_set_stage(p.id,'ocr_wait',null,null,'5 seconds');
- else
-  update app_private.ocr_attempts set state='uncertain',error_code=left(regexp_replace(lower(p_uncertain_reason),'[^a-z_]','_','g'),64) where id=x.id;
-  perform app_private.pipeline_set_stage(p.id,'ocr_uncertain','submission_uncertain');
- end if;
- select * into p from app_private.pipeline_papers where id=p.id;
- return app_private.pipeline_entry(p);
 end $$;
 
 create function app_private.pipeline_settle_ocr(x app_private.ocr_attempts,p_pages_billed integer,p_charge_customer boolean) returns void
@@ -489,6 +494,99 @@ begin
    values(x.funder_account_id,x.operation_id,'mathpix',x.provider_job_id,'v3/pdf',jsonb_build_object('pages',p_pages_billed),microusd)
    on conflict(provider,provider_event_id) do nothing;
  end if;
+end $$;
+
+-- The only path to a paid POST. Grants once; a repeated begin means an earlier
+-- holder may have posted, so the attempt becomes uncertain instead. A funder
+-- who withdrew before the grant is released and another funder is sought.
+create function public.worker_pipeline_begin_submit(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; x app_private.ocr_attempts;
+begin
+ p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ if p.stage<>'ocr_submit' then raise exception 'invalid_pipeline_stage'; end if;
+ select * into strict x from app_private.ocr_attempts where paper_id=p.id and state in ('funded','submitting') for update;
+ if x.state='submitting' then
+  update app_private.ocr_attempts set state='uncertain',error_code='submission_unrecorded' where id=x.id;
+  perform app_private.pipeline_set_stage(p.id,'ocr_uncertain','submission_uncertain');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('granted',false);
+ end if;
+ if not app_private.pipeline_interest(p.id,x.funder_account_id) then
+  update app_private.ocr_attempts set state='failed',error_code='funder_withdrew',finished_at=clock_timestamp() where id=x.id;
+  perform public.worker_settle_operation(x.funder_account_id,x.operation_id,0,0);
+  perform app_private.pipeline_set_stage(p.id,'ocr_fund');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('granted',false);
+ end if;
+ update app_private.ocr_attempts set state='submitting',submitted_at=clock_timestamp() where id=x.id;
+ perform public.worker_mark_submitted(x.funder_account_id,x.operation_id);
+ return app_private.pipeline_entry(p)||jsonb_build_object('granted',true,'attempt_id',x.id);
+end $$;
+
+-- Before any grant, a funded attempt that cannot be prepared (e.g. its original
+-- is missing) releases its hold; the paper can be refunded on retry.
+create function public.worker_pipeline_abandon_funding(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_error_code text) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; x app_private.ocr_attempts;
+begin
+ p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ if p.stage<>'ocr_submit' or p_error_code !~ '^[a-z_]{1,64}$' then raise exception 'invalid_pipeline_stage'; end if;
+ select * into strict x from app_private.ocr_attempts where paper_id=p.id and state='funded' for update;
+ update app_private.ocr_attempts set state='failed',error_code=p_error_code,finished_at=clock_timestamp() where id=x.id;
+ perform public.worker_settle_operation(x.funder_account_id,x.operation_id,0,0);
+ perform app_private.pipeline_set_stage(p.id,'failed',p_error_code,'download');
+ select * into p from app_private.pipeline_papers where id=p.id;
+ return app_private.pipeline_entry(p);
+end $$;
+
+-- Records the POST outcome by attempt, not by lease: a POST that outlived its
+-- worker lease still records the billed provider job. Accepts a late result
+-- for an attempt already marked uncertain because its acknowledgement was lost.
+create function public.worker_pipeline_submitted(p_attempt_id uuid,p_provider_job_id text,p_uncertain_reason text default null) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; x app_private.ocr_attempts; paper uuid;
+begin
+ if (p_provider_job_id is null)=(p_uncertain_reason is null) then raise exception 'invalid_submission_result'; end if;
+ select paper_id into paper from app_private.ocr_attempts where id=p_attempt_id;
+ if paper is null then raise exception 'attempt_unavailable'; end if;
+ select * into strict p from app_private.pipeline_papers where id=paper for no key update;
+ select * into strict x from app_private.ocr_attempts where id=p_attempt_id for update;
+ if p_provider_job_id is not null then
+  if x.state='submitted' and x.provider_job_id=p_provider_job_id then return app_private.pipeline_entry(p); end if;
+  if not (x.state='submitting' or (x.state='uncertain' and x.provider_job_id is null)) then raise exception 'invalid_submission_result'; end if;
+  update app_private.ocr_attempts set state='submitted',provider_job_id=p_provider_job_id,error_code=null where id=x.id;
+  if p.stage in ('ocr_submit','ocr_uncertain') then perform app_private.pipeline_set_stage(p.id,'ocr_wait',null,null,'5 seconds'); end if;
+ elsif x.state='submitting' then
+  update app_private.ocr_attempts set state='uncertain',error_code=left(regexp_replace(lower(p_uncertain_reason),'[^a-z_]','_','g'),64) where id=x.id;
+  if p.stage='ocr_submit' then perform app_private.pipeline_set_stage(p.id,'ocr_uncertain','submission_uncertain'); end if;
+ end if;
+ select * into p from app_private.pipeline_papers where id=p.id;
+ return app_private.pipeline_entry(p);
+end $$;
+
+-- Operator reconciliation of an uncertain submission: a found provider job
+-- resumes polling; otherwise the hold settles (no customer charge; the
+-- operator's estimate of billed pages is recorded) and the paper can be refunded.
+create function public.worker_pipeline_resolve_uncertain(p_attempt_id uuid,p_provider_job_id text,p_pages_billed integer) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; x app_private.ocr_attempts; paper uuid;
+begin
+ select paper_id into paper from app_private.ocr_attempts where id=p_attempt_id;
+ if paper is null then raise exception 'attempt_unavailable'; end if;
+ select * into strict p from app_private.pipeline_papers where id=paper for no key update;
+ select * into strict x from app_private.ocr_attempts where id=p_attempt_id for update;
+ if x.state<>'uncertain' or (p_provider_job_id is null and (p_pages_billed is null or p_pages_billed not between 0 and 250)) then raise exception 'invalid_resolution'; end if;
+ if p_provider_job_id is not null then
+  update app_private.ocr_attempts set state='submitted',provider_job_id=p_provider_job_id,error_code=null where id=x.id;
+  perform app_private.pipeline_set_stage(p.id,'ocr_wait');
+ else
+  update app_private.ocr_attempts set state='failed',error_code='submission_unaccepted',finished_at=clock_timestamp() where id=x.id returning * into x;
+  perform app_private.pipeline_settle_ocr(x,p_pages_billed,false);
+  perform app_private.pipeline_set_stage(p.id,'failed','conversion_failed','ocr_fund');
+ end if;
+ select * into p from app_private.pipeline_papers where id=p.id;
+ return app_private.pipeline_entry(p);
 end $$;
 
 -- Raw provider output has been written to Storage under raw/<manifest sha>/.
@@ -512,15 +610,18 @@ begin
  end if;
  update app_private.ocr_attempts set state='collected',pages_reported=p_pages_reported,raw_manifest_object_id=o,finished_at=clock_timestamp()
   where id=x.id returning * into x;
- update app_private.ocr_runs set provider_job_id=x.provider_job_id,raw_bundle_object_id=o where id=x.ocr_run_id;
+ -- The first retained raw output stays the run's durable OCR identity.
+ update app_private.ocr_runs set provider_job_id=coalesce(provider_job_id,x.provider_job_id),raw_bundle_object_id=coalesce(raw_bundle_object_id,o)
+  where id=x.ocr_run_id;
+ update app_private.pipeline_papers set ocr_run_id=x.ocr_run_id where id=p.id;
  perform app_private.pipeline_settle_ocr(x,least(p_pages_reported,x.page_limit),true);
  perform app_private.pipeline_set_stage(p.id,'render');
  select * into p from app_private.pipeline_papers where id=p.id;
  return app_private.pipeline_entry(p);
 end $$;
 
--- Provider reported a failed job. The customer is not charged; the estimated
--- provider cost is still recorded against the platform budget.
+-- Provider reported a failed (or unusable) job. The customer is not charged;
+-- the estimated provider cost is still recorded against the platform budget.
 create function public.worker_pipeline_ocr_failed(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_error_code text,p_pages_billed integer) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare p app_private.pipeline_papers; x app_private.ocr_attempts;
@@ -530,42 +631,46 @@ begin
  select * into strict x from app_private.ocr_attempts where paper_id=p.id and state='submitted' for update;
  update app_private.ocr_attempts set state='failed',error_code=p_error_code,finished_at=clock_timestamp() where id=x.id returning * into x;
  perform app_private.pipeline_settle_ocr(x,p_pages_billed,false);
- perform app_private.pipeline_set_stage(p.id,'failed',p_error_code,'ocr_fund');
+ perform app_private.pipeline_set_stage(p.id,'failed','conversion_failed','ocr_fund');
  select * into p from app_private.pipeline_papers where id=p.id;
  return app_private.pipeline_entry(p);
 end $$;
 
 -- Reader bundle members are already in Storage under reader/<manifest sha>/.
+-- An existing artifact for the same run and renderer is adopted.
 create function public.worker_pipeline_published(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_manifest_sha256 bytea,
  p_manifest_bytes bigint,p_renderer_version text) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare p app_private.pipeline_papers; pol app_private.pipeline_policy; x app_private.ocr_attempts; o uuid; artifact uuid; v_path text;
+declare p app_private.pipeline_papers; pol app_private.pipeline_policy; o uuid; artifact uuid; v_path text;
 begin
  p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
  select * into strict pol from app_private.pipeline_policy;
- if p.stage<>'render' or p_renderer_version is distinct from pol.renderer_version or octet_length(p_manifest_sha256)<>32
+ if p.stage<>'render' or p.ocr_run_id is null or p_renderer_version is distinct from pol.renderer_version or octet_length(p_manifest_sha256)<>32
   or p_manifest_bytes not between 1 and 262144 then raise exception 'invalid_publication'; end if;
- select * into strict x from app_private.ocr_attempts where paper_id=p.id and state='collected' order by finished_at desc limit 1;
- v_path:='reader/'||encode(p_manifest_sha256,'hex')||'/manifest.json';
- perform 1 from app_private.paper_storage_capacity where singleton for update;
- select id into o from app_private.stored_objects where path=v_path;
- if o is null then
-  insert into app_private.stored_objects(bucket,path,document_id,state,sha256,byte_count,media_type,verified_at)
-   values('paper-assets',v_path,p.document_id,'verified',p_manifest_sha256,p_manifest_bytes,'application/json',clock_timestamp()) returning id into o;
-  perform app_private.mark_paper_availability(o,'available');
+ select id into artifact from app_private.render_artifacts where ocr_run_id=p.ocr_run_id and renderer_version=p_renderer_version;
+ if artifact is null then
+  v_path:='reader/'||encode(p_manifest_sha256,'hex')||'/manifest.json';
+  perform 1 from app_private.paper_storage_capacity where singleton for update;
+  select id into o from app_private.stored_objects where path=v_path and document_id=p.document_id;
+  if o is null then
+   insert into app_private.stored_objects(bucket,path,document_id,state,sha256,byte_count,media_type,verified_at)
+    values('paper-assets',v_path,p.document_id,'verified',p_manifest_sha256,p_manifest_bytes,'application/json',clock_timestamp()) returning id into o;
+   perform app_private.mark_paper_availability(o,'available');
+  end if;
+  insert into app_private.render_artifacts(ocr_run_id,renderer_version,manifest_object_id) values(p.ocr_run_id,p_renderer_version,o)
+   on conflict(ocr_run_id,renderer_version) do nothing;
+  select id into strict artifact from app_private.render_artifacts where ocr_run_id=p.ocr_run_id and renderer_version=p_renderer_version;
  end if;
- insert into app_private.render_artifacts(ocr_run_id,renderer_version,manifest_object_id) values(x.ocr_run_id,p_renderer_version,o)
-  on conflict(ocr_run_id,renderer_version) do nothing;
- select id into strict artifact from app_private.render_artifacts where ocr_run_id=x.ocr_run_id and renderer_version=p_renderer_version;
- if (select manifest_object_id from app_private.render_artifacts where id=artifact)<>o then raise exception 'artifact_conflict'; end if;
  update app_private.pipeline_papers set artifact_id=artifact where id=p.id;
  perform app_private.pipeline_set_stage(p.id,'done');
  select * into p from app_private.pipeline_papers where id=p.id;
  return app_private.pipeline_entry(p);
 end $$;
 
--- Projects paper state onto each interested import. Takes account locks, so it
--- never runs inside a transaction holding the paper row.
+-- Projects paper state onto each interested import. Never holds the paper row.
+-- All link accounts are locked first in id order, so the library policy lock
+-- taken per link can never invert against a customer's account -> policy order.
+-- A failing link backs off alone; it never fails the paper or other links.
 create function public.worker_pipeline_sync_imports(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns integer
 language plpgsql security definer set search_path='' as $$
 declare p app_private.pipeline_papers; link record; i app_private.import_requests; s bigint; changed integer:=0; target text; err text; retry boolean;
@@ -573,7 +678,10 @@ begin
  select * into p from app_private.pipeline_papers where id=p_paper_id;
  if not found or p.claim_id is distinct from p_claim_id or p.generation is distinct from p_generation or p.lease_until<=clock_timestamp()
  then raise exception 'stale_pipeline_claim'; end if;
- for link in select pi.* from app_private.pipeline_imports pi where pi.paper_id=p.id and pi.synced_revision<p.state_revision order by pi.account_id,pi.import_id loop
+ perform 1 from app_private.accounts where id in (select account_id from app_private.pipeline_imports where paper_id=p.id and synced_revision<p.state_revision)
+  and closed_at is null order by id for no key update;
+ for link in select pi.* from app_private.pipeline_imports pi where pi.paper_id=p.id and pi.synced_revision<p.state_revision
+  and pi.next_sync_at<=clock_timestamp() order by pi.account_id,pi.import_id loop
   begin
    select * into i from app_private.import_requests where account_id=link.account_id and id=link.import_id;
    if i.desired_present and i.phase in ('accepted','resolving','acquiring') then
@@ -585,7 +693,7 @@ begin
       when p.stage='source_only' then 'source_only' else 'failed' end;
      err:=case when p.stage='source_only' then 'license_unverified' when p.stage='needs_credits' then 'insufficient_credits'
       when p.stage='failed' then case when p.error_code in ('metadata_unavailable','download_failed','pdf_invalid','rate_limited','too_large','conversion_failed')
-       then p.error_code when p.resume_stage in ('metadata') then 'metadata_unavailable' when p.resume_stage='download' then 'download_failed' else 'conversion_failed' end end;
+       then p.error_code when p.resume_stage='metadata' then 'metadata_unavailable' when p.resume_stage='download' then 'download_failed' else 'conversion_failed' end end;
      retry:=p.stage='needs_credits' or (p.stage='failed' and p.resume_stage is not null);
      perform app_private.lock_library_account(i.account_id); perform app_private.lock_library_state(i.account_id);
      select * into strict i from app_private.import_requests where account_id=link.account_id and id=link.import_id;
@@ -598,10 +706,11 @@ begin
     end if;
     changed:=changed+1;
    end if;
-   update app_private.pipeline_imports set synced_revision=p.state_revision where account_id=link.account_id and import_id=link.import_id;
+   update app_private.pipeline_imports set synced_revision=p.state_revision,sync_failures=0 where account_id=link.account_id and import_id=link.import_id;
   exception when others then
-   -- A concurrent cancel/retry wins; the next claim re-projects.
-   if sqlerrm not in ('stale_import_checkpoint','import_unavailable','account_unavailable') then raise; end if;
+   update app_private.pipeline_imports set sync_failures=sync_failures+1,
+    next_sync_at=clock_timestamp()+make_interval(secs=>least(3600,15*power(2,least(sync_failures,8))::integer))
+    where account_id=link.account_id and import_id=link.import_id;
   end;
  end loop;
  return changed;
@@ -726,7 +835,7 @@ revoke all on all functions in schema app_private from public,anon,authenticated
 do $$ declare f text; begin
  for f in select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname in ('worker_pipeline_claim','worker_pipeline_arxiv_slot','worker_pipeline_defer','worker_pipeline_release',
-   'worker_pipeline_metadata','worker_pipeline_split_private','worker_pipeline_original','worker_pipeline_fund','worker_pipeline_begin_submit','worker_pipeline_submitted',
+   'worker_pipeline_metadata','worker_pipeline_split_private','worker_pipeline_original','worker_pipeline_fund','worker_pipeline_begin_submit','worker_pipeline_abandon_funding','worker_pipeline_submitted','worker_pipeline_resolve_uncertain',
    'worker_pipeline_collected','worker_pipeline_ocr_failed','worker_pipeline_published','worker_pipeline_sync_imports','worker_reader_descriptor',
    'worker_chat_context','worker_record_provider_usage','worker_set_platform_budget','worker_set_pipeline_enabled','worker_pipeline_policy') loop
   execute format('revoke all on function %s from public,anon,authenticated',f);

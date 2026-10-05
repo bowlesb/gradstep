@@ -28,6 +28,7 @@ export interface PaperEntry {
   id: string; owner_id?: string | null; source_id: string; requested_revision: number; revision: number | null; stage: string;
   generation: number; claim_id: string; state_revision: number; failures: number;
   document_id: string | null; document_sha256: string | null; original_path: string | null; original_bytes: number | null; page_count: number | null;
+  due?: boolean; raw_manifest_path?: string | null; ocr_run_id?: string | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
 }
 export interface PipelinePolicy { max_pdf_bytes: number; max_ocr_pages: number; renderer_version: string; enabled: boolean }
@@ -125,11 +126,20 @@ export async function countPages(bytes: Uint8Array): Promise<number> {
 }
 
 type Claim = { p_paper_id: string; p_claim_id: string; p_generation: number };
-type StepResult = { entry: PaperEntry; stop?: 'release' | 'deferred' };
+/** `defer` (seconds) releases the claim with a delay after syncing imports. */
+type StepResult = { entry: PaperEntry; stop?: 'release'; defer?: number };
+
+/** Not a failure: the paper is simply not due yet (e.g. arXiv pacing). */
+export class Deferral extends Error {
+  readonly seconds: number;
+  constructor(seconds: number) { super('deferred'); this.seconds = seconds; }
+}
 
 async function arxivWait(deps: PipelineDeps): Promise<void> {
   const wait = await deps.rpc<number>('worker_pipeline_arxiv_slot', {});
-  if (wait > 0) await deps.sleep(Math.min(wait, 120_000));
+  // Never send early: a long queue defers the paper instead of sleeping.
+  if (wait > 45_000) throw new Deferral(Math.ceil(wait / 1000));
+  if (wait > 0) await deps.sleep(wait);
 }
 
 async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
@@ -188,20 +198,34 @@ async function stageFund(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy
   return { entry, stop: entry.funding === 'waiting' || entry.funding === 'paused' ? 'release' : undefined };
 }
 
-async function stageSubmit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
+const SUBMIT_HEADROOM_MS = 90_000;
+
+async function recordSubmission(deps: PipelineDeps, attemptID: string, result: MathpixSubmission): Promise<PaperEntry> {
+  const params = { p_attempt_id: attemptID, p_provider_job_id: result.state === 'accepted' ? result.providerJobID : null,
+    p_uncertain_reason: result.state === 'accepted' ? null : result.reason };
+  // Keyed by attempt (not lease). Retry: losing this record would make a billed
+  // job look uncertain.
+  for (let attempt = 0; ; attempt++) {
+    try { return await deps.rpc<PaperEntry>('worker_pipeline_submitted', params); }
+    catch (error) { if (attempt >= 4) throw error; await deps.sleep(1000 * 2 ** attempt); }
+  }
+}
+
+async function stageSubmit(deps: PipelineDeps, e: PaperEntry, claim: Claim, _policy: PipelinePolicy, deadline: number): Promise<StepResult> {
   if (!e.attempt || !e.original_path || !e.document_sha256) throw new Error('attempt_missing');
   const pageLimit = e.attempt.page_limit;
   const identity = await ocrIdentity(e.document_sha256, pageLimit);
   // Prepare everything that can fail BEFORE the single grant, so a grant is
-  // followed immediately by the POST.
+  // followed immediately by the POST, with time left to record its result.
   let pdf: Uint8Array | null = null, url: string | null = null;
   if ((e.original_bytes ?? 0) > URL_SUBMISSION_BYTES) url = await deps.storage.signedURL(e.original_path, 3600);
   else {
     pdf = await deps.storage.download(e.original_path, 64 * MiB);
     if (await sha256(pdf) !== e.document_sha256) throw new Error('original_integrity');
   }
+  if (deadline - deps.now() < SUBMIT_HEADROOM_MS) return { entry: e, defer: 0 };
   const grant = await deps.rpc<PaperEntry & { granted: boolean; attempt_id?: string }>('worker_pipeline_begin_submit', claim);
-  if (!grant.granted || !grant.attempt_id) { deps.log('submit_uncertain', { paper: e.id }); return { entry: grant }; }
+  if (!grant.granted || !grant.attempt_id) { deps.log('submit_not_granted', { paper: e.id, stage: grant.stage }); return { entry: grant }; }
   const checkpoint = { attemptID: grant.attempt_id, optionsSHA256: identity.optionsSHA256, pageLimit };
   let result: MathpixSubmission;
   try {
@@ -209,36 +233,41 @@ async function stageSubmit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Pro
   } catch (error) {
     result = { state: 'submission_uncertain', reason: error instanceof MathpixError ? error.code : 'provider_transport_failed' };
   }
-  const entry = await deps.rpc<PaperEntry>('worker_pipeline_submitted', { ...claim,
-    p_provider_job_id: result.state === 'accepted' ? result.providerJobID : null,
-    p_uncertain_reason: result.state === 'accepted' ? null : result.reason });
-  deps.log('submitted', { paper: e.id, accepted: result.state === 'accepted' });
-  return { entry };
+  deps.log('submitted', { paper: e.id, attempt: grant.attempt_id, accepted: result.state === 'accepted',
+    provider_job_id: result.state === 'accepted' ? result.providerJobID : null });
+  return { entry: await recordSubmission(deps, grant.attempt_id, result) };
 }
+
+// Provider errors that retrying the same job cannot fix.
+const UNUSABLE_OUTPUT = new Set(['provider_body_limit', 'provider_output_invalid', 'provider_response_incomplete', 'provider_page_count_invalid']);
+const PROVIDER_TIMEOUT_MS = 6 * 3600_000;
 
 async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
   const job = e.attempt?.provider_job_id;
   if (!job || !e.document_sha256 || !e.attempt) throw new Error('attempt_missing');
   const age = e.attempt.submitted_at ? deps.now() - Date.parse(e.attempt.submitted_at) : 0;
-  const defer = async (seconds: number) => ({ entry: await deps.rpc<PaperEntry>('worker_pipeline_defer', { ...claim, p_seconds: seconds }), stop: 'deferred' as const });
+  const fail = async (code: string, pages: number) => {
+    deps.log('ocr_failed', { paper: e.id, code, pages });
+    return { entry: await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: code, p_pages_billed: Math.min(pages, e.attempt!.page_limit) }) };
+  };
   const status = await deps.mathpix.status(job);
-  if (status.state === 'error') {
-    const entry = await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: 'conversion_failed', p_pages_billed: Math.min(status.completedPages ?? 0, e.attempt.page_limit) });
-    deps.log('ocr_failed', { paper: e.id, provider_error: status.errorCode });
-    return { entry };
-  }
-  if (status.state !== 'completed') return defer(age > 120_000 ? 15 : 4);
+  if (status.state === 'error') return fail('conversion_failed', status.completedPages ?? 0);
+  if (status.deleted) return fail('conversion_failed', e.attempt.page_limit);
+  if (status.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.completedPages ?? 0) : { entry: e, defer: age > 120_000 ? 15 : 4 };
   const conversion = await deps.mathpix.conversion(job);
-  if (conversion.state === 'error') {
-    const entry = await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: 'conversion_failed', p_pages_billed: Math.min(status.pages ?? e.attempt.page_limit, e.attempt.page_limit) });
-    return { entry };
+  if (conversion.state === 'error') return fail('conversion_failed', status.pages ?? e.attempt.page_limit);
+  if (conversion.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.pages ?? e.attempt.page_limit) : { entry: e, defer: 4 };
+  let members: Map<string, Uint8Array>;
+  try {
+    members = new Map<string, Uint8Array>([
+      ['standalone.mmd', await deps.mathpix.output(status, 'mmd')],
+      ['output.mmd.zip', await deps.mathpix.output(status, 'mmd.zip', conversion)],
+      ['lines.json', await deps.mathpix.output(status, 'lines.json')],
+    ]);
+  } catch (error) {
+    if (error instanceof MathpixError && UNUSABLE_OUTPUT.has(error.code)) return fail('conversion_failed', status.pages ?? e.attempt.page_limit);
+    throw error;
   }
-  if (conversion.state !== 'completed') return defer(4);
-  const members = new Map<string, Uint8Array>([
-    ['standalone.mmd', await deps.mathpix.output(status, 'mmd')],
-    ['output.mmd.zip', await deps.mathpix.output(status, 'mmd.zip', conversion)],
-    ['lines.json', await deps.mathpix.output(status, 'lines.json')],
-  ]);
   let processed: number;
   try {
     const lines = JSON.parse(new TextDecoder().decode(members.get('lines.json')!)) as { pages?: unknown[] };
@@ -276,7 +305,7 @@ export async function loadRaw(deps: PipelineDeps, manifestPath: string): Promise
 }
 
 async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<StepResult> {
-  const path = e.attempt?.raw_manifest_path;
+  const path = e.raw_manifest_path ?? e.attempt?.raw_manifest_path;
   if (!path || !e.document_sha256 || !e.revision) throw new Error('raw_missing');
   const raw = await loadRaw(deps, path);
   let files;
@@ -307,42 +336,60 @@ const TERMINAL = new Set(['done', 'source_only', 'failed', 'needs_credits', 'ocr
 
 export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, policy: PipelinePolicy, deadline: number): Promise<void> {
   const claim: Claim = { p_paper_id: claimed.id, p_claim_id: claimed.claim_id, p_generation: claimed.generation };
+  const sync = async () => {
+    // Per-import failures back off inside the RPC; never a stage failure.
+    try { await deps.rpc('worker_pipeline_sync_imports', claim); }
+    catch (error) { deps.log('sync_failed', { paper: claimed.id, code: error instanceof PipelineRPCError ? error.code : 'unknown' }); }
+  };
   let entry = claimed;
   try {
-    for (let step = 0; step < 8 && !TERMINAL.has(entry.stage); step++) {
+    // A paper claimed only to project imports runs no stage work.
+    for (let step = 0; step < 8 && claimed.due !== false && !TERMINAL.has(entry.stage); step++) {
       if (deps.now() > deadline - 30_000) break;
       const before = entry.stage;
-      const handlers: Record<string, (d: PipelineDeps, e: PaperEntry, c: Claim, p: PipelinePolicy) => Promise<StepResult>> = {
-        metadata: stageMetadata, private_split: stageSplit, download: stageDownload, ocr_fund: stageFund, ocr_submit: stageSubmit, ocr_wait: stageWait, render: stageRender };
+      const handlers: Record<string, (d: PipelineDeps, e: PaperEntry, c: Claim, p: PipelinePolicy, deadline: number) => Promise<StepResult>> = {
+        metadata: stageMetadata, private_split: stageSplit, download: stageDownload, ocr_fund: stageFund, ocr_submit: stageSubmit,
+        ocr_wait: stageWait, render: stageRender };
       const handler = handlers[entry.stage];
       if (!handler) break;
-      const result = await handler(deps, entry, claim, policy);
+      const result = await handler(deps, entry, claim, policy, deadline);
       entry = result.entry;
-      if (result.stop === 'deferred') {
-        // Defer already released the claim; imports project on the next claim.
+      if (result.defer !== undefined) {
+        await sync();
+        await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: result.defer });
         return;
       }
       // A fresh submission is polled after the stage delay, not immediately.
       if (result.stop === 'release' || entry.stage === before || (before === 'ocr_submit' && entry.stage === 'ocr_wait')) break;
     }
-    await deps.rpc('worker_pipeline_sync_imports', claim);
+    await sync();
     await deps.rpc('worker_pipeline_release', claim);
   } catch (error) {
     if (error instanceof PipelineRPCError && error.code === 'stale_pipeline_claim') { deps.log('stale_claim', { paper: claimed.id }); return; }
+    if (error instanceof Deferral) {
+      await sync();
+      await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: Math.min(error.seconds, 3600) }).catch(() => {});
+      return;
+    }
     const permanent = error instanceof PermanentFailure;
     const code = permanent ? error.code : error instanceof PipelineRPCError ? error.code
       : error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'transient_failure';
     const failures = entry.failures + 1;
-    const resumable = permanent ? error.resume : entry.stage;
     deps.log('stage_error', { paper: claimed.id, stage: entry.stage, code, failures, permanent });
-    try { await deps.rpc('worker_pipeline_sync_imports', claim); } catch { /* best effort */ }
-    // Provider-side stages hold credits: never abandon them on transient
-    // errors (that would strand the hold); keep backing off instead.
-    const fail = permanent || (failures >= 5 && !['ocr_submit', 'ocr_wait'].includes(entry.stage));
-    const stageCode = { metadata: 'metadata_unavailable', download: 'download_failed' }[entry.stage as 'metadata'] ?? 'conversion_failed';
-    await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: fail ? 0 : Math.min(600, 15 * 2 ** failures),
+    await sync();
+    // A funded attempt that repeatedly cannot be prepared releases its hold.
+    if (entry.stage === 'ocr_submit' && entry.attempt?.state === 'funded' && (permanent || failures >= 3)) {
+      try { await deps.rpc('worker_pipeline_abandon_funding', { ...claim, p_error_code: 'download_failed' }); await deps.rpc('worker_pipeline_release', claim); return; }
+      catch { /* fall through to a plain deferral */ }
+    }
+    // Provider-side stages hold credits: never fail them on transient errors.
+    const failable = ['metadata', 'private_split', 'download', 'ocr_fund', 'render'].includes(entry.stage);
+    const fail = failable && (permanent || failures >= 5);
+    const stageCode = ({ metadata: 'metadata_unavailable', download: 'download_failed' } as Record<string, string>)[entry.stage] ?? 'conversion_failed';
+    const resume = permanent ? error.resume : entry.stage === 'private_split' ? 'metadata' : entry.stage;
+    await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: fail ? 0 : Math.min(600, 15 * 2 ** Math.min(failures, 6)),
       p_error_code: fail ? (permanent ? code : stageCode) : code.slice(0, 64), p_fail: fail,
-      p_resume_stage: fail ? (['metadata', 'download', 'ocr_fund', 'render'].includes(resumable ?? '') ? resumable : null) : null }).catch(() => {});
+      p_resume_stage: fail ? (['metadata', 'download', 'ocr_fund', 'render'].includes(resume ?? '') ? resume : null) : null }).catch(() => {});
   }
 }
 

@@ -54,9 +54,12 @@ reset role;
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-a')=27,'27 credits held');
 select test.assert((select reserved_microusd from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date)>=135000,'platform spend reserved');
 set role service_role;
-select test.assert((public.worker_pipeline_begin_submit(:'paper',:'claim',:'gen')->>'granted')::boolean,'first begin grants POST');
-select test.reject(format('select public.worker_pipeline_submitted(%L,%L,%s,null,null)',:'paper',:'claim',:'gen'),'invalid_submission_result');
-select public.worker_pipeline_submitted(:'paper',:'claim',:'gen','cc092181-9d12-4eb3-b5de-d2ca288fc556')->>'stage' as stage \gset
+select public.worker_pipeline_begin_submit(:'paper',:'claim',:'gen') as granted \gset
+select test.assert((:'granted'::jsonb->>'granted')::boolean,'first begin grants POST');
+select (:'granted'::jsonb->>'attempt_id') as attempt \gset
+select test.reject(format('select public.worker_pipeline_submitted(%L,null,null)',:'attempt'),'invalid_submission_result');
+select public.worker_pipeline_submitted(:'attempt','cc092181-9d12-4eb3-b5de-d2ca288fc556')->>'stage' as stage \gset
+select test.assert(public.worker_pipeline_submitted(:'attempt','cc092181-9d12-4eb3-b5de-d2ca288fc556')->>'stage'='ocr_wait','submission record is idempotent');
 select test.assert(:'stage'='ocr_wait','submitted job waits');
 select public.worker_pipeline_sync_imports(:'paper',:'claim',:'gen');
 select public.worker_pipeline_release(:'paper',:'claim',:'gen');
@@ -168,7 +171,9 @@ select public.worker_pipeline_claim(:'claim') as entry \gset
 select (:'entry'::jsonb->>'generation')::bigint as gen \gset
 select test.assert(:'entry'::jsonb->>'id'=:'paper4' and :'entry'::jsonb->>'stage'='ocr_fund','retry resumes funding');
 select test.assert(public.worker_pipeline_fund(:'paper4',:'claim',:'gen',36,('\x'||repeat('0c',32))::bytea,('\x'||repeat('0d',32))::bytea)->>'funding'='funded','funded after grant');
-select test.assert((public.worker_pipeline_begin_submit(:'paper4',:'claim',:'gen')->>'granted')::boolean,'grant');
+select public.worker_pipeline_begin_submit(:'paper4',:'claim',:'gen') as granted4 \gset
+select test.assert((:'granted4'::jsonb->>'granted')::boolean,'grant');
+select (:'granted4'::jsonb->>'attempt_id') as attempt4 \gset
 reset role;
 update app_private.pipeline_papers set lease_until=now()-interval '1 second' where id=:'paper4';
 set role service_role;
@@ -179,6 +184,19 @@ select test.assert(not (:'again'::jsonb->>'granted')::boolean and :'again'::json
 reset role;
 select test.assert((select state from app_private.metered_operations where account_id='14000000-0000-0000-0000-00000000000d')='submitted','uncertain hold retained');
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=36,'uncertain credits stay held');
+set role service_role;
+-- The original POST's result arrives late (its worker outlived its lease).
+select test.assert(public.worker_pipeline_submitted(:'attempt4','late-job-d')->>'stage'='ocr_wait','late job id recovers an unrecorded submission');
+select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,null,0)',:'attempt4'),'invalid_resolution');
+reset role;
+-- Operator resolution of a genuinely uncertain attempt releases the hold.
+update app_private.ocr_attempts set state='uncertain',provider_job_id=null,error_code='provider_http_failure' where id=:'attempt4';
+update app_private.pipeline_papers set stage='ocr_uncertain' where id=:'paper4';
+set role service_role;
+select test.assert(public.worker_pipeline_resolve_uncertain(:'attempt4',null,0)->>'stage'='failed','resolved uncertain fails resumably');
+reset role;
+select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=0
+ and (select balance from app_private.credit_buckets where external_key='pipeline-test-d')=50,'resolved hold released without charge');
 
 -- Non-CC papers: each interested account gets its own private conversion.
 reset role;
@@ -215,8 +233,9 @@ select test.reject(format('select public.worker_pipeline_original(%L,%L,%s,%L::b
 select test.assert(public.worker_pipeline_original(:'private_e',:'claim',:'gen',('\x'||repeat('55',32))::bytea,900000,25,
  'private/14000000-0000-0000-0000-00000000000e/originals/'||repeat('55',32)||'.pdf')->>'stage'='ocr_fund','private original');
 select test.assert(public.worker_pipeline_fund(:'private_e',:'claim',:'gen',25,('\x'||repeat('0e',32))::bytea,('\x'||repeat('0f',32))::bytea)->>'funding'='funded','owner funds private OCR');
-select test.assert((public.worker_pipeline_begin_submit(:'private_e',:'claim',:'gen')->>'granted')::boolean,'private grant');
-select public.worker_pipeline_submitted(:'private_e',:'claim',:'gen','private-job-e');
+select public.worker_pipeline_begin_submit(:'private_e',:'claim',:'gen')->>'attempt_id' as attempt_e \gset
+select test.assert(:'attempt_e' is not null and :'attempt_e'<>'','private grant');
+select public.worker_pipeline_submitted(:'attempt_e','private-job-e');
 select public.worker_pipeline_collected(:'private_e',:'claim',:'gen',25,('\x'||repeat('5a',32))::bytea,2048);
 select test.assert(public.worker_pipeline_published(:'private_e',:'claim',:'gen',('\x'||repeat('5b',32))::bytea,2048,'timestep-mathpix-mathml-v1')->>'stage'='done','private published');
 select test.assert(public.worker_pipeline_sync_imports(:'private_e',:'claim',:'gen')=1,'private import resolved');
@@ -230,4 +249,26 @@ select test.assert((select phase in ('accepted','resolving','acquiring') from ap
   where pi.import_id='14000000-0000-0000-0000-0000000000f1'),'other account converts its own private copy');
 select test.reject(format('select public.worker_chat_context(%L,%L)','14000000-0000-0000-0000-00000000000f',
  (select document_id from app_private.pipeline_papers where id=:'private_e')),'document_unavailable');
+
+-- A funder who withdraws before the grant is never charged.
+reset role;
+update app_private.pipeline_papers set next_attempt_at=now() where owner_id='14000000-0000-0000-0000-00000000000f';
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as private_f, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select public.worker_pipeline_original(:'private_f',:'claim',:'gen',('\x'||repeat('66',32))::bytea,900000,25,
+ 'private/14000000-0000-0000-0000-00000000000f/originals/'||repeat('66',32)||'.pdf');
+select test.assert(public.worker_pipeline_fund(:'private_f',:'claim',:'gen',25,('\x'||repeat('1e',32))::bytea,('\x'||repeat('1f',32))::bytea)->>'funding'='funded','F funds');
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000f',false);
+select public.v2_cancel_import('14000000-0000-0000-0000-0000000000f2','14000000-0000-0000-0000-0000000000f1',1);
+reset role;
+set role service_role;
+select test.assert(not (public.worker_pipeline_begin_submit(:'private_f',:'claim',:'gen')->>'granted')::boolean,'withdrawn funder gets no grant');
+reset role;
+select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-f')=0
+ and (select balance from app_private.credit_buckets where external_key='pipeline-test-f')=100,'withdrawn funder hold released, no charge');
+select test.assert((select stage from app_private.pipeline_papers where id=:'private_f')='ocr_fund','paper returns to funding');
 rollback;

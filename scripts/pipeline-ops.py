@@ -6,6 +6,10 @@
   enable | disable            turn the pipeline worker on/off
   grant ACCOUNT CREDITS KEY   recorded operator credit grant (idempotent per KEY)
   kick                        invoke the worker once
+  resolve ATTEMPT (--job ID | --pages N)
+                              reconcile an uncertain paid submission: a found
+                              Mathpix job resumes polling; otherwise release the
+                              hold (no customer charge; N billed pages recorded)
 """
 import argparse
 import datetime
@@ -52,6 +56,7 @@ sub = parser.add_subparsers(dest='command', required=True)
 sub.add_parser('status'); sub.add_parser('enable'); sub.add_parser('disable'); sub.add_parser('kick')
 b = sub.add_parser('budget'); b.add_argument('--usd', type=float, required=True); b.add_argument('--disable', action='store_true')
 g = sub.add_parser('grant'); g.add_argument('account'); g.add_argument('credits', type=int); g.add_argument('key')
+r = sub.add_parser('resolve'); r.add_argument('attempt'); r.add_argument('--job'); r.add_argument('--pages', type=int)
 args = parser.parse_args()
 
 if args.command == 'status':
@@ -71,5 +76,8 @@ elif args.command in ('enable', 'disable'):
 elif args.command == 'grant':
     print(rpc('worker_grant_credits', {'p_account_id': args.account, 'p_source': 'adjustment', 'p_external_key': 'operator:' + args.key,
         'p_credits': args.credits, 'p_starts_at': '2026-01-01T00:00:00Z', 'p_expires_at': None, 'p_reason': 'Operator beta grant'}))
+elif args.command == 'resolve':
+    if (args.job is None) == (args.pages is None): raise SystemExit('Pass exactly one of --job or --pages')
+    print(rpc('worker_pipeline_resolve_uncertain', {'p_attempt_id': args.attempt, 'p_provider_job_id': args.job, 'p_pages_billed': args.pages}))
 elif args.command == 'kick':
     print(http(env['SUPABASE_URL'] + '/functions/v1/paper-worker', {'x-pipeline-secret': env['PIPELINE_SECRET']}, {'reason': 'operator'}))
