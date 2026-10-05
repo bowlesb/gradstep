@@ -34,6 +34,21 @@ enum KeychainVault {
         guard status == errSecSuccess || status == errSecItemNotFound else { throw VaultError.status(status) }
     }
 
+    /// Deletes every item of this app whose name contains `fragment` (for
+    /// example one account's keys after the account is deleted).
+    static func deleteAll(namesContaining fragment: String) throws {
+        guard !fragment.isEmpty else { return }
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrSynchronizable: false,
+                                      kSecUseDataProtectionKeychain: true, kSecReturnAttributes: true, kSecMatchLimit: kSecMatchLimitAll]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return }
+        guard status == errSecSuccess else { throw VaultError.status(status) }
+        for item in result as? [[CFString: Any]] ?? [] {
+            if let name = item[kSecAttrAccount] as? String, name.contains(fragment) { try delete(name) }
+        }
+    }
+
     private static func base(_ name: String) -> [CFString: Any] {
         [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: name,
          kSecAttrSynchronizable: false, kSecUseDataProtectionKeychain: true]

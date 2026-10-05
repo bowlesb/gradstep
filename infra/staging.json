@@ -32,7 +32,8 @@
     "paper-worker",
     "reader-artifact",
     "chat",
-    "discover"
+    "discover",
+    "account-delete"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true

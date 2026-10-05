@@ -329,4 +329,29 @@ final class NativeSafetyTests: XCTestCase {
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
         XCTAssertNil(properties?[kCGImagePropertyGPSDictionary as String])
     }
+
+    /// Account deletion erases only that account's local folder and Keychain items.
+    @MainActor func testAccountDeletionErasesOnlyThatAccountsLocalData() throws {
+        let environment = "erase-test-\(UUID().wire.prefix(8))", deleted = UUID(), kept = UUID()
+        let base = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let deletedDirectory = base.appendingPathComponent("\(environment)/\(deleted.wire)", isDirectory: true)
+        let keptDirectory = base.appendingPathComponent("\(environment)/\(kept.wire)", isDirectory: true)
+        for directory in [deletedDirectory, keptDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: directory.appendingPathComponent("private-state.enc"))
+        }
+        let names = ["\(environment).\(deleted.wire).device-keys", "\(environment).\(deleted.wire).cloud-ai-consent",
+                     "\(environment).\(kept.wire).device-keys", "\(environment).auth-session"]
+        for name in names { try KeychainVault.write(Data("k".utf8), name: name) }
+        defer {
+            try? FileManager.default.removeItem(at: base.appendingPathComponent(environment, isDirectory: true))
+            for name in names { try? KeychainVault.delete(name) }
+        }
+        ReaderModel.eraseLocalAccountData(environment: environment, accountID: deleted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: deletedDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptDirectory.appendingPathComponent("private-state.enc").path))
+        XCTAssertNil(try KeychainVault.read(names[0])); XCTAssertNil(try KeychainVault.read(names[1]))
+        XCTAssertNotNil(try KeychainVault.read(names[2]), "another account's keys stay")
+        XCTAssertNotNil(try KeychainVault.read(names[3]), "the session is cleared by sign-out, not by this sweep")
+    }
 }

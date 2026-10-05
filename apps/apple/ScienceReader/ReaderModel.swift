@@ -907,6 +907,27 @@ final class ReaderModel {
         await task.value
     }
 
+    /// Deletes the account on the server, then signs out and erases this
+    /// device's copy: the account's local folder (encrypted store, installed
+    /// readers, support outbox) and its Keychain items.
+    func deleteAccount() async throws {
+        guard let backend, let accountID, let configuration else { throw BackendError.signInRequired }
+        try await backend.deleteAccount(accountID: accountID)
+        let environment = configuration.environment
+        await signOut()
+        await waitForLocalRetirement()
+        Self.eraseLocalAccountData(environment: environment, accountID: accountID)
+    }
+    var accountDeletedNotice = false
+
+    static func eraseLocalAccountData(environment: String, accountID: UUID) {
+        if let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) {
+            let directory = base.appendingPathComponent("\(environment)/\(accountID.wire)", isDirectory: true)
+            if FileManager.default.fileExists(atPath: directory.path) { try? FileManager.default.removeItem(at: directory) }
+        }
+        try? KeychainVault.deleteAll(namesContaining: "\(environment).\(accountID.wire).")
+    }
+
     /// Sign-out clears presentation immediately; wait here before retiring any
     /// backing files or opening a replacement owner in a workflow harness.
     func waitForLocalRetirement() async { await retirementQueue.wait() }

@@ -82,6 +82,10 @@ struct RootView: View {
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
+        // At the root: deletion signs out, which leaves Settings.
+        .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
+            Text("Your account and its data were deleted from our servers and this device.")
+        }
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram) }
         }
@@ -592,6 +596,7 @@ struct ChatView: View {
 struct SettingsView: View {
     @Bindable var model: ReaderModel
     var dismissSettings: (() -> Void)? = nil
+    @State private var showDeleteAccount = false
     var body: some View {
         NavigationStack {
             Form {
@@ -608,11 +613,13 @@ struct SettingsView: View {
                         }
                         Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
                         Text("Encrypted pending work stays on this device for your next sign-in.").font(.footnote).foregroundStyle(.secondary)
+                        Button("Delete account…", role: .destructive) { showDeleteAccount = true }.accessibilityIdentifier("account.delete")
                     }
                     else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
                     LabeledContent("Environment", value: "Private beta · staging")
                     NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 }
+                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
                         if let balance = model.creditBalance {
@@ -888,5 +895,58 @@ struct AcknowledgementsView: View {
                 Text(item.2).font(.caption).foregroundStyle(.secondary)
             }.padding(.vertical, 2)
         }.navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Deleting an account is permanent: explain what goes and what stays, then
+/// require typing DELETE.
+struct DeleteAccountView: View {
+    @Bindable var model: ReaderModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmation = ""
+    @State private var deleting = false
+    @State private var failure: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("This permanently deletes your account:")
+                    Label("Your library, conversations, notes and diagrams, and the files of papers converted privately for you", systemImage: "books.vertical")
+                    Label("Your support reports and screenshots", systemImage: "exclamationmark.bubble")
+                    Label("This device’s copy; other devices are signed out and your recovery code stops working", systemImage: "iphone")
+                }
+                Section {
+                    Text("Unused credits are forfeited. Records of credits, AI usage and which papers were converted for you are kept without your email or name, for accounting.")
+                    Text("An App Store subscription isn’t cancelled by deleting your account; manage it in Settings › Apple Account › Subscriptions.")
+                }.font(.footnote).foregroundStyle(.secondary)
+                Section("Type DELETE to confirm") {
+                    TextField("DELETE", text: $confirmation).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                        .accessibilityIdentifier("account.delete.confirmation")
+                    if let failure { Text(failure).font(.footnote).foregroundStyle(.red) }
+                    Button(role: .destructive) {
+                        deleting = true; failure = nil
+                        Task {
+                            do {
+                                try await model.deleteAccount()
+                                dismiss()
+                                // Present after the sheet has gone.
+                                try? await Task.sleep(for: .milliseconds(500))
+                                model.accountDeletedNotice = true
+                            }
+                            catch { failure = (error as? LocalizedError)?.errorDescription ?? "The account couldn’t be deleted. Try again." }
+                            deleting = false
+                        }
+                    } label: {
+                        HStack { Text("Delete account"); if deleting { Spacer(); ProgressView() } }
+                    }
+                    .disabled(confirmation != "DELETE" || deleting)
+                    .accessibilityIdentifier("account.delete.confirm")
+                }
+            }
+            .navigationTitle("Delete account").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(deleting) } }
+            .interactiveDismissDisabled(deleting)
+        }
     }
 }

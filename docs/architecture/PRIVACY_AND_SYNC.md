@@ -151,3 +151,26 @@ For future web/macOS clients, freeze wire formats and merge rules independently 
 ## Required verification before TestFlight privacy claims
 
 Two devices offline at once; concurrent messages and notes; missed realtime events; crash before/after upload acknowledgement; cursor commit ordering; duplicate and corrupt envelopes; two first-device enrollments; key loss; second-device enrollment; device revocation with a surviving auth token; account switching; deletion followed by a late offline edit; complete restore of encrypted rows and blobs. Verify that server tables and logs contain no private plaintext for the declared encrypted categories.
+
+## Account deletion (implemented 2026-10-05)
+
+Settings → Delete account (typed DELETE) calls the `account-delete` function. Migration 017's
+`worker_delete_account_begin` refuses while paid work is held (`account_busy`), closes the account (any remaining
+login token is then rejected by `app_private.actor()`), deletes encrypted history (capacity counters adjusted once;
+25k events in ~40 ms), keys and devices, the library (items, imports, receipts, journal), support reports with
+their messages, status history and attachments, rate counters and roles, and stops pending private conversions. The
+function then empties the account's folders — `private/<account>/`, `support/<account>/` and each private
+conversion's `raw/<sha>/` and `reader/<sha>/` (validated shapes only) — marks tracked files deleted
+(`worker_delete_account_finish`) and deletes the login; the app erases this device's account folder and Keychain
+items. A repeat call authenticates with the login alone and resumes, and the paper worker sweeps unfinished or
+raced deletions every minute (`worker_account_deletions_pending`); `worker_account_deletion_status` and
+`node scripts/finish-account-deletion.mjs ACCOUNT` are the operator views.
+
+Kept under the account's random ID, which no longer maps to an email once the login is gone (owner decision):
+credit, usage, operation, subscription and audit records, and the records of which papers were converted privately
+for the account (pipeline papers, owner-private documents and their immutable approvals) without their files.
+Append-only receipts, key transitions and report status history can be deleted only by that transaction for that
+account.
+
+Before public release: Sign in with Apple token revocation on deletion (App Review 5.1.1(v)), and releasing an
+active App Store subscription's binding so it can attach to a new account; backup expiry of deleted data.

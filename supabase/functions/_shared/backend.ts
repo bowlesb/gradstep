@@ -22,6 +22,18 @@ export async function userClient(request: Request): Promise<{ user: SupabaseClie
   if (context.account_id !== data.user.id) throw new PublicError(403, 'account_unavailable');
   return { user, accountID: context.account_id };
 }
+/** The caller's login ID from a valid token, without requiring an open
+ * account (account deletion must resume for an account it already closed). */
+export async function authenticatedUserID(request: Request): Promise<string> {
+  const authorization = request.headers.get('authorization');
+  if (!authorization?.startsWith('Bearer ') || authorization.length > 16000) throw new PublicError(401, 'authentication_required');
+  const user = createClient(required('SUPABASE_URL'), required('SUPABASE_ANON_KEY'), {
+    ...options, global: { ...options.global, headers: { Authorization: authorization } },
+  });
+  const { data, error } = await user.auth.getUser(authorization.slice(7));
+  if (error || !data.user) throw new PublicError(401, 'authentication_required');
+  return data.user.id;
+}
 export async function rpc<T>(client: SupabaseClient, name: string, params: Record<string, unknown> = {}): Promise<T> {
   const { data, error } = await client.rpc(name, params);
   if (error) throw exposedDatabaseError(error.message);

@@ -79,8 +79,9 @@ App Store review requires in-app account deletion for apps with account creation
   before deletion. Unused credits are forfeited (state this in the confirmation).
 - Backups expire deleted data on the backup retention schedule (BACKUP_AND_RESTORE).
 
-The owner chose the split above (2026-10-05): personal content and login deleted, credit/usage/operation rows kept
-with the account ID replaced by a deletion tombstone ID.
+The owner chose the split above (2026-10-05). Implemented: personal content and login deleted; credit/usage/operation
+rows kept under the account's random ID, which stops mapping to anyone once the login is deleted (replacing the ID
+was not needed: the ledger is append-only and widely referenced). See PRIVACY_AND_SYNC → Account deletion.
 
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 

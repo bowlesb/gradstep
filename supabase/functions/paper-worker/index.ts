@@ -5,6 +5,7 @@ import { MathpixClient } from '../_shared/mathpix.ts';
 import { runPipeline, type PipelineDeps } from '../_shared/pipeline.ts';
 import { pipelineService, rpcAdapter, storageAdapter } from '../_shared/pipeline-runtime.ts';
 import { renderReader } from '../_shared/reader-adapter.ts';
+import { sweepAccountDeletions } from '../_shared/account-deletion.ts';
 
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
@@ -45,6 +46,8 @@ Deno.serve(async request => {
   const started = Date.now();
   const work = (async () => {
     try {
+      // Finish any account deletion left incomplete (cheap when none is).
+      await sweepAccountDeletions(pipelineService(), fields => console.log(JSON.stringify(fields))).catch(() => {});
       const result = await runPipeline(deps(), started + 300_000);
       console.log(JSON.stringify({ event: 'run_finished', processed: result.processed, ms: Date.now() - started }));
     } catch (error) {

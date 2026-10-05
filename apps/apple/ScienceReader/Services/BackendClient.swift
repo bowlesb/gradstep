@@ -43,6 +43,8 @@ enum BackendError: LocalizedError {
         case .emailConfirmation: "Check your email to confirm your account, then sign in."
         case .rejected(let code): switch code {
             case "insufficient_credits": "Your available credits do not cover this request."
+            case "account_busy": "An answer or paper conversion is still in progress. Try again shortly; if this keeps happening, send a report."
+            case "confirmation_required": "Type DELETE to confirm."
             case "platform_budget_exhausted": "Cloud processing is temporarily paused. Downloaded papers remain available."
             case "key_authority_required", "stale_key_epoch": "This device needs updated encryption keys from an approved device or recovery code."
             case "invalid_credentials": "The email or password was not accepted."
@@ -445,6 +447,13 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
     }
 
+    /// Deletes the signed-in account on the server (personal content, private
+    /// files and the login; billing records stay de-identified).
+    func deleteAccount(accountID: UUID) async throws {
+        _ = try await authorized(path: "functions/v1/account-delete", body: Data(#"{"confirm":"delete my account"}"#.utf8),
+                                 method: "POST", accountID: accountID, maximumResponseBytes: 4_096)
+    }
+
     /// Authorizes an offline reader download for one library item.
     func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
         let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",
@@ -761,7 +770,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 // strings never become an immutable-operation conflict.
                 throw BackendError.rejected("request_failed")
             }
-            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large"])
+            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }
