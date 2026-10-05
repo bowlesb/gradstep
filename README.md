@@ -2,7 +2,7 @@
 
 Native iPhone/iPad research-paper reader with Supabase, reusable article conversions, private user libraries, metered AI, and an operator dashboard.
 
-Status, 2026-10-05: **first usable journey works on staging.** Adding an arXiv paper downloads it, converts it with Mathpix (paid, credit-held, budget-capped), renders an equation-aware MathML reader bundle, delivers it to the app's encrypted offline store, and answers paid questions with Claude Sonnet 5.5. CC BY/CC0 conversions are shared across accounts; other papers convert privately per account. Real sign-in (Apple/Google/email delivery), subscriptions, TestFlight, admin hosting and the browser reader remain. See [implementation status](docs/IMPLEMENTATION_STATUS.md) and [paper pipeline](docs/architecture/PAPER_PIPELINE.md). The public name is being considered separately from the stable internal project/protocol names.
+Status, 2026-10-05: **first usable journey works on staging.** Adding an arXiv paper downloads it, converts it with Mathpix (paid, credit-held, budget-capped), renders an equation-aware MathML reader bundle, delivers it to the app's encrypted offline store, and answers paid questions with Claude Sonnet 5.5. The Ingest selection action adds a cited arXiv paper, and answers can include diagrams (stored encrypted, drawn on device). CC BY/CC0 conversions are shared across accounts; other papers convert privately per account. Real sign-in (Apple/Google/email delivery), subscriptions, TestFlight, admin hosting and the browser reader remain. See [implementation status](docs/IMPLEMENTATION_STATUS.md) and [paper pipeline](docs/architecture/PAPER_PIPELINE.md). The public name is being considered separately from the stable internal project/protocol names.
 
 ## Start here
 
