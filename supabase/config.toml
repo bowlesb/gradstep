@@ -31,6 +31,11 @@ verify_enabled = true
 enabled = true
 file_size_limit = "32MiB"
 
+[functions.chat]
+# Same handler-side Auth.getUser verification as support-assets. The function
+# streams a metered answer; it stores no chat text.
+verify_jwt = false
+
 [functions.support-assets]
 # Auth is verified against Auth.getUser inside the handler, including newer JWT
 # signing keys. Anon/service tokens cannot become a reporter or operator.

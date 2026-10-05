@@ -12,9 +12,9 @@ struct ChatTranscript: View {
 
     var body: some View {
         let scope = TranscriptScope(sessionID: model.readerSessionID, composerID: model.chatComposerID)
-        let messages = model.chatMessages
+        let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
-            TranscriptTable(messages: messages, fontSize: fontSize, jump: jump,
+            TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
                 didFollow: { following in
@@ -66,6 +66,7 @@ private struct TranscriptJump: Equatable {
 
 private struct TranscriptMessage: View {
     let message: AppliedEvent
+    let streaming: Bool
     let fontSize: Double
     let first: Bool
     let last: Bool
@@ -74,11 +75,22 @@ private struct TranscriptMessage: View {
         HStack(alignment: .top) {
             if message.payload.role == .user { Spacer(minLength: 24) }
             VStack(alignment: .leading, spacing: 8) {
-                Text(.init(message.payload.text ?? ""))
-                    .font(.system(size: fontSize)).lineSpacing(4)
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                    .accessibilityIdentifier("chat.message.text.\(message.id.wire)")
-                    .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(.init(message.payload.text ?? "")))"))
+                if streaming && (message.payload.text ?? "").isEmpty {
+                    // Only before the first token; partial and final text then
+                    // share identical layout, with no row added or removed.
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Thinking…").font(.system(size: fontSize * 0.88)).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .ignore).accessibilityLabel("Assistant is answering")
+                    .accessibilityIdentifier("chat.message.thinking")
+                } else {
+                    Text(Self.inlineSource(message.payload.text))
+                        .font(.system(size: fontSize)).lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                        .accessibilityIdentifier("chat.message.text.\(message.id.wire)")
+                        .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(Self.inlineSource(message.payload.text)))"))
+                }
                 if message.payload.status == .interrupted {
                     Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                 }
@@ -91,10 +103,18 @@ private struct TranscriptMessage: View {
         .frame(maxWidth: 720).frame(maxWidth: .infinity)
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
     }
+
+    /// Inline Markdown, but backslashes stay literal: until rich rendering
+    /// lands, LaTeX source such as `\(`, `\[`, `\{` and `\_` displays verbatim
+    /// instead of losing its backslash to Markdown escaping.
+    static func inlineSource(_ text: String?) -> LocalizedStringKey {
+        LocalizedStringKey(ChatDisplayText.inlineMarkdownPreservingBackslashes(text ?? ""))
+    }
 }
 
 private struct TranscriptTable: UIViewRepresentable {
     let messages: [AppliedEvent]
+    let streamingID: UUID?
     let fontSize: Double
     let jump: TranscriptJump
     let localRequest: UUID?
@@ -131,6 +151,7 @@ private struct TranscriptTable: UIViewRepresentable {
         private var source: UITableViewDiffableDataSource<Int, UUID>?
         private var owner: TranscriptTable?
         private var displayed: [AppliedEvent] = []
+        private var displayedStreamingID: UUID?
         private var displayedFont = 0.0
         private var pending: TranscriptTable?
         private var generation = 0
@@ -180,7 +201,7 @@ private struct TranscriptTable: UIViewRepresentable {
                 cell.backgroundConfiguration = .clear()
                 cell.isAccessibilityElement = false
                 cell.contentConfiguration = UIHostingConfiguration {
-                    TranscriptMessage(message: self.displayed[index], fontSize: self.displayedFont,
+                    TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID, fontSize: self.displayedFont,
                         first: index == 0, last: index == self.displayed.count - 1)
                 }.margins(.all, 0).minSize(width: 0, height: 0)
                 return cell
@@ -198,7 +219,7 @@ private struct TranscriptTable: UIViewRepresentable {
                 lastJump = value.jump.id
             }
             lastLocalRequest = value.localRequest
-            guard displayed != value.messages || displayedFont != value.fontSize || applying else { return }
+            guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID || applying else { return }
             generation += 1
             pending = value
             applyPending(table)
@@ -209,10 +230,10 @@ private struct TranscriptTable: UIViewRepresentable {
             pending = nil
             if !following && anchors.isEmpty && !userScrolling { anchors = readAnchors(table) }
             let old = Dictionary(uniqueKeysWithValues: displayed.map { ($0.id, $0) })
-            let oldFont = displayedFont
+            let oldFont = displayedFont, oldStreaming = displayedStreamingID
             let oldFirst = displayed.first?.id
             let oldLast = displayed.last?.id
-            displayed = update.messages; displayedFont = update.fontSize
+            displayed = update.messages; displayedFont = update.fontSize; displayedStreamingID = update.streamingID
             var snapshot = NSDiffableDataSourceSnapshot<Int, UUID>()
             snapshot.appendSections([0]); snapshot.appendItems(displayed.map(\.id))
             let existing = Set(source.snapshot().itemIdentifiers)
@@ -220,7 +241,8 @@ private struct TranscriptTable: UIViewRepresentable {
                 guard existing.contains(item.id) else { return nil }
                 let edgeChanged = (item.id == oldFirst) != (item.id == displayed.first?.id)
                     || (item.id == oldLast) != (item.id == displayed.last?.id)
-                return old[item.id] != item || oldFont != displayedFont || edgeChanged ? item.id : nil
+                let streamingChanged = (item.id == oldStreaming) != (item.id == displayedStreamingID)
+                return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged ? item.id : nil
             })
             applying = true
             let revision = generation

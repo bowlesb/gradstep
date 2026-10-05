@@ -10,6 +10,7 @@
     "build:admin": "tsc --noEmit -p apps/admin/tsconfig.json && vite build apps/admin"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@apple/app-store-server-library": "3.1.0",
     "@supabase/supabase-js": "2.117.2",
     "fflate": "0.8.3",

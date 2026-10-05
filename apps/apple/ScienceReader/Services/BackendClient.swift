@@ -346,9 +346,76 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
     }
 
-    func edge<P: Encodable & Sendable, R: Decodable & Sendable>(_ function: String, body: P, accountID: UUID? = nil, as type: R.Type = R.self) async throws -> R {
-        let data = try await authorized(path: "functions/v1/\(function)", body: ReaderCrypto.encode(body), accountID: accountID)
-        return try JSONDecoder().decode(R.self, from: data)
+    static let maximumChatStreamBytes = 2 * 1024 * 1024
+
+    /// Streams one metered answer from `functions/v1/chat` on the configured
+    /// project host only, with the same account/auth-generation checks as other
+    /// authorized calls. Cancelling the consumer cancels the HTTP request; the
+    /// server then aborts the provider and settles actual usage.
+    func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error> {
+        let generation = authGeneration
+        guard let expected = session?.user.id, expected == accountID else { throw BackendError.signInRequired }
+        let body = try request.encoded()
+        let token = try await accessToken()
+        guard generation == authGeneration, session?.user.id == expected else { throw CancellationError() }
+        guard let url = URL(string: "/functions/v1/chat", relativeTo: config.url)?.absoluteURL,
+              url.scheme == "https", url.host == config.url.host else { throw BackendError.unavailable }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"; urlRequest.httpBody = body
+        // Idle limit between bytes; the function sends a keep-alive every 15 s.
+        urlRequest.timeoutInterval = 90
+        urlRequest.cachePolicy = .reloadIgnoringLocalCacheData
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        urlRequest.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (bytes, response) = try await network.bytes(for: urlRequest, delegate: LibraryRedirectPolicy())
+        let task = bytes.task
+        guard generation == authGeneration, session?.user.id == expected else { task.cancel(); throw CancellationError() }
+        guard let http = response as? HTTPURLResponse else { task.cancel(); throw BackendError.transport }
+        guard (200..<300).contains(http.statusCode) else {
+            defer { task.cancel() }
+            if http.statusCode == 401 { throw ChatTransportError.rejected("authentication_required") }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 4_096 else { break }
+                data.append(byte)
+            }
+            struct Failure: Decodable { let code: String }
+            let code = (try? JSONDecoder().decode(Failure.self, from: data))?.code
+            throw ChatTransportError.rejected(code.flatMap { $0.utf8.count <= 64 ? $0 : nil } ?? "service_unavailable")
+        }
+        guard http.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("text/event-stream") == true else {
+            task.cancel(); throw ChatStreamError.malformed
+        }
+        return AsyncThrowingStream { continuation in
+            let reader = Task {
+                var parser = ChatSSEParser(), chunk: [UInt8] = [], total = 0
+                chunk.reserveCapacity(1_024)
+                do {
+                    for try await byte in bytes {
+                        total += 1
+                        guard total <= Self.maximumChatStreamBytes else { throw ChatStreamError.tooLarge }
+                        chunk.append(byte)
+                        // Deliver each complete line promptly; bound buffering otherwise.
+                        if byte == 0x0A || chunk.count >= 1_024 {
+                            for event in try parser.consume(chunk) { continuation.yield(event) }
+                            chunk.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    for event in try parser.consume(chunk) { continuation.yield(event) }
+                    parser.finish()
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+                task.cancel()
+            }
+            continuation.onTermination = { _ in reader.cancel(); task.cancel() }
+        }
+    }
+
+    func creditBalance(accountID: UUID) async throws -> CreditBalance {
+        struct NoParameters: Encodable, Sendable {}
+        return try await rpc("v1_credit_balance", params: NoParameters(), accountID: accountID, as: CreditBalance.self)
     }
 
     func uploadReportImage(_ bytes: Data, mediaType: String, accountID: UUID, reportID: UUID, attachmentID: UUID) async throws {
