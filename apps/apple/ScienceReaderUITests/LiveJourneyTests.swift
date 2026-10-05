@@ -86,6 +86,9 @@ final class LiveJourneyTests: XCTestCase {
             let composer = app.textViews["chat.composer"].exists ? app.textViews["chat.composer"] : app.textFields["chat.composer"]
             XCTAssertTrue(composer.waitForExistence(timeout: 10)); composer.tap(); composer.typeText(question)
             app.buttons["chat.send"].tap()
+            // First paid request on this account asks for cloud-processing consent.
+            let consent = app.buttons["chat.consent.accept"]
+            if consent.waitForExistence(timeout: 10) { capture(app, "Consent"); consent.tap() }
             let answered = NSPredicate(format: "count >= 2")
             let messages = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.message.text.'"))
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: answered, object: messages)], timeout: 180), .completed)
