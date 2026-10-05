@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('environment', choices=['staging'])
 parser.add_argument('--skip-migrations', action='store_true')
 parser.add_argument('--functions', nargs='*', help='Subset of functions to deploy')
+parser.add_argument('--rotate-pipeline-secret', action='store_true', help='Generate a new worker secret and update the function and Vault')
 args = parser.parse_args()
 manifest = json.loads((ROOT/'infra/account.json').read_text())
 project = manifest['projects'][args.environment]['id']
@@ -73,12 +74,13 @@ if bucket['public'] or bucket['file_size_limit'] != expected['file_size_limit']:
     raise SystemExit('Unexpected paper bucket settings; review drift before deploying')
 print('Verified private paper bucket')
 
-if 'PIPELINE_SECRET' not in env:
+if 'PIPELINE_SECRET' not in env or args.rotate_pipeline_secret:
     value = secrets.token_urlsafe(48)
-    with open(env_path, 'a') as handle: handle.write(f'\nPIPELINE_SECRET={value}\n')
+    lines = [l for l in env_path.read_text().splitlines() if not l.startswith('PIPELINE_SECRET=')]
+    env_path.write_text('\n'.join(lines).rstrip('\n') + f'\nPIPELINE_SECRET={value}\n')
     os.chmod(env_path, 0o600)
     env['PIPELINE_SECRET'] = value
-    print('Generated a dedicated pipeline secret in the local environment file')
+    print('Generated a new dedicated pipeline secret in the local environment file')
 function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                     {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']}]
 for name in ['MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'ANTHROPIC_API_KEY']:
@@ -97,21 +99,21 @@ def sql(query):
     return request(base + '/database/query', mgmt, {'query': query})
 worker_url = env['SUPABASE_URL'] + '/functions/v1/paper-worker'
 def literal(value): return "'" + value.replace("'", "''") + "'"
-sql(f"""create extension if not exists pg_net with schema extensions;
-create extension if not exists pg_cron with schema pg_catalog;
-do $$ declare existing uuid; begin
- select id into existing from vault.secrets where name='science_reader_pipeline_url';
- if existing is null then perform vault.create_secret({literal(worker_url)},'science_reader_pipeline_url');
- else perform vault.update_secret(existing,{literal(worker_url)}); end if;
- select id into existing from vault.secrets where name='science_reader_pipeline_secret';
- if existing is null then perform vault.create_secret({literal(env['PIPELINE_SECRET'])},'science_reader_pipeline_secret');
- else perform vault.update_secret(existing,{literal(env['PIPELINE_SECRET'])}); end if;
-end $$;
-select cron.schedule('science-reader-pipeline',{literal(config['pipeline_schedule'])},$cron$
+sql("create extension if not exists pg_net with schema extensions")
+sql("create extension if not exists pg_cron with schema pg_catalog")
+# Secrets are written in standalone SELECT statements (constants are
+# normalized in pg_stat_statements; never batched with DDL that may be logged).
+for name, value in [('science_reader_pipeline_url', worker_url), ('science_reader_pipeline_secret', env['PIPELINE_SECRET'])]:
+    sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
+    sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
+if args.rotate_pipeline_secret:
+    sql("select extensions.pg_stat_statements_reset()")
+    print('Rotated the pipeline secret and reset query statistics')
+sql(f"""select cron.schedule('science-reader-pipeline',{literal(config['pipeline_schedule'])},$cron$
  select net.http_post(url:=(select decrypted_secret from vault.decrypted_secrets where name='science_reader_pipeline_url'),
   body:='{{"reason":"cron"}}'::jsonb,
   headers:=jsonb_build_object('content-type','application/json','x-pipeline-secret',
    (select decrypted_secret from vault.decrypted_secrets where name='science_reader_pipeline_secret')),
   timeout_milliseconds:=5000)
-$cron$);""")
+$cron$)""")
 print('Scheduled pipeline worker', config['pipeline_schedule'])

@@ -232,6 +232,7 @@ select public.worker_pipeline_claim(:'claim') as entry \gset
 select test.assert(:'entry'::jsonb->>'id'=:'private_e' and :'entry'::jsonb->>'owner_id'='14000000-0000-0000-0000-00000000000e','claim private paper');
 select (:'entry'::jsonb->>'generation')::bigint as gen \gset
 select test.reject(format('select public.worker_pipeline_original(%L,%L,%s,%L::bytea,900000,25,%L)',:'private_e',:'claim',:'gen','\x'||repeat('55',32),'originals/'||repeat('55',32)||'.pdf'),'invalid_original');
+select test.assert((public.worker_pipeline_admit_download(:'private_e',:'claim',:'gen')->>'admitted')::boolean,'owner with credits is admitted');
 select test.assert(public.worker_pipeline_original(:'private_e',:'claim',:'gen',('\x'||repeat('55',32))::bytea,900000,25,
  'private/14000000-0000-0000-0000-00000000000e/originals/'||repeat('55',32)||'.pdf')->>'stage'='ocr_fund','private original');
 select test.assert(public.worker_pipeline_fund(:'private_e',:'claim',:'gen',25,('\x'||repeat('0e',32))::bytea,('\x'||repeat('0f',32))::bytea)->>'funding'='funded','owner funds private OCR');
@@ -287,4 +288,29 @@ select test.assert(public.worker_expire_stale_chat_operations()=0,'sweep is idem
 reset role;
 select test.assert((select state='settled' and actual_credits=0 and actual_microusd=100000 from app_private.metered_operations where id='14000000-0000-0000-0000-0000000000cc'),'no charge; ceiling recorded');
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-c')=0,'credits released');
+
+-- A private download requires the owner to hold credits.
+reset role;
+insert into auth.users values('14000000-0000-0000-0000-0000000000a0');
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-0000000000a0',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000a9','2006.11239',0);
+reset role;
+update app_private.pipeline_papers set next_attempt_at=now()+interval '1 hour' where owner_id is not null;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as shared2, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select public.worker_pipeline_split_private(:'shared2',:'claim',:'gen');
+select public.worker_pipeline_release(:'shared2',:'claim',:'gen');
+reset role;
+update app_private.pipeline_papers set next_attempt_at=now() where owner_id='14000000-0000-0000-0000-0000000000a0';
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as broke, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.assert(:'entry'::jsonb->>'owner_id'='14000000-0000-0000-0000-0000000000a0','claimed the credit-less private paper');
+select test.assert(public.worker_pipeline_admit_download(:'broke',:'claim',:'gen')->>'reason'='needs_credits','no credits, no download');
+reset role;
+select test.assert((select stage='needs_credits' and resume_stage='download' from app_private.pipeline_papers where id=:'broke'),'paused for credits before downloading');
 rollback;

@@ -70,9 +70,10 @@ test('pricing follows the beta credit rate card and never undercharges unknown m
   assert.equal(priceAttempts([{ model: 'claude-sonnet-5-5', usage, estimated: false }]), 14_700_000);
   assert.equal(priceAttempts([{ model: 'unknown', usage, estimated: false }]), 29_400_000);
   assert.equal(creditsFor(0), 0); assert.equal(creditsFor(1), 1); assert.equal(creditsFor(5_000), 1); assert.equal(creditsFor(5_001), 2);
-  // Hold: chars/3 tokens at the cache-write rate plus the whole output budget.
-  assert.deepEqual(holdFor(300_000, 8_000), { inputTokens: 100_000, microusd: 330_000, credits: 66 });
-  assert.equal(holdFor(1, 8_000).microusd, 80_003);
+  // Hold: weighted chars/3 tokens at the cache-write rate plus the whole
+  // output budget, times the fallback headroom (3).
+  assert.deepEqual(holdFor(300_000, 8_000), { inputTokens: 100_000, microusd: 990_000, credits: 198 });
+  assert.equal(holdFor(1, 8_000).microusd, 240_008);
 });
 
 test('fallback iterations are priced per serving model', () => {
@@ -286,13 +287,14 @@ test('a refusal is settled and reported as refused', async () => {
   assert.equal(units.refusal_category, 'bio');
 });
 
-test('usage above the hold settles at the hold and logs a sanitized warning', async () => {
+test('usage above the hold charges at most the hold but records the true cost', async () => {
   const h = harness({ generate: async () => completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false,
     usage: { input: 5_000_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }) });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
   const reserve = h.calls.find(c => c.name === 'worker_reserve_operation')!.params;
   const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
-  assert.equal(settle.p_actual_microusd, reserve.p_microusd); assert.equal(settle.p_actual_credits, reserve.p_credits);
+  assert.ok((settle.p_actual_microusd as number) > (reserve.p_microusd as number), 'true provider cost reaches the budget (freezes work)');
+  assert.equal(settle.p_actual_credits, reserve.p_credits);
   assert.equal(h.logs[0].event, 'chat_usage_exceeded_hold'); noPlaintext(h.logs);
   assert.equal((h.events.at(-1)!.data as { credits: number }).credits, reserve.p_credits);
 });
@@ -397,4 +399,12 @@ test('the SDK adapter charges the input estimate when billing is uncertain befor
   const already = new AbortController(); already.abort();
   const skipped = await streamChat(client, params(), { signal: already.signal, onText: () => {}, inputEstimateTokens: 777 });
   assert.deepEqual(skipped.attempts, []);
+});
+
+test('non-ASCII prompt text is weighted as one token per UTF-8 byte', async () => {
+  const { promptCharacters } = await import('../../supabase/functions/_shared/anthropic.ts');
+  const params = (text: string) => ({ model: 'x', max_tokens: 1, messages: [{ role: 'user' as const, content: text }] });
+  assert.equal(promptCharacters(params('abc')), 3);
+  assert.equal(promptCharacters(params('漢字')), 18);   // 2 chars × 3 bytes × 3
+  assert.equal(promptCharacters(params('é')), 6);      // 2 bytes × 3
 });

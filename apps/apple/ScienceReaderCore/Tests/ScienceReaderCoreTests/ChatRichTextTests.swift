@@ -44,4 +44,10 @@ struct ChatRichTextTests {
     @Test func displayDollarMath() {
         #expect(ChatRichText.parse("$$E = mc^2$$") == [.displayMath("E = mc^2")])
     }
+
+    @Test func linksAreShownNotFollowed() {
+        #expect(ChatRichText.inertLinks("see [the derivation](https://evil.example/?q=secret) now") == "see the derivation (https://evil.example/?q=secret) now")
+        #expect(ChatRichText.inertLinks("<https://arxiv.org/abs/2305.18290>") == "https://arxiv.org/abs/2305.18290")
+        #expect(ChatRichText.inertLinks("no links \\(x\\)") == "no links \\(x\\)")
+    }
 }

@@ -144,6 +144,23 @@ public enum ChatRichText {
         return nil
     }
 
+    // MARK: Links
+
+    /// Model output is untrusted (paper text can carry prompt injection), so
+    /// links are shown, not followed: `[text](url)` → `text (url)` and
+    /// `<https://…>` → `https://…`. The URL stays visible and copyable.
+    public static func inertLinks(_ text: String) -> String {
+        guard text.contains("](") || text.contains("<http") else { return text }
+        var result = text
+        if let markdown = try? NSRegularExpression(pattern: #"\[([^\]\n]{0,500})\]\(([^)\s]{1,2000})\)"#) {
+            result = markdown.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1 ($2)")
+        }
+        if let angle = try? NSRegularExpression(pattern: #"<(https?://[^>\s]{1,2000})>"#) {
+            result = angle.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "$1")
+        }
+        return result
+    }
+
     // MARK: Inline math
 
     /// Splits `\( … \)` and conservative `$ … $` (no space just inside the

@@ -64,7 +64,7 @@ struct ChatRichTextView: View {
         parts.reduce(Text(verbatim: "")) { text, part in
             switch part {
             case .text(let value):
-                return text + Text(LocalizedStringKey(ChatDisplayText.inlineMarkdownPreservingBackslashes(value))).font(.system(size: size))
+                return text + Text(LocalizedStringKey(ChatDisplayText.inlineMarkdownPreservingBackslashes(ChatRichText.inertLinks(value)))).font(.system(size: size))
             case .math(let latex):
                 if let rendered = ChatMathCache.shared.render(latex, size: size, display: false, dark: colorScheme == .dark) {
                     return text + Text(Image(uiImage: rendered.image)).baselineOffset(-rendered.descent)

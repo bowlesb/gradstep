@@ -83,6 +83,7 @@ test('metadata → download → fund → submit in one claim, then sync and rele
   const posted: unknown[] = [];
   const { deps, calls, uploads } = harness({
     worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }),
+    worker_pipeline_admit_download: () => ({ admitted: true }),
     worker_pipeline_metadata: p => { assert.equal(p.p_eligible, true); assert.equal(p.p_revision, 3);
       assert.equal((p.p_metadata as { title: string }).title.startsWith('Direct Preference Optimization'), true);
       assert.equal(p.p_license_uri, 'https://creativecommons.org/licenses/by/4.0/'); return entry('download'); },
@@ -98,7 +99,7 @@ test('metadata → download → fund → submit in one claim, then sync and rele
     mathpix: { ...harness({}).deps.mathpix, async submitOnce(bytes, checkpoint) { posted.push(checkpoint); assert.equal(await sha256(bytes), digest); return { state: 'accepted', providerJobID: 'job-1' }; } },
   });
   await processPaper(deps, entry('metadata', { revision: null }), policy, deadline);
-  assert.deepEqual(names(calls).filter(n => n !== 'worker_pipeline_arxiv_slot'), ['worker_pipeline_metadata', 'worker_pipeline_original', 'worker_pipeline_fund',
+  assert.deepEqual(names(calls).filter(n => n !== 'worker_pipeline_arxiv_slot'), ['worker_pipeline_metadata', 'worker_pipeline_admit_download', 'worker_pipeline_original', 'worker_pipeline_fund',
     'worker_pipeline_begin_submit', 'worker_pipeline_submitted', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
   assert.equal(posted.length, 1);
   assert.ok(uploads.has(`originals/${digest}.pdf`));
@@ -152,13 +153,13 @@ test('provider error settles without customer charge via ocr_failed', async () =
 });
 
 test('transient errors back off; repeated failures fail resumably; lost claims do nothing', async () => {
-  const transient = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, {
+  const transient = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_admit_download: () => ({ admitted: true }), worker_pipeline_defer: p => p }, {
     fetch: (async () => new Response('busy', { status: 503 })) as unknown as typeof fetch });
   await processPaper(transient.deps, entry('download'), policy, deadline);
   const defer = transient.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
   assert.equal(defer.p_fail, false); assert.equal(defer.p_seconds, 30); assert.equal(defer.p_error_code, 'rate_limited');
 
-  const exhausted = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, {
+  const exhausted = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_admit_download: () => ({ admitted: true }), worker_pipeline_defer: p => p }, {
     fetch: (async () => new Response('busy', { status: 503 })) as unknown as typeof fetch });
   await processPaper(exhausted.deps, entry('download', { failures: 4 }), policy, deadline);
   const failed = exhausted.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
@@ -190,7 +191,7 @@ test('sync-only claims run no stage; arXiv pacing defers instead of sleeping lon
   await processPaper(syncOnly.deps, entry('ocr_wait', { due: false }), policy, deadline);
   assert.deepEqual(names(syncOnly.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
   let slept = 0;
-  const paced = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: false, wait_ms: 90_000 }), worker_pipeline_defer: p => p }, { async sleep(ms) { slept += ms; } });
+  const paced = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: false, wait_ms: 90_000 }), worker_pipeline_admit_download: () => ({ admitted: true }), worker_pipeline_defer: p => p }, { async sleep(ms) { slept += ms; } });
   await processPaper(paced.deps, entry('download'), policy, deadline);
   const defer = paced.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
   assert.equal(slept, 0); assert.equal(defer.p_seconds, 90); assert.equal(defer.p_fail ?? false, false); assert.equal(defer.p_error_code, undefined);
@@ -272,4 +273,13 @@ test('a job the provider no longer knows fails (hold settles) instead of polling
   await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
     attempt: { id: 'a', state: 'submitted', page_limit: 6, provider_job_id: 'job-typo', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
   assert.ok(names(calls).includes('worker_pipeline_ocr_failed'));
+});
+
+test('a download that is not admitted fetches nothing', async () => {
+  let fetched = false;
+  const { deps, calls } = harness({ worker_pipeline_admit_download: () => ({ admitted: false, reason: 'needs_credits' }) }, {
+    fetch: (async () => { fetched = true; return new Response(''); }) as unknown as typeof fetch });
+  await processPaper(deps, entry('download', { owner_id: '99999999-9999-4999-8999-999999999999' }), policy, deadline);
+  assert.equal(fetched, false);
+  assert.deepEqual(names(calls), ['worker_pipeline_admit_download', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
