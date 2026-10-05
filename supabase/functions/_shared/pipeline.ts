@@ -65,6 +65,8 @@ export interface PipelineDeps {
   now(): number;
   uuid(): string;
   log(event: string, fields?: Record<string, string | number | boolean | null>): void;
+  /** Starts a fresh worker invocation (each gets its own CPU allowance). */
+  kick?(): Promise<void>;
 }
 
 const hex = (value: string) => '\\x' + value;
@@ -242,7 +244,8 @@ async function stageSubmit(deps: PipelineDeps, e: PaperEntry, claim: Claim, _pol
 const UNUSABLE_OUTPUT = new Set(['provider_body_limit', 'provider_output_invalid', 'provider_response_incomplete', 'provider_page_count_invalid']);
 const PROVIDER_TIMEOUT_MS = 6 * 3600_000;
 
-async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
+async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _policy?: PipelinePolicy, deadline = 0): Promise<StepResult> {
+  const waitUntil = Math.min(deps.now() + 90_000, deadline - 60_000);
   const job = e.attempt?.provider_job_id;
   if (!job || !e.document_sha256 || !e.attempt) throw new Error('attempt_missing');
   const age = e.attempt.submitted_at ? deps.now() - Date.parse(e.attempt.submitted_at) : 0;
@@ -250,7 +253,11 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promi
     deps.log('ocr_failed', { paper: e.id, code, pages });
     return { entry: await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: code, p_pages_billed: Math.min(pages, e.attempt!.page_limit) }) };
   };
-  const status = await deps.mathpix.status(job);
+  // Polling is I/O, not CPU: wait in this invocation for up to ~90 s.
+  let status = await deps.mathpix.status(job);
+  for (let polls = 0; polls < 22 && !['completed', 'error'].includes(status.state) && deps.now() < waitUntil; polls++) {
+    await deps.sleep(4000); status = await deps.mathpix.status(job);
+  }
   if (status.state === 'error') return fail('conversion_failed', status.completedPages ?? 0);
   if (status.deleted) return fail('conversion_failed', e.attempt.page_limit);
   if (status.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.completedPages ?? 0) : { entry: e, defer: age > 120_000 ? 15 : 4 };
@@ -359,8 +366,10 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
         await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: result.defer });
         return;
       }
-      // A fresh submission is polled after the stage delay, not immediately.
-      if (result.stop === 'release' || entry.stage === before || (before === 'ocr_submit' && entry.stage === 'ocr_wait')) break;
+      // A fresh submission is polled after the stage delay, not immediately;
+      // rendering (the CPU-heavy stage) always starts in a fresh invocation.
+      if (result.stop === 'release' || entry.stage === before || (before === 'ocr_submit' && entry.stage === 'ocr_wait')
+          || entry.stage === 'render') break;
     }
     await sync();
     await deps.rpc('worker_pipeline_release', claim);
@@ -393,16 +402,14 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
   }
 }
 
-/** Claims and advances papers until the deadline or no work remains. */
+/** Advances one claimed paper per invocation, then hands off to a fresh
+ * invocation so CPU-heavy stages never accumulate in one Edge isolate. */
 export async function runPipeline(deps: PipelineDeps, deadline: number): Promise<{ processed: number }> {
   const policy = await deps.rpc<PipelinePolicy>('worker_pipeline_policy', {});
   if (!policy.enabled) return { processed: 0 };
-  let processed = 0;
-  while (deps.now() < deadline - 40_000) {
-    const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
-    if (!claimed) break;
-    await processPaper(deps, claimed, policy, deadline);
-    processed++;
-  }
-  return { processed };
+  const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
+  if (!claimed) return { processed: 0 };
+  await processPaper(deps, claimed, policy, deadline);
+  if (deps.kick) await deps.kick().catch(() => deps.log('kick_failed'));
+  return { processed: 1 };
 }

@@ -24,6 +24,13 @@ function deps(): PipelineDeps {
     mathpix: new MathpixClient({ appID, appKey }), render: renderReader,
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => Date.now(), uuid: () => crypto.randomUUID(),
     log: (event, fields = {}) => console.log(JSON.stringify({ event, ...fields })),
+    kick: async () => {
+      const url = Deno.env.get('SUPABASE_URL'), secret = Deno.env.get('PIPELINE_SECRET');
+      if (!url || !secret) return;
+      const response = await fetch(`${url}/functions/v1/paper-worker`, { method: 'POST', body: '{"reason":"continue"}',
+        headers: { 'content-type': 'application/json', 'x-pipeline-secret': secret }, signal: AbortSignal.timeout(10_000) });
+      void response.body?.cancel().catch(() => {});
+    },
   };
 }
 
@@ -38,7 +45,7 @@ Deno.serve(async request => {
   const started = Date.now();
   const work = (async () => {
     try {
-      const result = await runPipeline(deps(), started + 330_000);
+      const result = await runPipeline(deps(), started + 300_000);
       console.log(JSON.stringify({ event: 'run_finished', processed: result.processed, ms: Date.now() - started }));
     } catch (error) {
       console.log(JSON.stringify({ event: 'run_failed', code: error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected' }));
