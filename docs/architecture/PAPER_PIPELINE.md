@@ -45,9 +45,27 @@ trusted manifest digest. The app re-verifies every member before encrypted insta
 
 ## Failure handling
 
-Transient errors back off (`15 × 2^n` s, max 10 min). After 5 failures metadata/download/fund/render
-fail with a resumable stage that a user Retry restarts. Submit/wait never give up on transient errors
-because they hold credits. Lost leases are ignored by the fenced RPCs (`stale_pipeline_claim`).
+Every fenced call renews the 180 s lease; paper rows use `FOR NO KEY UPDATE` so the customer import
+trigger never waits on a worker. Transient errors back off (`15 × 2^n` s, max 10 min). After 5 failures
+metadata/download/fund/render fail with a resumable stage that a user Retry (or a new importer) restarts.
+
+Every credit hold has an exit:
+
+| Situation | Exit |
+|---|---|
+| Funded but the original can't be prepared (3 tries) | `worker_pipeline_abandon_funding`: settle 0/0, retry restarts at download |
+| Funder withdrew before the grant | `begin_submit` releases the hold and refunds from another interested account |
+| POST result lost (lease expired, RPC failed) | `worker_pipeline_submitted` is keyed by attempt, retried, and accepts a late job id after `uncertain` |
+| Genuinely uncertain POST | Operator: `pipeline-ops.py resolve ATTEMPT --job ID` (resume polling) or `--pages N` (release, no customer charge) |
+| Provider error, deleted job, unusable output, > 6 h | `worker_pipeline_ocr_failed`: customer not charged, estimated provider cost recorded |
+
+Submit and wait never give up on *transient* errors. Import projection runs per link with its own backoff
+(`next_sync_at`), locks link accounts in id order first, and never fails the shared paper.
+Identical bytes never pay twice: an existing render is reused; retained raw OCR (another slot or an older
+renderer version) is re-rendered without a charge; an existing artifact is adopted on publish.
+
+Measured on hosted staging Edge (2026-10-05): MathML rendering of the 27-page DPO paper takes 0.7–0.8 s
+with a ~55 MB heap; pdf-lib counts pages of a 40 MB PDF in ~100 ms (local).
 
 ## Operations
 
