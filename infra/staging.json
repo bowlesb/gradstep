@@ -19,5 +19,19 @@
     "ca_file": "infra/supabase-ca-2021.crt",
     "session_pooler_host": "aws-0-us-west-2.pooler.supabase.com",
     "session_pooler_port": 5432
-  }
+  },
+  "paper_bucket": {
+    "id": "paper-assets",
+    "name": "paper-assets",
+    "public": false,
+    "file_size_limit": 67108864,
+    "allowed_mime_types": null
+  },
+  "functions": [
+    "support-assets",
+    "paper-worker",
+    "reader-artifact",
+    "chat"
+  ],
+  "pipeline_schedule": "* * * * *"
 }

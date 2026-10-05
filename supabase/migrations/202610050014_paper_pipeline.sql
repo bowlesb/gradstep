@@ -13,7 +13,7 @@ begin;
 create table app_private.pipeline_policy (
  singleton boolean primary key default true check(singleton),
  enabled boolean not null default false,
- max_pdf_bytes bigint not null default 33554432 check(max_pdf_bytes between 1024 and 33554432),
+ max_pdf_bytes bigint not null default 67108864 check(max_pdf_bytes between 1024 and 67108864),
  max_ocr_pages integer not null default 80 check(max_ocr_pages between 1 and 250),
  ocr_credits_per_page integer not null default 1 check(ocr_credits_per_page between 0 and 1000),
  ocr_microusd_per_page integer not null default 5000 check(ocr_microusd_per_page between 0 and 1000000),
@@ -24,6 +24,9 @@ create table app_private.pipeline_policy (
  arxiv_next_request_at timestamptz not null default '-infinity'
 );
 insert into app_private.pipeline_policy default values;
+-- Image-heavy ML papers commonly exceed 32 MiB (e.g. 40.8 MB for arXiv 2112.10752v2).
+alter table app_private.documents drop constraint documents_byte_count_check;
+alter table app_private.documents add constraint documents_byte_count_check check(byte_count between 1 and 67108864);
 update app_private.library_policy set compatible_renderers=array_append(compatible_renderers,'timestep-mathpix-mathml-v1')
  where singleton and not ('timestep-mathpix-mathml-v1'=any(compatible_renderers));
 
@@ -179,6 +182,7 @@ create function app_private.pipeline_entry(p app_private.pipeline_papers) return
   'approval_id',p.approval_id,'page_count',p.page_count,'artifact_id',p.artifact_id,'failures',p.failures,
   'document_sha256',(select encode(d.sha256,'hex') from app_private.documents d where d.id=p.document_id),
   'original_path',(select o.path from app_private.stored_objects o where o.id=p.original_object_id),
+  'original_bytes',(select o.byte_count from app_private.stored_objects o where o.id=p.original_object_id),
   'attempt',(select jsonb_build_object('id',x.id,'state',x.state,'page_limit',x.page_limit,'provider_job_id',x.provider_job_id,
     'ocr_run_id',x.ocr_run_id,'submitted_at',x.submitted_at,'raw_manifest_path',(select o.path from app_private.stored_objects o where o.id=x.raw_manifest_object_id))
    from app_private.ocr_attempts x where x.paper_id=p.id order by x.created_at desc limit 1))

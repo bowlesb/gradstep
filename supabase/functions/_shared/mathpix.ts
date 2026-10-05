@@ -4,18 +4,28 @@ const API = 'https://api.mathpix.com/v3';
 export const MATHPIX_PROFILE = 'science-reader-mmd-v1';
 // Renderer versions are deliberately separate from this OCR identity. A style,
 // sanitizer or equation-renderer upgrade must reuse the durable raw OCR output.
-const OPTIONS = JSON.stringify({
+const BASE_OPTIONS = {
   conversion_formats: { 'mmd.zip': true }, metadata: { improve_mathpix: false },
   rm_spaces: false, rm_fonts: false, include_equation_tags: true, idiomatic_eqn_arrays: true,
   math_inline_delimiters: ['\\(', '\\)'], math_display_delimiters: ['\\[', '\\]'],
   include_page_breaks: true, include_hyperlinks: true, include_page_info: ['margin_note'],
   preserve_section_numbering: true, auto_number_sections: false, remove_section_numbering: false,
   disable_lstlisting: false, disable_itemize: false,
-});
+};
+const OPTIONS = JSON.stringify(BASE_OPTIONS);
 
-export async function mathpixProfile(): Promise<{ id: string; api: string; optionsJSON: string; sha256: string }> {
-  return { id: MATHPIX_PROFILE, api: 'v3/pdf', optionsJSON: OPTIONS,
-    sha256: await sha256(new TextEncoder().encode(`science-reader/ocr-options/v1\nv3/pdf\n${MATHPIX_PROFILE}\n${OPTIONS}`)) };
+/** Options JSON for a funded attempt. A page limit bounds the paid pages with
+ * Mathpix `page_ranges`; it is part of the OCR identity (options hash). */
+export function mathpixOptionsJSON(pageLimit?: number): string {
+  if (pageLimit === undefined) return OPTIONS;
+  if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 250) throw new MathpixError('submission_checkpoint_mismatch');
+  return JSON.stringify({ ...BASE_OPTIONS, page_ranges: `1-${pageLimit}` });
+}
+
+export async function mathpixProfile(pageLimit?: number): Promise<{ id: string; api: string; optionsJSON: string; sha256: string }> {
+  const optionsJSON = mathpixOptionsJSON(pageLimit);
+  return { id: MATHPIX_PROFILE, api: 'v3/pdf', optionsJSON,
+    sha256: await sha256(new TextEncoder().encode(`science-reader/ocr-options/v1\nv3/pdf\n${MATHPIX_PROFILE}\n${optionsJSON}`)) };
 }
 
 export class MathpixError extends Error {
@@ -155,7 +165,9 @@ export class MathpixClient {
     if (signal?.aborted) controller.abort();
     const timeout = setTimeout(abort, 30_000);
     try {
-      const response = await this.#fetch(`${API}/${path}`, { ...init, headers: new Headers(this.#headers), redirect: 'error', signal: controller.signal });
+      const headers = new Headers(this.#headers);
+      for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
+      const response = await this.#fetch(`${API}/${path}`, { ...init, headers, redirect: 'error', signal: controller.signal });
       if (response.status !== 200) {
         void response.body?.cancel().catch(() => {});
         throw new MathpixError(response.status === 202 ? 'provider_output_pending' : 'provider_http_failure', response.status, retryAfter(response));
@@ -167,22 +179,37 @@ export class MathpixClient {
     } finally { clearTimeout(timeout); signal?.removeEventListener('abort', abort); }
   }
 
-  async submitOnce(pdf: Uint8Array, checkpoint: { attemptID: string; documentSHA256: string; optionsSHA256: string }, signal?: AbortSignal): Promise<MathpixSubmission> {
-    const { attemptID, documentSHA256, optionsSHA256 } = checkpoint;
+  async submitOnce(pdf: Uint8Array, checkpoint: { attemptID: string; documentSHA256: string; optionsSHA256: string; pageLimit?: number }, signal?: AbortSignal): Promise<MathpixSubmission> {
+    const { attemptID, documentSHA256, optionsSHA256, pageLimit } = checkpoint;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(attemptID) ||
-        pdf.length < 8 || pdf.length > 33_554_432) throw new MathpixError('submission_checkpoint_mismatch');
+        pdf.length < 8 || pdf.length > 67_108_864) throw new MathpixError('submission_checkpoint_mismatch');
     // Own the bytes and identities before the first suspension point. A caller
     // reusing its download buffer cannot alter the payload after hashing it.
     const capturedPDF = new Uint8Array(pdf);
+    const profile = await mathpixProfile(pageLimit);
     if (new TextDecoder().decode(capturedPDF.subarray(0, 5)) !== '%PDF-' ||
-        await sha256(capturedPDF) !== documentSHA256 || (await mathpixProfile()).sha256 !== optionsSHA256) throw new MathpixError('submission_checkpoint_mismatch');
+        await sha256(capturedPDF) !== documentSHA256 || profile.sha256 !== optionsSHA256) throw new MathpixError('submission_checkpoint_mismatch');
     // PDF structure, page count, ownership and scope were verified at ingress.
     // Here the exact bytes/options are bound to the recorded submission attempt.
     const form = new FormData();
     form.append('file', new Blob([capturedPDF], { type: 'application/pdf' }), `${attemptID}.pdf`);
-    form.append('options_json', OPTIONS);
+    form.append('options_json', profile.optionsJSON);
+    return this.#submit({ method: 'POST', body: form }, signal);
+  }
+
+  /** Large originals: Mathpix fetches a short-lived signed Storage URL whose
+   * content-addressed path already binds the verified bytes. */
+  async submitURL(url: string, checkpoint: { attemptID: string; optionsSHA256: string; pageLimit?: number }, signal?: AbortSignal): Promise<MathpixSubmission> {
+    const profile = await mathpixProfile(checkpoint.pageLimit);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(checkpoint.attemptID) ||
+        profile.sha256 !== checkpoint.optionsSHA256 || !/^https:\/\/[^/@\s]+\/[^\s]{1,4000}$/.test(url)) throw new MathpixError('submission_checkpoint_mismatch');
+    const body = JSON.stringify({ url, ...JSON.parse(profile.optionsJSON) });
+    return this.#submit({ method: 'POST', body, headers: { 'content-type': 'application/json' } }, signal);
+  }
+
+  async #submit(init: RequestInit, signal?: AbortSignal): Promise<MathpixSubmission> {
     try {
-      const { bytes } = await this.#request('pdf', { method: 'POST', body: form }, 65_536, signal);
+      const { bytes } = await this.#request('pdf', init, 65_536, signal);
       const response = object(json(bytes));
       if (response.error || response.error_info) throw new MathpixError('provider_response_invalid');
       return { state: 'accepted', providerJobID: providerID(response.pdf_id) };

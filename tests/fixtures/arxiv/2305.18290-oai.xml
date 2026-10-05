@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-09-28T19:37:15Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2305.18290" metadataPrefix="arXivRaw">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2305.18290</identifier>
+        <datestamp>2024-07-31</datestamp>
+            <setSpec>cs:cs:LG</setSpec>
+            <setSpec>cs:cs:AI</setSpec>
+            <setSpec>cs:cs:CL</setSpec>
+    </header>
+
+            <metadata>
+                        <arXivRaw xmlns="http://arxiv.org/OAI/arXivRaw/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXivRaw/ https://oaipmh.arxiv.org/OAI/arXivRaw.xsd">
+        <id>2305.18290</id>
+        <submitter>Archit Sharma</submitter>
+            <version version="v1">
+                <date>Mon, 29 May 2023 17:57:46 GMT</date>
+                <size>981kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v2">
+                <date>Wed, 13 Dec 2023 18:48:48 GMT</date>
+                <size>983kb</size>
+                    <source_type>D</source_type>
+            </version>
+            <version version="v3">
+                <date>Mon, 29 Jul 2024 22:26:36 GMT</date>
+                <size>999kb</size>
+                    <source_type>D</source_type>
+            </version>
+        <title>Direct Preference Optimization: Your Language Model is Secretly a Reward Model</title>
+        <authors>Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning, Chelsea Finn</authors>
+        <categories>cs.LG cs.AI cs.CL</categories>
+            <license>http://creativecommons.org/licenses/by/4.0/</license>
+            <abstract>While large-scale unsupervised language models (LMs) learn broad world knowledge and some reasoning skills, achieving precise control of their behavior is difficult due to the completely unsupervised nature of their training. Existing methods for gaining such steerability collect human labels of the relative quality of model generations and fine-tune the unsupervised LM to align with these preferences, often with reinforcement learning from human feedback (RLHF). However, RLHF is a complex and often unstable procedure, first fitting a reward model that reflects the human preferences, and then fine-tuning the large unsupervised LM using reinforcement learning to maximize this estimated reward without drifting too far from the original model. In this paper we introduce a new parameterization of the reward model in RLHF that enables extraction of the corresponding optimal policy in closed form, allowing us to solve the standard RLHF problem with only a simple classification loss. The resulting algorithm, which we call Direct Preference Optimization (DPO), is stable, performant, and computationally lightweight, eliminating the need for sampling from the LM during fine-tuning or performing significant hyperparameter tuning. Our experiments show that DPO can fine-tune LMs to align with human preferences as well as or better than existing methods. Notably, fine-tuning with DPO exceeds PPO-based RLHF in ability to control sentiment of generations, and matches or improves response quality in summarization and single-turn dialogue while being substantially simpler to implement and train.</abstract>
+    </arXivRaw>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>
