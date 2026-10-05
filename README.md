@@ -6,6 +6,7 @@ Status, 2026-10-03: foundation implementation. Dedicated Supabase staging is liv
 
 ## Start here
 
+- [Agent takeover handoff](docs/AGENT_HANDOFF.md)
 - [Decisions and outstanding questions](docs/DECISIONS.md)
 - [Data model and invariants](docs/architecture/DATA_MODEL.md)
 - [Privacy, key custody, and synchronization](docs/architecture/PRIVACY_AND_SYNC.md)
