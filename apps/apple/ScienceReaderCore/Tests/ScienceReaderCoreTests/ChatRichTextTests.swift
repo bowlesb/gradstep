@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ScienceReaderCore
 
@@ -43,6 +44,20 @@ struct ChatRichTextTests {
 
     @Test func displayDollarMath() {
         #expect(ChatRichText.parse("$$E = mc^2$$") == [.displayMath("E = mc^2")])
+    }
+
+    @Test func trailingSourcesBecomeASourcesBlock() throws {
+        let text = "IPO generalizes DPO.\n\nSources:\n1. A General Theoretical Paradigm — https://arxiv.org/abs/2310.12036\n2. https://example.org/blog"
+        let blocks = ChatRichText.parse(text)
+        #expect(blocks.first == .paragraph([.text("IPO generalizes DPO.")]))
+        guard case .sources(let sources) = blocks.last else { Issue.record("no sources block"); return }
+        #expect(sources == [ChatSource(title: "A General Theoretical Paradigm", url: URL(string: "https://arxiv.org/abs/2310.12036")!),
+                            ChatSource(title: nil, url: URL(string: "https://example.org/blog")!)])
+        // Anything not in the exact format stays text: http, prose lines, too many entries.
+        for invalid in ["x\n\nSources:\n1. http://example.org", "x\n\nSources:\nSee the paper.",
+                        "x\n\nSources:\n" + (1...9).map { "\($0). https://e.org/\($0)" }.joined(separator: "\n")] {
+            #expect(ChatRichText.trailingSources(invalid) == nil)
+        }
     }
 
     @Test func linksAreShownNotFollowed() {

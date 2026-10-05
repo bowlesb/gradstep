@@ -642,7 +642,7 @@ struct SettingsView: View {
                 }
                 Section("Privacy") {
                     Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.").font(.footnote).foregroundStyle(.secondary)
-                    Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Private PDF uploads and reports you submit are accessible to the services that process them.").font(.footnote).foregroundStyle(.secondary)
+                    Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Claude may search the web for some questions; those searches go to Anthropic’s search provider. Private PDF uploads and reports you submit are accessible to the services that process them.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Testing") {
                     Button("Report this screen", systemImage: "ladybug") { model.beginReport() }

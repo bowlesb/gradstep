@@ -88,10 +88,12 @@ private struct TranscriptMessage: View {
                     .accessibilityElement(children: .ignore).accessibilityLabel("Assistant is answering")
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
-                    ChatRichTextView(source: message.payload.text ?? "", fontSize: fontSize)
+                    let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
+                    ChatRichTextView(source: message.payload.text ?? "", fontSize: fontSize, showSources: false)
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("chat.message.text.\(message.id.wire)")
-                        .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(Self.inlineSource(message.payload.text)))"))
+                        .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(Self.inlineSource(sources?.body ?? message.payload.text)))"))
+                    if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
                 }
                 if message.payload.status == .interrupted {
                     Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)

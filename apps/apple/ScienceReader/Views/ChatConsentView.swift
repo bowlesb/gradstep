@@ -15,6 +15,7 @@ struct ChatConsentView: View {
                         Label("Your question and any passage you selected", systemImage: "text.bubble")
                         Label("Earlier messages in this conversation", systemImage: "bubble.left.and.bubble.right")
                         Label("For paper chats, the paper’s full text", systemImage: "doc.text")
+                        Label("When a question needs it, web searches Claude writes go to Anthropic’s search provider", systemImage: "magnifyingglass")
                     }
                     .labelStyle(ConsentLabelStyle())
                     Text("Anthropic processes this to write the answer and may keep it for a limited time under its API terms. Science Reader’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")

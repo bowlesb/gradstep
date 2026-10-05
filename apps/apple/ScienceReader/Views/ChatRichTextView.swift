@@ -9,6 +9,9 @@ struct ChatRichTextView: View {
     let source: String
     let fontSize: Double
     @Environment(\.colorScheme) private var colorScheme
+    /// The transcript shows sources separately (outside the combined
+    /// accessibility element) so each one stays individually actionable.
+    var showSources = true
 
     var body: some View {
         let blocks = ChatRichText.parse(source)
@@ -31,6 +34,8 @@ struct ChatRichTextView: View {
             }.padding(.leading, CGFloat(depth) * 16)
         case .displayMath(let latex):
             displayMath(latex)
+        case .sources(let sources):
+            if showSources { ChatSourcesView(sources: sources, fontSize: fontSize) }
         case .preformatted(let text):
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(verbatim: text).font(.system(size: fontSize * 0.84, design: .monospaced)).textSelection(.enabled)
@@ -111,5 +116,43 @@ struct ChatRichTextView: View {
             ? Rendered(image: rendered!, descent: layout?.descent ?? 0) : nil
         cache.setObject(Box(value), forKey: key)
         return value
+    }
+}
+
+/// Web sources appended to an answer. Answer text is untrusted, so a source
+/// opens only after the reader sees its full address and confirms.
+struct ChatSourcesView: View {
+    let sources: [ChatSource]
+    let fontSize: Double
+    @Environment(\.openURL) private var openURL
+    @State private var pending: ChatSource?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Sources").font(.system(size: fontSize * 0.82, weight: .semibold)).foregroundStyle(.secondary).accessibilityAddTraits(.isHeader)
+            ForEach(Array(sources.enumerated()), id: \.offset) { index, source in
+                Button { pending = source } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text("\(index + 1).").monospacedDigit().foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: source.title ?? source.url.host ?? source.url.absoluteString).multilineTextAlignment(.leading)
+                            Text(verbatim: source.url.host ?? "").font(.system(size: fontSize * 0.72)).foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "arrow.up.right.square").font(.system(size: fontSize * 0.72)).foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: fontSize * 0.86)).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: "Source \(index + 1): \(source.title ?? source.url.host ?? "")"))
+                .accessibilityHint("Shows the address before opening it in Safari")
+                .accessibilityIdentifier("chat.source.\(index + 1)")
+            }
+        }
+        .padding(.top, 4)
+        .confirmationDialog("Open this source in Safari?", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                            titleVisibility: .visible, presenting: pending) { source in
+            Button("Open in Safari") { openURL(source.url) }
+            Button("Cancel", role: .cancel) {}
+        } message: { source in Text(verbatim: source.url.absoluteString) }
     }
 }

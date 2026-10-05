@@ -19,6 +19,13 @@ public enum ChatBlock: Equatable, Sendable {
     case displayMath(String)
     /// Fenced code or a Markdown table, shown monospaced and unwrapped.
     case preformatted(String)
+    /// The web sources list the server appends to an answer that searched.
+    case sources([ChatSource])
+}
+
+public struct ChatSource: Equatable, Sendable {
+    public let title: String?
+    public let url: URL
 }
 
 public enum ChatRichText {
@@ -34,6 +41,8 @@ public enum ChatRichText {
             overflow = String(text[boundary...]); text = String(text[..<boundary])
         }
         var blocks: [ChatBlock] = []
+        let trailing = trailingSources(text)
+        if let trailing { text = trailing.body }
         for segment in displaySegments(text) {
             switch segment {
             case .math(let body): blocks.append(.displayMath(body))
@@ -41,7 +50,30 @@ public enum ChatRichText {
             }
         }
         if let overflow { blocks.append(.paragraph([.text(overflow)])) }
+        if let trailing { blocks.append(.sources(trailing.sources)) }
         return blocks
+    }
+
+    // MARK: Sources
+
+    /// A final "Sources:" section whose every line is `N. [title — ]https://…`
+    /// (the server's format); anything else stays ordinary text.
+    public static func trailingSources(_ text: String) -> (body: String, sources: [ChatSource])? {
+        guard let marker = text.range(of: "\n\nSources:\n", options: .backwards) ?? (text.hasPrefix("Sources:\n") ? text.range(of: "Sources:\n") : nil)
+        else { return nil }
+        let lines = text[marker.upperBound...].split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard (1...8).contains(lines.count),
+              let pattern = try? NSRegularExpression(pattern: #"^\d{1,2}\. (?:(.{1,300}) — )?(https://[^\s]{1,500})$"#) else { return nil }
+        var sources: [ChatSource] = []
+        for line in lines {
+            guard let match = pattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                  let urlRange = Range(match.range(at: 2), in: line), let url = URL(string: String(line[urlRange])),
+                  url.scheme == "https", url.host?.isEmpty == false else { return nil }
+            let title = Range(match.range(at: 1), in: line).map { String(line[$0]) }
+            sources.append(ChatSource(title: title, url: url))
+        }
+        return (String(text[..<marker.lowerBound]), sources)
     }
 
     // MARK: Display math (outside fenced code)
