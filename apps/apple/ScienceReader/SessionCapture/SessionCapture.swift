@@ -69,6 +69,9 @@ final class SessionCapture {
         }
         startedAt = Date()
         startObserving()
+        // ReplayKit captures only once its permission prompt has gone: wait until the app is active again.
+        for _ in 0..<50 where UIApplication.shared.applicationState != .active { try? await Task.sleep(for: .milliseconds(100)) }
+        try? await Task.sleep(for: .milliseconds(400))
         // Sync marker: a magenta band the review tool finds in the video.
         showSyncBand = true; SessionTimeline.shared.record("sync_band", ["on": "1"])
         try? await Task.sleep(for: .milliseconds(700))

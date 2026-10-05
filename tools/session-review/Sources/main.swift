@@ -126,6 +126,9 @@ if hasVideo, let bandOn {
         offset = fine - bandOn; syncFound = true
     }
 }
+// Without the marker: video and timeline end together (Stop ends both), so align the ends.
+var syncEstimated = false
+if hasVideo, !syncFound, videoDuration > 0, abs(videoDuration - sessionEnd) < 15 { offset = videoDuration - sessionEnd; syncEstimated = true }
 func videoTime(_ t: Double) -> Double { t + offset }
 func timelineTime(_ v: Double) -> Double { v - offset }
 
@@ -227,6 +230,11 @@ if hasVideo, videoDuration > 0 {
         default: break
         }
     }
+    // A frame for every spoken remark (what the tester was looking at), flagged ones kept regardless.
+    for remark in remarks {
+        candidates.append(Candidate(t: remark.t + 0.3, priority: remark.flagged ? .signal : .change, reason: "remark"))
+        if remark.end - remark.t > 3 { candidates.append(Candidate(t: remark.end - 0.3, priority: .change, reason: "remark end")) }
+    }
     var t = 0.5
     while t < sessionEnd { candidates.append(Candidate(t: t, priority: .periodic, reason: "periodic")); t += 1.5 }
     candidates = candidates.filter { videoTime($0.t) >= 0 && videoTime($0.t) <= videoDuration }.sorted { $0.t < $1.t }
@@ -292,7 +300,7 @@ for index in remarks.indices { remarks[index].frame = nearestFrame(remarks[index
 var md = "# Test session \(folder.lastPathComponent)\n\n"
 md += "- Build \(meta["version"] ?? "?") (\(meta["build"] ?? "?")), \(meta["device"] ?? "?"), iOS \(meta["system"] ?? "?"), \(meta["idiom"] ?? "?")\n"
 md += "- Length \(clock(sessionEnd)); video \(hasVideo ? "yes" : "no"); narration \(remarks.isEmpty ? "none transcribed" : "\(remarks.count) remarks")\n"
-md += "- Video/timeline sync: \(syncFound ? String(format: "marker found, offset %.2f s", offset) : hasVideo ? "marker NOT found; times may be off by about a second" : "no video")\n"
+md += "- Video/timeline sync: \(syncFound ? String(format: "marker found, offset %.2f s", offset) : syncEstimated ? String(format: "marker not found; aligned by the end (offset %.2f s), about ±0.5 s", offset) : hasVideo ? "marker NOT found; times may be off by a few seconds" : "no video")\n"
 md += "- Times below are timeline times (mm:ss.s). Frames are 600 px wide; red rings are touches within 0.35 s. The recorder's own pill (\(chrome.map { "x \(Int($0.minX)) y \(Int($0.minY)) \(Int($0.width))×\(Int($0.height)) pt" } ?? "position unknown")) is not app UI.\n\n"
 md += "## Signals (\(signals.count))\n\n"
 md += signals.isEmpty ? "None detected from the timeline. Review the screens below for visual problems.\n" :

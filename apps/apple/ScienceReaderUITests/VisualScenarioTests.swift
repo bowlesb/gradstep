@@ -21,6 +21,11 @@ final class VisualScenarioTests: XCTestCase {
         [
             "library": Scenario(arguments: ["--workflow-fixture"]) { _ in },
             "feed": Scenario(arguments: ["--workflow-fixture"]) { app in app.buttons["tab.feed"].tap(); sleep(1) },
+            "library-search": Scenario(arguments: ["--workflow-fixture"]) { app in
+                let search = app.searchFields.firstMatch
+                XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("attention")
+                sleep(1)
+            },
             "paper": Scenario(arguments: ["--workflow-fixture"]) { app in self.openSample(app) },
             "paper-contents": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.openSample(app)

@@ -204,16 +204,6 @@ struct LibraryView: View {
                         }.frame(minHeight: 44).contentShape(Rectangle())
                     }.padding(.horizontal, 16).padding(.vertical, 4).background(Color.accentColor.opacity(0.06))
                 }
-                HStack {
-                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }.pickerStyle(.segmented).frame(maxWidth: 220)
-                    Spacer()
-                    Menu { Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") } } label: { Image(systemName: "arrow.up.arrow.down").font(.system(size: 18)).frame(width: 44, height: 44) }.accessibilityLabel("Sort papers")
-                        .disabled(model.searchExternal)
-                    Menu {
-                        Toggle("Abstracts", isOn: $model.showAbstracts)
-                        Toggle("Topics", isOn: $model.showTopics)
-                    } label: { Image(systemName: "text.alignleft").font(.system(size: 18)).frame(width: 44, height: 44) }.accessibilityLabel("Result details").disabled(model.searchExternal)
-                }.padding(.horizontal, 16).padding(.vertical, 10)
                 if !model.searchExternal, let issue = model.libraryIssue {
                     HStack(alignment: .firstTextBaseline) {
                         Text(issue).font(.caption).foregroundStyle(.secondary)
@@ -321,11 +311,29 @@ struct LibraryView: View {
             }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: model.searchExternal ? "Search arXiv" : "Search your library")
+            // While searching, the bar's own controls are hidden: the same switch appears under the field.
+            .searchScopes($model.searchExternal, activation: .onSearchPresentation) { Text("Library").tag(false); Text("arXiv").tag(true) }
             .onSubmit(of: .search) { if model.searchExternal { model.runDiscovery() } }
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
             .toolbar {
+                // Owner feedback (session 2026-10-05): the Library/arXiv switch takes the title's place
+                // (the tab bar already says Library) and sort/details share one menu, so the list starts
+                // right under the search field instead of below a separate row.
+                ToolbarItem(placement: .principal) {
+                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }
+                        .pickerStyle(.segmented).frame(width: 190)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") }
+                        Divider()
+                        Toggle("Abstracts", isOn: $model.showAbstracts)
+                        Toggle("Topics", isOn: $model.showTopics)
+                    } label: { Image(systemName: "line.3.horizontal.decrease") }
+                    .accessibilityLabel("Sort and details").disabled(model.searchExternal)
+                }
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
