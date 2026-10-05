@@ -349,6 +349,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["This diagram couldn’t be drawn."].exists)
         capture(app, "Diagram drawn from an answer")
         app.buttons["Done"].tap()
+        // The tab bar sits behind the software keyboard, as with system tab bars.
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5))
         app.buttons["tab.library"].tap()
         app.buttons["Library options"].tap()
         app.buttons["All diagrams"].tap()
@@ -388,7 +391,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["chat.send"].tap()
         let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 10))
-        if app.keyboards.count > 0 { app.tables["chat.transcript"].swipeDown() }
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
         try audit("Chat")
         open.tap()
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["Softmax"].waitForExistence(timeout: 10))

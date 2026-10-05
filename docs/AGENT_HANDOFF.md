@@ -19,8 +19,11 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   the encrypted offline store, streaming paid chat with consent, native math in chat (SwiftMath with a LaTeX
   normalizer), Ingest (adds the cited arXiv paper), diagrams from answers (encrypted, drawn on device with bundled
   Mermaid), reader layout fixes for real papers (aligned derivations, pinned equation numbers, no sideways page
-  scroll), credits in Settings. Existing navigation is preserved. The live journey passes on iPhone and iPad
-  Simulators.
+  scroll), credits in Settings, app icon (legacy artwork) and privacy manifest. Existing navigation is preserved;
+  the compact tab bar now sits behind the software keyboard like a system tab bar. The live journey passes on
+  iPhone and iPad Simulators; Release and Internal device builds compile (unsigned).
+- **Built but off**: Anthropic web search in chat (`CHAT_WEB_SEARCH`, `infra/staging.json` `chat_web_search`) —
+  waiting on owner decisions (consent copy, clickable citations, larger hold); see DECISIONS.
 - **Admin**: MFA dashboard with budgets, provider usage and a Processing tab (papers, paid attempts).
 
 ## How to verify / operate
@@ -32,8 +35,13 @@ swift test --package-path apps/apple/ScienceReaderCore
 python3 scripts/deploy-staging.py staging [--skip-migrations] [--functions NAME ...]
 python3 scripts/pipeline-ops.py status|budget --usd N|enable|disable|grant|resolve|kick
 node scripts/smoke-pipeline.mjs [--arxiv=ID] [--question=...|none]   # API journey, small paid cost
-node scripts/live-journey.mjs [--arxiv=ID --title=T --search=Q --question=...]  # Simulator journey
+node scripts/live-journey.mjs [--arxiv=ID --title=T --search=Q --question=...] [--device=SIM-ID]  # Simulator journey
+node scripts/vendor-mermaid.mjs                   # re-vendor the hash-pinned Mermaid build into the app
+TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test … -only-testing:ScienceReaderUITests/WorkflowJourneyTests/testAccessibilityAuditOfMainScreens
 ```
+
+If several rotation-based iPad UI tests fail together, reboot the iPad Simulator (`xcrun simctl shutdown/boot`)
+before suspecting code; don't run `xcodegen generate` while a test run is using the project.
 
 Function deploys occasionally fail with a Supabase-side HTTP 500; retry. The journey scripts create
 synthetic `@example.invalid` accounts with operator credit grants and keep them for inspection

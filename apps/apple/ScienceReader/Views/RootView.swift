@@ -4,6 +4,9 @@ import ScienceReaderCore
 struct RootView: View {
     @Bindable var model: ReaderModel
     @Environment(\.scenePhase) private var scenePhase
+    /// A software keyboard covers the tab bar, as with the system tab bar, so
+    /// the chat transcript keeps its space while typing.
+    @State private var softwareKeyboardShown = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -11,35 +14,45 @@ struct RootView: View {
             else {
                 VStack(spacing: 0) {
                     destination(model.tab)
-                    HStack(spacing: 0) {
-                        ForEach(ReaderTab.allCases) { tab in
-                            Button {
-                                model.tab = tab
-                                // Keep the selected destination when an iPad
-                                // rotates from tabs into the wider layout.
-                                switch tab {
-                                case .feed: model.wideMode = .feed
-                                case .library: model.wideMode = .library
-                                case .paper: model.wideMode = .reader
-                                case .chat: model.wideMode = model.generalChat ? .chat : .reader
-                                case .settings: break
+                    if !softwareKeyboardShown {
+                        HStack(spacing: 0) {
+                            ForEach(ReaderTab.allCases) { tab in
+                                Button {
+                                    model.tab = tab
+                                    // Keep the selected destination when an iPad
+                                    // rotates from tabs into the wider layout.
+                                    switch tab {
+                                    case .feed: model.wideMode = .feed
+                                    case .library: model.wideMode = .library
+                                    case .paper: model.wideMode = .reader
+                                    case .chat: model.wideMode = model.generalChat ? .chat : .reader
+                                    case .settings: break
+                                    }
+                                } label: {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: tab.symbol).font(.system(size: 20))
+                                        Text(tab.rawValue).font(.caption2).lineLimit(1).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                                    }
+                                    .frame(maxWidth: .infinity).frame(minHeight: 49)
+                                    .foregroundStyle(model.tab == tab ? Color.accentColor : Color.secondary)
                                 }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: tab.symbol).font(.system(size: 20))
-                                    Text(tab.rawValue).font(.caption2).lineLimit(1).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                                }
-                                .frame(maxWidth: .infinity).frame(minHeight: 49)
-                                .foregroundStyle(model.tab == tab ? Color.accentColor : Color.secondary)
+                                .disabled(tab == .paper && model.selectedPaper == nil)
+                                .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
+                                .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
+                                .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                                .accessibilityShowsLargeContentViewer { Label(tab.rawValue, systemImage: tab.symbol) }
                             }
-                            .disabled(tab == .paper && model.selectedPaper == nil)
-                            .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
-                            .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
-                            .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
-                            .accessibilityShowsLargeContentViewer { Label(tab.rawValue, systemImage: tab.symbol) }
                         }
+                        .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
                     }
-                    .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+                    // A hardware keyboard's shortcut bar is short; keep the tabs then.
+                    let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                    softwareKeyboardShown = (frame?.height ?? 0) > 150
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    softwareKeyboardShown = false
                 }
                 .onChange(of: model.generalChat) { _, general in
                     if model.tab == .chat { model.wideMode = general ? .chat : .reader }
