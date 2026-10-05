@@ -24,9 +24,16 @@ search), a **research Feed** of the newest papers in the library's own arXiv cat
 **native math in chat** (SwiftMath; headings, lists, code/tables), **live import progress** (bounded
 polling while converting), and a **stale chat-hold sweep** (migration 015).
 
+An independent security review of the new functions, SQL and app paths found no cross-account access and
+no way to spend another account's credits; its five findings were fixed (true chat cost reaches the budget
+freeze, download admission with storage/owner quotas — migration 016, inert links in chat answers,
+secret-safe Vault writes with the pipeline secret rotated, tighter per-account search rate). A real-paper
+renderer bug (equation order in table captions, Mamba) was found by the Simulator journey and fixed; the
+failed paper resumed at render on Retry with no second charge.
+
 Design and failure handling: [paper pipeline](architecture/PAPER_PIPELINE.md), [chat](architecture/CHAT.md),
-[reader renderer](architecture/READER_RENDERER.md). Migration `202610050014_paper_pipeline.sql` is applied
-to staging (hash in the ledger; immutable from now on). Two independent adversarial reviews of the money and
+[reader renderer](architecture/READER_RENDERER.md). Migrations `202610050014_paper_pipeline.sql`, `…015_stale_chat_holds.sql` and `…016_download_admission.sql`
+are applied to staging (hash in the ledger; immutable from now on). Two independent adversarial reviews of the money and
 concurrency design were completed and their findings fixed before it was applied.
 
 ## Verified locally
