@@ -34,6 +34,11 @@ the answer and an entry in All diagrams; the source is stored encrypted on devic
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
 the chat fixture.
 
+**Real papers verified on staging** (converted, validated, audited in WebKit at iPhone and iPad widths with the
+app's reader script): DPO, LoRA, Mamba, Mistral 7B, Adam, PPO, Attention Is All You Need, DDPM, ViT, BERT, Scaling
+Laws, Chain-of-Thought — no render failures, no page-level sideways scrolling, every equation fits at iPad width.
+Known cosmetic issue: WebKit places bar/hat accents on italic letters slightly left (no TeX skew).
+
 **Reader quality on real papers**: aligned derivations now align (WebKit ignores `mtable` column alignment),
 equation numbers stay visible, wide math fits or scrolls in its own box instead of the whole page scrolling
 sideways (4 of 6 papers on iPhone), and sentences split by page breaks are rejoined in new conversions. See
@@ -72,8 +77,8 @@ capability and six-digit email-code settings configured (real provider sign-in s
 ## Spending (2026-10-04/05 overnight, staging)
 
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded by 2026-10-05 01:15 PDT: $1.50 of provider spend for October (about $0.69 Mathpix for seven
-conversions, about $0.82 Anthropic for answers and Ingest tests), nothing reserved.
+Recorded by 2026-10-05 02:10 PDT: $2.67 of provider spend for October (Mathpix for twelve conversions and
+Anthropic for answers, Ingest, diagram and web-search tests), nothing reserved; well under the $10 overnight cap.
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
 ## Still required
