@@ -13,10 +13,13 @@ Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pip
 2. **Claim.** `worker_pipeline_claim` picks one due paper with `FOR UPDATE SKIP LOCKED`, bumps its
    generation and leases it. Every stage function verifies `(claim id, generation, unexpired lease)`.
 3. **Metadata.** Atom + OAI arXivRaw (globally spaced 3 s apart via `worker_pipeline_arxiv_slot`).
-   CC BY 4.0 / CC0 papers are eligible for the shared catalog. Others currently end `source_only`
-   (planned: per-account private conversions — see DECISIONS).
-4. **Download.** `https://arxiv.org/pdf/<id>v<rev>`, bounded to 64 MiB, page count via pdf-lib
-   (~100 ms for a 40 MB PDF), stored at `paper-assets/originals/<sha256>.pdf`. Identical bytes
+   CC BY 4.0 / CC0 papers are eligible for the shared catalog. Others split into one private
+   conversion per interested account (`private_split`: `owner_private` document under
+   `private/<owner>/`, owner-funded OCR, never shared; see DECISIONS).
+4. **Download.** `worker_pipeline_admit_download` first (environment storage cap 5 GiB / 50k objects,
+   1 GiB of private originals per owner, private downloads need available credits). Then
+   `https://arxiv.org/pdf/<id>v<rev>`, bounded to 64 MiB, page count via pdf-lib (~100 ms for a 40 MB
+   PDF), stored at `paper-assets/[private/<owner>/]originals/<sha256>.pdf`. Identical bytes
    from any slot reuse an existing reader without another charge.
 5. **Fund.** `page_limit = min(pages, 80)`. The first interested account with credits gets a hold of
    `page_limit × 1` credits and `page_limit × $0.005` of platform budget (`worker_reserve_operation`).
@@ -29,7 +32,8 @@ Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pip
    `output.mmd.zip`, `lines.json` and a canonical raw manifest under `raw/<manifest sha>/`. Settle on
    processed pages (`lines.json`), capped at the hold; record `provider_usage_events`.
    Provider-reported failure settles 0 credits to the customer (cost still counted).
-8. **Render.** MathML reader bundle (`timestep-mathpix-mathml-v1`) from the archived MMD and images,
+8. **Render.** MathML reader bundle (`timestep-mathpix-mathml-v1`) from the archived MMD and images
+   (sentences split at page breaks are rejoined first; see READER_RENDERER),
    stored under `reader/<manifest sha>/`; `worker_pipeline_published` creates the render artifact and
    marks it available.
 9. **Resolve.** `worker_pipeline_sync_imports` (separate transaction, never holding the paper row)

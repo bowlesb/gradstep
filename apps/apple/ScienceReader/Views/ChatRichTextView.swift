@@ -87,7 +87,8 @@ struct ChatRichTextView: View {
         let key = "\(display ? "d" : "i")|\(Int(size * 10))|\(dark ? 1 : 0)|\(latex)" as NSString
         if let hit = cache.object(forKey: key) { return hit.value }
         let color: UIColor = dark ? .white : .black
-        var image = MathImage(latex: latex, fontSize: CGFloat(size), textColor: color, labelMode: display ? .display : .text)
+        var image = MathImage(latex: ChatMathTypesetting.prepare(latex), fontSize: CGFloat(size), textColor: color,
+                              labelMode: display ? .display : .text)
         let (error, rendered, layout) = image.asImage()
         let value: Rendered? = (error == nil && rendered != nil && (rendered!.size.width) > 0)
             ? Rendered(image: rendered!, descent: layout?.descent ?? 0) : nil

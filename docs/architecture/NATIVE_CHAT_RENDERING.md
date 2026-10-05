@@ -1,12 +1,17 @@
 # Native chat formatting
 
-Status, 2026-10-04: **The combined source → bounded typesetter → validated DOM/copy
-proof passes browser and macOS WebKit checks. No rich-chat renderer is integrated.** The native
-transcript displays saved source
-through SwiftUI text in a self-sizing `UITableView`. Its completed-turn scrolling,
-keyboard, selection and encrypted-restart journeys already have regression
-evidence. Saved equation questions still expose raw LaTeX. This document plans
-that formatting gap without changing storage, navigation or cloud processing.
+## Implemented (2026-10-05)
+
+Chat messages render natively: `ChatRichText` (Core) parses Markdown-like blocks (paragraphs, headings, lists,
+fenced code/tables as monospaced text, inert links) with inline `\( \)`/`$ $` and display `\[ \]`/`$$ $$` math;
+`ChatRichTextView` typesets math with SwiftMath 1.7.3 (CoreText, Latin Modern Math), scaling wide display equations
+to fit. Stored text is never changed. `ChatMathTypesetting.prepare` first rewrites LaTeX SwiftMath cannot parse into
+supported equivalents (`\operatorname`→`\mathrm`, `\boldsymbol`→`\bm`, `\dfrac`→`\frac`, sizing commands dropped,
+`\underset`/`\overset` as scripts, `align*`→`aligned` with two columns per row, `gather`/`array`→`matrix`,
+`\tag`, Unicode for `\triangleq`/`\lesssim`/…). Measured with SwiftMath's parser: 57 of 904 distinct equations
+from six real papers (6.3%) fell back to source before; 0 after. Anything still unsupported shows its source.
+
+The plan below (WebKit typesetter) is superseded and kept for history.
 
 ## First proof and decision boundary
 

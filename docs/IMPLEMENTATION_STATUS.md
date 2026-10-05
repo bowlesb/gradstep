@@ -75,8 +75,9 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
 
 - **Real sign-in**: Apple/Google provider journeys and email-code delivery (needs a dedicated SMTP sender);
   new signups are still disabled. Simulator tests use a Debug-only synthetic-account hook.
-- **Chat polish**: formulas SwiftMath cannot typeset fall back to LaTeX source; tables render as
-  monospaced text; long papers raise the per-question hold (context is the whole paper's MMD).
+- **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
+  whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first (0 of 904 real-paper equations
+  fall back, from 57).
 - **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
   better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
