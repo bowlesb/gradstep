@@ -17,6 +17,12 @@ hosted staging (`coxhjvqpflgxkleydati`) with real arXiv, Mathpix and Anthropic c
 | Authorized download + verification | `reader-artifact` signed URLs; every member hash checked; installed through the encrypted offline store |
 | In-app reading | Simulator: converted paper listed with real metadata, opened offline, title/authors/abstract and the real table of contents |
 | Paid answer | `chat` streamed a correct, equation-citing answer about DPO (26 credits) and about LoRA |
+| Full Simulator journey | `LiveJourneyTests` passed: synthetic sign-in + recovery code, add, convert, download, read offline, consent, paid streamed answer with typeset math, terminate/relaunch, reader and saved answer intact |
+
+Also added overnight: **arXiv search** in the Library's arXiv segment (originals ranked first, Add stays in
+search), a **research Feed** of the newest papers in the library's own arXiv categories (derived on device),
+**native math in chat** (SwiftMath; headings, lists, code/tables), **live import progress** (bounded
+polling while converting), and a **stale chat-hold sweep** (migration 015).
 
 Design and failure handling: [paper pipeline](architecture/PAPER_PIPELINE.md), [chat](architecture/CHAT.md),
 [reader renderer](architecture/READER_RENDERER.md). Migration `202610050014_paper_pipeline.sql` is applied
@@ -51,8 +57,10 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
 
 - **Real sign-in**: Apple/Google provider journeys and email-code delivery (needs a dedicated SMTP sender);
   new signups are still disabled. Simulator tests use a Debug-only synthetic-account hook.
-- **Chat polish**: math in chat bubbles currently shows LaTeX source (`\(...\)`); rich math rendering,
-  Markdown tables/code, and a long-paper context strategy (holds scale with paper length).
+- **Chat polish**: formulas SwiftMath cannot typeset fall back to LaTeX source; tables render as
+  monospaced text; long papers raise the per-question hold (context is the whole paper's MMD).
+- **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
+  better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
   paper assets, independent backups, admin hosting, production environment.
 - **Product**: StoreKit subscriptions and allowances, TestFlight, browser reader, iPad/accessibility passes
