@@ -30,6 +30,8 @@ execFileSync('xcodegen', ['generate'], { cwd: new URL('apps/apple/', root), stdi
 // Start from a clean install: the Keychain session of an earlier synthetic
 // account must not carry into this run.
 try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.ios'], { stdio: 'ignore' }); } catch { /* not installed */ }
+// Keychain items survive app deletion on the Simulator; reset them too.
+try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch { /* older simctl */ }
 const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
   '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, '-only-testing:ScienceReaderUITests/LiveJourneyTests',
