@@ -94,7 +94,10 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertTrue(heading.waitForExistence(timeout: 30))
         capture(app, "Downloaded reader")
         app.buttons["Table of contents"].tap()
-        sleep(1); capture(app, "Contents"); app.swipeDown()
+        sleep(1); capture(app, "Contents")
+        let done = app.buttons["Done"]
+        if done.waitForExistence(timeout: 5) { done.tap() }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: done)], timeout: 10), .completed)
 
         if let question {
             app.buttons["tab.chat"].tap()
