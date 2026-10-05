@@ -82,7 +82,7 @@ test('metadata → download → fund → submit in one claim, then sync and rele
   const digest = await sha256(original);
   const posted: unknown[] = [];
   const { deps, calls, uploads } = harness({
-    worker_pipeline_arxiv_slot: () => 0,
+    worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }),
     worker_pipeline_metadata: p => { assert.equal(p.p_eligible, true); assert.equal(p.p_revision, 3);
       assert.equal((p.p_metadata as { title: string }).title.startsWith('Direct Preference Optimization'), true);
       assert.equal(p.p_license_uri, 'https://creativecommons.org/licenses/by/4.0/'); return entry('download'); },
@@ -125,7 +125,7 @@ test('polling defers until complete, then captures raw output and settles on pro
   const pending = harness({ worker_pipeline_defer: p => { assert.equal(p.p_seconds, 4); return entry('ocr_wait'); } }, {
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'split', pages: 30, completedPages: 3, pipelineVersion: null, deleted: false, errorCode: null }; } } });
   await processPaper(pending.deps, waiting, policy, deadline);
-  assert.deepEqual(names(pending.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_defer']);
+  assert.deepEqual(names(pending.calls), ['worker_pipeline_heartbeat', 'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
 
   const lines = new TextEncoder().encode(JSON.stringify({ pages: Array.from({ length: 30 }, (_, i) => ({ page: i + 1 })) }));
   let collected: Record<string, unknown> = {};
@@ -148,17 +148,17 @@ test('provider error settles without customer charge via ocr_failed', async () =
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'error', pages: 5, completedPages: 2, pipelineVersion: null, deleted: false, errorCode: 'x' }; } } });
   await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
     attempt: { id: 'a', state: 'submitted', page_limit: 5, provider_job_id: 'job-2', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
-  assert.deepEqual(names(calls), ['worker_pipeline_ocr_failed', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.deepEqual(names(calls), ['worker_pipeline_heartbeat', 'worker_pipeline_ocr_failed', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
 
 test('transient errors back off; repeated failures fail resumably; lost claims do nothing', async () => {
-  const transient = harness({ worker_pipeline_arxiv_slot: () => 0, worker_pipeline_defer: p => p }, {
+  const transient = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, {
     fetch: (async () => new Response('busy', { status: 503 })) as unknown as typeof fetch });
   await processPaper(transient.deps, entry('download'), policy, deadline);
   const defer = transient.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
   assert.equal(defer.p_fail, false); assert.equal(defer.p_seconds, 30); assert.equal(defer.p_error_code, 'rate_limited');
 
-  const exhausted = harness({ worker_pipeline_arxiv_slot: () => 0, worker_pipeline_defer: p => p }, {
+  const exhausted = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, {
     fetch: (async () => new Response('busy', { status: 503 })) as unknown as typeof fetch });
   await processPaper(exhausted.deps, entry('download', { failures: 4 }), policy, deadline);
   const failed = exhausted.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
@@ -170,7 +170,7 @@ test('transient errors back off; repeated failures fail resumably; lost claims d
     attempt: { id: 'a', state: 'submitted', page_limit: 5, provider_job_id: 'job-3', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
   assert.equal(polling.calls.find(c => c.name === 'worker_pipeline_defer')!.params.p_fail, false, 'a held OCR job keeps polling');
 
-  const stale = harness({ worker_pipeline_arxiv_slot: () => 0, worker_pipeline_metadata: () => { throw new PipelineRPCError('stale_pipeline_claim'); } }, {
+  const stale = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_metadata: () => { throw new PipelineRPCError('stale_pipeline_claim'); } }, {
     fetch: (async (url: string) => new Response(url.includes('export') ? atom : oai)) as unknown as typeof fetch });
   await processPaper(stale.deps, entry('metadata', { revision: null }), policy, deadline);
   assert.ok(!names(stale.calls).includes('worker_pipeline_defer'));
@@ -190,7 +190,7 @@ test('sync-only claims run no stage; arXiv pacing defers instead of sleeping lon
   await processPaper(syncOnly.deps, entry('ocr_wait', { due: false }), policy, deadline);
   assert.deepEqual(names(syncOnly.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
   let slept = 0;
-  const paced = harness({ worker_pipeline_arxiv_slot: () => 90_000, worker_pipeline_defer: p => p }, { async sleep(ms) { slept += ms; } });
+  const paced = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: false, wait_ms: 90_000 }), worker_pipeline_defer: p => p }, { async sleep(ms) { slept += ms; } });
   await processPaper(paced.deps, entry('download'), policy, deadline);
   const defer = paced.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
   assert.equal(slept, 0); assert.equal(defer.p_seconds, 90); assert.equal(defer.p_fail ?? false, false); assert.equal(defer.p_error_code, undefined);
@@ -235,4 +235,41 @@ test('a billed job id is recorded even when the first record attempt fails', asy
     attempt: { id: 'a', state: 'funded', page_limit: 2, provider_job_id: null, submitted_at: null, raw_manifest_path: null } }), policy, deadline);
   assert.equal(tries, 3);
   assert.deepEqual(names(calls).slice(-2), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
+});
+
+test('render stage turns real retained Mathpix output into a valid reader bundle (DPO)', async (t) => {
+  const dir = '/Users/benbowlwes/science-reader/.artifacts/spike-2305.18290';
+  if (!existsSync(`${dir}/output.mmd.zip`)) { t.skip('real Mathpix capture not present'); return; }
+  const { renderReader } = await import('../../supabase/functions/_shared/reader-adapter.ts');
+  const { validateReaderBundle } = await import('../../supabase/functions/_shared/reader/index.ts');
+  const members = new Map([['standalone.mmd', new Uint8Array(readFileSync(`${dir}/standalone.mmd`))],
+    ['output.mmd.zip', new Uint8Array(readFileSync(`${dir}/output.mmd.zip`))], ['lines.json', new Uint8Array(readFileSync(`${dir}/lines.json`))]]);
+  const ids: Record<string, { bytes: number; sha256: string }> = {};
+  for (const [name, bytes] of members) ids[name] = { bytes: bytes.length, sha256: await sha256(bytes) };
+  const manifest = new TextEncoder().encode(JSON.stringify({ format: RAW_FORMAT, provider: 'mathpix', provider_job_id: 'cc092181-9d12-4eb3-b5de-d2ca288fc556',
+    api: 'v3/pdf', options_sha256: 'a'.repeat(64), page_limit: 27, pages: 27, document_sha256: 'b'.repeat(64), members: ids }) + '\n');
+  const manifestSHA = await sha256(manifest);
+  let published: Record<string, unknown> = {};
+  const { deps, uploads } = harness({ worker_pipeline_published: p => { published = p; return entry('done'); } }, { render: renderReader });
+  uploads.set(`raw/${manifestSHA}/manifest.json`, manifest);
+  for (const [name, bytes] of members) uploads.set(`raw/${manifestSHA}/${name}`, bytes);
+  await processPaper(deps, entry('render', { document_sha256: 'b'.repeat(64), page_count: 27, title: 'Direct Preference Optimization', authors: ['Rafael Rafailov'],
+    license_uri: 'https://creativecommons.org/licenses/by/4.0/', raw_manifest_path: `raw/${manifestSHA}/manifest.json`, attempt: null }), policy, deadline);
+  const bundleSHA = String(published.p_manifest_sha256).slice(2);
+  assert.match(bundleSHA, /^[0-9a-f]{64}$/);
+  const prefix = `reader/${bundleSHA}/`;
+  const bundleMembers = new Map([...uploads].filter(([k]) => k.startsWith(prefix) && k !== `${prefix}manifest.json`).map(([k, v]) => [k.slice(prefix.length), v]));
+  validateReaderBundle(uploads.get(`${prefix}manifest.json`)!, bundleMembers, bundleSHA);
+  const notice = new TextDecoder().decode(bundleMembers.get('NOTICE.txt'));
+  assert.match(notice, /Direct Preference Optimization/); assert.match(notice, /creativecommons\.org\/licenses\/by\/4\.0/);
+  assert.ok([...bundleMembers.keys()].some(k => k.endsWith('.jpg')), 'JPEG figures published');
+});
+
+test('a job the provider no longer knows fails (hold settles) instead of polling forever', async () => {
+  const { MathpixError } = await import('../../supabase/functions/_shared/mathpix.ts');
+  const { deps, calls } = harness({ worker_pipeline_ocr_failed: p => { assert.equal(p.p_pages_billed, 6); return entry('failed'); } }, {
+    mathpix: { ...harness({}).deps.mathpix, async status() { throw new MathpixError('provider_http_failure', 404); } } });
+  await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
+    attempt: { id: 'a', state: 'submitted', page_limit: 6, provider_job_id: 'job-typo', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
+  assert.ok(names(calls).includes('worker_pipeline_ocr_failed'));
 });

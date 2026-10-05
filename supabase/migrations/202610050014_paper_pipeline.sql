@@ -201,6 +201,9 @@ create function app_private.pipeline_entry(p app_private.pipeline_papers) return
   'owner_id',p.owner_id,'stage',p.stage,'error_code',p.error_code,'generation',p.generation,'claim_id',p.claim_id,'state_revision',p.state_revision,
   'metadata_id',p.metadata_id,'eligible',p.eligible,'document_id',p.document_id,'original_object_id',p.original_object_id,
   'approval_id',p.approval_id,'page_count',p.page_count,'artifact_id',p.artifact_id,'failures',p.failures,'ocr_run_id',p.ocr_run_id,
+  'license_uri',p.license_uri,
+  'title',(select cm.metadata->>'title' from app_private.catalog_metadata cm where cm.id=p.metadata_id),
+  'authors',(select cm.metadata->'authors' from app_private.catalog_metadata cm where cm.id=p.metadata_id),
   'due',p.stage in ('metadata','private_split','download','ocr_fund','ocr_submit','ocr_wait','render') and p.next_attempt_at<=clock_timestamp(),
   'document_sha256',(select encode(d.sha256,'hex') from app_private.documents d where d.id=p.document_id),
   'original_path',(select o.path from app_private.stored_objects o where o.id=p.original_object_id),
@@ -266,15 +269,26 @@ begin
  return app_private.pipeline_entry(p);
 end $$;
 
--- Global arXiv politeness: returns how many milliseconds this caller must wait
--- before its single request. Each call reserves the next slot.
-create function public.worker_pipeline_arxiv_slot() returns integer language plpgsql security definer set search_path='' as $$
-declare slot timestamptz; spacing integer;
+-- Global arXiv politeness. Reserves p_slots consecutive request slots only if
+-- the first is within p_max_wait_ms; otherwise reserves nothing, so deferred
+-- papers never push the queue forward. Returns {reserved, wait_ms}.
+create function public.worker_pipeline_arxiv_slot(p_slots integer default 1,p_max_wait_ms integer default 45000) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare pol app_private.pipeline_policy; first timestamptz; wait_ms integer;
 begin
- update app_private.pipeline_policy set arxiv_next_request_at=greatest(arxiv_next_request_at,clock_timestamp())+make_interval(secs=>arxiv_spacing_ms/1000.0)
-  where singleton returning arxiv_next_request_at,arxiv_spacing_ms into slot,spacing;
- return greatest(0,ceil(extract(epoch from (slot-make_interval(secs=>spacing/1000.0)-clock_timestamp()))*1000))::integer;
+ if p_slots not between 1 and 4 or p_max_wait_ms not between 0 and 600000 then raise exception 'invalid_slot_request'; end if;
+ select * into strict pol from app_private.pipeline_policy where singleton for update;
+ first:=greatest(pol.arxiv_next_request_at,clock_timestamp());
+ wait_ms:=greatest(0,ceil(extract(epoch from (first-clock_timestamp()))*1000))::integer;
+ if wait_ms>p_max_wait_ms then return jsonb_build_object('reserved',false,'wait_ms',wait_ms); end if;
+ update app_private.pipeline_policy set arxiv_next_request_at=first+make_interval(secs=>p_slots*pol.arxiv_spacing_ms/1000.0) where singleton;
+ return jsonb_build_object('reserved',true,'wait_ms',wait_ms,'spacing_ms',pol.arxiv_spacing_ms);
 end $$;
+
+-- Fenced lease renewal for long provider polling.
+create function public.worker_pipeline_heartbeat(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns void
+language plpgsql security definer set search_path='' as $$
+begin perform app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation); end $$;
 
 -- Releases the claim with a delay. Failing is allowed only in stages that hold
 -- no provider work (paid stages have their own explicit exits).
@@ -356,7 +370,9 @@ begin
    values(link.account_id,p.source_id,p.requested_revision,p.revision,p.metadata_id,false,p.license_uri,'download')
    on conflict(owner_id,source_id,requested_revision) where owner_id is not null do nothing;
   select id into strict private from app_private.pipeline_papers where owner_id=link.account_id and source_id=p.source_id and requested_revision=p.requested_revision;
-  update app_private.pipeline_imports set paper_id=private,synced_revision=0,next_sync_at=now() where account_id=link.account_id and import_id=link.import_id;
+  update app_private.pipeline_imports set paper_id=private,synced_revision=0,next_sync_at=now(),
+   retry_requested=exists(select 1 from app_private.pipeline_papers where id=private and stage in ('failed','needs_credits') and resume_stage is not null)
+   where account_id=link.account_id and import_id=link.import_id;
   moved:=moved+1;
  end loop;
  return moved;
@@ -443,6 +459,13 @@ begin
   perform app_private.pipeline_set_stage(p.id,'render');
   select * into p from app_private.pipeline_papers where id=p.id;
   return app_private.pipeline_entry(p)||jsonb_build_object('funding','reused_raw');
+ end if;
+ -- Deterministic provider failures are not retried at platform cost forever.
+ if (select count(*) from app_private.ocr_attempts where document_id=p.document_id and state='failed'
+  and error_code in ('conversion_failed','conversion_timeout'))>=2 then
+  perform app_private.pipeline_set_stage(p.id,'failed','conversion_failed');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','refused');
  end if;
  if exists(select 1 from app_private.ocr_attempts where document_id=p.document_id and state in ('funded','submitting','submitted','uncertain')) then
   -- Another source slot is converting identical bytes; wait for it.
@@ -576,7 +599,8 @@ begin
  if paper is null then raise exception 'attempt_unavailable'; end if;
  select * into strict p from app_private.pipeline_papers where id=paper for no key update;
  select * into strict x from app_private.ocr_attempts where id=p_attempt_id for update;
- if x.state<>'uncertain' or (p_provider_job_id is null and (p_pages_billed is null or p_pages_billed not between 0 and 250)) then raise exception 'invalid_resolution'; end if;
+ if x.state not in ('uncertain','submitted') or (p_provider_job_id is null and (p_pages_billed is null or p_pages_billed not between 0 and 250))
+  or (p_provider_job_id is not null and x.state<>'uncertain') then raise exception 'invalid_resolution'; end if;
  if p_provider_job_id is not null then
   update app_private.ocr_attempts set state='submitted',provider_job_id=p_provider_job_id,error_code=null where id=x.id;
   perform app_private.pipeline_set_stage(p.id,'ocr_wait');
@@ -674,14 +698,28 @@ end $$;
 create function public.worker_pipeline_sync_imports(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns integer
 language plpgsql security definer set search_path='' as $$
 declare p app_private.pipeline_papers; link record; i app_private.import_requests; s bigint; changed integer:=0; target text; err text; retry boolean;
+ acct uuid; ready uuid[]:='{}';
 begin
  select * into p from app_private.pipeline_papers where id=p_paper_id;
  if not found or p.claim_id is distinct from p_claim_id or p.generation is distinct from p_generation or p.lease_until<=clock_timestamp()
  then raise exception 'stale_pipeline_claim'; end if;
- perform 1 from app_private.accounts where id in (select account_id from app_private.pipeline_imports where paper_id=p.id and synced_revision<p.state_revision)
-  and closed_at is null order by id for no key update;
+ -- Customer library writes take rate windows (environment, then account) before
+ -- the account row. Follow the same order: windows for every link account, then
+ -- the accounts in id order. A throttled account backs off and is skipped.
+ for acct in select distinct pi.account_id from app_private.pipeline_imports pi where pi.paper_id=p.id and pi.synced_revision<p.state_revision
+  and pi.next_sync_at<=clock_timestamp() order by pi.account_id loop
+  begin
+   perform public.worker_consume_request(acct,'library-write');
+   ready:=ready||acct;
+  exception when others then
+   update app_private.pipeline_imports set sync_failures=sync_failures+1,
+    next_sync_at=clock_timestamp()+make_interval(secs=>least(3600,15*power(2,least(sync_failures,8))::integer))
+    where paper_id=p.id and account_id=acct;
+  end;
+ end loop;
+ perform 1 from app_private.accounts where id=any(ready) and closed_at is null order by id for no key update;
  for link in select pi.* from app_private.pipeline_imports pi where pi.paper_id=p.id and pi.synced_revision<p.state_revision
-  and pi.next_sync_at<=clock_timestamp() order by pi.account_id,pi.import_id loop
+  and pi.account_id=any(ready) order by pi.account_id,pi.import_id loop
   begin
    select * into i from app_private.import_requests where account_id=link.account_id and id=link.import_id;
    if i.desired_present and i.phase in ('accepted','resolving','acquiring') then
@@ -852,7 +890,7 @@ revoke all on all tables in schema app_private from public,anon,authenticated,se
 revoke all on all functions in schema app_private from public,anon,authenticated,service_role;
 do $$ declare f text; begin
  for f in select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-  where n.nspname='public' and p.proname in ('worker_pipeline_claim','worker_pipeline_arxiv_slot','worker_pipeline_defer','worker_pipeline_release',
+  where n.nspname='public' and p.proname in ('worker_pipeline_claim','worker_pipeline_arxiv_slot','worker_pipeline_heartbeat','worker_pipeline_defer','worker_pipeline_release',
    'worker_pipeline_metadata','worker_pipeline_split_private','worker_pipeline_original','worker_pipeline_fund','worker_pipeline_begin_submit','worker_pipeline_abandon_funding','worker_pipeline_submitted','worker_pipeline_resolve_uncertain',
    'worker_pipeline_collected','worker_pipeline_ocr_failed','worker_pipeline_published','worker_pipeline_sync_imports','worker_reader_descriptor',
    'worker_chat_context','worker_record_provider_usage','worker_set_platform_budget','worker_set_pipeline_enabled','worker_pipeline_policy') loop

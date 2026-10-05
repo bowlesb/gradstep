@@ -27,8 +27,10 @@ select public.worker_pipeline_claim(:'claim') as entry \gset
 select (:'entry'::jsonb->>'id') as paper, (:'entry'::jsonb->>'generation')::bigint as gen \gset
 select test.assert(:'entry'::jsonb->>'stage'='metadata','claimed metadata stage');
 select test.assert(public.worker_pipeline_claim(gen_random_uuid()) is null,'claimed paper is not claimed twice');
-select test.assert(public.worker_pipeline_arxiv_slot()>=0,'arxiv slot');
-select test.assert(public.worker_pipeline_arxiv_slot()>=2000,'second arxiv slot waits for spacing');
+select test.assert((public.worker_pipeline_arxiv_slot(2)->>'reserved')::boolean,'arxiv slots reserved');
+select test.assert((public.worker_pipeline_arxiv_slot()->>'wait_ms')::integer>=5000,'next request waits for both reserved slots');
+select test.assert(not (public.worker_pipeline_arxiv_slot(1,1000)->>'reserved')::boolean,'a long wait reserves nothing');
+select test.assert((public.worker_pipeline_arxiv_slot(1,1000)->>'wait_ms')::integer<=9000,'unreserved waits do not push the queue');
 select test.reject(format('select public.worker_pipeline_metadata(%L,gen_random_uuid(),%s,3,%L,true)',:'paper',:'gen','{"title":"x","authors":[],"categories":[]}'),'stale_pipeline_claim');
 select public.worker_pipeline_metadata(:'paper',:'claim',:'gen',3,
  '{"title":"Direct Preference Optimization","authors":["Rafael Rafailov"],"abstract":"DPO","published_at":"2023-05-29","updated_at":"2024-07-29","categories":["cs.LG"],"venue":null}',
@@ -187,7 +189,7 @@ select test.assert((select reserved from app_private.credit_buckets where extern
 set role service_role;
 -- The original POST's result arrives late (its worker outlived its lease).
 select test.assert(public.worker_pipeline_submitted(:'attempt4','late-job-d')->>'stage'='ocr_wait','late job id recovers an unrecorded submission');
-select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,null,0)',:'attempt4'),'invalid_resolution');
+select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,%L,null)',:'attempt4','other-job'),'invalid_resolution');
 reset role;
 -- Operator resolution of a genuinely uncertain attempt releases the hold.
 update app_private.ocr_attempts set state='uncertain',provider_job_id=null,error_code='provider_http_failure' where id=:'attempt4';

@@ -6,7 +6,10 @@
     "pdf-lib": "npm:pdf-lib@1.17.1",
     "sanitize-html": "npm:sanitize-html@2.18.0",
     "saxes": "npm:saxes@6.0.0",
-    "@apple/app-store-server-library": "npm:@apple/app-store-server-library@3.1.0"
+    "@apple/app-store-server-library": "npm:@apple/app-store-server-library@3.1.0",
+    "htmlparser2": "npm:htmlparser2@12.0.0",
+    "markdown-it": "npm:markdown-it@9.1.0",
+    "mathpix-markdown-it/": "npm:/mathpix-markdown-it@3.0.1/"
   },
   "compilerOptions": {"strict": true},
   "nodeModulesDir": "auto",

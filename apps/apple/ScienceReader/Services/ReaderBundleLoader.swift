@@ -26,14 +26,21 @@ enum ReaderBundleLoader {
     }
 
     private static func admitImages(in bundle: VerifiedReaderBundle) throws -> VerifiedReaderBundle {
-        // Metadata/header recognition alone is insufficient. Force decoding of
-        // every bounded raster while the bundle still cannot be presented.
+        // Metadata/header recognition alone is insufficient. Each raster first
+        // passes its restricted structural profile, then is fully decoded while
+        // the bundle still cannot be presented. The core manifest check has
+        // already limited JPEG to renderers that may publish it.
         for member in bundle.manifest.members where member.role == "image" {
             guard let data = bundle.data(for: member.path), let width = member.width, let height = member.height else { throw ReaderBundleError.invalidResource }
-            try ReaderPNGValidator.validate(data, width: width, height: height)
+            let type: UTType
+            switch member.mediaType {
+            case "image/png": try ReaderPNGValidator.validate(data, width: width, height: height); type = .png
+            case "image/jpeg": try ReaderJPEGValidator.validate(data, width: width, height: height); type = .jpeg
+            default: throw ReaderBundleError.invalidResource
+            }
             guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
                   CGImageSourceGetCount(source) == 1,
-                  CGImageSourceGetType(source) as String? == UTType.png.identifier,
+                  CGImageSourceGetType(source) as String? == type.identifier,
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
                   let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
                   let height = properties[kCGImagePropertyPixelHeight as String] as? Int,

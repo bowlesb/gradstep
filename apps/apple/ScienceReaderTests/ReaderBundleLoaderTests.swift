@@ -8,13 +8,14 @@ import zlib
 @MainActor
 final class ReaderBundleLoaderTests: XCTestCase {
     #if DEBUG && targetEnvironment(simulator)
-    func testGeneratedSyntheticMathpixFixturePreservesVerifiedBytesInMemory() throws {
-        let reader = try OfflineReaderFixture.reader(variant: .syntheticMathpix)
+    func testRenderedMathpixFixturePreservesVerifiedBytesInMemory() throws {
+        let reader = try OfflineReaderFixture.reader(variant: .mathpix)
         XCTAssertEqual(reader.manifestSHA256, OfflineReaderFixture.mathpixManifestSHA256)
-        XCTAssertEqual(reader.manifest.renderer.id, "timestep-mathpix-mmd-v1")
+        XCTAssertEqual(reader.manifest.renderer.id, "timestep-mathpix-mathml-v1")
         XCTAssertEqual(reader.manifest.source.kind, "mathpix-mmd")
-        XCTAssertEqual(reader.index.equations.count, 7)
-        XCTAssertEqual(reader.index.figures.count, 2)
+        XCTAssertEqual(reader.index.equations.count, 270)
+        XCTAssertEqual(reader.index.figures.count, 4)
+        XCTAssertTrue(reader.manifest.members.filter { $0.role == "image" }.allSatisfy { $0.mediaType == "image/jpeg" })
         let reopened = try verifyMemoryCopy(reader)
         XCTAssertEqual(reopened.manifestData, reader.manifestData)
         for member in reader.manifest.members {
@@ -102,12 +103,15 @@ final class ReaderBundleLoaderTests: XCTestCase {
         let compressed = png.subdata(in: 41..<(png.count - 16))
         let shortDeflate = png.prefix(33) + chunk("IDAT", Data(compressed.dropLast())) + png.suffix(12)
         let trailingDeflate = png.prefix(33) + chunk("IDAT", compressed + Data([0])) + png.suffix(12)
-        let inputs: [(Data, Int, Bool)] = [(png, 32, true), (png, 1, false),
-            (try XCTUnwrap(fixtureImage().jpegData(compressionQuality: 0.9)), 32, false),
-            (Data(png.prefix(imageData.lowerBound + 4)), 32, false),
-            (shortDeflate, 32, false), (trailingDeflate, 32, false)]
-        for (bytes, width, valid) in inputs {
-            let (directory, digest) = try writeBundle(image: bytes, width: width, mathpix: true)
+        let jpeg = try XCTUnwrap(fixtureImage().jpegData(compressionQuality: 0.9))
+        let inputs: [(Data, Int, String, Bool)] = [(png, 32, "image/png", true), (png, 1, "image/png", false),
+            (jpeg, 32, "image/png", false), (jpeg, 32, "image/jpeg", true), (jpeg, 31, "image/jpeg", false),
+            (jpeg.prefix(jpeg.count - 2), 32, "image/jpeg", false), (jpeg + Data([0]), 32, "image/jpeg", false),
+            (png, 32, "image/jpeg", false),
+            (Data(png.prefix(imageData.lowerBound + 4)), 32, "image/png", false),
+            (shortDeflate, 32, "image/png", false), (trailingDeflate, 32, "image/png", false)]
+        for (bytes, width, mediaType, valid) in inputs {
+            let (directory, digest) = try writeBundle(image: bytes, width: width, mathpix: true, mediaType: mediaType)
             defer { try? FileManager.default.removeItem(at: directory) }
             let payload = try VerifiedReaderBundle.load(directory: directory, expectedSHA256: digest)
             XCTAssertEqual(payload.manifest.source.kind, "mathpix-mmd")
@@ -147,18 +151,19 @@ final class ReaderBundleLoaderTests: XCTestCase {
         }
     }
 
-    private func writeBundle(image: Data, width: Int = 32, mathpix: Bool = false) throws -> (URL, String) {
+    private func writeBundle(image: Data, width: Int = 32, mathpix: Bool = false, mediaType: String = "image/png") throws -> (URL, String) {
         let imageSHA = VerifiedReaderBundle.digest(image)
-        let imagePath = mathpix ? "assets/" + imageSHA + ".png" : "figure.png"
+        let imagePath = mathpix ? "assets/" + imageSHA + (mediaType == "image/jpeg" ? ".jpg" : ".png") : "figure.png"
         let provenance: Data
         if mathpix {
-            let value: [String: Any] = ["format": "mathpix-reader-provenance-v1",
-                "raw_result_sha256": String(repeating: "c", count: 64),
-                "document": ["sha256": String(repeating: "d", count: 64), "bytes": 1024, "page_count": 1],
+            let value: [String: Any] = ["format": "mathpix-reader-provenance-v2",
+                "provider_job_id": "synthetic-job",
+                "document": ["sha256": String(repeating: "d", count: 64), "page_count": 1],
                 "ocr": ["api": "v3/pdf", "profile": "science-reader-mmd-v1",
                     "options_sha256": "1e817fa114840383c016f89f51a562ca8c90afb07d0cae3673036e8ce1b931b3"],
                 "source": ["archive_path": "paper/main.mmd", "bytes": 23, "sha256": String(repeating: "b", count: 64)],
-                "image_inputs": [["archive_path": "paper/image.png", "input_sha256": imageSHA,
+                "renderer": ["id": "timestep-mathpix-mathml-v1", "build_sha256": String(repeating: "a", count: 64)],
+                "image_inputs": [["archive_path": "paper/image.img", "input_sha256": imageSHA, "media_type": mediaType,
                     "published_path": imagePath, "published_sha256": imageSHA, "width": width, "height": 16]]]
             provenance = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]) + Data([10])
         } else { provenance = Data("{\"authored\":true}".utf8) }
@@ -169,7 +174,7 @@ final class ReaderBundleLoaderTests: XCTestCase {
             "reader.json": try JSONSerialization.data(withJSONObject: index),
             "provenance.json": provenance, imagePath: image]
         let roles = ["index.html": "html", "reader.json": "index", "provenance.json": "provenance", imagePath: "image"]
-        let types = ["html": "text/html", "index": "application/json", "provenance": "application/json", "image": "image/png"]
+        let types = ["html": "text/html", "index": "application/json", "provenance": "application/json", "image": mediaType]
         let members = files.keys.sorted().map { path -> [String: Any] in
             let bytes = files[path]!, role = roles[path]!
             var member: [String: Any] = ["path": path, "role": role, "media_type": types[role]!, "bytes": bytes.count,
@@ -177,7 +182,7 @@ final class ReaderBundleLoaderTests: XCTestCase {
             if role == "image" { member["width"] = width; member["height"] = 16 }
             return member
         }
-        let manifest: [String: Any] = ["format": "reader-bundle-v1", "renderer": ["id": mathpix ? "timestep-mathpix-mmd-v1" : "timestep-mmd-v1", "build_sha256": String(repeating: "a", count: 64)],
+        let manifest: [String: Any] = ["format": "reader-bundle-v1", "renderer": ["id": mathpix ? "timestep-mathpix-mathml-v1" : "timestep-mmd-v1", "build_sha256": String(repeating: "a", count: 64)],
             "source": ["kind": mathpix ? "mathpix-mmd" : "authored-mmd", "sha256": String(repeating: "b", count: 64), "provenance_path": "provenance.json"],
             "entrypoint": "index.html", "index_path": "reader.json", "members": members]
         let data = try JSONSerialization.data(withJSONObject: manifest, options: .sortedKeys)

@@ -1,0 +1,49 @@
+\title{
+Hostile \(x^2\) Fixture <script>alert("title")</script>
+}
+
+\begin{abstract}
+An abstract with <img src=x onerror=alert(1)> and <iframe src="https://example.com"></iframe> text.
+\end{abstract}
+
+\section*{1 Links}
+
+Safe [anchor](https://example.com/a?b=1&c=2), plain [insecure](http://example.com/), [script](javascript:alert(1)), [data](data:text/html;base64,PHNjcmlwdD4=), [file](file:///etc/passwd), [relative](paper.pdf) and \href{javascript:alert(2)}{latex href} and \url{https://example.org/path}.
+
+Inline \(\alpha_i = \frac{1}{2}\) and a broken \(\frac{a\) equation.
+
+\[
+\begin{aligned}
+a &= b \\
+c &= d
+\end{aligned}
+\]
+
+\begin{equation}
+E = mc^2 \label{eq:energy}
+\end{equation}
+
+See Equation \eqref{eq:energy} and an <a href="javascript:alert(3)">html anchor</a> <svg onload=alert(4)></svg>.
+
+\begin{figure}
+\includegraphics[alt={A red block},max width=\textwidth]{./images/figure.jpg}
+\caption{A small red block used as a hostile-input fixture.}
+\end{figure}
+
+\begin{itemize}
+\item First item with \(y\)
+\item Second item
+\end{itemize}
+
+\begin{table}
+\begin{tabular}{|l|r|}
+\hline
+Name & Value \\
+\hline
+\(\beta\) & 0.1 \\
+\hline
+\end{tabular}
+\caption{A tiny table.}
+\end{table}
+
+Text with a footnote.\footnote{Footnote with <b>bold</b> markup text.}

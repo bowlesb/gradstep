@@ -29,17 +29,17 @@ export interface PaperEntry {
   generation: number; claim_id: string; state_revision: number; failures: number;
   document_id: string | null; document_sha256: string | null; original_path: string | null; original_bytes: number | null; page_count: number | null;
   due?: boolean; raw_manifest_path?: string | null; ocr_run_id?: string | null;
+  license_uri?: string | null; title?: string | null; authors?: string[] | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
 }
 export interface PipelinePolicy { max_pdf_bytes: number; max_ocr_pages: number; renderer_version: string; enabled: boolean }
 
 export interface RenderInput {
-  mmd: Uint8Array;
-  images: Map<string, Uint8Array>;
-  provenance: {
-    provider_job_id: string; options_sha256: string; page_limit: number; pages: number;
-    document_sha256: string; source_id: string; source_revision: number; raw_manifest_sha256: string;
-  };
+  /** Complete expanded mmd.zip, keyed by archive path. */
+  archive: Map<string, Uint8Array>;
+  provenance: { ocr: { api: 'v3/pdf'; profile: string; options_sha256: string }; provider_job_id: string; document: { sha256: string; page_count: number } };
+  attribution?: string;
+  titleFallback?: string;
 }
 export interface RenderedBundle { manifestBytes: Uint8Array; manifestSHA256: string; members: Map<string, Uint8Array> }
 
@@ -137,11 +137,14 @@ export class Deferral extends Error {
   constructor(seconds: number) { super('deferred'); this.seconds = seconds; }
 }
 
-async function arxivWait(deps: PipelineDeps): Promise<void> {
-  const wait = await deps.rpc<number>('worker_pipeline_arxiv_slot', {});
-  // Never send early: a long queue defers the paper instead of sleeping.
-  if (wait > 45_000) throw new Deferral(Math.ceil(wait / 1000));
-  if (wait > 0) await deps.sleep(wait);
+/** Reserves `slots` consecutive arXiv request slots and waits for the first.
+ * Returns the spacing to wait between the reserved requests. A long queue
+ * reserves nothing and defers the paper (never sends early). */
+async function arxivWait(deps: PipelineDeps, slots = 1): Promise<number> {
+  const slot = await deps.rpc<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 45_000 });
+  if (!slot.reserved) throw new Deferral(Math.ceil(slot.wait_ms / 1000));
+  if (slot.wait_ms > 0) await deps.sleep(slot.wait_ms);
+  return slot.spacing_ms ?? 3000;
 }
 
 async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
@@ -153,12 +156,12 @@ async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Prom
 async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
   const reference = { sourceID: e.source_id, revision: e.requested_revision > 0 ? e.requested_revision : null };
   const urls = arxivURLs(reference);
-  await arxivWait(deps);
+  const spacing = await arxivWait(deps, 2);
   const atom = await fetchArxiv(deps.fetch, urls.atom, MiB, 'application/atom+xml');
   let record;
   try { record = arxivAtomRecord(atom, reference); }
   catch (error) { if (error instanceof SourceError && error.message === 'source_not_found') throw new PermanentFailure('metadata_unavailable'); throw error; }
-  await arxivWait(deps);
+  await deps.sleep(spacing);
   const raw = await fetchArxiv(deps.fetch, urls.raw, MiB, 'application/xml');
   const reuse = await arxivReuseEvidence(raw, record, new Date(deps.now()).toISOString());
   const args = arxivCatalogArguments(record);
@@ -253,11 +256,23 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
     deps.log('ocr_failed', { paper: e.id, code, pages });
     return { entry: await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: code, p_pages_billed: Math.min(pages, e.attempt!.page_limit) }) };
   };
+  // A job the provider no longer knows, or one polled past the timeout, can
+  // never complete: fail it so the hold settles (customer not charged).
+  const poll = async () => {
+    try { return await deps.mathpix.status(job); }
+    catch (error) {
+      if ((error instanceof MathpixError && [404, 410].includes(error.httpStatus ?? 0)) || age > PROVIDER_TIMEOUT_MS) return null;
+      throw error;
+    }
+  };
   // Polling is I/O, not CPU: wait in this invocation for up to ~90 s.
-  let status = await deps.mathpix.status(job);
-  for (let polls = 0; polls < 22 && !['completed', 'error'].includes(status.state) && deps.now() < waitUntil; polls++) {
-    await deps.sleep(4000); status = await deps.mathpix.status(job);
+  let polled = await poll();
+  for (let polls = 0; polled && polls < 22 && !['completed', 'error'].includes(polled.state) && deps.now() < waitUntil; polls++) {
+    await deps.sleep(4000); polled = await poll();
   }
+  if (!polled) return fail('conversion_failed', e.attempt.page_limit);
+  const status = polled;
+  await deps.rpc('worker_pipeline_heartbeat', claim);
   if (status.state === 'error') return fail('conversion_failed', status.completedPages ?? 0);
   if (status.deleted) return fail('conversion_failed', e.attempt.page_limit);
   if (status.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.completedPages ?? 0) : { entry: e, defer: age > 120_000 ? 15 : 4 };
@@ -318,14 +333,18 @@ async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, poli
   let files;
   try { files = await unpackReaderZip(raw.members.get('output.mmd.zip')!); }
   catch { throw new PermanentFailure('render_failed', 'render'); }
-  const sources = files.filter(f => f.path.toLowerCase().endsWith('.mmd'));
-  if (sources.length !== 1) throw new PermanentFailure('render_failed', 'render');
-  const images = new Map(files.filter(f => /\.(jpe?g|png)$/i.test(f.path)).map(f => [f.path, f.bytes]));
+  if (files.filter(f => f.path.toLowerCase().endsWith('.mmd')).length !== 1) throw new PermanentFailure('render_failed', 'render');
   const m = raw.manifest as { provider_job_id: string; options_sha256: string; page_limit: number; pages: number };
+  const source = `arXiv:${e.source_id}v${e.revision}`;
+  const credit = e.title ? `"${e.title}"${e.authors?.length ? ` by ${e.authors.slice(0, 8).join(', ')}${e.authors.length > 8 ? ' et al.' : ''}` : ''}, ${source}` : source;
+  const attribution = e.owner_id
+    ? `${credit}. Converted for the personal use of one Science Reader account; not redistributed. Original: https://arxiv.org/abs/${e.source_id}v${e.revision}`
+    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Science Reader (layout and math rendering changed). Original: https://arxiv.org/abs/${e.source_id}v${e.revision}`;
   let bundle: RenderedBundle;
   try {
-    bundle = await deps.render({ mmd: sources[0].bytes, images, provenance: { provider_job_id: m.provider_job_id, options_sha256: m.options_sha256,
-      page_limit: m.page_limit, pages: m.pages, document_sha256: e.document_sha256, source_id: e.source_id, source_revision: e.revision, raw_manifest_sha256: raw.manifestSHA } });
+    bundle = await deps.render({ archive: new Map(files.map(f => [f.path, f.bytes])), attribution, titleFallback: e.title ?? undefined,
+      provenance: { ocr: { api: 'v3/pdf', profile: 'science-reader-mmd-v1', options_sha256: m.options_sha256 }, provider_job_id: m.provider_job_id,
+        document: { sha256: e.document_sha256, page_count: Math.min(e.page_count ?? m.pages, 250) } } });
   } catch (error) {
     deps.log('render_failed', { paper: e.id, code: error instanceof Error ? error.message.slice(0, 80) : 'unknown' });
     throw new PermanentFailure('render_failed', 'render');
