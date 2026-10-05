@@ -1,0 +1,19 @@
+:root{color-scheme:light dark;font:17px -apple-system,BlinkMacSystemFont,sans-serif;color:#222;background:#fff}
+*{box-sizing:border-box}body{max-width:min(72ch,704px);margin:auto;padding:24px 22px 64px;line-height:1.6;overflow-wrap:break-word}
+h1{font-size:1.6rem;line-height:1.22;letter-spacing:-.03em;margin:6px 0 14px}h2{font-size:1.25rem;line-height:1.3;letter-spacing:-.015em;margin-top:2em;scroll-margin-top:22px}h3,h4,h5,h6{font-size:1.05rem;margin-top:1.6em;scroll-margin-top:22px}
+p{margin:1em 0}a{color:#5659d6;overflow-wrap:anywhere}strong,b{font-weight:650}::selection{background:#c7d2fe}
+.reader-authors{font-size:.9rem;color:#555}.reader-abstract{font-size:.95rem}
+math{font-family:"STIX Two Math",math;font-size:1.05em}
+.reader-equation{direction:ltr;overflow-wrap:normal}.reader-inline{display:inline}
+.reader-display{display:block;overflow-x:auto;overflow-y:hidden;max-width:100%;padding:12px 6px;margin:14px 0;text-align:center}
+.reader-display>math{margin:0 auto}.reader-display.reader-tagged{display:flex;align-items:center;gap:1em}.reader-display.reader-tagged>math{flex:1 1 auto}
+.reader-tag{flex:none;color:#555;font-size:.9em}.reader-math-fallback{font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85em}
+.reader-table{overflow-x:auto;max-width:100%;margin:24px 0;font-size:.85rem}.reader-table table{border-collapse:collapse}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #e5e7eb;vertical-align:top}th{font-weight:600}
+.reader-caption,figcaption{font-size:.85rem;color:#555;margin-top:10px}
+pre{overflow-x:auto;padding:14px;border:1px solid #e5e7eb;border-radius:8px;font-size:.8rem;line-height:1.45}code{font-family:ui-monospace,SFMono-Regular,monospace}
+figure{margin:28px 0;cursor:pointer}figure img{display:block;max-width:100%;height:auto;margin:0 auto 6px;border-radius:6px}
+ul,ol{padding-left:1.5em}li{margin:.45em 0}li.reader-custom-marker{list-style:none}.reader-marker{margin-right:.4em}
+.reader-references li,.reader-footnotes li{font-size:.9rem}hr{border:0;border-top:1px solid #ddd;margin:2em 0}
+@media(prefers-color-scheme:dark){:root{color:#ddd;background:#0f0f0f}a{color:#a5a7ff}.reader-authors,.reader-caption,figcaption,.reader-tag{color:#aaa}th,td,pre{border-color:#333}hr{border-color:#333}figure img{background:#fff}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}

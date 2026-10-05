@@ -74,6 +74,27 @@ public struct ReaderBundleIndex: Codable, Sendable {
     public let figures: [Figure]
 }
 
+/// Exact renderer/source pairs admitted by this client, each with its own
+/// bounds. The authored sample keeps its original limits; the Mathpix MathML
+/// renderer is sized for real papers and may publish JPEG figure crops.
+struct ReaderProfile: Sendable {
+    let rendererID: String
+    let sourceKind: String
+    let imageTypes: Set<String>
+    let equations: Int, figures: Int, blocks: Int, headings: Int
+    let indexBytes: Int, totalPixels: Int
+
+    static let authored = ReaderProfile(rendererID: "timestep-mmd-v1", sourceKind: "authored-mmd", imageTypes: ["image/png"],
+        equations: 512, figures: 128, blocks: 5000, headings: 500, indexBytes: 2_097_152, totalPixels: 16_000_000)
+    static let mathpixMathML = ReaderProfile(rendererID: "timestep-mathpix-mathml-v1", sourceKind: "mathpix-mmd",
+        imageTypes: ["image/png", "image/jpeg"], equations: 4000, figures: 256, blocks: 20_000, headings: 1000,
+        indexBytes: 4_194_304, totalPixels: 64_000_000)
+
+    static func matching(_ manifest: ReaderBundleManifest) -> ReaderProfile? {
+        [authored, mathpixMathML].first { $0.rendererID == manifest.renderer.id && $0.sourceKind == manifest.source.kind }
+    }
+}
+
 /// An owned, verified snapshot. WebKit never reopens unchecked on-disk assets.
 public struct VerifiedReaderBundle: Sendable {
     public let manifestSHA256: String
@@ -113,7 +134,7 @@ public struct VerifiedReaderBundle: Sendable {
         let manifest: ReaderBundleManifest
         do { manifest = try JSONDecoder().decode(ReaderBundleManifest.self, from: data) }
         catch { throw ReaderBundleError.invalidManifest }
-        try validate(manifest)
+        let profile = try validate(manifest)
         guard Set(members.keys) == Set(manifest.members.map(\.path)) else { throw ReaderBundleError.invalidResource }
         var frozen: [String: Data] = [:]
         for member in manifest.members {
@@ -123,13 +144,13 @@ public struct VerifiedReaderBundle: Sendable {
             guard digest(copy) == member.sha256 else { throw ReaderBundleError.integrityFailure }
             frozen[member.path] = copy
         }
-        guard let indexData = frozen[manifest.indexPath], indexData.count <= 2_097_152 else {
+        guard let indexData = frozen[manifest.indexPath], indexData.count <= profile.indexBytes else {
             throw ReaderBundleError.invalidIndex
         }
         let index: ReaderBundleIndex
         do { index = try JSONDecoder().decode(ReaderBundleIndex.self, from: indexData) }
         catch { throw ReaderBundleError.invalidIndex }
-        try validate(index, manifest: manifest)
+        try validate(index, manifest: manifest, profile: profile)
         if manifest.source.kind == "mathpix-mmd" {
             guard let provenance = frozen[manifest.source.provenancePath] else { throw ReaderBundleError.invalidResource }
             try MathpixReaderProvenance.validate(provenance, manifest: manifest, index: index)
@@ -146,7 +167,7 @@ public struct VerifiedReaderBundle: Sendable {
         let manifest: ReaderBundleManifest
         do { manifest = try JSONDecoder().decode(ReaderBundleManifest.self, from: data) }
         catch { throw ReaderBundleError.invalidManifest }
-        try validate(manifest)
+        _ = try validate(manifest)
         var members: [String: Data] = [:]
         for member in manifest.members {
             let url = root.appendingPathComponent(member.path)
@@ -173,14 +194,15 @@ public struct VerifiedReaderBundle: Sendable {
         return bytes
     }
 
-    private static func validate(_ manifest: ReaderBundleManifest) throws {
-        let supported = (manifest.renderer.id == "timestep-mmd-v1" && manifest.source.kind == "authored-mmd") ||
-            (manifest.renderer.id == "timestep-mathpix-mmd-v1" && manifest.source.kind == "mathpix-mmd")
-        guard manifest.format == "reader-bundle-v1", supported else { throw ReaderBundleError.incompatibleFormat }
+    @discardableResult
+    private static func validate(_ manifest: ReaderBundleManifest) throws -> ReaderProfile {
+        guard manifest.format == "reader-bundle-v1", let profile = ReaderProfile.matching(manifest) else {
+            throw ReaderBundleError.incompatibleFormat
+        }
         guard isDigest(manifest.renderer.buildSHA256), isDigest(manifest.source.sha256),
               (1...512).contains(manifest.members.count) else { throw ReaderBundleError.invalidManifest }
         let mime: [String: Set<String>] = ["html": ["text/html"], "index": ["application/json"],
-            "style": ["text/css"], "image": ["image/png"],
+            "style": ["text/css"], "image": profile.imageTypes,
             "provenance": ["application/json"], "notice": ["text/plain"]]
         var paths = Set<String>(), total = 0, pixels = 0
         for member in manifest.members {
@@ -196,11 +218,12 @@ public struct VerifiedReaderBundle: Sendable {
                !(1...262_144).contains(member.bytes) { throw ReaderBundleError.invalidManifest }
             if member.role == "image" {
                 guard let width = member.width, let height = member.height,
-                      (1...8192).contains(width), (1...8192).contains(height) else { throw ReaderBundleError.invalidManifest }
+                      (1...8192).contains(width), (1...8192).contains(height),
+                      width * height <= 16_000_000 else { throw ReaderBundleError.invalidManifest }
                 pixels += width * height
             } else if member.width != nil || member.height != nil { throw ReaderBundleError.invalidManifest }
         }
-        guard total <= 33_554_432, pixels <= 16_000_000,
+        guard total <= 33_554_432, pixels <= profile.totalPixels,
               manifest.members.filter({ $0.role == "html" }).count == 1,
               manifest.members.filter({ $0.role == "index" }).count == 1,
               manifest.members.filter({ $0.role == "provenance" }).count == 1,
@@ -216,12 +239,13 @@ public struct VerifiedReaderBundle: Sendable {
                 throw ReaderBundleError.invalidManifest
             }
         }
+        return profile
     }
 
-    private static func validate(_ index: ReaderBundleIndex, manifest: ReaderBundleManifest) throws {
+    private static func validate(_ index: ReaderBundleIndex, manifest: ReaderBundleManifest, profile: ReaderProfile) throws {
         guard index.format == "reader-index-v1", bounded(index.title, maximum: 2000), !index.title.isEmpty,
-              index.headings.count <= 500, (1...5000).contains(index.blocks.count),
-              index.equations.count <= 512, index.figures.count <= 128 else { throw ReaderBundleError.invalidIndex }
+              index.headings.count <= profile.headings, (1...profile.blocks).contains(index.blocks.count),
+              index.equations.count <= profile.equations, index.figures.count <= profile.figures else { throw ReaderBundleError.invalidIndex }
         let kinds: Set<String> = ["heading", "paragraph", "equation", "figure", "table", "list", "code"]
         var blocks: [String: ReaderBundleIndex.Block] = [:]
         for block in index.blocks {

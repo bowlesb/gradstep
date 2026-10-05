@@ -517,7 +517,7 @@ final class ReaderModel {
         #endif
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
-            let variant: OfflineReaderFixture.Variant = ProcessInfo.processInfo.arguments.contains("--mathpix-reader-fixture") ? .syntheticMathpix : .authored
+            let variant: OfflineReaderFixture.Variant = ProcessInfo.processInfo.arguments.contains("--mathpix-reader-fixture") ? .mathpix : .authored
             do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture"), variant: variant) }
             catch { show(error) }
             return

@@ -221,15 +221,31 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Saved question reopens once without resurrecting its draft")
     }
 
+    /// Content anchors for one installed fixture: a Contents heading, the
+    /// paragraphs around a numbered display equation, that equation's LaTeX
+    /// marker and a nearby figure's accessibility label.
+    private struct ReaderJourney {
+        let mathpix: Bool
+        let heading: String, before: String, after: String, latex: String, figure: String
+        static let authored = ReaderJourney(mathpix: false, heading: "2. Read the equations in context",
+            before: "Scaled dot-product attention turns", after: "The normalization in Equation",
+            latex: #"\begin{equation}"#, figure: "Open figure: Queries and keys")
+        // Real DPO paper rendered by timestep-mathpix-mathml-v1 (CC BY 4.0).
+        static let mathpix = ReaderJourney(mathpix: true, heading: "5.2 Instability of Actor-Critic Algorithms",
+            before: "We can also use our framework to diagnose", after: "This is the same objective optimized in prior works",
+            latex: #"\begin{equation*}"#, figure: "Open figure: Figure 2: Left.")
+    }
+
     func testInstalledEncryptedPaperSurvivesRelaunchWithEquationsFiguresAndChat() throws {
-        try installedEncryptedReaderJourney(mathpix: false)
+        try installedEncryptedReaderJourney(.authored)
     }
 
-    func testSyntheticMathpixBundleSurvivesRelaunchWithEquationsFiguresAndChat() throws {
-        try installedEncryptedReaderJourney(mathpix: true)
+    func testRenderedMathpixBundleSurvivesRelaunchWithEquationsFiguresAndChat() throws {
+        try installedEncryptedReaderJourney(.mathpix)
     }
 
-    private func installedEncryptedReaderJourney(mathpix: Bool) throws {
+    private func installedEncryptedReaderJourney(_ journey: ReaderJourney) throws {
+        let mathpix = journey.mathpix
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
         let variant = mathpix ? ["--mathpix-reader-fixture"] : []
@@ -237,7 +253,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
         if mathpix {
-            XCTAssertTrue(app.buttons[paperID].label.contains("Synthetic Mathpix"), "The fixture must use the explicitly identified new artifact.")
+            XCTAssertTrue(app.buttons[paperID].label.contains("Mathpix MathML fixture"), "The fixture must use the explicitly identified new artifact.")
         }
         // Installation is already durable when the fixture publishes its row.
         // The next process does not call the compiled sample loader at all.
@@ -253,10 +269,13 @@ final class WorkflowJourneyTests: XCTestCase {
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["Table of contents"].tap()
-        let heading = app.buttons["2. Read the equations in context"]
-        XCTAssertTrue(heading.waitForExistence(timeout: 5)); heading.tap()
-        let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Scaled dot-product attention turns")).firstMatch
-        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "The normalization in Equation")).firstMatch
+        let heading = app.buttons[journey.heading]
+        XCTAssertTrue(heading.waitForExistence(timeout: 5))
+        // A real paper has more Contents rows than the medium detent shows.
+        if !heading.isHittable { app.swipeUp() }
+        heading.tap()
+        let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.before)).firstMatch
+        let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.after)).firstMatch
         let positioned = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: positioned, object: nil)], timeout: 5), .completed)
         let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
@@ -267,13 +286,13 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Equation actions from the encrypted installed paper after relaunch")
         define.tap()
         let questions = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#))
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", journey.latex))
         let question = questions.firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 8))
         app.buttons["chat.returnToPaper"].tap()
         let returned = NSPredicate { _, _ in before.exists && abs(before.frame.minY - web.frame.minY - paperOffset) < 6 }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: returned, object: nil)], timeout: 5), .completed)
-        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure: Queries and keys")).firstMatch
+        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", journey.figure)).firstMatch
         for _ in 0..<8 {
             if figure.exists, figure.isHittable { break }
             // Small measured drags avoid jumping past the figure and then
@@ -299,7 +318,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["tab.chat"].tap()
         app.buttons["Chat history"].tap()
-        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", #"\begin{equation}"#)).firstMatch
+        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", journey.latex)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
         XCTAssertTrue(question.waitForExistence(timeout: 5))
         XCTAssertEqual(questions.count, 1, "The exact equation question is retained once after relaunch")

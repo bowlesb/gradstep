@@ -4,8 +4,12 @@ import { decodePNG } from './png.mjs';
 import { renderMMD } from './renderer.mjs';
 import { parseHTML, elements, serialize, sanitizeAndValidate } from './dom.mjs';
 import { captureRendererIdentity } from './build-identity.mjs';
-import { readerProfileFor } from './mathpix-profile.mjs';
-import { validateMathpixProvenance } from './mathpix-provenance.mjs';
+// The authored profile is this worker's only renderer/source pair. Mathpix
+// output is rendered by supabase/functions/_shared/reader (timestep-mathpix-mathml-v1).
+function readerProfileFor(rendererID, sourceKind) {
+  requireThat(rendererID === profile.id && sourceKind === profile.source_kind, 'manifest_format');
+  return profile;
+}
 
 export const CSP = "default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none'; connect-src 'none'";
 const importedIdentity = captureRendererIdentity();
@@ -84,7 +88,6 @@ export function validateBundle(manifestBytes, members, expectedSHA) {
   const imagePaths = new Set(manifest.members.filter(m => m.role === 'image').map(m => m.path));
   requireThat(index.figures.every(f => f.id === f.block_id && blocks.get(f.block_id)?.kind === 'figure' && Array.isArray(f.asset_paths) && f.asset_paths.length > 0 && f.asset_paths.every(p => imagePaths.has(p)) && new Set(f.asset_paths).size === f.asset_paths.length && boundedText(f.caption) === f.caption && boundedText(f.alt) === f.alt && f.alt.length > 0), 'index_figure');
   const figureAssets = new Set(index.figures.flatMap(f => f.asset_paths)); requireThat(figureAssets.size === imagePaths.size && [...imagePaths].every(p => figureAssets.has(p)), 'unused_asset');
-  if (selectedProfile.source_kind === 'mathpix-mmd') validateMathpixProvenance(members.get(manifest.source.provenance_path), manifest, index);
   const doc = parseHTML(decodeUTF8(members.get(manifest.entrypoint)));
   const htmls = elements(doc, n => n.name === 'html'), heads = elements(doc, n => n.name === 'head'), bodies = elements(doc, n => n.name === 'body');
   requireThat(htmls.length === 1 && heads.length === 1 && bodies.length === 1 && heads[0].parent === htmls[0] && bodies[0].parent === htmls[0], 'html_structure');

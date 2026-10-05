@@ -103,7 +103,7 @@ handoff.
 | Supabase | Dedicated staging, applied schema, hosted account isolation/encrypted sync/support upload checks | Processing integration, production environment, remaining quotas/operations/restore gates |
 | PDF transfer | Actual bounded local TLS download, sealed-file upload, stored readback and exact hashes | Combined original SQL/guardian workflow and live Storage semantics |
 | PDF verifier | Frozen parser, portable receiver, separate Linux privilege/accounting/lifecycle fixture | Admitted host policy and measured SQL publication bridge |
-| Mathpix reader | Retained-output adapter and renderer with synthetic provider-shaped output; offline iPhone/iPad journeys | Funded submission lifecycle, real provider compatibility, durable hosted collection/publication/delivery |
+| Mathpix reader | Retained-output adapter; Edge-compatible MathML renderer verified on one real capture (DPO) in Node/Deno; native Core admission | Simulator journey with the DPO fixture, Edge deployment/size, funded submission lifecycle, broader real-paper compatibility, durable hosted collection/publication/delivery |
 | Chat | Encrypted saved messages/drafts; standalone completed prose/math renderer proof | Native renderer integration, live AI, streaming, general Markdown/table/code formatting and settlement |
 | Admin and release | Local admin browser checks and hosted screenshot/report APIs | Admin hosting, real OAuth/email journeys, purchases, TestFlight, browser reader |
 

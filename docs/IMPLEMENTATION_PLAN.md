@@ -23,8 +23,9 @@ has its separate lifecycle/layout work; it must not block connecting an answer.
    before its transaction and failure schedules pass.
 3. Publish actual Mathpix provenance and a complete reader artifact, expose an
    authenticated bounded download and connect it to the native verified
-   encrypted installer. The current renderer/native profile admits authored
-   samples only; real OCR output cannot be mislabeled as an authored fixture.
+   encrypted installer. The Edge renderer `timestep-mathpix-mathml-v1` and its
+   native profile exist ([READER_RENDERER](architecture/READER_RENDERER.md));
+   no Edge Function calls them yet.
 4. Connect one metered paper-question route with captured consent/context,
    server reservation, provider usage settlement and encrypted assistant-event
    storage. The current Send path saves/syncs the user event but calls no AI.
