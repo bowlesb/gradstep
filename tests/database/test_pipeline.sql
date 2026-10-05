@@ -1,0 +1,182 @@
+-- Edge paper pipeline (migration 014): deterministic local fixtures only.
+begin;
+insert into auth.users values('14000000-0000-0000-0000-00000000000a'),('14000000-0000-0000-0000-00000000000b'),
+ ('14000000-0000-0000-0000-00000000000c'),('14000000-0000-0000-0000-00000000000d');
+set role service_role;
+select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,10000000,true);
+select public.worker_grant_credits('14000000-0000-0000-0000-00000000000a','adjustment','pipeline-test-a',100,now()-interval '1 day',null,'Pipeline test grant');
+select public.worker_grant_credits('14000000-0000-0000-0000-00000000000c','adjustment','pipeline-test-c',100,now()-interval '1 day',null,'Pipeline test grant');
+select test.assert(public.worker_pipeline_claim(gen_random_uuid()) is null,'disabled pipeline claims nothing');
+select public.worker_set_pipeline_enabled(true);
+reset role;
+
+-- Customers cannot drive the pipeline.
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000a',false);
+select test.reject('select public.worker_pipeline_claim(gen_random_uuid())','permission denied');
+select test.reject($q$select public.worker_reader_descriptor('14000000-0000-0000-0000-00000000000a',gen_random_uuid())$q$,'permission denied');
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000a1','2305.18290',0)->'entry'->>'phase' as phase \gset
+select test.assert(:'phase'='accepted','import accepted');
+reset role;
+select test.assert((select count(*) from app_private.pipeline_imports where account_id='14000000-0000-0000-0000-00000000000a')=1,'import linked to pipeline paper');
+
+-- Claim, metadata and progress projection.
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as paper, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.assert(:'entry'::jsonb->>'stage'='metadata','claimed metadata stage');
+select test.assert(public.worker_pipeline_claim(gen_random_uuid()) is null,'claimed paper is not claimed twice');
+select test.assert(public.worker_pipeline_arxiv_slot()>=0,'arxiv slot');
+select test.assert(public.worker_pipeline_arxiv_slot()>=2000,'second arxiv slot waits for spacing');
+select test.reject(format('select public.worker_pipeline_metadata(%L,gen_random_uuid(),%s,3,%L,true)',:'paper',:'gen','{"title":"x","authors":[],"categories":[]}'),'stale_pipeline_claim');
+select public.worker_pipeline_metadata(:'paper',:'claim',:'gen',3,
+ '{"title":"Direct Preference Optimization","authors":["Rafael Rafailov"],"abstract":"DPO","published_at":"2023-05-29","updated_at":"2024-07-29","categories":["cs.LG"],"venue":null}',
+ true,'https://creativecommons.org/licenses/by/4.0/',
+ jsonb_build_object('source_id','2305.18290','source_revision',3,'source_url','https://arxiv.org/abs/2305.18290v3','license_uri','https://creativecommons.org/licenses/by/4.0/',
+  'evidence_sha256',repeat('e',64),'observed_at','2026-10-05T05:00:00Z'))->>'stage' as stage \gset
+select test.assert(:'stage'='download','eligible paper proceeds to download');
+select test.assert(public.worker_pipeline_sync_imports(:'paper',:'claim',:'gen')=1,'sync projects one import');
+reset role;
+select test.assert(app_private.library_import_entry('14000000-0000-0000-0000-00000000000a','14000000-0000-0000-0000-0000000000a1')->>'phase'='acquiring','import acquiring after metadata');
+select test.assert(app_private.library_import_entry('14000000-0000-0000-0000-00000000000a','14000000-0000-0000-0000-0000000000a1')->>'progress'='downloading','progress downloading');
+select test.assert(app_private.library_import_entry('14000000-0000-0000-0000-00000000000a','14000000-0000-0000-0000-0000000000a1')->'metadata'->>'title'='Direct Preference Optimization','import shows metadata');
+
+-- Original, funding and the single submission grant.
+set role service_role;
+select test.reject(format('select public.worker_pipeline_original(%L,%L,%s,%L::bytea,1299212,27,%L)',:'paper',:'claim',:'gen','\x'||repeat('92',32),'originals/wrong.pdf'),'invalid_original');
+select public.worker_pipeline_original(:'paper',:'claim',:'gen',('\x'||repeat('92',32))::bytea,1299212,27,'originals/'||repeat('92',32)||'.pdf')->>'stage' as stage \gset
+select test.assert(:'stage'='ocr_fund','new bytes need OCR');
+select test.reject(format('select public.worker_pipeline_fund(%L,%L,%s,28,%L::bytea,%L::bytea)',:'paper',:'claim',:'gen','\x'||repeat('0a',32),'\x'||repeat('0b',32)),'invalid_ocr_request');
+select public.worker_pipeline_fund(:'paper',:'claim',:'gen',27,('\x'||repeat('0a',32))::bytea,('\x'||repeat('0b',32))::bytea) as funded \gset
+select test.assert(:'funded'::jsonb->>'funding'='funded' and :'funded'::jsonb->>'stage'='ocr_submit','first importer funds OCR');
+reset role;
+select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-a')=27,'27 credits held');
+select test.assert((select reserved_microusd from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date)>=135000,'platform spend reserved');
+set role service_role;
+select test.assert((public.worker_pipeline_begin_submit(:'paper',:'claim',:'gen')->>'granted')::boolean,'first begin grants POST');
+select test.reject(format('select public.worker_pipeline_submitted(%L,%L,%s,null,null)',:'paper',:'claim',:'gen'),'invalid_submission_result');
+select public.worker_pipeline_submitted(:'paper',:'claim',:'gen','cc092181-9d12-4eb3-b5de-d2ca288fc556')->>'stage' as stage \gset
+select test.assert(:'stage'='ocr_wait','submitted job waits');
+select public.worker_pipeline_sync_imports(:'paper',:'claim',:'gen');
+select public.worker_pipeline_release(:'paper',:'claim',:'gen');
+select test.assert(public.worker_pipeline_claim(gen_random_uuid()) is null,'waiting job is not due yet');
+reset role;
+update app_private.pipeline_papers set next_attempt_at=now() where id=:'paper';
+set role service_role;
+select gen_random_uuid() as claim \gset
+select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
+select public.worker_pipeline_collected(:'paper',:'claim',:'gen',27,('\x'||repeat('6a',32))::bytea,4096)->>'stage' as stage \gset
+select test.assert(:'stage'='render','collection moves to render');
+reset role;
+select test.assert((select balance from app_private.credit_buckets where external_key='pipeline-test-a')=73
+ and (select reserved from app_private.credit_buckets where external_key='pipeline-test-a')=0,'settled 27 credits, hold released');
+select test.assert(exists(select 1 from app_private.provider_usage_events where provider='mathpix' and provider_event_id='cc092181-9d12-4eb3-b5de-d2ca288fc556' and estimated_microusd=135000),'provider usage recorded');
+set role service_role;
+select test.reject(format('select public.worker_pipeline_published(%L,%L,%s,%L::bytea,2048,%L)',:'paper',:'claim',:'gen','\x'||repeat('7b',32),'other-renderer'),'invalid_publication');
+select public.worker_pipeline_published(:'paper',:'claim',:'gen',('\x'||repeat('7b',32))::bytea,2048,'timestep-mathpix-mathml-v1')->>'stage' as stage \gset
+select test.assert(:'stage'='done','published');
+select test.assert(public.worker_pipeline_sync_imports(:'paper',:'claim',:'gen')=1,'resolve import');
+select public.worker_pipeline_release(:'paper',:'claim',:'gen');
+reset role;
+
+-- The customer sees a converted, readable library item.
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000a',false);
+select e as item from jsonb_array_elements(public.v2_library_page()->'entries') e where e->>'kind'='item' \gset
+select test.assert(:'item'::jsonb->>'readiness'='converted_ready' and :'item'::jsonb->>'render_availability'='available'
+ and :'item'::jsonb->>'original_availability'='available' and :'item'::jsonb->>'artifact_id' is not null,'converted ready item');
+select e->>'phase' as phase from jsonb_array_elements(public.v2_library_page()->'entries') e where e->>'kind'='import' \gset
+select test.assert(:'phase'='ready','import ready');
+reset role;
+set role service_role;
+select public.worker_reader_descriptor('14000000-0000-0000-0000-00000000000a',(:'item'::jsonb->>'id')::uuid) as descriptor \gset
+select test.assert(:'descriptor'::jsonb->>'manifest_path'='reader/'||repeat('7b',32)||'/manifest.json' and :'descriptor'::jsonb->>'manifest_sha256'=repeat('7b',32),'reader descriptor');
+select test.assert(public.worker_chat_context('14000000-0000-0000-0000-00000000000a',(:'item'::jsonb->>'document_id')::uuid)->>'path'='raw/'||repeat('6a',32)||'/standalone.mmd','chat context path');
+select test.reject(format('select public.worker_reader_descriptor(%L,%L)','14000000-0000-0000-0000-00000000000b',:'item'::jsonb->>'id'),'reader_unavailable');
+select test.reject(format('select public.worker_chat_context(%L,%L)','14000000-0000-0000-0000-00000000000b',:'item'::jsonb->>'document_id'),'document_unavailable');
+reset role;
+
+-- A second account reuses the conversion without credits or a charge.
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000b',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000b1','2305.18290',0);
+reset role;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select test.assert(:'entry'::jsonb->>'id'=:'paper' and :'entry'::jsonb->>'stage'='done','done paper claimed only to sync');
+select test.assert(public.worker_pipeline_sync_imports(:'paper',:'claim',(:'entry'::jsonb->>'generation')::bigint)=1,'second account resolved');
+select public.worker_pipeline_release(:'paper',:'claim',(:'entry'::jsonb->>'generation')::bigint);
+reset role;
+select test.assert((select phase from app_private.import_requests where id='14000000-0000-0000-0000-0000000000b1')='ready','reuse import ready');
+select test.assert(not exists(select 1 from app_private.metered_operations where account_id='14000000-0000-0000-0000-00000000000b'),'reuse never charges');
+
+-- An explicit revision slot with identical bytes reuses the render directly.
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000c',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000c1','2305.18290',0,3);
+reset role;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as paper3, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.assert(:'paper3'<>:'paper','separate source slot');
+select public.worker_pipeline_metadata(:'paper3',:'claim',:'gen',3,
+ '{"title":"Direct Preference Optimization","authors":["Rafael Rafailov"],"abstract":"DPO","published_at":"2023-05-29","updated_at":"2024-07-29","categories":["cs.LG"],"venue":null}',
+ true,'https://creativecommons.org/licenses/by/4.0/',
+ jsonb_build_object('source_id','2305.18290','source_revision',3,'source_url','https://arxiv.org/abs/2305.18290v3','license_uri','https://creativecommons.org/licenses/by/4.0/',
+  'evidence_sha256',repeat('e',64),'observed_at','2026-10-05T05:00:00Z'));
+select test.assert(public.worker_pipeline_original(:'paper3',:'claim',:'gen',('\x'||repeat('92',32))::bytea,1299212,27,'originals/'||repeat('92',32)||'.pdf')->>'stage'='done','identical bytes reuse render');
+select public.worker_pipeline_sync_imports(:'paper3',:'claim',:'gen');
+reset role;
+select test.assert((select phase from app_private.import_requests where id='14000000-0000-0000-0000-0000000000c1')='ready','slot reuse ready');
+select test.assert((select balance from app_private.credit_buckets where external_key='pipeline-test-c')=100,'slot reuse not charged');
+
+-- No credits: retryable failure; retry after a grant funds it. Then a lost
+-- grant acknowledgement makes the attempt uncertain instead of re-posting.
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000d',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000d1','2312.00752',0);
+reset role;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as paper4, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select public.worker_pipeline_metadata(:'paper4',:'claim',:'gen',2,'{"title":"Mamba","authors":[],"categories":["cs.LG"]}',
+ true,'https://creativecommons.org/licenses/by/4.0/',
+ jsonb_build_object('source_id','2312.00752','source_revision',2,'source_url','https://arxiv.org/abs/2312.00752v2','license_uri','https://creativecommons.org/licenses/by/4.0/',
+  'evidence_sha256',repeat('f',64),'observed_at','2026-10-05T05:00:00Z'));
+select public.worker_pipeline_original(:'paper4',:'claim',:'gen',('\x'||repeat('44',32))::bytea,2000000,36,'originals/'||repeat('44',32)||'.pdf');
+select test.assert(public.worker_pipeline_fund(:'paper4',:'claim',:'gen',36,('\x'||repeat('0c',32))::bytea,('\x'||repeat('0d',32))::bytea)->>'funding'='needs_credits','no credits');
+select public.worker_pipeline_sync_imports(:'paper4',:'claim',:'gen');
+select public.worker_pipeline_release(:'paper4',:'claim',:'gen');
+reset role;
+select test.assert((select phase='failed' and retryable and error_code='insufficient_credits' from app_private.import_requests where id='14000000-0000-0000-0000-0000000000d1'),'import failed retryable for credits');
+select test.assert(not exists(select 1 from app_private.metered_operations where account_id='14000000-0000-0000-0000-00000000000d'),'failed reservation leaves no operation');
+set role service_role;
+select test.assert(public.worker_pipeline_claim(gen_random_uuid()) is null,'failed paper waits for retry');
+select public.worker_grant_credits('14000000-0000-0000-0000-00000000000d','adjustment','pipeline-test-d',50,now()-interval '1 day',null,'Pipeline test grant');
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000d',false);
+select public.v2_retry_import('14000000-0000-0000-0000-0000000000d2','14000000-0000-0000-0000-0000000000d1',1);
+reset role;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.assert(:'entry'::jsonb->>'id'=:'paper4' and :'entry'::jsonb->>'stage'='ocr_fund','retry resumes funding');
+select test.assert(public.worker_pipeline_fund(:'paper4',:'claim',:'gen',36,('\x'||repeat('0c',32))::bytea,('\x'||repeat('0d',32))::bytea)->>'funding'='funded','funded after grant');
+select test.assert((public.worker_pipeline_begin_submit(:'paper4',:'claim',:'gen')->>'granted')::boolean,'grant');
+reset role;
+update app_private.pipeline_papers set lease_until=now()-interval '1 second' where id=:'paper4';
+set role service_role;
+select gen_random_uuid() as claim \gset
+select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
+select public.worker_pipeline_begin_submit(:'paper4',:'claim',:'gen') as again \gset
+select test.assert(not (:'again'::jsonb->>'granted')::boolean and :'again'::jsonb->>'stage'='ocr_uncertain','lost grant becomes uncertain, never a second POST');
+reset role;
+select test.assert((select state from app_private.metered_operations where account_id='14000000-0000-0000-0000-00000000000d')='submitted','uncertain hold retained');
+select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=36,'uncertain credits stay held');
+rollback;
