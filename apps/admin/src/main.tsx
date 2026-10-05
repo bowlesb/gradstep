@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
-import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Report, type Thread } from './backend';
+import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import './style.css';
 
@@ -16,6 +16,7 @@ function App() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState('Overview');
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
   const currentUser = useRef<string | null>(null);
@@ -44,9 +45,10 @@ function App() {
         const results = await Promise.all([
           context.roles.includes('owner') ? rpc<Overview>('v1_admin_overview') : Promise.resolve(null),
           rpc<Report[]>('v2_reports'),
+          context.roles.includes('owner') ? rpc<Pipeline>('v1_admin_pipeline').catch(() => null) : Promise.resolve(null),
         ]);
         if (!active()) return;
-        setOverview(results[0]); setReports(results[1]);
+        setOverview(results[0]); setReports(results[1]); setPipeline(results[2]);
         if (!context.roles.includes('owner')) setTab('Support');
       }
     } catch (e) { if (active()) setError(e instanceof Error ? e.message : 'The dashboard could not refresh.'); }
@@ -88,10 +90,35 @@ function App() {
       {tab === 'Usage' && overview && <section className="panel"><h2>Provider usage this month</h2><p className="muted">Recorded provider estimates; reconciliation can adjust final expense. Customer credits are accounted for separately.</p>
         <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
         {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
-      {tab === 'Processing' && overview && <section className="panel"><h2>Durable job states</h2><Counts values={overview.jobs} empty="No jobs have been submitted." /><p className="muted">Uncertain submissions retain their spending reservation until reconciled. They are not automatically submitted again.</p></section>}
+      {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
     </main>
   </div>;
+}
+
+function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
+  if (!pipeline) return <section className="panel"><Empty text="Pipeline status is unavailable." /></section>;
+  const uncertain = pipeline.attempts.filter(a => a.state === 'uncertain');
+  return <>
+    <section className="panel"><div className="section-heading"><h2>Paper pipeline</h2><span className={'badge ' + (pipeline.policy.enabled ? 'positive' : '')}>{pipeline.policy.enabled ? 'Running' : 'Stopped'}</span></div>
+      <Counts values={pipeline.stages} empty="No papers have been imported." />
+      <p className="muted">OCR is capped at {pipeline.policy.max_ocr_pages} pages per paper; reader renderer {pipeline.policy.renderer_version}.</p>
+      {uncertain.length > 0 && <p className="error" role="alert">{uncertain.length} paid submission(s) are uncertain and keep their credit hold until reconciled with scripts/pipeline-ops.py resolve.</p>}
+    </section>
+    <section className="panel"><h2>Recent papers</h2>
+      <table><thead><tr><th>Paper</th><th>Stage</th><th>Interested</th><th>Updated</th></tr></thead><tbody>{pipeline.papers.map(p => <tr key={p.id}>
+        <td><strong>{p.title ?? p.source}</strong><br /><small className="muted">{p.source}{p.private ? ' · private' : ''}</small></td>
+        <td>{statusName(p.stage)}{p.error_code ? <><br /><small className="muted">{statusName(p.error_code)}{p.failures ? ` (${p.failures})` : ''}</small></> : null}</td>
+        <td>{p.interested}</td><td>{date(p.updated_at)}</td></tr>)}</tbody></table>
+      {!pipeline.papers.length && <Empty text="No papers yet." />}
+    </section>
+    <section className="panel"><h2>Paid OCR attempts</h2>
+      <table><thead><tr><th>State</th><th>Pages</th><th>Provider job</th><th>Created</th></tr></thead><tbody>{pipeline.attempts.map(a => <tr key={a.id}>
+        <td>{statusName(a.state)}{a.error_code ? <><br /><small className="muted">{statusName(a.error_code)}</small></> : null}</td>
+        <td>{a.pages_reported ?? '—'} / {a.page_limit}</td><td><code>{a.provider_job_id ?? '—'}</code></td><td>{date(a.created_at)}</td></tr>)}</tbody></table>
+      {!pipeline.attempts.length && <Empty text="No paid OCR attempts yet." />}
+    </section>
+  </>;
 }
 
 function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Science Reader</span></div>; }

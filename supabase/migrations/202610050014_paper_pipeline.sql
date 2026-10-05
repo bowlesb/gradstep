@@ -779,6 +779,24 @@ create function public.worker_pipeline_policy() returns jsonb language sql stabl
  select to_jsonb(p)-'arxiv_next_request_at' from app_private.pipeline_policy p
 $$;
 
+-- Owner dashboard (MFA): pipeline papers and paid attempts. Metadata only.
+create function public.v1_admin_pipeline() returns jsonb language plpgsql stable security definer set search_path='' as $$
+begin
+ if not app_private.is_operator('owner') then raise exception 'owner_mfa_required' using errcode='42501'; end if;
+ return jsonb_build_object(
+  'policy',(select to_jsonb(p)-'arxiv_next_request_at' from app_private.pipeline_policy p),
+  'stages',coalesce((select jsonb_object_agg(stage,n) from (select stage,count(*) n from app_private.pipeline_papers group by stage) s),'{}'::jsonb),
+  'papers',coalesce((select jsonb_agg(x order by x->>'updated_at' desc) from (select jsonb_build_object('id',pp.id,'source',pp.source_id||coalesce('v'||pp.revision,''),
+    'title',cm.metadata->>'title','private',pp.owner_id is not null,'stage',pp.stage,'error_code',pp.error_code,'failures',pp.failures,
+    'interested',(select count(*) from app_private.pipeline_imports pi where pi.paper_id=pp.id),'updated_at',pp.updated_at) x
+    from app_private.pipeline_papers pp left join app_private.catalog_metadata cm on cm.id=pp.metadata_id order by pp.updated_at desc limit 100) papers),'[]'::jsonb),
+  'attempts',coalesce((select jsonb_agg(x) from (select jsonb_build_object('id',a.id,'paper_id',a.paper_id,'state',a.state,'page_limit',a.page_limit,
+    'pages_reported',a.pages_reported,'provider_job_id',a.provider_job_id,'error_code',a.error_code,'created_at',a.created_at,'finished_at',a.finished_at) x
+    from app_private.ocr_attempts a order by a.created_at desc limit 50) attempts),'[]'::jsonb));
+end $$;
+revoke all on function public.v1_admin_pipeline() from public,anon;
+grant execute on function public.v1_admin_pipeline() to authenticated;
+
 -- Import resolution also accepts the caller's own private documents.
 create or replace function public.worker_resolve_import(p_account_id uuid,p_import_id uuid,p_expected_state_seq bigint,p_expected_intent_revision bigint,
  p_approval_id uuid,p_artifact_id uuid default null) returns jsonb

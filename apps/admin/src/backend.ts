@@ -47,3 +47,10 @@ export interface Overview {
 }
 export interface Report { id: string; title: string; note: string; account_id: string; status: string; app_version: string; build: string; fixed_build?: string; screen: string; os_version: string; created_at: string }
 export interface Thread { report: Report; messages: Array<{ id: string; body: string; is_operator: boolean; created_at: string }>; attachments: Array<{ id: string; object_id: string }> }
+
+export type Pipeline = {
+  policy: { enabled: boolean; max_ocr_pages: number; renderer_version: string };
+  stages: Record<string, number>;
+  papers: { id: string; source: string; title: string | null; private: boolean; stage: string; error_code: string | null; failures: number; interested: number; updated_at: string }[];
+  attempts: { id: string; paper_id: string; state: string; page_limit: number; pages_reported: number | null; provider_job_id: string | null; error_code: string | null; created_at: string; finished_at: string | null }[];
+};
