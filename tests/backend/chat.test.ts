@@ -345,6 +345,26 @@ test('an answer that lists its own sources gets no second list', async () => {
   assert.match(chatInstructions('paper', null, true), /end your answer with a line "Sources:"/);
 });
 
+test('a balance between 50 credits and the full hold caps the credit hold, never the budget hold', async () => {
+  const run = async (available: number | null, generate?: ChatDependencies['generate']) => {
+    const paper = new TextEncoder().encode(paperText.repeat(20));
+    const h = harness(generate ? { generate, paper } : { paper }); h.deps.availableCredits = async () => available;
+    await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+    return { h, reserve: h.calls.find(c => c.name === 'worker_reserve_operation')!.params };
+  };
+  const full = (await run(null)).reserve;
+  assert.ok(Number(full.p_credits) > 60, `full hold ${full.p_credits}`);
+  const capped = (await run(60)).reserve;
+  assert.equal(capped.p_credits, 60); assert.equal(capped.p_microusd, full.p_microusd);
+  assert.equal((await run(40)).reserve.p_credits, full.p_credits, 'below the minimum the full hold applies (and reservation decides)');
+  assert.equal((await run(100_000)).reserve.p_credits, full.p_credits);
+  // An answer costing more than the capped hold charges the balance and logs it.
+  const costly = await run(60, async (_p, stream) => { stream.onText('x');
+    return completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 31_000 } }] }); });
+  assert.equal(costly.h.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_credits, 60);
+  assert.ok(costly.h.logs.some(l => l.event === 'chat_credits_capped_at_balance'));
+});
+
 test('SSE frames and bounded body reading', async () => {
   assert.equal(sseFrame({ event: 'delta', data: { text: 'a\nb' } }), 'event: delta\ndata: {"text":"a\\nb"}\n\n');
   const ok = new Request('https://x.invalid', { method: 'POST', body: JSON.stringify(generalBody()) });

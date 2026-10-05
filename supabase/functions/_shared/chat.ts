@@ -202,6 +202,12 @@ export function ingestReport(request: PaperRequest, found: FoundPaper | null, re
     default: return `\n\nI couldn't search arXiv right now, so ${wanted} wasn't added. Try again later or add it from Library → arXiv.`;
   }
 }
+/** Owner decision (2026-10-05): a reader whose balance is at least this but
+ * below the full hold may still ask; the credit hold is capped at their
+ * balance and the platform absorbs a rare overrun. The platform-budget hold
+ * (micro-USD) is never reduced. */
+export const HOLD_CAP_MINIMUM_CREDITS = 50;
+
 /** Ingest work after settlement: bounded so the answer still completes. */
 export const INGEST_DEADLINE_MS = 45_000;
 
@@ -228,6 +234,8 @@ export interface ChatDependencies {
   sleep?: (ms: number) => Promise<void>;
   deadlineMs?: number;
   ingestDeadlineMs?: number;
+  /** The caller's available credits (for the hold cap); null if unknown. */
+  availableCredits?: () => Promise<number | null>;
   /** Offer Anthropic's web search (server setting; off by default). */
   webSearch?: boolean;
   /** Ingest: the arXiv paper that strictly matches the citation, if any. */
@@ -280,6 +288,10 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL] : [CREATE_DIAGRAM_TOOL, ...(search ? [WEB_SEARCH_TOOL] : [])] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
   if (search) { hold.microusd += webSearchHoldMicrousd(hold.inputTokens); hold.credits = creditsFor(hold.microusd); }
+  const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
+  if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
+    hold.credits = available;
+  }
   const digest = await deps.sha256Hex(encoder.encode(canonicalRequest(request)));
   if (signal.aborted) return;
 
@@ -324,6 +336,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   // records the true provider cost: an overrun freezes new paid work.
   const credits = Math.min(creditsFor(actual), hold.credits);
   if (actual > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: actual, hold_microusd: hold.microusd });
+  else if (creditsFor(actual) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(actual), hold_credits: hold.credits });
   await settle(deps, request.operationID, credits, actual);
   await recordUsage(deps, request.operationID, outcome, actual);
 

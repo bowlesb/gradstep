@@ -64,7 +64,7 @@ Incremental means new costs attributable to Science Reader: new Supabase compute
 
 The $100 is an operating budget, not permission to purchase unrelated services or an estimate for the user's time. Reserve fixed costs and contingency before allocating the variable API allowance. In-app credits do not equal dollars or a provider's credits unless an explicit published conversion policy says so.
 
-## Open decision: account deletion (proposal, 2026-10-05)
+## Account deletion (owner decided 2026-10-05: keep billing records de-identified)
 
 App Store review requires in-app account deletion for apps with account creation. Recommended, for owner review:
 
@@ -79,11 +79,13 @@ App Store review requires in-app account deletion for apps with account creation
   before deletion. Unused credits are forfeited (state this in the confirmation).
 - Backups expire deleted data on the backup retention schedule (BACKUP_AND_RESTORE).
 
-Not implemented; the retention split (what is kept de-identified, and for how long) is the owner's call.
+The owner chose the split above (2026-10-05): personal content and login deleted, credit/usage/operation rows kept
+with the account ID replaced by a deletion tombstone ID.
 
-## Open decision: web search in chat (2026-10-05)
+## Web search in chat (owner decided 2026-10-05: turn it on)
 
-Built behind a server switch and **off** (see [chat](architecture/CHAT.md#web-search-built-off)). Restores the legacy
+Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.
+Built behind a server switch, initially **off** (see [chat](architecture/CHAT.md#web-search-built-off)). Restores the legacy
 app's web search. Enabling needs: consent copy that names Anthropic's search provider as a recipient of search
 queries, a tappable source list (Anthropic's display requirement for cited web results), and acceptance of the
 larger per-question hold (108 → 245 credits for DPO, a 27-page paper; actual charges are far lower).
