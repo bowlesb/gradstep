@@ -52,6 +52,13 @@ const item = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 100 }
 const answer = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY, 'content-type': 'application/json' },
   body: JSON.stringify({ operation_id: randomUUID(), consent_version: 'cloud-ai-v1', mode: 'paper', document_id: item.document_id, messages: [{ role: 'user', text: 'One sentence: what is this paper about?' }] }) });
 assert.ok((await answer.text()).includes('event: done'), 'paid answer completed');
+// A file inside the private conversion's reader folder (tracked only by its manifest).
+const privateItem = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 100 })).data.entries.find(e => e.kind === 'item' && e.scope === 'owner_private');
+const descriptor = await (await fetch(`${env.SUPABASE_URL}/functions/v1/reader-artifact?item_id=${privateItem.id}`, { headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY } })).json();
+const readerFile = decodeURIComponent(new URL(descriptor.members.find(m => m.path === 'index.html').url).pathname.replace(/^\/storage\/v1\/object\/sign\/paper-assets\//, ''));
+assert.match(readerFile, /^reader\/[0-9a-f]{64}\/index\.html$/);
+assert.equal((await admin.storage.from('paper-assets').download(readerFile)).error, null, 'private reader file exists before');
+log('private reader file', readerFile);
 const privatePrefix = `private/${account}`;
 const listed = await admin.storage.from('paper-assets').list(privatePrefix, { limit: 100 });
 log('private files before:', listed.data?.length ?? 0, 'top-level entries');
@@ -69,6 +76,7 @@ assert.ok(again.status >= 400, 'old token no longer works');
 assert.ok((await admin.auth.admin.getUserById(account)).error, 'login deleted');
 const after = await admin.storage.from('paper-assets').list(privatePrefix, { limit: 100 });
 assert.equal(after.data?.length ?? 0, 0, 'private files deleted');
+assert.ok((await admin.storage.from('paper-assets').download(readerFile)).error, 'private reader folder deleted');
 const status = await admin.rpc('worker_account_deletion_status', { p_account_id: account });
 assert.equal(status.error, null, status.error?.message); log('server status', JSON.stringify(status.data));
 assert.equal(status.data.personal_rows, 0, 'no personal rows remain');
