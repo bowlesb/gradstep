@@ -1,7 +1,0 @@
-[Unit]
-Description=Timestep retained UID/ingress fixture group @ATTEMPT@
-StopWhenUnneeded=no
-
-[Slice]
-TasksMax=2
-MemoryMax=128M

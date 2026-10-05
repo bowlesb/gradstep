@@ -1,8 +1,0 @@
-[Unit]
-Description=Timestep retained verifier compatibility @ATTEMPT@
-StopWhenUnneeded=no
-
-[Slice]
-TasksMax=64
-MemoryMax=256M
-MemorySwapMax=0

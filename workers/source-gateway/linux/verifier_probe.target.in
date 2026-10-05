@@ -1,8 +1,0 @@
-[Unit]
-Description=Timestep verifier observation reference @ATTEMPT@
-Wants=@SERVICE@
-After=@SERVICE@
-StopWhenUnneeded=no
-
-# Process-free reference: retain the service's actual exit/invocation facts
-# until G finishes observing them. This does not keep an exited service alive.
