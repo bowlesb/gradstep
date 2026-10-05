@@ -58,6 +58,10 @@ if remote['organization_id'] != 'mhiweqpcwyqtyorgqhla' or remote['name'] != 'sci
 if not args.skip_migrations:
     subprocess.run(['python3', str(ROOT/'scripts/migrate-supabase.py'), args.environment], check=True)
 
+storage_config = request(base + '/config/storage', mgmt)
+if storage_config['fileSizeLimit'] < config['paper_bucket']['file_size_limit']:
+    request(base + '/config/storage', mgmt, {'fileSizeLimit': config['paper_bucket']['file_size_limit']}, method='PATCH')
+    print('Raised the project upload limit to', config['paper_bucket']['file_size_limit'], 'bytes')
 storage_headers = {'Authorization': 'Bearer ' + env['SUPABASE_SERVICE_ROLE_KEY'], 'apikey': env['SUPABASE_SERVICE_ROLE_KEY']}
 bucket_url = env['SUPABASE_URL'] + '/storage/v1/bucket'
 expected = config['paper_bucket']
