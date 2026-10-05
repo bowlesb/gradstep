@@ -17,7 +17,7 @@ hosted staging (`coxhjvqpflgxkleydati`) with real arXiv, Mathpix and Anthropic c
 | Authorized download + verification | `reader-artifact` signed URLs; every member hash checked; installed through the encrypted offline store |
 | In-app reading | Simulator: converted paper listed with real metadata, opened offline, title/authors/abstract and the real table of contents |
 | Paid answer | `chat` streamed a correct, equation-citing answer about DPO (26 credits) and about LoRA |
-| Full Simulator journey | `LiveJourneyTests` passed: synthetic sign-in + recovery code, add, convert, download, read offline, consent, paid streamed answer with typeset math, terminate/relaunch, reader and saved answer intact |
+| Full Simulator journey | `LiveJourneyTests` passed on iPhone and iPad Simulators: synthetic sign-in + recovery code, add, convert, download, read offline, consent, paid streamed answer with typeset math, terminate/relaunch, reader and saved answer intact |
 
 Also added overnight: **arXiv search** in the Library's arXiv segment (originals ranked first, Add stays in
 search), a **research Feed** of the newest papers in the library's own arXiv categories (derived on device),
@@ -28,6 +28,11 @@ polling while converting), and a **stale chat-hold sweep** (migration 015).
 bibliography for in-text citations) and the server queues it through the user's own import after a strict
 arXiv match. Verified on staging: a DPO passage citing "PPO; [39]" queued arXiv 1707.06347, and a repeat reported
 it was already in the library. See [chat](architecture/CHAT.md#ingest-selection-action).
+
+**Diagrams** (restored from the legacy app, Mermaid only): asking for a diagram yields a "View diagram" button on
+the answer and an entry in All diagrams; the source is stored encrypted on device and drawn with a bundled,
+sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
+the chat fixture.
 
 **Reader quality on real papers**: aligned derivations now align (WebKit ignores `mtable` column alignment),
 equation numbers stay visible, wide math fits or scrolls in its own box instead of the whole page scrolling

@@ -71,6 +71,7 @@ async function ask(question, extra = {}) {
     if (!ev || !data) continue;
     const value = JSON.parse(data);
     if (ev === 'delta') answer += value.text; else if (ev === 'done') done = value; else if (ev === 'error') error = value;
+    else if (ev === 'diagram') { log('diagram', JSON.stringify(value.title), `${value.source.split('\n').length} lines`); if (args.diagramOut) writeFileSync(args.diagramOut, value.source); }
   }
   log('chat http', response.status, error ? `error ${error.code}` : `done ${JSON.stringify(done)}`);
   console.log('--- answer ---\n' + answer.slice(0, 1200) + (answer.length > 1200 ? '…' : '') + '\n--------------');
