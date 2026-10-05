@@ -506,6 +506,18 @@ export function renderMathpixDocument(source: string, sourceDigest: string, reso
     return unresolved.has(node) ? node.children : [node];
   };
   const body = top.flatMap(unwrap);
+  // Index equations in document order. Registration follows the provider's
+  // token order, which can differ from the rendered order (e.g. a table
+  // caption rendered before the cells it was parsed after).
+  const order = new Map<string, number>();
+  const collect = (node: Child) => {
+    if (typeof node === 'string') return;
+    const id = node.attribs['data-reader-equation'];
+    if (id && !order.has(id)) order.set(id, order.size);
+    node.children.forEach(collect);
+  };
+  body.forEach(collect);
+  equations.sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER));
 
   const titleBlock = blocks.find(block => block.id === titleID)!;
   const title = excerpt(normalized(outText(titleBlock.node)), LIMITS.headingBytes);

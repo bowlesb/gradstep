@@ -176,6 +176,13 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
 
 async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<StepResult> {
   if (!e.revision) throw new Error('revision_missing');
+  // Storage caps and (for private copies) owner credits are checked before
+  // any bytes are fetched or stored.
+  const admission = await deps.rpc<{ admitted: boolean; reason?: string }>('worker_pipeline_admit_download', claim);
+  if (!admission.admitted) {
+    deps.log('download_not_admitted', { paper: e.id, reason: admission.reason ?? null });
+    return { entry: e, stop: 'release' };
+  }
   await arxivWait(deps);
   const bytes = await fetchArxiv(deps.fetch, `https://arxiv.org/pdf/${e.source_id}v${e.revision}`, policy.max_pdf_bytes, 'application/pdf');
   const pages = await countPages(bytes);

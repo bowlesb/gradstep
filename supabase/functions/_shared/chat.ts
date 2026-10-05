@@ -235,10 +235,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   }
 
   const actual = Math.ceil(priceAttempts(outcome.attempts));
-  const microusd = Math.min(actual, hold.microusd);
-  const credits = Math.min(creditsFor(microusd), hold.credits);
+  // The customer is never charged above the hold, but the platform budget
+  // records the true provider cost: an overrun freezes new paid work.
+  const credits = Math.min(creditsFor(actual), hold.credits);
   if (actual > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: actual, hold_microusd: hold.microusd });
-  await settle(deps, request.operationID, credits, microusd);
+  await settle(deps, request.operationID, credits, actual);
   await recordUsage(deps, request.operationID, outcome, actual);
 
   if (signal.aborted) return;

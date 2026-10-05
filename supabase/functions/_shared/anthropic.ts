@@ -51,13 +51,18 @@ export function priceAttempts(attempts: readonly ProviderAttempt[]): number {
 export function creditsFor(microusd: number): number { return Math.ceil(Math.max(0, microusd) / MICROUSD_PER_CREDIT); }
 export function estimateTokens(characters: number): number { return Math.ceil(Math.max(0, characters) / 3); }
 
+/** Headroom for a refused attempt plus a server-side fallback attempt that may
+ * be priced at a higher tier (unknown models price at Opus 5.5). */
+export const FALLBACK_HOLD_FACTOR = 3;
+
 /**
  * Hold ceiling: every estimated input token at the cache-write rate plus the
- * whole output budget (thinking counts toward max_tokens).
+ * whole output budget (thinking counts toward max_tokens), times the fallback
+ * headroom. `inputCharacters` is the weighted count from `promptCharacters`.
  */
 export function holdFor(inputCharacters: number, maxTokens = CHAT_MAX_TOKENS): { inputTokens: number; microusd: number; credits: number } {
   const inputTokens = estimateTokens(inputCharacters);
-  const microusd = Math.ceil(inputTokens * SONNET.cacheWrite5m + maxTokens * SONNET.output);
+  const microusd = Math.ceil((inputTokens * SONNET.cacheWrite5m + maxTokens * SONNET.output) * FALLBACK_HOLD_FACTOR);
   return { inputTokens, microusd, credits: creditsFor(microusd) };
 }
 
@@ -116,12 +121,17 @@ export function chatRequestParams(input: { instructions: string; paper: PaperCon
   };
 }
 
-/** Character count used for the hold estimate (all prompt text sent). */
+/** Weighted character count for the hold estimate (all prompt text sent):
+ * ASCII counts 1 (≈3 per token); every UTF-8 byte of non-ASCII text counts 3,
+ * i.e. one token per byte, which bounds CJK and rare-symbol tokenization. */
 export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
   let total = 0;
+  const weigh = (text: string) => {
+    for (const ch of text) { const code = ch.codePointAt(0)!; total += code < 0x80 ? 1 : 3 * (code < 0x800 ? 2 : code < 0x10000 ? 3 : 4); }
+  };
   const add = (content: unknown) => {
-    if (typeof content === 'string') { total += content.length; return; }
-    if (Array.isArray(content)) for (const block of content) if (block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string') total += (block as { text: string }).text.length;
+    if (typeof content === 'string') { weigh(content); return; }
+    if (Array.isArray(content)) for (const block of content) if (block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string') weigh((block as { text: string }).text);
   };
   add(params.system);
   for (const message of params.messages) add(message.content);
