@@ -404,6 +404,26 @@ final class WorkflowJourneyTests: XCTestCase {
         for line in report { print(line) }
     }
 
+    /// The compact tab bar hides behind the software keyboard; a keyboard closed
+    /// in the wide layout must not leave it hidden after rotating back.
+    func testTabletTabsReturnAfterKeyboardClosesInTheWideLayout() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Rotation between compact and wide layouts")
+        let app = launch()
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("Draft while rotating")
+        XCTAssertFalse(app.buttons["tab.library"].exists, "Tabs sit behind the software keyboard")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let wide = NSPredicate { _, _ in app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: wide, object: nil)], timeout: 5), .completed)
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        let closed = NSPredicate { _, _ in app.keyboards.count == 0 }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: closed, object: nil)], timeout: 5), .completed)
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(app.buttons["tab.library"].waitForExistence(timeout: 5), "Tabs return once no keyboard is shown")
+    }
+
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
         app.buttons["tab.chat"].tap()

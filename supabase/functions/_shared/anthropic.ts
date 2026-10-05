@@ -140,11 +140,13 @@ export const WEB_SEARCH_MICROUSD = 10_000;
 export const WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20260209 = {
   type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES,
 };
-/** Extra hold when search is offered: each search's fee plus ~30k tokens of
- * results read back as input (the base hold already covers re-reading the
- * prompt in later server-side iterations). */
-export function webSearchHoldMicrousd(): number {
-  return WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + 30_000 * SONNET.input);
+/** Tokens of search results assumed per search. */
+export const WEB_SEARCH_RESULT_TOKENS = 30_000;
+/** Extra hold when search is offered. Each search adds a server-side pass that
+ * re-reads the whole prompt (held at the uncached write rate) and the results
+ * gathered so far (on average two reads of each search's results). */
+export function webSearchHoldMicrousd(promptTokens: number): number {
+  return WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input);
 }
 
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
@@ -252,6 +254,8 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     const output = Math.min(params.max_tokens, Math.max(Math.ceil(visible / 3), Math.ceil(elapsed / 1000 * ESTIMATED_OUTPUT_TOKENS_PER_SECOND)));
     const [start] = attemptsFromUsage(sawFallback ? null : model, startUsage);
     const usage = start ? { ...start.usage, output: Math.max(start.usage.output, output) } : { ...emptyUsage(), input: options.inputEstimateTokens, output };
+    // Each search seen implied another pass over the prompt plus its results.
+    usage.input += searchesSeen * (Math.max(0, options.inputEstimateTokens) + WEB_SEARCH_RESULT_TOKENS);
     return { status: 'failed', failure, messageID, model, stopReason: null, refusalCategory: null,
       attempts: [{ model: sawFallback ? null : model, usage, estimated: true }], exact: false, ...(searchesSeen ? { webSearches: searchesSeen } : {}) };
   };

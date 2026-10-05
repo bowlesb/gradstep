@@ -1788,8 +1788,10 @@ final class ReaderModel {
             chatStreamingText[generation.id] = text
             // A diagram is kept only with a complete answer, in the same batch.
             let drawn = status == .complete ? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) } : nil
-            do { try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn) }
-            catch { if issue == nil { issue = "storage" } }
+            do {
+                let kept = try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn)
+                if drawn != nil, !kept, issue == nil { issue = "diagram_storage" }
+            } catch { if issue == nil { issue = "storage" } }
         }
         guard ownsGeneration(generation) else { return }
         chatGenerations[generation.turn.composerID] = nil
@@ -1807,9 +1809,11 @@ final class ReaderModel {
         }
     }
 
+    /// Returns whether the diagram (if any) was kept with the answer.
+    @discardableResult
     private func sealAnswer(_ generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus,
-                            choice: ConversationBranchSelections.Choice, diagram: ChatDiagram? = nil) async throws {
-        guard !privateState.isDeleted(generation.turn.conversationID) else { return }
+                            choice: ConversationBranchSelections.Choice, diagram: ChatDiagram? = nil) async throws -> Bool {
+        guard !privateState.isDeleted(generation.turn.conversationID) else { return true }
         let persistence = localPersistence, scope = sessionID
         await persistence.waitForActivation()
         guard ownsGeneration(generation), persistence === localPersistence, let store else { throw CancellationError() }
@@ -1824,6 +1828,7 @@ final class ReaderModel {
         }
         let entries = batch
         let envelopes: [EventEnvelope]
+        var keptDiagram = true
         do {
             let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: deviceID) }
             envelopes = try await write.value
@@ -1832,13 +1837,15 @@ final class ReaderModel {
             let answer = [(id: id, event: event)]
             let write = try persistence.acceptWrite { local in try await local.appendBatch(answer, deviceID: deviceID) }
             envelopes = try await write.value
+            keptDiagram = false
         }
         let snapshot = await store.snapshot()
-        guard sessionID == scope else { return }
+        guard sessionID == scope else { return keptDiagram }
         branchSelections.complete(choice, head: envelopes.first?.id)
         if workOwnership.owns(storeScope) { publish(snapshot) }
         branchSelections.reconcile(with: privateState, observing: generation.turn.conversationID)
         Task { if self.sessionID == scope { await self.synchronize() } }
+        return keptDiagram
     }
 
     /// Account changes fence every answer. A non-empty partial is kept as an

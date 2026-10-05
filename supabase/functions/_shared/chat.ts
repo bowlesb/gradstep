@@ -279,7 +279,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
     selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL] : [CREATE_DIAGRAM_TOOL, ...(search ? [WEB_SEARCH_TOOL] : [])] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
-  if (search) { hold.microusd += webSearchHoldMicrousd(); hold.credits = creditsFor(hold.microusd); }
+  if (search) { hold.microusd += webSearchHoldMicrousd(hold.inputTokens); hold.credits = creditsFor(hold.microusd); }
   const digest = await deps.sha256Hex(encoder.encode(canonicalRequest(request)));
   if (signal.aborted) return;
 

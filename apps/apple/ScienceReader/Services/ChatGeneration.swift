@@ -87,10 +87,15 @@ struct ChatAnswerIssue: Equatable, Sendable {
         case "consent_declined": "Your question is saved. No answer was requested."
         case "consent_unsaved": "Your choice couldn’t be saved on this device. Try again."
         case "storage": "The answer couldn’t be saved on this device."
+        case "diagram_storage": "The answer was saved, but its diagram couldn’t be: this device’s unsynced storage is full."
         default: ChatFailureText.message(for: code)
         }
     }
-    var retryable: Bool { ["consent_declined", "consent_unsaved", "storage"].contains(code) || ChatFailureText.isRetryable(code) }
+    /// A kept answer whose diagram could not be stored is informational; asking
+    /// again would be a new paid answer.
+    var retryable: Bool {
+        code != "diagram_storage" && (["consent_declined", "consent_unsaved", "storage"].contains(code) || ChatFailureText.isRetryable(code))
+    }
     var actionTitle: String { code == "consent_declined" ? "Get answer" : "Try again" }
 }
 

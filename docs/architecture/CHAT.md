@@ -53,9 +53,11 @@ source. This restores the legacy app's diagrams in a narrower form (Mermaid only
 The legacy app searched the web (Tavily) for anything outside the paper. The chat function can offer Anthropic's
 server-side `web_search_20260209` (max 3 searches, no client loop: one provider call) when `CHAT_WEB_SEARCH=on`
 (`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`). It is **off** on staging.
-When on: instructions ask for searches only for information beyond the paper; the hold adds 3 × ($0.01 + 30k input
-tokens) (a DPO question's hold rose from ~65 to 150 credits); settlement adds $0.01 per search
-(`usage.server_tool_use.web_search_requests`, or searches seen in the stream when cut short); cited sources from
+When on: instructions ask for searches only for information beyond the paper; the hold adds, per allowed search,
+the $0.01 fee, another pass over the whole prompt at the uncached write rate and two reads of ~30k result tokens
+(each search adds a server-side pass that re-reads everything before it); for DPO (27 pages, ~40k prompt tokens)
+the hold goes from 108 to 245 credits. Settlement adds $0.01 per search (`usage.server_tool_use.web_search_requests`, or searches seen in the
+stream when cut short, whose estimate also counts the extra pass and results); cited sources from
 the final message are appended as an inert "Sources" list. Verified live on 2026-10-05 with the switch briefly on:
 searches ran and were charged exactly (tokens + $0.01/search), but the answers carried no citation objects (the
 model named sources in prose), so no Sources list appeared.

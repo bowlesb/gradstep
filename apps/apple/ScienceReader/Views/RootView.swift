@@ -46,18 +46,19 @@ struct RootView: View {
                         .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
                     }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
-                    // A hardware keyboard's shortcut bar is short; keep the tabs then.
-                    let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
-                    softwareKeyboardShown = (frame?.height ?? 0) > 150
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                    softwareKeyboardShown = false
-                }
                 .onChange(of: model.generalChat) { _, general in
                     if model.tab == .chat { model.wideMode = general ? .chat : .reader }
                 }
             }
+        }
+        // On the root so the state stays true across wide/compact layout switches.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+            // A hardware keyboard's shortcut bar is short; keep the tabs then.
+            let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+            softwareKeyboardShown = (frame?.height ?? 0) > 150
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            softwareKeyboardShown = false
         }
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
         .overlay(alignment: .topTrailing) {

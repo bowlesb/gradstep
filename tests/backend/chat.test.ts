@@ -306,7 +306,11 @@ test('web search is offered only when the server enables it, and never on Ingest
   // The hold grows by the search allowance.
   const holdOff = Number(off.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
   const holdOn = Number(on.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
-  assert.ok(holdOn >= holdOff + webSearchHoldMicrousd());
+  const inputTokens = Math.ceil(promptCharacters(chatRequestParams({ instructions: chatInstructions('paper', null, true),
+    paper: { title: 'Attention', text: paperText }, turns: [{ role: 'user', text: secretQuestion }], selection: null,
+    tools: [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL] })) / 3);
+  assert.ok(holdOn >= holdOff + webSearchHoldMicrousd(inputTokens) - 1);
+  assert.ok(webSearchHoldMicrousd(50_000) > 3 * (10_000 + 50_000 * 2.5));
 });
 
 test('searches are charged and cited sources are shown with the answer', async () => {
@@ -636,6 +640,18 @@ test('the SDK adapter estimates usage after an abort mid-stream', async () => {
   assert.equal(outcome.messageID, 'msg_live');
   // Input comes from message_start; output is the larger of text/3 and 100 tokens per elapsed second.
   assert.deepEqual(outcome.attempts, [{ model: 'claude-sonnet-5-5', estimated: true, usage: { input: 1200, cacheWrite5m: 800, cacheWrite1h: 0, cacheRead: 0, output: 200 } }]);
+});
+
+test('an abort after a web search estimates the extra pass and results', async () => {
+  const controller = new AbortController();
+  let clock = 1_000;
+  const searching = { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } };
+  const client = fakeClient(sseResponse([start, searching, { type: 'content_block_stop', index: 1 }, ...text(2, 'x'.repeat(30))], true));
+  const outcome = await streamChat(client, params(), { signal: controller.signal, inputEstimateTokens: 5_000, now: () => clock,
+    onText: () => { clock += 2_000; queueMicrotask(() => controller.abort()); } });
+  assert.equal(outcome.webSearches, 1);
+  // message_start input (1,200) plus one pass over the prompt estimate and 30k tokens of results.
+  assert.equal(outcome.attempts[0].usage.input, 1_200 + 5_000 + 30_000);
 });
 
 test('the SDK adapter charges the input estimate when billing is uncertain before message_start', async () => {
