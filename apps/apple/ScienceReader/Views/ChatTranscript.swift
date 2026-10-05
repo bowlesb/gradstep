@@ -85,9 +85,8 @@ private struct TranscriptMessage: View {
                     .accessibilityElement(children: .ignore).accessibilityLabel("Assistant is answering")
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
-                    Text(Self.inlineSource(message.payload.text))
-                        .font(.system(size: fontSize)).lineSpacing(4)
-                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    ChatRichTextView(source: message.payload.text ?? "", fontSize: fontSize)
+                        .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("chat.message.text.\(message.id.wire)")
                         .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(Self.inlineSource(message.payload.text)))"))
                 }

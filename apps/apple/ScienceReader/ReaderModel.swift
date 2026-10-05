@@ -72,7 +72,8 @@ final class ReaderModel {
     var tab: ReaderTab = .library
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
-    private(set) var libraryImports: [LibraryImportRecord] = [] { didSet { if libraryImports != oldValue { librarySearchSourceChanged() } } }
+    private(set) var libraryImports: [LibraryImportRecord] = [] { didSet { if libraryImports != oldValue { librarySearchSourceChanged(); updateImportPolling() } } }
+    private var importPollTask: Task<Void, Never>?
     private(set) var libraryRefreshing = false
     private(set) var libraryIssue: String?
     private(set) var libraryHasSnapshot = false
@@ -929,6 +930,7 @@ final class ReaderModel {
         retirementQueue.retire(sync: sync, persistence: localPersistence, commands: oldCommands, bundles: oldBundles)
         sync = nil
         device = nil; localPersistence = ReaderLocalPersistence(); keys = nil
+        importPollTask?.cancel(); importPollTask = nil
         privateState = PrivateState(); papers = []; selectedPaper = nil; chatPaperID = nil
         chatWorkspace = ChatWorkspace(); branchSelections = ConversationBranchSelections(); chatFollowRequest = nil
         selectedQuote = ""; headings = []; paperJump = nil; paperLocations = [:]
@@ -938,6 +940,28 @@ final class ReaderModel {
         showAllChats = false; showDiagrams = false
         showReportsAfterComposer = false; error = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
+    }
+
+    /// While an import is converting on the server, refresh the library on a
+    /// bounded schedule (4 s, then 15 s after two minutes) so progress and the
+    /// finished paper appear without a manual refresh. Owned by one session.
+    private func updateImportPolling() {
+        let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) }
+        guard libraryImports.contains(where: isActive), accountID != nil else {
+            importPollTask?.cancel(); importPollTask = nil; return
+        }
+        guard importPollTask == nil else { return }
+        let scope = sessionID
+        importPollTask = Task { [weak self] in
+            let started = Date()
+            while !Task.isCancelled {
+                let delay: Double = Date().timeIntervalSince(started) > 120 ? 15 : 4
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard let self, !Task.isCancelled, self.sessionID == scope else { return }
+                guard self.libraryImports.contains(where: isActive), self.accountID != nil else { self.importPollTask = nil; return }
+                if !self.libraryRefreshing { await self.refreshLibrary() }
+            }
+        }
     }
 
     func refreshLibrary() async {

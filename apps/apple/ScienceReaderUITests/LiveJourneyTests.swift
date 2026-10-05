@@ -121,8 +121,13 @@ final class LiveJourneyTests: XCTestCase {
         paperRow(app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 30))
         capture(app, "Reader after relaunch")
-        if question != nil {
+        if let question {
+            // A relaunch starts a fresh chat; the saved conversation is in history.
             app.buttons["tab.chat"].tap()
+            let history = app.buttons["Chat history"]
+            XCTAssertTrue(history.waitForExistence(timeout: 10)); history.tap()
+            let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", String(question.prefix(20)))).firstMatch
+            XCTAssertTrue(saved.waitForExistence(timeout: 30), "Saved conversation missing from history after relaunch"); saved.tap()
             let messages = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.message.text.'"))
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: messages)], timeout: 30), .completed)
             capture(app, "Answer after relaunch")

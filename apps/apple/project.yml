@@ -10,6 +10,9 @@ configs:
 packages:
   ScienceReaderCore:
     path: ScienceReaderCore
+  SwiftMath:
+    url: https://github.com/mgriebling/SwiftMath
+    exactVersion: 1.7.3
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -34,6 +37,7 @@ targets:
         buildPhase: resources
     dependencies:
       - package: ScienceReaderCore
+      - package: SwiftMath
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios

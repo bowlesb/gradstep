@@ -8,7 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		00D0D6AB8F283DBB542056F2 /* WorkflowSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9EB19E7A51033177B6309A6 /* WorkflowSafetyTests.swift */; };
+		0388B27352FBB7F072C9DCAE /* ChatRichTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AFED85CC085152AD2629AC /* ChatRichTextView.swift */; };
 		086EAA3B2420BFC1EEC6E444 /* WorkflowJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF06459C158D4A571E6BDFA /* WorkflowJourneyTests.swift */; };
+		09A87E139F241BE09E1C6F24 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 73C48F72EBEC7F248AD25F9F /* SwiftMath */; };
 		0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */; };
 		0DB9E535292D2D1CB9A4FCAF /* ReaderPNGValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */; };
 		0E33D12C235E344D6D428738 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CCA6B141496516544EC2620 /* AuthenticationView.swift */; };
@@ -91,6 +93,7 @@
 		B272479F6321F27A9150E93F /* ChatConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4945661F367880A111DF5CF2 /* ChatConsentView.swift */; };
 		B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		B422CD71DBFDFA34FF6388D7 /* GoogleSignIn-PROVENANCE.md in Resources */ = {isa = PBXBuildFile; fileRef = 3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */; };
+		B460865CD511CCB74668327C /* ChatRichTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AFED85CC085152AD2629AC /* ChatRichTextView.swift */; };
 		B48D6C99998D6CEFF119D2D9 /* OAuthSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FCEB742527F9BFC5998184 /* OAuthSafetyTests.swift */; };
 		B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D007555EFC3298556E72D3 /* ConversationBranchSelections.swift */; };
 		BB789A68504EB01EA15320EA /* UnsentDraftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E7F302ABE65AC6232843382 /* UnsentDraftTests.swift */; };
@@ -161,6 +164,7 @@
 		0A7005386659A627AA9009A5 /* DeviceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceKeys.swift; sourceTree = "<group>"; };
 		0CF87627F536131311AEBD1D /* reader-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "reader-bridge.js"; sourceTree = "<group>"; };
 		1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
+		18AFED85CC085152AD2629AC /* ChatRichTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRichTextView.swift; sourceTree = "<group>"; };
 		18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCapture.swift; sourceTree = "<group>"; };
 		1E7F302ABE65AC6232843382 /* UnsentDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsentDraftTests.swift; sourceTree = "<group>"; };
 		2673CB0144CC1585AD755137 /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
@@ -262,6 +266,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */,
+				09A87E139F241BE09E1C6F24 /* SwiftMath in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -393,6 +398,7 @@
 			children = (
 				6CCA6B141496516544EC2620 /* AuthenticationView.swift */,
 				4945661F367880A111DF5CF2 /* ChatConsentView.swift */,
+				18AFED85CC085152AD2629AC /* ChatRichTextView.swift */,
 				82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */,
 				26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */,
 				C78074324405596C300892BD /* NativeAuthenticationControls.swift */,
@@ -465,6 +471,7 @@
 			name = ScienceReader;
 			packageProductDependencies = (
 				82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */,
+				73C48F72EBEC7F248AD25F9F /* SwiftMath */,
 			);
 			productName = ScienceReader;
 			productReference = 44EA809E32C50B2747229C55 /* ScienceReader.app */;
@@ -571,6 +578,7 @@
 			mainGroup = D28EFED6235326B9BCE6A018;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				6A56CAC58C4740DD960C1B60 /* XCRemoteSwiftPackageReference "SwiftMath" */,
 				B2B6EECC88174F41F5801A47 /* XCLocalSwiftPackageReference "ScienceReaderCore" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -630,6 +638,7 @@
 				B272479F6321F27A9150E93F /* ChatConsentView.swift in Sources */,
 				91655D4DC81332B688A53113 /* ChatFixtureTransport.swift in Sources */,
 				A1543E80BD9E52618614DAB8 /* ChatGeneration.swift in Sources */,
+				0388B27352FBB7F072C9DCAE /* ChatRichTextView.swift in Sources */,
 				142F91E67E1BB140E6BF9583 /* ChatTranscript.swift in Sources */,
 				C85C6F3BA0684808A9D3B155 /* ChatWorkspace.swift in Sources */,
 				7707551B28B8897B64FD97F1 /* ConversationBranchSelections.swift in Sources */,
@@ -726,6 +735,7 @@
 				F4B046F9350393446D8DAE4E /* ChatConsentView.swift in Sources */,
 				D825F1E7D5F8E17E9784A3A8 /* ChatFixtureTransport.swift in Sources */,
 				8D8B8CEC6CD75277AFC8D823 /* ChatGeneration.swift in Sources */,
+				B460865CD511CCB74668327C /* ChatRichTextView.swift in Sources */,
 				FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */,
 				951EFA319EF9D270231D50C0 /* ChatWorkspace.swift in Sources */,
 				B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */,
@@ -1327,10 +1337,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		6A56CAC58C4740DD960C1B60 /* XCRemoteSwiftPackageReference "SwiftMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mgriebling/SwiftMath";
+			requirement = {
+				kind = exactVersion;
+				version = 1.7.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		3FCA7FFBEEC488EE3AC5B241 /* ScienceReaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ScienceReaderCore;
+		};
+		73C48F72EBEC7F248AD25F9F /* SwiftMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6A56CAC58C4740DD960C1B60 /* XCRemoteSwiftPackageReference "SwiftMath" */;
+			productName = SwiftMath;
 		};
 		82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */ = {
 			isa = XCSwiftPackageProductDependency;
