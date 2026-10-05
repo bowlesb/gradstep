@@ -273,4 +273,18 @@ reset role;
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-f')=0
  and (select balance from app_private.credit_buckets where external_key='pipeline-test-f')=100,'withdrawn funder hold released, no charge');
 select test.assert((select stage from app_private.pipeline_papers where id=:'private_f')='ocr_fund','paper returns to funding');
+
+-- Stale chat holds (function killed mid-stream) are released without charge.
+reset role;
+set role service_role;
+select public.worker_reserve_operation('14000000-0000-0000-0000-00000000000c','14000000-0000-0000-0000-0000000000cc','chat',
+ ('\x'||repeat('cc',32))::bytea,'beta-credits-v1',20,100000);
+reset role;
+update app_private.metered_operations set created_at=now()-interval '2 hours' where id='14000000-0000-0000-0000-0000000000cc';
+set role service_role;
+select test.assert(public.worker_expire_stale_chat_operations()=1,'stale chat hold swept');
+select test.assert(public.worker_expire_stale_chat_operations()=0,'sweep is idempotent');
+reset role;
+select test.assert((select state='settled' and actual_credits=0 and actual_microusd=100000 from app_private.metered_operations where id='14000000-0000-0000-0000-0000000000cc'),'no charge; ceiling recorded');
+select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-c')=0,'credits released');
 rollback;

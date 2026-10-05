@@ -425,6 +425,8 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
  * invocation so CPU-heavy stages never accumulate in one Edge isolate. */
 export async function runPipeline(deps: PipelineDeps, deadline: number): Promise<{ processed: number }> {
   const policy = await deps.rpc<PipelinePolicy>('worker_pipeline_policy', {});
+  // Housekeeping: release chat holds whose invocation died before settling.
+  await deps.rpc('worker_expire_stale_chat_operations', {}).catch(() => deps.log('chat_sweep_failed'));
   if (!policy.enabled) return { processed: 0 };
   const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
   if (!claimed) return { processed: 0 };
