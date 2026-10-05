@@ -165,6 +165,18 @@ final class LiveJourneyTests: XCTestCase {
         launch(app)
         waitForSignedInAccount(app)
         app.buttons["tab.settings"].tap()
+
+        // Get credits lists the plans and the pack (App Store sandbox products).
+        let getCredits = app.buttons["settings.getCredits"]
+        for _ in 0..<3 where !getCredits.isHittable { app.swipeUp() }
+        XCTAssertTrue(getCredits.waitForExistence(timeout: 10)); getCredits.tap()
+        XCTAssertTrue(app.staticTexts["store.balance"].waitForExistence(timeout: 10))
+        _ = app.staticTexts["Pro"].waitForExistence(timeout: 20)
+        capture(app, "Get credits")
+        // Which products appear depends on App Store Connect (sandbox), so they are recorded, not asserted.
+        print("Store products shown:", ["Pro", "Standard", "400 Credits"].filter { app.staticTexts[$0].exists })
+        app.buttons["Done"].tap()
+
         let delete = app.buttons["account.delete"]
         for _ in 0..<4 where !delete.isHittable { app.swipeUp() }
         XCTAssertTrue(delete.waitForExistence(timeout: 10)); delete.tap()

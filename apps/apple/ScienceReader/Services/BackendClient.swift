@@ -45,6 +45,7 @@ enum BackendError: LocalizedError {
             case "insufficient_credits": "Your available credits do not cover this request."
             case "account_busy": "An answer or paper conversion is still in progress. Try again shortly; if this keeps happening, send a report."
             case "confirmation_required": "Type DELETE to confirm."
+            case "purchases_unavailable": "Purchases aren’t available right now. Try again later."
             case "platform_budget_exhausted": "Cloud processing is temporarily paused. Downloaded papers remain available."
             case "key_authority_required", "stale_key_epoch": "This device needs updated encryption keys from an approved device or recovery code."
             case "invalid_credentials": "The email or password was not accepted."
@@ -454,6 +455,22 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                                  method: "POST", accountID: accountID, maximumResponseBytes: 4_096)
     }
 
+    /// Reports verified App Store transactions; one result per transaction, in order.
+    func syncStoreTransactions(_ signed: [String], accountID: UUID) async throws -> [StoreSyncResult] {
+        struct Body: Encodable { let transactions: [String] }
+        struct Response: Decodable { let results: [StoreSyncResult] }
+        guard !signed.isEmpty, signed.count <= StoreSync.batchSize else { throw BackendError.unavailable }
+        let data = try await authorized(path: "functions/v1/store-sync", body: try JSONEncoder().encode(Body(transactions: signed)),
+                                        method: "POST", accountID: accountID, maximumResponseBytes: 65_536)
+        return try JSONDecoder().decode(Response.self, from: data).results
+    }
+
+    /// The account's current plan from verified renewals (nil plan: none).
+    func storeSummary(accountID: UUID) async throws -> StoreSummary {
+        struct NoParameters: Encodable, Sendable {}
+        return try await rpc("v1_store_summary", params: NoParameters(), accountID: accountID, as: StoreSummary.self)
+    }
+
     /// Authorizes an offline reader download for one library item.
     func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
         let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",
@@ -770,7 +787,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 // strings never become an immutable-operation conflict.
                 throw BackendError.rejected("request_failed")
             }
-            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required"])
+            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }

@@ -56,3 +56,11 @@ verify_jwt = false
 [functions.account-delete]
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false
+
+[functions.store-sync]
+# Auth is verified against Auth.getUser inside the handler.
+verify_jwt = false
+
+[functions.app-store-notifications]
+# Called by Apple; authenticated by verifying Apple's signature on the payload.
+verify_jwt = false

@@ -33,8 +33,17 @@
     "reader-artifact",
     "chat",
     "discover",
-    "account-delete"
+    "account-delete",
+    "store-sync",
+    "app-store-notifications"
   ],
   "pipeline_schedule": "* * * * *",
-  "chat_web_search": true
+  "chat_web_search": true,
+  "app_store": {
+    "bundle_id": "com.sciencereader.ios",
+    "environments": [
+      "Sandbox"
+    ],
+    "online_checks": true
+  }
 }

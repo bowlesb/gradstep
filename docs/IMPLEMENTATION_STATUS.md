@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-05 (overnight build). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-05 (overnight build, then the owner's morning decisions). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
 ## Works end to end on staging
@@ -34,6 +34,35 @@ the answer and an entry in All diagrams; the source is stored encrypted on devic
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
 the chat fixture.
 
+**Web search in chat** is on in staging (owner decision 2026-10-05): up to three Anthropic searches per answer,
+a consent line naming it, and tappable Sources under the answer that show the full address before opening Safari.
+Verified live (searches charged at tokens + $0.01 each; the hold covers them) and by a Simulator UI test with the
+chat fixture. The per-question hold is capped at the reader's balance once it is at least 50 credits.
+
+**Account deletion** (App Store requirement; owner decision 2026-10-05: billing records are kept de-identified):
+Settings › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
+private and support files (including the account's private conversions' `raw/` and `reader/` folders) and the
+login, and keeps credit, usage and operation records under the closed account's ID. Incomplete deletions are
+finished by the paper worker's sweep. Migration `…017_account_deletion.sql` is applied to staging. Verified live:
+`scripts/smoke-account-deletion.mjs` (keys, a report, a shared and a private conversion, a paid answer; afterwards
+no personal rows, no files, login gone, billing kept) and an in-app Simulator run
+(`node scripts/live-journey.mjs --delete`), which also found and fixed a sheet that never presented.
+
+**App Store purchases** (owner-approved plans: Standard $9.99 = 800 credits/month, Pro $19.99 = 1,800, $4.99 pack =
+400): Settings › Credits › Get credits (StoreKit store, restore, manage), server verification against Apple's root in
+`store-sync` and `app-store-notifications`, migration `…018_app_store_purchases.sql` applied to staging. Each verified
+transaction grants once; refunds, reversals, upgrades and deleted-account restores are handled; Sandbox (free)
+purchases are capped at 1,000 credits per account and Apple Account per month. Two independent reviews' findings were
+fixed. Verified: local database/backend/app tests and a staging smoke test (forged and malformed data refused,
+nothing granted). **Not yet verified with a real sandbox purchase** (needs the products ready in App Store Connect and a
+TestFlight build with the store). See [purchases](architecture/PURCHASES.md).
+
+**TestFlight**: App Store Connect record "Paperstep" (name provisional; in-app naming TBD), bundle
+`com.sciencereader.ios`, manual App Store signing, builds 1–3 processed and available to the internal "Owner"
+group (build 3 adds account deletion; purchases come in the next build) (`scripts/upload-testflight.sh`). Email sign-in codes are sent through Resend (generic sender
+`onboarding@resend.dev`, which only delivers to the Resend account's own address until a domain is verified);
+sign-up is invite-only (`disable_signup`).
+
 **Real papers verified on staging** (converted, validated, audited in WebKit at iPhone and iPad widths with the
 app's reader script): DPO, LoRA, Mamba, Mistral 7B, Adam, PPO, Attention Is All You Need, DDPM, ViT, BERT, Scaling
 Laws, Chain-of-Thought — no render failures, no page-level sideways scrolling, every equation fits at iPad width.
@@ -61,10 +90,10 @@ concurrency design were completed and their findings fixed before it was applied
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
   flows, reuse, credit holds and settlement, single submission grant, lost acknowledgements, operator
   resolution, withdrawn funders, fencing, permissions).
-- Node: 132 backend tests (pipeline worker stages with fakes plus a real-render integration on retained
+- Node: 149 backend tests (pipeline worker stages with fakes plus a real-render integration on retained
   DPO output, chat validation/pricing/settlement, renderer hostile-input and tamper checks, Mathpix,
   archive, arXiv).
-- Swift: ScienceReaderCore package tests (155) and app unit tests (232); app builds for Simulator.
+- Swift: ScienceReaderCore package tests (163) and app unit tests (235); iPhone and iPad UI suites.
 
 ## Foundations from earlier checkpoints (still true)
 
@@ -74,17 +103,18 @@ SQLite journal, two-device hosted sync check, encrypted-history quotas. Screensh
 support storage and MFA-gated admin dashboard (now including a pipeline/paid-attempt panel). Native Apple
 capability and six-digit email-code settings configured (real provider sign-in still unverified).
 
-## Spending (2026-10-04/05 overnight, staging)
+## Spending (October 2026, staging)
 
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded by 2026-10-05 03:15 PDT: $2.80 of provider spend for October (Mathpix for twelve conversions and
-Anthropic for answers, Ingest, diagram and web-search tests), nothing reserved; well under the $10 overnight cap.
+Recorded 2026-10-05 09:00 PDT: $3.60 of provider spend for October (Mathpix for the real-paper conversions and
+smoke tests, Anthropic for answers, Ingest, diagram and web-search tests), nothing reserved.
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
 ## Still required
 
-- **Real sign-in**: Apple/Google provider journeys and email-code delivery (needs a dedicated SMTP sender);
-  new signups are still disabled. Simulator tests use a Debug-only synthetic-account hook.
+- **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
+  testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
+  synthetic-account hook.
 - **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
@@ -98,13 +128,13 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
   better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
   paper assets, independent backups, admin hosting, production environment.
-- **Product**: StoreKit subscriptions and allowances, TestFlight, browser reader, accessibility pass on real
-  papers, physical-device checks (paused by the owner), account deletion (App Store requirement).
-- **TestFlight readiness** (prepared 2026-10-05): app icon (the legacy Science Reader artwork, placeholder until
-  the name/brand is decided) and a privacy manifest (`PrivacyInfo.xcprivacy`: UserDefaults CA92.1, system boot
-  time 35F9.1; collected data draft — email, user ID, other user content, customer support — for owner review
-  against the App Store privacy label). Still owner decisions: export-compliance answer
-  (`ITSAppUsesNonExemptEncryption`; the app uses standard CryptoKit encryption for private history), App Store
-  Connect record, bundle ID registration and signing.
+- **Purchases**: a real sandbox purchase end to end (Apple's online revocation check has not run in Edge yet);
+  subscriptions in App Store Connect still show Missing Metadata; App Store Server API reconciliation and refund
+  consumption answers need an In-App Purchase key (owner action); final review screenshots.
+- **Product**: browser reader, accessibility pass on real papers, physical-device checks (paused by the owner).
+- **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
+  release a deleted account's App Store subscription binding, and expire deleted data from backups.
+- **App Store listing**: final name and icon (the legacy artwork is a placeholder), privacy label from the
+  manifest draft (email, user ID, other user content, customer support), screenshots.
 - **Applied-but-unused**: migration 011's acquisition tables/RPCs remain in the database; a later additive
   migration can drop them.

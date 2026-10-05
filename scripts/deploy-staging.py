@@ -86,6 +86,14 @@ web_search = args.chat_web_search or ('on' if config.get('chat_web_search') else
 function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                     {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
                     {'name': 'CHAT_WEB_SEARCH', 'value': web_search}]
+# App Store purchases: which Apple environments this deployment accepts (staging:
+# Sandbox, i.e. TestFlight and sandbox testers; never Xcode StoreKit testing).
+store = config.get('app_store')
+if store:
+    function_secrets += [{'name': 'APP_STORE_BUNDLE_ID', 'value': store['bundle_id']},
+                         {'name': 'APP_STORE_ENVIRONMENTS', 'value': ','.join(store['environments'])},
+                         {'name': 'APP_STORE_ONLINE_CHECKS', 'value': 'true' if store.get('online_checks', True) else 'false'}]
+    if store.get('app_apple_id'): function_secrets.append({'name': 'APP_STORE_APP_APPLE_ID', 'value': str(store['app_apple_id'])})
 for name in ['MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'ANTHROPIC_API_KEY']:
     if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
 request(base + '/secrets', mgmt, function_secrets)

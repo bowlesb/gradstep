@@ -86,6 +86,7 @@ struct RootView: View {
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
             Text("Your account and its data were deleted from our servers and this device.")
         }
+        .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model) }
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram) }
         }
@@ -103,7 +104,8 @@ struct RootView: View {
                 if phase == .active {
                     async let history: Void = model.synchronize()
                     async let library: Void = model.refreshLibrary()
-                    _ = await (history, library)
+                    async let purchases: Void = model.syncStoreTransactions()
+                    _ = await (history, library, purchases)
                 }
             }
         }
@@ -636,6 +638,9 @@ struct SettingsView: View {
                         } else {
                             LabeledContent("Available", value: "Loading…")
                         }
+                        if let plan = model.storeSummary?.planName { LabeledContent("Plan", value: plan) }
+                        Button("Get credits") { model.showStore = true }
+                            .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("Credits") } footer: {
                         Text("Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.")
                     }
@@ -663,7 +668,7 @@ struct SettingsView: View {
             }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
                 .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
-                .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance() } }
+                .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance(); await model.refreshStoreSummary() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .topBarLeading) { Button("Done", action: dismissSettings) } } }
         }
     }

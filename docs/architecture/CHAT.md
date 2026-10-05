@@ -48,11 +48,11 @@ Settings/Library → All diagrams lists saved diagrams. Rendering is on device w
 Mermaid runs in `securityLevel: 'strict'` from an app-owned user script. A diagram that cannot be drawn shows its
 source. This restores the legacy app's diagrams in a narrower form (Mermaid only; no arbitrary HTML/SVG).
 
-## Web search (built, off)
+## Web search (on in staging)
 
 The legacy app searched the web (Tavily) for anything outside the paper. The chat function can offer Anthropic's
 server-side `web_search_20260209` (max 3 searches, no client loop: one provider call) when `CHAT_WEB_SEARCH=on`
-(`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`). It is **off** on staging.
+(`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`). It is **on** in staging (owner decision 2026-10-05).
 When on: instructions ask for searches only for information beyond the paper; the hold adds, per allowed search,
 the $0.01 fee, another pass over the whole prompt at the uncached write rate and two reads of ~30k result tokens
 (each search adds a server-side pass that re-reads everything before it); for DPO (27 pages, ~40k prompt tokens)
@@ -60,12 +60,10 @@ the hold goes from 108 to 245 credits. Settlement adds $0.01 per search (`usage.
 stream when cut short, whose estimate also counts the extra pass and results); cited sources from
 the final message are appended as an inert "Sources" list. Verified live on 2026-10-05 with the switch briefly on:
 searches ran and were charged exactly (tokens + $0.01/search), but the answers carried no citation objects (the
-model named sources in prose), so no Sources list appeared.
-
-Before enabling (owner decisions): consent copy must say that queries Claude writes may go to Anthropic's search
-provider; Anthropic requires cited web results to be shown visibly and clickably, which conflicts with the app's
-inert-link policy (a source list that opens Safari after a tap would be the minimal change); and the larger hold
-affects small credit balances.
+model named sources in prose). The instructions therefore ask for a final "Sources:" list (`N. Title — https://…`),
+which the app shows as tappable sources; a tap shows the full address and asks before opening Safari. The consent
+screen says that queries Claude writes may go to Anthropic's search provider. Since the hold cap (balance ≥ 50
+credits), the larger search hold no longer blocks small balances.
 
 ## Money
 

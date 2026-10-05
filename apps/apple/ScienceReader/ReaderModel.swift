@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ScienceReaderCore
+import StoreKit
 import SwiftUI
 
 enum ReaderTab: String, CaseIterable, Identifiable {
@@ -504,6 +505,7 @@ final class ReaderModel {
 
     func start() async {
         guard !started else { return }; started = true
+        startStoreUpdates()
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
             do {
@@ -665,7 +667,11 @@ final class ReaderModel {
                     self.accountPreparationTask = nil; self.isBusy = false
                 }
             }
-            do { try await self.signedIn(user, client: client, scope: scope) }
+            do {
+                try await self.signedIn(user, client: client, scope: scope)
+                // Purchases made while signed out (or not yet confirmed) are reported now.
+                Task { await self.syncStoreTransactions() }
+            }
             catch {
                 guard self.sessionID == scope, self.accountID == user.id else { return }
                 self.accountPreparationIssue = "Couldn’t prepare your private library. Your saved work is still on this device."
@@ -1876,6 +1882,8 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
+        storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         for generation in retiring {
             generation.task?.cancel()
             guard let text = buffers[generation.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1897,6 +1905,123 @@ final class ReaderModel {
             guard sessionID == scope, self.accountID == accountID else { return }
             creditBalanceIssue = "Couldn’t load your credit balance. Try again later."
         }
+    }
+
+    // MARK: App Store purchases (docs/architecture/PURCHASES.md)
+
+    var showStore = false
+    private(set) var storeSummary: StoreSummary?
+    /// This Apple Account's plan was bought by another (open) account: plans are
+    /// not offered here, so a purchase can't land on the other account.
+    private(set) var planOwnedElsewhere = false
+    /// Set once this session's first purchase sync has checked plan ownership.
+    private(set) var storeOwnershipKnown = false
+    var storeNotice: String?
+    @ObservationIgnored private var storeUpdates: Task<Void, Never>?
+    @ObservationIgnored private var storeRetry: Task<Void, Never>?
+    @ObservationIgnored private var storeRetryAttempt = 0
+
+    /// Binds every purchase to the signed-in account on Apple's side.
+    var purchaseOptions: Set<Product.PurchaseOption> { accountID.map { [.appAccountToken($0)] } ?? [] }
+    var canPurchase: Bool { isSignedIn && device != nil && backend != nil }
+
+    /// Transactions StoreKit delivers outside a purchase sheet: renewals, Ask to
+    /// Buy approvals, refunds, purchases on another device. Started at launch.
+    func startStoreUpdates() {
+        guard storeUpdates == nil else { return }
+        storeUpdates = Task { [weak self] in
+            for await update in StoreKit.Transaction.updates {
+                guard let self, let pending = await self.pendingTransaction(update) else { continue }
+                await self.reportStoreTransactions([pending])
+            }
+        }
+    }
+
+    /// Xcode StoreKit-testing purchases are local only: finished, never reported.
+    private func pendingTransaction(_ item: VerificationResult<StoreKit.Transaction>) async -> PendingStoreTransaction? {
+        if case .verified(let transaction) = item, transaction.environment == .xcode { await transaction.finish(); return nil }
+        return PendingStoreTransaction(item)
+    }
+
+    /// Reports unfinished transactions (and, for a restore, the current ones);
+    /// at sign-in, on returning to the foreground and on retries.
+    func syncStoreTransactions(includeCurrent: Bool = false) async {
+        guard canPurchase, let accountID else { return }
+        var pending: [PendingStoreTransaction] = [], foreignPlan = false
+        for await item in StoreKit.Transaction.unfinished { if let transaction = await pendingTransaction(item) { pending.append(transaction) } }
+        for await item in StoreKit.Transaction.currentEntitlements {
+            var foreign = false
+            if case .verified(let transaction) = item, transaction.productType == .autoRenewable,
+               let token = transaction.appAccountToken, token != accountID { foreign = true; foreignPlan = true }
+            // A plan tagged to another account is reported too: if that account
+            // was deleted, the server moves the plan here.
+            if includeCurrent || foreign, let transaction = await pendingTransaction(item) { pending.append(transaction) }
+        }
+        if !pending.isEmpty { await reportStoreTransactions(pending) }
+        await refreshStoreSummary()
+        guard self.accountID == accountID else { return }
+        // A deleted account's plan moves to this one when reported, so it shows here.
+        planOwnedElsewhere = foreignPlan && storeSummary?.plan == nil
+        storeOwnershipKnown = true
+    }
+
+    /// Unreported or unconfirmed transactions stay unfinished; when the server
+    /// was unreachable they are retried with backoff during this session.
+    @discardableResult
+    private func reportStoreTransactions(_ pending: [PendingStoreTransaction]) async -> [StoreSyncResult]? {
+        guard let backend, let accountID, device != nil else { return nil }
+        let scope = sessionID
+        let results = try? await StoreSync.report(pending, accountID: accountID, transport: backend)
+        guard sessionID == scope else { return results }
+        if results?.contains(where: \.isFinal) == true { await refreshCreditBalance(); await refreshStoreSummary() }
+        if results == nil || results?.contains(where: { $0.outcome == "verification_unavailable" }) == true { scheduleStoreRetry() }
+        else { storeRetryAttempt = 0 }
+        return results
+    }
+
+    /// Backoff while the server can't confirm purchases; reset by a confirmed report.
+    private func scheduleStoreRetry() {
+        let delays: [Duration] = [.seconds(15), .seconds(60), .seconds(300), .seconds(900)]
+        guard storeRetry == nil, storeRetryAttempt < delays.count else { return }
+        let delay = delays[storeRetryAttempt], scope = sessionID
+        storeRetryAttempt += 1
+        storeRetry = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, self.sessionID == scope else { return }
+            self.storeRetry = nil
+            await self.syncStoreTransactions() // A further failure schedules the next attempt.
+        }
+    }
+
+    func completePurchase(_ result: Product.PurchaseResult) async {
+        switch result {
+        case .success(let verification):
+            if case .verified(let transaction) = verification, transaction.environment == .xcode {
+                await transaction.finish(); storeNotice = "This was an Xcode test purchase; it isn’t sent to the server."; return
+            }
+            guard let pending = PendingStoreTransaction(verification) else {
+                storeNotice = "The App Store couldn’t verify this purchase, so no credits were added. If you were charged, send a report."
+                return
+            }
+            storeNotice = StoreSync.message(for: await reportStoreTransactions([pending])?.first)
+        case .pending: storeNotice = "Your purchase is waiting for approval. Credits are added once it’s approved."
+        case .userCancelled: break
+        @unknown default: break
+        }
+    }
+
+    func restorePurchases() async {
+        do { try await AppStore.sync() } catch { storeNotice = "Couldn’t reach the App Store. Try again later."; return }
+        await syncStoreTransactions(includeCurrent: true)
+        if planOwnedElsewhere { storeNotice = "The plan on this Apple Account belongs to another account. Sign in to that account to use it." }
+        else { storeNotice = storeSummary?.planName.map { "Your \($0) plan is active." } ?? "No active plan was found for this Apple Account." }
+    }
+
+    func refreshStoreSummary() async {
+        guard let backend, let accountID, device != nil else { return }
+        let scope = sessionID
+        guard let summary = try? await backend.storeSummary(accountID: accountID), sessionID == scope, self.accountID == accountID else { return }
+        storeSummary = summary
     }
 
     func show(_ error: Error) { self.error = (error as? LocalizedError)?.errorDescription ?? "This operation could not finish. Your existing saved data has been preserved." }

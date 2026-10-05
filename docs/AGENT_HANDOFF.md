@@ -1,15 +1,19 @@
 # Science Reader agent handoff
 
-Updated 2026-10-05 (overnight build, second half). Continue from the verified state; read
+Updated 2026-10-05 (after the owner's morning decisions). Continue from the verified state; read
 [`AGENTS.md`](../AGENTS.md), [decisions](DECISIONS.md) and [implementation status](IMPLEMENTATION_STATUS.md)
 first. The previous handoff (Linux executor plan) is obsolete and in git history before `e272037`.
 
 ## What exists
 
 - **Server (Supabase staging `coxhjvqpflgxkleydati`)**: migrations 001–011 plus `014_paper_pipeline`,
-  `015_stale_chat_holds` and `016_download_admission` applied (immutable). Edge functions: `paper-worker` (pipeline, cron every
-  minute + import trigger via `pg_net`), `reader-artifact` (authorized reader download), `chat` (paid
-  Claude Sonnet 5.5 answers), `discover` (arXiv search), `support-assets` (screenshots).
+  `015_stale_chat_holds`, `016_download_admission`, `017_account_deletion` and `018_app_store_purchases` applied (immutable). Edge functions:
+  `paper-worker` (pipeline, cron every minute + import trigger via `pg_net`, plus the account-deletion sweep),
+  `reader-artifact` (authorized reader download), `chat` (paid Claude Sonnet 5.5 answers, web search on in
+  staging), `discover` (arXiv search), `support-assets` (screenshots), `account-delete`, `store-sync` and
+  `app-store-notifications` (App Store purchases).
+- **Auth**: email codes through Resend SMTP (`scripts/configure-email.py`, key in ignored `.env.providers`);
+  sign-up invite-only.
 - **Pipeline**: see [PAPER_PIPELINE.md](architecture/PAPER_PIPELINE.md). Shared CC BY/CC0 conversions are
   reused across accounts; other papers convert privately per account. Every credit hold has an exit.
   Two independent reviews' findings were fixed before 014 was applied.
@@ -22,8 +26,12 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   scroll), credits in Settings, app icon (legacy artwork) and privacy manifest. Existing navigation is preserved;
   the compact tab bar now sits behind the software keyboard like a system tab bar. The live journey passes on
   iPhone and iPad Simulators; Release and Internal device builds compile (unsigned).
-- **Built but off**: Anthropic web search in chat (`CHAT_WEB_SEARCH`, `infra/staging.json` `chat_web_search`) —
-  waiting on owner decisions (consent copy, clickable citations, larger hold); see DECISIONS.
+- **Account deletion**: Settings › Delete account… → `account-delete`; billing kept de-identified (owner decision).
+  See [privacy and sync](architecture/PRIVACY_AND_SYNC.md).
+- **Purchases**: [PURCHASES.md](architecture/PURCHASES.md); products created by `scripts/setup-store-products.mjs`
+  (idempotent; also sets sandbox notifications to staging); `node scripts/smoke-store.mjs` checks the deployed functions.
+- **TestFlight**: App Store Connect app "Paperstep" (provisional), `scripts/upload-testflight.sh` with
+  `BUILD_NUMBER=N` (ASC API key in ignored `.env.appstore` / `secrets/`), internal group "Owner".
 - **Admin**: MFA dashboard with budgets, provider usage and a Processing tab (papers, paid attempts).
 
 ## How to verify / operate
@@ -36,6 +44,9 @@ python3 scripts/deploy-staging.py staging [--skip-migrations] [--functions NAME 
 python3 scripts/pipeline-ops.py status|budget --usd N|enable|disable|grant|resolve|kick
 node scripts/smoke-pipeline.mjs [--arxiv=ID] [--question=...|none]   # API journey, small paid cost
 node scripts/live-journey.mjs [--arxiv=ID --title=T --search=Q --question=...] [--device=SIM-ID]  # Simulator journey
+node scripts/live-journey.mjs --delete            # in-app account deletion on staging, then server checks
+node scripts/smoke-account-deletion.mjs           # API deletion check with real data (small paid cost)
+BUILD_NUMBER=N scripts/upload-testflight.sh       # archive, sign, upload to TestFlight
 node scripts/vendor-mermaid.mjs                   # re-vendor the hash-pinned Mermaid build into the app
 TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test … -only-testing:ScienceReaderUITests/WorkflowJourneyTests/testAccessibilityAuditOfMainScreens
 ```
@@ -56,9 +67,10 @@ reconcile with `pipeline-ops.py resolve ATTEMPT --job ID | --pages N`.
 
 ## Next priorities
 
-1. Real sign-in on the dedicated registrations (Apple first), SMTP sender for email codes, beta signups.
-2. TestFlight build (app record, signing, StoreKit products and allowances decision).
-3. Account deletion (App Store requirement before public release; needs a retention decision for billing records).
+1. Purchases: get the subscriptions out of Missing Metadata, upload a TestFlight build with the store, and verify a
+   real sandbox purchase, renewal and refund on staging (watch `store-sync` logs for `verification_unavailable`).
+2. Verified Resend domain so other testers receive email codes; owner to rotate the Resend key.
+3. Account-deletion follow-ups before public release (Apple token revocation, subscription binding, backups).
 4. Accessibility pass on real papers (VoiceOver over MathML, large text), iPad multitasking widths.
 5. Cleanup of private originals that are never funded; drop the unused 011 acquisition tables in a later migration.
 6. Browser reader (authorized by the owner after the iOS delivery; reuse `reader-bridge.js` layout logic).

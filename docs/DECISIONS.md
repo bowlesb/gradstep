@@ -86,7 +86,26 @@ was not needed: the ledger is append-only and widely referenced). See PRIVACY_AN
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.
-Built behind a server switch, initially **off** (see [chat](architecture/CHAT.md#web-search-built-off)). Restores the legacy
+Implemented and **on in staging** since 2026-10-05 (server switch `CHAT_WEB_SEARCH`; see [chat](architecture/CHAT.md)). Restores the legacy
 app's web search. Enabling needs: consent copy that names Anthropic's search provider as a recipient of search
 queries, a tappable source list (Anthropic's display requirement for cited web results), and acceptance of the
 larger per-question hold (108 → 245 credits for DPO, a 27-page paper; actual charges are far lower).
+
+## Subscriptions and credits (owner approved 2026-10-05)
+
+Approved draft: **Standard $9.99/month = 800 credits**, **Pro $19.99/month = 1,800 credits**, a **$4.99 pack = 400
+credits that never expire**, TestFlight testers 1,000 credits by operator grant; 1 credit ≈ $0.01 to the customer,
+about twice provider cost. Also approved: the per-question hold is capped at the balance from 50 credits.
+
+Implementation choices (easy to change; see [purchases](architecture/PURCHASES.md)):
+
+- Plan credits are granted per verified renewal and expire with that period (no rollover); pack credits never expire;
+  holds spend plan credits first.
+- An upgrade grants the new plan's credits at once and leaves the old period's credits until they expire.
+- A refund removes unspent credits from that purchase (holds in flight are kept); a reversed refund restores them.
+- A purchase belongs to the account that first reports it (the app sets `appAccountToken` to the account ID); a
+  deleted account's purchase moves to the next account that restores it.
+- App Store Connect (beta scope): app "Paperstep" free and offered in the United States only; products
+  `com.sciencereader.ios.{standard.monthly, pro.monthly, credits.400}` in group "Plans", US prices, App Store market
+  only; sandbox server notifications go to staging. Territories, final names and review screenshots are revisited
+  before public release.
