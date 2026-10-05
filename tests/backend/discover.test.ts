@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivSearchURL, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
+import { arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -26,4 +26,16 @@ test('rejects non-feed XML and skips malformed entries', () => {
   assert.throws(() => parseArxivSearch(new TextEncoder().encode('<html/>')));
   const feed = '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>not-an-id</id><title>x</title></entry></feed>';
   assert.deepEqual(parseArxivSearch(new TextEncoder().encode(feed)), []);
+});
+
+test('multi-word searches add an oldest-first title phrase query and merge without duplicates', () => {
+  const urls = arxivSearchURLs('Direct Preference Optimization');
+  assert.equal(urls.length, 2);
+  const phrase = new URL(urls[0]);
+  assert.equal(phrase.searchParams.get('search_query'), 'ti:"direct preference optimization"');
+  assert.equal(phrase.searchParams.get('sortOrder'), 'ascending');
+  assert.equal(arxivSearchURLs('2305.18290').length, 1);
+  assert.equal(arxivSearchURLs('mamba').length, 1);
+  const r = (id: string) => ({ source_id: id, revision: 1, title: id, authors: [], year: null, abstract: null, categories: [] });
+  assert.deepEqual(mergeDiscovery([[r('a'), r('b')], [r('b'), r('c')]]).map(x => x.source_id), ['a', 'b', 'c']);
 });

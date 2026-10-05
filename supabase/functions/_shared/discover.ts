@@ -27,6 +27,28 @@ export function arxivSearchURL(query: string, limit = 15): string | null {
   return url.href;
 }
 
+/** Free-text queries of two or more words also run an oldest-first title
+ * phrase search: arXiv's relevance ranking buries the original paper under
+ * later derivatives (e.g. "direct preference optimization"). */
+export function arxivSearchURLs(query: string): string[] {
+  const primary = arxivSearchURL(query);
+  if (!primary || new URL(primary).searchParams.has('id_list')) return primary ? [primary] : [];
+  const phrase = query.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (phrase.split(' ').length < 2) return [primary];
+  const url = new URL('https://export.arxiv.org/api/query');
+  url.search = new URLSearchParams({ search_query: `ti:"${phrase}"`, max_results: '3', sortBy: 'submittedDate', sortOrder: 'ascending' }).toString();
+  return [url.href, primary];
+}
+
+/** Earliest title matches first, then relevance results, without duplicates. */
+export function mergeDiscovery(lists: DiscoveryResult[][]): DiscoveryResult[] {
+  const seen = new Set<string>(); const merged: DiscoveryResult[] = [];
+  for (const list of lists) for (const result of list) {
+    if (!seen.has(result.source_id)) { seen.add(result.source_id); merged.push(result); }
+  }
+  return merged.slice(0, 25);
+}
+
 /** Parses an arXiv Atom feed into compact results; malformed entries are skipped. */
 export function parseArxivSearch(bytes: Uint8Array): DiscoveryResult[] {
   const root = sourceXML(bytes);
