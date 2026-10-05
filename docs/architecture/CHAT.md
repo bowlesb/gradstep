@@ -1,17 +1,34 @@
 # Paid AI chat
 
-Status 2026-10-04: implemented and verified with fakes only (Node SDK-transport fakes, native scripted transport, Debug Simulator fixture). No provider request, deployment or staging call has been made. Not yet verified: live Anthropic streaming, Edge runtime disconnect/`waitUntil` behavior, migration 014 RPCs against a database, and UI journeys.
+Status 2026-10-05: deployed to staging and verified live (API smoke and the Simulator journey: consent, streamed paid answer with typeset math, relaunch). Ingest verified live through the API (DPO passage citing PPO → arXiv 1707.06347 queued, 26 credits); its Simulator path is covered by unit tests only.
 
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}}`.
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection)}`.
 - Events: `delta {text}`, `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
 
 `@anthropic-ai/sdk` 0.131.0 (`npm:` import map entry and root `package.json`). Model `claude-sonnet-5-5`, `max_tokens` 8,000, adaptive thinking at effort `low` (the model guidance for chat; it skips thinking on simple turns and keeps time-to-first-token and cost low), thinking display omitted. Server-side refusal fallback `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); for this model it retries `cyber`/`frontier_llm` declines on Claude Sonnet 5, which matters for an ML-paper reader. Final `stop_reason: "refusal"` becomes `error refused`. System prompt = short instructions (cite sections/equations, LaTeX with `\( \)`/`\[ \]`) + `<paper title>` MMD block with `cache_control: ephemeral` (cached prefix). The selected passage is a separate text block before the last question. One SDK retry; a 130 s generation deadline leaves time to settle inside the Edge wall-clock limit.
+
+## Ingest (selection action)
+
+The existing Ingest action ("Find and add the paper referenced in this passage") sends `action: "ingest"`. Only then
+does the request carry one client tool, `add_paper {title, year?, arxiv_id?}`, plus instructions to identify the
+referenced paper (using the paper's bibliography for in-text citations) and call the tool once. It stays a single
+provider call, so the hold and settlement are unchanged (the tool schema counts toward the hold).
+
+After settlement the server validates the tool input strictly, searches arXiv by title through the shared arXiv
+pacing (optional id lookup, oldest-first title phrase, then all title words; stops at the first clear match) and
+accepts only a strict title match (token F1 ≥ 0.9, or an exact main title of 3+ words before a colon). It then calls
+`v2_begin_import` **as the user** (their JWT, current library head as the observed cursor) — exactly the app's Add,
+so the normal conversion, credit holds and quotas apply. At most one paper per request; the result is appended to
+the answer as inert text (`Added “…” (arXiv:…)`, not found, or could not be added). A `tool_use` stop is reported
+as `end_turn`. The app refreshes the library when an Ingest answer completes. Paper text could steer the model to a
+different title (prompt injection); the bound is one title-matched arXiv paper per explicit Ingest, which the reader
+can cancel in the Library.
 
 ## Money
 
@@ -44,4 +61,4 @@ Rate version `beta-credits-v1`: credits = ⌈micro-USD / 5,000⌉ (1 credit ≈ 
 
 ## Open items
 
-Live staging verification within the session cap; UI journeys for stream/stop/consent; rich Markdown/math rendering of answers (the transcript still renders Markdown text); a sweep for holds left `reserved` when a function instance is killed before settlement.
+UI journeys for Stop and Ingest; formulas SwiftMath cannot typeset fall back to LaTeX source; long papers raise the per-question hold (context is the whole MMD). The stale-hold sweep exists (migration 015).

@@ -215,7 +215,7 @@ final class ReaderModel {
     private var chatStreamingText: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
-    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String)?
+    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?)?
     var chatConsentPrompt: ChatConsentPrompt?
     private(set) var creditBalance: CreditBalance?
     private(set) var creditBalanceIssue: String?
@@ -1522,7 +1522,7 @@ final class ReaderModel {
         newChat(general: false); chatInput = prompts[action] ?? quote
         tab = .chat; wideMode = .reader
         // The quote travels with this exact prompt and composer only.
-        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote) }
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : nil) }
         if !isSignedIn { openSignIn() }
         // The question is saved first; first-use cloud consent then binds the
         // answer request to that captured, saved turn.
@@ -1562,9 +1562,10 @@ final class ReaderModel {
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
         recordCurrentDraftBranch()
         guard let submission = chatWorkspace.beginSubmission(in: chatContext) else { return }
-        let selection = pendingSelection.flatMap {
-            $0.composerID == submission.composerID && $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines) == submission.text ? $0.quote : nil
+        let pending = pendingSelection.flatMap {
+            $0.composerID == submission.composerID && $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines) == submission.text ? $0 : nil
         }
+        let selection = pending?.quote
         if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
         // A remote user message is not a local scrolling action. Capture the
         // accepted submit gesture before saving, scoped to its own composer.
@@ -1603,7 +1604,7 @@ final class ReaderModel {
             if let question = committed.envelopes.last?.id {
                 requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
                     composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
-                    userMessageID: question, selection: selection), state: snapshot.state)
+                    userMessageID: question, selection: selection, action: pending?.action), state: snapshot.state)
             }
         } catch {
             if sessionID == scope {
@@ -1703,7 +1704,7 @@ final class ReaderModel {
             return ChatTurnInput(role: role, text: text)
         }
         let request: ChatGenerationRequest
-        do { request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection) }
+        do { request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection, action: turn.action) }
         catch {
             chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
             return
@@ -1784,8 +1785,16 @@ final class ReaderModel {
         chatGenerations[generation.turn.composerID] = nil
         chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
-        let scope = sessionID
-        Task { if self.sessionID == scope { await self.refreshCreditBalance() } }
+        let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
+        Task {
+            guard self.sessionID == scope else { return }
+            await self.refreshCreditBalance()
+            // Ingest may have queued an import on the server. A refresh already
+            // in flight may predate it, so wait for that one and refresh again.
+            guard added else { return }
+            for _ in 0..<50 where self.libraryRefreshing { try? await Task.sleep(for: .milliseconds(200)) }
+            if self.sessionID == scope, !self.libraryRefreshing { await self.refreshLibrary() }
+        }
     }
 
     private func sealAnswer(_ generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus,

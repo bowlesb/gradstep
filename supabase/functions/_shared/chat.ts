@@ -34,6 +34,8 @@ export interface ChatRequest {
   documentID: string | null;
   turns: ChatTurn[];
   selection: string | null;
+  /** Selection action needing server work beyond an answer (Ingest). */
+  action: 'ingest' | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,7 +56,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action']);
   if (body.consent_version !== CONSENT_VERSION) invalid();
   const mode = body.mode;
   if (mode !== 'paper' && mode !== 'general') invalid();
@@ -81,7 +83,12 @@ export function validateChatRequest(input: unknown): ChatRequest {
     if (typeof value.quote !== 'string' || !value.quote.trim() || [...value.quote].length > MAX_SELECTION_SCALARS) invalid();
     selection = value.quote;
   }
-  return { operationID, mode, documentID, turns, selection };
+  let action: 'ingest' | null = null;
+  if (body.action !== undefined && body.action !== null) {
+    if (body.action !== 'ingest' || selection === null) invalid();
+    action = 'ingest';
+  }
+  return { operationID, mode, documentID, turns, selection, action };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -91,6 +98,7 @@ export function canonicalRequest(request: ChatRequest): string {
     messages: request.turns.map(turn => ({ role: turn.role, text: turn.text })),
     mode: request.mode, operation_id: request.operationID,
     selection: request.selection === null ? null : { quote: request.selection },
+    ...(request.action ? { action: request.action } : {}),
   });
 }
 
@@ -128,8 +136,33 @@ Ground answers in the paper and point to where support comes from, such as "Sect
 A <selected_passage> block, when present, is the text the reader highlighted for this question.`;
 const GENERAL_INSTRUCTIONS = `This is a general research conversation that is not tied to a specific paper. A <selected_passage> block, when present, is text the reader highlighted.`;
 
-export function chatInstructions(mode: 'paper' | 'general'): string {
-  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}`;
+const INGEST_INSTRUCTIONS = `The reader used "Ingest" on the selected passage: they want the paper it references added to their library.
+Identify that paper, using the paper's bibliography when the passage is an in-text citation. Write one short sentence naming it
+(title, first author, year), then call add_paper once with its exact title (and the arXiv id only if it appears in the text).
+Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
+
+export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null): string {
+  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}${action === 'ingest' ? `\n\n${INGEST_INSTRUCTIONS}` : ''}`;
+}
+
+export interface PaperRequest { title: string; year: number | null; arxivID: string | null }
+/** Validates the model's add_paper input (untrusted: paper text can steer it). */
+export function paperRequest(input: unknown): PaperRequest | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  if (Object.keys(value).some(key => !['title', 'year', 'arxiv_id'].includes(key))) return null;
+  const title = typeof value.title === 'string' ? value.title.replace(/\s+/g, ' ').trim() : '';
+  if (title.length < 3 || title.length > 400) return null;
+  const year = Number.isInteger(value.year) && (value.year as number) >= 1900 && (value.year as number) <= 2100 ? value.year as number : null;
+  const arxivID = typeof value.arxiv_id === 'string' && value.arxiv_id.length <= 64 ? value.arxiv_id.trim() : null;
+  return { title, year, arxivID };
+}
+export interface FoundPaper { source_id: string; title: string; year: number | null }
+const display = (text: string) => text.replace(/[\u0000-\u001f\u007f*_`[\]<>\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+export function ingestReport(request: PaperRequest, found: FoundPaper | null, result: 'added' | 'failed' | 'not_found'): string {
+  if (result === 'not_found' || !found) return `\n\nI couldn't find “${display(request.title)}” on arXiv, so it wasn't added. Science Reader can add arXiv papers only.`;
+  if (result === 'failed') return `\n\nI found “${display(found.title)}” (arXiv:${found.source_id}) but couldn't add it right now. You can add it from Library → arXiv.`;
+  return `\n\nAdded “${display(found.title)}” (arXiv:${found.source_id}) to your library. It is converting now.`;
 }
 
 export type ChatEvent = { event: 'delta'; data: { text: string } }
@@ -153,6 +186,10 @@ export interface ChatDependencies {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   deadlineMs?: number;
+  /** Ingest: the arXiv paper whose title strictly matches, if any. */
+  findPaper?: (request: PaperRequest) => Promise<FoundPaper | null>;
+  /** Ingest: adds one arXiv paper to the caller's library (as the caller). */
+  importPaper?: (sourceID: string) => Promise<'added' | 'failed'>;
 }
 
 const RESERVE_ERRORS: Record<string, ChatErrorCode> = {
@@ -194,7 +231,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
-  const params = chatRequestParams({ instructions: chatInstructions(request.mode), paper, turns: request.turns, selection: request.selection });
+  const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action), paper, turns: request.turns,
+    selection: request.selection, tools: request.action === 'ingest' });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
   const digest = await deps.sha256Hex(encoder.encode(canonicalRequest(request)));
   if (signal.aborted) return;
@@ -245,13 +283,25 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
     if (outcome.stopReason === 'refusal') { emit({ event: 'error', data: { code: 'refused' } }); return; }
+    // Ingest: at most one add per request, only of a title-matched arXiv paper.
+    const call = request.action === 'ingest' ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
+    const wanted = call ? paperRequest(call.input) : null;
+    if (call && !wanted) deps.log({ event: 'chat_ingest_invalid_input', operation_id: request.operationID });
+    if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
+      const found = await deps.findPaper(wanted).catch(() => null);
+      const result = found ? await deps.importPaper(found.source_id).catch(() => 'failed' as const) : 'not_found' as const;
+      deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
+      if (!signal.aborted) emit({ event: 'delta', data: { text: ingestReport(wanted, found, result) } });
+    }
     const usage = outcome.attempts.reduce((sum, attempt) => ({
       input_tokens: sum.input_tokens + attempt.usage.input,
       cache_creation_input_tokens: sum.cache_creation_input_tokens + attempt.usage.cacheWrite5m + attempt.usage.cacheWrite1h,
       cache_read_input_tokens: sum.cache_read_input_tokens + attempt.usage.cacheRead,
       output_tokens: sum.output_tokens + attempt.usage.output,
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
-    emit({ event: 'done', data: { stop_reason: outcome.stopReason ?? 'end_turn', credits, usage } });
+    // A tool call ends the provider turn; the server completed it.
+    const stopReason = outcome.stopReason === 'tool_use' ? 'end_turn' : outcome.stopReason ?? 'end_turn';
+    emit({ event: 'done', data: { stop_reason: stopReason, credits, usage } });
     return;
   }
   emit({ event: 'error', data: { code: 'provider_unavailable' } });

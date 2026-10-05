@@ -13,6 +13,10 @@ public enum ChatRequestError: Error, Equatable {
 }
 
 /// The bounded `functions/v1/chat` request body (contract: docs/architecture/CHAT.md).
+/// A selection action the server completes beyond answering (Ingest adds the
+/// referenced paper to the library).
+public enum ChatAction: String, Equatable, Sendable { case ingest }
+
 public struct ChatGenerationRequest: Equatable, Sendable {
     public static let consentVersion = "cloud-ai-v1"
     public static let maximumTurns = 60
@@ -24,10 +28,13 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let documentID: UUID?
     public let turns: [ChatTurnInput]
     public let selection: String?
+    /// Only sent with a selection.
+    public let action: ChatAction?
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
-    public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?) throws -> ChatGenerationRequest {
+    public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
+                            action: ChatAction? = nil) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -41,11 +48,12 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         while let first = kept.first, first.role != .user { kept.removeFirst() }
         let quote = selection.map { bounded($0, scalars: maximumSelectionScalars) }
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote)
+        return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
+                                     action: quote == nil ? nil : action)
     }
 
-    private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?) {
-        self.operationID = operationID; self.documentID = documentID; self.turns = turns; self.selection = selection
+    private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?) {
+        self.operationID = operationID; self.documentID = documentID; self.turns = turns; self.selection = selection; self.action = action
     }
 
     public func encoded() throws -> Data {
@@ -59,10 +67,11 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let document_id: String?
             let messages: [Turn]
             let selection: Selection?
+            let action: String?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil ? "general" : "paper", document_id: documentID?.wire,
-            messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init)))
+            messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {

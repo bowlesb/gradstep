@@ -56,6 +56,7 @@ struct ChatAnswerTurn: Equatable, Sendable {
     let documentID: UUID?
     let userMessageID: UUID
     let selection: String?
+    var action: ChatAction? = nil
 }
 
 /// One in-flight answer. The assistant ID is allocated before streaming so the

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
+  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, promptCharacters, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import {
-  canonicalRequest, chatInstructions, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructions, ingestReport, paperRequest, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 
@@ -45,6 +45,7 @@ test('validation rejects unknown, missing, misplaced or oversized fields', () =>
     paperBody({ messages: [{ role: 'user', text: 'x', extra: 1 }] }), paperBody({ messages: [{ role: 'user', text: 7 }] }),
     paperBody({ messages: [{ role: 'user', text: 'é'.repeat(100_001) }] }),
     paperBody({ selection: { quote: 'q'.repeat(4001) } }), paperBody({ selection: { quote: 'q', page: 1 } }), paperBody({ selection: 'q' }),
+    paperBody({ action: 'ingest' }), paperBody({ action: 'define', selection: { quote: 'q' } }), paperBody({ action: true, selection: { quote: 'q' } }),
   ];
   for (const body of cases) assert.throws(() => validateChatRequest(body), { code: 'invalid_request' });
   // 4000 Unicode scalars (not UTF-16 units) is the selection bound.
@@ -56,6 +57,9 @@ test('canonical request digests are independent of input key order', () => {
   const b = validateChatRequest(Object.fromEntries(Object.entries(paperBody()).reverse()));
   assert.equal(canonicalRequest(a), canonicalRequest(b));
   assert.notEqual(canonicalRequest(a), canonicalRequest(validateChatRequest(paperBody({ selection: { quote: 'x' } }))));
+  const quoted = paperBody({ selection: { quote: 'x' } });
+  assert.notEqual(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, action: 'ingest' })));
+  assert.equal(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, action: null })));
 });
 
 test('pricing follows the beta credit rate card and never undercharges unknown models', () => {
@@ -111,6 +115,83 @@ test('request params cache the paper prefix and enable adaptive thinking with se
   assert.equal(last[0].text, '<selected_passage>\nthe passage\n</selected_passage>'); assert.equal(last[1].text, 'q2');
   const general = chatRequestParams({ instructions: chatInstructions('general'), paper: null, turns: [{ role: 'user', text: 'q' }], selection: null });
   assert.equal((general.system as unknown[]).length, 1); assert.deepEqual(general.messages, [{ role: 'user', content: 'q' }]);
+});
+
+test('ingest requests carry the add_paper tool and instructions; others carry no tools', () => {
+  const turns = [{ role: 'user' as const, text: 'Find and add the paper referenced in this passage' }];
+  const ingest = chatRequestParams({ instructions: chatInstructions('paper', 'ingest'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: true });
+  assert.deepEqual(ingest.tools, [ADD_PAPER_TOOL]); assert.equal(ingest.tool_choice, undefined);
+  assert.match((ingest.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text, /call add_paper once/);
+  const plain = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO' });
+  assert.equal(plain.tools, undefined); assert.doesNotMatch((plain.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text, /add_paper/);
+  // The hold covers the tool definition too.
+  assert.ok(promptCharacters(ingest) > promptCharacters(plain) + JSON.stringify(ADD_PAPER_TOOL).length);
+});
+
+test('add_paper input is validated strictly and reports are inert text', () => {
+  assert.deepEqual(paperRequest({ title: '  Direct  Preference Optimization ', year: 2023, arxiv_id: '2305.18290' }),
+    { title: 'Direct Preference Optimization', year: 2023, arxivID: '2305.18290' });
+  assert.deepEqual(paperRequest({ title: 'Attention Is All You Need', year: 17 }), { title: 'Attention Is All You Need', year: null, arxivID: null });
+  for (const bad of [null, [], 'title', {}, { title: 'ab' }, { title: 'x'.repeat(401) }, { title: 'Valid title', extra: 1 }, { title: 7 }]) {
+    assert.equal(paperRequest(bad), null);
+  }
+  const request = { title: 'A [link](https://evil.example) `x` <b>', year: null, arxivID: null };
+  const report = ingestReport(request, null, 'not_found');
+  assert.ok(!/[[\]`<>]/.test(report)); assert.match(report, /couldn't find/);
+  assert.match(ingestReport(request, { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 }, 'added'),
+    /Added “Direct Preference Optimization” \(arXiv:2305\.18290\) to your library/);
+  assert.match(ingestReport(request, { source_id: '2305.18290', title: 'DPO', year: 2023 }, 'failed'), /couldn't add it right now/);
+});
+
+function ingestBody() {
+  return paperBody({ selection: { quote: '[12] Rafailov et al. Direct preference optimization. NeurIPS 2023.' }, action: 'ingest' });
+}
+const toolGenerate = (input: unknown) => async (_params: unknown, stream: StreamOptions) => {
+  stream.onText('That is DPO (Rafailov et al., 2023).');
+  return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'add_paper', input }] });
+};
+
+test('ingest adds one title-matched paper after settlement and reports it in the answer', async () => {
+  const found: unknown[] = [], imported: string[] = [];
+  let tools: unknown;
+  const h = harness({ generate: async (params, stream) => { tools = (params as { tools?: unknown }).tools; return toolGenerate({ title: 'Direct Preference Optimization', year: 2023 })(params, stream); } });
+  h.deps.findPaper = async wanted => { found.push(wanted); return { source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 }; };
+  h.deps.importPaper = async id => { imported.push(id); assert.ok(names(h.calls).includes('worker_settle_operation')); return 'added'; };
+  await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(tools, [ADD_PAPER_TOOL]);
+  assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, arxivID: null }]);
+  assert.deepEqual(imported, ['2305.18290']);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
+  assert.match((h.events[1].data as { text: string }).text, /^\n\nAdded “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
+  assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
+  assert.deepEqual(h.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'added' }]);
+});
+
+test('ingest reports a missing paper, ignores invalid tool input and never adds for non-ingest requests', async () => {
+  const missing = harness({ generate: toolGenerate({ title: 'A Paper Not On arXiv' }) });
+  let imports = 0;
+  missing.deps.findPaper = async () => null; missing.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(missing.deps, ingestBody(), missing.emit, new AbortController().signal);
+  assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv/);
+  assert.equal(imports, 0);
+
+  const invalid = harness({ generate: toolGenerate({ title: 'Valid title', url: 'https://evil.example' }) });
+  invalid.deps.findPaper = async () => { throw new Error('must not search'); }; invalid.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(invalid.deps, ingestBody(), invalid.emit, new AbortController().signal);
+  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']);
+  assert.deepEqual(invalid.logs, [{ event: 'chat_ingest_invalid_input', operation_id: operation }]);
+
+  // A tool call on an ordinary question (no tools were offered) is ignored.
+  const ordinary = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+  ordinary.deps.findPaper = async () => { throw new Error('must not search'); }; ordinary.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(ordinary.deps, paperBody({ selection: { quote: 'x' } }), ordinary.emit, new AbortController().signal);
+  assert.equal(imports, 0); assert.equal(ordinary.events.at(-1)?.event, 'done');
+
+  const failing = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
+  failing.deps.findPaper = async () => ({ source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 });
+  failing.deps.importPaper = async () => { throw new Error('library_active_import_limit'); };
+  await runChat(failing.deps, ingestBody(), failing.emit, new AbortController().signal);
+  assert.match((failing.events[1].data as { text: string }).text, /couldn't add it right now/);
 });
 
 test('SSE frames and bounded body reading', async () => {
@@ -363,6 +444,18 @@ test('the SDK adapter streams text, sends the fallback beta and returns exact us
   assert.ok(seen.headers!.get('anthropic-beta')!.includes(FALLBACK_BETA));
   assert.equal(seen.body!.fallbacks, 'default'); assert.equal(seen.body!.stream, true); assert.equal(seen.body!.model, 'claude-sonnet-5-5');
   assert.deepEqual(seen.body!.thinking, { type: 'adaptive' }); assert.equal(seen.body!.betas, undefined);
+});
+
+test('the SDK adapter returns client tool calls from the final message', async () => {
+  const client = fakeClient(sseResponse([start, ...text(0, 'That is DPO.'),
+    { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_1', name: 'add_paper', input: {} } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"title":"Direct Preference Optimization","year":2023}' } },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { ...usage0, output_tokens: 60 } },
+    { type: 'message_stop' }]));
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
+  assert.equal(outcome.stopReason, 'tool_use');
+  assert.deepEqual(outcome.toolCalls, [{ name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
 });
 
 test('the SDK adapter reports refusals with their category', async () => {

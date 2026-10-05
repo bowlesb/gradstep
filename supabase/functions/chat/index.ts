@@ -2,6 +2,7 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
+import { arxivTitleURLs, bestTitleMatch, searchArxiv, type DiscoveryResult } from '../_shared/discover.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -11,12 +12,12 @@ const encoder = new TextEncoder();
 // SSE `error` event. Plaintext prompts and answers are never logged or stored.
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
-  let accountID: string, body: unknown, service: ReturnType<typeof serviceClient>;
+  let accountID: string, body: unknown, service: ReturnType<typeof serviceClient>, user: Awaited<ReturnType<typeof userClient>>['user'];
   try {
     headers = cors(request);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     if (request.method !== 'POST') throw new PublicError(405, 'method_unavailable');
-    ({ accountID } = await userClient(request));
+    ({ accountID, user } = await userClient(request));
     service = serviceClient();
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
@@ -43,6 +44,30 @@ Deno.serve(async request => {
     },
     generate: client ? (params, options) => streamChat(client, params, options) : null,
     sha256Hex: sha256,
+    findPaper: async wanted => {
+      // One paced request at a time, stopping at the first clear match.
+      const slot = async (slots: number) => {
+        const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
+        if (error) throw new Error('search_busy');
+        return data;
+      };
+      const seen: DiscoveryResult[] = [];
+      for (const url of arxivTitleURLs(wanted.title, wanted.arxivID)) {
+        seen.push(...await searchArxiv([url], fetch, slot));
+        const match = bestTitleMatch(wanted.title, wanted.year, seen);
+        if (match) return { source_id: match.source_id, title: match.title, year: match.year };
+      }
+      return null;
+    },
+    importPaper: async sourceID => {
+      // The caller's own library command, exactly like the app's Add; the
+      // observed cursor is the library's current head (a fresh intent).
+      const page = await user.rpc('v2_library_page', { p_cursor: null, p_limit: 1 });
+      const cursor = page.data?.baseline_cursor;
+      if (page.error || typeof cursor !== 'number') return 'failed';
+      const { data, error } = await user.rpc('v2_begin_import', { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: cursor });
+      return !error && data?.result?.status === 'applied' ? 'added' : 'failed';
+    },
     log: entry => console.warn(JSON.stringify({ function: 'chat', ...entry })),
   };
 

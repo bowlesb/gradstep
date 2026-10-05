@@ -113,3 +113,67 @@ export function parseArxivSearch(bytes: Uint8Array): DiscoveryResult[] {
   }
   return results;
 }
+
+/** Title lookup for Ingest: an id lookup when the model supplied one, then
+ * oldest-first title phrase and all-title-words queries. */
+export function arxivTitleURLs(title: string, arxivID: string | null): string[] {
+  const urls: string[] = [];
+  if (arxivID) { try { const ref = arxivReference(arxivID); urls.push(`https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ref.sourceID, max_results: '1' })}`); } catch { /* ignored */ } }
+  const words = titleWords(title).slice(0, 14);
+  if (words.length < 2) return urls;
+  const phrase = new URLSearchParams({ search_query: `ti:"${words.join(' ')}"`, max_results: '5', sortBy: 'submittedDate', sortOrder: 'ascending' });
+  const all = new URLSearchParams({ search_query: words.filter(w => w.length > 2).slice(0, 10).map(w => `ti:${w}`).join(' AND '), max_results: '10', sortBy: 'relevance', sortOrder: 'descending' });
+  urls.push(`https://export.arxiv.org/api/query?${phrase}`, `https://export.arxiv.org/api/query?${all}`);
+  return urls;
+}
+
+function titleWords(title: string): string[] {
+  return title.normalize('NFKC').toLowerCase().replace(/\$[^$]*\$/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+}
+
+/** Token F1 between two titles (case, punctuation and math-insensitive). */
+export function titleSimilarity(a: string, b: string): number {
+  const x = titleWords(a), y = titleWords(b);
+  if (!x.length || !y.length) return 0;
+  const counts = new Map<string, number>();
+  for (const w of x) counts.set(w, (counts.get(w) ?? 0) + 1);
+  let common = 0;
+  for (const w of y) { const n = counts.get(w) ?? 0; if (n > 0) { common++; counts.set(w, n - 1); } }
+  return common === 0 ? 0 : 2 * common / (x.length + y.length);
+}
+
+/** The best candidate for a wanted title, only if it clearly matches: a
+ * wrong paper costs the reader a conversion, so near-misses are rejected. */
+export function bestTitleMatch<T extends { title: string; year: number | null }>(title: string, year: number | null, candidates: readonly T[]): T | null {
+  let best: { item: T; score: number } | null = null;
+  for (const item of candidates) {
+    let score = titleSimilarity(title, item.title);
+    // Citations often drop a subtitle: an exact main title (3+ words) counts.
+    const main = item.title.split(':')[0];
+    if (main !== item.title && titleWords(main).length >= 3 && titleSimilarity(title, main) === 1) score = Math.max(score, 0.95);
+    if (year !== null && item.year !== null && Math.abs(item.year - year) <= 1) score += 0.01;
+    if (!best || score > best.score) best = { item, score };
+  }
+  return best && best.score >= 0.9 ? best.item : null;
+}
+
+/** Runs arXiv API queries through the shared pacing (`slot` reserves request
+ * slots and returns the wait). Used by the discover function and Ingest. */
+export async function searchArxiv(urls: readonly string[], fetcher: typeof fetch,
+  slot: (slots: number) => Promise<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>): Promise<DiscoveryResult[]> {
+  if (!urls.length) return [];
+  const reserved = await slot(urls.length);
+  if (!reserved.reserved) throw new Error('search_busy');
+  if (reserved.wait_ms > 0) await new Promise(resolve => setTimeout(resolve, reserved.wait_ms));
+  const lists: DiscoveryResult[][] = [];
+  for (const [index, url] of urls.entries()) {
+    if (index > 0) await new Promise(resolve => setTimeout(resolve, reserved.spacing_ms ?? 3000));
+    const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(20_000),
+      headers: { accept: 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+    if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('search_unavailable'); }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > 6 * 1024 * 1024) throw new Error('search_unavailable');
+    lists.push(parseArxivSearch(bytes));
+  }
+  return mergeDiscovery(lists);
+}

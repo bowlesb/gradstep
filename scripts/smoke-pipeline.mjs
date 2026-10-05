@@ -62,10 +62,9 @@ for (const m of descriptor.members) {
 }
 log('reader bundle verified:', descriptor.members.length, 'members,', total, 'bytes, renderer', descriptor.renderer_version);
 
-if (args.question !== 'none') {
-  const question = args.question ?? 'In two sentences, what objective does DPO optimize and why does it avoid an explicit reward model? Cite the equation.';
+async function ask(question, extra = {}) {
   const response = await fetch(`${env.SUPABASE_URL}/functions/v1/chat`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({ operation_id: randomUUID(), consent_version: 'cloud-ai-v1', mode: 'paper', document_id: item.document_id, messages: [{ role: 'user', text: question }] }) });
+    body: JSON.stringify({ operation_id: randomUUID(), consent_version: 'cloud-ai-v1', mode: 'paper', document_id: item.document_id, messages: [{ role: 'user', text: question }], ...extra }) });
   const text = await response.text(); let answer = '', done = null, error = null;
   for (const block of text.split('\n\n')) {
     const ev = /^event: (\w+)/m.exec(block)?.[1], data = /^data: (.*)$/m.exec(block)?.[1];
@@ -75,5 +74,15 @@ if (args.question !== 'none') {
   }
   log('chat http', response.status, error ? `error ${error.code}` : `done ${JSON.stringify(done)}`);
   console.log('--- answer ---\n' + answer.slice(0, 1200) + (answer.length > 1200 ? '…' : '') + '\n--------------');
+}
+if (args.question !== 'none') {
+  await ask(args.question ?? 'In two sentences, what objective does DPO optimize and why does it avoid an explicit reward model? Cite the equation.');
+}
+if (args.ingest) {
+  // The app's Ingest selection action: the server adds the referenced paper.
+  const before = new Set((await page()).filter(e => e.kind === 'import').map(e => e.id));
+  await ask(`Find and add the paper referenced in this passage: ${args.ingest}`, { selection: { quote: args.ingest }, action: 'ingest' });
+  const added = (await page()).filter(e => e.kind === 'import' && !before.has(e.id));
+  log('ingest imports', JSON.stringify(added.map(e => ({ source: e.source_id, phase: e.phase }))));
 }
 log('credits after', JSON.stringify((await user.rpc('v1_credit_balance')).data));

@@ -25,6 +25,16 @@ import Testing
         #expect((body["selection"] as? [String: String]) == ["quote": "softmax(QK^T / sqrt(d_k))"])
     }
 
+    @Test func ingestActionTravelsOnlyWithASelection() throws {
+        let transcript = [ChatTurnInput(role: .user, text: "Find and add the paper referenced in this passage: [12]")]
+        let ingest = try object(ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript,
+                                                           selection: "[12] Rafailov et al.", action: .ingest).encoded())
+        #expect(ingest["action"] as? String == "ingest")
+        let unselected = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript, selection: " ", action: .ingest)
+        #expect(unselected.action == nil)
+        #expect(try object(unselected.encoded())["action"] == nil)
+    }
+
     @Test func generalRequestOmitsDocumentAndSelection() throws {
         let request = try ChatGenerationRequest.make(operationID: UUID(), documentID: nil,
             transcript: [ChatTurnInput(role: .user, text: "Explain dropout")], selection: "   ")

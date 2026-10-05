@@ -96,7 +96,26 @@ export interface PaperContext { title: string | null; text: string }
  * Stable instructions first, then the paper (cached prefix), then the turns.
  * Nothing volatile precedes the cache breakpoint.
  */
-export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null })
+/** Ingest's one client tool. The server finds the paper on arXiv by title
+ * (strict match) and adds it as the reader; the result is reported to the
+ * reader directly, so the tool needs no second model call. */
+export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
+  name: 'add_paper',
+  description: 'Adds the paper the reader selected (a reference or citation) to their Science Reader library. '
+    + 'The app searches arXiv for the exact title and adds the match; only arXiv papers can be added. Call it at most once.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: "The referenced paper's full title, exactly as in the bibliography." },
+      year: { type: 'integer', description: 'Publication year, if known.' },
+      arxiv_id: { type: 'string', description: 'The arXiv identifier, only if it appears in the paper text.' },
+    },
+    required: ['title'],
+  },
+  eager_input_streaming: true,
+};
+
+export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null; tools?: boolean })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text', text: input.instructions }];
   if (input.paper) {
@@ -118,6 +137,7 @@ export function chatRequestParams(input: { instructions: string; paper: PaperCon
     thinking: { type: 'adaptive' }, output_config: { effort: CHAT_EFFORT },
     betas: [FALLBACK_BETA], fallbacks: 'default',
     system, messages,
+    ...(input.tools ? { tools: [ADD_PAPER_TOOL] } : {}),
   };
 }
 
@@ -135,6 +155,7 @@ export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreatePa
   };
   add(params.system);
   for (const message of params.messages) add(message.content);
+  if (params.tools?.length) weigh(JSON.stringify(params.tools));
   return total;
 }
 
@@ -150,6 +171,8 @@ export interface ProviderOutcome {
   attempts: ProviderAttempt[];
   /** False when any billed quantity had to be estimated. */
   exact: boolean;
+  /** Client tool calls in the final message (unvalidated input). */
+  toolCalls?: { name: string; input: unknown }[];
 }
 
 /**
@@ -211,8 +234,12 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     }
     const message = await stream.finalMessage();
     const attempts = attemptsFromUsage(message.model, message.usage);
+    const toolCalls: { name: string; input: unknown }[] = [];
+    for (const block of message.content as Anthropic.Beta.Messages.BetaContentBlock[]) {
+      if (block.type === 'tool_use') toolCalls.push({ name: block.name, input: block.input });
+    }
     return { status: 'complete', failure: null, messageID: message.id, model: message.model, stopReason: message.stop_reason,
-      refusalCategory: message.stop_details?.category ?? null, attempts, exact: true };
+      refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}) };
   } catch (error) {
     stream?.abort();
     if (error instanceof Anthropic.APIUserAbortError || options.signal.aborted) return partial('aborted', true);
