@@ -89,6 +89,7 @@ final class ReaderModel {
     private var readerOpenBinding: ReaderArtifactBinding?
     private(set) var openingPaperID: UUID?
     private(set) var readerOpenIssue: String?
+    private var readerDownloadAttempt: (id: UUID, documentID: UUID)?
     private(set) var offlineCacheIssue: String?
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
@@ -1220,8 +1221,11 @@ final class ReaderModel {
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil
         readerBundles?.cancelOpening()
         guard let paper = selectedPaper, !paper.isSample, paper.readerBundle == nil,
-              let coordinator = readerBundles,
-              let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return }
+              let coordinator = readerBundles else { return }
+        guard let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else {
+            downloadReaderIfNeeded(paper, coordinator: coordinator)
+            return
+        }
         guard coordinator.permits(installation) else {
             readerOpenIssue = "This downloaded copy is currently unavailable."
             return
@@ -1262,6 +1266,46 @@ final class ReaderModel {
                 }
             }
         } catch { readerOpenIssue = "This downloaded copy couldn’t be opened." }
+    }
+
+    /// A converted paper without a local copy downloads automatically when
+    /// opened. Every member is verified against the server-authorized manifest
+    /// digest by the encrypted installer; then the normal open path runs.
+    private func downloadReaderIfNeeded(_ paper: Paper, coordinator: ReaderBundleCoordinator) {
+        if readerDownloadAttempt?.documentID == paper.id { openingPaperID = paper.id; return }
+        guard let backend, let accountID, let artifactID = paper.artifactID,
+              let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
+              item.artifactID == artifactID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
+        let attempt = UUID(), scope = sessionID
+        readerDownloadAttempt = (attempt, paper.id); openingPaperID = paper.id; readerOpenIssue = nil
+        Task {
+            defer {
+                if self.readerDownloadAttempt?.id == attempt {
+                    self.readerDownloadAttempt = nil
+                    if self.readerOpenAttempt == nil, self.openingPaperID == paper.id { self.openingPaperID = nil }
+                }
+            }
+            do {
+                let descriptor = try await backend.readerArtifact(itemID: item.id, accountID: accountID)
+                guard descriptor.documentID == paper.id, descriptor.artifactID == artifactID else { throw ReaderError.corruptData }
+                var members: [String: Data] = [:]
+                for member in descriptor.members {
+                    try Task.checkCancellation()
+                    members[member.path] = try await backend.readerMember(member)
+                }
+                guard self.sessionID == scope, self.readerBundles === coordinator, self.readerDownloadAttempt?.id == attempt else { return }
+                let binding = try ReaderArtifactBinding(scope: coordinator.scope, documentID: paper.id, artifactID: artifactID,
+                                                        manifestSHA256: descriptor.manifestSHA256)
+                _ = try await coordinator.install(binding: binding, manifestData: descriptor.manifestData, members: members).value
+                guard self.sessionID == scope, self.readerDownloadAttempt?.id == attempt else { return }
+                self.readerDownloadAttempt = nil
+                if self.openingPaperID == paper.id { self.openingPaperID = nil }
+                if self.selectedPaper?.id == paper.id { self.openLocalPaperIfNeeded() }
+            } catch {
+                guard self.sessionID == scope, self.readerDownloadAttempt?.id == attempt, !(error is CancellationError) else { return }
+                self.readerOpenIssue = "This paper couldn’t be downloaded. Check your connection and try again."
+            }
+        }
     }
 
     func askAboutSelectedPaper() {

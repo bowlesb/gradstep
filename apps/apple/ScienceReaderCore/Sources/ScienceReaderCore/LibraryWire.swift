@@ -307,13 +307,54 @@ public enum LibraryImportPhase: String, Codable, Sendable {
     case membershipConflict = "membership_conflict"
 }
 
-public enum LibraryImportErrorCode: String, Codable, Sendable {
-    case metadataUnavailable = "metadata_unavailable"
-    case downloadFailed = "download_failed"
-    case pdfInvalid = "pdf_invalid"
-    case rateLimited = "rate_limited"
-    case licenseUnverified = "license_unverified"
-    case membershipConflict = "membership_conflict"
+/// Unknown future codes decode as `.other` so a newer server never breaks the library.
+public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
+    case metadataUnavailable, downloadFailed, pdfInvalid, rateLimited, licenseUnverified, membershipConflict
+    case insufficientCredits, conversionFailed, tooLarge
+    case other(String)
+
+    static let known: [String: LibraryImportErrorCode] = [
+        "metadata_unavailable": .metadataUnavailable, "download_failed": .downloadFailed, "pdf_invalid": .pdfInvalid,
+        "rate_limited": .rateLimited, "license_unverified": .licenseUnverified, "membership_conflict": .membershipConflict,
+        "insufficient_credits": .insufficientCredits, "conversion_failed": .conversionFailed, "too_large": .tooLarge,
+    ]
+    public var rawValue: String {
+        if case .other(let raw) = self { return raw }
+        return Self.known.first { $0.value == self }!.key
+    }
+    public init(from decoder: any Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        guard value.utf8.count <= 64 else { throw LibraryProtocolError.invalidEntry }
+        self = Self.known[value] ?? .other(value)
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer(); try container.encode(rawValue)
+    }
+}
+
+/// Server-side conversion progress for an active import (finding, downloading,
+/// converting, rendering, finishing). Presentation only; unknown values are kept.
+public enum LibraryImportProgress: Equatable, Codable, Sendable {
+    case finding, downloading, converting, rendering, finishing
+    case other(String)
+
+    public var rawValue: String {
+        switch self {
+        case .finding: "finding"; case .downloading: "downloading"; case .converting: "converting"
+        case .rendering: "rendering"; case .finishing: "finishing"; case .other(let raw): raw
+        }
+    }
+    public init(from decoder: any Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        guard value.utf8.count <= 64 else { throw LibraryProtocolError.invalidEntry }
+        switch value {
+        case "finding": self = .finding; case "downloading": self = .downloading; case "converting": self = .converting
+        case "rendering": self = .rendering; case "finishing": self = .finishing; default: self = .other(value)
+        }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer(); try container.encode(rawValue)
+    }
 }
 
 public struct LibraryImportRecord: Codable, Equatable, Sendable {
@@ -336,9 +377,10 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let libraryItemID: UUID?
     public let errorCode: LibraryImportErrorCode?
     public let retryable: Bool
+    public let progress: LibraryImportProgress?
 
     private enum CodingKeys: String, CodingKey {
-        case id, visible, phase, source, metadata, retryable
+        case id, visible, phase, source, metadata, retryable, progress
         case createdSequence = "created_seq", stateSequence = "state_seq", intentRevision = "intent_revision"
         case sourceID = "source_id", requestedRevision = "requested_revision", sourceRevision = "source_revision"
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"

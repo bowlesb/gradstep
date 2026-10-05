@@ -318,9 +318,23 @@ struct ImportRow: View {
         switch item.phase {
         case .accepted: "Queued"
         case .resolving: "Finding paper…"
-        case .acquiring: "Preparing PDF…"
+        case .acquiring:
+            switch item.progress {
+            case .downloading: "Downloading PDF…"
+            case .converting: "Converting equations and figures…"
+            case .rendering, .finishing: "Building reader…"
+            default: "Preparing PDF…"
+            }
         case .sourceOnly: "Available at source"
-        case .failed: "Couldn’t import this paper"
+        case .failed:
+            switch item.errorCode {
+            case .insufficientCredits: "Not enough credits to convert this paper"
+            case .tooLarge: "This PDF is too large to convert"
+            case .pdfInvalid: "This PDF couldn’t be read"
+            case .conversionFailed: "Conversion failed"
+            case .downloadFailed, .rateLimited: "Couldn’t download this paper"
+            default: "Couldn’t import this paper"
+            }
         case .membershipConflict: "Not added to library"
         case .ready: "Added"
         case .cancelled: "Cancelled"

@@ -359,6 +359,25 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         guard try JSONDecoder().decode(Receipt.self, from: result).id == attachmentID else { throw ReaderError.corruptData }
     }
 
+    /// Authorizes an offline reader download for one library item.
+    func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
+        let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",
+                                        accountID: accountID, maximumResponseBytes: 1_048_576)
+        return try JSONDecoder().decode(ReaderArtifactDescriptor.self, from: data)
+    }
+
+    /// Fetches one signed bundle member. Signed Storage URLs stay on the
+    /// configured project host and carry no account credential.
+    func readerMember(_ member: ReaderArtifactDescriptor.Member) async throws -> Data {
+        guard member.url.scheme == "https", member.url.host == config.url.host,
+              member.url.path.hasPrefix("/storage/v1/object/sign/") else { throw BackendError.unavailable }
+        var request = URLRequest(url: member.url)
+        request.httpMethod = "GET"
+        let (data, response) = try await boundedResponse(for: request, maximumBytes: member.bytes)
+        guard (response as? HTTPURLResponse)?.statusCode == 200, data.count == member.bytes else { throw BackendError.transport }
+        return data
+    }
+
     func reportImage(_ id: UUID, accountID: UUID) async throws -> Data {
         let data = try await authorized(path: "functions/v1/support-assets?attachment_id=\(id.wire)", body: nil, method: "GET", accountID: accountID)
         guard data.count <= 5 * 1024 * 1024 else { throw ReaderError.corruptData }
