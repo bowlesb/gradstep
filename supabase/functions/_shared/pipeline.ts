@@ -375,11 +375,15 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
     catch (error) { deps.log('sync_failed', { paper: claimed.id, code: error instanceof PipelineRPCError ? error.code : 'unknown' }); }
   };
   let entry = claimed;
+  let projected: string | null = null;
   try {
     // A paper claimed only to project imports runs no stage work.
     for (let step = 0; step < 8 && claimed.due !== false && !TERMINAL.has(entry.stage); step++) {
       if (deps.now() > deadline - 30_000) break;
       const before = entry.stage;
+      // Show each stage to the readers waiting on it as it starts (finding, downloading,
+      // converting, …), not only when this claim ends.
+      if (projected !== before) { await sync(); projected = before; }
       const handlers: Record<string, (d: PipelineDeps, e: PaperEntry, c: Claim, p: PipelinePolicy, deadline: number) => Promise<StepResult>> = {
         metadata: stageMetadata, private_split: stageSplit, download: stageDownload, ocr_fund: stageFund, ocr_submit: stageSubmit,
         ocr_wait: stageWait, render: stageRender };
@@ -392,10 +396,10 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
         await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: result.defer });
         return;
       }
-      // A fresh submission is polled after the stage delay, not immediately;
-      // rendering (the CPU-heavy stage) always starts in a fresh invocation.
-      if (result.stop === 'release' || entry.stage === before || (before === 'ocr_submit' && entry.stage === 'ocr_wait')
-          || entry.stage === 'render') break;
+      // A fresh submission is waited on in this invocation (polling is I/O; the next
+      // minute's run used to add ~40 s); rendering (the CPU-heavy stage) always
+      // starts in a fresh invocation.
+      if (result.stop === 'release' || entry.stage === before || entry.stage === 'render') break;
     }
     await sync();
     await deps.rpc('worker_pipeline_release', claim);

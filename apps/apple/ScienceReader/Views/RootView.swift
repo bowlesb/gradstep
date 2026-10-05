@@ -361,17 +361,22 @@ struct ImportRow: View {
     /// Offered when the conversion failed for lack of credits.
     var getCredits: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The server's progress when known, in any active phase (an import can still
+    /// read "accepted" while its paper is already converting).
+    private var progressLabel: String? {
+        switch item.progress {
+        case .finding: "Finding paper…"
+        case .downloading: "Downloading PDF…"
+        case .converting: "Converting equations and figures…"
+        case .rendering, .finishing: "Building reader…"
+        default: nil
+        }
+    }
     private var status: String {
         switch item.phase {
-        case .accepted: "Queued"
-        case .resolving: "Finding paper…"
-        case .acquiring:
-            switch item.progress {
-            case .downloading: "Downloading PDF…"
-            case .converting: "Converting equations and figures…"
-            case .rendering, .finishing: "Building reader…"
-            default: "Preparing PDF…"
-            }
+        case .accepted: progressLabel ?? "Queued"
+        case .resolving: progressLabel ?? "Finding paper…"
+        case .acquiring: progressLabel ?? "Preparing PDF…"
         case .sourceOnly: "Available at source"
         case .failed:
             switch item.errorCode {

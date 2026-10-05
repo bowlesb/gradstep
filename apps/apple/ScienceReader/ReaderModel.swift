@@ -986,6 +986,10 @@ final class ReaderModel {
     /// While an import is converting on the server, refresh the library on a
     /// bounded schedule (4 s, then 15 s after two minutes) so progress and the
     /// finished paper appear without a manual refresh. Owned by one session.
+    /// Seconds until the next import status check, by seconds since polling began: fast at
+    /// first so "Queued" moves on as soon as the worker starts (owner feedback 2026-10-05).
+    @ObservationIgnored var importPollDelay: (TimeInterval) -> Double = { elapsed in elapsed < 20 ? 1 : elapsed > 120 ? 15 : 4 }
+
     private func updateImportPolling() {
         let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) }
         guard libraryImports.contains(where: isActive), accountID != nil else {
@@ -996,7 +1000,7 @@ final class ReaderModel {
         importPollTask = Task { [weak self] in
             let started = Date()
             while !Task.isCancelled {
-                let delay: Double = Date().timeIntervalSince(started) > 120 ? 15 : 4
+                let delay = self?.importPollDelay(Date().timeIntervalSince(started)) ?? 4
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard let self, !Task.isCancelled, self.sessionID == scope else { return }
                 guard self.libraryImports.contains(where: isActive), self.accountID != nil else { self.importPollTask = nil; return }

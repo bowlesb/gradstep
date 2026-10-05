@@ -425,6 +425,8 @@ final class LibraryModelTests: XCTestCase {
     func testAddLostAcknowledgementExplicitRefreshAndCancelUseOneLibraryRow() async throws {
         let server = LibraryModelServer(activated: true), fixture = try fixture(server)
         let model = fixture.model
+        // This test scripts each server command; background status polling must not interleave.
+        model.importPollDelay = { _ in 3600 }
         await model.start()
         XCTAssertTrue(model.canBeginImport); XCTAssertTrue(model.draftsArePersistent)
         XCTAssertNil(model.syncIssue); XCTAssertNil(model.error)

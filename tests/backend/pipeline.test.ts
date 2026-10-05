@@ -80,7 +80,7 @@ test('arXiv fetch is bounded, host-restricted and follows only same-site redirec
 test('metadata → download → fund → submit in one claim, then sync and release', async () => {
   const original = await pdf(27);
   const digest = await sha256(original);
-  const posted: unknown[] = [];
+  const posted: unknown[] = [], polls: string[] = [];
   const { deps, calls, uploads } = harness({
     worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }),
     worker_pipeline_admit_download: () => ({ admitted: true }),
@@ -93,14 +93,21 @@ test('metadata → download → fund → submit in one claim, then sync and rele
       original_path: `originals/${digest}.pdf`, original_bytes: original.length,
       attempt: { id: 'a', state: 'funded', page_limit: 27, provider_job_id: null, submitted_at: null, raw_manifest_path: null } }), funding: 'funded' }; },
     worker_pipeline_begin_submit: () => ({ ...entry('ocr_submit'), granted: true, attempt_id: '44444444-4444-4444-8444-444444444444' }),
-    worker_pipeline_submitted: p => { assert.equal(p.p_provider_job_id, 'job-1'); return entry('ocr_wait'); },
+    worker_pipeline_submitted: p => { assert.equal(p.p_provider_job_id, 'job-1'); return entry('ocr_wait', { document_sha256: digest,
+      attempt: { id: 'a', state: 'submitted', page_limit: 27, provider_job_id: 'job-1', submitted_at: new Date().toISOString(), raw_manifest_path: null } }); },
   }, {
     fetch: (async (url: string) => new Response(url.includes('export.arxiv.org') ? atom : url.includes('oaipmh') ? oai : original)) as unknown as typeof fetch,
-    mathpix: { ...harness({}).deps.mathpix, async submitOnce(bytes, checkpoint) { posted.push(checkpoint); assert.equal(await sha256(bytes), digest); return { state: 'accepted', providerJobID: 'job-1' }; } },
+    mathpix: { ...harness({}).deps.mathpix, async submitOnce(bytes, checkpoint) { posted.push(checkpoint); assert.equal(await sha256(bytes), digest); return { state: 'accepted', providerJobID: 'job-1' }; },
+      async status(id) { polls.push(id); return { providerJobID: id, state: 'split', pages: 27, completedPages: 3, pipelineVersion: null, deleted: false, errorCode: null }; } },
   });
   await processPaper(deps, entry('metadata', { revision: null }), policy, deadline);
-  assert.deepEqual(names(calls).filter(n => n !== 'worker_pipeline_arxiv_slot'), ['worker_pipeline_metadata', 'worker_pipeline_admit_download', 'worker_pipeline_original', 'worker_pipeline_fund',
-    'worker_pipeline_begin_submit', 'worker_pipeline_submitted', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  // The fresh submission is waited on in the same claim (no wait for the next minute's run), then deferred briefly.
+  // Readers see each stage as it starts (sync before metadata, download, fund, submit, wait), and at the end.
+  assert.deepEqual(names(calls).filter(n => n !== 'worker_pipeline_arxiv_slot'), ['worker_pipeline_sync_imports', 'worker_pipeline_metadata',
+    'worker_pipeline_sync_imports', 'worker_pipeline_admit_download', 'worker_pipeline_original', 'worker_pipeline_sync_imports', 'worker_pipeline_fund',
+    'worker_pipeline_sync_imports', 'worker_pipeline_begin_submit', 'worker_pipeline_submitted', 'worker_pipeline_sync_imports', 'worker_pipeline_heartbeat',
+    'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
+  assert.ok(polls.length > 1 && polls.every(id => id === 'job-1'), 'the new job is polled in this invocation');
   assert.equal(posted.length, 1);
   assert.ok(uploads.has(`originals/${digest}.pdf`));
 });
@@ -126,7 +133,7 @@ test('polling defers until complete, then captures raw output and settles on pro
   const pending = harness({ worker_pipeline_defer: p => { assert.equal(p.p_seconds, 4); return entry('ocr_wait'); } }, {
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'split', pages: 30, completedPages: 3, pipelineVersion: null, deleted: false, errorCode: null }; } } });
   await processPaper(pending.deps, waiting, policy, deadline);
-  assert.deepEqual(names(pending.calls), ['worker_pipeline_heartbeat', 'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
+  assert.deepEqual(names(pending.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_heartbeat', 'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
 
   const lines = new TextEncoder().encode(JSON.stringify({ pages: Array.from({ length: 30 }, (_, i) => ({ page: i + 1 })) }));
   let collected: Record<string, unknown> = {};
@@ -149,7 +156,7 @@ test('provider error settles without customer charge via ocr_failed', async () =
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'error', pages: 5, completedPages: 2, pipelineVersion: null, deleted: false, errorCode: 'x' }; } } });
   await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
     attempt: { id: 'a', state: 'submitted', page_limit: 5, provider_job_id: 'job-2', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
-  assert.deepEqual(names(calls), ['worker_pipeline_heartbeat', 'worker_pipeline_ocr_failed', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_heartbeat', 'worker_pipeline_ocr_failed', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
 
 test('transient errors back off; repeated failures fail resumably; lost claims do nothing', async () => {
@@ -208,7 +215,7 @@ test('funding that cannot be prepared is abandoned without a POST; low headroom 
   const late = harness({ worker_pipeline_defer: p => p });
   late.uploads.set('originals/x.pdf', original);
   await processPaper(late.deps, { ...funded, failures: 0, original_path: 'originals/x.pdf', document_sha256: await sha256(original) }, policy, Date.parse('2026-10-05T06:01:00Z'));
-  assert.deepEqual(names(late.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_defer']);
+  assert.deepEqual(names(late.calls), ['worker_pipeline_sync_imports', 'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
 });
 
 test('unusable provider output fails the attempt (hold settles) instead of retrying forever', async () => {
@@ -229,13 +236,15 @@ test('a billed job id is recorded even when the first record attempt fails', asy
   const digest = await sha256(original);
   const { deps, calls, uploads } = harness({
     worker_pipeline_begin_submit: () => ({ ...entry('ocr_submit'), granted: true, attempt_id: '55555555-5555-4555-8555-555555555555' }),
-    worker_pipeline_submitted: p => { tries++; if (tries < 3) throw new PipelineRPCError('database_error'); assert.equal(p.p_attempt_id, '55555555-5555-4555-8555-555555555555'); return entry('ocr_wait'); },
-  }, { mathpix: { ...harness({}).deps.mathpix, async submitOnce() { return { state: 'accepted', providerJobID: 'job-5' }; } } });
+    worker_pipeline_submitted: p => { tries++; if (tries < 3) throw new PipelineRPCError('database_error'); assert.equal(p.p_attempt_id, '55555555-5555-4555-8555-555555555555');
+      return entry('ocr_wait', { document_sha256: digest, attempt: { id: 'a', state: 'submitted', page_limit: 2, provider_job_id: 'job-5', submitted_at: new Date().toISOString(), raw_manifest_path: null } }); },
+  }, { mathpix: { ...harness({}).deps.mathpix, async submitOnce() { return { state: 'accepted', providerJobID: 'job-5' }; },
+    async status(id) { return { providerJobID: id, state: 'split', pages: 2, completedPages: 0, pipelineVersion: null, deleted: false, errorCode: null }; } } });
   uploads.set('originals/y.pdf', original);
   await processPaper(deps, entry('ocr_submit', { document_sha256: digest, original_path: 'originals/y.pdf', original_bytes: original.length, page_count: 2,
     attempt: { id: 'a', state: 'funded', page_limit: 2, provider_job_id: null, submitted_at: null, raw_manifest_path: null } }), policy, deadline);
   assert.equal(tries, 3);
-  assert.deepEqual(names(calls).slice(-2), ['worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.deepEqual(names(calls).slice(-2), ['worker_pipeline_sync_imports', 'worker_pipeline_defer']);
 });
 
 test('render stage turns real retained Mathpix output into a valid reader bundle (DPO)', async (t) => {
@@ -281,5 +290,5 @@ test('a download that is not admitted fetches nothing', async () => {
     fetch: (async () => { fetched = true; return new Response(''); }) as unknown as typeof fetch });
   await processPaper(deps, entry('download', { owner_id: '99999999-9999-4999-8999-999999999999' }), policy, deadline);
   assert.equal(fetched, false);
-  assert.deepEqual(names(calls), ['worker_pipeline_admit_download', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_admit_download', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
