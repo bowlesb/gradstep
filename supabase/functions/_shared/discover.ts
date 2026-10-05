@@ -40,12 +40,47 @@ export function arxivSearchURLs(query: string): string[] {
   return [url.href, primary];
 }
 
-/** Newest submissions in one arXiv category (Feed). */
+/** Newest announcements in one arXiv category (Feed): arXiv's daily RSS,
+ * which is fast, unlike a date-sorted API query over a large category. */
 export function arxivRecentURL(category: string): string | null {
   if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return null;
-  const url = new URL('https://export.arxiv.org/api/query');
-  url.search = new URLSearchParams({ search_query: `cat:${category}`, max_results: '25', sortBy: 'submittedDate', sortOrder: 'descending' }).toString();
-  return url.href;
+  return `https://rss.arxiv.org/rss/${category}`;
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+function xmlText(value: string): string {
+  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]*>/g, '')
+    .replace(/&(#x[0-9a-fA-F]{1,6}|#\d{1,7}|amp|lt|gt|quot|apos);/g, (_, e: string) => e[0] === '#'
+      ? String.fromCodePoint(parseInt(e[1] === 'x' ? e.slice(2) : e.slice(1), e[1] === 'x' ? 16 : 10)) : ENTITIES[e])
+    .replace(/\s+/g, ' ').trim();
+}
+
+/** Parses the first new announcements of an arXiv RSS feed. Bounded text
+ * extraction (no entity expansion, no DTD); malformed items are skipped. */
+export function parseArxivRSS(bytes: Uint8Array, limit = 25): DiscoveryResult[] {
+  const text = new TextDecoder().decode(bytes.subarray(0, 4 * 1024 * 1024));
+  if (!/^\s*(<\?xml[^>]*>\s*)?<rss[\s>]/.test(text) || /<!DOCTYPE/i.test(text)) throw new Error('invalid_feed');
+  const results: DiscoveryResult[] = [];
+  const itemPattern = /<item>([\s\S]*?)<\/item>/g;
+  let match: RegExpExecArray | null;
+  while ((match = itemPattern.exec(text)) && results.length < limit) {
+    const item = match[1];
+    const field = (name: string) => { const m = new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(item); return m ? xmlText(m[1]) : null; };
+    const description = field('description') ?? '';
+    const header = /^arXiv:(\S+?)v(\d+) Announce Type: (\S+)/.exec(description);
+    if (!header || !['new', 'cross'].includes(header[3])) continue;
+    try {
+      const ref = arxivReference(header[1]);
+      const title = field('title');
+      if (!title) continue;
+      const year = /^\d{4}\./.test(ref.sourceID) ? 2000 + Number(ref.sourceID.slice(0, 2)) : null;
+      const authors = (field('dc:creator') ?? '').split(/,\s*|\s+and\s+/).map(a => a.trim()).filter(a => a && a.length <= 256).slice(0, 9);
+      const categories = [...item.matchAll(/<category>([^<]{1,64})<\/category>/g)].map(c => xmlText(c[1])).filter(c => /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(c)).slice(0, 6);
+      const abstract = description.replace(/^arXiv:\S+ Announce Type: \S+\s*Abstract:\s*/, '').slice(0, 700) || null;
+      results.push({ source_id: ref.sourceID, revision: Number(header[2]), title: title.slice(0, 2000), authors, year, abstract, categories });
+    } catch { /* skip malformed */ }
+  }
+  return results;
 }
 
 /** Earliest title matches first, then relevance results, without duplicates. */

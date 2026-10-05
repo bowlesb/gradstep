@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivRecentURL, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
+import { arxivRecentURL, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -40,10 +40,17 @@ test('multi-word searches add an oldest-first title phrase query and merge witho
   assert.deepEqual(mergeDiscovery([[r('a'), r('b')], [r('b'), r('c')]]).map(x => x.source_id), ['a', 'b', 'c']);
 });
 
-test('feed URLs list the newest submissions in a validated category', () => {
-  const url = new URL(arxivRecentURL('cs.LG')!);
-  assert.equal(url.searchParams.get('search_query'), 'cat:cs.LG');
-  assert.equal(url.searchParams.get('sortBy'), 'submittedDate');
+test('feed URLs use the daily RSS for a validated category', () => {
+  assert.equal(arxivRecentURL('cs.LG'), 'https://rss.arxiv.org/rss/cs.LG');
   assert.ok(arxivRecentURL('stat.ML') && arxivRecentURL('hep-th') && arxivRecentURL('math.OC'));
   for (const bad of ['cs.LG OR all:x', '', 'CS.lg', 'cs.LG&x=1']) assert.equal(arxivRecentURL(bad), null, bad);
+});
+
+test('parses new announcements from a real arXiv RSS sample', () => {
+  const results = parseArxivRSS(new Uint8Array(readFileSync(new URL('../fixtures/arxiv/rss-cs.LG-sample.xml', import.meta.url))));
+  assert.ok(results.length >= 1);
+  assert.match(results[0].source_id, /^\d{4}\.\d{4,5}$/);
+  assert.ok(results[0].title.length > 5 && results[0].revision >= 1 && results[0].authors.length >= 1);
+  assert.ok(!results[0].abstract!.startsWith('arXiv:'));
+  assert.throws(() => parseArxivRSS(new TextEncoder().encode('<!DOCTYPE x><rss></rss>')));
 });
