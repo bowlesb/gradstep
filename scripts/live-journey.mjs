@@ -27,6 +27,9 @@ assert.equal(grant.error, null, 'Credit grant failed');
 writeFileSync(new URL(`.artifacts/live-journey-${account}.json`, root), JSON.stringify({ account, email, password, arxiv, created_at: new Date().toISOString() }), { mode: 0o600 });
 console.log('Synthetic account', account, 'granted', args.credits ?? 300, 'credits');
 execFileSync('xcodegen', ['generate'], { cwd: new URL('apps/apple/', root), stdio: 'ignore' });
+// Start from a clean install: the Keychain session of an earlier synthetic
+// account must not carry into this run.
+try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.ios'], { stdio: 'ignore' }); } catch { /* not installed */ }
 const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
   '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, '-only-testing:ScienceReaderUITests/LiveJourneyTests',
