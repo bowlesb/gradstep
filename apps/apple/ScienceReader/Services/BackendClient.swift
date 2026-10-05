@@ -426,6 +426,15 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         guard try JSONDecoder().decode(Receipt.self, from: result).id == attachmentID else { throw ReaderError.corruptData }
     }
 
+    /// arXiv search for the Library's "arXiv" segment.
+    func discover(query: String, accountID: UUID) async throws -> [DiscoveryResult] {
+        var allowed = CharacterSet.urlQueryAllowed; allowed.remove(charactersIn: "&+=?#")
+        guard let encoded = String(query.prefix(300)).addingPercentEncoding(withAllowedCharacters: allowed) else { throw BackendError.unavailable }
+        let data = try await authorized(path: "functions/v1/discover?q=\(encoded)", body: nil, method: "GET",
+                                        accountID: accountID, maximumResponseBytes: 524_288)
+        return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
+    }
+
     /// Authorizes an offline reader download for one library item.
     func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
         let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",

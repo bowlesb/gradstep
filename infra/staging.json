@@ -31,7 +31,8 @@
     "support-assets",
     "paper-worker",
     "reader-artifact",
-    "chat"
+    "chat",
+    "discover"
   ],
   "pipeline_schedule": "* * * * *"
 }

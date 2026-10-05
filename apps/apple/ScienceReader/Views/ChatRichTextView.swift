@@ -42,9 +42,16 @@ struct ChatRichTextView: View {
 
     @ViewBuilder private func displayMath(_ latex: String) -> some View {
         if let rendered = ChatMathCache.shared.render(latex, size: fontSize * 1.05, display: true, dark: colorScheme == .dark) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Image(uiImage: rendered.image).padding(.vertical, 4)
+            let width = rendered.image.size.width
+            // Natural size when it fits; otherwise scale down to as little as
+            // 62% before falling back to horizontal scrolling.
+            ViewThatFits(in: .horizontal) {
+                Image(uiImage: rendered.image)
+                Image(uiImage: rendered.image).resizable().interpolation(.high).scaledToFit()
+                    .frame(minWidth: width * 0.62, idealWidth: width * 0.62, maxWidth: width)
+                ScrollView(.horizontal, showsIndicators: true) { Image(uiImage: rendered.image) }
             }
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .center)
             .accessibilityElement().accessibilityLabel(Text(verbatim: latex)).accessibilityHint("Equation")
         } else {

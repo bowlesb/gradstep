@@ -23,4 +23,7 @@ begin
 end $$;
 revoke all on function public.worker_expire_stale_chat_operations(integer) from public,anon,authenticated;
 grant execute on function public.worker_expire_stale_chat_operations(integer) to service_role;
+
+-- Library arXiv search (discover Edge function) rate window.
+insert into app_private.api_rate_rules values('discover',3600,240,3000) on conflict(route) do nothing;
 commit;

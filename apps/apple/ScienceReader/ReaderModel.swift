@@ -110,6 +110,11 @@ final class ReaderModel {
     }
     var libraryQuery = "" { didSet { if libraryQuery != oldValue { queueLibrarySearch() } } }
     var discoveryQuery = ""
+    enum DiscoveryState: Equatable { case idle, searching, results, failed(String) }
+    private(set) var discoveryResults: [DiscoveryResult] = []
+    private(set) var discoveryState: DiscoveryState = .idle
+    private var discoveryGeneration = 0
+    private var discoveryTask: Task<Void, Never>?
     var librarySort = "Recent" { didSet { if librarySort != oldValue { queueLibrarySearch() } } }
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
@@ -935,6 +940,7 @@ final class ReaderModel {
         chatWorkspace = ChatWorkspace(); branchSelections = ConversationBranchSelections(); chatFollowRequest = nil
         selectedQuote = ""; headings = []; paperJump = nil; paperLocations = [:]
         libraryQuery = ""; discoveryQuery = ""; searchExternal = false
+        discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
         generalChat = true
         email = nil; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false
@@ -1057,14 +1063,45 @@ final class ReaderModel {
         }
     }
 
-    func importPaper(_ input: String) async throws {
+    /// Searches arXiv for the current discovery query. The latest query owns
+    /// the results; failures are shown as failures, never as empty results.
+    func runDiscovery() {
+        let query = discoveryQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        discoveryTask?.cancel(); discoveryGeneration += 1
+        let generation = discoveryGeneration
+        guard !query.isEmpty else { discoveryResults = []; discoveryState = .idle; return }
+        guard let backend, let accountID else { discoveryState = .failed("Sign in to search arXiv."); return }
+        discoveryState = .searching
+        let scope = sessionID
+        discoveryTask = Task {
+            do {
+                let results = try await backend.discover(query: query, accountID: accountID)
+                guard self.sessionID == scope, self.discoveryGeneration == generation else { return }
+                self.discoveryResults = results; self.discoveryState = .results
+            } catch {
+                guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
+                self.discoveryState = .failed("arXiv search isn’t available right now. Try again in a moment.")
+            }
+        }
+    }
+
+    /// arXiv identifiers already in the library or being added.
+    var librarySourceIDs: Set<String> {
+        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.map(\.sourceID))
+    }
+
+    func addDiscovered(_ result: DiscoveryResult) async throws {
+        try await importPaper(result.sourceID, stayInSearch: true)
+    }
+
+    func importPaper(_ input: String, stayInSearch: Bool = false) async throws {
         let reference = try ArxivReference(input)
         guard canBeginImport, let snapshot = completeLibrary, let commands = libraryCommandCoordinator else { throw ReaderError.storageUnavailable }
         let scope = sessionID
         _ = try await commands.enqueue(.beginImport(sourceID: reference.sourceID, requestedRevision: reference.revision,
                                                     observedCursor: snapshot.committedCursor), display: "arXiv \(reference.identifier)")
         guard sessionID == scope else { throw CancellationError() }
-        searchExternal = false; libraryQuery = ""
+        if !stayInSearch { searchExternal = false; libraryQuery = "" }
     }
 
     func removePaper(_ paper: Paper) async {

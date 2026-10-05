@@ -212,8 +212,7 @@ struct LibraryView: View {
                         .accessibilityIdentifier("library.offlineIssue")
                 }
                 if model.searchExternal {
-                    ContentUnavailableView("arXiv search is not connected", systemImage: "magnifyingglass", description: Text("You can search papers already in your library in this build."))
-                        .accessibilityIdentifier("search.external.unavailable")
+                    DiscoveryList(model: model)
                 } else if model.librarySearchPending && !model.librarySearchKeepsCurrentRows {
                     Spacer()
                     ProgressView(model.libraryQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Loading library…" : "Searching…")
@@ -296,6 +295,10 @@ struct LibraryView: View {
             }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: model.searchExternal ? "Search arXiv" : "Search your library")
+            .onSubmit(of: .search) { if model.searchExternal { model.runDiscovery() } }
+            .onChange(of: model.searchExternal) { _, external in
+                if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
@@ -729,5 +732,73 @@ struct ImportPaperView: View {
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() }.disabled(saving) } }
                 .interactiveDismissDisabled(saving)
         }
+    }
+}
+
+/// arXiv search results for the Library's "arXiv" segment. Adding stays in
+/// search and appears as a pending import in the library.
+struct DiscoveryList: View {
+    @Bindable var model: ReaderModel
+    @State private var adding: Set<String> = []
+    @State private var issue: String?
+    var body: some View {
+        switch model.discoveryState {
+        case .idle:
+            ContentUnavailableView("Find papers", systemImage: "magnifyingglass",
+                                   description: Text("Search arXiv by title, author, topic or ID, then add a paper to your library."))
+                .accessibilityIdentifier("discover.idle")
+        case .searching:
+            VStack { Spacer(); ProgressView("Searching arXiv…"); Spacer() }.accessibilityIdentifier("discover.searching")
+        case .failed(let message):
+            ContentUnavailableView { Label("Couldn’t search", systemImage: "exclamationmark.magnifyingglass") }
+                description: { Text(message) } actions: { Button("Try again") { model.runDiscovery() } }
+                .accessibilityIdentifier("discover.failed")
+        case .results:
+            if model.discoveryResults.isEmpty {
+                ContentUnavailableView("No papers found", systemImage: "magnifyingglass",
+                                       description: Text("Try fewer or different words, an author, or an arXiv ID."))
+            } else {
+                List {
+                    if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
+                    ForEach(model.discoveryResults) { result in row(result) }
+                }.listStyle(.plain)
+            }
+        }
+    }
+
+    private func row(_ result: DiscoveryResult) -> some View {
+        let inLibrary = model.librarySourceIDs.contains(result.sourceID)
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
+                if !result.authors.isEmpty {
+                    Text(result.authors.prefix(8).joined(separator: ", ") + (result.authors.count > 8 ? " et al." : ""))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                if let abstract = result.abstract { Text(abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                Text(([result.year.map(String.init)].compactMap { $0 } + ["arXiv \(result.sourceID)v\(result.revision)"] + result.categories.prefix(3))
+                    .joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            if inLibrary {
+                Label("In library", systemImage: "checkmark").labelStyle(.iconOnly).foregroundStyle(.secondary)
+                    .accessibilityLabel("In library").frame(minWidth: 44, minHeight: 44)
+            } else if adding.contains(result.sourceID) {
+                ProgressView().frame(minWidth: 44, minHeight: 44)
+            } else {
+                Button("Add") {
+                    adding.insert(result.sourceID); issue = nil
+                    Task {
+                        do { try await model.addDiscovered(result) }
+                        catch { issue = "Couldn’t add “\(result.title)”. Try again." }
+                        adding.remove(result.sourceID)
+                    }
+                }
+                .buttonStyle(.bordered).disabled(!model.canBeginImport)
+                .accessibilityIdentifier("discover.add.\(result.sourceID)")
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("discover.result.\(result.sourceID)")
     }
 }

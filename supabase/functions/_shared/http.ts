@@ -43,7 +43,7 @@ export function exposedDatabaseError(message: string): PublicError {
     attachment_unavailable: 403, owner_mfa_required: 403, operator_required: 403,
     attachment_id_conflict: 409, attachment_expired: 410, invalid_attachment: 400,
     attachment_count_limit: 422, attachment_storage_limit: 429, request_rate_limit: 429,
-    attachment_verification_failed: 409, reader_unavailable: 403, document_unavailable: 403,
+    attachment_verification_failed: 409, reader_unavailable: 403, document_unavailable: 403, route_unavailable: 503,
   };
   return new PublicError(states[message] ?? 503, states[message] ? message : 'service_unavailable');
 }

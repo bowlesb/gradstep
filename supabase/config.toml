@@ -48,3 +48,7 @@ verify_jwt = false
 [functions.reader-artifact]
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false
+
+[functions.discover]
+# Auth is verified against Auth.getUser inside the handler.
+verify_jwt = false

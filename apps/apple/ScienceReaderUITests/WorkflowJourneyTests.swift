@@ -52,7 +52,7 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["search.clear"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
         app.segmentedControls.buttons["arXiv"].tap()
-        XCTAssertTrue(app.staticTexts["arXiv search is not connected"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[sampleID].exists, "External search must never relabel local rows")
         app.segmentedControls.buttons["Library"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
