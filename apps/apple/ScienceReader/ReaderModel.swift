@@ -199,7 +199,22 @@ final class ReaderModel {
     @ObservationIgnored var paperLocations: [String: PaperReadingLocation] = [:]
     var paperJump: PaperJumpRequest?
     var selectedQuote = ""
+    /// The local encrypted save of a question (not the AI answer).
     var isGenerating: Bool { chatWorkspace.isSaving(in: chatContext) }
+    // Answers in flight, keyed by the composer that sent the question. Each is
+    // fenced to its own account session, conversation and saved question.
+    private var chatGenerations: [UUID: ChatGeneration] = [:]
+    private var chatAnswerIssues: [UUID: ChatAnswerIssue] = [:]
+    /// Throttled partial text by generation ID; only the transcript reads it.
+    private var chatStreamingText: [UUID: String] = [:]
+    @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
+    @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
+    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String)?
+    var chatConsentPrompt: ChatConsentPrompt?
+    private(set) var creditBalance: CreditBalance?
+    private(set) var creditBalanceIssue: String?
+    private let chatTransportOverride: (any ChatTransport)?
+    private let chatConsentStore: any AuthenticationCredentialStore
     var isDiscardingDraft: Bool { chatWorkspace.isDiscarding(in: chatContext) }
     private var backend: BackendClient?
     private var keys: DeviceKeys?
@@ -242,11 +257,19 @@ final class ReaderModel {
     init(configuration: BackendConfiguration? = .bundled(), client: BackendClient? = nil,
          readerBundleVerification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
          readerBundleDirectoryReader: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) },
-         librarySearchWorker: LibrarySearchCoordinator.Worker? = nil) {
+         librarySearchWorker: LibrarySearchCoordinator.Worker? = nil,
+         chatTransport: (any ChatTransport)? = nil, chatConsentStore: (any AuthenticationCredentialStore)? = nil) {
         var resolvedConfiguration = configuration
         var resolvedClient = client
         var fixtureFailed = false
+        var resolvedTransport = chatTransport
+        var resolvedConsentStore: any AuthenticationCredentialStore = chatConsentStore ?? KeychainAuthenticationCredentialStore()
         #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        if ChatFixtureTransport.isEnabled {
+            // Never a network transport: scripted answers and in-memory consent.
+            resolvedTransport = ChatFixtureTransport.launchTransport()
+            resolvedConsentStore = ChatFixtureTransport.launchConsentStore()
+        }
         if AuthenticationWorkflowFixture.isEnabled {
             do {
                 let fixture = try AuthenticationWorkflowFixture.makeBackend()
@@ -259,6 +282,7 @@ final class ReaderModel {
         }
         #endif
         self.configuration = resolvedConfiguration; self.backend = resolvedClient
+        self.chatTransportOverride = resolvedTransport; self.chatConsentStore = resolvedConsentStore
         self.readerBundleVerification = readerBundleVerification; self.readerBundleDirectoryReader = readerBundleDirectoryReader
         self.librarySearchWorker = librarySearchWorker
         if fixtureFailed { error = "The local sign-in fixture couldn’t be prepared." }
@@ -523,7 +547,8 @@ final class ReaderModel {
             catch { show(error) }
             return
         }
-        if ProcessInfo.processInfo.arguments.contains("--draft-fixture") {
+        // The chat fixture answers into the same synthetic encrypted store.
+        if ProcessInfo.processInfo.arguments.contains("--draft-fixture") || ChatFixtureTransport.isEnabled {
             do { try await configureDurableDraftFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-draft-fixture")) }
             catch { show(error) }
             return
@@ -874,6 +899,8 @@ final class ReaderModel {
     func waitForLocalRetirement() async { await retirementQueue.wait() }
 
     private func clearAccountView() {
+        // Before the old writer retires: fence answers and keep their partials.
+        retireChatGenerations()
         if let authentication {
             authentication.invalidate()
             retainAuthenticationRetirement(authentication)
@@ -1394,9 +1421,11 @@ final class ReaderModel {
         ]
         newChat(general: false); chatInput = prompts[action] ?? quote
         tab = .chat; wideMode = .reader
+        // The quote travels with this exact prompt and composer only.
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote) }
         if !isSignedIn { openSignIn() }
-        // This build saves encrypted questions only; there is no provider route
-        // to consent to yet. Provider consent must bind a captured future turn.
+        // The question is saved first; first-use cloud consent then binds the
+        // answer request to that captured, saved turn.
         else {
             let scope = sessionID, context = chatContext, composer = chatComposerID, prompt = chatInput, documentScope = readerDocumentScope
             Task {
@@ -1425,7 +1454,7 @@ final class ReaderModel {
         guard !chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard chatContextComplete else { error = chatWasDeleted ? "This conversation was deleted. Start a new chat to continue." : "Sync this conversation before continuing; an earlier message is still missing."; return }
         guard let store, let device else { openSignIn(); return }
-        guard !isGenerating, accountID == device.accountID else { return }
+        guard !isGenerating, !isAnswering, accountID == device.accountID else { return }
         let scope = sessionID
         let storeScope = workOwnership.storeScope, persistence = localPersistence
         let documentID = generalChat ? nil : (chatPaperID ?? selectedPaper?.id)
@@ -1433,6 +1462,10 @@ final class ReaderModel {
         if parents.isEmpty, let activeConversation, let root = privateState.revisions(for: activeConversation).first { parents = [root.id] }
         recordCurrentDraftBranch()
         guard let submission = chatWorkspace.beginSubmission(in: chatContext) else { return }
+        let selection = pendingSelection.flatMap {
+            $0.composerID == submission.composerID && $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines) == submission.text ? $0.quote : nil
+        }
+        if pendingSelection?.composerID == submission.composerID { pendingSelection = nil }
         // A remote user message is not a local scrolling action. Capture the
         // accepted submit gesture before saving, scoped to its own composer.
         chatFollowRequest = ChatFollowRequest(composerID: submission.composerID)
@@ -1467,11 +1500,240 @@ final class ReaderModel {
             // Local acknowledgement restores this composer's controls. Slow
             // network synchronization must not block a different conversation.
             Task { if self.sessionID == scope { await self.synchronize() } }
+            if let question = committed.envelopes.last?.id {
+                requestAnswer(for: ChatAnswerTurn(sessionID: scope, accountID: device.accountID, deviceID: device.deviceID,
+                    composerID: submission.composerID, conversationID: submission.conversationID, documentID: documentID,
+                    userMessageID: question, selection: selection), state: snapshot.state)
+            }
         } catch {
             if sessionID == scope {
                 chatWorkspace.fail(submission)
                 if workOwnership.owns(storeScope) { show(error) }
             }
+        }
+    }
+
+    // MARK: - Cloud answers
+
+    var chatTransport: (any ChatTransport)? { chatTransportOverride ?? backend }
+    /// An answer is streaming for the visible composer's question.
+    var isAnswering: Bool { chatComposerID.map { chatGenerations[$0] != nil } ?? false }
+    var isStoppingAnswer: Bool { chatComposerID.flatMap { chatGenerations[$0]?.stopping } ?? false }
+    var chatAnswerIssue: ChatAnswerIssue? {
+        guard let composer = chatComposerID, chatGenerations[composer] == nil, let issue = chatAnswerIssues[composer],
+              issue.turn.sessionID == sessionID, issue.turn.conversationID == activeConversation,
+              activeBranchID == privateState.resolvedEventID(issue.turn.userMessageID) else { return nil }
+        return issue
+    }
+    /// Only the composer that owns the answer, while its question is the shown
+    /// head, renders the transient row. Late tokens never reach other chats.
+    private var visibleGeneration: ChatGeneration? {
+        guard let composer = chatComposerID, let generation = chatGenerations[composer], generation.turn.sessionID == sessionID,
+              generation.turn.conversationID == activeConversation,
+              activeBranchID == privateState.resolvedEventID(generation.turn.userMessageID) else { return nil }
+        return generation
+    }
+    var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// Saved branch messages plus the streaming answer, which already carries
+    /// the identity its sealed encrypted message will use.
+    var chatTranscriptMessages: [AppliedEvent] {
+        let messages = chatMessages
+        guard let generation = visibleGeneration, !messages.contains(where: { $0.id == generation.assistantID }) else { return messages }
+        return messages + [AppliedEvent(id: generation.assistantID, deviceID: generation.turn.deviceID,
+                                        payload: generation.event(text: chatStreamingText[generation.id] ?? "", status: .complete))]
+    }
+    private var chatConsent: ChatConsentLedger {
+        ChatConsentLedger(environment: configuration?.environment ?? "local", store: chatConsentStore)
+    }
+
+    /// Requests an answer for a saved question. Without a transport (offline
+    /// fixtures) nothing is sent. First use asks for cloud-processing consent.
+    private func requestAnswer(for turn: ChatAnswerTurn, state: PrivateState? = nil) {
+        guard let transport = chatTransport, turn.sessionID == sessionID, turn.accountID == accountID,
+              chatGenerations[turn.composerID] == nil else { return }
+        guard chatConsent.hasAccepted(turn.accountID) else {
+            chatConsentPrompt = ChatConsentPrompt(turn: turn)
+            return
+        }
+        startGeneration(turn, transport: transport, state: state ?? privateState)
+    }
+
+    func acceptChatConsent(_ prompt: ChatConsentPrompt) {
+        guard chatConsentPrompt?.id == prompt.id else { return }
+        chatConsentPrompt = nil
+        guard prompt.turn.sessionID == sessionID, prompt.turn.accountID == accountID else { return }
+        do { try chatConsent.accept(prompt.turn.accountID) }
+        catch {
+            chatAnswerIssues[prompt.turn.composerID] = ChatAnswerIssue(turn: prompt.turn, code: "consent_unsaved")
+            return
+        }
+        requestAnswer(for: prompt.turn)
+    }
+
+    func declineChatConsent(_ prompt: ChatConsentPrompt) {
+        guard chatConsentPrompt?.id == prompt.id else { return }
+        chatConsentPrompt = nil
+        guard prompt.turn.sessionID == sessionID else { return }
+        chatAnswerIssues[prompt.turn.composerID] = ChatAnswerIssue(turn: prompt.turn, code: "consent_declined")
+    }
+
+    func retryAnswer() {
+        guard let issue = chatAnswerIssue, issue.retryable else { return }
+        chatAnswerIssues[issue.turn.composerID] = nil
+        requestAnswer(for: issue.turn)
+    }
+
+    /// Stop keeps any partial text as an explicitly interrupted encrypted turn.
+    func stopAnswer() {
+        guard let composer = chatComposerID, let generation = chatGenerations[composer], !generation.stopping else { return }
+        chatGenerations[composer]?.stopping = true
+        generation.task?.cancel()
+    }
+
+    private func startGeneration(_ turn: ChatAnswerTurn, transport: any ChatTransport, state: PrivateState) {
+        chatAnswerIssues[turn.composerID] = nil
+        guard !state.isDeleted(turn.conversationID),
+              let branch = state.conversationBranch(turn.conversationID, through: turn.userMessageID), branch.complete,
+              branch.messages.last?.payload.role == .user else {
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
+            return
+        }
+        let transcript = branch.messages.compactMap { message -> ChatTurnInput? in
+            guard let role = message.payload.role, let text = message.payload.text else { return nil }
+            return ChatTurnInput(role: role, text: text)
+        }
+        let request: ChatGenerationRequest
+        do { request = try ChatGenerationRequest.make(operationID: UUID(), documentID: turn.documentID, transcript: transcript, selection: turn.selection) }
+        catch {
+            chatAnswerIssues[turn.composerID] = ChatAnswerIssue(turn: turn, code: "invalid_request")
+            return
+        }
+        var generation = ChatGeneration(turn: turn)
+        // A later explicit branch choice wins over moving to this answer.
+        let choice = branchSelections.capture(in: turn.conversationID)
+        let pending = generation
+        generation.task = Task { [weak self] in
+            await self?.runGeneration(pending, request: request, transport: transport, choice: choice)
+        }
+        chatGenerations[turn.composerID] = generation
+    }
+
+    private func ownsGeneration(_ generation: ChatGeneration) -> Bool {
+        generation.turn.sessionID == sessionID && chatGenerations[generation.turn.composerID]?.id == generation.id
+    }
+
+    private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
+                               choice: ConversationBranchSelections.Choice) async {
+        var text = "", outcome: ChatGenerationOutcome?
+        // The consumer holds the only stream reference, so leaving it (a final
+        // event, lost ownership or an error) releases the stream and cancels
+        // the HTTP request before any local sealing work begins.
+        func consume(_ stream: AsyncThrowingStream<ChatStreamEvent, Error>) async throws -> Bool {
+            for try await event in stream {
+                guard ownsGeneration(generation) else { return false }
+                switch event {
+                case .delta(let piece):
+                    text += piece
+                    bufferAnswer(generation, text: text)
+                case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
+                case .failure(let code): outcome = .failed(code: code)
+                }
+                if outcome != nil { break }
+            }
+            return true
+        }
+        do {
+            guard try await consume(try await transport.chatStream(request, accountID: generation.turn.accountID)) else { return }
+        } catch ChatTransportError.rejected(let code) {
+            outcome = .failed(code: code)
+        } catch BackendError.signInRequired {
+            outcome = .failed(code: "authentication_required")
+        } catch {
+            if !Task.isCancelled { outcome = .failed(code: "transport") }
+        }
+        guard ownsGeneration(generation) else { return }
+        // A stream that ends without done/error is interrupted, never complete.
+        let resolved = outcome ?? (Task.isCancelled || chatGenerations[generation.turn.composerID]?.stopping == true
+            ? .cancelled : .failed(code: "transport"))
+        await finishGeneration(generation, text: text, outcome: resolved, choice: choice)
+    }
+
+    private func bufferAnswer(_ generation: ChatGeneration, text: String) {
+        chatStreamBuffer[generation.id] = text
+        guard chatStreamFlushes.insert(generation.id).inserted else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard let self else { return }
+            self.chatStreamFlushes.remove(generation.id)
+            guard self.ownsGeneration(generation), let latest = self.chatStreamBuffer[generation.id] else { return }
+            self.chatStreamingText[generation.id] = latest
+        }
+    }
+
+    private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
+                                  choice: ConversationBranchSelections.Choice) async {
+        let resolution = outcome.resolution(text: text)
+        var issue = resolution.issue
+        if let status = resolution.status {
+            // Show exactly the sealed text before the row changes ownership.
+            chatStreamingText[generation.id] = text
+            do { try await sealAnswer(generation, text: text, status: status, choice: choice) }
+            catch { if issue == nil { issue = "storage" } }
+        }
+        guard ownsGeneration(generation) else { return }
+        chatGenerations[generation.turn.composerID] = nil
+        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil
+        if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
+        let scope = sessionID
+        Task { if self.sessionID == scope { await self.refreshCreditBalance() } }
+    }
+
+    private func sealAnswer(_ generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus,
+                            choice: ConversationBranchSelections.Choice) async throws {
+        guard !privateState.isDeleted(generation.turn.conversationID) else { return }
+        let persistence = localPersistence, scope = sessionID
+        await persistence.waitForActivation()
+        guard ownsGeneration(generation), persistence === localPersistence, let store else { throw CancellationError() }
+        let storeScope = workOwnership.storeScope
+        let id = generation.assistantID, deviceID = generation.turn.deviceID
+        let event = generation.event(text: text.boundedForPrivateEvent(), status: status)
+        let write = try persistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
+        let envelopes = try await write.value
+        let snapshot = await store.snapshot()
+        guard sessionID == scope else { return }
+        branchSelections.complete(choice, head: envelopes.last?.id)
+        if workOwnership.owns(storeScope) { publish(snapshot) }
+        branchSelections.reconcile(with: privateState, observing: generation.turn.conversationID)
+        Task { if self.sessionID == scope { await self.synchronize() } }
+    }
+
+    /// Account changes fence every answer. A non-empty partial is kept as an
+    /// interrupted encrypted turn in the old account's store before it retires.
+    private func retireChatGenerations() {
+        let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
+        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []
+        chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
+        creditBalance = nil; creditBalanceIssue = nil
+        for generation in retiring {
+            generation.task?.cancel()
+            guard let text = buffers[generation.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !privateState.isDeleted(generation.turn.conversationID) else { continue }
+            let id = generation.assistantID, deviceID = generation.turn.deviceID
+            let event = generation.event(text: text.boundedForPrivateEvent(), status: .interrupted)
+            _ = try? localPersistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
+        }
+    }
+
+    func refreshCreditBalance() async {
+        guard let transport = chatTransport, let accountID, device != nil else { return }
+        let scope = sessionID
+        do {
+            let balance = try await transport.creditBalance(accountID: accountID)
+            guard sessionID == scope, self.accountID == accountID else { return }
+            creditBalance = balance; creditBalanceIssue = nil
+        } catch {
+            guard sessionID == scope, self.accountID == accountID else { return }
+            creditBalanceIssue = "Couldn’t load your credit balance. Try again later."
         }
     }
 

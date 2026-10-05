@@ -65,6 +65,7 @@ struct RootView: View {
             }
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
+        .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
         .sheet(isPresented: $model.showReport, onDismiss: {
@@ -94,6 +95,13 @@ struct RootView: View {
         let presentationID = model.signInPresentationID
         return Binding(get: { model.showSignIn }, set: { presented in
             if !presented, let presentationID { model.closeSignIn(presentationID: presentationID) }
+        })
+    }
+
+    /// A system dismissal counts as declining that captured question only.
+    private var consentPresentation: Binding<ChatConsentPrompt?> {
+        Binding(get: { model.chatConsentPrompt }, set: { value in
+            if value == nil, let prompt = model.chatConsentPrompt { model.declineChatConsent(prompt) }
         })
     }
 
@@ -431,7 +439,19 @@ struct ChatView: View {
                         Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
                     }
                     ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17)
-                    Text("AI replies aren’t available in this build.").font(.caption).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    if let issue = model.chatAnswerIssue {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityHidden(true)
+                            Text(issue.message).font(.caption).fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("chat.answerIssue")
+                            if issue.retryable {
+                                Button(issue.actionTitle) { model.retryAnswer() }.font(.caption.weight(.semibold))
+                                    .accessibilityIdentifier("chat.retryAnswer")
+                            }
+                        }
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 6)
+                    }
                     if let issue = model.chatDraftIssue {
                         HStack {
                             Text(issue).font(.caption)
@@ -452,8 +472,13 @@ struct ChatView: View {
                             }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
                                 .keyboardShortcut(.cancelAction)
                         }
-                        Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                            .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Save message").accessibilityIdentifier("chat.send")
+                        if model.isAnswering {
+                            Button { model.stopAnswer() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
+                                .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
+                        } else {
+                            Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
+                                .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                        }
                     }.padding(12)
                     if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
                     else if model.isSignedIn || model.chatHasSaved { Text(model.syncStatus).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
@@ -530,6 +555,23 @@ struct SettingsView: View {
                     else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
                     LabeledContent("Environment", value: "Private beta · staging")
                 }
+                if model.isSignedIn && model.chatTransport != nil {
+                    Section {
+                        if let balance = model.creditBalance {
+                            LabeledContent("Available", value: "\(balance.available.formatted()) credits")
+                                .accessibilityIdentifier("settings.credits.available")
+                            if balance.reserved > 0 {
+                                LabeledContent("Held for answers in progress", value: balance.reserved.formatted())
+                            }
+                        } else if let issue = model.creditBalanceIssue {
+                            Text(issue).font(.footnote).foregroundStyle(.secondary)
+                        } else {
+                            LabeledContent("Available", value: "Loading…")
+                        }
+                    } header: { Text("Credits") } footer: {
+                        Text("Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.")
+                    }
+                }
                 Section("Reading") {
                     Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
                     VStack(alignment: .leading) { Text("Paper text size"); Slider(value: $model.paperFontSize, in: 14...26, step: 1) }.accessibilityElement(children: .combine)
@@ -542,7 +584,7 @@ struct SettingsView: View {
                 }
                 Section("Privacy") {
                     Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.").font(.footnote).foregroundStyle(.secondary)
-                    Text("Cloud AI receives the context you send. Private PDF uploads and reports you submit are accessible to the services that process them.").font(.footnote).foregroundStyle(.secondary)
+                    Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Private PDF uploads and reports you submit are accessible to the services that process them.").font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Testing") {
                     Button("Report this screen", systemImage: "ladybug") { model.beginReport() }
@@ -551,6 +593,7 @@ struct SettingsView: View {
                     Button("Open reader sample") { model.openSample() }
                 }
             }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+                .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .topBarLeading) { Button("Done", action: dismissSettings) } } }
         }
     }
