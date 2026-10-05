@@ -4,10 +4,10 @@ import ScienceReaderCore
 
 /// Synthetic answers for UI journeys (`--chat-fixture`). Compiled out of
 /// physical-device and release builds; it never opens a network connection.
-/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram`.
+/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|sources`.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 struct ChatFixtureTransport: ChatTransport {
-    enum Mode: String, Sendable { case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram }
+    enum Mode: String, Sendable { case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, sources }
     let mode: Mode
 
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--chat-fixture") }
@@ -46,9 +46,9 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram:
+                    case .answer, .slow, .interrupt, .diagram, .sources:
                         try await Task.sleep(for: .milliseconds(300))
-                        let pieces = Self.pieces(of: Self.answer, size: 14)
+                        let pieces = Self.pieces(of: mode == .sources ? Self.answer + Self.sources : Self.answer, size: 14)
                         let delay: Duration = mode == .slow ? .milliseconds(250) : .milliseconds(30)
                         for (index, piece) in pieces.enumerated() {
                             if mode == .interrupt, index == pieces.count / 2 {
@@ -67,6 +67,15 @@ struct ChatFixtureTransport: ChatTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    /// Web search answers end with sources in this form (see docs/CHAT.md).
+    static let sources = """
+
+
+    Sources:
+    1. Attention Is All You Need — https://arxiv.org/abs/1706.03762
+    2. https://example.org/attention-notes
+    """
 
     static let diagram = """
     flowchart LR

@@ -361,6 +361,36 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Diagram reopened from All diagrams")
     }
 
+    func testAnswerSourcesShowTheirAddressBeforeOpening() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=sources", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("What do recent sources say about attention?")
+        app.buttons["chat.send"].tap()
+        let first = app.buttons["chat.source.1"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(first.label.contains("Attention Is All You Need"))
+        XCTAssertTrue(app.buttons["chat.source.2"].exists, "A bare address is a source too")
+        XCTAssertFalse(app.staticTexts["Sources:"].exists, "The list replaces the raw Sources text")
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        first.tap()
+        // Nothing opens until the reader has seen the full address.
+        XCTAssertTrue(app.staticTexts["Open this source in Safari?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["https://arxiv.org/abs/1706.03762"].exists)
+        capture(app, "Source address confirmation")
+        // iPhone shows it as a popover without a Cancel button; tapping outside dismisses it.
+        if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap() }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: app.staticTexts["Open this source in Safari?"])], timeout: 5), .completed)
+        XCTAssertEqual(app.state, .runningForeground, "Cancel leaves the reader in the app")
+    }
+
     /// Discovery audit (records every issue, fails on none): Library, reader,
     /// chat with an answer and diagram, the diagram itself, and Settings.
     /// Run with `TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test …`; read the `AXAUDIT` lines.

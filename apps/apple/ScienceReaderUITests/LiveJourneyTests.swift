@@ -12,6 +12,7 @@ final class LiveJourneyTests: XCTestCase {
     private var titlePrefix: String { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_TITLE"] ?? "Direct Preference Optimization" }
     private var question: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_QUESTION"] }
     private var searchQuery: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_SEARCH"] }
+    private var deletesAccount: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_DELETE"] == "1" }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -31,14 +32,10 @@ final class LiveJourneyTests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", titlePrefix)).firstMatch
     }
 
-    func testAddConvertDownloadReadAskAndRelaunch() throws {
-        XCUIDevice.shared.orientation = .portrait
-        let app = XCUIApplication()
-        launch(app)
-
-        // New synthetic account: sign-in and key setup can take a while on a
-        // fresh install. Wait for the recovery sheet (then save the code) or for
-        // the signed-in library; never tap through the sheet.
+    /// New synthetic account: sign-in and key setup can take a while on a fresh
+    /// install. Wait for the recovery sheet (then save the code) or for the
+    /// signed-in library; never tap through the sheet.
+    private func waitForSignedInAccount(_ app: XCUIApplication) {
         let saved = app.switches["I saved this code somewhere safe"]
         let signedInLibrary = app.buttons["Add a paper"]
         let setupDeadline = Date().addingTimeInterval(120)
@@ -60,6 +57,14 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertTrue(library.waitForExistence(timeout: 30)); library.tap()
         XCTAssertFalse(app.buttons["Sign in to sync"].exists, "Synthetic account did not stay signed in")
         capture(app, "Signed-in library")
+    }
+
+    func testAddConvertDownloadReadAskAndRelaunch() throws {
+        try XCTSkipIf(deletesAccount, "This run deletes the account instead")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
 
         // Add the paper through the existing Library + flow.
         let add = app.buttons["Add a paper"]
@@ -149,5 +154,37 @@ final class LiveJourneyTests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "count >= 2"), object: messages)], timeout: 30), .completed)
             capture(app, "Answer after relaunch")
         }
+    }
+
+    /// Settings › Delete account… against staging; the runner checks the server
+    /// afterwards. Runs only when the runner asks for it (it ends the account).
+    func testDeleteAccountFromSettings() throws {
+        try XCTSkipUnless(deletesAccount, "Runs only with scripts/live-journey.mjs --delete")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
+        app.buttons["tab.settings"].tap()
+        let delete = app.buttons["account.delete"]
+        for _ in 0..<4 where !delete.isHittable { app.swipeUp() }
+        XCTAssertTrue(delete.waitForExistence(timeout: 10)); delete.tap()
+        let confirm = app.buttons["account.delete.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        XCTAssertFalse(confirm.isEnabled, "Deleting needs the typed confirmation")
+        let field = app.textFields["account.delete.confirmation"]
+        field.tap(); field.typeText("DELETE")
+        XCTAssertTrue(confirm.isEnabled)
+        XCTAssertTrue(confirm.isHittable, "The button comes into view above the keyboard")
+        capture(app, "Delete account confirmation")
+        confirm.tap()
+        let notice = app.alerts["Account deleted"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 60), "No deletion notice")
+        capture(app, "Account deleted")
+        notice.buttons["OK"].tap()
+        // Signing out returns to the Library, as an ordinary sign-out does.
+        XCTAssertTrue(app.buttons["Sign in to sync"].waitForExistence(timeout: 10), "The app should be signed out")
+        app.buttons["tab.settings"].tap()
+        XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 10), "Settings should show the signed-out state")
+        capture(app, "Signed out after deletion")
     }
 }

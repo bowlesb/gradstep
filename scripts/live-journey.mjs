@@ -3,6 +3,8 @@
 // operator credit grant → add arXiv paper → paid conversion → download →
 // offline reader (→ optional paid question) → relaunch. Costs are capped by
 // the database platform budget. The synthetic account is kept for inspection.
+// With --delete the run instead deletes the account through Settings and checks
+// the server (closed, login removed, no personal rows).
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
@@ -13,7 +15,7 @@ const root = new URL('../', import.meta.url);
 const env = Object.fromEntries(readFileSync(new URL('.env.staging', root), 'utf8').split('\n').filter(l => l.includes('='))
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
 assert.equal(env.SUPABASE_PROJECT_REF, 'coxhjvqpflgxkleydati');
-const args = Object.fromEntries(process.argv.slice(2).map(a => a.replace(/^--/, '').split('=')));
+const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const arxiv = args.arxiv ?? '2305.18290', title = args.title ?? 'Direct Preference Optimization';
 const device = args.device ?? 'B6CD74CE-CB0C-417E-9E9B-F68175B5094D';
 const admin = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -34,13 +36,14 @@ try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.i
 try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch { /* older simctl */ }
 const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
-  '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, '-only-testing:ScienceReaderUITests/LiveJourneyTests',
+  '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, `-only-testing:ScienceReaderUITests/LiveJourneyTests/${args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
   'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'test'];
 const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_ARXIV: arxiv, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_TITLE: title,
   ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}),
-  ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}) } });
+  ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}),
+  ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}) } });
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });
 const status = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
 log = log.replaceAll(password, '[redacted]');
@@ -50,4 +53,11 @@ try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'i
 writeFileSync(new URL(`.artifacts/live-journey-${account}.log`, root), log, { mode: 0o600 });
 console.log(log.split('\n').filter(l => /Test Case|error:|failed|passed|TEST (SUCCEEDED|FAILED)/.test(l)).slice(-25).join('\n'));
 console.log('Result bundle:', result.replace('../../', ''));
+if (args.delete && status === 0) {
+  const server = await admin.rpc('worker_account_deletion_status', { p_account_id: account });
+  assert.equal(server.error, null, server.error?.message);
+  console.log('Server status', JSON.stringify(server.data));
+  assert.ok(server.data.closed && !server.data.login_linked && server.data.personal_rows === 0, 'account not fully deleted');
+  assert.ok((await admin.auth.admin.getUserById(account)).error, 'login still exists');
+}
 process.exit(status === 0 ? 0 : 1);

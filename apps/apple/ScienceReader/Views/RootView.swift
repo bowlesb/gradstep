@@ -597,6 +597,10 @@ struct SettingsView: View {
     @Bindable var model: ReaderModel
     var dismissSettings: (() -> Void)? = nil
     @State private var showDeleteAccount = false
+    private static var version: String {
+        let info = Bundle.main.infoDictionary
+        return "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -619,7 +623,6 @@ struct SettingsView: View {
                     LabeledContent("Environment", value: "Private beta · staging")
                     NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 }
-                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
                         if let balance = model.creditBalance {
@@ -654,10 +657,12 @@ struct SettingsView: View {
                 Section("Testing") {
                     Button("Report this screen", systemImage: "ladybug") { model.beginReport() }
                     Button("My reports", systemImage: "tray") { model.showReports = true }.disabled(model.support == nil)
-                    LabeledContent("Version", value: "0.1 (1)")
+                    LabeledContent("Version", value: Self.version)
                     Button("Open reader sample") { model.openSample() }
                 }
             }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
+                // On the Form: a sheet attached inside a Form row doesn't present reliably.
+                .sheet(isPresented: $showDeleteAccount) { DeleteAccountView(model: model) }
                 .task(id: model.isSignedIn) { if model.isSignedIn { await model.refreshCreditBalance() } }
                 .toolbar { if let dismissSettings { ToolbarItem(placement: .topBarLeading) { Button("Done", action: dismissSettings) } } }
         }
@@ -909,6 +914,7 @@ struct DeleteAccountView: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 Section {
                     Text("This permanently deletes your account:")
@@ -942,7 +948,13 @@ struct DeleteAccountView: View {
                     }
                     .disabled(confirmation != "DELETE" || deleting)
                     .accessibilityIdentifier("account.delete.confirm")
+                    .id("account.delete.confirm")
                 }
+            }
+            // Bring the button above the keyboard once the confirmation matches.
+            .onChange(of: confirmation) { _, typed in
+                if typed == "DELETE" { withAnimation { proxy.scrollTo("account.delete.confirm", anchor: .bottom) } }
+            }
             }
             .navigationTitle("Delete account").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(deleting) } }
