@@ -30,9 +30,11 @@ alter table app_private.documents add constraint documents_byte_count_check chec
 update app_private.library_policy set compatible_renderers=array_append(compatible_renderers,'timestep-mathpix-mathml-v1')
  where singleton and not ('timestep-mathpix-mathml-v1'=any(compatible_renderers));
 
--- One shared unit of work per arXiv source slot (0 = latest revision).
+-- One unit of work per arXiv source slot (0 = latest revision): shared for
+-- reusable (CC BY/CC0) papers, otherwise one private paper per owner.
 create table app_private.pipeline_papers (
  id uuid primary key default gen_random_uuid(),
+ owner_id uuid references app_private.accounts(id),
  source_id text not null check(length(source_id) between 1 and 128),
  requested_revision integer not null default 0 check(requested_revision>=0),
  revision integer check(revision>0),
@@ -45,7 +47,7 @@ create table app_private.pipeline_papers (
  approval_id uuid references app_private.catalog_asset_approvals(id),
  page_count integer check(page_count between 1 and 250),
  artifact_id uuid references app_private.render_artifacts(id),
- stage text not null default 'metadata' check(stage in ('metadata','download','ocr_fund','ocr_submit','ocr_wait','render','done',
+ stage text not null default 'metadata' check(stage in ('metadata','private_split','download','ocr_fund','ocr_submit','ocr_wait','render','done',
   'source_only','failed','needs_credits','ocr_uncertain')),
  resume_stage text check(resume_stage in ('metadata','download','ocr_fund','render')),
  error_code text check(error_code ~ '^[a-z_]{1,64}$'),
@@ -56,11 +58,13 @@ create table app_private.pipeline_papers (
  failures integer not null default 0 check(failures>=0),
  created_at timestamptz not null default now(),
  updated_at timestamptz not null default now(),
- unique(source_id,requested_revision),
  check((claim_id is null)=(lease_until is null)),
+ check(owner_id is null or eligible is false),
  check(stage<>'done' or (artifact_id is not null and approval_id is not null)),
  check(resume_stage is null or stage in ('failed','needs_credits'))
 );
+create unique index pipeline_shared_slot on app_private.pipeline_papers(source_id,requested_revision) where owner_id is null;
+create unique index pipeline_private_slot on app_private.pipeline_papers(owner_id,source_id,requested_revision) where owner_id is not null;
 create index pipeline_papers_due on app_private.pipeline_papers(next_attempt_at)
  where stage in ('metadata','download','ocr_fund','ocr_submit','ocr_wait','render');
 
@@ -98,6 +102,14 @@ create table app_private.ocr_attempts (
 create unique index ocr_attempt_active_document on app_private.ocr_attempts(document_id)
  where state in ('funded','submitting','submitted','uncertain');
 
+-- Private (non-reusable) papers are pinned by an owner-private approval that
+-- records the arXiv license observed; it never makes the document shareable.
+alter table app_private.catalog_asset_approvals drop constraint catalog_asset_approvals_license_uri_check,
+ drop constraint catalog_asset_approvals_policy_version_check;
+alter table app_private.catalog_asset_approvals add constraint catalog_asset_approval_policy check(
+ (policy_version='arxiv-reuse-v1' and license_uri in ('https://creativecommons.org/licenses/by/4.0/','https://creativecommons.org/publicdomain/zero/1.0/'))
+ or (policy_version='owner-private-v1' and length(license_uri)<=512 and license_uri ~ '^https?://[A-Za-z0-9.-]+/[ -~]*$'));
+
 alter table app_private.import_requests drop constraint import_requests_error_code_check;
 alter table app_private.import_requests add constraint import_requests_error_code_check check(error_code in
  ('metadata_unavailable','download_failed','pdf_invalid','rate_limited','license_unverified','membership_conflict',
@@ -128,8 +140,8 @@ declare paper uuid;
 begin
  if tg_op='INSERT' then
   insert into app_private.pipeline_papers(source_id,requested_revision) values(new.source_id,coalesce(new.requested_revision,0))
-   on conflict(source_id,requested_revision) do nothing;
-  select id into strict paper from app_private.pipeline_papers where source_id=new.source_id and requested_revision=coalesce(new.requested_revision,0);
+   on conflict(source_id,requested_revision) where owner_id is null do nothing;
+  select id into strict paper from app_private.pipeline_papers where owner_id is null and source_id=new.source_id and requested_revision=coalesce(new.requested_revision,0);
   insert into app_private.pipeline_imports(account_id,import_id,paper_id) values(new.account_id,new.id,paper);
   perform app_private.pipeline_kick();
  elsif old.phase='failed' and new.desired_present and new.phase in ('accepted','acquiring') then
@@ -166,7 +178,7 @@ create or replace function app_private.library_import_entry(a uuid,p_id uuid) re
   'document_id',i.document_id,'library_item_id',i.library_item_id,
   'error_code',i.error_code,'retryable',i.retryable,
   'progress',case when i.phase not in ('accepted','resolving','acquiring') then null
-   when pp.stage='metadata' then 'finding' when pp.stage='download' then 'downloading'
+   when pp.stage='metadata' then 'finding' when pp.stage in ('download','private_split') then 'downloading'
    when pp.stage in ('ocr_fund','ocr_submit','ocr_wait','ocr_uncertain') then 'converting' when pp.stage='render' then 'rendering'
    when pp.stage='done' then 'finishing' end)
  from app_private.import_requests i left join app_private.catalog_metadata cm on cm.id=i.metadata_id
@@ -177,7 +189,7 @@ $$;
 
 create function app_private.pipeline_entry(p app_private.pipeline_papers) returns jsonb language sql stable security definer set search_path='' as $$
  select jsonb_build_object('id',p.id,'source_id',p.source_id,'requested_revision',p.requested_revision,'revision',p.revision,
-  'stage',p.stage,'error_code',p.error_code,'generation',p.generation,'claim_id',p.claim_id,'state_revision',p.state_revision,
+  'owner_id',p.owner_id,'stage',p.stage,'error_code',p.error_code,'generation',p.generation,'claim_id',p.claim_id,'state_revision',p.state_revision,
   'metadata_id',p.metadata_id,'eligible',p.eligible,'document_id',p.document_id,'original_object_id',p.original_object_id,
   'approval_id',p.approval_id,'page_count',p.page_count,'artifact_id',p.artifact_id,'failures',p.failures,
   'document_sha256',(select encode(d.sha256,'hex') from app_private.documents d where d.id=p.document_id),
@@ -275,15 +287,52 @@ declare p app_private.pipeline_papers; meta uuid;
 begin
  p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
  if p.stage<>'metadata' then raise exception 'invalid_pipeline_stage'; end if;
- if p_eligible is null or p_revision is null or (p.requested_revision>0 and p_revision<>p.requested_revision)
+ if p.owner_id is not null or p_eligible is null or p_revision is null or (p.requested_revision>0 and p_revision<>p.requested_revision)
   or (p_eligible and (p_license_uri is null or p_evidence is null)) then raise exception 'invalid_pipeline_metadata'; end if;
  meta:=public.worker_record_arxiv_metadata(p.source_id,p_revision,p_metadata);
+ -- Ineligible papers are converted privately per interested account.
  update app_private.pipeline_papers set revision=p_revision,metadata_id=meta,eligible=p_eligible,
-  license_uri=case when p_eligible then p_license_uri end,evidence=case when p_eligible then p_evidence end where id=p.id;
- perform app_private.pipeline_set_stage(p.id,case when p_eligible then 'download' else 'source_only' end,
-  case when p_eligible then null else 'license_unverified' end);
+  license_uri=case when p_eligible or (length(p_license_uri)<=512 and p_license_uri ~ '^https?://[A-Za-z0-9.-]+/[ -~]*$') then p_license_uri
+   else 'https://arxiv.org/abs/'||p.source_id||'v'||p_revision end,
+  evidence=case when p_eligible then p_evidence end where id=p.id;
+ perform app_private.pipeline_set_stage(p.id,case when p_eligible then 'download' else 'private_split' end);
  select * into p from app_private.pipeline_papers where id=p.id;
  return app_private.pipeline_entry(p);
+end $$;
+
+create function app_private.approve_private_asset(p app_private.pipeline_papers,p_document uuid,p_object uuid) returns uuid
+language plpgsql security definer set search_path='' as $$
+declare m app_private.catalog_metadata; existing uuid; result uuid:=gen_random_uuid();
+begin
+ select * into strict m from app_private.catalog_metadata where id=p.metadata_id;
+ perform 1 from app_private.library_policy where singleton for update;
+ select id into existing from app_private.catalog_asset_approvals where metadata_id=m.id and document_id=p_document and policy_version='owner-private-v1';
+ if existing is not null then return existing; end if;
+ insert into app_private.version_documents values(m.version_id,p_document) on conflict do nothing;
+ insert into app_private.catalog_asset_approvals values(result,m.version_id,p_document,m.id,p_object,p.license_uri,'owner-private-v1',
+  jsonb_build_object('scope','owner_private','owner_id',p.owner_id,'source_id',m.source_id,'source_revision',m.source_revision,
+   'source_url','https://arxiv.org/abs/'||m.source_id||'v'||m.source_revision,'license_uri',p.license_uri),now());
+ return result;
+end $$;
+
+-- An ineligible shared paper hands each interested import to that account's
+-- private paper (created with the already-recorded metadata).
+create function public.worker_pipeline_split_private(p_paper_id uuid,p_claim_id uuid,p_generation bigint) returns integer
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; link record; private uuid; moved integer:=0;
+begin
+ p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ if p.stage<>'private_split' or p.owner_id is not null then raise exception 'invalid_pipeline_stage'; end if;
+ for link in select pi.account_id,pi.import_id from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
+  where pi.paper_id=p.id and i.desired_present and i.phase in ('accepted','resolving','acquiring') order by pi.account_id,pi.import_id loop
+  insert into app_private.pipeline_papers(owner_id,source_id,requested_revision,revision,metadata_id,eligible,license_uri,stage)
+   values(link.account_id,p.source_id,p.requested_revision,p.revision,p.metadata_id,false,p.license_uri,'download')
+   on conflict(owner_id,source_id,requested_revision) where owner_id is not null do nothing;
+  select id into strict private from app_private.pipeline_papers where owner_id=link.account_id and source_id=p.source_id and requested_revision=p.requested_revision;
+  update app_private.pipeline_imports set paper_id=private,synced_revision=0 where account_id=link.account_id and import_id=link.import_id;
+  moved:=moved+1;
+ end loop;
+ return moved;
 end $$;
 
 -- Records verified original bytes already written to Storage at the
@@ -295,14 +344,24 @@ declare p app_private.pipeline_papers; pol app_private.pipeline_policy; d app_pr
 begin
  p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
  select * into strict pol from app_private.pipeline_policy;
- if p.stage<>'download' or not coalesce(p.eligible,false) then raise exception 'invalid_pipeline_stage'; end if;
+ if p.stage<>'download' or (p.owner_id is null and not coalesce(p.eligible,false)) then raise exception 'invalid_pipeline_stage'; end if;
  if octet_length(p_sha256)<>32 or p_bytes not between 1 and pol.max_pdf_bytes or p_pages not between 1 and 250
-  or p_path is distinct from 'originals/'||encode(p_sha256,'hex')||'.pdf' then raise exception 'invalid_original'; end if;
+  or p_path is distinct from (case when p.owner_id is null then '' else 'private/'||p.owner_id::text||'/' end)||'originals/'||encode(p_sha256,'hex')||'.pdf'
+ then raise exception 'invalid_original'; end if;
  perform 1 from app_private.paper_storage_capacity where singleton for update;
- select * into d from app_private.documents where scope='shared_catalog' and sha256=p_sha256 for update;
+ if p.owner_id is null then
+  select * into d from app_private.documents where scope='shared_catalog' and sha256=p_sha256 for update;
+ else
+  select * into d from app_private.documents where scope='owner_private' and owner_id=p.owner_id and sha256=p_sha256 for update;
+ end if;
  if not found then
-  insert into app_private.documents(sha256,scope,reuse_evidence,byte_count,page_count)
-   values(p_sha256,'shared_catalog',p.evidence,p_bytes,p_pages) returning * into d;
+  if p.owner_id is null then
+   insert into app_private.documents(sha256,scope,reuse_evidence,byte_count,page_count)
+    values(p_sha256,'shared_catalog',p.evidence,p_bytes,p_pages) returning * into d;
+  else
+   insert into app_private.documents(sha256,scope,owner_id,byte_count,page_count)
+    values(p_sha256,'owner_private',p.owner_id,p_bytes,p_pages) returning * into d;
+  end if;
  elsif d.byte_count<>p_bytes then raise exception 'document_conflict'; end if;
  select * into o from app_private.stored_objects where path=p_path;
  if not found then
@@ -310,7 +369,11 @@ begin
    values('paper-assets',p_path,d.id,'verified',p_sha256,p_bytes,'application/pdf',clock_timestamp()) returning * into o;
   perform app_private.mark_paper_availability(o.id,'available');
  elsif o.document_id<>d.id or o.sha256<>p_sha256 or o.byte_count<>p_bytes or o.state<>'verified' then raise exception 'original_object_conflict'; end if;
- approval:=public.worker_approve_arxiv_asset(gen_random_uuid(),p.metadata_id,d.id,o.id,p.license_uri,p.evidence);
+ if p.owner_id is null then
+  approval:=public.worker_approve_arxiv_asset(gen_random_uuid(),p.metadata_id,d.id,o.id,p.license_uri,p.evidence);
+ else
+  approval:=app_private.approve_private_asset(p,d.id,o.id);
+ end if;
  select ra.id into artifact from app_private.render_artifacts ra join app_private.ocr_runs r on r.id=ra.ocr_run_id
   join app_private.stored_objects mo on mo.id=ra.manifest_object_id join app_private.paper_asset_availability av on av.object_id=mo.id
   where r.document_id=d.id and ra.renderer_version=pol.renderer_version and mo.state='verified' and av.state='available'
@@ -518,7 +581,7 @@ begin
      perform public.worker_resolve_import(i.account_id,i.id,i.state_seq,i.intent_revision,p.approval_id,p.artifact_id);
     else
      target:=case when p.stage='metadata' then 'resolving'
-      when p.stage in ('download','ocr_fund','ocr_submit','ocr_wait','ocr_uncertain','render') then 'acquiring'
+      when p.stage in ('private_split','download','ocr_fund','ocr_submit','ocr_wait','ocr_uncertain','render') then 'acquiring'
       when p.stage='source_only' then 'source_only' else 'failed' end;
      err:=case when p.stage='source_only' then 'license_unverified' when p.stage='needs_credits' then 'insufficient_credits'
       when p.stage='failed' then case when p.error_code in ('metadata_unavailable','download_failed','pdf_invalid','rate_limited','too_large','conversion_failed')
@@ -607,6 +670,52 @@ create function public.worker_pipeline_policy() returns jsonb language sql stabl
  select to_jsonb(p)-'arxiv_next_request_at' from app_private.pipeline_policy p
 $$;
 
+-- Import resolution also accepts the caller's own private documents.
+create or replace function public.worker_resolve_import(p_account_id uuid,p_import_id uuid,p_expected_state_seq bigint,p_expected_intent_revision bigint,
+ p_approval_id uuid,p_artifact_id uuid default null) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare i app_private.import_requests; ca app_private.catalog_asset_approvals; m app_private.catalog_metadata; li app_private.library_items;
+ s bigint; item_id uuid; digest bytea; conflict boolean; e jsonb; p app_private.library_policy;
+begin
+ digest:=sha256(convert_to(jsonb_build_array(p_expected_state_seq,p_expected_intent_revision,p_approval_id,p_artifact_id)::text,'UTF8'));
+ perform public.worker_consume_request(p_account_id,'library-write'); perform app_private.lock_library_account(p_account_id);
+ select * into ca from app_private.catalog_asset_approvals where id=p_approval_id;
+ if not found then raise exception 'asset_approval_required'; end if;
+ perform 1 from app_private.documents where id=ca.document_id and (scope='shared_catalog' or owner_id=p_account_id) for key share;
+ if not found then raise exception 'document_unavailable'; end if;
+ perform app_private.lock_library_state(p_account_id);
+ select * into strict p from app_private.library_policy;
+ select * into i from app_private.import_requests where account_id=p_account_id and id=p_import_id;
+ if not found then raise exception 'import_unavailable'; end if;
+ if i.resolution_sha256=digest then return app_private.library_import_entry(p_account_id,i.id); end if;
+ if i.state_seq is distinct from p_expected_state_seq or i.intent_revision is distinct from p_expected_intent_revision or not i.desired_present
+ or i.phase not in ('accepted','resolving','acquiring') then raise exception 'stale_import_checkpoint'; end if;
+ select * into strict m from app_private.catalog_metadata where id=ca.metadata_id;
+ if m.source_id<>i.source_id or (i.requested_revision is not null and m.source_revision<>i.requested_revision)
+ or (i.metadata_id is not null and i.metadata_id<>m.id) then raise exception 'import_source_mismatch'; end if;
+ if not exists(select 1 from app_private.stored_objects o join app_private.documents d on d.id=o.document_id where o.id=ca.original_object_id
+ and o.state='verified' and o.sha256=d.sha256 and o.byte_count=d.byte_count) then raise exception 'original_object_unavailable'; end if;
+ if p_artifact_id is not null and not exists(select 1 from app_private.render_artifacts r join app_private.ocr_runs o on o.id=r.ocr_run_id
+ join app_private.stored_objects so on so.id=r.manifest_object_id where r.id=p_artifact_id and o.document_id=ca.document_id
+ and r.renderer_version=any(p.compatible_renderers) and so.state='verified' and so.document_id=ca.document_id)
+ then raise exception 'artifact_incompatible'; end if;
+ select * into li from app_private.library_items where account_id=p_account_id and document_id=ca.document_id;
+ conflict:=li.id is not null and li.removed_at is not null and (li.last_remove_seq>i.observed_cursor or li.last_remove_seq>i.created_seq);
+ s:=app_private.library_next_seq(p_account_id);
+ item_id:=li.id;
+ if not conflict and (li.id is null or li.removed_at is not null or (li.last_intent_seq<i.created_seq and li.last_remove_seq<=i.observed_cursor)) then
+  item_id:=app_private.library_write_item(p_account_id,ca.document_id,true,s,ca.id,p_artifact_id,i.created_seq);
+ end if;
+ update app_private.import_requests set metadata_id=m.id,approval_id=case when item_id is not null then ca.id end,
+ document_id=case when item_id is not null then ca.document_id end,library_item_id=item_id,artifact_id=p_artifact_id,resolution_sha256=digest,
+ phase=case when conflict then 'membership_conflict' else 'ready' end,error_code=case when conflict then 'membership_conflict' end,state_seq=s,retryable=false
+ where account_id=p_account_id and id=i.id;
+ e:=jsonb_build_array(app_private.library_import_entry(p_account_id,i.id));
+ if item_id is not null then e:=e||jsonb_build_array(app_private.library_item_entry(p_account_id,item_id)); end if;
+ perform app_private.library_emit(p_account_id,s,e);
+ return app_private.library_import_entry(p_account_id,i.id);
+end $$;
+
 do $$ declare t text; begin
  for t in select tablename from pg_tables where schemaname='app_private' loop
   execute format('alter table app_private.%I enable row level security',t);
@@ -617,7 +726,7 @@ revoke all on all functions in schema app_private from public,anon,authenticated
 do $$ declare f text; begin
  for f in select p.oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='public' and p.proname in ('worker_pipeline_claim','worker_pipeline_arxiv_slot','worker_pipeline_defer','worker_pipeline_release',
-   'worker_pipeline_metadata','worker_pipeline_original','worker_pipeline_fund','worker_pipeline_begin_submit','worker_pipeline_submitted',
+   'worker_pipeline_metadata','worker_pipeline_split_private','worker_pipeline_original','worker_pipeline_fund','worker_pipeline_begin_submit','worker_pipeline_submitted',
    'worker_pipeline_collected','worker_pipeline_ocr_failed','worker_pipeline_published','worker_pipeline_sync_imports','worker_reader_descriptor',
    'worker_chat_context','worker_record_provider_usage','worker_set_platform_budget','worker_set_pipeline_enabled','worker_pipeline_policy') loop
   execute format('revoke all on function %s from public,anon,authenticated',f);

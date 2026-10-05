@@ -259,7 +259,9 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
     }
 
     private var hasVerifiedReadableIdentity: Bool {
-        guard visible, scope == .sharedCatalog, approvalID != nil, versionID != nil,
+        // Private conversions (owner_private) are readable by their owner; the
+        // server only ever returns an account's own private items.
+        guard visible, approvalID != nil, versionID != nil,
               metadataID != nil, originalObjectID != nil else { return false }
         switch readiness {
         case .pdfReady, .convertedReady, .unavailable: return true

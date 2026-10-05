@@ -179,4 +179,55 @@ select test.assert(not (:'again'::jsonb->>'granted')::boolean and :'again'::json
 reset role;
 select test.assert((select state from app_private.metered_operations where account_id='14000000-0000-0000-0000-00000000000d')='submitted','uncertain hold retained');
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=36,'uncertain credits stay held');
+
+-- Non-CC papers: each interested account gets its own private conversion.
+reset role;
+insert into auth.users values('14000000-0000-0000-0000-00000000000e'),('14000000-0000-0000-0000-00000000000f');
+set role service_role;
+select public.worker_grant_credits('14000000-0000-0000-0000-00000000000e','adjustment','pipeline-test-e',100,now()-interval '1 day',null,'Pipeline test grant');
+select public.worker_grant_credits('14000000-0000-0000-0000-00000000000f','adjustment','pipeline-test-f',100,now()-interval '1 day',null,'Pipeline test grant');
+reset role;
+set role authenticated;
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000e',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000e1','2006.11239',0);
+select set_config('request.jwt.claim.sub','14000000-0000-0000-0000-00000000000f',false);
+select public.v2_begin_import('14000000-0000-0000-0000-0000000000f1','2006.11239',0);
+reset role;
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select (:'entry'::jsonb->>'id') as shared, (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.assert(public.worker_pipeline_metadata(:'shared',:'claim',:'gen',2,'{"title":"Denoising Diffusion Probabilistic Models","authors":["Jonathan Ho"],"categories":["cs.LG"]}',
+ false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/')->>'stage'='private_split','ineligible paper splits privately');
+select test.assert(public.worker_pipeline_split_private(:'shared',:'claim',:'gen')=2,'two private papers');
+select public.worker_pipeline_sync_imports(:'shared',:'claim',:'gen');
+select public.worker_pipeline_release(:'shared',:'claim',:'gen');
+reset role;
+select test.assert((select count(*) from app_private.pipeline_papers where source_id='2006.11239' and owner_id is not null and stage='download')=2,'private papers start at download');
+select id as private_e from app_private.pipeline_papers where owner_id='14000000-0000-0000-0000-00000000000e' \gset
+update app_private.pipeline_papers set next_attempt_at=now()+interval '1 hour' where owner_id='14000000-0000-0000-0000-00000000000f';
+set role service_role;
+select gen_random_uuid() as claim \gset
+select public.worker_pipeline_claim(:'claim') as entry \gset
+select test.assert(:'entry'::jsonb->>'id'=:'private_e' and :'entry'::jsonb->>'owner_id'='14000000-0000-0000-0000-00000000000e','claim private paper');
+select (:'entry'::jsonb->>'generation')::bigint as gen \gset
+select test.reject(format('select public.worker_pipeline_original(%L,%L,%s,%L::bytea,900000,25,%L)',:'private_e',:'claim',:'gen','\x'||repeat('55',32),'originals/'||repeat('55',32)||'.pdf'),'invalid_original');
+select test.assert(public.worker_pipeline_original(:'private_e',:'claim',:'gen',('\x'||repeat('55',32))::bytea,900000,25,
+ 'private/14000000-0000-0000-0000-00000000000e/originals/'||repeat('55',32)||'.pdf')->>'stage'='ocr_fund','private original');
+select test.assert(public.worker_pipeline_fund(:'private_e',:'claim',:'gen',25,('\x'||repeat('0e',32))::bytea,('\x'||repeat('0f',32))::bytea)->>'funding'='funded','owner funds private OCR');
+select test.assert((public.worker_pipeline_begin_submit(:'private_e',:'claim',:'gen')->>'granted')::boolean,'private grant');
+select public.worker_pipeline_submitted(:'private_e',:'claim',:'gen','private-job-e');
+select public.worker_pipeline_collected(:'private_e',:'claim',:'gen',25,('\x'||repeat('5a',32))::bytea,2048);
+select test.assert(public.worker_pipeline_published(:'private_e',:'claim',:'gen',('\x'||repeat('5b',32))::bytea,2048,'timestep-mathpix-mathml-v1')->>'stage'='done','private published');
+select test.assert(public.worker_pipeline_sync_imports(:'private_e',:'claim',:'gen')=1,'private import resolved');
+reset role;
+select test.assert((select d.scope='owner_private' and d.owner_id='14000000-0000-0000-0000-00000000000e' from app_private.library_items li join app_private.documents d on d.id=li.document_id
+ where li.account_id='14000000-0000-0000-0000-00000000000e'),'owner has a private document');
+select test.assert(app_private.library_item_entry('14000000-0000-0000-0000-00000000000e',(select id from app_private.library_items where account_id='14000000-0000-0000-0000-00000000000e'))->>'readiness'='converted_ready','private item readable');
+select test.assert((select balance from app_private.credit_buckets where external_key='pipeline-test-e')=75,'owner paid for private conversion');
+select test.assert((select phase in ('accepted','resolving','acquiring') from app_private.import_requests where id='14000000-0000-0000-0000-0000000000f1')
+ and (select pp.owner_id='14000000-0000-0000-0000-00000000000f' from app_private.pipeline_imports pi join app_private.pipeline_papers pp on pp.id=pi.paper_id
+  where pi.import_id='14000000-0000-0000-0000-0000000000f1'),'other account converts its own private copy');
+select test.reject(format('select public.worker_chat_context(%L,%L)','14000000-0000-0000-0000-00000000000f',
+ (select document_id from app_private.pipeline_papers where id=:'private_e')),'document_unavailable');
 rollback;

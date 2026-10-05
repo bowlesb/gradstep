@@ -25,7 +25,7 @@ export class PermanentFailure extends Error {
 }
 
 export interface PaperEntry {
-  id: string; source_id: string; requested_revision: number; revision: number | null; stage: string;
+  id: string; owner_id?: string | null; source_id: string; requested_revision: number; revision: number | null; stage: string;
   generation: number; claim_id: string; state_revision: number; failures: number;
   document_id: string | null; document_sha256: string | null; original_path: string | null; original_bytes: number | null; page_count: number | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
@@ -132,6 +132,12 @@ async function arxivWait(deps: PipelineDeps): Promise<void> {
   if (wait > 0) await deps.sleep(Math.min(wait, 120_000));
 }
 
+async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
+  const moved = await deps.rpc<number>('worker_pipeline_split_private', claim);
+  deps.log('private_split', { paper: e.id, moved });
+  return { entry: e, stop: 'release' };
+}
+
 async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
   const reference = { sourceID: e.source_id, revision: e.requested_revision > 0 ? e.requested_revision : null };
   const urls = arxivURLs(reference);
@@ -144,8 +150,11 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
   const raw = await fetchArxiv(deps.fetch, urls.raw, MiB, 'application/xml');
   const reuse = await arxivReuseEvidence(raw, record, new Date(deps.now()).toISOString());
   const args = arxivCatalogArguments(record);
+  // Ineligible papers are converted privately; keep the observed license URL
+  // (validated server-side) as the private pin's provenance.
+  const observedLicense = /<license>\s*(https?:\/\/[A-Za-z0-9.-]+\/[ -~]{0,400}?)\s*<\/license>/.exec(new TextDecoder().decode(raw))?.[1] ?? null;
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_metadata', { ...claim, p_revision: record.revision, p_metadata: args.p_metadata,
-    p_eligible: reuse.eligible, p_license_uri: reuse.eligible ? reuse.licenseURI : null, p_evidence: reuse.eligible ? reuse.evidence : null });
+    p_eligible: reuse.eligible, p_license_uri: reuse.eligible ? reuse.licenseURI : observedLicense, p_evidence: reuse.eligible ? reuse.evidence : null });
   deps.log('metadata', { paper: e.id, eligible: reuse.eligible, reason: reuse.eligible ? null : reuse.reason });
   return { entry };
 }
@@ -157,7 +166,7 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
   const pages = await countPages(bytes);
   if (pages > 250) throw new PermanentFailure('too_large');
   const digest = await sha256(bytes);
-  const path = `originals/${digest}.pdf`;
+  const path = `${e.owner_id ? `private/${e.owner_id}/` : ''}originals/${digest}.pdf`;
   await deps.storage.upload(path, bytes, 'application/pdf');
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_original', { ...claim, p_sha256: hex(digest), p_bytes: bytes.length, p_pages: pages, p_path: path });
   deps.log('original', { paper: e.id, bytes: bytes.length, pages, stage: entry.stage });
@@ -304,7 +313,7 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
       if (deps.now() > deadline - 30_000) break;
       const before = entry.stage;
       const handlers: Record<string, (d: PipelineDeps, e: PaperEntry, c: Claim, p: PipelinePolicy) => Promise<StepResult>> = {
-        metadata: stageMetadata, download: stageDownload, ocr_fund: stageFund, ocr_submit: stageSubmit, ocr_wait: stageWait, render: stageRender };
+        metadata: stageMetadata, private_split: stageSplit, download: stageDownload, ocr_fund: stageFund, ocr_submit: stageSubmit, ocr_wait: stageWait, render: stageRender };
       const handler = handlers[entry.stage];
       if (!handler) break;
       const result = await handler(deps, entry, claim, policy);
