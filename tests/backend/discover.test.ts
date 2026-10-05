@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
+import { arxivRecentURL, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -38,4 +38,12 @@ test('multi-word searches add an oldest-first title phrase query and merge witho
   assert.equal(arxivSearchURLs('mamba').length, 1);
   const r = (id: string) => ({ source_id: id, revision: 1, title: id, authors: [], year: null, abstract: null, categories: [] });
   assert.deepEqual(mergeDiscovery([[r('a'), r('b')], [r('b'), r('c')]]).map(x => x.source_id), ['a', 'b', 'c']);
+});
+
+test('feed URLs list the newest submissions in a validated category', () => {
+  const url = new URL(arxivRecentURL('cs.LG')!);
+  assert.equal(url.searchParams.get('search_query'), 'cat:cs.LG');
+  assert.equal(url.searchParams.get('sortBy'), 'submittedDate');
+  assert.ok(arxivRecentURL('stat.ML') && arxivRecentURL('hep-th') && arxivRecentURL('math.OC'));
+  for (const bad of ['cs.LG OR all:x', '', 'CS.lg', 'cs.LG&x=1']) assert.equal(arxivRecentURL(bad), null, bad);
 });

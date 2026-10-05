@@ -2,7 +2,7 @@
 // global arXiv request pacing with the paper pipeline.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
-import { arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../_shared/discover.ts';
+import { arxivRecentURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch } from '../_shared/discover.ts';
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -13,7 +13,11 @@ Deno.serve(async request => {
     const { accountID } = await userClient(request);
     const service = serviceClient();
     await rpc(service, 'worker_consume_request', { p_account_id: accountID, p_route: 'discover' });
-    const urls = arxivSearchURLs(new URL(request.url).searchParams.get('q') ?? '');
+    const params = new URL(request.url).searchParams;
+    const category = params.get('category');
+    const recent = category ? arxivRecentURL(category) : null;
+    if (category && !recent) throw new PublicError(400, 'invalid_category');
+    const urls = recent ? [recent] : arxivSearchURLs(params.get('q') ?? '');
     if (!urls.length) return Response.json({ results: [] }, { headers });
     const slot = await rpc<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>(service, 'worker_pipeline_arxiv_slot', { p_slots: urls.length, p_max_wait_ms: 8000 });
     if (!slot.reserved) throw new PublicError(503, 'search_busy');

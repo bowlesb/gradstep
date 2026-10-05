@@ -409,10 +409,47 @@ struct PaperRow: View {
 
 struct FeedView: View {
     @Bindable var model: ReaderModel
+    @State private var issue: String?
+    private static let names = ["cs.LG": "Machine learning", "cs.CL": "Language", "cs.AI": "AI", "cs.CV": "Vision",
+                                "stat.ML": "Statistical ML", "cs.RO": "Robotics", "cs.NE": "Neural computing", "cs.IR": "Retrieval",
+                                "math.OC": "Optimization", "cs.CR": "Security", "cs.DC": "Distributed"]
     var body: some View {
         NavigationStack {
-            ContentUnavailableView("Research feed", systemImage: "dot.radiowaves.up.forward", description: Text("New research will appear here."))
-                .navigationTitle("Feed").navigationBarTitleDisplayMode(.inline)
+            VStack(spacing: 0) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(model.feedCategories, id: \.self) { category in
+                            let selected = (model.feedCategory ?? model.feedCategories.first) == category
+                            Button(Self.names[category] ?? category) { model.selectFeedCategory(category) }
+                                .buttonStyle(.bordered).tint(selected ? .accentColor : .secondary)
+                                .accessibilityAddTraits(selected ? .isSelected : [])
+                                .accessibilityIdentifier("feed.topic.\(category)")
+                        }
+                    }.padding(.horizontal, 16).padding(.vertical, 8)
+                }
+                switch model.feedState {
+                case .idle, .loading:
+                    Spacer(); ProgressView("Finding new papers…"); Spacer()
+                case .failed(let message):
+                    ContentUnavailableView { Label("Feed unavailable", systemImage: "dot.radiowaves.up.forward") }
+                        description: { Text(message) }
+                        actions: {
+                            if model.librarySignInRequired { Button("Sign in") { model.openSignIn() }.buttonStyle(.borderedProminent) }
+                            else { Button("Try again") { model.loadFeed() } }
+                        }
+                case .loaded:
+                    if model.feedResults.isEmpty {
+                        ContentUnavailableView("No new papers", systemImage: "dot.radiowaves.up.forward", description: Text("Check back later or pick another topic."))
+                    } else {
+                        List {
+                            if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
+                            ForEach(model.feedResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
+                        }.listStyle(.plain).refreshable { model.loadFeed() }
+                    }
+                }
+            }
+            .navigationTitle("Feed").navigationBarTitleDisplayMode(.inline)
+            .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
     }
 }
@@ -739,7 +776,6 @@ struct ImportPaperView: View {
 /// search and appears as a pending import in the library.
 struct DiscoveryList: View {
     @Bindable var model: ReaderModel
-    @State private var adding: Set<String> = []
     @State private var issue: String?
     var body: some View {
         switch model.discoveryState {
@@ -760,15 +796,23 @@ struct DiscoveryList: View {
             } else {
                 List {
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
-                    ForEach(model.discoveryResults) { result in row(result) }
+                    ForEach(model.discoveryResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
                 }.listStyle(.plain)
             }
         }
     }
 
-    private func row(_ result: DiscoveryResult) -> some View {
+}
+
+/// One arXiv paper (search or Feed) with an Add action that stays in place.
+struct DiscoveryRow: View {
+    @Bindable var model: ReaderModel
+    let result: DiscoveryResult
+    @Binding var issue: String?
+    @State private var adding = false
+    var body: some View {
         let inLibrary = model.librarySourceIDs.contains(result.sourceID)
-        return HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
                 if !result.authors.isEmpty {
@@ -781,17 +825,16 @@ struct DiscoveryList: View {
             }
             Spacer(minLength: 4)
             if inLibrary {
-                Label("In library", systemImage: "checkmark").labelStyle(.iconOnly).foregroundStyle(.secondary)
-                    .accessibilityLabel("In library").frame(minWidth: 44, minHeight: 44)
-            } else if adding.contains(result.sourceID) {
+                Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
+            } else if adding {
                 ProgressView().frame(minWidth: 44, minHeight: 44)
             } else {
                 Button("Add") {
-                    adding.insert(result.sourceID); issue = nil
+                    adding = true; issue = nil
                     Task {
                         do { try await model.addDiscovered(result) }
                         catch { issue = "Couldn’t add “\(result.title)”. Try again." }
-                        adding.remove(result.sourceID)
+                        adding = false
                     }
                 }
                 .buttonStyle(.bordered).disabled(!model.canBeginImport)
@@ -799,6 +842,7 @@ struct DiscoveryList: View {
             }
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("discover.result.\(result.sourceID)")
     }
 }

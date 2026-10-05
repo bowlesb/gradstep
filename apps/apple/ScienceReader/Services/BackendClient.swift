@@ -435,6 +435,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
     }
 
+    /// Newest arXiv submissions in one category (Feed).
+    func feed(category: String, accountID: UUID) async throws -> [DiscoveryResult] {
+        guard category.range(of: "^[a-z]{2,8}(-[a-z]{2,6})?(\\.[A-Z]{2})?$", options: .regularExpression) != nil else { throw BackendError.unavailable }
+        let data = try await authorized(path: "functions/v1/discover?category=\(category)", body: nil, method: "GET",
+                                        accountID: accountID, maximumResponseBytes: 524_288)
+        return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
+    }
+
     /// Authorizes an offline reader download for one library item.
     func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
         let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",

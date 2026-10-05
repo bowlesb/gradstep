@@ -40,6 +40,14 @@ export function arxivSearchURLs(query: string): string[] {
   return [url.href, primary];
 }
 
+/** Newest submissions in one arXiv category (Feed). */
+export function arxivRecentURL(category: string): string | null {
+  if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return null;
+  const url = new URL('https://export.arxiv.org/api/query');
+  url.search = new URLSearchParams({ search_query: `cat:${category}`, max_results: '25', sortBy: 'submittedDate', sortOrder: 'descending' }).toString();
+  return url.href;
+}
+
 /** Earliest title matches first, then relevance results, without duplicates. */
 export function mergeDiscovery(lists: DiscoveryResult[][]): DiscoveryResult[] {
   const seen = new Set<string>(); const merged: DiscoveryResult[] = [];

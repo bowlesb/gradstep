@@ -941,6 +941,7 @@ final class ReaderModel {
         selectedQuote = ""; headings = []; paperJump = nil; paperLocations = [:]
         libraryQuery = ""; discoveryQuery = ""; searchExternal = false
         discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
+        feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
         generalChat = true
         email = nil; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false
@@ -1081,6 +1082,44 @@ final class ReaderModel {
             } catch {
                 guard self.sessionID == scope, self.discoveryGeneration == generation, !(error is CancellationError) else { return }
                 self.discoveryState = .failed("arXiv search isn’t available right now. Try again in a moment.")
+            }
+        }
+    }
+
+    // MARK: Feed — newest papers in the library's own arXiv categories. The
+    // categories are derived on the device; only the chosen category is sent.
+    enum FeedState: Equatable { case idle, loading, loaded, failed(String) }
+    private(set) var feedResults: [DiscoveryResult] = []
+    private(set) var feedState: FeedState = .idle
+    private(set) var feedCategory: String?
+    private var feedGeneration = 0
+    private var feedTask: Task<Void, Never>?
+
+    var feedCategories: [String] {
+        var counts: [String: Int] = [:]
+        for paper in papers where !paper.isSample { for keyword in paper.keywords where keyword.contains(".") || keyword.contains("-") { counts[keyword, default: 0] += 1 } }
+        let top = counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(6).map(\.key)
+        return top.isEmpty ? ["cs.LG", "cs.CL", "cs.AI", "stat.ML"] : top
+    }
+
+    func selectFeedCategory(_ category: String) { feedCategory = category; loadFeed() }
+
+    func loadFeed() {
+        let category = feedCategory ?? feedCategories.first ?? "cs.LG"
+        feedCategory = category
+        feedTask?.cancel(); feedGeneration += 1
+        let generation = feedGeneration
+        guard let backend, let accountID else { feedState = .failed("Sign in to see new papers."); return }
+        feedState = .loading
+        let scope = sessionID
+        feedTask = Task {
+            do {
+                let results = try await backend.feed(category: category, accountID: accountID)
+                guard self.sessionID == scope, self.feedGeneration == generation else { return }
+                self.feedResults = results; self.feedState = .loaded
+            } catch {
+                guard self.sessionID == scope, self.feedGeneration == generation, !(error is CancellationError) else { return }
+                self.feedState = .failed("New papers aren’t available right now. Try again in a moment.")
             }
         }
     }
