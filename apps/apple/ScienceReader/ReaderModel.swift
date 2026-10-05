@@ -543,11 +543,21 @@ final class ReaderModel {
         let scope = sessionID
         do {
             let client = try backend ?? BackendClient(configuration: configuration); backend = client
-            if let user = await client.currentUser(), sessionID == scope {
+            let existing = await client.currentUser()
+            if let user = existing, sessionID == scope {
                 email = user.email; accountID = user.id
                 beginAccountPreparation(user, client: client, scope: scope)
                 await accountPreparationTask?.value
             }
+            #if DEBUG && targetEnvironment(simulator)
+            // Live staging journey tests sign in a synthetic @example.invalid
+            // account supplied by the test runner. Never present in releases.
+            let live = ProcessInfo.processInfo.environment
+            if existing == nil, sessionID == scope, let liveEmail = live["SCIENCE_READER_LIVE_JOURNEY_EMAIL"],
+               liveEmail.hasSuffix("@example.invalid"), let livePassword = live["SCIENCE_READER_LIVE_JOURNEY_PASSWORD"] {
+                await authenticate(email: liveEmail, password: livePassword, create: false)
+            }
+            #endif
         } catch { if sessionID == scope { show(error) } }
     }
 
