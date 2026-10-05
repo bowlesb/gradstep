@@ -91,9 +91,9 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
 - **Accessibility**: an opt-in XCTest audit (`TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1`, test
   `testAccessibilityAuditOfMainScreens`) covers Library, reader, chat with an answer and diagram, the diagram and
   Settings. First run (2026-10-05): the custom tab bar is flagged for capped Dynamic Type (it follows Apple's
-  pattern: capped size plus the large content viewer); chat text, bullets and "View diagram" are flagged for contrast,
-  probably where content sits under the translucent composer/tab bar — needs a closer look; truncated library rows
-  and non-interactive diagram labels are expected. No VoiceOver walkthrough on a device yet.
+  pattern: capped size plus the large content viewer); with the keyboard dismissed, chat text passes contrast and only
+  the small secondary-colored sync caption and the glass "Latest" button are flagged (standard iOS styles, kept);
+  truncated library rows and non-interactive diagram labels are expected. No VoiceOver walkthrough on a device yet.
 - **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
   better relevance and citation-aware ranking.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
