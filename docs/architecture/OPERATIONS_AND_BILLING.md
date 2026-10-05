@@ -1,5 +1,7 @@
 # Infrastructure, spending, and recovery
 
+> **2026-10-05:** Paid OCR and chat now run through migration 014 and the `paper-worker`/`chat` Edge functions with the `beta-credits-v1` rate (see [PAPER_PIPELINE.md](PAPER_PIPELINE.md) and [CHAT.md](CHAT.md)). Staging's platform budget row is the hard provider-spend cap. Statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
+
 Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–011 are applied and immutable. Private support storage, encrypted-history capacity limits, and library/import/acquisition SQL contracts are deployed and tested. Metadata, original acquisition, verification, and original reads remain disabled; no runtime acquisition is deployed. Production, provider processing, independent backups, and distribution remain in progress.
 
 ## Environments and deployment
@@ -64,7 +66,7 @@ If this funding rule proves confusing in the benchmark, propose a platform-funde
 
 ### Import cancellation and retry — installed account contract, pending paid workflow
 
-Migrations 010/011 install durable account import/membership commands, replay/removal fences, bounded acquisition claims, and separate account projections; hosted contract checks pass. The [data contract](DATA_MODEL.md) and [acquisition contract](ACQUISITION.md) separate account intent from shared work. The funding/submission behaviors below remain requirements for the future paid-processing implementation; they are not established by a source-only database fixture. Migrations 001–011 are immutable. Review additive paid authorization, attempt identity, lock order, quotas and recovery before any provider traffic.
+Migrations 010/011 install durable account import/membership commands, replay/removal fences, bounded acquisition claims, and separate account projections; hosted contract checks pass. The [data contract](DATA_MODEL.md) and [paper pipeline](PAPER_PIPELINE.md) separate account intent from shared work. The funding/submission behaviors below remain requirements for the future paid-processing implementation; they are not established by a source-only database fixture. Migrations 001–011 are immutable. Review additive paid authorization, attempt identity, lock order, quotas and recovery before any provider traffic.
 
 A quote binds verified page count, document/options, rate version, credit ceiling, service spend ceiling, and expiry. Record the user's authorization before a new paid operation is reserved. Final authorization rechecks current cache/work state atomically: an already-ready result or concurrent existing job cannot create another OCR charge. Display saved/imported membership separately from readable/artifact-ready status.
 

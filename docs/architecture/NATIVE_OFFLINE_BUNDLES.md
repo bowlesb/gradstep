@@ -188,7 +188,7 @@ Membership removal hides the library row but does not automatically delete its e
 
 Use the existing cached account identity and local key for offline restoration; do not require a successful token refresh before opening local data. Follow [Privacy and sync](PRIVACY_AND_SYNC.md#local-encrypted-event-journal): sign-out immediately clears presentation, stops new operations and invalidates callbacks; accepted old-account writes drain before a replacement writer activates. Fence callbacks by account session, writer activation, operation and artifact binding. Ordinary sign-out retains encrypted account partitions. Missing keys never allow plaintext fallback. Guest sample behavior remains memory-only and cannot inherit an account installation.
 
-Reopen through the shared memory loader after decryption. Retain the immutable custom-scheme handler and existing document/manifest callback scopes; no plaintext extraction directories or network subresources. Keep membership, immutable artifact pins and availability consistent with [Data model](DATA_MODEL.md) and [Acquisition](ACQUISITION.md).
+Reopen through the shared memory loader after decryption. Retain the immutable custom-scheme handler and existing document/manifest callback scopes; no plaintext extraction directories or network subresources. Keep membership, immutable artifact pins and availability consistent with [Data model](DATA_MODEL.md) and [Paper pipeline](PAPER_PIPELINE.md).
 
 ## Six acceptance gates
 
