@@ -124,8 +124,11 @@ Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs 
   pattern: capped size plus the large content viewer); with the keyboard dismissed, chat text passes contrast and only
   the small secondary-colored sync caption and the glass "Latest" button are flagged (standard iOS styles, kept);
   truncated library rows and non-interactive diagram labels are expected. No VoiceOver walkthrough on a device yet.
-- **Search quality**: arXiv's API ranking is weak; a Semantic Scholar API key (owner action) would allow
-  better relevance and citation-aware ranking.
+- **Search quality** (fixed 2026-10-05 after the owner's "Cnn" search led with a physics paper): topic searches are
+  ranked with OpenAlex (relevance and citations, arXiv works only), arXiv supplies metadata, ML categories and exact
+  titles lead; arXiv's own search is the fallback. Checked live on staging for CNN, vision transformer, diffusion
+  models, LoRA, RLHF, DPO, Mamba, GNNs, mixture of experts. Queries are sent from the server to OpenAlex and arXiv
+  with no account or device data. Ambiguous short terms can still mix fields; no judged benchmark yet.
 - **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
   paper assets, independent backups, admin hosting, production environment.
 - **Purchases**: a real sandbox purchase end to end (Apple's online revocation check has not run in Edge yet);

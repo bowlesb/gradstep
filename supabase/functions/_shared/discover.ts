@@ -40,6 +40,108 @@ export function arxivSearchURLs(query: string): string[] {
   return [url.href, primary];
 }
 
+// Ranking: arXiv's own search scores word matches only, so a topic query such as
+// "CNN" put a physics paper that mentions CNNs first. OpenAlex (free scholarly
+// index, no key; called from the server, no user data sent) is asked twice, both
+// limited to arXiv works: most relevant, and most cited among works whose title
+// or abstract matches (finds classics such as ViT for "vision transformer").
+// arXiv then supplies metadata (revision, categories, abstract) for the chosen
+// IDs, and the final order favours ML categories and exact title matches.
+const OPENALEX_ARXIV_SOURCE = 'S4306400194';
+
+function openAlexText(query: string): string | null {
+  const text = query.normalize('NFKC').replace(/[^\p{L}\p{N}\s.+#-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!text) return null;
+  try { arxivReference(text); return null; } catch { return text; }
+}
+
+/** [most relevant, most cited matching] OpenAlex searches over arXiv works, or [] for an ID/empty query. */
+export function openAlexSearchURLs(query: string): string[] {
+  const text = openAlexText(query);
+  if (!text) return [];
+  const select = 'id,title,publication_year,cited_by_count,relevance_score,locations';
+  const relevant = new URL('https://api.openalex.org/works');
+  relevant.search = new URLSearchParams({ search: text, filter: `locations.source.id:${OPENALEX_ARXIV_SOURCE}`, 'per-page': '40', select }).toString();
+  const cited = new URL('https://api.openalex.org/works');
+  cited.search = new URLSearchParams({ filter: `locations.source.id:${OPENALEX_ARXIV_SOURCE},title_and_abstract.search:${text.replace(/[,:|]/g, ' ')}`,
+    sort: 'cited_by_count:desc', 'per-page': '25', select }).toString();
+  return [relevant.href, cited.href];
+}
+
+export interface RankedWork { sourceID: string; score: number }
+
+function arxivIDOf(work: { locations?: unknown }): string | null {
+  for (const location of Array.isArray(work.locations) ? work.locations.slice(0, 20) : []) {
+    for (const key of ['landing_page_url', 'pdf_url']) {
+      const value = (location as Record<string, unknown>)?.[key];
+      const match = typeof value === 'string' ? /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v\d+)?(?:\.pdf)?$/i.exec(value) : null;
+      if (match) { try { return arxivReference(match[1]).sourceID; } catch { /* not an arXiv ID */ } }
+    }
+  }
+  return null;
+}
+
+/** arXiv IDs best first: 0.5 × relevance (normalized; 0.7 for a classic found
+ * only among the most cited matches) + 0.5 × log citations (normalized). */
+export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }, limit = 25): RankedWork[] {
+  const lists = [relevant, cited].map(json => (json as { results?: unknown })?.results);
+  if (!Array.isArray(lists[0])) throw new Error('invalid_openalex');
+  const works = new Map<string, { relevance: number; citations: number }>();
+  lists.forEach((list, index) => {
+    for (const work of Array.isArray(list) ? list.slice(0, 50) : []) {
+      const w = work as { relevance_score?: unknown; cited_by_count?: unknown; locations?: unknown };
+      const sourceID = arxivIDOf(w);
+      if (!sourceID) continue;
+      const relevance = index === 0 && typeof w.relevance_score === 'number' && w.relevance_score > 0 ? w.relevance_score : 0;
+      if (index === 0 && !relevance) continue;
+      const citations = typeof w.cited_by_count === 'number' && w.cited_by_count > 0 ? w.cited_by_count : 0;
+      const known = works.get(sourceID);
+      works.set(sourceID, { relevance: Math.max(known?.relevance ?? 0, relevance), citations: Math.max(known?.citations ?? 0, citations) });
+    }
+  });
+  // A work found only among the most cited matches counts when it is cited at
+  // least as much as the best-cited relevant work: a classic of the topic, not a
+  // paper that merely mentions it.
+  const relevantCitations = Math.max(0, ...[...works.values()].filter(w => w.relevance).map(w => w.citations));
+  for (const [sourceID, w] of works) if (!w.relevance && w.citations < relevantCitations) works.delete(sourceID);
+  const maxRelevance = Math.max(1, ...[...works.values()].map(w => w.relevance));
+  const maxCitations = Math.max(1, ...[...works.values()].map(w => w.citations));
+  return [...works].map(([sourceID, w]) => ({ sourceID,
+    score: 0.5 * (w.relevance ? w.relevance / maxRelevance : 0.7) + 0.5 * Math.log10(1 + w.citations) / Math.log10(1 + maxCitations) }))
+    .sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+/** arXiv metadata for ranked IDs, one request. */
+export function arxivIDListURL(sourceIDs: string[]): string | null {
+  if (!sourceIDs.length) return null;
+  const url = new URL('https://export.arxiv.org/api/query');
+  url.search = new URLSearchParams({ id_list: sourceIDs.slice(0, 25).join(','), max_results: String(Math.min(sourceIDs.length, 25)) }).toString();
+  return url.href;
+}
+
+const ML_CATEGORIES = new Set(['cs.LG', 'cs.CL', 'cs.CV', 'cs.AI', 'cs.NE', 'cs.IR', 'cs.RO', 'cs.MA', 'cs.SD', 'stat.ML', 'eess.IV', 'eess.AS', 'math.OC']);
+const titleKey = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/** Final order: the ranking, × 1.15 for ML categories, × 0.7 outside computing and
+ * statistics, × 3 when the query is the paper's title or main title (before ":").
+ * Results not in the ranking are dropped. */
+export function orderByRanking(results: DiscoveryResult[], ranking: RankedWork[], query = ''): DiscoveryResult[] {
+  const scores = new Map(ranking.map(r => [r.sourceID, r.score]));
+  const wanted = titleKey(query);
+  const final = (r: DiscoveryResult) => {
+    const field = r.categories.some(c => ML_CATEGORIES.has(c)) ? 1.15 : r.categories.some(c => /^(cs|stat)\./.test(c)) ? 1 : 0.7;
+    const exact = wanted && (titleKey(r.title) === wanted || titleKey(r.title.split(':')[0]) === wanted) ? 3 : 1;
+    return (scores.get(r.source_id) ?? 0) * field * exact;
+  };
+  return results.filter(r => scores.has(r.source_id)).sort((a, b) => final(b) - final(a));
+}
+
+/** Keeps exact-title lookups only when the query is that paper's title or main title. */
+export function exactTitleMatches(results: DiscoveryResult[], query: string): DiscoveryResult[] {
+  const wanted = titleKey(query);
+  return results.filter(r => wanted && (titleKey(r.title) === wanted || titleKey(r.title.split(':')[0]) === wanted));
+}
+
 /** Newest announcements in one arXiv category (Feed): arXiv's daily RSS,
  * which is fast, unlike a date-sorted API query over a large category. */
 export function arxivRecentURL(category: string): string | null {

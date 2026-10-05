@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivRecentURL, arxivTitleURLs, matchPaper, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
+import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -95,4 +95,38 @@ test('ingest matching needs title, year window, first author and no negation dif
   assert.equal(matchPaper(q('Deep learning', null, null), deep), null);
   assert.equal(matchPaper(q('Adam: A Method for Stochastic Optimization', 2015, 'D. P. Kingma'),
     [{ source_id: '1412.6980', title: 'Adam: A Method for Stochastic Optimization', year: 2014, authors: ['Diederik P. Kingma', 'Jimmy Ba'] }])?.source_id, '1412.6980');
+});
+
+test('topic search: OpenAlex relevance and citations decide, ML papers and exact titles lead', () => {
+  const [relevantURL, citedURL] = openAlexSearchURLs('CNN').map(u => new URL(u));
+  assert.equal(relevantURL.hostname, 'api.openalex.org');
+  assert.equal(relevantURL.searchParams.get('search'), 'CNN');
+  assert.equal(relevantURL.searchParams.get('filter'), 'locations.source.id:S4306400194');
+  assert.equal(citedURL.searchParams.get('filter'), 'locations.source.id:S4306400194,title_and_abstract.search:CNN');
+  assert.equal(citedURL.searchParams.get('sort'), 'cited_by_count:desc');
+  assert.deepEqual(openAlexSearchURLs('2305.18290'), [], 'an arXiv ID is looked up directly');
+  assert.deepEqual(openAlexSearchURLs('   '), []);
+  const work = (relevance: number, citations: number, ...urls: string[]) => ({ relevance_score: relevance, cited_by_count: citations,
+    locations: urls.map(u => ({ landing_page_url: u, pdf_url: null })) });
+  const ranking = rankOpenAlex({ results: [
+    work(129, 3, 'http://arxiv.org/abs/2411.11001'),                 // mentions CNN, rarely cited
+    work(125, 1741, 'https://arxiv.org/abs/1504.08083v2'),          // Fast R-CNN
+    work(117, 283, 'https://arxiv.org/abs/1504.08083'),             // the same paper again
+    work(140, 9000, 'https://example.org/not-arxiv'),               // no arXiv location: skipped
+    work(0, 50, 'https://arxiv.org/abs/2001.00001'),                // no relevance in the relevance list: skipped
+  ] }, { results: [work(0, 51629, 'https://arxiv.org/abs/1506.02640'), work(0, 1741, 'https://arxiv.org/abs/1504.08083'),
+    work(0, 900, 'https://arxiv.org/abs/2401.02954')] });
+  assert.deepEqual(ranking.map(r => r.sourceID), ['1506.02640', '1504.08083', '2411.11001'],
+    'a classic found only by citations leads; one cited less than the best relevant match (2401.02954) is dropped');
+  assert.throws(() => rankOpenAlex({ error: 'x' }), /invalid_openalex/);
+  assert.equal(new URL(arxivIDListURL(ranking.map(r => r.sourceID))!).searchParams.get('id_list'), '1506.02640,1504.08083,2411.11001');
+  assert.equal(arxivIDListURL([]), null);
+  const r = (id: string, title: string, categories: string[]) => ({ source_id: id, revision: 1, title, authors: [], year: null, abstract: null, categories });
+  const metadata = [r('2411.11001', 'Elliptic flow with CNNs', ['nucl-th']), r('1506.02640', 'You Only Look Once', ['cs.CV']),
+    r('1504.08083', 'Fast R-CNN', ['cs.CV']), r('9999.99999', 'Unranked', ['cs.LG'])];
+  assert.deepEqual(orderByRanking(metadata, ranking, 'cnn').map(x => x.source_id), ['1506.02640', '1504.08083', '2411.11001']);
+  assert.deepEqual(orderByRanking(metadata, ranking, 'fast r-cnn').map(x => x.source_id)[0], '1504.08083', 'exact title leads');
+  const titles = [r('a', 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', ['cs.LG']), r('b', 'Diffusion models of growth', ['cond-mat'])];
+  assert.deepEqual(exactTitleMatches(titles, 'direct preference optimization').map(x => x.source_id), ['a']);
+  assert.deepEqual(exactTitleMatches(titles, 'diffusion models'), [], 'a phrase inside a longer title is not an exact title');
 });

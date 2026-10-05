@@ -174,3 +174,9 @@ account.
 
 Before public release: Sign in with Apple token revocation on deletion (App Review 5.1.1(v)), and releasing an
 active App Store subscription's binding so it can attach to a new account; backup expiry of deleted data.
+
+## Paper search
+
+Library › arXiv search text goes from the app to our `discover` function, which queries OpenAlex (ranking) and arXiv
+(metadata) from the server. No account ID, email or device information is sent to either; the account's request
+counters keep only counts.

@@ -2,7 +2,8 @@
 // global arXiv request pacing with the paper pipeline.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
-import { arxivRecentURL, arxivSearchURLs, mergeDiscovery, parseArxivRSS, parseArxivSearch } from '../_shared/discover.ts';
+import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, mergeDiscovery, exactTitleMatches, openAlexSearchURLs, orderByRanking, parseArxivRSS, parseArxivSearch,
+  rankOpenAlex, type RankedWork } from '../_shared/discover.ts';
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -17,8 +18,27 @@ Deno.serve(async request => {
     const category = params.get('category');
     const recent = category ? arxivRecentURL(category) : null;
     if (category && !recent) throw new PublicError(400, 'invalid_category');
-    const urls = recent ? [recent] : arxivSearchURLs(params.get('q') ?? '');
+    const query = params.get('q') ?? '';
+    let urls = recent ? [recent] : arxivSearchURLs(query);
     if (!urls.length) return Response.json({ results: [] }, { headers });
+    // Topic queries are ranked with OpenAlex (relevance and citations); arXiv then
+    // supplies metadata for those IDs. If OpenAlex fails, arXiv's own search.
+    let ranking: RankedWork[] = [];
+    const openAlex = recent ? [] : openAlexSearchURLs(query);
+    if (openAlex.length) {
+      const fetchJSON = async (url: string) => {
+        const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10_000),
+          headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+        if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error('openalex_unavailable'); }
+        return JSON.parse(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).subarray(0, 4 * 1024 * 1024)));
+      };
+      const [relevant, cited] = await Promise.allSettled(openAlex.map(fetchJSON));
+      try { if (relevant.status === 'fulfilled') ranking = rankOpenAlex(relevant.value, cited.status === 'fulfilled' ? cited.value : undefined); }
+      catch { ranking = []; }
+      const ids = arxivIDListURL(ranking.map(r => r.sourceID));
+      // Keep the exact-title lookup (if any) first; replace arXiv's word search with the ranked IDs.
+      if (ids) urls = [...urls.slice(0, urls.length - 1), ids];
+    }
     const slot = await rpc<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>(service, 'worker_pipeline_arxiv_slot', { p_slots: urls.length, p_max_wait_ms: 8000 });
     if (!slot.reserved) throw new PublicError(503, 'search_busy');
     if (slot.wait_ms > 0) await new Promise(resolve => setTimeout(resolve, slot.wait_ms));
@@ -31,6 +51,10 @@ Deno.serve(async request => {
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (bytes.length > 6 * 1024 * 1024) throw new PublicError(503, 'search_unavailable');
       lists.push(recent ? parseArxivRSS(bytes) : parseArxivSearch(bytes));
+    }
+    if (ranking.length) {
+      lists[lists.length - 1] = orderByRanking(lists[lists.length - 1], ranking, query);
+      if (lists.length > 1) lists[0] = exactTitleMatches(lists[0], query);
     }
     return Response.json({ results: mergeDiscovery(lists) }, { headers });
   } catch (error) {
