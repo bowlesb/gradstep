@@ -2,6 +2,15 @@
 
 Status: disabled prototype; `hosted_admitted` is **false**. The original bytes remain unchanged. This worker measures the exact original hash, length and resolved page count before a future acquisition job may quote or submit it to Mathpix. The separate [hosted experiment](hosted/README.md) deploys only a short-lived, authenticated, fixed-fixture compatibility test; it has no acquisition, Storage or verification-result authority.
 
+The [portable receiving wrapper](../../docs/architecture/ORIGINAL_EXECUTION.md#portable-verifier-receiver--verified-2026-10-04)
+now connects a sealed stored-readback FD to this unchanged parser through a
+paused, one-shot Deno child. Its separate waiter reports actual direct-child
+CPU/peak RSS; parser `elapsedMS` retains its original meaning. Fifty-two new
+package/lifecycle/receiver checks pass on both local Python runtimes, including
+the actual loopback download → upload → readback → parse journey and retained
+research papers. Linux host admission, complete supervisor measurements, SQL
+result submission and real Storage integration remain unfinished.
+
 ## Admission profile
 
 `profile.json` is the canonical policy input. The current pilot accepts at most 5 MiB and 50 resolved pages. It uses qpdf 12.4.2 compiled with Emscripten 6.0.11 into one unshared memory32 module with an explicit **64 MiB minimum and maximum**, a **2 MiB stack**, no memory/table growth, no filesystem, no pthreads and no dynamic JavaScript execution. Runtime tests inspect the actual WASM memory section and numeric ABI, then force memory growth and instrumented heap/stack failures. Each document gets a fresh instance; only compiled code is reused.

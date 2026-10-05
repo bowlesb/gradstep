@@ -1,14 +1,15 @@
 # Original acquisition execution — local integration
 
-Status: **independently reviewed design; isolated spool and disabled candidate
-013 implemented and locally tested; no hosted migration, runtime admission,
+Status: **independently reviewed design; spool, portable transfer/verifier handoff
+and disabled candidate 013 locally tested; no hosted migration, runtime admission,
 Storage integration or live source traffic**.
 This document defines the next
 original-only slice after the tested Linux metadata action. It does not change
 applied 001–011, pending 012, any enabled flag, the PDF parser profile, or the paid
 Mathpix contract. The isolated binary spool and SQL prerequisites are implemented
-below; their tests need no source or Storage credentials. The combined transport,
-spool, retirement and measured-verifier workflow remains unconnected.
+below; their tests need no source or Storage credentials. Actual loopback
+transfers now feed the unchanged parser through a sealed readback FD. Connecting
+that workflow to durable SQL and the admitted Linux host remains unfinished.
 
 Reviewed source boundaries:
 
@@ -639,8 +640,10 @@ Measure total CPU from the fresh retained verifier scope's `cpu.stat` before and
 after, and full wrapper wall duration from the admitted clock. Startup, WASM
 compilation, input copy, parser and teardown costs are included.
 
-This host policy is **not admitted**. Existing helpers use `waitpid`, not the
-required rusage capture. Lost wait authority/rusage after parent death means
+This host policy is **not admitted**. Existing metadata/transfer helpers use
+`waitpid`; the new portable receiver owns direct-child `wait4` evidence only.
+It does not measure the complete Linux supervisor/process set. Lost wait
+authority/rusage after parent death means
 unknown, even if the cgroup is later empty. Host admission must prove the complete
 process/thread set, exact zero/initial counters and preserved final counters,
 positive empty-scope retirement, peak-RSS aggregation, and independent bounded
@@ -849,9 +852,10 @@ request is necessary for these local schedules.
 The isolated `OriginalSpool` prerequisite passes the file-mechanics checks
 below, and candidate 013 passes the local SQL authority, role, envelope,
 concurrency and populated-upgrade checks. Separate portable source/upload/
-stored-read components now implement the binary handoff described below. Next
-add the receiving verifier wrapper and its honest host metrics, and connect the
-components to the Linux guardian and durable SQL/action ordering. Combine them
+stored-read components now implement the binary handoff described below. The
+portable receiver connects that handoff to the frozen parser and records actual
+direct-child rusage. Next connect the components to the Linux guardian, complete
+host measurements and durable SQL/action ordering. Combine them
 in one opt-in disposable-PG/loopback fixture before any hosted credentials or
 outbound switch is considered.
 
@@ -1108,3 +1112,118 @@ equal to the prior commit. The existing spool implementation is unchanged.
 No database, hosted service, provider, VM or physical device was changed for
 this checkpoint. SQL/guardian integration, measured verifier execution and
 real Storage response/settlement admission remain required.
+
+## Portable verifier receiver — verified 2026-10-04
+
+[`original_verifier.py`](../../workers/source-gateway/linux/original_verifier.py)
+and its captured `.mjs` entry point connect the stored-readback spool to the
+unchanged `39980de…` parser. The local TLS/spool test now completes download →
+upload → source-slot cleanup → fresh stored readback → seal → actual PDF parse,
+returning the exact 610-byte fixture hash and one resolved page. Its guardian
+callbacks and SQL-shaped request facts remain explicitly synthetic. There is
+no database publication, real Storage response or paid provider submission.
+
+The receiving interface deliberately separates pre-grant and post-grant IDs:
+
+```text
+capture_verifier_bundle(parent, exact_build_id, exact_deno_path)
+VerifierSession(bundle, input, input_fd=sealed_readback_fd)  # READY only
+go(execution_id, binding_sha256, absolute_deadline_ns)       # once, then EOF
+finish()                                                  # result + wait4 facts
+```
+
+The closed input binds the verifier claim, exact 21-field `original_verify`
+request, opaque SQL request hash and canonical raw spool descriptor. The
+descriptor's **claim** matches the predecessor operation; its execution attempt
+is a different identity. The complete descriptor digest, reservation, purpose,
+candidate hash/length and frozen build/profile must match before spawn. The
+grant-generated execution UUID first appears in GO. These comparisons validate
+the local handoff; they do not establish that SQL committed a grant.
+
+Deno receives an already-open read-only regular file as stdin, with a separate
+small inherited pipe for control. No spool pathname or directory is passed.
+The parent owns a duplicate FD, checks its sealed inode, read-only access, exact
+size, stable metadata and zero initial offset, and retains it until exact child
+retirement. The duplicate shares the caller's file offset: the caller must keep
+the spool lock/reader context and must not seek/read that FD concurrently.
+READY leaves the offset unchanged. GO and control EOF precede PDF reads,
+parser imports and WASM compilation. Input is bounded at 5 MiB, read in at most
+64 KiB pieces with an exact-length EOF probe and a complete hash check before
+parser import. An unlinked read-only file works in the actual Mac probe; a
+regular `/dev/fd` reopen is not used as a substitute for inherited stdin.
+
+[`original_verifier_bundle.py`](../../workers/source-gateway/linux/original_verifier_bundle.py)
+first validates the full original build, then captures unchanged `runtime.ts`,
+`wasm.ts`, generated glue/WASM, profile and identity plus the new receiver.
+The private directory is mode 0500 and its eight files, including the manifest,
+are mode 0400. The manifest binds every file and the selected executable's exact
+identity/hash; aliases, unexpected files and changed identities are refused.
+The original full build/library remains untouched. The wrapper has no static
+imports and uses computed URLs into the capture only after GO and PDF hashing.
+No working-tree, `current-build.json`, `dist` or smoke-test loader is an import
+source. Filesystem modes and prelaunch checks trust the current owner; they are
+not protection against a hostile owner/root swapping files between checks.
+
+The actual runtime is Deno 2.9.6, SHA-256
+`b3ac3bd206e48c26026cadd80c1367e96c149f9c66130952382a642b09fa8a71`.
+The npm executable had two hardlinks, so an identical, separately owned
+80,915,104-byte copy was made under the project's ignored tools directory; no
+runtime was downloaded or installed globally. The child has an explicit minimal
+environment, disabled config/lock/npm/remote imports/code cache and denied
+network, environment, subprocess, FFI, write and system-info permissions. Its
+read allowance covers only the private code capture and fixed control-pipe
+alias. `DENO_DIR` points to the mode-0500 capture; actual execution leaves its
+exact inventory unchanged. These are local capabilities, not Linux OS isolation.
+
+[`wait4_child.py`](../../workers/source-gateway/linux/wait4_child.py) is the sole
+reaper for the exact retained `Popen` child. It never calls the Popen polling,
+waiting or signaling helpers, which could discard rusage. Actual terminal wait
+status is retained even when metrics are invalid; missing wait authority forbids
+signaling and leaves the owner retained under a finite 32-owner admission cap.
+Signals and waits serialize through that owner. Raw user/system CPU and peak
+RSS retain their native units (Mac bytes, Linux KiB), with conservative derived
+CPU milliseconds and process-peak bytes. These are **direct-child** facts only.
+`spawn_to_wait_wall_ms` includes runtime startup, loading, compilation and input
+handling through the parent's observed wait. Frozen `elapsedMS` is still only
+the parser-call measurement; neither value is relabeled as the other's metric.
+
+The independent parent deadline watcher can kill synchronous WASM even while
+the caller is not draining output. The child also makes cooperative relative
+time checks; it never compares `performance.now()` to the parent's absolute
+kernel clock. A finite bound result, exact successful wait4, valid rusage,
+stdout/stderr EOF, stable input and successful IPC cleanup are all required.
+Cancellation/deadline checks also guard final acceptance. Cleanup attempts every
+independent handle, never retries a possibly reused raw FD number, and retains
+uncertainty after close errors. Startup/watcher failures retain the exact owner.
+No failure retries parsing, releases a SQL hold or deletes the caller's spool.
+
+All **52 new checks** pass on Python 3.9.6 and 3.13.3. Full portable discovery is
+**305 total: 289 passing, 16 Linux-only skips** in 21.891 seconds. The second
+runtime's focused 52 checks pass in 9.507 seconds. Tests include the actual
+four-stage journey, one/50-page success, 51-page refusal, encrypted/corrupt/
+unsupported PDFs, decoded-stream exhaustion and object-stream OOM followed by a
+fresh successful instance. The retained CLIP paper verifies as 16 pages; the
+near-limit FlashAttention paper retains its parser-resource refusal. Both paper
+hashes/lengths are checked against the tracked local-only corpus manifest.
+Malformed/BOM/duplicate control, missing EOF, wrong identities/hash, delayed
+exit, active watchdog termination, unavailable rusage, result-number encoding,
+late cancellation, watcher failure and actual FD reuse are covered. Independent
+review corrected those lifecycle and cross-language JSON boundaries before the
+final runs.
+
+Evidence is `.artifacts/original-verifier-linux-portable.log`,
+`.artifacts/original-verifier-python313.log`, the retained capture/direct-child
+proof and `.artifacts/original-verifier-summary.json`. Reproduce on this Mac:
+
+```sh
+PYTHONPATH=workers/source-gateway:workers/source-gateway/linux python3 -B -m unittest test_wait4_child test_original_verifier_bundle test_original_verifier -v
+```
+
+`TIMESTEP_VERIFIER_DENO` can select an explicit private ordinary runtime file for
+the receiver tests. No Linux/cross-UID runtime check, cgroup/thread admission,
+whole-supervisor RSS/CPU measurement, guardian-death recovery, SQL result adapter
+or real Storage settlement is established here. In particular, pending 013's
+synthetic-only host-evidence schema cannot accept these local observations;
+they must not be relabeled as synthetic evidence to obtain publication. Applied
+001–011, pending 012/013, the parser/profile and hosted switches remain unchanged.
+The VM stays stopped and physical iPhone work remains paused.

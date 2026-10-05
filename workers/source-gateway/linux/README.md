@@ -411,4 +411,32 @@ captured source identities. Retained older bundles are untouched; new metadata
 captures need fresh combined Linux verification before admission. The VM remains
 stopped, and pending migrations 012/013 remain unhosted.
 There is no new SQL migration, live source/Storage traffic, Linux runtime admission,
-physical disk quota or verifier measurement claim. The existing guest stays off.
+physical disk quota or whole-host verifier measurement claim. The existing guest stays off.
+
+## Portable verifier receiver — verified 2026-10-04
+
+`original_verifier.py` now receives the sealed stored-readback FD through stdin
+and controls a separately captured Deno wrapper through one bounded inherited
+pipe. READY/GO/EOF precedes input reads, imports and compilation. The complete
+local TLS/spool journey now reaches the unchanged `39980de…` parser and returns
+the correct fixture hash, length and page count. The surrounding request and
+guardian facts in that test are still synthetic.
+
+`original_verifier_bundle.py` captures seven pinned payload files plus a closed
+manifest into a private read-only directory. `wait4_child.py` exclusively owns
+the exact child's terminal status and rusage; it retains lost authority instead
+of inventing metrics. The session enforces an independent wall deadline and
+requires exact retirement, bounded output, valid measurements and successful
+IPC cleanup before accepting a result. These are direct-child portable facts,
+not the complete Linux host policy.
+
+All 52 new checks pass on both local Python runtimes. Full Mac discovery passes
+289 checks with 16 Linux-only skips (305 total). The suite exercises actual
+parser outcomes, retained research papers, malformed control, cancellation,
+resource/cleanup failures and readback → parser handoff. Reproduction, raw
+evidence and limitations are recorded in
+[Original execution](../../../docs/architecture/ORIGINAL_EXECUTION.md#portable-verifier-receiver--verified-2026-10-04).
+The frozen build, existing spool and all migrations remain unchanged. Linux
+process/thread limits, cross-UID FD access, complete host measurements, SQL
+integration and real Supabase Storage settlement remain required. No VM,
+physical device, hosted service or provider was changed for this checkpoint.
