@@ -32,6 +32,7 @@
     "@types/sanitize-html": "2.16.2",
     "deno": "2.9.6",
     "esbuild": "0.28.2",
+    "mermaid": "12.1.0",
     "supabase": "2.119.0",
     "typescript": "7.0.2",
     "vite": "8.3.2"

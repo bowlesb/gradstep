@@ -100,6 +100,17 @@ import Testing
         #expect(try truncated.consume(Array("\n".utf8)).isEmpty, "An unterminated event is dropped at end of input")
     }
 
+    @Test func parserReadsBoundedDiagrams() throws {
+        var parser = ChatSSEParser()
+        let events = try parser.consume(Array("event: diagram\ndata: {\"title\":\"DPO\",\"source\":\"flowchart LR\\n a --> b\"}\n\n".utf8))
+        #expect(events == [.diagram(title: "DPO", source: "flowchart LR\n a --> b")])
+        for body in ["{\"title\":\"\",\"source\":\"graph\"}", "{\"title\":\"t\",\"source\":\"  \"}", "{\"title\":\"t\"}",
+                     "{\"title\":\"t\",\"source\":\"" + String(repeating: "a", count: ChatDiagram.maximumSourceBytes + 1) + "\"}"] {
+            var invalid = ChatSSEParser()
+            #expect(throws: ChatStreamError.malformed) { try invalid.consume(Array("event: diagram\ndata: \(body)\n\n".utf8)) }
+        }
+    }
+
     @Test func parserRejectsMalformedAndOversizedInput() throws {
         var malformed = ChatSSEParser()
         #expect(throws: ChatStreamError.malformed) { try malformed.consume(Array("event: delta\ndata: {\"txt\":1}\n\n".utf8)) }

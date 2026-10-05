@@ -327,6 +327,37 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Encrypted question restored alongside the installed paper")
     }
 
+    func testAnAnswerDiagramOpensFromTheAnswerAndFromAllDiagrams() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("Draw the attention computation")
+        app.buttons["chat.send"].tap()
+        let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertTrue(open.label.contains("Scaled dot-product attention"))
+        open.tap()
+        // Drawn on device by the bundled Mermaid; its SVG labels are readable text.
+        let canvas = app.webViews.firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        XCTAssertTrue(canvas.staticTexts["Softmax"].waitForExistence(timeout: 10), "The diagram's nodes render")
+        XCTAssertFalse(app.staticTexts["This diagram couldn’t be drawn."].exists)
+        capture(app, "Diagram drawn from an answer")
+        app.buttons["Done"].tap()
+        app.buttons["tab.library"].tap()
+        app.buttons["Library options"].tap()
+        app.buttons["All diagrams"].tap()
+        let saved = app.buttons["Scaled dot-product attention"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
+        XCTAssertTrue(app.webViews.firstMatch.staticTexts["Softmax"].waitForExistence(timeout: 10))
+        capture(app, "Diagram reopened from All diagrams")
+    }
+
     func testUnsentDraftsCanBeReopenedWithoutReplacingEachOther() throws {
         let app = launch()
         app.buttons["tab.chat"].tap()

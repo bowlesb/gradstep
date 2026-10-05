@@ -43,6 +43,7 @@
 		4BA22147F0D1261E3747391C /* GoogleSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */; };
 		4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
 		5308EDFADB8ED35DE33DF84B /* LibraryCommandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */; };
+		53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F00A3E50BBA6CA58D4062C /* DiagramView.swift */; };
 		544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */; };
 		55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = 0CF87627F536131311AEBD1D /* reader-bridge.js */; };
 		56A2187503493F3399981625 /* ReaderBundleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFA835CA7767FB4EF7E692A1 /* ReaderBundleCoordinator.swift */; };
@@ -52,6 +53,7 @@
 		5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
 		66F54F280A5A30A81AEEF232 /* ReaderDraftQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */; };
 		69FFC6AB0D50BFE7E7090F61 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
+		6A9FB40EA22828F4E4F61F58 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
 		6E79A84877F64CFD3D7DA853 /* PaperWebViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */; };
 		72C14249354A75B7ADFF874C /* NativeAuthenticationControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78074324405596C300892BD /* NativeAuthenticationControls.swift */; };
 		74A4180D876E3097503ACBB1 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD48DC7B746589499F3F6C03 /* ScienceReaderCore */; };
@@ -87,6 +89,7 @@
 		A18BB875B8088DAE581EF4F0 /* WorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */; };
 		A2103D4B5129E2E105847B22 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
 		A61F0E125DAF829B17493F71 /* AuthenticationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DDCC2B7B9C8AD8C39EC24E /* AuthenticationBackend.swift */; };
+		A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
 		A97CC2B0617F36ACBD086534 /* LibraryCommandCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */; };
 		AB0AB94E5391C7CD99B0840E /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
 		AC9F6CBCB7AE7D8AFED96D75 /* GoogleSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */; };
@@ -127,6 +130,7 @@
 		EFDD0C95FBC49CE9EE5021B0 /* SupportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */; };
 		F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */; };
 		F4B046F9350393446D8DAE4E /* ChatConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4945661F367880A111DF5CF2 /* ChatConsentView.swift */; };
+		FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F00A3E50BBA6CA58D4062C /* DiagramView.swift */; };
 		FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
 		FCC586596B435AF7180731D7 /* ReaderSamples in Resources */ = {isa = PBXBuildFile; fileRef = 7B70D15BE449FE77F2DCF2AE /* ReaderSamples */; };
 		FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */; };
@@ -161,9 +165,11 @@
 		02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSupportTests.swift; sourceTree = "<group>"; };
 		030E1CFB76A0DFDEDF57638C /* ReaderBundleLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderBundleLoaderTests.swift; sourceTree = "<group>"; };
 		03742A4949DCA5611E5FF883 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		09F00A3E50BBA6CA58D4062C /* DiagramView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagramView.swift; sourceTree = "<group>"; };
 		0A7005386659A627AA9009A5 /* DeviceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceKeys.swift; sourceTree = "<group>"; };
 		0CF87627F536131311AEBD1D /* reader-bridge.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "reader-bridge.js"; sourceTree = "<group>"; };
 		1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryService.swift; sourceTree = "<group>"; };
+		12D61D9D4705606671656C1A /* mermaid.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = mermaid.min.js; sourceTree = "<group>"; };
 		18AFED85CC085152AD2629AC /* ChatRichTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatRichTextView.swift; sourceTree = "<group>"; };
 		18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotCapture.swift; sourceTree = "<group>"; };
 		1E7F302ABE65AC6232843382 /* UnsentDraftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsentDraftTests.swift; sourceTree = "<group>"; };
@@ -310,6 +316,7 @@
 				8970BBF3454BEE534D3E1521 /* GoogleSans-Medium.ttf */,
 				EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */,
 				3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */,
+				12D61D9D4705606671656C1A /* mermaid.min.js */,
 				78F26AC3CC887892BFD85E25 /* offline-resource */,
 				0CF87627F536131311AEBD1D /* reader-bridge.js */,
 				7B70D15BE449FE77F2DCF2AE /* ReaderSamples */,
@@ -400,6 +407,7 @@
 				4945661F367880A111DF5CF2 /* ChatConsentView.swift */,
 				18AFED85CC085152AD2629AC /* ChatRichTextView.swift */,
 				82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */,
+				09F00A3E50BBA6CA58D4062C /* DiagramView.swift */,
 				26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */,
 				C78074324405596C300892BD /* NativeAuthenticationControls.swift */,
 				BA80067653668118DFE957C2 /* NativeGoogleAuthenticationButton.swift */,
@@ -605,6 +613,7 @@
 				4BA22147F0D1261E3747391C /* GoogleSans-OFL.txt in Resources */,
 				B422CD71DBFDFA34FF6388D7 /* GoogleSignIn-PROVENANCE.md in Resources */,
 				D90FA618E733A6DA84FF9297 /* ReaderSamples in Resources */,
+				A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */,
 				55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -618,6 +627,7 @@
 				AC9F6CBCB7AE7D8AFED96D75 /* GoogleSans-OFL.txt in Resources */,
 				7BC3644F9BF56309E3F859CB /* GoogleSignIn-PROVENANCE.md in Resources */,
 				FCC586596B435AF7180731D7 /* ReaderSamples in Resources */,
+				6A9FB40EA22828F4E4F61F58 /* mermaid.min.js in Resources */,
 				1D8610524D972A37C4E98E21 /* offline-resource in Resources */,
 				481B2B8B4516EE4864337030 /* reader-bridge.js in Resources */,
 			);
@@ -643,6 +653,7 @@
 				C85C6F3BA0684808A9D3B155 /* ChatWorkspace.swift in Sources */,
 				7707551B28B8897B64FD97F1 /* ConversationBranchSelections.swift in Sources */,
 				FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */,
+				FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */,
 				968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */,
 				0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */,
 				3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */,
@@ -740,6 +751,7 @@
 				951EFA319EF9D270231D50C0 /* ChatWorkspace.swift in Sources */,
 				B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */,
 				D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */,
+				53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */,
 				23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */,
 				E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */,
 				16FED8D8994DFA9F0D621F87 /* LibraryCommandCoordinator.swift in Sources */,

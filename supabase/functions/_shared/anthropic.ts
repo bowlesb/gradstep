@@ -115,7 +115,25 @@ export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
   },
 };
 
-export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null; tools?: boolean })
+/** Diagrams: Mermaid source only. The server relays it to the device, which
+ * stores it encrypted and draws it with a bundled, sandboxed Mermaid. */
+export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
+  name: 'create_diagram',
+  description: 'Draws a diagram the reader can open from your answer and later from All diagrams. Use it only when the reader '
+    + 'explicitly asks for a diagram, flowchart or other visual. Mermaid syntax only. Call it at most once, after your text.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string', description: 'A short title (under 80 characters).' },
+      mermaid: { type: 'string', description: 'Mermaid source starting with the diagram type (e.g. "flowchart LR"). Under about 40 nodes, '
+        + 'short labels, math as plain Unicode text (no LaTeX), no click or link directives.' },
+    },
+    required: ['title', 'mermaid'],
+  },
+};
+
+export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
+  tools?: readonly Anthropic.Beta.Messages.BetaTool[] })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text', text: input.instructions }];
   if (input.paper) {
@@ -137,7 +155,7 @@ export function chatRequestParams(input: { instructions: string; paper: PaperCon
     thinking: { type: 'adaptive' }, output_config: { effort: CHAT_EFFORT },
     betas: [FALLBACK_BETA], fallbacks: 'default',
     system, messages,
-    ...(input.tools ? { tools: [ADD_PAPER_TOOL] } : {}),
+    ...(input.tools?.length ? { tools: [...input.tools] } : {}),
   };
 }
 

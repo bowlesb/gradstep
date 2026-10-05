@@ -14,7 +14,8 @@ struct ChatTranscript: View {
         let scope = TranscriptScope(sessionID: model.readerSessionID, composerID: model.chatComposerID)
         let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
-            TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, jump: jump,
+            TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, diagrams: model.chatDiagrams,
+                openDiagram: { model.openDiagram($0) }, jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
                 didFollow: { following in
@@ -68,6 +69,8 @@ private struct TranscriptMessage: View {
     let message: AppliedEvent
     let streaming: Bool
     let fontSize: Double
+    let diagram: ChatDiagramLink?
+    let openDiagram: (UUID) -> Void
     let first: Bool
     let last: Bool
 
@@ -93,6 +96,12 @@ private struct TranscriptMessage: View {
                 if message.payload.status == .interrupted {
                     Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                 }
+                if let diagram, !streaming {
+                    Button { openDiagram(diagram.id) } label: {
+                        Label("View diagram: \(diagram.title)", systemImage: "square.stack.3d.up").font(.system(size: fontSize * 0.88)).lineLimit(2)
+                    }
+                    .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
+                }
             }
             .padding(12).background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
             .accessibilityElement(children: .contain)
@@ -115,6 +124,8 @@ private struct TranscriptTable: UIViewRepresentable {
     let messages: [AppliedEvent]
     let streamingID: UUID?
     let fontSize: Double
+    let diagrams: [UUID: ChatDiagramLink]
+    let openDiagram: (UUID) -> Void
     let jump: TranscriptJump
     let localRequest: UUID?
     let isCurrent: () -> Bool
@@ -152,6 +163,7 @@ private struct TranscriptTable: UIViewRepresentable {
         private var displayed: [AppliedEvent] = []
         private var displayedStreamingID: UUID?
         private var displayedFont = 0.0
+        private var displayedDiagrams: [UUID: ChatDiagramLink] = [:]
         private var pending: TranscriptTable?
         private var generation = 0
         private var applying = false
@@ -201,6 +213,7 @@ private struct TranscriptTable: UIViewRepresentable {
                 cell.isAccessibilityElement = false
                 cell.contentConfiguration = UIHostingConfiguration {
                     TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID, fontSize: self.displayedFont,
+                        diagram: self.displayedDiagrams[self.displayed[index].payload.entityID], openDiagram: { [weak self] id in self?.owner?.openDiagram(id) },
                         first: index == 0, last: index == self.displayed.count - 1)
                 }.margins(.all, 0).minSize(width: 0, height: 0)
                 return cell
@@ -218,7 +231,8 @@ private struct TranscriptTable: UIViewRepresentable {
                 lastJump = value.jump.id
             }
             lastLocalRequest = value.localRequest
-            guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID || applying else { return }
+            guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID
+                    || displayedDiagrams != value.diagrams || applying else { return }
             generation += 1
             pending = value
             applyPending(table)
@@ -229,10 +243,11 @@ private struct TranscriptTable: UIViewRepresentable {
             pending = nil
             if !following && anchors.isEmpty && !userScrolling { anchors = readAnchors(table) }
             let old = Dictionary(uniqueKeysWithValues: displayed.map { ($0.id, $0) })
-            let oldFont = displayedFont, oldStreaming = displayedStreamingID
+            let oldFont = displayedFont, oldStreaming = displayedStreamingID, oldDiagrams = displayedDiagrams
             let oldFirst = displayed.first?.id
             let oldLast = displayed.last?.id
             displayed = update.messages; displayedFont = update.fontSize; displayedStreamingID = update.streamingID
+            displayedDiagrams = update.diagrams
             var snapshot = NSDiffableDataSourceSnapshot<Int, UUID>()
             snapshot.appendSections([0]); snapshot.appendItems(displayed.map(\.id))
             let existing = Set(source.snapshot().itemIdentifiers)
@@ -241,7 +256,8 @@ private struct TranscriptTable: UIViewRepresentable {
                 let edgeChanged = (item.id == oldFirst) != (item.id == displayed.first?.id)
                     || (item.id == oldLast) != (item.id == displayed.last?.id)
                 let streamingChanged = (item.id == oldStreaming) != (item.id == displayedStreamingID)
-                return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged ? item.id : nil
+                let diagramChanged = oldDiagrams[item.payload.entityID] != displayedDiagrams[item.payload.entityID]
+                return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged || diagramChanged ? item.id : nil
             })
             applying = true
             let revision = generation

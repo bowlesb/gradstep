@@ -4,10 +4,10 @@ import ScienceReaderCore
 
 /// Synthetic answers for UI journeys (`--chat-fixture`). Compiled out of
 /// physical-device and release builds; it never opens a network connection.
-/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal`.
+/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram`.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 struct ChatFixtureTransport: ChatTransport {
-    enum Mode: String, Sendable { case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal }
+    enum Mode: String, Sendable { case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram }
     let mode: Mode
 
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--chat-fixture") }
@@ -46,7 +46,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt:
+                    case .answer, .slow, .interrupt, .diagram:
                         try await Task.sleep(for: .milliseconds(300))
                         let pieces = Self.pieces(of: Self.answer, size: 14)
                         let delay: Duration = mode == .slow ? .milliseconds(250) : .milliseconds(30)
@@ -58,6 +58,7 @@ struct ChatFixtureTransport: ChatTransport {
                             continuation.yield(.delta(piece))
                             try await Task.sleep(for: delay)
                         }
+                        if mode == .diagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.diagram)) }
                         if mode != .interrupt { continuation.yield(.done(stopReason: "end_turn", credits: 2)) }
                     }
                     continuation.finish()
@@ -66,6 +67,15 @@ struct ChatFixtureTransport: ChatTransport {
             continuation.onTermination = { _ in task.cancel() }
         }
     }
+
+    static let diagram = """
+    flowchart LR
+      Q[Queries] --> S[Scaled dot products]
+      K[Keys] --> S
+      S --> M[Softmax]
+      M --> O[Weighted values]
+      V[Values] --> O
+    """
 
     func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
 

@@ -6,7 +6,7 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
 - Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection)}`.
-- Events: `delta {text}`, `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
@@ -34,6 +34,19 @@ library, not found on arXiv, arXiv unavailable, or could not be added. A `tool_u
 The app refreshes the library when an Ingest answer completes. Paper text could steer the model to a different
 title (prompt injection); the bound is one strictly matched arXiv paper per explicit Ingest, which the reader can
 cancel in the Library.
+
+## Diagrams
+
+Ordinary (non-Ingest) requests carry one client tool, `create_diagram {title, mermaid}`, with instructions to use it
+only when the reader explicitly asks for a diagram, after the text. After settlement and only on a `tool_use` stop,
+the server validates the input (title ≤ 120 characters, source ≤ 12 KB starting with a known Mermaid diagram type)
+and relays it once as an SSE `diagram {title, source}` event before `done`; it stores and logs nothing of it. The
+device keeps it only with a complete answer, sealing an encrypted `diagram` event (`ChatDiagram`, format
+`mermaid-v1`, with the answer's message entity ID) in the same batch as the answer. The answer shows "View diagram";
+Settings/Library → All diagrams lists saved diagrams. Rendering is on device with the bundled Mermaid 12.1.0
+(`scripts/vendor-mermaid.mjs`, hash-pinned) in a web view whose page allows no scripts, network or navigation;
+Mermaid runs in `securityLevel: 'strict'` from an app-owned user script. A diagram that cannot be drawn shows its
+source. This restores the legacy app's diagrams in a narrower form (Mermaid only; no arbitrary HTML/SVG).
 
 ## Money
 

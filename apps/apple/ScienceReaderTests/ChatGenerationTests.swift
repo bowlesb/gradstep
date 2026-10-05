@@ -147,6 +147,44 @@ final class ChatGenerationTests: XCTestCase {
                                                                      "And without scaling?", "Softmax saturates."], "Answers persist encrypted")
     }
 
+    func testADrawnDiagramIsSealedWithItsAnswerAndSurvivesReopening() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "Draw the attention computation"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("Here is the flow."), .diagram(title: "Attention", source: "flowchart LR\n Q --> S"),
+                       .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        let answer = try XCTUnwrap(model.chatMessages.last)
+        XCTAssertEqual(answer.payload.text, "Here is the flow.")
+        XCTAssertEqual(model.activeBranchID, answer.id, "The answer, not its diagram, is the branch head")
+        let link = try XCTUnwrap(model.chatDiagrams[answer.payload.entityID])
+        XCTAssertEqual(link.title, "Attention")
+        let diagram = try XCTUnwrap(model.diagram(link.id))
+        XCTAssertEqual(diagram.source, "flowchart LR\n Q --> S")
+        XCTAssertEqual(diagram.messageID, answer.payload.entityID)
+        let event = try XCTUnwrap(model.privateState.revisions(for: link.id).first)
+        XCTAssertEqual(event.payload.conversationID, model.activeConversation)
+        model.openDiagram(link.id)
+        XCTAssertEqual(model.presentedDiagram, PresentedDiagram(id: link.id))
+        await model.flushDrafts()
+
+        let reopened = ReaderModel(configuration: nil, chatTransport: ScriptedChatTransport(), chatConsentStore: ConsentMemory())
+        try await reopened.configureDurableDraftFixture(reset: false)
+        XCTAssertEqual(reopened.privateState.diagrams().map(\.diagram.title), ["Attention"], "Diagrams persist encrypted")
+    }
+
+    func testADiagramFromAnInterruptedAnswerIsNotKept() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "Draw it"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("Partial"), .diagram(title: "Half", source: "graph TD; a-->b"), .done(stopReason: "max_tokens", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        XCTAssertEqual(model.chatMessages.last?.payload.status, .interrupted)
+        XCTAssertTrue(model.privateState.diagrams().isEmpty)
+    }
+
     func testStopKeepsPartialTextAsAnInterruptedAnswer() async throws {
         let (model, transport) = try await makeModel(consented: true)
         model.chatInput = "Summarize section 3"

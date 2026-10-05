@@ -68,6 +68,9 @@ struct RootView: View {
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
+        .sheet(item: $model.presentedDiagram) { presented in
+            if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram) }
+        }
         .sheet(isPresented: $model.showReport, onDismiss: {
             model.reportScreenshot = nil
             if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
@@ -646,7 +649,8 @@ struct HistoryView: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            let entities = model.privateState.entities(kind: diagrams ? .diagram : .conversation)
+            let entities = diagrams ? [] : model.privateState.entities(kind: .conversation)
+            let savedDiagrams = diagrams ? model.privateState.diagrams() : []
             let drafts = diagrams ? [] : model.unsentDrafts
             List {
                 if !drafts.isEmpty {
@@ -673,8 +677,12 @@ struct HistoryView: View {
                             Button(event.payload.text ?? "Untitled") { model.openConversation(id); dismiss() }
                         }
                     }
+                    ForEach(savedDiagrams, id: \.id) { saved in
+                        NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
+                            .accessibilityIdentifier("diagram.\(saved.id.wire)")
+                    }
                 } header: { if !drafts.isEmpty { Text("Saved conversations") } }
-            }.overlay { if entities.isEmpty && drafts.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
+            }.overlay { if entities.isEmpty && savedDiagrams.isEmpty && drafts.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
                 .navigationTitle(diagrams ? "All diagrams" : "All chats").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
@@ -854,6 +862,7 @@ struct AcknowledgementsView: View {
     private let items: [(String, String, String)] = [
         ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
         ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
+        ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
         ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to build equation-aware readers; each reader includes its NOTICE.", "MIT / Apache 2.0"),
         ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
     ]

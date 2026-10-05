@@ -2,7 +2,7 @@
 // Deno and Node compatible (no Deno globals). Never log request or answer
 // text; logs carry only operation IDs, codes and counts.
 import {
-  CHAT_MAX_TOKENS, chatRequestParams, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
+  ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
   type ChatTurn, type PaperContext, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -141,8 +141,26 @@ Identify that paper, using the paper's bibliography when the passage is an in-te
 (title, first author, year), then call add_paper once with its exact title, first author and year (and the arXiv id only if it appears in the text).
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
+const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
+Never write Mermaid, SVG or HTML diagram markup in the answer text.`;
+
 export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null): string {
-  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}${action === 'ingest' ? `\n\n${INGEST_INSTRUCTIONS}` : ''}`;
+  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${action === 'ingest' ? INGEST_INSTRUCTIONS : DIAGRAM_INSTRUCTIONS}`;
+}
+
+const MERMAID_TYPES = /^(?:flowchart|graph|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|mindmap|timeline|journey|quadrantChart|xychart-beta|block-beta|sankey-beta|gitGraph|requirementDiagram|packet-beta|architecture-beta|kanban|radar-beta)\b/;
+export interface DiagramRequest { title: string; source: string }
+/** Validates the model's create_diagram input. The source is untrusted and is
+ * only ever rendered on device by Mermaid in strict mode without network. */
+export function diagramRequest(input: unknown): DiagramRequest | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const value = input as Record<string, unknown>;
+  if (Object.keys(value).some(key => !['title', 'mermaid'].includes(key))) return null;
+  const title = typeof value.title === 'string' ? value.title.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  const source = typeof value.mermaid === 'string' ? value.mermaid.replace(/\r\n?/g, '\n').trim() : '';
+  if (!title || [...title].length > 120 || !source || new TextEncoder().encode(source).length > 12_000) return null;
+  const firstLine = source.split('\n').map(line => line.trim()).find(line => line && !line.startsWith('%%'));
+  return firstLine && MERMAID_TYPES.test(firstLine) ? { title, source } : null;
 }
 
 export interface PaperRequest { title: string; year: number | null; firstAuthor: string | null; arxivID: string | null }
@@ -177,6 +195,7 @@ export function ingestReport(request: PaperRequest, found: FoundPaper | null, re
 export const INGEST_DEADLINE_MS = 45_000;
 
 export type ChatEvent = { event: 'delta'; data: { text: string } }
+  | { event: 'diagram'; data: { title: string; source: string } }
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number> } }
   | { event: 'error'; data: { code: ChatErrorCode } };
 
@@ -244,7 +263,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   }
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action), paper, turns: request.turns,
-    selection: request.selection, tools: request.action === 'ingest' });
+    selection: request.selection, tools: [request.action === 'ingest' ? ADD_PAPER_TOOL : CREATE_DIAGRAM_TOOL] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
   const digest = await deps.sha256Hex(encoder.encode(canonicalRequest(request)));
   if (signal.aborted) return;
@@ -271,10 +290,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const stop = () => deadline.abort();
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
+  let wroteText = false;
   try {
     outcome = await deps.generate(params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
-      onText: text => { if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
+      onText: text => { if (text.trim()) wroteText = true; if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
     });
   } catch {
     outcome = { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
@@ -317,6 +337,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       cache_read_input_tokens: sum.cache_read_input_tokens + attempt.usage.cacheRead,
       output_tokens: sum.output_tokens + attempt.usage.output,
     }), { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 });
+    // Diagram: relayed once to the device, which stores it encrypted.
+    const drawing = request.action !== 'ingest' && outcome.stopReason === 'tool_use'
+      ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;
+    if (drawing) {
+      const diagram = diagramRequest(drawing.input);
+      deps.log({ event: diagram ? 'chat_diagram' : 'chat_diagram_invalid_input', operation_id: request.operationID });
+      if (diagram && !signal.aborted) {
+        // The device keeps a diagram only with a non-empty answer.
+        if (!wroteText) emit({ event: 'delta', data: { text: `Diagram: “${diagram.title}”` } });
+        emit({ event: 'diagram', data: diagram });
+      }
+    }
     if (signal.aborted) return;
     // A tool call ends the provider turn; the server completed it.
     const stopReason = outcome.stopReason === 'tool_use' ? 'end_turn' : outcome.stopReason ?? 'end_turn';

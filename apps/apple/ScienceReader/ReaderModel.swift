@@ -175,8 +175,15 @@ final class ReaderModel {
             chatWorkspace.setDeletedConversations(Set(privateState.events.values.lazy
                 .filter { $0.payload.kind == .tombstone }.map { $0.payload.entityID }))
             checkpointObservedBranches()
+            let diagrams = privateState.diagramsByMessage()
+            if diagrams != chatDiagrams { chatDiagrams = diagrams }
         }
     }
+    /// Saved diagrams by the assistant message (entity ID) that drew them.
+    private(set) var chatDiagrams: [UUID: ChatDiagramLink] = [:]
+    var presentedDiagram: PresentedDiagram?
+    func openDiagram(_ id: UUID) { if diagram(id) != nil { presentedDiagram = PresentedDiagram(id: id) } }
+    func diagram(_ id: UUID) -> ChatDiagram? { privateState.revisions(for: id).first.flatMap { ChatDiagram.decode($0.payload.text) } }
     var syncStatus = "On this device"
     var syncIssue: String?
     var error: String?
@@ -1725,7 +1732,7 @@ final class ReaderModel {
 
     private func runGeneration(_ generation: ChatGeneration, request: ChatGenerationRequest, transport: any ChatTransport,
                                choice: ConversationBranchSelections.Choice) async {
-        var text = "", outcome: ChatGenerationOutcome?
+        var text = "", outcome: ChatGenerationOutcome?, diagram: (title: String, source: String)?
         // The consumer holds the only stream reference, so leaving it (a final
         // event, lost ownership or an error) releases the stream and cancels
         // the HTTP request before any local sealing work begins.
@@ -1736,6 +1743,7 @@ final class ReaderModel {
                 case .delta(let piece):
                     text += piece
                     bufferAnswer(generation, text: text)
+                case .diagram(let title, let source): diagram = (title, source)
                 case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
                 case .failure(let code): outcome = .failed(code: code)
                 }
@@ -1756,7 +1764,7 @@ final class ReaderModel {
         // A stream that ends without done/error is interrupted, never complete.
         let resolved = outcome ?? (Task.isCancelled || chatGenerations[generation.turn.composerID]?.stopping == true
             ? .cancelled : .failed(code: "transport"))
-        await finishGeneration(generation, text: text, outcome: resolved, choice: choice)
+        await finishGeneration(generation, text: text, outcome: resolved, choice: choice, diagram: diagram)
     }
 
     private func bufferAnswer(_ generation: ChatGeneration, text: String) {
@@ -1772,13 +1780,15 @@ final class ReaderModel {
     }
 
     private func finishGeneration(_ generation: ChatGeneration, text: String, outcome: ChatGenerationOutcome,
-                                  choice: ConversationBranchSelections.Choice) async {
+                                  choice: ConversationBranchSelections.Choice, diagram: (title: String, source: String)? = nil) async {
         let resolution = outcome.resolution(text: text)
         var issue = resolution.issue
         if let status = resolution.status {
             // Show exactly the sealed text before the row changes ownership.
             chatStreamingText[generation.id] = text
-            do { try await sealAnswer(generation, text: text, status: status, choice: choice) }
+            // A diagram is kept only with a complete answer, in the same batch.
+            let drawn = status == .complete ? diagram.flatMap { ChatDiagram(title: $0.title, source: $0.source, messageID: generation.assistantID) } : nil
+            do { try await sealAnswer(generation, text: text, status: status, choice: choice, diagram: drawn) }
             catch { if issue == nil { issue = "storage" } }
         }
         guard ownsGeneration(generation) else { return }
@@ -1798,7 +1808,7 @@ final class ReaderModel {
     }
 
     private func sealAnswer(_ generation: ChatGeneration, text: String, status: PrivateEvent.TurnStatus,
-                            choice: ConversationBranchSelections.Choice) async throws {
+                            choice: ConversationBranchSelections.Choice, diagram: ChatDiagram? = nil) async throws {
         guard !privateState.isDeleted(generation.turn.conversationID) else { return }
         let persistence = localPersistence, scope = sessionID
         await persistence.waitForActivation()
@@ -1806,11 +1816,18 @@ final class ReaderModel {
         let storeScope = workOwnership.storeScope
         let id = generation.assistantID, deviceID = generation.turn.deviceID
         let event = generation.event(text: text.boundedForPrivateEvent(), status: status)
-        let write = try persistence.acceptWrite { local in try await local.appendBatch([(id: id, event: event)], deviceID: deviceID) }
+        var batch: [(id: UUID, event: PrivateEvent)] = [(id: id, event: event)]
+        if let diagram {
+            let diagramID = UUID()
+            batch.append((id: diagramID, event: PrivateEvent(kind: .diagram, entityID: diagramID, conversationID: generation.turn.conversationID,
+                                                             documentID: generation.turn.documentID, text: diagram.encodedText())))
+        }
+        let entries = batch
+        let write = try persistence.acceptWrite { local in try await local.appendBatch(entries, deviceID: deviceID) }
         let envelopes = try await write.value
         let snapshot = await store.snapshot()
         guard sessionID == scope else { return }
-        branchSelections.complete(choice, head: envelopes.last?.id)
+        branchSelections.complete(choice, head: envelopes.first?.id)
         if workOwnership.owns(storeScope) { publish(snapshot) }
         branchSelections.reconcile(with: privateState, observing: generation.turn.conversationID)
         Task { if self.sessionID == scope { await self.synchronize() } }

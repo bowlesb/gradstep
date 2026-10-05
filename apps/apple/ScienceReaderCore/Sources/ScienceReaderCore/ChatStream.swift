@@ -84,6 +84,8 @@ public struct ChatGenerationRequest: Equatable, Sendable {
 
 public enum ChatStreamEvent: Equatable, Sendable {
     case delta(String)
+    /// A diagram the answer drew (sent before `done`).
+    case diagram(title: String, source: String)
     case done(stopReason: String, credits: Int)
     case failure(code: String)
 }
@@ -162,6 +164,11 @@ public struct ChatSSEParser: Sendable {
             struct Delta: Decodable { let text: String }
             guard let delta = try? JSONDecoder().decode(Delta.self, from: payload) else { throw ChatStreamError.malformed }
             return .delta(delta.text)
+        case "diagram":
+            struct Diagram: Decodable { let title: String; let source: String }
+            guard let diagram = try? JSONDecoder().decode(Diagram.self, from: payload),
+                  ChatDiagram(title: diagram.title, source: diagram.source, messageID: nil) != nil else { throw ChatStreamError.malformed }
+            return .diagram(title: diagram.title, source: diagram.source)
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

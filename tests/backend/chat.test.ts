@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, promptCharacters, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
+  ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import {
-  canonicalRequest, chatInstructions, ingestReport, paperRequest, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructions, diagramRequest, ingestReport, paperRequest, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 
@@ -117,15 +117,69 @@ test('request params cache the paper prefix and enable adaptive thinking with se
   assert.equal((general.system as unknown[]).length, 1); assert.deepEqual(general.messages, [{ role: 'user', content: 'q' }]);
 });
 
-test('ingest requests carry the add_paper tool and instructions; others carry no tools', () => {
+test('ingest requests carry only add_paper; other requests carry only create_diagram', () => {
   const turns = [{ role: 'user' as const, text: 'Find and add the paper referenced in this passage' }];
-  const ingest = chatRequestParams({ instructions: chatInstructions('paper', 'ingest'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: true });
+  const ingest = chatRequestParams({ instructions: chatInstructions('paper', 'ingest'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: [ADD_PAPER_TOOL] });
   assert.deepEqual(ingest.tools, [ADD_PAPER_TOOL]); assert.equal(ingest.tool_choice, undefined);
-  assert.match((ingest.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text, /call add_paper once/);
-  const plain = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO' });
-  assert.equal(plain.tools, undefined); assert.doesNotMatch((plain.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text, /add_paper/);
+  const ingestSystem = (ingest.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text;
+  assert.match(ingestSystem, /call add_paper once/); assert.doesNotMatch(ingestSystem, /create_diagram/);
+  const plain = chatRequestParams({ instructions: chatInstructions('paper'), paper: { title: 'T', text: paperText }, turns, selection: '[12] DPO', tools: [CREATE_DIAGRAM_TOOL] });
+  assert.deepEqual(plain.tools, [CREATE_DIAGRAM_TOOL]);
+  const plainSystem = (plain.system as Anthropic.Beta.Messages.BetaTextBlockParam[])[0].text;
+  assert.match(plainSystem, /explicitly asks for a diagram/); assert.doesNotMatch(plainSystem, /add_paper/);
+  const none = chatRequestParams({ instructions: chatInstructions('general'), paper: null, turns, selection: null });
+  assert.equal(none.tools, undefined);
   // The hold covers the tool definition too.
-  assert.ok(promptCharacters(ingest) > promptCharacters(plain) + JSON.stringify(ADD_PAPER_TOOL).length);
+  assert.ok(promptCharacters(ingest) > promptCharacters({ ...ingest, tools: undefined }) + JSON.stringify(ADD_PAPER_TOOL).length - 1);
+});
+
+test('create_diagram input must be a bounded Mermaid diagram', () => {
+  assert.deepEqual(diagramRequest({ title: ' DPO\n pipeline ', mermaid: '%% comment\r\nflowchart LR\r\n a --> b' }),
+    { title: 'DPO pipeline', source: '%% comment\nflowchart LR\n a --> b' });
+  assert.deepEqual(diagramRequest({ title: 'Seq', mermaid: 'sequenceDiagram\n A->>B: hi' }), { title: 'Seq', source: 'sequenceDiagram\n A->>B: hi' });
+  for (const bad of [null, [], 'x', {}, { title: 'x' }, { mermaid: 'graph TD' }, { title: '', mermaid: 'graph TD' }, { title: 'x', mermaid: '<svg/>' },
+    { title: 'x', mermaid: 'flowchart LR', extra: 1 }, { title: 'x'.repeat(121), mermaid: 'graph TD' }, { title: 'x', mermaid: 'graph TD\n' + 'a'.repeat(12_001) },
+    { title: 'x', mermaid: 'graphic novel' }]) {
+    assert.equal(diagramRequest(bad), null, JSON.stringify(bad).slice(0, 60));
+  }
+});
+
+test('a drawn diagram is relayed once, before done, and never stored or logged as text', async () => {
+  let tools: unknown;
+  const h = harness({ generate: async (params, stream) => {
+    tools = (params as { tools?: unknown }).tools;
+    stream.onText('Here is the DPO pipeline.');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'DPO', mermaid: 'flowchart LR\n x --> y' } }] });
+  } });
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(tools, [CREATE_DIAGRAM_TOOL]);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'diagram', 'done']);
+  assert.deepEqual(h.events[1].data, { title: 'DPO', source: 'flowchart LR\n x --> y' });
+  assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
+  assert.deepEqual(h.logs, [{ event: 'chat_diagram', operation_id: operation }]);
+
+  const invalid = harness({ generate: async (_p, stream) => { stream.onText('x');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'x', mermaid: '<script>' } }] }); } });
+  await runChat(invalid.deps, paperBody(), invalid.emit, new AbortController().signal);
+  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']);
+  assert.deepEqual(invalid.logs, [{ event: 'chat_diagram_invalid_input', operation_id: operation }]);
+
+  // A diagram without any answer text gets a caption so the answer is kept.
+  const bare = harness({ generate: async () =>
+    completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'Flow', mermaid: 'graph TD; a-->b' } }] }) });
+  await runChat(bare.deps, paperBody(), bare.emit, new AbortController().signal);
+  assert.deepEqual(bare.events.map(e => e.event), ['delta', 'diagram', 'done']);
+  assert.deepEqual(bare.events[0].data, { text: 'Diagram: “Flow”' });
+
+  // Cut off by max_tokens, or asked on an Ingest request: never relayed.
+  const truncated = harness({ generate: async (_p, stream) => { stream.onText('x');
+    return completeOutcome({ stopReason: 'max_tokens', toolCalls: [{ name: 'create_diagram', input: { title: 'x', mermaid: 'graph TD' } }] }); } });
+  await runChat(truncated.deps, paperBody(), truncated.emit, new AbortController().signal);
+  assert.ok(!truncated.events.some(e => e.event === 'diagram'));
+  const ingest = harness({ generate: async (_p, stream) => { stream.onText('x');
+    return completeOutcome({ stopReason: 'tool_use', toolCalls: [{ name: 'create_diagram', input: { title: 'x', mermaid: 'graph TD' } }] }); } });
+  await runChat(ingest.deps, ingestBody(), ingest.emit, new AbortController().signal);
+  assert.ok(!ingest.events.some(e => e.event === 'diagram'));
 });
 
 test('add_paper input is validated strictly and reports are inert text', () => {
