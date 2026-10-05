@@ -44,6 +44,9 @@ const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), st
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });
 const status = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
 log = log.replaceAll(password, '[redacted]');
+// Leave the Simulator signed out for other test suites.
+try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.ios'], { stdio: 'ignore' }); } catch {}
+try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch {}
 writeFileSync(new URL(`.artifacts/live-journey-${account}.log`, root), log, { mode: 0o600 });
 console.log(log.split('\n').filter(l => /Test Case|error:|failed|passed|TEST (SUCCEEDED|FAILED)/.test(l)).slice(-25).join('\n'));
 console.log('Result bundle:', result.replace('../../', ''));

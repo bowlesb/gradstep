@@ -270,8 +270,10 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["Table of contents"].tap()
         let heading = app.buttons[journey.heading]
-        XCTAssertTrue(heading.waitForExistence(timeout: 5))
-        // A real paper has more Contents rows than the medium detent shows.
+        // A real paper has more Contents rows than the medium detent shows, and
+        // the list realizes rows lazily: scroll until the row exists.
+        for _ in 0..<6 where !heading.waitForExistence(timeout: 2) { app.swipeUp() }
+        XCTAssertTrue(heading.exists)
         if !heading.isHittable { app.swipeUp() }
         heading.tap()
         let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.before)).firstMatch

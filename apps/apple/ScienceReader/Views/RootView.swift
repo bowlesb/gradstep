@@ -594,6 +594,7 @@ struct SettingsView: View {
                     }
                     else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
                     LabeledContent("Environment", value: "Private beta · staging")
+                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
                 }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
@@ -844,5 +845,25 @@ struct DiscoveryRow: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("discover.result.\(result.sourceID)")
+    }
+}
+
+/// Open-source notices for components shipped in the app. Reader bundles carry
+/// their own NOTICE (renderer libraries and per-paper attribution).
+struct AcknowledgementsView: View {
+    private let items: [(String, String, String)] = [
+        ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
+        ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
+        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to build equation-aware readers; each reader includes its NOTICE.", "MIT / Apache 2.0"),
+        ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
+    ]
+    var body: some View {
+        List(items, id: \.0) { item in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.0).font(.headline)
+                Text(item.1).font(.subheadline)
+                Text(item.2).font(.caption).foregroundStyle(.secondary)
+            }.padding(.vertical, 2)
+        }.navigationTitle("Acknowledgements").navigationBarTitleDisplayMode(.inline)
     }
 }
