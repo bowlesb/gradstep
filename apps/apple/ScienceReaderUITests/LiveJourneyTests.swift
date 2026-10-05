@@ -106,7 +106,8 @@ final class LiveJourneyTests: XCTestCase {
         row.tap()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 120), "Reader did not open after download")
-        let heading = web.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Preference")).firstMatch
+        let titleWord = titlePrefix.split(separator: " ").map(String.init).max(by: { $0.count < $1.count }) ?? titlePrefix
+        let heading = web.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", titleWord)).firstMatch
         XCTAssertTrue(heading.waitForExistence(timeout: 30))
         capture(app, "Downloaded reader")
         app.buttons["Table of contents"].tap()
