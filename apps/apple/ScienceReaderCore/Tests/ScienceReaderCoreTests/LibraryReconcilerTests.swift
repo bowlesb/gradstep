@@ -316,12 +316,16 @@ import Testing
         removed["readiness"] = "converted_ready"
         removed["render_availability"] = "available"
         removed["original_availability"] = "available"
-        var privateScope = item(4, approved: true)
-        privateScope["scope"] = "owner_private"
-        for entry in try baseline([unverified, unknown, removed, privateScope], high: 4).entries {
+        for entry in try baseline([unverified, unknown, removed], high: 3).entries {
             guard case .item(let record) = entry else { Issue.record("Expected item"); continue }
             #expect(!record.canReadOriginal && !record.canReadStructured)
         }
+        // Private conversions are pinned by an owner-private approval and are
+        // readable by their owner (the server returns only the caller's items).
+        var privateScope = item(4, approved: true)
+        privateScope["scope"] = "owner_private"
+        guard case .item(let record) = try baseline([privateScope], high: 4).entries[0] else { Issue.record("Expected item"); return }
+        #expect(record.canReadOriginal)
     }
 
     @Test func optionalAvailabilityKeepsPinsAndDistinguishesOriginalFromConversion() throws {
