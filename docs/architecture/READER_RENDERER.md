@@ -20,7 +20,8 @@ the first half stops mid-sentence and the second starts in lower case; page foot
 between the halves keep their order and move after the joined paragraph. Only that marker is used (column breaks,
 display-math continuations and complete sentences are untouched). On six real papers this removed every
 page-break split (3–5 per paper) with identical equation and figure counts. `RENDERER_REVISION` is 2 from this
-change (manifests record the new build hash); conversions rendered earlier keep their bundles.
+change (manifests record the new build hash). Staging conversions made before it are disposable test data (owner,
+2026-10-05): no re-render path is needed for them.
 
 Device presentation (`reader-bridge.js`, applied to every bundle version without changing content): per-cell
 `columnalign` (WebKit ignores it on `mtable`/`mtr`, which centered aligned derivations), equation numbers pinned
