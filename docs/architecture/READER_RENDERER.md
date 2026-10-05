@@ -1,6 +1,6 @@
 # Reader renderer (`timestep-mathpix-mathml-v1`)
 
-Status, 2026-10-04: implemented and tested locally in Node 24 and Deno 2.9.6 against the real Mathpix capture of arXiv 2305.18290v3 (DPO, CC BY 4.0). Not deployed; no Edge Function calls it yet. Native Core admits its bundles; the Simulator journey with the new fixture has not been run.
+Status, 2026-10-05: deployed in the `paper-worker` Edge Function on staging; real conversions (DPO, LoRA, Mamba, Mistral, Adam, PPO) render, validate and open in the Simulator journey.
 
 ## Shape
 
@@ -14,6 +14,18 @@ Status, 2026-10-04: implemented and tested locally in Node 24 and Deno 2.9.6 aga
 Math: each Mathpix math token is replaced by a placeholder during rendering, then emitted as sanitized MathML (`<math display="block">` for display) inside `span.reader-equation[data-reader-equation][data-latex]`. WebKit lays out MathML natively, so equations scale with Dynamic Type. Styled letters become Unicode math alphanumerics; a single `\tag` is shown beside the equation. TeX errors or unsupported MathML fall back to visible LaTeX (`reader-math-fallback`) with the same index entry. Copy uses the index LaTeX and `source_form` exactly as before.
 
 Blocks: every top-level node is a block (`p`, `h1`–`h6`, `figure`, `div.reader-table`, `pre`), a list whose items are blocks, or `hr`; blocks never nest and no prose sits outside a block. IDs are `b-<sha12>-N` / `e-<sha12>-N` from the MMD hash. Figures are `<figure data-reader-figure>` with `img`s and an optional `figcaption`; alt text falls back to the caption's first sentence.
+
+Reading flow: before rendering, `flow.ts` joins a paragraph that Mathpix split at an explicit `\pagebreak` when
+the first half stops mid-sentence and the second starts in lower case; page footnotes and figures/tables found
+between the halves keep their order and move after the joined paragraph. Only that marker is used (column breaks,
+display-math continuations and complete sentences are untouched). On six real papers this removed every
+page-break split (3–5 per paper) with identical equation and figure counts.
+
+Device presentation (`reader-bridge.js`, applied to every bundle version without changing content): per-cell
+`columnalign` (WebKit ignores it on `mtable`/`mtr`, which centered aligned derivations), equation numbers pinned
+visible while a wide equation scrolls, display/inline math scaled to the column when within 75% (otherwise it
+scrolls in its own box; the page never scrolls sideways) and edge shadows on scrollable equations and tables.
+At iPhone width this fixed page-level sideways scrolling on 4 of 6 real papers; at iPad width every equation fits.
 
 ## Sanitization
 
@@ -47,4 +59,4 @@ Native `ReaderProfile` applies these to this renderer only; the authored `timest
 
 Process CPU includes V8 background threads; both runs also pass under a 150 MB heap cap. Node and Deno produce byte-identical bundles. The DPO bundle is 767 KB (HTML 262 KB, index 181 KB, four JPEGs 303 KB). A synthetic 1.36 MB source (DPO ×12, 3,240 equations) took 1.7 s wall / 2.7 s process CPU and 136 MB heap, so sources near the 2 MiB cap may exceed the Edge CPU budget. Deployment size is unmeasured: the npm graph is large (`deno info` reports 122 MB of package files) and may need pre-bundling.
 
-The committed app fixture `ReaderSamples/a6ca6825…` is this renderer's output for the DPO capture, with CC BY 4.0 attribution in its `NOTICE.txt`; `tests/backend/reader-render.test.ts` checks it byte-for-byte when the capture is present locally.
+The committed app fixture `ReaderSamples/d874c0ed…` is this renderer's output for the DPO capture, with CC BY 4.0 attribution in its `NOTICE.txt`; `tests/backend/reader-render.test.ts` checks it byte-for-byte when the capture is present locally.

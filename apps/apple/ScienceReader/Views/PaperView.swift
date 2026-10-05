@@ -266,7 +266,13 @@ struct PaperWebView: UIViewRepresentable {
         }
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
-        web.callAsyncJavaScript("document.documentElement.style.fontSize = size + 'px'", arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
+        // Math fit depends on the text size, so refit only when it changes.
+        web.callAsyncJavaScript("""
+            if (document.documentElement.style.fontSize !== size + 'px') {
+              document.documentElement.style.fontSize = size + 'px';
+              window.__scienceReaderFit?.();
+            }
+            """, arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
         context.coordinator.applyJump(in: web)
     }
 
@@ -331,6 +337,7 @@ struct PaperWebView: UIViewRepresentable {
                 document.documentElement.style.fontSize = size + 'px';
                 await window.__scienceReaderReady;
                 await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                window.__scienceReaderFit?.();
                 if (location) window.__scienceReaderRestore(location);
                 return window.__scienceReaderLocation();
                 """, arguments: arguments, in: nil, in: .defaultClient) { [weak self, weak webView] result in

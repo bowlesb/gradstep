@@ -11,7 +11,7 @@ enum OfflineReaderFixture {
     static let item = UUID(uuidString: "dddddddd-0000-4000-8000-000000000004")!
     // Pinned after rendering the real DPO Mathpix capture (arXiv 2305.18290,
     // CC BY 4.0) with the Edge renderer, never a digest discovered in a download.
-    static let mathpixManifestSHA256 = "a6ca6825b3c112f591b884ebd648b9d85785544050da3444f91ae9e7f2bed695"
+    static let mathpixManifestSHA256 = "d874c0ed679eb2949b89506415c1e8e407f0fb910636bab8bf8677f87563c638"
 
     enum Variant {
         case authored, mathpix

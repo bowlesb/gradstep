@@ -36,8 +36,71 @@
       && document.querySelectorAll('[data-reader-figure]').length === config.figures.length;
   };
 
+  // Device-side presentation for every bundle version (no content changes):
+  // WebKit ignores mtable/mtr columnalign, so cells get their own alignment;
+  // equation numbers stay visible; math that is slightly too wide is scaled
+  // to the column and the rest scrolls inside its own box (never the page).
+  const MIN_SCALE = 0.75;
+  const fitted = new Set();
+  const installLayout = () => {
+    const style = document.createElement('style');
+    style.textContent = [
+      'mtd[columnalign=left]{text-align:left}mtd[columnalign=right]{text-align:right}mtd[columnalign=center]{text-align:center}',
+      ':root{--sr-bg:#fff}@media(prefers-color-scheme:dark){:root{--sr-bg:#0f0f0f}}',
+      '.reader-display,.reader-table,.reader-inline-wide{background:linear-gradient(to right,var(--sr-bg) 30%,transparent) left/40px 100% no-repeat local,'
+        + 'linear-gradient(to left,var(--sr-bg) 30%,transparent) right/40px 100% no-repeat local,'
+        + 'radial-gradient(farthest-side at 0 50%,rgba(127,127,127,.35),transparent) left/12px 100% no-repeat scroll,'
+        + 'radial-gradient(farthest-side at 100% 50%,rgba(127,127,127,.35),transparent) right/12px 100% no-repeat scroll}',
+      '.reader-display.reader-tagged{padding-right:0}.reader-display.reader-tagged>.reader-tag{position:sticky;right:0;align-self:stretch;display:flex;align-items:center;padding:0 6px 0 .5em;background:var(--sr-bg)}',
+      '.reader-inline-wide{display:inline-block;max-width:100%;overflow-x:auto;overflow-y:hidden;vertical-align:middle}',
+    ].join('');
+    document.head.append(style);
+    for (const cell of document.querySelectorAll('mtd:not([columnalign])')) {
+      const row = cell.parentElement, table = row?.parentElement;
+      const source = row?.getAttribute('columnalign') || (table?.tagName.toLowerCase() === 'mtable' ? table.getAttribute('columnalign') : null);
+      if (!source) continue;
+      const aligns = source.trim().split(/\s+/).filter(value => ['left', 'right', 'center'].includes(value));
+      const index = [...row.children].indexOf(cell);
+      if (aligns.length && index >= 0) cell.setAttribute('columnalign', aligns[Math.min(index, aligns.length - 1)]);
+    }
+  };
+  const fitMath = () => {
+    // Reset, then measure everything, then write: one layout pass each.
+    for (const math of fitted) math.style.fontSize = '';
+    for (const span of document.querySelectorAll('.reader-inline-wide')) span.classList.remove('reader-inline-wide');
+    fitted.clear();
+    const writes = [];
+    for (const box of document.querySelectorAll('.reader-display')) {
+      const math = box.querySelector(':scope > math');
+      if (!math || box.scrollWidth <= box.clientWidth + 1) continue;
+      const computed = getComputedStyle(box), tag = box.querySelector(':scope > .reader-tag');
+      const available = box.clientWidth - parseFloat(computed.paddingLeft) - parseFloat(computed.paddingRight)
+        - (tag ? tag.getBoundingClientRect().width + (parseFloat(computed.columnGap) || 0) : 0);
+      const ratio = available / Math.max(1, math.getBoundingClientRect().width);
+      if (ratio >= MIN_SCALE && ratio < 1) writes.push([math, ratio]);
+    }
+    const body = getComputedStyle(document.body);
+    const column = document.body.clientWidth - parseFloat(body.paddingLeft) - parseFloat(body.paddingRight);
+    const wide = [];
+    for (const span of document.querySelectorAll('.reader-inline')) {
+      if (span.closest('.reader-table,pre')) continue;
+      const math = span.querySelector('math'), width = span.getBoundingClientRect().width;
+      if (!math || width <= column) continue;
+      const ratio = column / width;
+      if (ratio >= MIN_SCALE) writes.push([math, ratio]); else wide.push(span);
+    }
+    for (const [math, ratio] of writes) {
+      const base = parseFloat(getComputedStyle(math).fontSize) || 17;
+      math.style.fontSize = Math.floor(base * ratio * 0.98 * 100) / 100 + 'px';
+      fitted.add(math);
+    }
+    for (const span of wide) span.classList.add('reader-inline-wide');
+  };
+  window.__scienceReaderFit = () => { if (config && !config.figure_id) fitMath(); };
+
   window.__scienceReaderReady = (async () => {
     if (!validDocument()) throw new Error('invalid_reader_index');
+    if (config && !config.figure_id) installLayout();
     if (config?.figure_id) {
       if (!figureIDs.has(config.figure_id)) throw new Error('invalid_reader_figure');
       const figure = document.getElementById(config.figure_id);
@@ -51,6 +114,15 @@
     await Promise.all([...document.images].map(image => image.decode()));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (config?.figure_id) return true;
+    window.__scienceReaderFit();
+    // Rotation or split-view width changes refit while keeping the place.
+    let width = document.documentElement.clientWidth;
+    new ResizeObserver(() => {
+      if (document.documentElement.clientWidth === width) return;
+      width = document.documentElement.clientWidth;
+      const location = window.__scienceReaderLocation();
+      window.__scienceReaderFit(); window.__scienceReaderRestore(location);
+    }).observe(document.documentElement);
 
     let items;
     if (config) {

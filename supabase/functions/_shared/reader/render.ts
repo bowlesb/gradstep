@@ -1,5 +1,6 @@
 import MarkdownIt from 'markdown-it';
 import mathpixPlugins from 'mathpix-markdown-it/lib/markdown/mathpix-markdown-plugins.js';
+import { joinPageSplits } from './flow.ts';
 import { classes, el, elements, isMathToken, mathAttributeIsSafe, MATH_ELEMENTS, normalizeSpace, outText, parseHTML, render, textContent } from './html.ts';
 import type { DomNode, OutNode } from './html.ts';
 import { applyMathVariant } from './mathvariant.ts';
@@ -162,7 +163,7 @@ export function renderMathpixDocument(source: string, sourceDigest: string, reso
   check(typeof source === 'string' && source.length > 0 && !source.includes('\u0000') && byteLength(source) <= LIMITS.sourceBytes, 'source_limit');
   check(/^[a-f0-9]{12}$/.test(sourceDigest), 'source_digest');
   check(!MACRO_DEFINITION.test(source), 'unsupported_macro_definition');
-  const { html, side } = renderMathpixHTML(source);
+  const { html, side } = renderMathpixHTML(joinPageSplits(source));
   check(side.length <= LIMITS.equations, 'equation_limit');
   const dom = parseHTML(html);
 

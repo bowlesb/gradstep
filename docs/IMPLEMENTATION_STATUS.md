@@ -24,6 +24,16 @@ search), a **research Feed** of the newest papers in the library's own arXiv cat
 **native math in chat** (SwiftMath; headings, lists, code/tables), **live import progress** (bounded
 polling while converting), and a **stale chat-hold sweep** (migration 015).
 
+**Ingest** (the existing selection action) now works: the answer identifies the cited paper (using the
+bibliography for in-text citations) and the server queues it through the user's own import after a strict
+arXiv match. Verified on staging: a DPO passage citing "PPO; [39]" queued arXiv 1707.06347, and a repeat reported
+it was already in the library. See [chat](architecture/CHAT.md#ingest-selection-action).
+
+**Reader quality on real papers**: aligned derivations now align (WebKit ignores `mtable` column alignment),
+equation numbers stay visible, wide math fits or scrolls in its own box instead of the whole page scrolling
+sideways (4 of 6 papers on iPhone), and sentences split by page breaks are rejoined in new conversions. See
+[reader renderer](architecture/READER_RENDERER.md).
+
 An independent security review of the new functions, SQL and app paths found no cross-account access and
 no way to spend another account's credits; its five findings were fixed (true chat cost reaches the budget
 freeze, download admission with storage/owner quotas — migration 016, inert links in chat answers,
@@ -41,10 +51,10 @@ concurrency design were completed and their findings fixed before it was applied
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
   flows, reuse, credit holds and settlement, single submission grant, lost acknowledgements, operator
   resolution, withdrawn funders, fencing, permissions).
-- Node: 110 backend tests (pipeline worker stages with fakes plus a real-render integration on retained
+- Node: 132 backend tests (pipeline worker stages with fakes plus a real-render integration on retained
   DPO output, chat validation/pricing/settlement, renderer hostile-input and tamper checks, Mathpix,
   archive, arXiv).
-- Swift: ScienceReaderCore package tests (147) and app unit tests; app builds for Simulator.
+- Swift: ScienceReaderCore package tests (155) and app unit tests (232); app builds for Simulator.
 
 ## Foundations from earlier checkpoints (still true)
 
@@ -57,7 +67,8 @@ capability and six-digit email-code settings configured (real provider sign-in s
 ## Spending (2026-10-04/05 overnight, staging)
 
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded so far: Mathpix ~$0.40 (DPO twice incl. the spike, LoRA), Anthropic ~$0.40 (several answers).
+Recorded by 2026-10-05 01:15 PDT: $1.50 of provider spend for October (about $0.69 Mathpix for seven
+conversions, about $0.82 Anthropic for answers and Ingest tests), nothing reserved.
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
 ## Still required
