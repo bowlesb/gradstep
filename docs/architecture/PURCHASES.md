@@ -70,6 +70,10 @@ The database functions re-validate every field shape and are callable only by th
 
 ## Flows
 
+- **Entry points**: Settings › Credits › Get credits, and a "Get credits" button beside "Not enough credits" on a
+  chat answer and on a Library import that failed for lack of credits (owner approved 2026-10-05). After buying,
+  the reader taps Try again (chat) or Retry import (Library).
+
 - **Purchase in the app** (StoreKit 2): the app buys with `appAccountToken = account ID`, sends the signed
   transaction to `store-sync`, and finishes the transaction only when the outcome is final (`recorded`,
   `updated`, `already_recorded`). Anything else stays unfinished. If the server was unreachable or Apple's

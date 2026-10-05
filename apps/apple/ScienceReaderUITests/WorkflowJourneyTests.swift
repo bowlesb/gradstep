@@ -361,6 +361,29 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Diagram reopened from All diagrams")
     }
 
+    func testNotEnoughCreditsOffersGetCredits() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=insufficient_credits", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("Summarize the method")
+        app.buttons["chat.send"].tap()
+        let getCredits = app.buttons["chat.getCredits"]
+        XCTAssertTrue(getCredits.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["chat.answerIssue"].label.contains("Not enough credits"))
+        XCTAssertTrue(app.buttons["chat.retryAnswer"].exists, "Try again stays next to it")
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        getCredits.tap()
+        XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5))
+        capture(app, "Get credits from a chat answer")
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.buttons["chat.retryAnswer"].waitForExistence(timeout: 5))
+    }
+
     func testAnswerSourcesShowTheirAddressBeforeOpening() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

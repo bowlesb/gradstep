@@ -49,7 +49,7 @@ no personal rows, no files, login gone, billing kept) and an in-app Simulator ru
 (`node scripts/live-journey.mjs --delete`), which also found and fixed a sheet that never presented.
 
 **App Store purchases** (owner-approved plans: Standard $9.99 = 800 credits/month, Pro $19.99 = 1,800, $4.99 pack =
-400): Settings › Credits › Get credits (StoreKit store, restore, manage), server verification against Apple's root in
+400): Settings › Credits › Get credits (StoreKit store, restore, manage) and Get credits beside "Not enough credits" in chat and the Library, server verification against Apple's root in
 `store-sync` and `app-store-notifications`, migration `…018_app_store_purchases.sql` applied to staging. Each verified
 transaction grants once; refunds, reversals, upgrades and deleted-account restores are handled; Sandbox (free)
 purchases are capped at 1,000 credits per account and Apple Account per month. Two independent reviews' findings were
@@ -58,8 +58,8 @@ nothing granted). **Not yet verified with a real sandbox purchase** (needs the s
 build 4 has the store). See [purchases](architecture/PURCHASES.md).
 
 **TestFlight**: App Store Connect record "Paperstep" (name provisional; in-app naming TBD), bundle
-`com.sciencereader.ios`, manual App Store signing, builds 1–4 uploaded to the internal "Owner" group (build 3 adds account
-deletion, build 4 adds Get credits) (`scripts/upload-testflight.sh`). Email sign-in codes are sent through Resend (generic sender
+`com.sciencereader.ios`, manual App Store signing, builds 1–5 uploaded to the internal "Owner" group (build 3 adds account
+deletion, build 4 Get credits, build 5 Get credits beside "Not enough credits" in chat and the Library) (`scripts/upload-testflight.sh`). Email sign-in codes are sent through Resend (generic sender
 `onboarding@resend.dev`, which only delivers to the Resend account's own address until a domain is verified);
 sign-up is invite-only (`disable_signup`).
 

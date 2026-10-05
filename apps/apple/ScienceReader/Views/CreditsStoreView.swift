@@ -17,7 +17,9 @@ struct CreditsStoreView: View {
             Group {
                 // Nothing is offered until plan ownership is known, so a plan can't be
                 // bought onto a subscription another account owns.
-                if model.storeOwnershipKnown {
+                if !model.canPurchase {
+                    Text("Sign in to buy credits.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if model.storeOwnershipKnown {
                     StoreView(ids: model.planOwnedElsewhere ? [StoreProducts.pack] : StoreProducts.all) { product in
                         Image(systemName: product.id == StoreProducts.pack ? "plus.circle" : product.id == StoreProducts.pro ? "sparkles" : "star")
                             .font(.title2).foregroundStyle(Color.accentColor).accessibilityHidden(true)
@@ -44,7 +46,7 @@ struct CreditsStoreView: View {
                     Button("Restore") {
                         restoring = true
                         Task { await model.restorePurchases(); restoring = false }
-                    }.disabled(restoring).accessibilityIdentifier("store.restore")
+                    }.disabled(restoring || !model.canPurchase).accessibilityIdentifier("store.restore")
                 }
             }
             .manageSubscriptionsSheet(isPresented: $manageSubscriptions)

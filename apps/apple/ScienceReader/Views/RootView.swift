@@ -288,7 +288,7 @@ struct LibraryView: View {
                                         }
                                     }
                             case .pending(let item):
-                                ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                                ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics, getCredits: { model.showStore = true })
                                     .accessibilityIdentifier("import.\(item.id.wire)")
                                     .contextMenu {
                                         if item.phase == .failed && item.retryable {
@@ -347,6 +347,8 @@ struct ImportRow: View {
     let item: LibraryImportRecord
     var showAbstract = true
     var showTopics = true
+    /// Offered when the conversion failed for lack of credits.
+    var getCredits: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var status: String {
         switch item.phase {
@@ -393,6 +395,10 @@ struct ImportRow: View {
             HStack(spacing: 6) {
                 if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
                 Text(status).font(.caption).foregroundStyle(.secondary)
+                if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
+                    Button("Get credits", action: getCredits).font(.caption.weight(.semibold)).buttonStyle(.borderless)
+                        .accessibilityIdentifier("import.getCredits")
+                }
                 if !active, let url = URL(string: item.sourceURL) {
                     Spacer(minLength: 8)
                     Link("View source", destination: url).font(.caption.weight(.semibold))
@@ -507,6 +513,10 @@ struct ChatView: View {
                             Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityHidden(true)
                             Text(issue.message).font(.caption).fixedSize(horizontal: false, vertical: true)
                                 .accessibilityIdentifier("chat.answerIssue")
+                            if issue.code == "insufficient_credits" {
+                                Button("Get credits") { model.showStore = true }.font(.caption.weight(.semibold))
+                                    .accessibilityIdentifier("chat.getCredits")
+                            }
                             if issue.retryable {
                                 Button(issue.actionTitle) { model.retryAnswer() }.font(.caption.weight(.semibold))
                                     .accessibilityIdentifier("chat.retryAnswer")
