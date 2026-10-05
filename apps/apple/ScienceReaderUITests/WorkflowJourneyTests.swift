@@ -347,6 +347,11 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         XCTAssertTrue(canvas.staticTexts["Softmax"].waitForExistence(timeout: 10), "The diagram's nodes render")
         XCTAssertFalse(app.staticTexts["This diagram couldn’t be drawn."].exists)
+        // The whole diagram is on screen and its labels are readable (it used to shrink to ~8 pt text).
+        let last = canvas.staticTexts["Weighted values"]
+        XCTAssertTrue(last.waitForExistence(timeout: 5))
+        XCTAssertTrue(canvas.frame.insetBy(dx: -1, dy: -1).contains(last.frame), "\(last.frame) is inside \(canvas.frame)")
+        XCTAssertGreaterThanOrEqual(last.frame.height, 13, "diagram labels are readable")
         capture(app, "Diagram drawn from an answer")
         app.buttons["Done"].tap()
         // The tab bar sits behind the software keyboard, as with system tab bars.

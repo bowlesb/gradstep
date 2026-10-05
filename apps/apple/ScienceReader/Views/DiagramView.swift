@@ -55,7 +55,7 @@ private struct MermaidWebView: UIViewRepresentable {
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=6">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">
-        <style>:root{color-scheme:light dark}body{margin:0;padding:16px;background:Canvas;font:-apple-system-body}#diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+        <style>:root{color-scheme:light dark}html,body{height:100%}body{margin:0;padding:16px;box-sizing:border-box;background:Canvas;font:-apple-system-body;display:flex}#diagram{margin:auto}#diagram svg{display:block;height:auto}</style>
         </head><body><div id="diagram"></div></body></html>
         """
 
@@ -76,8 +76,20 @@ private struct MermaidWebView: UIViewRepresentable {
                   fontFamily: '-apple-system, system-ui, sans-serif',
                   secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering',
                     'dompurifyConfig', 'themeCSS', 'themeVariables', 'theme', 'fontFamily', 'htmlLabels'] });
-                const { svg } = await globalThis.mermaid.render('sr-diagram', input.source);
+                // A tall, narrow screen reads a left-to-right flowchart better top to bottom.
+                let source = input.source;
+                if (window.innerWidth < 600 && window.innerHeight > window.innerWidth) {
+                  source = source.replace(/^(\\s*(?:flowchart|graph)\\s+)(?:LR|RL)\\b/, '$1TD');
+                }
+                const { svg } = await globalThis.mermaid.render('sr-diagram', source);
                 document.getElementById('diagram').innerHTML = svg;
+                // Fit the width, but never below 75% of natural size: labels stay readable and
+                // only very large diagrams scroll (pinch-zoom still works). Smaller ones sit centred.
+                const drawn = document.querySelector('#diagram svg'), box = drawn?.viewBox?.baseVal;
+                if (drawn && box && box.width > 0) {
+                  const scale = Math.max(Math.min(1, (window.innerWidth - 32) / box.width), 0.75);
+                  drawn.removeAttribute('width'); drawn.style.maxWidth = 'none'; drawn.style.width = (box.width * scale) + 'px';
+                }
                 post({ ok: true });
               } catch (error) { post({ ok: false }); }
             })();

@@ -72,7 +72,8 @@ Follow it in order every round so results are comparable.
    (file:line), proposed test.
 8. **Fix confirmed findings with tests first**: a UI or unit test that reproduces the problem and fails before the
    fix (fixtures for UI where possible; a fixture that models the wrong behaviour is worse than none). Then fix,
-   run the test and the affected suites.
+   run the test and the affected suites. For anything visual, follow the [visual check loop](VISUAL_CHECK.md):
+   before/after screenshots across devices and appearances, compared with the session frame, iterated until right.
 9. **Report** to the owner: findings with frames, what was fixed, what is unsure and needs their eye.
 10. **Update the [ledger](session-reviews/LEDGER.md)**: confirmed, false and unsure findings, fixes and tests; and
     later, problems the owner points out that the review missed. Precision = confirmed / (confirmed + false).

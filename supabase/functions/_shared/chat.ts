@@ -143,7 +143,8 @@ Identify that paper, using the paper's bibliography when the passage is an in-te
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
-Never write Mermaid, SVG or HTML diagram markup in the answer text.`;
+Never write Mermaid, SVG or HTML diagram markup in the answer text.
+Diagrams are read on a phone: prefer top-to-bottom layouts (flowchart TD), short node labels, and at most about 12 nodes.`;
 
 const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on. If you used web search, end your answer with a line "Sources:" followed by one line per page you relied on (at most 8), each exactly in the form "1. Page title — https://…".`;
 
