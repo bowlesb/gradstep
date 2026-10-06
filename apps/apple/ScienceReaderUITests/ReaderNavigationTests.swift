@@ -7,7 +7,7 @@ final class ReaderNavigationTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.navigationBars["Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 10), "The app starts in the Library")
         if app.buttons["tab.paper"].exists { XCTAssertFalse(app.buttons["tab.paper"].isEnabled) }
         app.buttons["sample.open"].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
