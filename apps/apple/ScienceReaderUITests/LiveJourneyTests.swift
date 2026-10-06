@@ -13,6 +13,7 @@ final class LiveJourneyTests: XCTestCase {
     private var question: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_QUESTION"] }
     private var searchQuery: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_SEARCH"] }
     private var deletesAccount: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_DELETE"] == "1" }
+    private var openTiming: [String] { (ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING"] ?? "").split(separator: "|").map(String.init) }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -60,7 +61,7 @@ final class LiveJourneyTests: XCTestCase {
     }
 
     func testAddConvertDownloadReadAskAndRelaunch() throws {
-        try XCTSkipIf(deletesAccount, "This run deletes the account instead")
+        try XCTSkipIf(deletesAccount || !openTiming.isEmpty, "This run does something else")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         launch(app)
@@ -159,7 +160,7 @@ final class LiveJourneyTests: XCTestCase {
     /// Settings › Delete account… against staging; the runner checks the server
     /// afterwards. Runs only when the runner asks for it (it ends the account).
     func testDeleteAccountFromSettings() throws {
-        try XCTSkipUnless(deletesAccount, "Runs only with scripts/live-journey.mjs --delete")
+        try XCTSkipUnless(deletesAccount && openTiming.isEmpty, "Runs only with scripts/live-journey.mjs --delete")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         launch(app)
@@ -198,5 +199,39 @@ final class LiveJourneyTests: XCTestCase {
         app.buttons["tab.settings"].tap()
         XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 10), "Settings should show the signed-out state")
         capture(app, "Signed out after deletion")
+    }
+
+    /// Opens already-converted papers twice each (first open downloads, the second reads the local
+    /// copy) while a test session records the timeline; the runner prints each step's time.
+    func testOpenTimingsOfConvertedPapers() throws {
+        try XCTSkipIf(openTiming.isEmpty, "Runs only with scripts/live-journey.mjs --open-timing")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
+        app.buttons["tab.settings"].tap()
+        let voice = app.switches["session.voice"]
+        for _ in 0..<6 where !(voice.exists && voice.isHittable) { app.swipeUp() }
+        if (voice.value as? String) == "1" { voice.switches.firstMatch.exists ? voice.switches.firstMatch.tap() : voice.tap() }
+        app.buttons["session.start"].tap()
+        XCTAssertTrue(app.buttons["session.stop"].waitForExistence(timeout: 20))
+        let opening = NSPredicate { _, _ in
+            !app.activityIndicators["Opening paper…"].exists && !app.otherElements["paper.openingLocalCopy"].exists
+                && app.webViews.firstMatch.exists && app.webViews.firstMatch.staticTexts.count > 3
+        }
+        for title in openTiming {
+            for attempt in ["first", "second"] {
+                app.buttons["tab.library"].tap()
+                let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", title)).firstMatch
+                XCTAssertTrue(row.waitForExistence(timeout: 30), "\(title) is in the library")
+                let started = Date()
+                row.tap()
+                XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: opening, object: nil)], timeout: 60), .completed)
+                print("OPEN-TIMING \(attempt) \(title): \(String(format: "%.1f", Date().timeIntervalSince(started))) s (UI-observed)")
+                capture(app, "\(attempt) open \(title)")
+            }
+        }
+        app.buttons["session.stop"].tap()
+        sleep(8) // The runner copies the session out while the app is still installed.
     }
 }

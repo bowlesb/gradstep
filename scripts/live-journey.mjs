@@ -6,7 +6,9 @@
 // With --delete the run instead deletes the account through Settings and checks
 // the server (closed, login removed, no personal rows).
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
@@ -28,6 +30,23 @@ const grant = await admin.rpc('worker_grant_credits', { p_account_id: account, p
 assert.equal(grant.error, null, 'Credit grant failed');
 writeFileSync(new URL(`.artifacts/live-journey-${account}.json`, root), JSON.stringify({ account, email, password, arxiv, created_at: new Date().toISOString() }), { mode: 0o600 });
 console.log('Synthetic account', account, 'granted', args.credits ?? 300, 'credits');
+// --open-timing=2305.18290:Direct Preference|2312.00752:Mamba — add converted papers first, then time opening them.
+const timing = args['open-timing'] && args['open-timing'] !== 'true' ? args['open-timing'].split('|').map(x => x.split(':')) : [];
+if (timing.length) {
+  const user = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  assert.equal((await user.auth.signInWithPassword({ email, password })).error, null);
+  for (const [source] of timing) {
+    const cursor = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 1 })).data.baseline_cursor;
+    const begun = await user.rpc('v2_begin_import', { p_operation_id: randomUUID(), p_source_id: source, p_observed_cursor: cursor });
+    assert.equal(begun.error, null, begun.error?.message);
+  }
+  for (const started = Date.now(); ;) {
+    const ready = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 50 })).data.entries.filter(e => e.kind === 'item' && e.readiness === 'converted_ready');
+    if (ready.length === timing.length) break;
+    assert.ok(Date.now() - started < 300_000, 'papers did not become ready'); await new Promise(r => setTimeout(r, 2000));
+  }
+  console.log('Papers ready:', timing.map(t => t[0]).join(', '));
+}
 if (!args['no-generate']) execFileSync('xcodegen', ['generate'], { cwd: new URL('apps/apple/', root), stdio: 'ignore' });
 // Start from a clean install: the Keychain session of an earlier synthetic
 // account must not carry into this run.
@@ -36,22 +55,36 @@ try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.i
 try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch { /* older simctl */ }
 const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
-  '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, `-only-testing:ScienceReaderUITests/LiveJourneyTests/${args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
+  '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, `-only-testing:ScienceReaderUITests/LiveJourneyTests/${timing.length ? 'testOpenTimingsOfConvertedPapers' : args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
   'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'test'];
 const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_ARXIV: arxiv, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_TITLE: title,
   ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}),
   ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}),
-  ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}) } });
+  ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}),
+  ...(timing.length ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING: timing.map(t => t[1]).join('|') } : {}) } });
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });
+// A timing run records a session; copy it out while the test runs (Xcode removes the app when testing ends).
+const copied = new Set();
+const watcher = timing.length ? setInterval(() => {
+  try {
+    const container = execFileSync('xcrun', ['simctl', 'get_app_container', device, 'com.sciencereader.ios', 'data'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const dir = join(container, 'Library/Application Support/TestSessions');
+    for (const zip of readdirSync(dir).filter(n => n.endsWith('.zip') && !copied.has(n))) {
+      execFileSync('ditto', ['-x', '-k', join(dir, zip), fileURLToPath(new URL('.artifacts/sessions/', root))]); copied.add(zip);
+      console.log('Session:', zip);
+    }
+  } catch { /* not installed yet or no sessions */ }
+}, 1500) : null;
 const status = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
 log = log.replaceAll(password, '[redacted]');
+if (watcher) clearInterval(watcher);
 // Leave the Simulator signed out for other test suites.
 try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.ios'], { stdio: 'ignore' }); } catch {}
 try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch {}
 writeFileSync(new URL(`.artifacts/live-journey-${account}.log`, root), log, { mode: 0o600 });
-console.log(log.split('\n').filter(l => /Test Case|error:|failed|passed|TEST (SUCCEEDED|FAILED)/.test(l)).slice(-25).join('\n'));
+console.log(log.split('\n').filter(l => /Test Case|error:|failed|passed|TEST (SUCCEEDED|FAILED)|OPEN-TIMING/.test(l)).slice(-25).join('\n'));
 console.log('Result bundle:', result.replace('../../', ''));
 if (args.delete && status === 0) {
   const server = await admin.rpc('worker_account_deletion_status', { p_account_id: account });

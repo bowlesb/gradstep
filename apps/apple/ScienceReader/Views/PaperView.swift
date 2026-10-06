@@ -227,13 +227,32 @@ struct PaperWebView: UIViewRepresentable {
     var onReady: () -> Void = {}
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> WKWebView {
+    /// One ephemeral (never persisted) store for every reader page: a new store per
+    /// page made WebKit start fresh support processes on each open.
+    @MainActor static let dataStore = WKWebsiteDataStore.nonPersistent()
+    static let bridgeScript = Bundle.main.url(forResource: "reader-bridge", withExtension: "js")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+    @MainActor private static var warm: WKWebView?
+
+    /// Starts WebKit's processes once, just after launch, so the first paper
+    /// opened doesn't pay for them (~1–3 s measured on the first open).
+    @MainActor static func prewarm() {
+        guard warm == nil else { return }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = dataStore
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let web = WKWebView(frame: .zero, configuration: configuration)
+        web.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
+        warm = web
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        SessionTimeline.shared.record("reader", ["phase": "create"])
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = Self.dataStore
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         if let bundle { configuration.setURLSchemeHandler(ReaderBundleSchemeHandler(bundle: bundle), forURLScheme: "reader-bundle") }
-        let script = Bundle.main.url(forResource: "reader-bridge", withExtension: "js")
-            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        let script = Self.bridgeScript
         var info: [String: Any] = [:]
         if let bundle, let indexData = try? JSONEncoder().encode(bundle.index),
            let index = try? JSONSerialization.jsonObject(with: indexData) as? [String: Any] {
@@ -261,6 +280,7 @@ struct PaperWebView: UIViewRepresentable {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url
             context.coordinator.invalidateLoad()
+            SessionTimeline.shared.record("reader", ["phase": "request"])
             if bundle != nil { context.coordinator.navigation = web.load(URLRequest(url: url)) }
             else { context.coordinator.navigation = web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent()) }
         }
@@ -347,6 +367,7 @@ struct PaperWebView: UIViewRepresentable {
                         self.parent.onLoading(false); self.parent.onFailure(); return
                     }
                     self.ready = true
+                    SessionTimeline.shared.record("reader", ["phase": "ready"])
                     self.appliedFontSize = arguments["size"] as? Double
                     self.remember(body, in: webView)
                     self.parent.onLoading(false)
@@ -402,6 +423,7 @@ struct PaperWebView: UIViewRepresentable {
         }
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard active, navigation === self.navigation else { return }
+            SessionTimeline.shared.record("reader", ["phase": "loading"])
             parent.onLoading(true)
         }
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail(navigation) }

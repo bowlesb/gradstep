@@ -485,7 +485,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
               member.url.path.hasPrefix("/storage/v1/object/sign/") else { throw BackendError.unavailable }
         var request = URLRequest(url: member.url)
         request.httpMethod = "GET"
+        let started = ProcessInfo.processInfo.systemUptime
         let (data, response) = try await boundedResponse(for: request, maximumBytes: member.bytes)
+        SessionTimeline.shared.record("request", ["method": "GET", "path": "storage/reader-member", "status": String((response as? HTTPURLResponse)?.statusCode ?? 0),
+            "bytes": String(data.count), "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count == member.bytes else { throw BackendError.transport }
         return data
     }

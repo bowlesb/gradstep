@@ -1331,6 +1331,7 @@ final class ReaderModel {
         libraryImports = rows.compactMap { if case .imported(_, let item) = $0 { return item }; return nil }
         libraryCreationSequences = Dictionary(uniqueKeysWithValues: items.map { ($0.paper.id, $0.createdSequence) })
         libraryHasSnapshot = true
+        prefetchReaders()
         if let selectedPaper, !selectedPaper.isSample {
             self.selectedPaper = papers.first { $0.id == selectedPaper.id }
             if self.selectedPaper == nil {
@@ -1411,6 +1412,7 @@ final class ReaderModel {
             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
             OfflineResourceProbe.shared.begin(.open)
             #endif
+            let openStarted = ProcessInfo.processInfo.systemUptime
             let opening = try coordinator.open(installation)
             readerOpenAttempt = attempt; readerOpenBinding = installation.binding; openingPaperID = paper.id
             Task {
@@ -1421,6 +1423,7 @@ final class ReaderModel {
                 }
                 do {
                     let result = try await opening.value
+                    SessionTimeline.shared.record("bundle", ["step": "open", "ms": String(Int((ProcessInfo.processInfo.systemUptime - openStarted) * 1000))])
                     guard self.sessionID == scope, self.readerBundles === coordinator, self.readerOpenAttempt == attempt,
                           let current = self.selectedPaper, current.id == paper.id, current.artifactID == paper.artifactID,
                           coordinator.permits(result.installation) else { return }
@@ -1443,12 +1446,13 @@ final class ReaderModel {
         } catch { readerOpenIssue = "This downloaded copy couldn’t be opened." }
     }
 
-    /// A converted paper without a local copy downloads automatically when
-    /// opened. Every member is verified against the server-authorized manifest
-    /// digest by the encrypted installer; then the normal open path runs.
+    /// A converted paper without a local copy downloads when opened (if the
+    /// background prefetch hasn't already fetched it). Every member is verified
+    /// against the server-authorized manifest digest by the encrypted installer;
+    /// then the normal open path runs.
     private func downloadReaderIfNeeded(_ paper: Paper, coordinator: ReaderBundleCoordinator) {
         if readerDownloadAttempt?.documentID == paper.id { openingPaperID = paper.id; return }
-        guard let backend, let accountID, let artifactID = paper.artifactID,
+        guard backend != nil, accountID != nil, let artifactID = paper.artifactID,
               let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
               item.artifactID == artifactID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let attempt = UUID(), scope = sessionID
@@ -1461,17 +1465,7 @@ final class ReaderModel {
                 }
             }
             do {
-                let descriptor = try await backend.readerArtifact(itemID: item.id, accountID: accountID)
-                guard descriptor.documentID == paper.id, descriptor.artifactID == artifactID else { throw ReaderError.corruptData }
-                var members: [String: Data] = [:]
-                for member in descriptor.members {
-                    try Task.checkCancellation()
-                    members[member.path] = try await backend.readerMember(member)
-                }
-                guard self.sessionID == scope, self.readerBundles === coordinator, self.readerDownloadAttempt?.id == attempt else { return }
-                let binding = try ReaderArtifactBinding(scope: coordinator.scope, documentID: paper.id, artifactID: artifactID,
-                                                        manifestSHA256: descriptor.manifestSHA256)
-                _ = try await coordinator.install(binding: binding, manifestData: descriptor.manifestData, members: members).value
+                try await self.downloadReader(paper, coordinator: coordinator)
                 guard self.sessionID == scope, self.readerDownloadAttempt?.id == attempt else { return }
                 self.readerDownloadAttempt = nil
                 if self.openingPaperID == paper.id { self.openingPaperID = nil }
@@ -1482,6 +1476,61 @@ final class ReaderModel {
             }
         }
     }
+
+    /// Downloads and installs one converted paper; concurrent requests for the
+    /// same paper (an open during a prefetch) share one download.
+    private func downloadReader(_ paper: Paper, coordinator: ReaderBundleCoordinator) async throws {
+        if let running = readerDownloads[paper.id] { return try await running.value }
+        guard let backend, let accountID, let artifactID = paper.artifactID,
+              let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
+              item.artifactID == artifactID else { throw ReaderError.corruptData }
+        let scope = sessionID
+        let task = Task { @MainActor [weak self] () throws -> Void in
+            let descriptor = try await backend.readerArtifact(itemID: item.id, accountID: accountID)
+            guard descriptor.documentID == paper.id, descriptor.artifactID == artifactID else { throw ReaderError.corruptData }
+            // Four members at a time (they were fetched one by one: ~0.4–1 s each).
+            let members = try await withThrowingTaskGroup(of: (String, Data).self) { group in
+                var fetched: [String: Data] = [:], queue = descriptor.members[...]
+                func next() { if let member = queue.popFirst() { group.addTask { (member.path, try await backend.readerMember(member)) } } }
+                for _ in 0..<4 { next() }
+                while let (path, data) = try await group.next() { fetched[path] = data; next() }
+                return fetched
+            }
+            guard let self, self.sessionID == scope, self.readerBundles === coordinator else { throw CancellationError() }
+            let binding = try ReaderArtifactBinding(scope: coordinator.scope, documentID: paper.id, artifactID: artifactID,
+                                                    manifestSHA256: descriptor.manifestSHA256)
+            let installStarted = ProcessInfo.processInfo.systemUptime
+            _ = try await coordinator.install(binding: binding, manifestData: descriptor.manifestData, members: members).value
+            SessionTimeline.shared.record("bundle", ["step": "install", "ms": String(Int((ProcessInfo.processInfo.systemUptime - installStarted) * 1000))])
+        }
+        readerDownloads[paper.id] = task
+        defer { if sessionID == scope { readerDownloads[paper.id] = nil } }
+        try await task.value
+    }
+
+    /// Converted papers download in the background, newest first, so opening one
+    /// is local (owner feedback 2026-10-05: opening should be instant).
+    private func prefetchReaders() {
+        guard readerPrefetch == nil, let coordinator = readerBundles, let library = completeLibrary, accountID != nil,
+              !workOwnership.isActivating, !libraryPublicationDeferred else { return }
+        let scope = sessionID
+        let pending = library.items.filter { $0.visible && $0.canReadStructured }
+            .sorted { $0.createdSequence > $1.createdSequence }
+            .compactMap { item in papers.first { $0.id == item.documentID && $0.artifactID == item.artifactID && !$0.isSample } }
+            .filter { coordinator.installation(documentID: $0.id, artifactID: $0.artifactID) == nil }
+            .prefix(Self.prefetchLimit)
+        guard !pending.isEmpty else { return }
+        readerPrefetch = Task { [weak self] in
+            for paper in pending {
+                guard let self, !Task.isCancelled, self.sessionID == scope, self.readerBundles === coordinator else { return }
+                SessionTimeline.shared.record("bundle", ["step": "prefetch", "paper": String(paper.id.uuidString.prefix(8))])
+                try? await self.downloadReader(paper, coordinator: coordinator)
+            }
+            guard let self, self.sessionID == scope else { return }
+            self.readerPrefetch = nil
+        }
+    }
+    static let prefetchLimit = 12
 
     func askAboutSelectedPaper() {
         guard let selectedPaper else { return }
@@ -1888,6 +1937,7 @@ final class ReaderModel {
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
+        readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
             generation.task?.cancel()
             guard let text = buffers[generation.id], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -1956,6 +2006,8 @@ final class ReaderModel {
     private(set) var storeOwnershipKnown = false
     var storeNotice: String?
     @ObservationIgnored private var storeUpdates: Task<Void, Never>?
+    @ObservationIgnored private var readerPrefetch: Task<Void, Never>?
+    @ObservationIgnored private var readerDownloads: [UUID: Task<Void, Error>] = [:]
     @ObservationIgnored private var storeRetry: Task<Void, Never>?
     @ObservationIgnored private var storeRetryAttempt = 0
 
