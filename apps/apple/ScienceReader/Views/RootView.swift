@@ -622,8 +622,8 @@ struct ChatView: View {
                             .focused($composerFocused).accessibilityIdentifier("chat.composer")
                             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                             .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                        // iPad keyboards have their own dismiss key.
-                        if composerFocused && UIDevice.current.userInterfaceIdiom == .phone {
+                        // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.
+                        if composerFocused {
                             Button { composerFocused = false } label: {
                                 Image(systemName: "keyboard.chevron.compact.down").font(.body).frame(width: 44, height: 44)
                             }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")

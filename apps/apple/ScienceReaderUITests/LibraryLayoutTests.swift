@@ -56,7 +56,9 @@ final class LibraryLayoutTests: XCTestCase {
 
     func testTableSortsByColumnHeadersAndOpensAPaper() throws {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "The table needs a wide container")
-        XCUIDevice.shared.orientation = .portrait
+        // The table needs 980 pt: landscape on every iPad (portrait 11" shows detailed rows).
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
         let app = launch()
         choose("Table", in: app, screenshot: "Library options menu (iPad)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))

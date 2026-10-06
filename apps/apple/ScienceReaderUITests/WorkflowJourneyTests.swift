@@ -832,7 +832,10 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["Paper options"].tap()
         app.buttons["Ask about this paper"].tap()
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
-        XCTAssertTrue(app.buttons["chat.returnToPaper"].waitForExistence(timeout: 5))
+        // The paper is open beside its conversation, so the chat shows no separate link back to it.
+        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertFalse(app.buttons["chat.returnToPaper"].exists)
         capture(app, "Browse opens reader and its conversation")
     }
 }
