@@ -29,6 +29,15 @@ bibliography for in-text citations) and the server queues it through the user's 
 arXiv match. Verified on staging: a DPO passage citing "PPO; [39]" queued arXiv 1707.06347, and a repeat reported
 it was already in the library. See [chat](architecture/CHAT.md#ingest-selection-action).
 
+**Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
+available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
+Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
+on staging 2026-10-05 (`scripts/smoke-web-import.mjs`): Dropout (JMLR 2014, no arXiv copy) queued from
+jmlr.csail.mit.edu, converted in 90 s (30 pages, 30 credits), reader bundle and attribution verified. Reviewed
+adversarially before applying; all findings fixed (download time budget, refreshed locations, DNS checks, cached
+v2 snapshots, stored import progress). The app's "Open access" labels ship with the next build.
+See [pipeline](architecture/PAPER_PIPELINE.md#web-papers).
+
 **Diagrams** (restored from the legacy app, Mermaid only): asking for a diagram yields a "View diagram" button on
 the answer and an entry in All diagrams; the source is stored encrypted on device and drawn with a bundled,
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
@@ -106,8 +115,10 @@ capability and six-digit email-code settings configured (real provider sign-in s
 ## Spending (October 2026, staging)
 
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded 2026-10-05 09:00 PDT: $3.60 of provider spend for October (Mathpix for the real-paper conversions and
-smoke tests, Anthropic for answers, Ingest, diagram and web-search tests), nothing reserved.
+Recorded 2026-10-05 23:10 PDT: $5.32 of provider spend for October (Mathpix for the real-paper conversions and
+smoke tests, Anthropic for answers, Ingest, diagram and web-search tests, the web-import check), nothing reserved;
+$4.48 left under the cap. Fixed commitments (Supabase Pro, Apple Developer) are recorded in
+[operations](architecture/OPERATIONS_AND_BILLING.md).
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
 ## Still required
