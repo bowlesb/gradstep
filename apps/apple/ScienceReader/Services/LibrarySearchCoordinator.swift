@@ -1,7 +1,40 @@
 import Foundation
 
-enum LibrarySearchSort: Equatable, Sendable {
-    case recent, title
+/// The Library's order: a field and a direction. Each field has a natural direction (newest,
+/// most read, A→Z first); table headers may reverse it. Rows without a value for the field
+/// (never opened, no year) stay last in either direction.
+struct LibrarySearchSort: Hashable, Sendable {
+    enum Field: String, CaseIterable, Hashable, Sendable {
+        case recent, title, authors, year, opened, progress, chats
+        var label: String {
+            switch self {
+            case .recent: "Recent"; case .title: "Title"; case .authors: "Authors"; case .year: "Year"
+            case .opened: "Opened"; case .progress: "Progress"; case .chats: "Chats"
+            }
+        }
+        var defaultAscending: Bool { self == .title || self == .authors }
+        /// Orders by this device's reading activity or private chats rather than library metadata.
+        var usesActivity: Bool { self == .opened || self == .progress || self == .chats }
+    }
+    var field: Field
+    var ascending: Bool
+
+    init(field: Field, ascending: Bool? = nil) {
+        self.field = field
+        self.ascending = ascending ?? field.defaultAscending
+    }
+    static let recent = Self(field: .recent)
+    static let title = Self(field: .title)
+}
+
+/// Optional sort values beside the title/recency every candidate has. Activity values are a
+/// snapshot taken when the candidates were prepared.
+struct LibrarySortKeys: Equatable, Sendable {
+    var authors: String? = nil
+    var year: Int? = nil
+    var opened: Date? = nil
+    var progress: Double? = nil
+    var chats = 0
 }
 
 /// The caller advances sourceRevision for searchable metadata changes, including
@@ -33,6 +66,7 @@ struct LibrarySearchCandidate: Equatable, Sendable {
     let fields: [String]
     let recentSequence: Int64
     let position: Int
+    var keys = LibrarySortKeys()
 }
 
 struct LibrarySearchTicket: Equatable, Sendable {
@@ -94,17 +128,10 @@ enum LibrarySearchEngine {
         try Task.checkCancellation()
         // Sort just the matching indexes once. Neither the search nor the sort
         // builds a second joined/lowercased representation of large metadata.
+        let sort = input.ticket.key.sort
         try matches.sort { leftIndex, rightIndex in
             try Task.checkCancellation()
-            let left = input.candidates[leftIndex], right = input.candidates[rightIndex]
-            switch input.ticket.key.sort {
-            case .title:
-                let order = left.title.localizedCompare(right.title)
-                return order == .orderedSame ? left.id < right.id : order == .orderedAscending
-            case .recent:
-                return left.recentSequence == right.recentSequence
-                    ? left.position < right.position : left.recentSequence > right.recentSequence
-            }
+            return ordered(input.candidates[leftIndex], before: input.candidates[rightIndex], by: sort)
         }
         try Task.checkCancellation()
         var rowIDs: [String] = []
@@ -114,6 +141,45 @@ enum LibrarySearchEngine {
             rowIDs.append(input.candidates[index].id)
         }
         return rowIDs
+    }
+
+    /// The one Library ordering, shared by the search worker and the table's header comparator.
+    /// Title ties fall back to stable row IDs; every other tie keeps recent order (creation
+    /// sequence, then source position).
+    static func ordered(_ left: LibrarySearchCandidate, before right: LibrarySearchCandidate, by sort: LibrarySearchSort) -> Bool {
+        let recent = left.recentSequence == right.recentSequence
+            ? left.position < right.position : left.recentSequence > right.recentSequence
+        let increasing: ComparisonResult = sort.ascending ? .orderedAscending : .orderedDescending
+        /// nil: equal, so recent order decides. Missing values sort last in both directions.
+        func compare<Value: Comparable>(_ l: Value?, _ r: Value?) -> Bool? {
+            switch (l, r) {
+            case let (l?, r?): l == r ? nil : (sort.ascending ? l < r : l > r)
+            case (.some, nil): true
+            case (nil, .some): false
+            case (nil, nil): nil
+            }
+        }
+        switch sort.field {
+        case .recent:
+            if sort.ascending, left.recentSequence != right.recentSequence { return left.recentSequence < right.recentSequence }
+            return recent
+        case .title:
+            let order = left.title.localizedCompare(right.title)
+            return order == .orderedSame ? left.id < right.id : order == increasing
+        case .authors:
+            switch (left.keys.authors, right.keys.authors) {
+            case let (l?, r?):
+                let order = l.localizedCompare(r)
+                return order == .orderedSame ? recent : order == increasing
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): return recent
+            }
+        case .year: return compare(left.keys.year, right.keys.year) ?? recent
+        case .opened: return compare(left.keys.opened, right.keys.opened) ?? recent
+        case .progress: return compare(left.keys.progress, right.keys.progress) ?? recent
+        case .chats: return compare(left.keys.chats, right.keys.chats) ?? recent
+        }
     }
 }
 

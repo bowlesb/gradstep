@@ -20,18 +20,25 @@ struct Paper: Identifiable, Sendable {
     let year: Int?
     let abstract: String
     let keywords: [String]
-    let fileURL: URL?
+    var fileURL: URL?
     let artifactID: UUID?
     var isSample = false
     var sourceID: String?
     var sourceRevision: Int?
     var readerBundle: VerifiedReaderBundle? = nil
+    /// Individual author names when known (`authors` is their joined display form).
+    var authorNames: [String] = []
+    /// When this paper joined the library (the server's membership time).
+    var addedAt: Date? = nil
+    var pageCount: Int? = nil
+    /// False for a library item whose structured reader isn't available (not converted).
+    var canReadStructured = true
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
-        Paper(id: id, title: title, authors: authors, year: year, abstract: abstract, keywords: keywords,
-              fileURL: bundle?.entryURL, artifactID: artifactID, isSample: isSample,
-              sourceID: sourceID, sourceRevision: sourceRevision, readerBundle: bundle)
+        var paper = self
+        paper.fileURL = bundle?.entryURL; paper.readerBundle = bundle
+        return paper
     }
 }
 
@@ -116,7 +123,17 @@ final class ReaderModel {
     private(set) var discoveryState: DiscoveryState = .idle
     private var discoveryGeneration = 0
     private var discoveryTask: Task<Void, Never>?
-    var librarySort = "Recent" { didSet { if librarySort != oldValue { queueLibrarySearch() } } }
+    /// Not persisted (as before): each launch starts with Recent.
+    var librarySort = LibrarySearchSort.recent {
+        didSet {
+            guard librarySort != oldValue else { return }
+            // Activity-based orders need a fresh activity snapshot in the candidates.
+            if librarySort.field.usesActivity { librarySearchSourceChanged() } else { queueLibrarySearch() }
+        }
+    }
+    var libraryLayout = LibraryLayout(rawValue: UserDefaults.standard.string(forKey: "library.layout") ?? "") ?? .list {
+        didSet { UserDefaults.standard.set(libraryLayout.rawValue, forKey: "library.layout") }
+    }
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
     var showAbstracts = UserDefaults.standard.object(forKey: "library.showAbstracts") as? Bool ?? true { didSet { UserDefaults.standard.set(showAbstracts, forKey: "library.showAbstracts") } }
@@ -178,7 +195,39 @@ final class ReaderModel {
             checkpointObservedBranches()
             let diagrams = privateState.diagramsByMessage()
             if diagrams != chatDiagrams { chatDiagrams = diagrams }
+            let counts = Self.conversationCounts(privateState)
+            if counts != paperChatCounts {
+                paperChatCounts = counts
+                if librarySort.field == .chats { librarySearchSourceChanged() }
+            }
         }
+    }
+    /// Saved conversations per paper, from the private state (deleted ones excluded).
+    private(set) var paperChatCounts: [UUID: Int] = [:]
+    /// This device's reading activity per paper: last opened here and progress at the saved
+    /// position. Kept in the account's local encrypted folder; never sent to the server.
+    private(set) var readingActivity: [UUID: PaperActivity] = [:]
+    struct PaperActivity: Equatable {
+        var openedAt: Date?
+        var progress: Double?
+    }
+    @ObservationIgnored private var latestLocationKeys: [UUID: String] = [:]
+    @ObservationIgnored private var readingSave: Task<Void, Never>?
+    @ObservationIgnored private var readingResort: Task<Void, Never>?
+    @ObservationIgnored private var readingDirty = false
+
+    private static func conversationCounts(_ state: PrivateState) -> [UUID: Int] {
+        var deleted = Set<UUID>(), conversations: [UUID: UUID] = [:]
+        for event in state.events.values {
+            switch event.payload.kind {
+            case .tombstone: deleted.insert(event.payload.entityID)
+            case .conversation: if let document = event.payload.documentID { conversations[event.payload.entityID] = document }
+            default: break
+            }
+        }
+        var counts: [UUID: Int] = [:]
+        for (conversation, document) in conversations where !deleted.contains(conversation) { counts[document, default: 0] += 1 }
+        return counts
     }
     /// Saved diagrams by the assistant message (entity ID) that drew them.
     private(set) var chatDiagrams: [UUID: ChatDiagramLink] = [:]
@@ -262,6 +311,7 @@ final class ReaderModel {
     @ObservationIgnored private var librarySearchSourceRevision: UInt64 = 0
     @ObservationIgnored private var librarySearchSourceDirty = true
     @ObservationIgnored private var librarySearchCandidates: [LibrarySearchCandidate] = []
+    @ObservationIgnored private var librarySearchCandidatePositions: [String: Int] = [:]
     @ObservationIgnored private var libraryRowLookup: [String: LibraryListEntry] = [:]
     @ObservationIgnored private var libraryMatchedIDs: [String] = []
     @ObservationIgnored private var librarySearchTicket: LibrarySearchTicket?
@@ -311,14 +361,16 @@ final class ReaderModel {
     private var currentLibrarySearchKey: LibrarySearchKey {
         LibrarySearchKey(sessionID: sessionID, accountID: accountID,
             sourceRevision: librarySearchSourceRevision, query: libraryQuery,
-            sort: librarySort == "Title" ? .title : .recent, commandRevision: libraryCommandGeneration)
+            sort: librarySort, commandRevision: libraryCommandGeneration)
     }
 
+    /// The displayed rows are still the right set (same session, account and query). A sort
+    /// change only reorders them, so the list or table stays in place until the new order lands.
     var librarySearchKeepsCurrentRows: Bool {
         guard let completed = completedLibrarySearchKey else { return false }
         let current = currentLibrarySearchKey
         return completed.sessionID == current.sessionID && completed.accountID == current.accountID &&
-            completed.query == current.query && completed.sort == current.sort
+            completed.query == current.query
     }
 
     private func libraryPapersChanged(from previous: [Paper]) {
@@ -340,6 +392,7 @@ final class ReaderModel {
         }
         let sameText = previous.count == papers.count && zip(previous, papers).allSatisfy { old, new in
             old.id == new.id && old.title == new.title && old.authors == new.authors &&
+            old.year == new.year && old.authorNames == new.authorNames &&
             old.abstract == new.abstract && old.keywords == new.keywords &&
             old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision
         }
@@ -371,6 +424,7 @@ final class ReaderModel {
             guard let self else { return }
             self.librarySearchPreparation = nil
             var mayReuse = self.librarySearchKeepsCurrentRows &&
+                self.completedLibrarySearchKey?.sort == self.librarySort &&
                 self.completedLibrarySearchKey?.sourceRevision == self.librarySearchCandidateRevision
             if self.librarySearchSourceDirty { mayReuse = self.prepareLibrarySearchSource() && mayReuse }
             if self.librarySearchKeepsCurrentRows {
@@ -398,19 +452,25 @@ final class ReaderModel {
         #endif
         var candidates: [LibrarySearchCandidate] = []
         var lookup: [String: LibraryListEntry] = [:]
-        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64) {
+        func append(_ row: LibraryListEntry, fields: [String], sequence: Int64, keys: LibrarySortKeys = .init()) {
             candidates.append(LibrarySearchCandidate(id: row.id, title: row.title,
-                fields: fields, recentSequence: sequence, position: candidates.count))
+                fields: fields, recentSequence: sequence, position: candidates.count, keys: keys))
             lookup[row.id] = row
         }
         for paper in papers {
+            let activity = readingActivity[paper.id]
+            let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
+                                       year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
+                                       chats: paperChatCounts[paper.id] ?? 0)
             append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords,
-                   sequence: libraryCreationSequences[paper.id] ?? Int64.max)
+                   sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
         for item in libraryImports {
             let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
+            let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
+                                       year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) })
             append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
-                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []), sequence: item.createdSequence)
+                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []), sequence: item.createdSequence, keys: keys)
         }
         for command in libraryCommands {
             // Cached mappings suppress duplicate presentation only; they do
@@ -422,6 +482,7 @@ final class ReaderModel {
         }
         let equivalent = candidates == librarySearchCandidates
         librarySearchCandidates = candidates; libraryRowLookup = lookup
+        librarySearchCandidatePositions = Dictionary(candidates.map { ($0.id, $0.position) }, uniquingKeysWith: { first, _ in first })
         librarySearchCandidateRevision = librarySearchSourceRevision
         librarySearchSourceDirty = false
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
@@ -459,6 +520,162 @@ final class ReaderModel {
     }
 
     func retryLibrarySearch() { queueLibrarySearch() }
+
+    /// The row's metadata snapshot as last prepared for search (its sort keys). A row that
+    /// arrived after that snapshot gets a minimal stand-in until the next search.
+    func librarySearchCandidate(for entry: LibraryListEntry) -> LibrarySearchCandidate {
+        if let index = librarySearchCandidatePositions[entry.id], librarySearchCandidates.indices.contains(index),
+           librarySearchCandidates[index].id == entry.id { return librarySearchCandidates[index] }
+        return LibrarySearchCandidate(id: entry.id, title: entry.title, fields: [], recentSequence: .max, position: .max)
+    }
+
+    /// What the table and detailed rows show for one entry, from current model state.
+    func libraryFacts(for entry: LibraryListEntry) -> LibraryRowFacts {
+        let status = libraryStatus(for: entry)
+        switch entry {
+        case .paper(let paper):
+            let activity = readingActivity[paper.id]
+            return LibraryRowFacts(id: entry.id, title: paper.title, paper: paper, authors: LibraryFormat.shortAuthors(for: paper),
+                year: paper.year, topics: ArxivTopics.names(for: paper.keywords), added: paper.addedAt,
+                opened: activity?.openedAt, progress: activity?.progress, chats: paperChatCounts[paper.id] ?? 0,
+                pages: paper.pageCount, status: status, needsCredits: false)
+        case .pending(let item):
+            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil,
+                authors: LibraryFormat.shortAuthors(item.metadata?.authors ?? []),
+                year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
+                topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
+                chats: 0, pages: nil, status: status,
+                needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits)
+        case .queued:
+            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
+                added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
+        }
+    }
+
+    /// Only the Status column's value (cheap enough to check every row for the column's visibility).
+    func libraryStatus(for entry: LibraryListEntry) -> LibraryRowFacts.Status {
+        switch entry {
+        case .paper(let paper):
+            if openingPaperID == paper.id { return .active("Opening…") }
+            if !paper.canReadStructured { return .problem("Not converted") }
+            switch offlineStatus(for: paper) {
+            case .available: return .none
+            case .unavailable: return .problem("Unavailable offline")
+            case .none: return paper.isSample ? .none : .info("Not downloaded")
+            }
+        case .pending(let item):
+            switch item.phase {
+            case .resolving, .acquiring: return .active(item.libraryShortStatus)
+            case .failed, .membershipConflict: return .problem(item.libraryShortStatus)
+            default: return .info(item.libraryShortStatus)
+            }
+        case .queued(let command): return .info(command.libraryStatus)
+        }
+    }
+
+    // MARK: Reading activity (device-local)
+
+    /// Opening a paper records when this account last opened it on this device.
+    private func recordOpened(_ paper: Paper, at date: Date = Date()) {
+        readingActivity[paper.id, default: PaperActivity()].openedAt = date
+        readingActivityChanged(resort: librarySort.field == .opened)
+    }
+
+    /// The reader reports its place (throttled while scrolling). The position stays per immutable
+    /// artifact; the paper's progress follows the latest saved position.
+    func recordReadingLocation(_ location: PaperReadingLocation, key: String, documentID: UUID) {
+        paperLocations[key] = location
+        latestLocationKeys[documentID] = key
+        if let progress = location.progress {
+            let previous = readingActivity[documentID]?.progress
+            // Whole-percent changes only, so scrolling doesn't redraw the library continuously.
+            if previous.map({ LibraryFormat.percent($0) }) != LibraryFormat.percent(progress) {
+                readingActivity[documentID, default: PaperActivity()].progress = progress
+                if librarySort.field == .progress { scheduleActivityResort() }
+            }
+        }
+        readingActivityChanged(resort: false)
+    }
+
+    private func readingActivityChanged(resort: Bool) {
+        readingDirty = true
+        if resort { librarySearchSourceChanged() }
+        guard readingSave == nil else { return }
+        let scope = sessionID
+        readingSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, let self, self.sessionID == scope else { return }
+            self.readingSave = nil
+            self.saveReadingActivity()
+        }
+    }
+
+    /// Re-sorting by progress waits until scrolling settles.
+    private func scheduleActivityResort() {
+        readingResort?.cancel()
+        let scope = sessionID
+        readingResort = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, let self, self.sessionID == scope else { return }
+            self.readingResort = nil
+            if self.librarySort.field == .progress { self.librarySearchSourceChanged() }
+        }
+    }
+
+    /// Saves now (scene changes, sign-out). Signed-out reading stays in memory only.
+    func flushReadingActivity() {
+        readingSave?.cancel(); readingSave = nil
+        saveReadingActivity()
+    }
+
+    private func saveReadingActivity() {
+        guard readingDirty, accountID != nil else { return }
+        let entries = readingActivityEntries()
+        do {
+            let write = try localPersistence.acceptReadingWrite(entries)
+            readingDirty = false
+            let scope = sessionID
+            Task { [weak self] in
+                // A failed write is retried with the next save.
+                if (try? await write.value) == nil, let self, self.sessionID == scope { self.readingDirty = true }
+            }
+        } catch {
+            // Activating or retired: keep the changes for the next save.
+        }
+    }
+
+    private func readingActivityEntries() -> [ReadingActivityEntry] {
+        Set(readingActivity.keys).union(latestLocationKeys.keys).map { id in
+            let activity = readingActivity[id]
+            let key = latestLocationKeys[id]
+            let location = key.flatMap { paperLocations[$0] }
+            return ReadingActivityEntry(documentID: id, openedAt: activity?.openedAt, progress: activity?.progress,
+                locationKey: location == nil ? nil : key,
+                location: location.map { .init(blockIndex: $0.blockIndex, blockFraction: $0.blockFraction,
+                                                blockHeight: $0.blockHeight, scrollY: $0.scrollY) })
+        }
+    }
+
+    /// Loaded entries fill in what this session hasn't recorded itself.
+    private func restoreReadingActivity(_ entries: [ReadingActivityEntry]) {
+        var activity = readingActivity
+        for entry in entries {
+            if activity[entry.documentID] == nil {
+                activity[entry.documentID] = PaperActivity(openedAt: entry.openedAt, progress: entry.progress)
+            }
+            if latestLocationKeys[entry.documentID] == nil, let key = entry.locationKey, let location = entry.location {
+                latestLocationKeys[entry.documentID] = key
+                if paperLocations[key] == nil {
+                    paperLocations[key] = PaperReadingLocation(blockIndex: location.blockIndex, blockFraction: location.blockFraction,
+                        blockHeight: location.blockHeight, scrollY: location.scrollY, progress: entry.progress)
+                }
+            }
+        }
+        if activity != readingActivity {
+            readingActivity = activity
+            if librarySort.field.usesActivity { librarySearchSourceChanged() }
+        }
+    }
 
     /// Join the accepted search, including replacements, without polling or
     /// creating a second synchronous search path for tests or callers.
@@ -506,6 +723,9 @@ final class ReaderModel {
     func start() async {
         guard !started else { return }; started = true
         startStoreUpdates()
+        #if DEBUG && targetEnvironment(simulator)
+        resetLibraryPreferencesForFixtures()
+        #endif
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
             do {
@@ -825,8 +1045,10 @@ final class ReaderModel {
         let local = try await persistence.activate(url: directory.appendingPathComponent("private-state.enc"),
                                                   accountID: device.accountID, localKey: device.localStoreKey, keys: bundle)
         let snapshot = await local.snapshot()
+        let reading = await persistence.readingStore?.load() ?? []
         guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
         try Task.checkCancellation()
+        restoreReadingActivity(reading)
         self.device = device
         self.sync = CloudSync(backend: backend, device: device, keyManager: keys, store: local) { [weak self] updated in
             guard let self, self.workOwnership.owns(activation), self.accountID == updated.accountID else { return }
@@ -941,6 +1163,10 @@ final class ReaderModel {
     private func clearAccountView() {
         // Before the old writer retires: fence answers and keep their partials.
         retireChatGenerations()
+        // The old account's reading activity is saved by its own writer, which retirement drains.
+        flushReadingActivity()
+        readingResort?.cancel(); readingResort = nil
+        readingActivity = [:]; latestLocationKeys = [:]; readingDirty = false
         if let authentication {
             authentication.invalidate()
             retainAuthenticationRetirement(authentication)
@@ -949,7 +1175,7 @@ final class ReaderModel {
         accountPreparationTask?.cancel(); accountPreparationTask = nil
         accountPreparationIssue = nil; pendingRecoveryPresentation = nil
         workOwnership = ReaderWorkOwnership(); accountID = nil; isBusy = false
-        librarySearchCandidates = []; libraryRowLookup = [:]
+        librarySearchCandidates = []; libraryRowLookup = [:]; librarySearchCandidatePositions = [:]
         librarySearchSourceChanged()
         let oldCommands = libraryCommandCoordinator; libraryCommandCoordinator = nil
         oldCommands?.close()
@@ -989,6 +1215,10 @@ final class ReaderModel {
     /// Seconds until the next import status check, by seconds since polling began: fast at
     /// first so "Queued" moves on as soon as the worker starts (owner feedback 2026-10-05).
     @ObservationIgnored var importPollDelay: (TimeInterval) -> Double = { elapsed in elapsed < 20 ? 1 : elapsed > 120 ? 15 : 4 }
+    #if DEBUG && targetEnvironment(simulator)
+    /// Library metadata fixture only: synthetic offline availability for guest rows.
+    @ObservationIgnored var fixtureOfflineStatus: [UUID: PaperOfflineStatus] = [:]
+    #endif
 
     private func updateImportPolling() {
         let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) }
@@ -1318,10 +1548,9 @@ final class ReaderModel {
                 readable = readerBundles?.permits(installed) == true && installed.binding.manifestSHA256 == cached?.readerBundle?.manifestSHA256
             } else { readable = item.canReadStructured }
             let file = readable && cached?.artifactID == paper.artifactID ? cached?.fileURL : nil
-            return Paper(id: paper.id, title: paper.title, authors: paper.authors, year: paper.year,
-                         abstract: paper.abstract, keywords: paper.keywords, fileURL: file,
-                         artifactID: paper.artifactID, sourceID: paper.sourceID, sourceRevision: paper.sourceRevision,
-                         readerBundle: file == nil ? nil : cached?.readerBundle)
+            var row = paper
+            row.fileURL = file; row.readerBundle = file == nil ? nil : cached?.readerBundle
+            return row
         }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
         // Samples have no server membership. Preserve the local sample
@@ -1353,6 +1582,7 @@ final class ReaderModel {
         selectedPaper = current; chatPaperID = current.id; tab = .paper
         if wideMode != .browse { wideMode = .reader }
         generalChat = false
+        recordOpened(current)
         openLocalPaperIfNeeded()
     }
 
@@ -1373,6 +1603,9 @@ final class ReaderModel {
     /// Availability belongs to the permitted encrypted installation, not to
     /// whether this row currently owns decoded bytes in memory.
     func offlineStatus(for paper: Paper) -> PaperOfflineStatus {
+        #if DEBUG && targetEnvironment(simulator)
+        if let status = fixtureOfflineStatus[paper.id] { return status }
+        #endif
         if paper.isSample { return paper.readerBundle == nil ? .none : .available }
         guard accountID != nil, let coordinator = readerBundles,
               let installation = coordinator.installation(documentID: paper.id, artifactID: paper.artifactID) else { return .none }
@@ -2266,6 +2499,7 @@ final class ReaderModel {
         defer { workOwnership.finishActivation(activation) }
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
+        restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
         openSample()
         let snapshot = await local.snapshot()
         prepareDrafts(snapshot: snapshot, scope: sessionID)
@@ -2326,11 +2560,39 @@ struct ReaderWorkOwnership {
     func owns(_ attempt: SyncAttempt) -> Bool { owns(attempt.store) && latestSync == attempt && !isActivating }
 }
 
+#if DEBUG && targetEnvironment(simulator)
+/// Synthetic UI fixtures only (compiled out of device and release builds).
+extension ReaderModel {
+    /// Fixture runs start from the default Library layout and columns unless an argument names a
+    /// layout (`--library-layout=table`), so one test's choice can't leak into the next run.
+    func resetLibraryPreferencesForFixtures() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains(where: { $0.hasPrefix("--") && $0.contains("fixture") }) else { return }
+        let prefix = "--library-layout="
+        libraryLayout = arguments.first { $0.hasPrefix(prefix) }.flatMap { LibraryLayout(rawValue: String($0.dropFirst(prefix.count))) } ?? .list
+        LibraryTableSettings.reset()
+    }
+
+    /// Installs a varied synthetic library: papers with added dates, imports, offline states,
+    /// and this device's reading activity. Chats come from the fixture's private state.
+    func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],
+                                       activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus]) {
+        fixtureOfflineStatus = offline
+        libraryCreationSequences = sequences
+        readingActivity = activity
+        libraryImports = imports
+        papers = papers.filter { $0.isSample } + fixturePapers
+    }
+}
+#endif
+
 /// One writer per account's local database. Activation waits for writes already
 /// accepted by the UI before updating keys and keeps the same SQLite actor.
 @MainActor
 final class ReaderLocalPersistence {
     private(set) var store: EncryptedStore?
+    /// Device-local reading activity, sealed beside the store under the same local-store key.
+    private(set) var readingStore: ReadingActivityStore?
     private(set) var isActivating = false
     private(set) var isRetired = false
     private var accountID: UUID?
@@ -2347,7 +2609,18 @@ final class ReaderLocalPersistence {
     /// this writer. Once accepted, the old account's work is always drained.
     func acceptWrite<Value: Sendable>(_ operation: @escaping @Sendable (EncryptedStore) async throws -> Value) throws -> Task<Value, Error> {
         guard !isRetired, !isActivating, let store else { throw ReaderError.storageUnavailable }
-        let id = UUID(), task = Task { try await operation(store) }
+        return register { try await operation(store) }
+    }
+
+    /// Reading-activity saves follow the same ownership: refused once retired, drained before
+    /// a replacement session or account deletion erases the folder.
+    func acceptReadingWrite(_ entries: [ReadingActivityEntry]) throws -> Task<Void, Error> {
+        guard !isRetired, !isActivating, let readingStore else { throw ReaderError.storageUnavailable }
+        return register { try await readingStore.save(entries) }
+    }
+
+    private func register<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) -> Task<Value, Error> {
+        let id = UUID(), task = Task { try await operation() }
         let completion = Task { _ = await task.result }
         writes[id] = completion
         Task { [weak self] in
@@ -2384,6 +2657,7 @@ final class ReaderLocalPersistence {
         let opened = try EncryptedStore(url: url, accountID: accountID, localKey: localKey, keys: keys)
         self.accountID = accountID; self.localKey = localKey; storageURL = url.standardizedFileURL
         store = opened
+        readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         return opened
     }
 

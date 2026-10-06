@@ -50,6 +50,34 @@ final class DurableDraftIntegrationTests: XCTestCase {
         XCTAssertEqual(reopened.chatInput, "")
     }
 
+    /// Opened / Read in the Library: this device's reading activity is sealed in the account's local
+    /// folder (no plaintext identifiers), survives relaunch, and restores the saved reading position.
+    func testReadingActivityIsSealedOnDeviceAndRestoredAfterRelaunch() async throws {
+        var model: ReaderModel? = ReaderModel(configuration: nil)
+        try await model!.configureDurableDraftFixture(reset: true)
+        let paper = try XCTUnwrap(model!.selectedPaper)
+        let opened = try XCTUnwrap(model!.readingActivity[paper.id]?.openedAt, "Opening records the time on this device")
+        let key = "\(paper.id.uuidString)/artifact/manifest"
+        let location = PaperReadingLocation(blockIndex: 7, blockFraction: 0.3, blockHeight: 90, scrollY: 1_200, progress: 0.55)
+        model!.recordReadingLocation(location, key: key, documentID: paper.id)
+        model!.flushReadingActivity()
+        await model!.flushDrafts()
+        let file = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            .appendingPathComponent("workflow-draft-fixture/" + ReadingActivityStore.fileName)
+        let disk = try Data(contentsOf: file)
+        XCTAssertNil(disk.range(of: Data(paper.id.uuidString.utf8)))
+        XCTAssertNil(disk.range(of: Data(paper.id.wire.utf8)))
+        XCTAssertNil(disk.range(of: Data("artifact/manifest".utf8)))
+        model = nil
+
+        let reopened = ReaderModel(configuration: nil)
+        try await reopened.configureDurableDraftFixture(reset: false)
+        XCTAssertEqual(reopened.readingActivity[paper.id]?.progress, 0.55)
+        XCTAssertEqual(reopened.paperLocations[key], location, "Reopening the same artifact returns to its place")
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(reopened.readingActivity[paper.id]?.openedAt), opened)
+        XCTAssertEqual(reopened.libraryFacts(for: .paper(paper)).progress, 0.55)
+    }
+
     func testOldSelectionScopeCannotCreateAQuestionAfterPaperChange() throws {
         let model = ReaderModel(configuration: nil)
         model.openSample()

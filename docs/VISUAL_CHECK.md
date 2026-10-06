@@ -7,10 +7,16 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 ## Scenarios
 
 `apps/apple/ScienceReaderUITests/VisualScenarioTests.swift` holds named, deterministic screens built from fixtures
-(no network, no account): `library`, `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
+(no network, no account): `library`, `library-search`, `library-table`, `library-detailed`, `library-metadata-list`, `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `settings`, `settings-end`. Add a scenario
 when feedback concerns a screen that isn't covered; reproduce the state from the session timeline (tab, sheet,
 keyboard, orientation, device). Screens that need real data use the staging journey (`scripts/live-journey.mjs`).
+
+The three `library-*` layout scenarios use `--library-metadata-fixture` (varied authors, years, topics, added dates,
+this device's opened/progress values, chats, a converting and a credit-blocked import) and `--library-layout=table`:
+on iPad `library-table` is the table and `library-detailed` the Browse column's detailed rows; on iPhone portrait
+both are detailed rows and `--landscape` shows the phone table. Fixture runs reset the layout to List unless an
+argument names one.
 
 ## Commands
 
@@ -22,7 +28,7 @@ node scripts/visual-check.mjs capture --label=after  --scenarios=chat-keyboard,s
 node scripts/visual-check.mjs compare --before=before --after=after
 ```
 
-- Devices: `iphone` (17 Pro), `small` (17e), `max` (17 Pro Max), `ipad` (Pro 11"), `mini` (iPad mini). Variants:
+- Devices: `iphone` (17 Pro), `small` (17e), `max` (17 Pro Max), `ipad` (Pro 11"), `ipad13` (Pro 13"), `mini` (iPad mini). Variants:
   `light`, `dark`, `xl` (accessibility extra large text). The status bar is pinned to 9:41 and full battery.
 - Output: `.artifacts/visual/<label>/<device>-<variant>/<scenario>.png`, a contact sheet `<label>-sheet.png`, and
   for compare `compare-<before>-<after>/` with side-by-side images (before | after | changed pixels in red) and

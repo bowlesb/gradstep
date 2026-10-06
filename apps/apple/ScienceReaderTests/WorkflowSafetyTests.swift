@@ -204,7 +204,7 @@ final class WorkflowSafetyTests: XCTestCase {
         model.libraryQuery = " \n\t "
         await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [sparse.id, attention.id])
-        model.librarySort = "Title"
+        model.librarySort = .title
         await model.waitForLibrarySearch()
         XCTAssertEqual(model.filteredPapers.map(\.id), [attention.id, sparse.id])
         model.libraryQuery = "attention unknown"

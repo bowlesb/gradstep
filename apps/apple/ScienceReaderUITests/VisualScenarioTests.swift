@@ -15,6 +15,7 @@ final class VisualScenarioTests: XCTestCase {
     }
 
     private static let chatFixture = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"]
+    private static let metadataFixture = ["--workflow-fixture", "--library-metadata-fixture"]
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
     private var scenarios: [String: Scenario] {
@@ -26,6 +27,15 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("attention")
                 sleep(1)
             },
+            // Library layouts (owner decision 2026-10-05) over a varied metadata fixture. On iPad
+            // library-table is the native table; on iPhone portrait the same layout is detailed rows.
+            "library-table": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { _ in sleep(1) },
+            "library-detailed": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
+                // iPad: the Browse column is narrow, so the table layout shows detailed rows there.
+                if app.segmentedControls.buttons["Browse"].exists { app.segmentedControls.buttons["Browse"].tap() }
+                sleep(2)
+            },
+            "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
             "paper": Scenario(arguments: ["--workflow-fixture"]) { app in self.openSample(app) },
             "paper-contents": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.openSample(app)
@@ -109,7 +119,8 @@ final class VisualScenarioTests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments = scenario.arguments
             app.launch()
-            XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15) || app.buttons["tab.library"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15) || app.buttons["tab.library"].waitForExistence(timeout: 5)
+                          || app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
             do { try scenario.steps(app) } catch { failures.append("\(name): \(error)") }
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = "visual__\(name)"; attachment.lifetime = .keepAlways; add(attachment)

@@ -170,8 +170,11 @@
       return rect.height > 0 && rect.bottom > 0;
     });
     const rect = index >= 0 ? blocks[index].getBoundingClientRect() : null;
+    // How far through the document this place is: 0 at the top, 1 at the end.
+    const scrollable = document.documentElement.scrollHeight - window.innerHeight;
     return {block:index,fraction:rect?-rect.top/Math.max(1,rect.height):0,
-      height:rect?Math.max(1,rect.height):1,y:Math.max(0,window.scrollY)};
+      height:rect?Math.max(1,rect.height):1,y:Math.max(0,window.scrollY),
+      progress:scrollable<1?1:Math.min(1,Math.max(0,window.scrollY/scrollable))};
   };
   window.__scienceReaderRestore = location => {
     const rect = blocks[location.block]?.getBoundingClientRect();

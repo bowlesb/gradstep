@@ -85,6 +85,18 @@ Design and failure handling: [paper pipeline](architecture/PAPER_PIPELINE.md), [
 are applied to staging (hash in the ledger; immutable from now on). Two independent adversarial reviews of the money and
 concurrency design were completed and their findings fixed before it was applied.
 
+**Library metadata view** (owner decision 2026-10-05, [decision](DECISIONS.md#library-metadata-view-owner-decided-2026-10-05)):
+"Sort and details" adds Layout: List (default, unchanged) / Table. iPad shows a native sortable table (Title,
+Authors, Year, Topics, Added, Opened, Read, Chats; Pages hidden; Status only when not ready; column visibility and
+order persist); iPhone landscape shows an app-drawn table with the same sortable columns; narrow containers and
+accessibility text sizes show detailed rows. New sorts: Authors, Year, Opened, Progress, Chats. Opened/Read come
+from device-local encrypted reading activity, which also makes reading positions survive relaunch
+([privacy and sync](architecture/PRIVACY_AND_SYNC.md#device-local-reading-activity-2026-10-05)). Verified in the
+Simulator only (iPhone 17 Pro Max, iPad Pro 13"): unit tests for formatting, sorting and persistence,
+`LibraryLayoutTests` (switch layout, sort by header/menu, open from the table), visual scenarios `library-table`,
+`library-detailed`, `library-metadata-list` in light/dark/XL and landscape; the default List is pixel-identical
+before/after. Not yet seen with a real signed-in library or on a device.
+
 ## Verified locally
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
@@ -93,7 +105,7 @@ concurrency design were completed and their findings fixed before it was applied
 - Node: 149 backend tests (pipeline worker stages with fakes plus a real-render integration on retained
   DPO output, chat validation/pricing/settlement, renderer hostile-input and tamper checks, Mathpix,
   archive, arXiv).
-- Swift: ScienceReaderCore package tests (163) and app unit tests (235); iPhone and iPad UI suites.
+- Swift: ScienceReaderCore package tests (166) and app unit tests (248, 3 skipped; 2026-10-05 library metadata view); iPhone and iPad UI suites.
 
 ## Foundations from earlier checkpoints (still true)
 

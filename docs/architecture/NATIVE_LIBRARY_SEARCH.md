@@ -12,13 +12,23 @@ The model keeps a current row lookup separately. Verified bundle hydration with 
 
 When a source notification rebuilds an exactly equivalent candidate snapshot, a completed result can be reused only if it belongs to the pre-rebuild candidate revision and the current session/account/query/sort. The lookup still refreshes. An equivalent notification during an unfinished newer search cannot reuse older completed matches.
 
+### Sort fields (2026-10-05)
+
+The library metadata view adds sort fields beside Recent and Title: Authors (first author's family name), Year,
+Opened, Progress and Chats, each with a natural direction (A→Z for text, newest/most first otherwise) that table
+headers can reverse. Rows without a value for the field stay last in either direction; ties keep recent order.
+Recent and Title order exactly as before. `LibrarySearchEngine.ordered` is the only ordering: the worker uses it
+and the table's header comparator delegates to it. Candidates carry the extra sort keys; Opened/Progress/Chats are a
+snapshot of this device's reading activity and private chat counts, refreshed when those change while such a sort
+is active (progress after scrolling settles). Searching still filters first, then sorts by the chosen field.
+
 ## Scheduling and publication
 
 The coordinator owns one detached computation and one replaceable pending input. Every submission has a fresh nonce. Supersession cancels current work, replaces the pending input and joins the old worker before starting its replacement. Check cancellation per row, term, field and sort comparison. Cancellation does not claim an uncooperative worker already exited.
 
 The caller's key includes account, session, local source revision, durable-command generation, exact query and sort. Both key and nonce must match before publishing. A → B → A is fresh intent. Source/query changes invalidate publication synchronously, before deferred preparation. Sign-out clears display and current metadata references immediately; an old completion cannot publish into the replacement session.
 
-Getters only expose stored state; neither SwiftUI body evaluation nor a getter schedules work. Query, sort and account changes hide obsolete matches and display a short searching/loading state. Same-query source refreshes retain the existing List and its surviving rows, with an updating indicator, so that scroll position is preserved. Only a completed current request can display “No matching papers.” Filtering never changes selected paper/chat context. Existing imports and queued commands use the same mapping-based display deduplication, without resolving durable command authority.
+Getters only expose stored state; neither SwiftUI body evaluation nor a getter schedules work. Query and account changes hide obsolete matches and display a short searching/loading state. Same-query source refreshes and sort changes (2026-10-05: tapping a table header must not blank the table) retain the existing rows, with an updating indicator, so that scroll position is preserved; a completed result is reused only for the same sort. Only a completed current request can display “No matching papers.” Filtering never changes selected paper/chat context. Existing imports and queued commands use the same mapping-based display deduplication, without resolving durable command authority.
 
 ## Verification and measurement
 
