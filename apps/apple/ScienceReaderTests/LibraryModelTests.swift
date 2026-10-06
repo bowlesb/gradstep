@@ -417,7 +417,7 @@ final class LibraryModelTests: XCTestCase {
         model.libraryQuery = "Ada"
         await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.count, 2, "Source-only metadata stays searchable beside the actual saved document")
-        model.librarySort = "Title"
+        model.librarySort = .title
         await model.waitForLibrarySearch()
         XCTAssertEqual(Set(model.libraryRows.map(\.id)).count, 2, "Identical titles cannot collide across paper/import identities")
     }

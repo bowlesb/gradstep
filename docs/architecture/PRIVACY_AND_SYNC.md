@@ -81,6 +81,31 @@ Limits are 128 nonempty drafts, 1,024 total draft/receipt/tombstone rows, 200,00
 
 Content-key epoch changes retain the device's separate local-store key and do not re-encrypt these draft rows. Ordinary sign-out retains the account-partitioned local key/store while clearing visible data. Losing that local key loses these local-only drafts; a cloud recovery code cannot reconstruct them. A future local-key replacement must migrate metadata, history, and drafts together with a crash-safe key handoff, rather than resetting or separately moving the draft table. Future cross-surface draft sync needs an explicit encrypted checkpoint/conflict protocol; this local format makes no cross-device merge or synchronization claim.
 
+### Device-local reading activity (2026-10-05)
+
+The Library's Opened and Read columns (owner decision 2026-10-05) need, per paper, when this account last opened
+it on this device, how far through it the saved reading position is, and that position. Reading positions were
+previously kept only in memory for the session; they now persist with the other two values, on this device only.
+
+- **Where**: one file, `reading-activity.enc`, in the account's local folder beside `private-state.enc`. It is a
+  JSON list sealed with AES-GCM under a key derived (HKDF-SHA256, salt = account ID, info
+  `science-reader/local-reading/v1`) from the device-held local-store key; the account ID is bound into the
+  authenticated data. Complete file protection, excluded from backup, erased with the account folder on account
+  deletion. Nothing about it enters the event journal, the sync outbox, logs or the server.
+- **Contents**: document ID, last-opened time, progress (0–1), and the location (block index/fraction/height/scroll
+  offset) keyed to the exact artifact and manifest it was read in. No paper text. At most 5,000 papers; the least
+  recently opened are dropped beyond that.
+- **Progress** is the reader's scroll position as a fraction of the document's scrollable height (0 at the top, 1 at
+  the end), reported with each throttled position update. It describes the saved position, not the furthest point
+  reached, and is not synced (see the shared resume position above, still to be designed).
+- **Writes** are coalesced (at most one every 2 s while reading, plus one on every scene-phase change). They go through the same
+  `ReaderLocalPersistence` owner as the encrypted store: refused once the writer retires, drained before sign-out
+  completes or account deletion erases the folder. Guest sessions keep this in memory only.
+- **Failure**: a missing or unreadable file (wrong key, corruption) starts empty and is replaced on the next save.
+  Unlike history or drafts, losing it only forgets reading places, so it doesn't block reading or need the store's
+  rollback-detecting manifest. This is a separate file rather than a new store table so the journal format stays
+  at 6.
+
 ### Rotation with offline edits
 
 Before uploading, refresh the device envelope and pull all committed events. This resolves a successful upload whose acknowledgement was lost. A committed key rotation holds the same keyring lock as event append, so after the new epoch is visible, no new old-epoch event can commit later. Only after that catch-up may the client replace remaining old-epoch outbox events.

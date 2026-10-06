@@ -2,16 +2,19 @@ import SwiftUI
 import WebKit
 import ScienceReaderCore
 
-/// Transient reading state for one immutable document artifact. It contains no paper text.
+/// Reading state for one immutable document artifact. It contains no paper text. Kept per
+/// account on this device (ReadingActivityStore), never sent to the server.
 struct PaperReadingLocation: Equatable {
     let blockIndex: Int?
     let blockFraction: Double
     let blockHeight: Double
     let scrollY: Double
+    /// 0…1 through the document at this position, when the reader reported it.
+    var progress: Double? = nil
 
     fileprivate func adjusted(by delta: Double) -> Self {
         Self(blockIndex: blockIndex, blockFraction: blockFraction + delta / max(1, blockHeight),
-             blockHeight: blockHeight, scrollY: max(0, scrollY + delta))
+             blockHeight: blockHeight, scrollY: max(0, scrollY + delta), progress: progress)
     }
 }
 
@@ -65,7 +68,7 @@ struct PaperView: View {
                                      onLocation: { key, location in
                                          // A sign-out clears the selection and the account's transient state.
                                          guard model.readerSessionID == readerScope.sessionID, model.selectedPaper != nil, paper.artifactID != nil else { return }
-                                         model.paperLocations[key] = location
+                                         model.recordReadingLocation(location, key: key, documentID: paper.id)
                                      }, onJumpApplied: { id in
                                          if model.paperJump?.id == id { model.paperJump = nil }
                                      },
@@ -405,7 +408,9 @@ struct PaperWebView: UIViewRepresentable {
                   let fraction = body["fraction"] as? Double, fraction.isFinite, abs(fraction) < 1_000_000,
                   let height = body["height"] as? Double, height.isFinite, (1...1_000_000_000).contains(height),
                   let y = body["y"] as? Double, y.isFinite, (0...1_000_000_000).contains(y) else { return }
-            let location = PaperReadingLocation(blockIndex: block < 0 ? nil : block, blockFraction: fraction, blockHeight: height, scrollY: y)
+            let progress = (body["progress"] as? Double).flatMap { $0.isFinite && (0...1).contains($0) ? $0 : nil }
+            let location = PaperReadingLocation(blockIndex: block < 0 ? nil : block, blockFraction: fraction, blockHeight: height, scrollY: y,
+                                                progress: progress)
             latestLocation = location
             sampledOffsetY = web.scrollView.contentOffset.y
             parent.onLocation(parent.locationKey, location)

@@ -103,6 +103,7 @@ struct RootView: View {
         #endif
         .onChange(of: scenePhase) { _, phase in
             Task {
+                model.flushReadingActivity()
                 await model.flushDrafts()
                 if phase == .active {
                     async let history: Void = model.synchronize()
@@ -191,6 +192,9 @@ struct ReaderControlMaterial: ViewModifier {
 
 struct LibraryView: View {
     @Bindable var model: ReaderModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// For the menu's "Table"/"Detailed rows" label; the content measures its own width.
+    @State private var containerWidth: CGFloat = 0
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -259,56 +263,30 @@ struct LibraryView: View {
                     } actions: {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
-                } else {
-                    List(model.libraryRows) { entry in
-                        #if OFFLINE_RESOURCE_MEASUREMENTS
-                        let resourceDocumentID: UUID? = {
-                            if case .paper(let paper) = entry { return paper.id }
-                            return nil
-                        }()
-                        let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: resourceDocumentID)
-                        #endif
-                        VStack(alignment: .leading, spacing: 0) {
-                            switch entry {
-                            case .paper(let paper):
-                                Button { model.select(paper) } label: { PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics) }
-                                    .buttonStyle(.plain)
-                                    .accessibilityIdentifier("paper.\(paper.id.wire)")
-                                    .contextMenu {
-                                        if !paper.isSample {
-                                            Button("Remove from library", systemImage: "minus.circle", role: .destructive) { Task { await model.removePaper(paper) } }
-                                                .disabled(!model.canChangeLibrary)
-                                        }
-                                    }
-                            case .pending(let item):
-                                ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics, getCredits: { model.showStore = true })
-                                    .accessibilityIdentifier("import.\(item.id.wire)")
-                                    .contextMenu {
-                                        if item.phase == .failed && item.retryable {
-                                            Button("Retry import", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
-                                                .disabled(!model.canChangeLibrary)
-                                        }
-                                        Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.changeImport(item, retry: false) } }
-                                            .disabled(!model.canChangeLibrary)
-                                    }
-                            case .queued(let command):
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(command.display ?? "Queued paper").font(.headline)
-                                    Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                    .accessibilityIdentifier("import.\(command.id.wire)")
-                                    .contextMenu {
-                                        Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.cancelLibraryChange(command) } }
-                                            .disabled(!model.canChangeLibrary)
-                                    }
+                } else if model.libraryLayout == .table {
+                    // Owner decision 2026-10-05: a native table where there is room; detailed rows
+                    // in narrow containers and at accessibility text sizes.
+                    GeometryReader { proxy in
+                        if LibraryView.showsTable(width: proxy.size.width, textSize: dynamicTypeSize) {
+                            Group {
+                                // SwiftUI's Table shows a single column on iPhone, even in landscape.
+                                if UIDevice.current.userInterfaceIdiom == .pad {
+                                    // A wide split-view pane can still report compact width; it has room for columns.
+                                    LibraryTable(model: model).environment(\.horizontalSizeClass, .regular)
+                                }
+                                else { LibraryCompactTable(model: model) }
                             }
-                        }.listRowInsets(EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
-                    }.listStyle(.plain).refreshable { await model.refreshLibrary() }
-                        .overlay(alignment: .top) {
-                            if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
+                            .refreshable { await model.refreshLibrary() }
+                            .overlay(alignment: .top) { updatingIndicator }
+                        } else {
+                            libraryList(detailed: true)
                         }
+                    }
+                } else {
+                    libraryList(detailed: false)
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
             .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
             .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: model.searchExternal ? "Search arXiv" : "Search your library")
             // While searching, the bar's own controls are hidden: the same switch appears under the field.
@@ -327,10 +305,22 @@ struct LibraryView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("Sort", selection: $model.librarySort) { Text("Recent").tag("Recent"); Text("Title").tag("Title") }
+                        let table = LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
+                        Section("Layout") {
+                            Picker("Layout", selection: $model.libraryLayout) {
+                                Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
+                                Label(table ? "Table" : "Detailed rows", systemImage: table ? "tablecells" : "list.bullet.rectangle.portrait")
+                                    .tag(LibraryLayout.table)
+                            }.pickerStyle(.inline)
+                        }
+                        Section("Sort by") {
+                            Picker("Sort", selection: sortField) {
+                                ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
+                            }.pickerStyle(.inline)
+                        }
                         Divider()
-                        Toggle("Abstracts", isOn: $model.showAbstracts)
-                        Toggle("Topics", isOn: $model.showTopics)
+                        if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
+                        if model.libraryLayout == .list || !table { Toggle("Topics", isOn: $model.showTopics) }
                     } label: { Image(systemName: "line.3.horizontal.decrease") }
                     .accessibilityLabel("Sort and details").disabled(model.searchExternal)
                 }
@@ -352,6 +342,72 @@ struct LibraryView: View {
             .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model) }
         }
     }
+
+    static func showsTable(width: CGFloat, textSize: DynamicTypeSize) -> Bool {
+        width >= LibraryLayout.tableMinimumWidth && !textSize.isAccessibilitySize
+    }
+
+    /// Choosing a field from the menu uses its natural direction; table headers can reverse it.
+    private var sortField: Binding<LibrarySearchSort.Field> {
+        Binding(get: { model.librarySort.field }, set: { model.librarySort = LibrarySearchSort(field: $0) })
+    }
+
+    private func sortFields(table: Bool) -> [LibrarySearchSort.Field] {
+        // Authors is a table column's sort; it stays listed while it is the current order.
+        LibrarySearchSort.Field.allCases.filter { $0 != .authors || table || model.librarySort.field == .authors }
+    }
+
+    @ViewBuilder private var updatingIndicator: some View {
+        if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
+    }
+
+    /// The List layout (unchanged), and detailed rows: the narrow form of the table layout.
+    private func libraryList(detailed: Bool) -> some View {
+        List(model.libraryRows) { entry in
+            #if OFFLINE_RESOURCE_MEASUREMENTS
+            let resourceDocumentID: UUID? = {
+                if case .paper(let paper) = entry { return paper.id }
+                return nil
+            }()
+            let _ = OfflineResourceProbe.shared.recordLibraryRowBuilder(documentID: resourceDocumentID)
+            #endif
+            VStack(alignment: .leading, spacing: 0) {
+                switch entry {
+                case .paper(let paper):
+                    Button { model.select(paper) } label: {
+                        if detailed {
+                            DetailedPaperRow(facts: model.libraryFacts(for: entry), selected: model.selectedPaper?.id == paper.id,
+                                             offlineStatus: model.offlineStatus(for: paper), showTopics: model.showTopics)
+                        } else {
+                            PaperRow(paper: paper, selected: model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
+                        }
+                    }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("paper.\(paper.id.wire)")
+                        .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                case .pending(let item):
+                    Group {
+                        if detailed {
+                            DetailedImportRow(item: item, facts: model.libraryFacts(for: entry), showTopics: model.showTopics,
+                                              getCredits: { model.showStore = true })
+                        } else {
+                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics, getCredits: { model.showStore = true })
+                        }
+                    }
+                        .accessibilityIdentifier("import.\(item.id.wire)")
+                        .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                case .queued(let command):
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(command.display ?? "Queued paper").font(.headline)
+                        Text(command.libraryStatus).font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("import.\(command.id.wire)")
+                        .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                }
+            }.listRowInsets(detailed ? EdgeInsets(top: 11, leading: 18, bottom: 11, trailing: 18) : EdgeInsets(top: 14, leading: 18, bottom: 14, trailing: 18))
+        }.listStyle(.plain).refreshable { await model.refreshLibrary() }
+            .overlay(alignment: .top) { updatingIndicator }
+    }
 }
 
 struct ImportRow: View {
@@ -361,38 +417,8 @@ struct ImportRow: View {
     /// Offered when the conversion failed for lack of credits.
     var getCredits: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// The server's progress when known, in any active phase (an import can still
-    /// read "accepted" while its paper is already converting).
-    private var progressLabel: String? {
-        switch item.progress {
-        case .finding: "Finding paper…"
-        case .downloading: "Downloading PDF…"
-        case .converting: "Converting equations and figures…"
-        case .rendering, .finishing: "Building reader…"
-        default: nil
-        }
-    }
-    private var status: String {
-        switch item.phase {
-        case .accepted: progressLabel ?? "Queued"
-        case .resolving: progressLabel ?? "Finding paper…"
-        case .acquiring: progressLabel ?? "Preparing PDF…"
-        case .sourceOnly: "Available at source"
-        case .failed:
-            switch item.errorCode {
-            case .insufficientCredits: "Not enough credits to convert this paper"
-            case .tooLarge: "This PDF is too large to convert"
-            case .pdfInvalid: "This PDF couldn’t be read"
-            case .conversionFailed: "Conversion failed"
-            case .downloadFailed, .rateLimited: "Couldn’t download this paper"
-            default: "Couldn’t import this paper"
-            }
-        case .membershipConflict: "Not added to library"
-        case .ready: "Added"
-        case .cancelled: "Cancelled"
-        }
-    }
-    private var active: Bool { [.resolving, .acquiring].contains(item.phase) }
+    private var status: String { item.libraryStatus }
+    private var active: Bool { item.isActive }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(item.metadata?.title ?? "arXiv \(item.sourceID)").font(.headline).fixedSize(horizontal: false, vertical: true)
@@ -455,9 +481,6 @@ struct PaperRow: View {
 struct FeedView: View {
     @Bindable var model: ReaderModel
     @State private var issue: String?
-    private static let names = ["cs.LG": "Machine learning", "cs.CL": "Language", "cs.AI": "AI", "cs.CV": "Vision",
-                                "stat.ML": "Statistical ML", "cs.RO": "Robotics", "cs.NE": "Neural computing", "cs.IR": "Retrieval",
-                                "math.OC": "Optimization", "cs.CR": "Security", "cs.DC": "Distributed"]
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -465,7 +488,7 @@ struct FeedView: View {
                     HStack(spacing: 8) {
                         ForEach(model.feedCategories, id: \.self) { category in
                             let selected = (model.feedCategory ?? model.feedCategories.first) == category
-                            Button(Self.names[category] ?? category) { model.selectFeedCategory(category) }
+                            Button(ArxivTopics.feedNames[category] ?? category) { model.selectFeedCategory(category) }
                                 .buttonStyle(.bordered).tint(selected ? .accentColor : .secondary)
                                 .accessibilityAddTraits(selected ? .isSelected : [])
                                 .accessibilityIdentifier("feed.topic.\(category)")

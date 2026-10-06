@@ -83,6 +83,22 @@ The owner chose the split above (2026-10-05). Implemented: personal content and 
 rows kept under the account's random ID, which stops mapping to anyone once the login is deleted (replacing the ID
 was not needed: the ledger is append-only and widely referenced). See PRIVACY_AND_SYNC → Account deletion.
 
+## Library metadata view (owner decided 2026-10-05)
+
+The List stays the default. The Library's "Sort and details" menu adds **Layout: List / Table**. Where the container
+is at least 700 pt wide (iPad, iPhone landscape) Table is a sortable table; in narrower containers (iPhone portrait,
+the iPad Browse column) and at accessibility text sizes it shows as **Detailed rows**. Columns: Title, Authors
+(short form), Year, Topics (friendly arXiv names, at most two), Added, Opened, Read (bar + %), Chats; Pages hidden by
+default; Status only when a row isn't simply ready. Sorts: Recent, Title, Year, Opened, Progress, Chats, and Authors
+on the table; searching keeps only matches and honours the sort. Layout and column visibility/order persist;
+the sort still resets to Recent at launch, as before.
+
+Implementation choices (easy to change): on iPhone landscape the table is drawn by the app, because SwiftUI's `Table`
+shows only its first column on iPhone; it carries authors and topics under the title and has no column
+customization. Detailed rows leave abstracts out (they are the List's detail). Dates older than this year show
+month and year ("Sep 2025"). Opened/Read use device-local encrypted reading activity, never synced or sent to the
+server — see [privacy and sync](architecture/PRIVACY_AND_SYNC.md#device-local-reading-activity-2026-10-05).
+
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.

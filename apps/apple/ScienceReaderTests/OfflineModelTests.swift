@@ -358,7 +358,7 @@ final class OfflineModelTests: XCTestCase {
         model.libraryQuery = "tailneedle absent-token"
         await model.waitForLibrarySearch()
         XCTAssertTrue(model.libraryRows.isEmpty)
-        model.libraryQuery = ""; model.librarySort = "Title"
+        model.libraryQuery = ""; model.librarySort = .title
         await model.waitForLibrarySearch()
         XCTAssertEqual(model.libraryRows.map(\.id), ["import/\(pendingID.wire)", "paper/\(second.document.wire)",
             "paper/\(first.document.wire)", "paper/\(optionalID.wire)"])

@@ -3,7 +3,7 @@
 // devices and appearances, before/after comparison, contact sheets.
 //
 //   node scripts/visual-check.mjs capture --label=before [--scenarios=chat-keyboard,store|all]
-//        [--devices=iphone,ipad,small,max,mini] [--variants=light,dark,xl] [--landscape]
+//        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xl] [--landscape]
 //   node scripts/visual-check.mjs compare --before=before --after=after
 //   node scripts/visual-check.mjs sheet --label=after
 //
@@ -18,7 +18,8 @@ const [command = 'capture', ...rest] = process.argv.slice(2);
 const args = Object.fromEntries(rest.map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const visual = join(root, '.artifacts/visual');
 const DEVICES = { iphone: 'B6CD74CE-CB0C-417E-9E9B-F68175B5094D', small: '20F95B85-3BCE-4930-933C-8DC4E98E6EB1',
-  max: '621A934F-8F1D-4410-953A-6D3ECD951CA0', ipad: 'F1371651-051A-4368-8FE7-6878F74781F2', mini: '1D17687F-2188-4025-8570-5A9C905C2D04' };
+  max: '621A934F-8F1D-4410-953A-6D3ECD951CA0', ipad: 'F1371651-051A-4368-8FE7-6878F74781F2', mini: '1D17687F-2188-4025-8570-5A9C905C2D04',
+  ipad13: 'B8DEE99E-FCD3-472F-BAFC-E01E5B952A36' };
 const VARIANTS = { light: ['light', 'large'], dark: ['dark', 'large'], xl: ['light', 'accessibility-extra-large'] };
 const run = (cmd, a, options = {}) => execFileSync(cmd, a, { stdio: ['ignore', 'pipe', 'pipe'], ...options }).toString();
 const quiet = (cmd, a) => { try { run(cmd, a); } catch { /* best effort */ } };
