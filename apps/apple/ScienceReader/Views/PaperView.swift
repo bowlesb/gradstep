@@ -45,6 +45,7 @@ struct PaperView: View {
     @State private var loadingPaper = true
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -56,9 +57,6 @@ struct PaperView: View {
             Group {
                 if let paper = model.selectedPaper, let bundle = paper.readerBundle, let readingKey, let readerScope = model.readerDocumentScope {
                     VStack(spacing: 0) {
-                        if paper.isSample {
-                            Text("Offline sample").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.vertical, 5).background(Color.secondary.opacity(0.05))
-                        }
                         PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
@@ -119,14 +117,22 @@ struct PaperView: View {
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(systemName: "list.bullet") }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
-                ToolbarItem(placement: .principal) { Text(model.selectedPaper?.title ?? "Paper").font(.subheadline.weight(.semibold)).lineLimit(1) }
+                ToolbarItem(placement: .principal) { titleView }
+                // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
+                // then this screen's actions, then "Report this screen".
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
-                        Button("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
+                        // One row: smaller A, larger A.
+                        ControlGroup {
+                            Button("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
+                                .disabled(model.paperFontSize <= 14)
+                            Button("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
+                                .disabled(model.paperFontSize >= 26)
+                        }
+                        .controlGroupStyle(.compactMenu)
                         Button("Ask about this paper", systemImage: "bubble.left") { model.askAboutSelectedPaper() }
                         Button("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
-                    } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Paper options")
+                    } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
             }
             .sheet(isPresented: $showContents) {
@@ -163,6 +169,18 @@ struct PaperView: View {
         }
     }
 
+    /// The paper's title, with "Offline sample" as a small second line rather than a separate band.
+    private var titleView: some View {
+        VStack(spacing: 0) {
+            Text(model.selectedPaper?.title ?? "Paper").font(.subheadline.weight(.semibold)).lineLimit(1)
+            if model.selectedPaper?.isSample == true {
+                Text("Offline sample").font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        // Both lines stay inside the bar at large text sizes, as the system's own bar titles do.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+    }
+
     private func selectionControls(_ selection: ReaderSelection, scope: ReaderDocumentScope) -> some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 12) {
@@ -189,7 +207,9 @@ struct PaperView: View {
                 }
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: .infinity)
+        // iPhone: a full-width bar, so every action is easy to reach. iPad: the bar fits its
+        // content rather than stretching a band of glass around four words.
+        .padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
         .modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.bottom, 4).transition(.opacity)
     }
 

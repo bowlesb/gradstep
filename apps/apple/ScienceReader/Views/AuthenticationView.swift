@@ -7,6 +7,7 @@ import UIKit
 struct AuthenticationView: View {
     @Bindable var model: ReaderModel
     let presentationID: UUID
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         NavigationStack {
@@ -29,18 +30,79 @@ struct AuthenticationView: View {
             .navigationTitle("Sign in")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close") { model.closeSignIn(presentationID: presentationID) }
-                        .accessibilityIdentifier("auth.close")
+                // A task sheet: Cancel on the left (docs/DESIGN.md). While the email steps show
+                // their back button there, Cancel moves to the right.
+                if model.authentication?.phase.offersOtherMethods == true {
+                    ToolbarItem(placement: .topBarTrailing) { cancelButton }
+                } else {
+                    ToolbarItem(placement: .cancellationAction) { cancelButton }
                 }
             }
+        }
+        // Short sheet: medium height, unless large text needs the whole screen.
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.medium, .large])
+    }
+
+    private var cancelButton: some View {
+        Button("Cancel") { model.closeSignIn(presentationID: presentationID) }
+            .accessibilityIdentifier("auth.close")
+    }
+}
+
+/// The email method and code buttons share one shape with the Apple and Google buttons:
+/// 50 pt tall (growing with large text), 12 pt corners.
+struct AuthenticationButtonStyle: ButtonStyle {
+    static let height: CGFloat = 50
+    static let cornerRadius: CGFloat = 12
+    let prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        StyledLabel(configuration: configuration, prominent: prominent)
+    }
+
+    private struct StyledLabel: View {
+        let configuration: Configuration
+        let prominent: Bool
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorScheme) private var colorScheme
+
+        var body: some View {
+            let shape = RoundedRectangle(cornerRadius: AuthenticationButtonStyle.cornerRadius, style: .continuous)
+            configuration.label
+                .font(.body.weight(.semibold)).multilineTextAlignment(.center)
+                .foregroundStyle(foreground)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, minHeight: AuthenticationButtonStyle.height)
+                .background(background, in: shape)
+                .contentShape(shape)
+                .opacity(configuration.isPressed ? 0.7 : 1)
+        }
+
+        private var foreground: Color {
+            guard isEnabled else { return Color(uiColor: .tertiaryLabel) }
+            // The accent is light in dark mode, so prominent text inverts with it.
+            return prominent ? (colorScheme == .dark ? .black : .white) : .accentColor
+        }
+
+        private var background: Color {
+            guard isEnabled else { return Color(uiColor: .tertiarySystemFill) }
+            return prominent ? .accentColor : Color.accentColor.opacity(0.15)
+        }
+    }
+}
+
+private extension AuthenticationCoordinator.Phase {
+    /// The email steps offer a way back to the other sign-in methods.
+    var offersOtherMethods: Bool {
+        switch self {
+        case .emailEntry, .codeEntry: true
+        default: false
         }
     }
 }
 
 @MainActor
 private struct AuthenticationForm: View {
-    @Environment(\.colorScheme) private var colorScheme
     let coordinator: AuthenticationCoordinator
     let presentationID: UUID
     let isCurrent: @MainActor () -> Bool
@@ -88,7 +150,7 @@ private struct AuthenticationForm: View {
                     guard let anchor else { return }
                     perform { coordinator.startApple(presenter: authenticationPresenter(anchor: anchor)) }
                 }
-                .frame(height: 50)
+                .frame(height: AuthenticationButtonStyle.height)
                 NativeGoogleAuthenticationButton(isEnabled: anchor != nil) {
                     guard let anchor else { return }
                     perform { coordinator.startGoogle(presenter: authenticationPresenter(anchor: anchor)) }
@@ -177,12 +239,7 @@ private struct AuthenticationForm: View {
         }
     }
 
-    private var showsMethodBackButton: Bool {
-        switch coordinator.phase {
-        case .emailEntry, .codeEntry: true
-        default: false
-        }
-    }
+    private var showsMethodBackButton: Bool { coordinator.phase.offersOtherMethods }
 
     private var hasCompleteCode: Bool {
         code.utf8.count == 6 && code.utf8.allSatisfy { (48...57).contains($0) }
@@ -232,15 +289,13 @@ private struct AuthenticationForm: View {
     }
 
     private func primaryButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            buttonLabel(title).foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
-        }
-            .buttonStyle(.borderedProminent).accessibilityIdentifier(identifier)
+        Button(action: action) { Text(title).fixedSize(horizontal: false, vertical: true) }
+            .buttonStyle(AuthenticationButtonStyle(prominent: true)).accessibilityIdentifier(identifier)
     }
 
     private func secondaryButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { buttonLabel(title) }
-            .buttonStyle(.bordered).accessibilityIdentifier(identifier)
+        Button(action: action) { Text(title).fixedSize(horizontal: false, vertical: true) }
+            .buttonStyle(AuthenticationButtonStyle(prominent: false)).accessibilityIdentifier(identifier)
     }
 
     private func plainButton(_ title: String, identifier: String, action: @escaping () -> Void) -> some View {

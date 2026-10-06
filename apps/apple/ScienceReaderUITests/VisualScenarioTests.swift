@@ -80,6 +80,16 @@ final class VisualScenarioTests: XCTestCase {
                 app.buttons["chat.getCredits"].tap()
                 XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5)); sleep(1)
             },
+            // `store` is signed in without a backend (the chat fixture); this is the signed-out store,
+            // reached from the metadata fixture's import that is waiting for credits.
+            "store-signedout": Scenario(arguments: Self.metadataFixture) { app in
+                let getCredits = app.buttons.matching(NSPredicate(format: "label == %@", "Get credits")).firstMatch // the row's identifier replaces the button's
+                _ = getCredits.waitForExistence(timeout: 3) // the import may be below the fold
+                for _ in 0..<5 where !(getCredits.exists && getCredits.isHittable) { app.swipeUp(); _ = getCredits.waitForExistence(timeout: 1) }
+                XCTAssertTrue(getCredits.isHittable)
+                getCredits.tap()
+                XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5)); sleep(1)
+            },
             // Design audit (owner request 2026-10-05): the layer just below the surface.
             "library-options": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.tapMenu(app, "Library options")
@@ -110,7 +120,8 @@ final class VisualScenarioTests: XCTestCase {
                 app.buttons["Chat history"].tap(); sleep(1)
             },
             "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
-                app.buttons["tab.settings"].tap()
+                // The wide iPad layout has no tab bar; Settings is its gear button.
+                if app.buttons["tab.settings"].exists { app.buttons["tab.settings"].tap() } else { app.buttons["Settings"].tap() }
                 let signIn = app.buttons["account.signIn"]
                 XCTAssertTrue(signIn.waitForExistence(timeout: 5)); signIn.tap()
                 XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5)); sleep(1)
@@ -135,7 +146,8 @@ final class VisualScenarioTests: XCTestCase {
     }
 
     private func ask(_ app: XCUIApplication, _ question: String) {
-        app.buttons["tab.chat"].tap()
+        // The wide iPad layout has no tab bar; its general chat is a segment.
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)

@@ -28,7 +28,7 @@ struct NativeAppleAuthenticationButton: View {
 
         func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
             let button = ASAuthorizationAppleIDButton(authorizationButtonType: .continue, authorizationButtonStyle: style)
-            button.cornerRadius = 10
+            button.cornerRadius = AuthenticationButtonStyle.cornerRadius
             button.isEnabled = isEnabled
             button.accessibilityIdentifier = "auth.apple"
             button.addTarget(context.coordinator, action: #selector(Coordinator.activate), for: .touchUpInside)
