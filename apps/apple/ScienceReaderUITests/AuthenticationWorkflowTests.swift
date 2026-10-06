@@ -55,6 +55,16 @@ final class AuthenticationWorkflowTests: XCTestCase {
         wait("The sheet's actual window enables the provider controls") {
             app.buttons["auth.apple"].isEnabled && app.buttons["auth.google"].isEnabled
         }
+        // One shape for every method (design audit F12) and Cancel on the left of a task sheet (F9).
+        // (Compared with each other: iOS 26 draws a medium-height sheet slightly scaled, so 50 pt measures ~48.)
+        if !app.launchArguments.contains(UIContentSizeCategory.accessibilityExtraLarge.rawValue) {
+            let apple = app.buttons["auth.apple"].frame.height
+            XCTAssertGreaterThanOrEqual(apple, 44)
+            for identifier in ["auth.google", "auth.emailMethod"] {
+                XCTAssertEqual(app.buttons[identifier].frame.height, apple, accuracy: 0.5, "\(identifier) matches the Apple button's height")
+            }
+        }
+        XCTAssertLessThan(app.buttons["auth.close"].frame.midX, app.buttons["auth.google"].frame.midX, "Cancel sits on the left")
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication,

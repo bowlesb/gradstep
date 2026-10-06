@@ -392,6 +392,32 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["chat.retryAnswer"].waitForExistence(timeout: 5))
     }
 
+    /// Signed out, the store is not a dead end: one Sign in button opens sign-in (design audit F4).
+    func testSignedOutStoreOffersSignIn() throws {
+        // The workflow fixture is signed out; one of its imports is waiting for credits.
+        let app = launch(additionalArguments: ["--library-metadata-fixture"])
+        let getCredits = app.buttons.matching(NSPredicate(format: "label == %@", "Get credits")).firstMatch // the row's identifier replaces the button's
+        _ = getCredits.waitForExistence(timeout: 3) // the import may be below the fold
+        for _ in 0..<5 where !(getCredits.exists && getCredits.isHittable) { app.swipeUp(); _ = getCredits.waitForExistence(timeout: 1) }
+        XCTAssertTrue(getCredits.isHittable)
+        getCredits.tap()
+        let signIn = app.buttons["store.signIn"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["store.restore"].exists, "Restore can't work signed out, so it is hidden")
+        capture(app, "Signed-out store offers sign-in")
+        signIn.tap()
+        let sheet = NSPredicate { _, _ in
+            (app.buttons["auth.emailMethod"].exists || app.staticTexts["auth.unavailable"].exists) && !app.navigationBars["Get credits"].exists
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: sheet, object: nil)], timeout: 8), .completed,
+                       "The store gives way to the sign-in sheet")
+        capture(app, "Sign-in from the store")
+        app.buttons["auth.close"].tap()
+        XCTAssertTrue(app.buttons["auth.close"].waitForNonExistence(timeout: 5))
+        XCTAssertFalse(app.navigationBars["Get credits"].exists)
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5), "Cancel returns to the Library")
+    }
+
     func testAnswerSourcesShowTheirAddressBeforeOpening() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
