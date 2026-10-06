@@ -2,7 +2,7 @@ import { cors, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
-import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult } from '../_shared/discover.ts';
+import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from '../_shared/discover.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -64,6 +64,20 @@ Deno.serve(async request => {
         try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { continue; }
         const match = matchPaper(wanted, seen);
         if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } };
+      }
+      // OpenAlex knows a paper's other versions: an arXiv copy arXiv's own search
+      // missed (conference titles often differ), with the same strict match.
+      const find = !signal.aborted ? openAlexFindURL(wanted) : null;
+      if (find) {
+        try {
+          const response = await fetch(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+            headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+          if (response.ok) {
+            answered = true;
+            const match = matchPaper(wanted, openAlexCandidates(await response.json()));
+            if (match?.arxivID) return { status: 'found', paper: { source_id: match.arxivID, title: match.title, year: match.year } };
+          } else void response.body?.cancel().catch(() => {});
+        } catch { /* unavailable */ }
       }
       return { status: answered && !signal.aborted ? 'not_found' : 'unavailable' };
     },

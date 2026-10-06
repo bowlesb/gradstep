@@ -104,6 +104,50 @@ export function openAlexResult(work: unknown): DiscoveryResult | null {
     year: typeof w.publication_year === 'number' ? w.publication_year : null, abstract, categories: [] };
 }
 
+/** A paper as OpenAlex knows it, for Ingest: its arXiv copy if any, otherwise
+ * its open-access PDF (Unpaywall data) and DOI. `source_id` is the key matching uses. */
+export interface OpenAlexCandidate {
+  source_id: string; title: string; year: number | null; authors: string[];
+  arxivID: string | null; openalexID: string; doi: string | null; pdfURL: string | null; landingURL: string | null; license: string | null;
+}
+
+/** OpenAlex works matching a cited title (any source), within a year of the cited year. */
+export function openAlexFindURL(query: TitleQuery): string | null {
+  const text = query.title.normalize('NFKC').replace(/[^\p{L}\p{N}\s.+#-]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (text.length < 3) return null;
+  const url = new URL('https://api.openalex.org/works');
+  const filters = query.year ? [`publication_year:${query.year - 1}-${query.year + 1}`] : [];
+  url.search = new URLSearchParams({ search: text, 'per-page': '10',
+    select: 'id,doi,title,publication_year,authorships,locations,best_oa_location', ...(filters.length ? { filter: filters.join(',') } : {}) }).toString();
+  return url.href;
+}
+
+const safeURL = (value: unknown): string | null => {
+  if (typeof value !== 'string' || value.length > 2000) return null;
+  try { const url = new URL(value); return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null; } catch { return null; }
+};
+
+export function openAlexCandidates(json: unknown): OpenAlexCandidate[] {
+  const results = (json as { results?: unknown })?.results;
+  if (!Array.isArray(results)) throw new Error('invalid_openalex');
+  const candidates: OpenAlexCandidate[] = [];
+  for (const work of results.slice(0, 25)) {
+    const w = work as { id?: unknown; doi?: unknown; title?: unknown; publication_year?: unknown; authorships?: unknown; best_oa_location?: unknown; locations?: unknown };
+    if (typeof w.id !== 'string' || !/^https:\/\/openalex\.org\/W\d{1,15}$/.test(w.id) || typeof w.title !== 'string' || !w.title.trim()) continue;
+    const arxiv = arxivLocationOf(w);
+    const best = (w.best_oa_location ?? null) as { pdf_url?: unknown; landing_page_url?: unknown; license?: unknown } | null;
+    const doi = typeof w.doi === 'string' ? /^https:\/\/doi\.org\/(10\.\d{4,9}\/\S{1,200})$/i.exec(w.doi)?.[1] ?? null : null;
+    const authors = (Array.isArray(w.authorships) ? w.authorships.slice(0, 9) : [])
+      .map(a => (a as { author?: { display_name?: unknown } })?.author?.display_name).filter((n): n is string => typeof n === 'string');
+    const openalexID = w.id.slice('https://openalex.org/'.length);
+    candidates.push({ source_id: arxiv?.sourceID ?? openalexID, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 400),
+      year: typeof w.publication_year === 'number' ? w.publication_year : null, authors, arxivID: arxiv?.sourceID ?? null, openalexID,
+      doi, pdfURL: safeURL(best?.pdf_url), landingURL: safeURL(best?.landing_page_url) ?? (doi ? `https://doi.org/${doi}` : null),
+      license: typeof best?.license === 'string' ? best.license.slice(0, 40) : null });
+  }
+  return candidates;
+}
+
 /** OpenAlex's record of one arXiv paper (by its DataCite DOI), for ID lookups when arXiv is unavailable. */
 export function openAlexArxivWorkURL(sourceID: string): string {
   return `https://api.openalex.org/works/doi:10.48550/arXiv.${encodeURIComponent(sourceID)}`;

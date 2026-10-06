@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
+import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexArxivWorkURL, openAlexCandidates, openAlexFindURL, openAlexResult, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -145,4 +145,27 @@ test('when arXiv is throttled, results come from OpenAlex metadata in the same r
   assert.equal(ranking[0].result?.title, 'Attention Is All You Need');
   assert.equal(openAlexArxivWorkURL('1706.03762'), 'https://api.openalex.org/works/doi:10.48550/arXiv.1706.03762');
   assert.ok(new URL(openAlexSearchURLs('cnn')[0]).searchParams.get('select')!.includes('abstract_inverted_index'));
+});
+
+test('Ingest finds an arXiv copy or an open-access PDF through OpenAlex', () => {
+  const url = new URL(openAlexFindURL({ title: 'Deep Residual Learning for Image Recognition', year: 2016, firstAuthor: 'Kaiming He', arxivID: null })!);
+  assert.equal(url.searchParams.get('search'), 'Deep Residual Learning for Image Recognition');
+  assert.equal(url.searchParams.get('filter'), 'publication_year:2015-2017');
+  assert.equal(openAlexFindURL({ title: '..', year: null, firstAuthor: null, arxivID: null }), null);
+  const candidates = openAlexCandidates({ results: [
+    { id: 'https://openalex.org/W2194775991', doi: 'https://doi.org/10.1109/cvpr.2016.90', title: 'Deep Residual Learning for Image Recognition', publication_year: 2016,
+      authorships: [{ author: { display_name: 'Kaiming He' } }], best_oa_location: { pdf_url: 'https://arxiv.org/pdf/1512.03385', license: null },
+      locations: [{ landing_page_url: 'https://doi.org/10.1109/cvpr.2016.90' }, { landing_page_url: 'https://arxiv.org/abs/1512.03385' }] },
+    { id: 'https://openalex.org/W3000000001', doi: 'https://doi.org/10.18653/v1/2020.acl-main.1', title: 'An ACL Paper Without arXiv', publication_year: 2020,
+      authorships: [{ author: { display_name: 'Ada Lovelace' } }], best_oa_location: { pdf_url: 'https://aclanthology.org/2020.acl-main.1.pdf', landing_page_url: 'https://aclanthology.org/2020.acl-main.1', license: 'cc-by' },
+      locations: [] },
+    { id: 'https://openalex.org/W3000000002', title: 'Paywalled', publication_year: 2019, authorships: [], best_oa_location: null, locations: [] },
+    { id: 'not-openalex', title: 'Bad id' },
+  ] });
+  assert.equal(candidates.length, 3);
+  assert.deepEqual([candidates[0].arxivID, candidates[0].source_id, candidates[0].doi], ['1512.03385', '1512.03385', '10.1109/cvpr.2016.90']);
+  assert.deepEqual([candidates[1].arxivID, candidates[1].source_id, candidates[1].pdfURL, candidates[1].license],
+    [null, 'W3000000001', 'https://aclanthology.org/2020.acl-main.1.pdf', 'cc-by']);
+  assert.deepEqual([candidates[2].pdfURL, candidates[2].landingURL], [null, null]);
+  assert.equal(matchPaper({ title: 'Deep residual learning for image recognition', year: 2016, firstAuthor: 'K. He', arxivID: null }, candidates)?.arxivID, '1512.03385');
 });
