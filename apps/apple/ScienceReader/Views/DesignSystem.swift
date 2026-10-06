@@ -45,20 +45,30 @@ struct StatusBanner<Actions: View>: View {
     let tone: BannerTone
     let systemImage: String
     let message: String
+    /// Long messages put their buttons on a line of their own, inside the card.
+    var actionsBelow = false
+    /// Accessibility identifier of the message text (tests and VoiceOver find it as text).
+    var messageID: String? = nil
     @ViewBuilder var actions: Actions
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: systemImage).font(.system(size: 17))
-                .foregroundStyle(tone == .info ? Color.accentColor : Color.orange).accessibilityHidden(true)
-            Text(message).font(.subheadline).foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
-            actions.font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: systemImage).font(.system(size: 17))
+                    .foregroundStyle(tone == .info ? Color.accentColor : Color.orange).accessibilityHidden(true)
+                Text(message).font(.subheadline).foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier(messageID ?? "")
+                if !actionsBelow { actions.font(.subheadline.weight(.semibold)) }
+            }
+            if actionsBelow {
+                HStack(spacing: 20) { actions }.font(.subheadline.weight(.semibold)).padding(.leading, 29)
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(tone == .info ? Color.accentColor.opacity(0.08) : Color.orange.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

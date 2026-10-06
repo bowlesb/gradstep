@@ -193,7 +193,7 @@ struct LibraryView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Status (design audit F4): one banner style, scrolling with a list; above other content.
-                if model.libraryLayout == .table || model.searchExternal || model.libraryRows.isEmpty { banners(inset: true) }
+                if model.searchExternal || model.libraryRows.isEmpty { banners(inset: true) }
                 if model.searchExternal {
                     DiscoveryList(model: model)
                 } else if model.librarySearchPending && !model.librarySearchKeepsCurrentRows {
@@ -231,7 +231,8 @@ struct LibraryView: View {
                     // in narrow containers and at accessibility text sizes.
                     GeometryReader { proxy in
                         if LibraryView.showsTable(width: proxy.size.width, textSize: dynamicTypeSize) {
-                            Group {
+                            VStack(spacing: 0) {
+                                banners(inset: true)
                                 // SwiftUI's Table shows a single column on iPhone, even in landscape.
                                 if UIDevice.current.userInterfaceIdiom == .pad {
                                     // A wide split-view pane can still report compact width; it has room for columns.
@@ -328,7 +329,9 @@ struct LibraryView: View {
                     .pickerStyle(.segmented)
             }
         }
+        .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? DesignMetrics.column + 2 * DesignMetrics.margin : .infinity)
         .padding(.horizontal, DesignMetrics.margin).padding(.top, 2).padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
         .background(Color(uiColor: .systemBackground))
         .animation(.snappy(duration: 0.2), value: searching)
     }
@@ -474,7 +477,7 @@ struct ImportRow: View {
                 }
                 if !active, let url = URL(string: item.sourceURL) {
                     Spacer(minLength: 8)
-                    Link("View source", destination: url).font(.footnote.weight(.semibold))
+                    Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
                 }
             }.padding(.top, 2)
         }.frame(maxWidth: .infinity, alignment: .leading)
@@ -584,18 +587,13 @@ struct ChatView: View {
                     ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17)
                     if let issue = model.chatAnswerIssue {
                         // Design audit F4: the app's one banner style, above the message box.
-                        VStack(alignment: .leading, spacing: 8) {
-                            StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message)
-                                .accessibilityIdentifier("chat.answerIssue")
-                            if issue.code == "insufficient_credits" || issue.retryable {
-                                HStack(spacing: 20) {
-                                    if issue.code == "insufficient_credits" {
-                                        Button("Get credits") { model.showStore = true }.accessibilityIdentifier("chat.getCredits")
-                                    }
-                                    if issue.retryable {
-                                        Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("chat.retryAnswer")
-                                    }
-                                }.font(.subheadline.weight(.semibold)).padding(.leading, 43)
+                        StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message, actionsBelow: true,
+                                     messageID: "chat.answerIssue") {
+                            if issue.code == "insufficient_credits" {
+                                Button("Get credits") { model.showStore = true }.accessibilityIdentifier("chat.getCredits")
+                            }
+                            if issue.retryable {
+                                Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("chat.retryAnswer")
                             }
                         }
                         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
@@ -795,11 +793,11 @@ struct SettingsView: View {
     private func openRow(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(title).foregroundStyle(.primary)
+                Text(title)
                 Spacer()
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
             }.contentShape(Rectangle())
-        }
+        }.tint(.primary)
     }
 }
 

@@ -3,6 +3,10 @@ import SwiftUI
 @main
 struct ScienceReaderApp: App {
     @State private var model = ReaderModel()
+    init() {
+        // System menus and alerts (UIKit) use the app's accent color too (design audit F3).
+        UIWindow.appearance().tintColor = UIColor(named: "AccentColor")
+    }
     var body: some Scene {
         WindowGroup {
             RootView(model: model)

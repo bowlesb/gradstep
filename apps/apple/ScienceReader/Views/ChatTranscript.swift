@@ -112,6 +112,7 @@ private struct TranscriptMessage: View {
             }
             // Design audit F7: answers sit on the page (more room for equations); your messages keep a bubble.
             .padding(message.payload.role == .user ? 12 : 0)
+            .frame(maxWidth: message.payload.role == .user ? nil : .infinity, alignment: .leading)
             .background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.clear, in: RoundedRectangle(cornerRadius: 14))
             .accessibilityElement(children: .contain)
         }
