@@ -29,6 +29,13 @@ bibliography for in-text citations) and the server queues it through the user's 
 arXiv match. Verified on staging: a DPO passage citing "PPO; [39]" queued arXiv 1707.06347, and a repeat reported
 it was already in the library. See [chat](architecture/CHAT.md#ingest-selection-action).
 
+**Library and design** (owner requests 2026-10-05): a Library Table on iPad (sortable columns, reading activity)
+and detailed rows on iPhone; a one-row search header (search, Add, one … menu; Cancel and the Library/arXiv switch
+while searching); and an independent design audit of every screen against the owner's principles
+([DESIGN](DESIGN.md), [audit 1](design-audits/2026-10-06-audit1.md)) with its findings applied: one menu/button
+style per screen, one status banner, type scale and margins, 720 pt columns on iPad, quieter chat and settings.
+Checked with before/after screenshots on iPhone and iPad, light and dark.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified

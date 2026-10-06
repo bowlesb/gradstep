@@ -7,7 +7,8 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
 ## What exists
 
 - **Server (Supabase staging `coxhjvqpflgxkleydati`)**: migrations 001–011 plus `014_paper_pipeline`,
-  `015_stale_chat_holds`, `016_download_admission`, `017_account_deletion` and `018_app_store_purchases` applied (immutable). Edge functions:
+  `015_stale_chat_holds`, `016_download_admission`, `017_account_deletion`, `018_app_store_purchases` and
+  `019_web_import` applied (immutable). Edge functions:
   `paper-worker` (pipeline, cron every minute + import trigger via `pg_net`, plus the account-deletion sweep),
   `reader-artifact` (authorized reader download), `chat` (paid Claude Sonnet 5.5 answers, web search on in
   staging), `discover` (arXiv search), `support-assets` (screenshots), `account-delete`, `store-sync` and
@@ -21,7 +22,10 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   Edge (`supabase/functions/_shared/reader/`).
 - **App**: imports with live progress, arXiv search with Add, research Feed, automatic verified download into
   the encrypted offline store, streaming paid chat with consent, native math in chat (SwiftMath with a LaTeX
-  normalizer), Ingest (adds the cited arXiv paper), diagrams from answers (encrypted, drawn on device with bundled
+  normalizer), Ingest (adds the cited paper from arXiv or, for builds that send `capabilities: ["web_import"]`, a
+  freely available PDF found through OpenAlex; library reads are v3, v2 hides web papers from older builds),
+  Library List / Table (iPad ≥ 980 pt) / detailed rows with reading activity, a one-row search header,
+  diagrams from answers (encrypted, drawn on device with bundled
   Mermaid), reader layout fixes for real papers (aligned derivations, pinned equation numbers, no sideways page
   scroll), credits in Settings, app icon (legacy artwork) and privacy manifest. Existing navigation is preserved;
   the compact tab bar now sits behind the software keyboard like a system tab bar. The live journey passes on
@@ -64,6 +68,10 @@ The October platform budget is the hard provider cap (`pipeline-ops.py budget`).
 $10 cap for the 2026-10-04 overnight session; later caps are separate decisions. Never enable paid work
 in production without the owner. Uncertain Mathpix submissions are never retried automatically —
 reconcile with `pipeline-ops.py resolve ATTEMPT --job ID | --pages N`.
+
+- **Design**: [DESIGN.md](DESIGN.md) (owner principles + pattern spec, shared code in `Views/DesignSystem.swift`);
+  [design audit 1](design-audits/2026-10-06-audit1.md) applied. Visual checks: [VISUAL_CHECK.md](VISUAL_CHECK.md).
+- **Session review**: [SESSION_REVIEW.md](SESSION_REVIEW.md) — the owner records sessions in Internal builds.
 
 ## Next priorities
 

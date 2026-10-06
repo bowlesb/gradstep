@@ -3,14 +3,12 @@ import SwiftUI
 @main
 struct ScienceReaderApp: App {
     @State private var model = ReaderModel()
-    init() {
-        // System menus and alerts (UIKit) use the app's accent color too (design audit F3).
-        UIWindow.appearance().tintColor = UIColor(named: "AccentColor")
-    }
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
                 .tint(Color.accentColor)
+                // System menus and alerts (UIKit) follow the window's tint (design audit F3).
+                .background(WindowTint())
                 .preferredColorScheme(model.appearance == "dark" ? .dark : model.appearance == "light" ? .light : nil)
                 .task {
                     await model.start()
@@ -18,6 +16,18 @@ struct ScienceReaderApp: App {
                     try? await Task.sleep(for: .milliseconds(500))
                     PaperWebView.prewarm()
                 }
+        }
+    }
+}
+
+/// Sets the hosting window's tint to the app's accent color, once it resolves.
+private struct WindowTint: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView { TintingView() }
+    func updateUIView(_ view: UIView, context: Context) {}
+    final class TintingView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if let window, let accent = UIColor(named: "AccentColor") { window.tintColor = accent }
         }
     }
 }
