@@ -7,7 +7,6 @@ import SwiftUI
 struct CreditsStoreView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.colorScheme) private var colorScheme
     @State private var manageSubscriptions = false
     @State private var restoring = false
 
@@ -45,8 +44,8 @@ struct CreditsStoreView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { if model.canPurchase { footer } }
             .navigationTitle("Get credits").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // An information sheet: Done on the right, regular weight (docs/DESIGN.md).
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+                // An information sheet: Done on the right, like every sheet (docs/DESIGN.md).
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .manageSubscriptionsSheet(isPresented: $manageSubscriptions)
             .alert("Purchases", isPresented: Binding(get: { model.storeNotice != nil }, set: { if !$0 { model.storeNotice = nil } })) {
@@ -67,8 +66,7 @@ struct CreditsStoreView: View {
                 dismiss()
                 model.openSignIn()
             } label: {
-                // The accent is light in dark mode, so the label inverts with it.
-                Text("Sign in").foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                ProminentLabel(title: "Sign in")
             }
             .buttonStyle(.borderedProminent).accessibilityIdentifier("store.signIn")
         }

@@ -92,3 +92,51 @@ struct StatusBannerLink: View {
         }.buttonStyle(.plain)
     }
 }
+
+/// The label of a `.borderedProminent` button. The accent is light in dark mode, so the label
+/// turns dark with it (white on the light indigo is hard to read).
+struct ProminentLabel: View {
+    let title: String
+    var fullWidth = false
+    @Environment(\.colorScheme) private var colorScheme
+    var body: some View {
+        Text(title).foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+            .frame(maxWidth: fullWidth ? .infinity : nil, minHeight: fullWidth ? 44 : nil)
+    }
+}
+
+/// An SF Symbol drawn in the app's accent color inside system menus, which ignore the window tint.
+func menuIcon(_ name: String) -> Image {
+    if let accent = UIColor(named: "AccentColor"),
+       let image = UIImage(systemName: name)?.withTintColor(accent, renderingMode: .alwaysOriginal) { return Image(uiImage: image) }
+    return Image(systemName: name)
+}
+
+extension View {
+    /// The one readable column on iPad: 16 pt margins inside at most 720 pt, centered. On iPhone it
+    /// is just the side margins.
+    func readableColumn() -> some View {
+        padding(.horizontal, DesignMetrics.margin).frame(maxWidth: DesignMetrics.column).frame(maxWidth: .infinity)
+    }
+
+    /// Side insets for a scroll view's content so its rows sit in the readable column (iPad only;
+    /// iPhone keeps the system's own insets).
+    @ViewBuilder func readableScrollColumn(width: CGFloat) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            contentMargins(.horizontal, max(0, (width - DesignMetrics.column) / 2), for: .scrollContent)
+        } else { self }
+    }
+}
+
+/// A menu row with an accent-colored icon (`menuIcon`); same title for VoiceOver and tests.
+struct MenuRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+    init(_ title: String, systemImage: String, action: @escaping () -> Void) {
+        self.title = title; self.systemImage = systemImage; self.action = action
+    }
+    var body: some View {
+        Button(action: action) { Label { Text(title) } icon: { menuIcon(systemImage) } }
+    }
+}

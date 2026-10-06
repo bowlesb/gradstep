@@ -21,7 +21,7 @@ final class VisualScenarioTests: XCTestCase {
     private var scenarios: [String: Scenario] {
         [
             "library": Scenario(arguments: ["--workflow-fixture"]) { _ in },
-            "feed": Scenario(arguments: ["--workflow-fixture"]) { app in app.buttons["tab.feed"].tap(); sleep(1) },
+            "feed": Scenario(arguments: ["--workflow-fixture"]) { app in self.go(app, "feed"); sleep(1) },
             "library-search": Scenario(arguments: ["--workflow-fixture"]) { app in
                 let search = app.searchFields.firstMatch
                 XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("attention")
@@ -43,12 +43,12 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(app.navigationBars["Contents"].waitForExistence(timeout: 5))
             },
             "chat-conversation": Scenario(arguments: ["--workflow-fixture"]) { app in
-                app.buttons["tab.chat"].tap()
+                self.go(app, "chat")
                 XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch.waitForExistence(timeout: 5))
                 sleep(1)
             },
             "chat-keyboard": Scenario(arguments: ["--workflow-fixture"]) { app in
-                app.buttons["tab.chat"].tap()
+                self.go(app, "chat")
                 let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
                 XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
                 XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5)); sleep(1)
@@ -126,13 +126,24 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(signIn.waitForExistence(timeout: 5)); signIn.tap()
                 XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5)); sleep(1)
             },
-            "settings": Scenario(arguments: ["--workflow-fixture"]) { app in app.buttons["tab.settings"].tap(); sleep(1) },
+            "settings": Scenario(arguments: ["--workflow-fixture"]) { app in self.go(app, "settings"); sleep(1) },
             "settings-end": Scenario(arguments: ["--workflow-fixture"]) { app in
-                app.buttons["tab.settings"].tap()
+                self.go(app, "settings")
                 for _ in 0..<6 { app.swipeUp() }
                 sleep(1)
             },
         ]
+    }
+
+    /// Tabs on compact layouts; the wide iPad layout's own controls otherwise (paper chat sits beside
+    /// the reader there).
+    private func go(_ app: XCUIApplication, _ tab: String) {
+        if app.buttons["tab.\(tab)"].exists { app.buttons["tab.\(tab)"].tap(); return }
+        switch tab {
+        case "settings": app.buttons["Settings"].tap()
+        case "chat": app.segmentedControls.buttons["Reader"].tap()
+        default: app.segmentedControls.buttons[tab.capitalized].tap()
+        }
     }
 
     private func tapMenu(_ app: XCUIApplication, _ label: String) {

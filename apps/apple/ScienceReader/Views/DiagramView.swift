@@ -12,7 +12,7 @@ struct DiagramSheet: View {
     var body: some View {
         NavigationStack {
             DiagramDetail(diagram: diagram)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

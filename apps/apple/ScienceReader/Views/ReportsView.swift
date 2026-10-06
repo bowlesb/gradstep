@@ -26,7 +26,7 @@ struct ReportsView: View {
                 }
                 if let error = service.error { Section { Text(error).font(.footnote).foregroundStyle(.secondary) } }
             }.navigationTitle("My reports").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
                 .task { await service.refresh() }.refreshable { await service.refresh() }
         }
     }

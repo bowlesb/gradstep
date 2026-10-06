@@ -117,7 +117,9 @@ struct LibraryTable: View {
                 set: { if let first = $0.first { model.librarySort = first.sort } })
     }
 
+    /// The open paper is highlighted only where it is shown beside the table (iPad Browse).
     private func isSelected(_ entry: LibraryListEntry) -> Bool {
+        guard model.wideMode == .browse else { return false }
         if case .paper(let paper) = entry { return model.selectedPaper?.id == paper.id }
         return false
     }
@@ -213,7 +215,8 @@ struct LibraryCompactTable: View {
     private func row(_ facts: LibraryRowFacts, entry: LibraryListEntry, columns: [Column]) -> some View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                LibraryCell.title(facts, selected: facts.paper.map { model.selectedPaper?.id == $0.id } ?? false)
+                LibraryCell.title(facts, selected: model.wideMode == .browse && UIDevice.current.userInterfaceIdiom == .pad
+                                  && facts.paper.map { model.selectedPaper?.id == $0.id } ?? false)
                 let subtitle = ([facts.authors] + [facts.topics.isEmpty ? nil : facts.topics.joined(separator: ", ")]).compactMap { $0 }
                 if !subtitle.isEmpty {
                     Text(subtitle.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)

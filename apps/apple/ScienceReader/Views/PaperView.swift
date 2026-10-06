@@ -124,14 +124,14 @@ struct PaperView: View {
                     Menu {
                         // One row: smaller A, larger A.
                         ControlGroup {
-                            Button("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
+                            MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.paperFontSize = max(14, model.paperFontSize - 1) }
                                 .disabled(model.paperFontSize <= 14)
-                            Button("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
+                            MenuRow("Larger text", systemImage: "textformat.size.larger") { model.paperFontSize = min(26, model.paperFontSize + 1) }
                                 .disabled(model.paperFontSize >= 26)
                         }
                         .controlGroupStyle(.compactMenu)
-                        Button("Ask about this paper", systemImage: "bubble.left") { model.askAboutSelectedPaper() }
-                        Button("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+                        MenuRow("Ask about this paper", systemImage: "bubble.left") { model.askAboutSelectedPaper() }
+                        MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
             }
@@ -143,7 +143,7 @@ struct PaperView: View {
                             showContents = false
                         }
                     }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showContents = false } } }
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
                 }.presentationDetents([.medium, .large])
             }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
@@ -159,7 +159,7 @@ struct PaperView: View {
                         else { Color.clear }
                     }
                     .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { figure = nil } } }
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { figure = nil } } }
                 }
             }
         }

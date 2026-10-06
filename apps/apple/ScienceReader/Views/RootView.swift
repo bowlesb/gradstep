@@ -265,6 +265,10 @@ struct LibraryView: View {
     }
 
     private var searching: Bool { searchFocused || !model.searchQuery.isEmpty || model.searchExternal }
+    /// The table spans the pane; everything else sits in the readable column.
+    private var tableShown: Bool {
+        model.libraryLayout == .table && !model.searchExternal && LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
+    }
 
     /// Only states the reader can act on; none while browsing normally.
     @ViewBuilder private func banners(inset: Bool) -> some View {
@@ -295,14 +299,10 @@ struct LibraryView: View {
                     StatusBanner(tone: .problem, systemImage: "arrow.down.circle", message: offline).accessibilityIdentifier("library.offlineIssue")
                 }
             }
-            .padding(.horizontal, inset ? DesignMetrics.margin : 0).padding(.vertical, inset ? 8 : 0)
+            .modifier(BannerInset(inset: inset, fullWidth: tableShown)).padding(.vertical, inset ? 8 : 0)
         }
     }
 
-    /// iPad: list rows keep a readable column (design audit F5).
-    private var listColumnInset: CGFloat {
-        UIDevice.current.userInterfaceIdiom == .pad ? max(0, (containerWidth - DesignMetrics.column) / 2) : 0
-    }
 
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
     private var highlightsSelection: Bool { model.wideMode == .browse && UIDevice.current.userInterfaceIdiom == .pad }
@@ -329,9 +329,8 @@ struct LibraryView: View {
                     .pickerStyle(.segmented)
             }
         }
-        .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .pad ? DesignMetrics.column + 2 * DesignMetrics.margin : .infinity)
-        .padding(.horizontal, DesignMetrics.margin).padding(.top, 2).padding(.bottom, 8)
-        .frame(maxWidth: .infinity)
+        .modifier(HeaderWidth(fullWidth: tableShown))
+        .padding(.top, 2).padding(.bottom, 8)
         .background(Color(uiColor: .systemBackground))
         .animation(.snappy(duration: 0.2), value: searching)
     }
@@ -341,30 +340,38 @@ struct LibraryView: View {
     private var optionsMenu: some View {
         Menu {
             let table = LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
+            let tableName = table ? "Table" : "Detailed rows"
             Section {
-                Picker(selection: $model.libraryLayout) {
-                    Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
-                    Label(table ? "Table" : "Detailed rows", systemImage: table ? "tablecells" : "list.bullet.rectangle.portrait")
-                        .tag(LibraryLayout.table)
-                } label: { Label("View as", systemImage: "rectangle.grid.1x2") }.pickerStyle(.menu)
-                Picker(selection: sortField) {
-                    ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
-                } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }.pickerStyle(.menu)
+                Menu {
+                    Picker("View as", selection: $model.libraryLayout) {
+                        Text("List").tag(LibraryLayout.list)
+                        Text(tableName).tag(LibraryLayout.table)
+                    }.pickerStyle(.inline)
+                } label: {
+                    Label { Text("View as"); Text(model.libraryLayout == .list ? "List" : tableName) } icon: { menuIcon("rectangle.grid.1x2") }
+                }
+                Menu {
+                    Picker("Sort by", selection: sortField) {
+                        ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
+                    }.pickerStyle(.inline)
+                } label: {
+                    Label { Text("Sort by"); Text(model.librarySort.field.label) } icon: { menuIcon("arrow.up.arrow.down") }
+                }
                 if model.libraryLayout == .list || !table {
                     Menu {
                         if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
                         Toggle("Topics", isOn: $model.showTopics)
-                    } label: { Label("Show", systemImage: "eye") }
+                    } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
                 }
             }
             Section {
-                Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
-                Button("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
-                Button("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
+                MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
+                MenuRow("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
+                MenuRow("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
                     .disabled(!model.isSignedIn || model.libraryRefreshing)
             }
             Section {
-                Button("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
+                MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
             }
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Library options")
@@ -425,6 +432,8 @@ struct LibraryView: View {
                             ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics, getCredits: { model.showStore = true })
                         }
                     }
+                        // A container, so the row's own buttons (Get credits) keep their identifiers.
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("import.\(item.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                 case .queued(let command):
@@ -438,7 +447,7 @@ struct LibraryView: View {
             }.listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
             }
         }.listStyle(.plain).refreshable { await model.refreshLibrary() }
-            .contentMargins(.horizontal, listColumnInset, for: .scrollContent)
+            .readableScrollColumn(width: containerWidth)
             .overlay(alignment: .top) { updatingIndicator }
     }
 }
@@ -464,7 +473,7 @@ struct ImportRow: View {
                 Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
             let year = item.metadata?.publishedAt.map { String($0.prefix(4)) }
-            let topics = showTopics ? Array((item.metadata?.categories ?? []).prefix(3)) : []
+            let topics = showTopics ? ArxivTopics.names(for: item.metadata?.categories ?? [], limit: 3) : []
             let revision = LibrarySource.badge(sourceID: item.sourceID, revision: item.sourceRevision ?? item.requestedRevision).map { [$0] } ?? []
             let metadata = (year.map { [$0] } ?? []) + revision + topics
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
@@ -506,8 +515,8 @@ struct PaperRow: View {
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (paper.year.map { [String($0)] } ?? []) + source
-            let topics = showTopics ? Array(paper.keywords.prefix(3)) : []
-            if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.tertiary).lineLimit(2) }
+            let topics = showTopics ? ArxivTopics.names(for: paper.keywords, limit: 3) : []
+            if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 }
@@ -540,7 +549,7 @@ struct FeedView: View {
                     ContentUnavailableView { Label("Feed unavailable", systemImage: "dot.radiowaves.up.forward") }
                         description: { Text(message) }
                         actions: {
-                            if model.librarySignInRequired { Button("Sign in") { model.openSignIn() }.buttonStyle(.borderedProminent) }
+                            if model.librarySignInRequired { Button { model.openSignIn() } label: { ProminentLabel(title: "Sign in") }.buttonStyle(.borderedProminent) }
                             else { Button("Try again") { model.loadFeed() } }
                         }
                 case .loaded:
@@ -597,7 +606,7 @@ struct ChatView: View {
                             }
                         }
                         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                        .frame(maxWidth: DesignMetrics.column, alignment: .leading).padding(.horizontal, DesignMetrics.margin).padding(.top, 8)
+                        .readableColumn().padding(.top, 8)
                     }
                     if let issue = model.chatDraftIssue {
                         HStack {
@@ -613,7 +622,8 @@ struct ChatView: View {
                             .focused($composerFocused).accessibilityIdentifier("chat.composer")
                             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                             .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                        if composerFocused {
+                        // iPad keyboards have their own dismiss key.
+                        if composerFocused && UIDevice.current.userInterfaceIdiom == .phone {
                             Button { composerFocused = false } label: {
                                 Image(systemName: "keyboard.chevron.compact.down").font(.body).frame(width: 44, height: 44)
                             }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
@@ -626,7 +636,7 @@ struct ChatView: View {
                             Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
                                 .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
                         }
-                    }.frame(maxWidth: DesignMetrics.column).padding(.horizontal, DesignMetrics.margin).padding(.vertical, 10)
+                    }.readableColumn().padding(.vertical, 10)
                     // Design audit F8: sync status only when something needs attention.
                     if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
                     else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
@@ -638,6 +648,8 @@ struct ChatView: View {
                 // Design audit F8: the paper a conversation is about sits under its title (one tap back).
                 ToolbarItem(placement: .principal) { titleView }
                 ToolbarItem(placement: .topBarTrailing) { Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New chat") }
+                // Separate circles, like the Library's + and … (iOS 26 groups adjacent items otherwise).
+                if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
                 ToolbarItem(placement: .topBarTrailing) { optionsMenu }
             }
         }
@@ -657,14 +669,17 @@ struct ChatView: View {
                 Text("Paper unavailable in this library").font(.footnote).foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: DesignMetrics.column).padding(.horizontal, DesignMetrics.margin).padding(.vertical, compact ? 4 : 8)
+        .readableColumn().padding(.vertical, compact ? 4 : 8)
     }
+
+    /// iPad Reader layout: the paper is already open beside the chat.
+    private var besidePaper: Bool { UIDevice.current.userInterfaceIdiom == .pad && model.wideMode == .reader && model.tab != .chat }
 
     /// Conversation title, and under it the paper it is about (tap to return to the paper).
     private var titleView: some View {
         VStack(spacing: 1) {
             Text(model.chatTitle).font(.headline).lineLimit(1)
-            if !model.generalChat, let paper = model.chatPaper {
+            if !model.generalChat, let paper = model.chatPaper, !besidePaper {
                 Button { composerFocused = false; model.select(paper) } label: {
                     Label(paper.title, systemImage: "doc.text").labelStyle(.titleAndIcon).font(.caption).lineLimit(1)
                 }.buttonStyle(.plain).foregroundStyle(.tint)
@@ -678,15 +693,15 @@ struct ChatView: View {
     private var optionsMenu: some View {
         Menu {
             ControlGroup {
-                Button("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
-                Button("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
+                MenuRow("Smaller text", systemImage: "textformat.size.smaller") { model.chatFontSize = max(13, model.chatFontSize - 1) }
+                MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
             }.controlGroupStyle(.compactMenu)
             Section {
-                Button("All chats", systemImage: "bubble.left.and.bubble.right") { composerFocused = false; model.showAllChats = true }
-                Button("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
+                MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { composerFocused = false; model.showAllChats = true }
+                MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
             }
             Section {
-                Button("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
+                MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
             }
         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
     }
@@ -768,7 +783,7 @@ struct SettingsView: View {
                     LabeledContent("Environment", value: "Private beta · staging")
                 }
             }
-            .contentMargins(.horizontal, UIDevice.current.userInterfaceIdiom == .pad ? max(0, (width - DesignMetrics.column) / 2) : 0, for: .scrollContent)
+            .readableScrollColumn(width: width)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
@@ -860,7 +875,7 @@ struct HistoryView: View {
                                     Spacer(minLength: 8)
                                     Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
                                 }.contentShape(Rectangle())
-                            }.accessibilityLabel(event.payload.text ?? "Untitled")
+                            }.tint(.primary).accessibilityLabel(event.payload.text ?? "Untitled")
                         }
                     }
                     ForEach(savedDiagrams, id: \.id) { saved in
@@ -926,6 +941,18 @@ struct ImportPaperView: View {
     @State private var input = ""
     @State private var saving = false
     @State private var issue: String?
+
+    private func add() {
+        saving = true; issue = nil
+        Task {
+            defer { saving = false }
+            do { try await model.importPaper(input); dismiss() }
+            catch is CancellationError { }
+            catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
+            catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
+            catch { issue = "Couldn’t save this import. Your link is still here." }
+        }
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -936,32 +963,32 @@ struct ImportPaperView: View {
                         .disabled(saving)
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
                 }
-                if !model.canChangeLibrary {
-                    Section { Text("Restore this device to save library changes.").font(.footnote).foregroundStyle(.secondary) }
+                if model.librarySignInRequired {
+                    Section {
+                        Text("Sign in to add papers to your library.").font(.footnote).foregroundStyle(.secondary)
+                        Button("Sign in") { dismiss(); model.openSignIn() }
+                    }
+                } else if !model.canChangeLibrary {
+                    Section { Text("Finish setting up this device to add papers.").font(.footnote).foregroundStyle(.secondary) }
                 } else if !model.libraryHasSnapshot {
                     Section {
                         Text("Refresh your library before adding a paper.").font(.footnote).foregroundStyle(.secondary)
                         Button("Refresh library") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
                     }
                 }
-                Section {
-                    Button {
-                        saving = true; issue = nil
-                        Task {
-                            defer { saving = false }
-                            do { try await model.importPaper(input); dismiss() }
-                            catch is CancellationError { }
-                            catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
-                            catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
-                            catch { issue = "Couldn’t save this import. Your link is still here." }
-                        }
-                    } label: {
-                        HStack { Text("Add paper"); if saving { Spacer(); ProgressView() } }
-                    }.disabled(saving || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canBeginImport)
-                        .accessibilityIdentifier("import.add")
-                }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) } }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
+                    // Design audit 2: a task sheet confirms in the top bar.
+                    ToolbarItem(placement: .confirmationAction) {
+                        if saving { ProgressView() } else {
+                            Button("Add") { add() }
+                                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canBeginImport)
+                                .accessibilityIdentifier("import.add")
+                        }
+                    }
+                }
+                .onSubmit { if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.canBeginImport { add() } }
                 .interactiveDismissDisabled(saving)
         }
     }
@@ -1185,5 +1212,22 @@ struct TabBarItem: View {
         .frame(maxWidth: .infinity).frame(minHeight: 49)
         .background(selected ? Color.accentColor.opacity(0.12) : Color.clear, in: Capsule())
         .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+    }
+}
+
+/// Library header width: the readable column, or the full pane over the table.
+private struct HeaderWidth: ViewModifier {
+    let fullWidth: Bool
+    func body(content: Content) -> some View {
+        if fullWidth { content.padding(.horizontal, DesignMetrics.margin) } else { content.readableColumn() }
+    }
+}
+
+/// Banners above content follow the header's width.
+private struct BannerInset: ViewModifier {
+    let inset: Bool
+    let fullWidth: Bool
+    func body(content: Content) -> some View {
+        if !inset { content } else if fullWidth { content.padding(.horizontal, DesignMetrics.margin) } else { content.readableColumn() }
     }
 }

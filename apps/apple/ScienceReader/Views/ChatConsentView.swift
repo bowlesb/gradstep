@@ -28,7 +28,7 @@ struct ChatConsentView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
                     Button { model.acceptChatConsent(prompt) } label: {
-                        Text("Continue").frame(maxWidth: .infinity, minHeight: 44)
+                        ProminentLabel(title: "Continue", fullWidth: true)
                     }.buttonStyle(.borderedProminent).accessibilityIdentifier("chat.consent.accept")
                     Button { model.declineChatConsent(prompt) } label: {
                         Text("Not now").frame(maxWidth: .infinity, minHeight: 44)
