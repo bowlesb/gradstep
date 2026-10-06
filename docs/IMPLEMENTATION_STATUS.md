@@ -34,7 +34,8 @@ and detailed rows on iPhone; a one-row search header (search, Add, one … menu;
 while searching); and an independent design audit of every screen against the owner's principles
 ([DESIGN](DESIGN.md), [audit 1](design-audits/2026-10-06-audit1.md)) with its findings applied: one menu/button
 style per screen, one status banner, type scale and margins, 720 pt columns on iPad, quieter chat and settings.
-Checked with before/after screenshots on iPhone and iPad, light and dark.
+Checked with before/after screenshots on iPhone and iPad, light and dark, and a second independent verification
+pass ([audit 2](design-audits/2026-10-06-audit2.md)). Shipped in TestFlight build 11 (2026-10-06).
 
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
