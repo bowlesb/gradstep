@@ -51,6 +51,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No matching papers"].waitForExistence(timeout: 5))
         app.buttons["search.clear"].tap()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5))
+        // The Library/arXiv switch belongs to searching: it shows while the field is active.
+        if !app.segmentedControls.buttons["arXiv"].exists { search.tap() }
+        XCTAssertTrue(app.segmentedControls.buttons["arXiv"].waitForExistence(timeout: 5))
         app.segmentedControls.buttons["arXiv"].tap()
         XCTAssertTrue(app.staticTexts["Find papers"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons[sampleID].exists, "External search must never relabel local rows")

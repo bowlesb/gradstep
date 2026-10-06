@@ -145,3 +145,16 @@ Defaults chosen (easy to revisit, none hard to reverse):
 - **Installed builds keep working.** Builds before this change cannot show web papers, so their library reads (v2)
   leave web entries out; newer builds read v3. Ingest adds a web paper only for builds that declare
   `capabilities: ["web_import"]`; older builds are told to update.
+
+## Library header and design audit (owner asked 2026-10-05)
+
+After build 8 the owner approved replacing the system search bar (its navigation-bar drawer left a gap) and asked
+for an independent design audit against these principles: well-considered margins; details and options tucked
+away until needed; visual hierarchy (primary things larger, secondary smaller); as much open space as possible
+("walking into a living room and seeing mostly open space"); and one uniform, consistent way to reach options
+just below the surface across the app.
+
+Library header: one row with the system search field, Add (+) and one options menu (…) that merges the former
+"Library options" and "Sort and details" menus (layout, sort, show, then All chats, All diagrams, Refresh). While
+searching, Cancel replaces + and …, and the Library/arXiv switch appears under the field; Cancel returns to the
+library. The navigation bar is hidden on the Library root.

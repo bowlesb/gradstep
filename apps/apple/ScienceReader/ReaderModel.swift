@@ -56,7 +56,7 @@ enum LibraryListEntry: Identifiable {
     var title: String {
         switch self {
         case .paper(let paper): paper.title
-        case .pending(let item): item.metadata?.title ?? "arXiv \(item.sourceID)"
+        case .pending(let item): item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)
         case .queued(let command): command.display ?? "Queued paper"
         }
     }
@@ -1430,7 +1430,7 @@ final class ReaderModel {
         let scope = sessionID
         let mutation: LibraryMutation = retry ? .retryImport(importID: item.id, expectedRevision: item.intentRevision)
             : .cancelImport(importID: item.id, expectedRevision: item.intentRevision)
-        do { _ = try await commands.enqueue(mutation, display: String((item.metadata?.title ?? "arXiv \(item.sourceID)").unicodeScalars.prefix(200))) }
+        do { _ = try await commands.enqueue(mutation, display: String((item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)).unicodeScalars.prefix(200))) }
         catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 

@@ -80,6 +80,42 @@ final class VisualScenarioTests: XCTestCase {
                 app.buttons["chat.getCredits"].tap()
                 XCTAssertTrue(app.navigationBars["Get credits"].waitForExistence(timeout: 5)); sleep(1)
             },
+            // Design audit (owner request 2026-10-05): the layer just below the surface.
+            "library-options": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.tapMenu(app, "Library options")
+            },
+            "library-add": Scenario(arguments: ["--workflow-fixture"]) { app in
+                let add = app.buttons["Add a paper"]
+                XCTAssertTrue(add.waitForExistence(timeout: 5)); add.tap(); sleep(1)
+            },
+            "paper-options": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.openSample(app)
+                self.tapMenu(app, "Paper options")
+            },
+            "paper-selection": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.openSample(app)
+                let web = app.webViews.firstMatch
+                XCTAssertTrue(web.waitForExistence(timeout: 5))
+                app.buttons["Table of contents"].tap()
+                let section = app.buttons["1. Start with the question"]
+                XCTAssertTrue(section.waitForExistence(timeout: 5)); section.tap()
+                let paragraph = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass identifies")).firstMatch
+                XCTAssertTrue(paragraph.waitForExistence(timeout: 5))
+                web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18)).press(forDuration: 1)
+                XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "chat-history": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=answer"]) { app in
+                self.ask(app, "Why scale by the square root of d_k?")
+                sleep(3); self.dismissKeyboard(app)
+                app.buttons["Chat history"].tap(); sleep(1)
+            },
+            "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
+                app.buttons["tab.settings"].tap()
+                let signIn = app.buttons["account.signIn"]
+                XCTAssertTrue(signIn.waitForExistence(timeout: 5)); signIn.tap()
+                XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5)); sleep(1)
+            },
             "settings": Scenario(arguments: ["--workflow-fixture"]) { app in app.buttons["tab.settings"].tap(); sleep(1) },
             "settings-end": Scenario(arguments: ["--workflow-fixture"]) { app in
                 app.buttons["tab.settings"].tap()
@@ -87,6 +123,11 @@ final class VisualScenarioTests: XCTestCase {
                 sleep(1)
             },
         ]
+    }
+
+    private func tapMenu(_ app: XCUIApplication, _ label: String) {
+        let button = app.buttons[label]
+        XCTAssertTrue(button.waitForExistence(timeout: 5)); button.tap(); sleep(1)
     }
 
     private func openSample(_ app: XCUIApplication) {

@@ -19,7 +19,7 @@ final class LibraryLayoutTests: XCTestCase {
     }
 
     private func choose(_ item: String, in app: XCUIApplication, screenshot: String? = nil) {
-        app.buttons["Sort and details"].tap()
+        app.buttons["Library options"].tap()
         let button = app.buttons[item].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5), "Menu item \(item)")
         if let screenshot {
@@ -54,7 +54,7 @@ final class LibraryLayoutTests: XCTestCase {
         try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "The table needs a wide container")
         XCUIDevice.shared.orientation = .portrait
         let app = launch()
-        choose("Table", in: app, screenshot: "Sort and details menu (iPad)")
+        choose("Table", in: app, screenshot: "Library options menu (iPad)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
         XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
         let attached = XCTAttachment(screenshot: app.screenshot()); attached.name = "Library table"; attached.lifetime = .keepAlways; add(attached)
@@ -97,7 +97,7 @@ final class LibraryLayoutTests: XCTestCase {
         try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Phone portrait is the narrow form")
         XCUIDevice.shared.orientation = .portrait
         let app = launch()
-        choose("Detailed rows", in: app, screenshot: "Sort and details menu (iPhone)")
+        choose("Detailed rows", in: app, screenshot: "Library options menu (iPhone)")
         let row = app.buttons["paper.\(attention)"]
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         XCTAssertTrue(row.label.contains("Vaswani, Shazeer +6"), row.label)

@@ -195,6 +195,7 @@ struct LibraryView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// For the menu's "Table"/"Detailed rows" label; the content measures its own width.
     @State private var containerWidth: CGFloat = 0
+    @State private var searchFocused = false
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -287,60 +288,78 @@ struct LibraryView: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
-            .navigationTitle("Library").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $model.searchQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: model.searchExternal ? "Search arXiv" : "Search your library")
-            // While searching, the bar's own controls are hidden: the same switch appears under the field.
-            .searchScopes($model.searchExternal, activation: .onSearchPresentation) { Text("Library").tag(false); Text("arXiv").tag(true) }
-            .onSubmit(of: .search) { if model.searchExternal { model.runDiscovery() } }
+            // Owner decision (2026-10-05, build 8 follow-up): one header row instead of the navigation
+            // bar's title row and search drawer. At rest: search, Add and one options menu. While
+            // searching: Cancel, and the Library/arXiv switch under the field.
+            .safeAreaInset(edge: .top, spacing: 0) { header }
+            .toolbar(.hidden, for: .navigationBar)
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
-            }
-            .toolbar {
-                // Owner feedback (session 2026-10-05): the Library/arXiv switch takes the title's place
-                // (the tab bar already says Library) and sort/details share one menu, so the list starts
-                // right under the search field instead of below a separate row.
-                ToolbarItem(placement: .principal) {
-                    Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }
-                        .pickerStyle(.segmented).frame(width: 190)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        let table = LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
-                        Section("Layout") {
-                            Picker("Layout", selection: $model.libraryLayout) {
-                                Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
-                                Label(table ? "Table" : "Detailed rows", systemImage: table ? "tablecells" : "list.bullet.rectangle.portrait")
-                                    .tag(LibraryLayout.table)
-                            }.pickerStyle(.inline)
-                        }
-                        Section("Sort by") {
-                            Picker("Sort", selection: sortField) {
-                                ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
-                            }.pickerStyle(.inline)
-                        }
-                        Divider()
-                        if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
-                        if model.libraryLayout == .list || !table { Toggle("Topics", isOn: $model.showTopics) }
-                    } label: { Image(systemName: "line.3.horizontal.decrease") }
-                    .accessibilityLabel("Sort and details").disabled(model.searchExternal)
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
-                        Button("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
-                        Button("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
-                            .disabled(!model.isSignedIn || model.libraryRefreshing)
-                    } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Library options")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
-                    } label: { Image(systemName: "plus") }.accessibilityLabel("Add a paper")
-                }
             }
             .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
             .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model) }
         }
+    }
+
+    private var searching: Bool { searchFocused || !model.searchQuery.isEmpty || model.searchExternal }
+
+    private var header: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search arXiv" : "Search your library",
+                                   focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
+                    .frame(height: 36)
+                if searching {
+                    Button("Cancel") {
+                        model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
+                    }.accessibilityIdentifier("library.search.cancel")
+                } else {
+                    Button {
+                        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
+                    } label: { Image(systemName: "plus").headerIcon() }.accessibilityLabel("Add a paper")
+                    optionsMenu
+                }
+            }
+            if searching {
+                Picker("Search", selection: $model.searchExternal) { Text("Library").tag(false); Text("arXiv").tag(true) }
+                    .pickerStyle(.segmented)
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
+        .background(Color(uiColor: .systemBackground))
+        .animation(.snappy(duration: 0.2), value: searching)
+    }
+
+    /// Every Library option behind one button: how the list looks, then where else to go.
+    private var optionsMenu: some View {
+        Menu {
+            let table = LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
+            Section("Layout") {
+                Picker("Layout", selection: $model.libraryLayout) {
+                    Label("List", systemImage: "list.bullet").tag(LibraryLayout.list)
+                    Label(table ? "Table" : "Detailed rows", systemImage: table ? "tablecells" : "list.bullet.rectangle.portrait")
+                        .tag(LibraryLayout.table)
+                }.pickerStyle(.inline)
+            }
+            Section("Sort by") {
+                Picker("Sort", selection: sortField) {
+                    ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
+                }.pickerStyle(.inline)
+            }
+            if model.libraryLayout == .list || !table {
+                Section("Show") {
+                    if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
+                    Toggle("Topics", isOn: $model.showTopics)
+                }
+            }
+            Section {
+                Button("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
+                Button("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
+                Button("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
+                    .disabled(!model.isSignedIn || model.libraryRefreshing)
+            }
+        } label: { Image(systemName: "ellipsis").headerIcon() }
+        .accessibilityLabel("Library options")
     }
 
     static func showsTable(width: CGFloat, textSize: DynamicTypeSize) -> Bool {
@@ -421,7 +440,7 @@ struct ImportRow: View {
     private var active: Bool { item.isActive }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(item.metadata?.title ?? "arXiv \(item.sourceID)").font(.headline).fixedSize(horizontal: false, vertical: true)
+            Text(item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)).font(.headline).fixedSize(horizontal: false, vertical: true)
             if let authors = item.metadata?.authors, !authors.isEmpty {
                 Text(authors.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
@@ -431,7 +450,7 @@ struct ImportRow: View {
             }
             let year = item.metadata?.publishedAt.map { String($0.prefix(4)) }
             let topics = showTopics ? Array((item.metadata?.categories ?? []).prefix(3)) : []
-            let revision = (item.sourceRevision ?? item.requestedRevision).map { ["arXiv v\($0)"] } ?? []
+            let revision = LibrarySource.badge(sourceID: item.sourceID, revision: item.sourceRevision ?? item.requestedRevision).map { [$0] } ?? []
             let metadata = (year.map { [$0] } ?? []) + revision + topics
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
             HStack(spacing: 6) {
@@ -470,7 +489,7 @@ struct PaperRow: View {
             }
             if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-            let source = paper.sourceID == nil ? [] : [paper.sourceRevision.map { "arXiv v\($0)" } ?? "arXiv"]
+            let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (paper.year.map { [String($0)] } ?? []) + source
             let topics = showTopics ? Array(paper.keywords.prefix(3)) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2) }
@@ -948,6 +967,7 @@ struct AcknowledgementsView: View {
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
         ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to build equation-aware readers; each reader includes its NOTICE.", "MIT / Apache 2.0"),
         ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
+        ("OpenAlex", "Search ranking, and finding open-access copies of papers that aren't on arXiv (converted privately for you).", "CC0 data"),
     ]
     var body: some View {
         List(items, id: \.0) { item in
@@ -1016,6 +1036,59 @@ struct DeleteAccountView: View {
             .navigationTitle("Delete account").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(deleting) } }
             .interactiveDismissDisabled(deleting)
+        }
+    }
+}
+
+extension Image {
+    /// Header and toolbar icons drawn by the app: one size and a 44 pt target, like system bar buttons.
+    func headerIcon() -> some View {
+        font(.system(size: 17, weight: .semibold)).frame(width: 36, height: 36)
+            .background(Color(uiColor: .tertiarySystemFill), in: Circle()).frame(width: 44, height: 44).contentShape(Rectangle())
+    }
+}
+
+/// The system search text field (look, clear button, Search key and accessibility of a search
+/// bar) for a header row of our own, without the navigation bar drawer's spacing.
+struct LibrarySearchField: UIViewRepresentable {
+    @Binding var text: String
+    var prompt: String
+    @Binding var focused: Bool
+    var onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> UISearchTextField {
+        let field = UISearchTextField()
+        field.delegate = context.coordinator
+        field.returnKeyType = .search
+        field.autocorrectionType = .no
+        field.autocapitalizationType = .none
+        field.accessibilityIdentifier = "library.search"
+        // Announced (and found by UI tests) as a search field, like the system search bar.
+        field.accessibilityTraits.insert(.searchField)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ field: UISearchTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.text != text { field.text = text }
+        if field.placeholder != prompt { field.placeholder = prompt }
+        if focused, !field.isFirstResponder { DispatchQueue.main.async { field.becomeFirstResponder() } }
+        else if !focused, field.isFirstResponder { DispatchQueue.main.async { field.resignFirstResponder() } }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: LibrarySearchField
+        init(_ parent: LibrarySearchField) { self.parent = parent }
+        @objc func changed(_ field: UITextField) { parent.text = field.text ?? "" }
+        func textFieldDidBeginEditing(_ field: UITextField) { if !parent.focused { parent.focused = true } }
+        func textFieldDidEndEditing(_ field: UITextField) { if parent.focused { parent.focused = false } }
+        func textFieldShouldReturn(_ field: UITextField) -> Bool {
+            parent.onSubmit(); field.resignFirstResponder(); return true
         }
     }
 }

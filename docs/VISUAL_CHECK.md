@@ -8,7 +8,9 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 
 `apps/apple/ScienceReaderUITests/VisualScenarioTests.swift` holds named, deterministic screens built from fixtures
 (no network, no account): `library`, `library-search`, `library-table`, `library-detailed`, `library-metadata-list`, `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
-`chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `settings`, `settings-end`. Add a scenario
+`chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `settings`, `settings-end`, and for the
+design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
+`chat-history`, `signin`. Add a scenario
 when feedback concerns a screen that isn't covered; reproduce the state from the session timeline (tab, sheet,
 keyboard, orientation, device). Screens that need real data use the staging journey (`scripts/live-journey.mjs`).
 
