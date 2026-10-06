@@ -293,10 +293,12 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
                   originalObjectID == nil else { throw LibraryProtocolError.invalidEntry }
             if readiness == .pdfReady || readiness == .convertedReady { throw LibraryProtocolError.invalidEntry }
         } else {
-            guard versionID != nil, metadataID != nil, source == "arxiv", let sourceID,
+            guard versionID != nil, metadataID != nil, let source, let sourceID,
                   bounded(sourceID, 128, minimum: 1), let revision = sourceRevision, validRevision(revision),
                   metadata != nil, metadataRecordedAt != nil, originalObjectID != nil,
-                  sourceURL == arxivURL(sourceID, revision) else { throw LibraryProtocolError.invalidEntry }
+                  LibrarySource.validItem(source: source, sourceID: sourceID, revision: revision, url: sourceURL) else {
+                throw LibraryProtocolError.invalidEntry
+            }
             if readiness == .convertedReady && artifactID == nil { throw LibraryProtocolError.invalidEntry }
             if readiness == .unverified { throw LibraryProtocolError.invalidEntry }
         }
@@ -391,9 +393,10 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
 
     func validate() throws {
         guard createdSequence > 0, stateSequence >= createdSequence, intentRevision > 0,
-              source == "arxiv", bounded(sourceID, 128, minimum: 1),
+              bounded(sourceID, 128, minimum: 1),
               requestedRevision.map(validRevision) ?? true, sourceRevision.map(validRevision) ?? true,
-              sourceURL == arxivURL(sourceID, sourceRevision ?? requestedRevision),
+              LibrarySource.validImport(source: source, sourceID: sourceID, requestedRevision: requestedRevision,
+                                        sourceRevision: sourceRevision, url: sourceURL),
               (documentID == nil) == (libraryItemID == nil),
               !retryable || phase == .failed else { throw LibraryProtocolError.invalidEntry }
         if phase == .ready {
@@ -636,6 +639,59 @@ private func validRevision(_ value: Int) -> Bool { value > 0 && value <= 2_147_4
 
 private func arxivURL(_ source: String, _ revision: Int?) -> String {
     "https://arxiv.org/abs/" + source + (revision.map { "v\($0)" } ?? "")
+}
+
+/// Where a library paper came from. v3 library reads carry arXiv papers and web
+/// papers: open-access copies found through OpenAlex (`openalex:W…`, revision 1),
+/// converted privately for this account. v2 reads (older builds) carry arXiv only.
+public enum LibrarySource {
+    public static let arxiv = "arxiv", web = "web"
+
+    public static func isWebSourceID(_ value: String) -> Bool {
+        let digits = value.utf8.dropFirst("openalex:W".utf8.count)
+        return value.hasPrefix("openalex:W") && (1...15).contains(digits.count) && digits.first != 48
+            && digits.allSatisfy { (48...57).contains($0) }
+    }
+
+    /// The OpenAlex page of a web paper's work (its source URL until the paper is pinned).
+    public static func openAlexURL(_ sourceID: String) -> String {
+        "https://openalex.org/works/" + sourceID.dropFirst("openalex:".count)
+    }
+
+    /// Short source label: "arXiv v3", "arXiv", or "Open access" for a web paper.
+    public static func badge(sourceID: String?, revision: Int?) -> String? {
+        guard let sourceID else { return nil }
+        if isWebSourceID(sourceID) { return "Open access" }
+        return revision.map { "arXiv v\($0)" } ?? "arXiv"
+    }
+
+    /// Title shown before a paper's metadata arrives.
+    public static func placeholderTitle(sourceID: String) -> String {
+        isWebSourceID(sourceID) ? "Open-access paper" : "arXiv \(sourceID)"
+    }
+
+    static func validItem(source: String, sourceID: String, revision: Int, url: String?) -> Bool {
+        switch source {
+        case arxiv: return url == arxivURL(sourceID, revision)
+        case web: return isWebSourceID(sourceID) && revision == 1 && url.map(validHTTPS) == true
+        default: return false
+        }
+    }
+
+    static func validImport(source: String, sourceID: String, requestedRevision: Int?, sourceRevision: Int?, url: String) -> Bool {
+        switch source {
+        case arxiv: return url == arxivURL(sourceID, sourceRevision ?? requestedRevision)
+        case web: return isWebSourceID(sourceID) && requestedRevision == nil && (sourceRevision ?? 1) == 1 && url == openAlexURL(sourceID)
+        default: return false
+        }
+    }
+
+    static func validHTTPS(_ value: String) -> Bool {
+        guard bounded(value, 512, minimum: 9), value.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }),
+              let components = URLComponents(string: value), components.scheme == "https",
+              let host = components.host, !host.isEmpty, components.user == nil, components.password == nil else { return false }
+        return true
+    }
 }
 
 private func validCalendarDate(_ value: String) -> Bool {

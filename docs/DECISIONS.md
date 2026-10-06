@@ -109,3 +109,23 @@ Implementation choices (easy to change; see [purchases](architecture/PURCHASES.m
   `com.sciencereader.ios.{standard.monthly, pro.monthly, credits.400}` in group "Plans", US prices, App Store market
   only; sandbox server notifications go to staging. Territories, final names and review screenshots are revisited
   before public release.
+
+## Ingest adds papers from the web (owner asked 2026-10-05)
+
+Owner: "the background agent, upon being asked to ingest, should be able to import papers it finds on internet, not
+just archive". Implemented as **web imports** (migration 019; see [chat](architecture/CHAT.md#ingest-selection-action)).
+Defaults chosen (easy to revisit, none hard to reverse):
+
+- **Freely available PDFs only.** A cited paper without an arXiv copy is added from a PDF OpenAlex lists for it:
+  its open-access locations (Unpaywall data: repositories, publisher OA copies) and PDFs on free ML venues (JMLR,
+  PMLR, NeurIPS/ICML/ICLR, CVF, ECCV, BMVC, ACL Anthology, OpenReview, AAAI, IJCAI, JAIR, ISCA, RSS), which
+  OpenAlex often labels closed (e.g. Dropout, JMLR 2014). A paper with neither is reported as "not openly
+  available" with its DOI/landing link; nothing is fetched. A login page or paywall in place of a PDF is refused.
+- **Always a private conversion** for the requesting account (like non-CC arXiv papers): never shared or reused by
+  another account; the reader's attribution says so and links the landing page.
+- **The server picks the PDF**, from OpenAlex's record of the work; clients only name an OpenAlex work
+  (`openalex:W…`). Downloads are hardened (https on a public DNS name, every redirect re-checked, private addresses
+  refused, PDF bytes required, size/page limits, credits required before downloading).
+- **Installed builds keep working.** Builds before this change cannot show web papers, so their library reads (v2)
+  leave web entries out; newer builds read v3. Ingest adds a web paper only for builds that declare
+  `capabilities: ["web_import"]`; older builds are told to update.

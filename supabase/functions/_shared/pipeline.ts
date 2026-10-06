@@ -8,6 +8,7 @@ import { unpackReaderZip } from './archive.ts';
 import { sha256 } from './http.ts';
 import { MathpixError, mathpixProfile, type MathpixConversion, type MathpixStatus, type MathpixSubmission } from './mathpix.ts';
 import { SourceError } from './source-xml.ts';
+import { fetchFirstWebPDF, fetchOpenAlexWork, openAlexWork, openAlexWorkURL, openPDFLocations, WebSourceError, type ResolveHost } from './web-source.ts';
 
 export const BUCKET = 'paper-assets';
 export const RAW_FORMAT = 'science-reader-mathpix-raw-v1';
@@ -30,6 +31,8 @@ export interface PaperEntry {
   document_id: string | null; document_sha256: string | null; original_path: string | null; original_bytes: number | null; page_count: number | null;
   due?: boolean; raw_manifest_path?: string | null; ocr_run_id?: string | null;
   license_uri?: string | null; title?: string | null; authors?: string[] | null;
+  /** Web papers (migration 019): OpenAlex source ID, open-access PDF locations, landing page. */
+  source_kind?: 'arxiv' | 'web'; pdf_urls?: string[] | null; landing_url?: string | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
 }
 export interface PipelinePolicy { max_pdf_bytes: number; max_ocr_pages: number; renderer_version: string; enabled: boolean }
@@ -67,6 +70,8 @@ export interface PipelineDeps {
   log(event: string, fields?: Record<string, string | number | boolean | null>): void;
   /** Starts a fresh worker invocation (each gets its own CPU allowance). */
   kick?(): Promise<void>;
+  /** Resolves a web PDF host so private and reserved addresses are refused. */
+  resolveHost?: ResolveHost;
 }
 
 const hex = (value: string) => '\\x' + value;
@@ -153,7 +158,29 @@ async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Prom
   return { entry: e, stop: 'release' };
 }
 
+const isWeb = (e: PaperEntry) => e.source_kind === 'web' || e.source_id.startsWith('openalex:');
+
+/** Web source failures become pipeline failures; `resume` is where a user retry restarts. */
+function webFailure(error: unknown, resume: string): never {
+  if (error instanceof WebSourceError) throw error.permanent ? new PermanentFailure(error.code, resume) : new Error(error.code);
+  throw error;
+}
+
+async function stageWebMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
+  let work;
+  try { work = openAlexWork(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id))); }
+  catch (error) { webFailure(error, 'metadata'); }
+  if (!work) throw new PermanentFailure('metadata_unavailable', 'metadata');
+  // No open-access copy (anymore): nothing to download.
+  if (!work.pdfURLs.length) throw new PermanentFailure('download_failed', 'metadata');
+  const entry = await deps.rpc<PaperEntry>('worker_pipeline_web_metadata', { ...claim, p_metadata: work.metadata, p_doi: work.doi,
+    p_pdf_urls: work.pdfURLs, p_landing_url: work.landingURL });
+  deps.log('metadata', { paper: e.id, web: true, locations: work.pdfURLs.length });
+  return { entry };
+}
+
 async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): Promise<StepResult> {
+  if (isWeb(e)) return stageWebMetadata(deps, e, claim);
   const reference = { sourceID: e.source_id, revision: e.requested_revision > 0 ? e.requested_revision : null };
   const urls = arxivURLs(reference);
   const spacing = await arxivWait(deps, 2);
@@ -174,8 +201,15 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
   return { entry };
 }
 
-async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<StepResult> {
+/** Web downloads are bounded well inside the claim's lease (180 s, renewed by
+ * admission) and the invocation's deadline. */
+const WEB_DOWNLOAD_MS = 110_000;
+
+async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy, deadline = Infinity): Promise<StepResult> {
   if (!e.revision) throw new Error('revision_missing');
+  const webBudget = Math.min(WEB_DOWNLOAD_MS, deadline - deps.now() - 45_000);
+  // Not enough time left in this invocation: start the download in a fresh one.
+  if (isWeb(e) && webBudget < 30_000) return { entry: e, defer: 0 };
   // Storage caps and (for private copies) owner credits are checked before
   // any bytes are fetched or stored.
   const admission = await deps.rpc<{ admitted: boolean; reason?: string }>('worker_pipeline_admit_download', claim);
@@ -183,8 +217,31 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
     deps.log('download_not_admitted', { paper: e.id, reason: admission.reason ?? null });
     return { entry: e, stop: 'release' };
   }
-  await arxivWait(deps);
-  const bytes = await fetchArxiv(deps.fetch, `https://arxiv.org/pdf/${e.source_id}v${e.revision}`, policy.max_pdf_bytes, 'application/pdf');
+  let bytes: Uint8Array;
+  if (isWeb(e)) {
+    if (!e.owner_id || !e.pdf_urls?.length) throw new Error('web_location_missing');
+    const budget = AbortSignal.timeout(webBudget);
+    // Locations move: re-read them from OpenAlex (falling back to the recorded ones).
+    let urls = e.pdf_urls;
+    try {
+      const fresh = openPDFLocations(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id)));
+      if (fresh.length && fresh.join('\n') !== urls.join('\n')) {
+        urls = (await deps.rpc<PaperEntry>('worker_pipeline_web_locations', { ...claim, p_pdf_urls: fresh })).pdf_urls ?? fresh;
+        deps.log('web_locations', { paper: e.id, locations: urls.length });
+      } else await deps.rpc('worker_pipeline_heartbeat', claim);
+    } catch (error) {
+      if (!(error instanceof WebSourceError)) throw error;
+      await deps.rpc('worker_pipeline_heartbeat', claim);
+    }
+    try {
+      const found = await fetchFirstWebPDF(deps.fetch, urls, policy.max_pdf_bytes, deps.resolveHost, budget);
+      bytes = found.bytes;
+      deps.log('web_download', { paper: e.id, location: urls.indexOf(found.url) });
+    } catch (error) { webFailure(error, 'download'); }
+  } else {
+    await arxivWait(deps);
+    bytes = await fetchArxiv(deps.fetch, `https://arxiv.org/pdf/${e.source_id}v${e.revision}`, policy.max_pdf_bytes, 'application/pdf');
+  }
   const pages = await countPages(bytes);
   if (pages > 250) throw new PermanentFailure('too_large');
   const digest = await sha256(bytes);
@@ -342,11 +399,15 @@ async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, poli
   catch { throw new PermanentFailure('render_failed', 'render'); }
   if (files.filter(f => f.path.toLowerCase().endsWith('.mmd')).length !== 1) throw new PermanentFailure('render_failed', 'render');
   const m = raw.manifest as { provider_job_id: string; options_sha256: string; page_limit: number; pages: number };
-  const source = `arXiv:${e.source_id}v${e.revision}`;
-  const credit = e.title ? `"${e.title}"${e.authors?.length ? ` by ${e.authors.slice(0, 8).join(', ')}${e.authors.length > 8 ? ' et al.' : ''}` : ''}, ${source}` : source;
+  const web = isWeb(e);
+  const original = web ? e.landing_url ?? `https://openalex.org/works/${e.source_id.slice('openalex:'.length)}` : `https://arxiv.org/abs/${e.source_id}v${e.revision}`;
+  const source = web ? null : `arXiv:${e.source_id}v${e.revision}`;
+  const byline = e.authors?.length ? ` by ${e.authors.slice(0, 8).join(', ')}${e.authors.length > 8 ? ' et al.' : ''}` : '';
+  const credit = e.title ? `"${e.title}"${byline}${source ? `, ${source}` : ''}` : source ?? original;
+  if (web && !e.owner_id) throw new PermanentFailure('render_failed', 'render');
   const attribution = e.owner_id
-    ? `${credit}. Converted for the personal use of one Science Reader account; not redistributed. Original: https://arxiv.org/abs/${e.source_id}v${e.revision}`
-    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Science Reader (layout and math rendering changed). Original: https://arxiv.org/abs/${e.source_id}v${e.revision}`;
+    ? `${credit}. Converted for the personal use of one Science Reader account; not redistributed. Original: ${original}`
+    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Science Reader (layout and math rendering changed). Original: ${original}`;
   let bundle: RenderedBundle;
   try {
     bundle = await deps.render({ archive: new Map(files.map(f => [f.path, f.bytes])), attribution, titleFallback: e.title ?? undefined,

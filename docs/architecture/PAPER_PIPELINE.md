@@ -40,6 +40,49 @@ Status 2026-10-05: implemented in migration 014, `supabase/functions/_shared/pip
    projects progress (`finding/downloading/converting/rendering`) onto imports and resolves them
    through the existing `worker_resolve_import`, producing a `converted_ready` library item.
 
+## Web papers
+
+Migration 019 (Ingest of a cited paper with no arXiv copy;
+[decision](../DECISIONS.md#ingest-adds-papers-from-the-web-owner-asked-2026-10-05)). Same stages, with these
+differences:
+
+- **Identity.** `v2_begin_web_import(operation, 'openalex:W<digits>', observed cursor)` (no revision; digest tag
+  `web-import-v1`). The prefix can never equal an arXiv ID, so the shared/private slot indexes and every
+  `source_id` comparison are unchanged. Catalog: identifiers `openalex:W…` (namespace added) and the DOI, version
+  `('web','v1')`, `catalog_metadata.source_revision = 1`.
+- **Metadata** (`worker_pipeline_web_metadata`): the worker reads the work from `api.openalex.org` (redirects only
+  within it, 2 MiB cap): title, authors, abstract, publication date, venue (`categories` empty), DOI, up to three
+  PDF locations (`openPDFLocations`: the best open-access location, then PDFs on free ML venue hosts whatever
+  OpenAlex's open-access label says, then other open-access locations; http upgraded to https; arXiv-hosted,
+  IP-literal and local names dropped) and the landing page. Ingest uses the same rule to decide whether a match
+  has an open copy. The paper is always `eligible = false` (check
+  `pipeline_web_private`) and splits privately; `license_uri` is the landing page. No location → failed
+  `download_failed`, retryable from metadata.
+- **Download.** Locations are re-read from OpenAlex first (`worker_pipeline_web_locations` records a changed list;
+  the recorded list is the fallback), then tried in order (`fetchFirstWebPDF`) within one 110 s budget (inside the
+  180 s lease; with under 30 s left in the invocation the paper is deferred to a fresh one): https on the default
+  port to a public DNS name, host resolved before every hop (`Deno.resolveDns`, else DNS over HTTPS; any private,
+  loopback, link-local, shared, Teredo, documentation or reserved address refuses the hop; `dns_fallback` /
+  `dns_unresolved` are logged), every redirect re-checked (at most 5; never to arXiv), `text/html` or a body not
+  starting `%PDF-` refused (landing pages, bot challenges), 64 MiB cap, 60 s per request. 401/403/404 and the like
+  are permanent `download_failed` (retryable by the reader); 429/5xx, resets and running out of budget are
+  transient. Admission, page limits, `countPages`, the private path and `worker_pipeline_original` are the arXiv
+  ones. Metadata text has control characters removed (the reader's attribution refuses them).
+- **Provenance.** `approve_private_asset` records the landing page and PDF locations in the owner-private
+  approval; the reader attribution names the paper and links the landing page ("Converted for the personal use of
+  one Science Reader account; not redistributed").
+- **Library reads.** Entries carry `source: "web"`, `source_id: "openalex:W…"`, and `source_url` = the OpenAlex
+  work page for imports and the landing page for items. Builds before 019 reject any non-arXiv entry and would
+  stop syncing, so `v2_library_page`/`v2_library_changes` omit web entries (a change batch left empty is skipped;
+  the page limit counts returned batches) and `v3_library_page`/`v3_library_changes` return everything. An arXiv
+  import whose bytes match a web-pinned item ends as `membership_conflict` without an item, so a v2 reader never
+  sees a reference to a hidden item; a web import never pins a legacy unpinned item either. A future source kind
+  needs a new read version.
+- **Stored progress** (all imports, from 019). `import_requests.progress` is written by
+  `worker_pipeline_sync_imports` together with a new `state_seq`, instead of being computed from the paper's live
+  stage, so an import entry's JSON at a given `state_seq` never changes (clients and the offline cache require
+  that). New imports start at `finding`.
+
 ## Delivery and chat context
 
 `reader-artifact?item_id=` authenticates the user, calls `worker_reader_descriptor` (visible item,

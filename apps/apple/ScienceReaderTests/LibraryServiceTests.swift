@@ -415,7 +415,7 @@ final class LibraryTransportTests: XCTestCase {
         let third = try reconciler.nextRequest(limit: 7), thirdReply = try await client.libraryPage(third)
         XCTAssertEqual(thirdReply.request, third)
         let requests = server.requests()
-        XCTAssertEqual(requests.map { $0.url!.lastPathComponent }, ["v2_library_page", "v2_library_page", "v2_library_changes"])
+        XCTAssertEqual(requests.map { $0.url!.lastPathComponent }, ["v3_library_page", "v3_library_page", "v3_library_changes"])
         XCTAssertTrue(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-library-token" })
         let continuation = try XCTUnwrap(try body(requests[1])["p_cursor"] as? [String: Any])
         XCTAssertEqual(continuation["account_id"] as? String, account.wire)

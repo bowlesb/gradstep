@@ -3,6 +3,7 @@ import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from '../_shared/discover.ts';
+import { publicHTTPS } from '../_shared/web-source.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -49,7 +50,7 @@ Deno.serve(async request => {
       const { data, error } = await user.rpc('v1_credit_balance');
       return error || typeof data?.available !== 'number' ? null : data.available;
     },
-    findPaper: async (wanted, signal) => {
+    findPaper: async (wanted, signal, { web }) => {
       // One paced request at a time, stopping at the first clear match. A
       // failed query does not hide the others; all failing is "unavailable".
       const slot = async (slots: number) => {
@@ -66,7 +67,8 @@ Deno.serve(async request => {
         if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } };
       }
       // OpenAlex knows a paper's other versions: an arXiv copy arXiv's own search
-      // missed (conference titles often differ), with the same strict match.
+      // missed (conference titles often differ), with the same strict match; otherwise
+      // an open-access copy elsewhere (the worker re-reads its locations from OpenAlex).
       const find = !signal.aborted ? openAlexFindURL(wanted) : null;
       if (find) {
         try {
@@ -74,19 +76,34 @@ Deno.serve(async request => {
             headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
           if (response.ok) {
             answered = true;
-            const match = matchPaper(wanted, openAlexCandidates(await response.json()));
-            if (match?.arxivID) return { status: 'found', paper: { source_id: match.arxivID, title: match.title, year: match.year } };
+            // A paper's preprint and journal versions are often separate works: prefer one
+            // with an arXiv copy, then one with an open-access PDF.
+            const candidates = openAlexCandidates(await response.json());
+            const openPDF = (url: string | null) => {
+              const open = url ? publicHTTPS(url.replace(/^http:\/\//i, 'https://')) : null;
+              return open && !/(^|\.)arxiv\.org$/.test(open.hostname) ? open : null;
+            };
+            const match = matchPaper(wanted, candidates.filter(c => c.arxivID)) ?? matchPaper(wanted, candidates.filter(c => openPDF(c.pdfURL)))
+              ?? matchPaper(wanted, candidates);
+            if (match?.arxivID) return { status: 'found', paper: { source_id: match.arxivID, title: match.title, year: match.year, kind: 'arxiv' } };
+            if (match) {
+              const open = openPDF(match.pdfURL);
+              const paper = { source_id: `openalex:${match.openalexID}`, title: match.title, year: match.year, kind: 'web' as const,
+                host: open?.hostname ?? null, link: match.landingURL };
+              return { status: open ? web ? 'found' : 'needs_update' : 'closed', paper };
+            }
           } else void response.body?.cancel().catch(() => {});
         } catch { /* unavailable */ }
       }
       return { status: answered && !signal.aborted ? 'not_found' : 'unavailable' };
     },
-    importPaper: async (sourceID, signal) => {
+    importPaper: async (paper, signal) => {
       // The caller's own library command, exactly like the app's Add. Skip
       // papers already present or still importing (bounded look-up).
+      const sourceID = paper.source_id;
       let cursor: unknown = null, head: unknown = null;
       for (let page = 0; page < 3; page++) {
-        const { data, error } = await user.rpc('v2_library_page', { p_cursor: cursor, p_limit: 100 }).abortSignal(signal);
+        const { data, error } = await user.rpc('v3_library_page', { p_cursor: cursor, p_limit: 100 }).abortSignal(signal);
         if (error || typeof data?.baseline_cursor !== 'number') return 'failed';
         head ??= data.baseline_cursor;
         const entries: { kind?: string; source_id?: string; visible?: boolean; phase?: string }[] = Array.isArray(data.entries) ? data.entries : [];
@@ -95,7 +112,8 @@ Deno.serve(async request => {
         cursor = data.next_cursor;
       }
       if (signal.aborted) return 'failed';
-      const { data, error } = await user.rpc('v2_begin_import', { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: head });
+      const { data, error } = await user.rpc(paper.kind === 'web' ? 'v2_begin_web_import' : 'v2_begin_import',
+        { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: head });
       return !error && data?.result?.status === 'applied' ? 'added' : 'failed';
     },
     log: entry => console.warn(JSON.stringify({ function: 'chat', ...entry })),

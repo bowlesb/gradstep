@@ -1,6 +1,7 @@
 // arXiv discovery for the Library "arXiv" search. Pure helpers (Deno + Node).
 import { arxivReference } from './arxiv.ts';
 import { children, one, plain, sourceXML } from './source-xml.ts';
+import { openPDFLocations } from './web-source.ts';
 
 const ATOM = 'http://www.w3.org/2005/Atom';
 
@@ -105,7 +106,7 @@ export function openAlexResult(work: unknown): DiscoveryResult | null {
 }
 
 /** A paper as OpenAlex knows it, for Ingest: its arXiv copy if any, otherwise
- * its open-access PDF (Unpaywall data) and DOI. `source_id` is the key matching uses. */
+ * its first open PDF location (see openPDFLocations) and DOI. `source_id` is the key matching uses. */
 export interface OpenAlexCandidate {
   source_id: string; title: string; year: number | null; authors: string[];
   arxivID: string | null; openalexID: string; doi: string | null; pdfURL: string | null; landingURL: string | null; license: string | null;
@@ -142,7 +143,7 @@ export function openAlexCandidates(json: unknown): OpenAlexCandidate[] {
     const openalexID = w.id.slice('https://openalex.org/'.length);
     candidates.push({ source_id: arxiv?.sourceID ?? openalexID, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 400),
       year: typeof w.publication_year === 'number' ? w.publication_year : null, authors, arxivID: arxiv?.sourceID ?? null, openalexID,
-      doi, pdfURL: safeURL(best?.pdf_url), landingURL: safeURL(best?.landing_page_url) ?? (doi ? `https://doi.org/${doi}` : null),
+      doi, pdfURL: openPDFLocations(w)[0] ?? null, landingURL: safeURL(best?.landing_page_url) ?? (doi ? `https://doi.org/${doi}` : null),
       license: typeof best?.license === 'string' ? best.license.slice(0, 40) : null });
   }
   return candidates;

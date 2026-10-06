@@ -71,7 +71,7 @@ struct OfflineCacheStorage {
         let sealed = try blob("SELECT sealed FROM local_library_cache_checkpoint WHERE id=1", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         let value = try decode(CachePresentationCheckpoint.self, sealed: sealed, digest: digest,
                                domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
-        guard value.format == 1, value.scope == scope, value.cursor >= 0,
+        guard [1, CachePresentationCheckpoint.currentFormat].contains(value.format), value.scope == scope, value.cursor >= 0,
               value.capturedAt.timeIntervalSinceReferenceDate.isFinite,
               value.rows.count <= LibraryWire.maximumRetainedEntries else { throw OfflineCacheError.corruptCache }
         var ids = Set<UUID>(), total = sealed.count
@@ -279,13 +279,16 @@ struct OfflineCacheStorage {
         roots.scope = scope; roots.bundles = OfflineCacheCodec.digest(sealed); writes.append(.bundleIndex(sealed))
     }
 
-    func preparePresentation(_ observation: LibraryCompleteObservation, roots: OfflineCacheRoots,
-                             capturedAt: Date) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
+    func preparePresentation(_ observation: LibraryCompleteObservation, roots: OfflineCacheRoots, capturedAt: Date,
+                             format: Int = CachePresentationCheckpoint.currentFormat) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
         guard observation.accountID == scope.accountID, capturedAt.timeIntervalSinceReferenceDate.isFinite else { throw OfflineCacheError.invalidObservation }
         try validateEntries(observation.entries, cursor: observation.committedCursor)
         let old = try presentation(roots), previous = try checkpoint(roots)
         if let old {
             guard observation.committedCursor >= old.committedCursor else { throw OfflineCacheError.staleObservation }
+        }
+        // A v2-era snapshot may lack web papers at the same cursor: replace it, don't compare.
+        if let old, previous?.format == CachePresentationCheckpoint.currentFormat {
             if observation.committedCursor == old.committedCursor {
                 guard observation.entries == old.entries else { throw OfflineCacheError.conflictingObservation }
                 return (nil, old)
@@ -319,7 +322,7 @@ struct OfflineCacheStorage {
             writes.append(.presentationRow(rowID, sealed))
         }
         for (id, value) in previous?.rows ?? [:] where refs[id] == nil { writes.append(.deletePresentationRow(value.rowID)) }
-        let checkpoint = CachePresentationCheckpoint(format: 1, scope: scope, cursor: observation.committedCursor, capturedAt: capturedAt, rows: refs)
+        let checkpoint = CachePresentationCheckpoint(format: format, scope: scope, cursor: observation.committedCursor, capturedAt: capturedAt, rows: refs)
         let sealed = try seal(checkpoint, domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         guard refs.values.reduce(sealed.count, { $0 + $1.bytes }) <= OfflineCacheLimits.presentationBytes else { throw OfflineCacheError.capacityExceeded }
         writes.append(.checkpoint(sealed)); next.scope = scope; next.presentation = OfflineCacheCodec.digest(sealed)

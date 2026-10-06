@@ -206,6 +206,9 @@ struct CacheEntryReference: Codable, Equatable {
 }
 
 struct CachePresentationCheckpoint: Codable {
+    /// 2: saved from v3 library reads, which include web papers. 1: saved by builds
+    /// that read v2 (web papers left out); such a snapshot is replaced, never compared.
+    static let currentFormat = 2
     let format: Int
     let scope: LibraryCommandScope
     let cursor: Int64

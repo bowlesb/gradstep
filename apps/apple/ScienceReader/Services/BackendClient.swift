@@ -305,16 +305,17 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Library pages use their bounded wire decoder and keep the reconciler's
     /// original account/session/request ticket through the transport boundary.
+    /// v3 reads include web papers (v2, for older builds, leaves them out).
     func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
         let function: String, body: Data
         switch request.query {
         case .baseline(let cursor):
             struct Parameters: Encodable { let p_cursor: LibraryBaselineCursor?; let p_limit: Int }
-            function = "v2_library_page"
+            function = "v3_library_page"
             body = try ReaderCrypto.encode(Parameters(p_cursor: cursor, p_limit: request.limit))
         case .changes(let after, let through):
             struct Parameters: Encodable { let p_after: Int64; let p_through: Int64?; let p_limit: Int }
-            function = "v2_library_changes"
+            function = "v3_library_changes"
             body = try ReaderCrypto.encode(Parameters(p_after: after, p_through: through, p_limit: request.limit))
         }
         let data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,

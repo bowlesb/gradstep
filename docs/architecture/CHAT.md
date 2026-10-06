@@ -5,7 +5,7 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection)}`.
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored)}`.
 - Events: `delta {text}`, `diagram {title, source}`, `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
@@ -30,10 +30,23 @@ need author and year. A visible library entry or active import for that source r
 otherwise `v2_begin_import` runs **as the user** (their JWT; the app starts chat streams with ≥ 5 minutes of token
 validity), exactly like the app's Add, so normal conversion, credit holds and quotas apply. Post-settlement work has
 a 45 s budget; Stop cancels it and nothing is imported. Results are appended as inert text: queued, already in the
-library, not found on arXiv, arXiv unavailable, or could not be added. A `tool_use` stop is reported as `end_turn`.
+library, not found, search unavailable, not openly available (with an https link), needs a newer app, or could not
+be added. A `tool_use` stop is reported as `end_turn`.
 The app refreshes the library when an Ingest answer completes. Paper text could steer the model to a different
-title (prompt injection); the bound is one strictly matched arXiv paper per explicit Ingest, which the reader can
+title (prompt injection); the bound is one strictly matched paper per explicit Ingest, which the reader can
 cancel in the Library.
+
+**Web papers** (migration 019, [decision](../DECISIONS.md#ingest-adds-papers-from-the-web-owner-asked-2026-10-05)).
+When arXiv has no match, OpenAlex is searched (cited title, year ±1). Among strictly matching works, one with an
+arXiv copy wins (imported through arXiv), then one with an open-access PDF not on arXiv, then any. An open-access
+match is added with `v2_begin_web_import` (source `openalex:W…`) **only if the request carries
+`capabilities: ["web_import"]`** (body field; unknown capability values are ignored, malformed ones rejected; part
+of the request digest when present). The app sends it on Ingest requests from builds that show web papers. Older
+builds get "needs the latest Science Reader version"; a match without an open copy gets "isn't openly available".
+The presence check reads `v3_library_page` (all sources). The paper worker then reads the work from
+`api.openalex.org` itself (metadata and up to three open-access PDF locations, never arXiv-hosted) and converts a
+private copy for the account; see [pipeline](PAPER_PIPELINE.md#web-papers) and the hardened download in
+`supabase/functions/_shared/web-source.ts`.
 
 ## Diagrams
 

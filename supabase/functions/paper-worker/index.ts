@@ -16,6 +16,34 @@ function sameSecret(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** A web PDF host's addresses: the runtime resolver, else DNS over HTTPS. Throws
+ * (the download is refused) when neither answers; the cause is logged. */
+async function resolveHost(host: string): Promise<string[]> {
+  const resolveDns = (Deno as { resolveDns?: typeof Deno.resolveDns }).resolveDns;
+  let runtime = 'unavailable';
+  if (typeof resolveDns === 'function') {
+    const answers = await Promise.allSettled([(async () => resolveDns(host, 'A'))(), (async () => resolveDns(host, 'AAAA'))()]);
+    const addresses = answers.flatMap(answer => answer.status === 'fulfilled' ? answer.value : []);
+    if (addresses.length) return addresses;
+    const reason = (answers.find(answer => answer.status === 'rejected') as PromiseRejectedResult | undefined)?.reason;
+    runtime = reason instanceof Error ? reason.name : 'empty';
+    // The name does not exist: no need to ask again.
+    if (runtime === 'NotFound') { console.log(JSON.stringify({ event: 'dns_unresolved', resolver: 'runtime', error: runtime })); throw new Error('dns_unresolved'); }
+  }
+  const addresses: string[] = [];
+  for (const type of ['A', 'AAAA']) {
+    try {
+      const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`,
+        { headers: { accept: 'application/dns-json' }, redirect: 'error', signal: AbortSignal.timeout(5_000) });
+      const body = await response.json() as { Answer?: { type?: number; data?: unknown }[] };
+      for (const answer of body.Answer ?? []) if ((answer.type === 1 || answer.type === 28) && typeof answer.data === 'string') addresses.push(answer.data);
+    } catch { /* tried below */ }
+  }
+  console.log(JSON.stringify({ event: 'dns_fallback', runtime, answered: addresses.length > 0 }));
+  if (!addresses.length) throw new Error('dns_unresolved');
+  return addresses;
+}
+
 function deps(): PipelineDeps {
   const service = pipelineService();
   const appID = Deno.env.get('MATHPIX_APP_ID'), appKey = Deno.env.get('MATHPIX_APP_KEY');
@@ -25,6 +53,8 @@ function deps(): PipelineDeps {
     mathpix: new MathpixClient({ appID, appKey }), render: renderReader,
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => Date.now(), uuid: () => crypto.randomUUID(),
     log: (event, fields = {}) => console.log(JSON.stringify({ event, ...fields })),
+    // Web PDF hosts: every address must be public (checked per redirect hop).
+    resolveHost,
     kick: async () => {
       const url = Deno.env.get('SUPABASE_URL'), secret = Deno.env.get('PIPELINE_SECRET');
       if (!url || !secret) return;

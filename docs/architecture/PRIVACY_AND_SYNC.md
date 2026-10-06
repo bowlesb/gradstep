@@ -180,3 +180,9 @@ active App Store subscription's binding so it can attach to a new account; backu
 Library › arXiv search text goes from the app to our `discover` function, which queries OpenAlex (ranking) and arXiv
 (metadata) from the server. No account ID, email or device information is sent to either; the account's request
 counters keep only counts.
+
+**Web imports** (Ingest of a paper without an arXiv copy): the server sends the cited title and year to OpenAlex,
+then fetches the work's record from OpenAlex and its open-access PDF from the hosting site (a repository or
+publisher). Those requests come from our server with a generic Science Reader user agent; no account, email or
+device information is sent. The PDF and its conversion are stored privately for the requesting account (under
+`private/<account>/`, deleted with the account) and never reused for anyone else.

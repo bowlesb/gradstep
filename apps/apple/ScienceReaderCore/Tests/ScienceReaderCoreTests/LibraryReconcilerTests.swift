@@ -102,6 +102,53 @@ import Testing
         return value
     }
 
+    /// Migration 019: web papers (open-access copies found through OpenAlex) in v3 reads.
+    private func webItem(_ number: Int) -> [String: Any] {
+        var row = item(number, approved: true)
+        row["source"] = "web"; row["source_id"] = "openalex:W1000000001"; row["source_revision"] = 1
+        row["source_url"] = "https://doi.org/10.1038/nature14539"; row["scope"] = "owner_private"
+        return row
+    }
+    private func webImport(_ number: Int, itemNumber: Int? = nil) -> [String: Any] {
+        var row = imported(number, phase: itemNumber == nil ? "acquiring" : "ready", itemNumber: itemNumber)
+        row["source"] = "web"; row["source_id"] = "openalex:W1000000001"; row["source_url"] = "https://openalex.org/works/W1000000001"
+        if itemNumber != nil { row["source_revision"] = 1 }
+        return row
+    }
+
+    @Test func webPapersDecodeAndReconcile() throws {
+        let value = try ready([webItem(1), webImport(2, itemNumber: 1), webImport(3), imported(4)], high: 4)
+        let entries = try value.completeObservation().entries
+        guard case .item(let item) = entries[.init(kind: .item, entityID: UUID(uuidString: uuid(1))!)] else { Issue.record("Expected item"); return }
+        #expect(item.source == LibrarySource.web && item.sourceID == "openalex:W1000000001" && item.sourceURL == "https://doi.org/10.1038/nature14539")
+        #expect(LibrarySource.isWebSourceID("openalex:W1000000001") && !LibrarySource.isWebSourceID("2305.18290")
+                && !LibrarySource.isWebSourceID("openalex:W") && !LibrarySource.isWebSourceID("openalex:W12x")
+                && !LibrarySource.isWebSourceID("openalex:W012"))
+        #expect(LibrarySource.badge(sourceID: "openalex:W1000000001", revision: 1) == "Open access")
+        #expect(LibrarySource.badge(sourceID: "2305.18290", revision: 3) == "arXiv v3" && LibrarySource.badge(sourceID: "2305.18290", revision: nil) == "arXiv")
+        #expect(LibrarySource.badge(sourceID: nil, revision: nil) == nil)
+        #expect(LibrarySource.placeholderTitle(sourceID: "openalex:W1000000001") == "Open-access paper"
+                && LibrarySource.placeholderTitle(sourceID: "2305.18290") == "arXiv 2305.18290")
+    }
+
+    @Test func malformedWebEntriesAreRejected() throws {
+        var relative = webItem(1); relative["source_url"] = "doi.org/10.1038/nature14539"
+        var plain = webItem(1); plain["source_url"] = "http://doi.org/10.1038/nature14539"
+        var revised = webItem(1); revised["source_revision"] = 2
+        var arxivID = webItem(1); arxivID["source_id"] = "2305.18290"; arxivID["source_url"] = "https://doi.org/x"
+        var unknown = item(1, approved: true); unknown["source"] = "semantic_scholar"
+        var requested = webImport(2); requested["requested_revision"] = 1
+        var elsewhere = webImport(2); elsewhere["source_url"] = "https://evil.example/W1000000001"
+        var webAsArxiv = imported(2); webAsArxiv["source_id"] = "openalex:W1000000001"
+        for row in [relative, plain, revised, arxivID, unknown, requested, elsewhere] {
+            #expect(throws: LibraryProtocolError.self) { try baseline([row], high: 2) }
+        }
+        // An arXiv-kind import with an OpenAlex ID still needs an arXiv URL.
+        #expect(throws: LibraryProtocolError.self) {
+            var row = webAsArxiv; row["source_url"] = "https://openalex.org/works/W1000000001"; _ = try baseline([row], high: 2)
+        }
+    }
+
     @Test func optionalMetadataAndActualCommandShapesDecodeWithoutInventedFields() throws {
         var row = item(1, approved: true)
         row["metadata"] = ["title": "A paper", "authors": [], "categories": []]

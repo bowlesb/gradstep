@@ -321,8 +321,15 @@ public actor EncryptedStore {
     @discardableResult
     public func saveLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
                                          capturedAt: Date = Date()) throws -> CachedLibraryPresentation {
+        try saveLibraryPresentation(observation, scope: scope, capturedAt: capturedAt, format: CachePresentationCheckpoint.currentFormat)
+    }
+
+    /// `format` 1 only in tests: a snapshot as builds reading v2 saved it.
+    @discardableResult
+    func saveLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
+                                 capturedAt: Date = Date(), format: Int) throws -> CachedLibraryPresentation {
         guard observation.accountID == accountID else { throw ReaderError.wrongAccount }
-        let prepared = try withOfflineCache(scope: scope) { try $0.preparePresentation(observation, roots: $1, capturedAt: capturedAt) }
+        let prepared = try withOfflineCache(scope: scope) { try $0.preparePresentation(observation, roots: $1, capturedAt: capturedAt, format: format) }
         if let mutation = prepared.0 { try persistOfflineCache(mutation) }
         return prepared.1
     }

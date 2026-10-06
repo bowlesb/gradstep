@@ -37,7 +37,11 @@ export interface ChatRequest {
   selection: string | null;
   /** Selection action needing server work beyond an answer (Ingest). */
   action: 'ingest' | null;
+  /** Client features: 'web_import' = the app shows web (non-arXiv) library entries. */
+  capabilities: string[];
 }
+
+export const CLIENT_CAPABILITIES = ['web_import'] as const;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const encoder = new TextEncoder();
@@ -57,7 +61,7 @@ function id(value: unknown): string {
 /** Strict, bounded validation. Unknown fields are rejected, not ignored. */
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
-  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action']);
+  onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action', 'capabilities']);
   if (body.consent_version !== CONSENT_VERSION) invalid();
   const mode = body.mode;
   if (mode !== 'paper' && mode !== 'general') invalid();
@@ -89,7 +93,14 @@ export function validateChatRequest(input: unknown): ChatRequest {
     if (body.action !== 'ingest' || selection === null) invalid();
     action = 'ingest';
   }
-  return { operationID, mode, documentID, turns, selection, action };
+  let capabilities: string[] = [];
+  if (body.capabilities !== undefined && body.capabilities !== null) {
+    if (!Array.isArray(body.capabilities) || body.capabilities.length > 8) invalid();
+    // Unknown features from newer builds are ignored, not rejected.
+    capabilities = [...new Set(body.capabilities.map(value => typeof value === 'string' && value.length <= 32 ? value : invalid()))]
+      .filter(value => (CLIENT_CAPABILITIES as readonly string[]).includes(value)).sort();
+  }
+  return { operationID, mode, documentID, turns, selection, action, capabilities };
 }
 
 /** Fixed key order: the reservation's request digest. */
@@ -100,6 +111,7 @@ export function canonicalRequest(request: ChatRequest): string {
     mode: request.mode, operation_id: request.operationID,
     selection: request.selection === null ? null : { quote: request.selection },
     ...(request.action ? { action: request.action } : {}),
+    ...(request.capabilities.length ? { capabilities: request.capabilities } : {}),
   });
 }
 
@@ -140,6 +152,7 @@ const GENERAL_INSTRUCTIONS = `This is a general research conversation that is no
 const INGEST_INSTRUCTIONS = `The reader used "Ingest" on the selected passage: they want the paper it references added to their library.
 Identify that paper, using the paper's bibliography when the passage is an in-text citation. Write one short sentence naming it
 (title, first author, year), then call add_paper once with its exact title, first author and year (and the arXiv id only if it appears in the text).
+The paper need not be on arXiv: the app also finds open-access copies elsewhere.
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
@@ -188,19 +201,31 @@ export function paperRequest(input: unknown): PaperRequest | null {
   const arxivID = typeof value.arxiv_id === 'string' && value.arxiv_id.length <= 64 ? value.arxiv_id.trim() : null;
   return { title, year, firstAuthor: author.length >= 2 && author.length <= 200 ? author : null, arxivID };
 }
-export interface FoundPaper { source_id: string; title: string; year: number | null }
-export type FindResult = { status: 'found'; paper: FoundPaper } | { status: 'not_found' | 'unavailable' };
-export type IngestResult = 'added' | 'present' | 'failed' | 'not_found' | 'unavailable' | 'stopped';
-const display = (text: string) => text.replace(/[\u0000-\u001f\u007f*_`[\]<>\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+/** `web`: an open-access copy found through OpenAlex (`source_id` openalex:W…, `host` serves the PDF).
+ * `link`: where a paper without an open copy can be found (closed results only). */
+export interface FoundPaper { source_id: string; title: string; year: number | null; kind?: 'arxiv' | 'web'; host?: string | null; link?: string | null }
+/** `closed`: the paper exists but has no arXiv or open-access copy. `needs_update`: only an open-access
+ * copy exists and this app build cannot show web papers. */
+export type FindResult = { status: 'found' | 'closed' | 'needs_update'; paper: FoundPaper } | { status: 'not_found' | 'unavailable' };
+export type IngestResult = 'added' | 'present' | 'failed' | 'not_found' | 'unavailable' | 'stopped' | 'closed' | 'needs_update';
+const display = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f*_`[\]<>\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+const inertURL = (url: string | null | undefined) => url && /^https:\/\/[!-~]{1,300}$/.test(url) && !/[[\]<>`*_\\]/.test(url) ? url : null;
 export function ingestReport(request: PaperRequest, found: FoundPaper | null, result: IngestResult): string {
   const wanted = `“${display(request.title)}”`;
-  const paper = found ? `“${display(found.title)}” (arXiv:${found.source_id})` : wanted;
+  const web = found?.kind === 'web';
+  const title = found ? `“${display(found.title)}”` : wanted;
+  const paper = !found ? wanted : web ? `${title} (open-access PDF${found.host ? ` from ${display(found.host)}` : ''})` : `${title} (arXiv:${found.source_id})`;
   switch (result) {
     case 'added': return `\n\nQueued ${paper} for your library.`;
     case 'present': return `\n\n${paper} is already in your library.`;
-    case 'failed': return `\n\nI found ${paper} but couldn't add it right now. You can add it from Library → arXiv.`;
-    case 'not_found': return `\n\nI couldn't find ${wanted} on arXiv, so it wasn't added. Science Reader can add arXiv papers only.`;
-    default: return `\n\nI couldn't search arXiv right now, so ${wanted} wasn't added. Try again later or add it from Library → arXiv.`;
+    case 'failed': return `\n\nI found ${paper} but couldn't add it right now.${web ? ' Try Ingest again later.' : ' You can add it from Library → arXiv.'}`;
+    case 'closed': {
+      const link = inertURL(found?.link);
+      return `\n\n${title} isn't openly available (no arXiv or open-access copy), so it wasn't added.${link ? ` It's at ${link}` : ''}`;
+    }
+    case 'needs_update': return `\n\n${title} isn't on arXiv. Adding open-access papers from other sites needs the latest Science Reader version.`;
+    case 'not_found': return `\n\nI couldn't find ${wanted} on arXiv or as an open-access paper, so it wasn't added.`;
+    default: return `\n\nI couldn't search for ${wanted} right now, so it wasn't added. Try again later.`;
   }
 }
 /** Owner decision (2026-10-05): a reader whose balance is at least this but
@@ -239,10 +264,11 @@ export interface ChatDependencies {
   availableCredits?: () => Promise<number | null>;
   /** Offer Anthropic's web search (server setting; off by default). */
   webSearch?: boolean;
-  /** Ingest: the arXiv paper that strictly matches the citation, if any. */
-  findPaper?: (request: PaperRequest, signal: AbortSignal) => Promise<FindResult>;
-  /** Ingest: adds one arXiv paper to the caller's library (as the caller). */
-  importPaper?: (sourceID: string, signal: AbortSignal) => Promise<'added' | 'present' | 'failed'>;
+  /** Ingest: the paper that strictly matches the citation, if any: on arXiv, else (with `web`)
+   * an open-access copy found through OpenAlex. */
+  findPaper?: (request: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
+  /** Ingest: adds one found paper to the caller's library (as the caller). */
+  importPaper?: (paper: FoundPaper, signal: AbortSignal) => Promise<'added' | 'present' | 'failed'>;
 }
 
 const RESERVE_ERRORS: Record<string, ChatErrorCode> = {
@@ -352,11 +378,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     if (call && !wanted) deps.log({ event: 'chat_ingest_invalid_input', operation_id: request.operationID });
     if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
       const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
-      const search = await deps.findPaper(wanted, budget).catch((): FindResult => ({ status: 'unavailable' }));
-      const found = search.status === 'found' ? search.paper : null;
+      const web = request.capabilities.includes('web_import');
+      const search = await deps.findPaper(wanted, budget, { web }).catch((): FindResult => ({ status: 'unavailable' }));
+      const found = 'paper' in search ? search.paper : null;
       let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
       if (signal.aborted) result = 'stopped';
-      else if (found) result = budget.aborted ? 'unavailable' : await deps.importPaper(found.source_id, budget).catch(() => 'failed' as const);
+      else if (search.status === 'found' && search.paper.kind === 'web' && !web) result = 'needs_update';
+      else if (search.status === 'found') result = budget.aborted ? 'unavailable' : await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
       deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
       if (!signal.aborted) emit({ event: 'delta', data: { text: ingestReport(wanted, found, result) } });
     }

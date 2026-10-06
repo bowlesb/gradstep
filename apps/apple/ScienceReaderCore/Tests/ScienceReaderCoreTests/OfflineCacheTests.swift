@@ -521,6 +521,28 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         }
     }
 
+    /// A snapshot saved by a build that read v2 (web papers left out) is replaced by the
+    /// first v3 observation at the same cursor instead of conflicting with it.
+    @Test func v2SnapshotIsReplacedByTheFirstV3Observation() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), binding = try f.binding(bundle), row = item(binding: binding)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope, format: 1)
+            var web = item(binding: try f.binding(try self.bundle()), created: 2)
+            web["source"] = "web"; web["source_id"] = "openalex:W1000000001"; web["source_revision"] = 1
+            web["source_url"] = "https://doi.org/10.1038/nature14539"; web["scope"] = "owner_private"
+            let replaced = try await f.store.saveLibraryPresentation(observation(f.account, rows: [row, web], cursor: 3), scope: f.scope)
+            #expect(replaced.entries.count == 2)
+            #expect(try await f.store.cachedLibraryPresentation(scope: f.scope) == replaced)
+            // From then on the snapshot is compared as before.
+            await #expect(throws: OfflineCacheError.conflictingObservation) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope)
+            }
+            await #expect(throws: OfflineCacheError.staleObservation) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [row, web], cursor: 2), scope: f.scope)
+            }
+        }
+    }
+
     @Test func exactBindingScopeAndEmptyLibraryCannotAuthorizeDifferentInstall() async throws {
         try await withFixture { f in
             let first = try bundle(), binding = try f.binding(first)

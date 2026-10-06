@@ -68,10 +68,13 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let messages: [Turn]
             let selection: Selection?
             let action: String?
+            /// Ingest may add web (non-arXiv) papers: this build shows them.
+            let capabilities: [String]?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil ? "general" : "paper", document_id: documentID?.wire,
-            messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue))
+            messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
+            capabilities: action == .ingest ? ["web_import"] : nil))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {

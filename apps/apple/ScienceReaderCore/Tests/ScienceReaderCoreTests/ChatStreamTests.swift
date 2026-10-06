@@ -30,9 +30,12 @@ import Testing
         let ingest = try object(ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript,
                                                            selection: "[12] Rafailov et al.", action: .ingest).encoded())
         #expect(ingest["action"] as? String == "ingest")
+        // This build shows web papers, so Ingest may add them (server migration 019).
+        #expect(ingest["capabilities"] as? [String] == ["web_import"])
         let unselected = try ChatGenerationRequest.make(operationID: UUID(), documentID: UUID(), transcript: transcript, selection: " ", action: .ingest)
         #expect(unselected.action == nil)
         #expect(try object(unselected.encoded())["action"] == nil)
+        #expect(try object(unselected.encoded())["capabilities"] == nil)
     }
 
     @Test func generalRequestOmitsDocumentAndSelection() throws {

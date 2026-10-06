@@ -196,7 +196,27 @@ test('add_paper input is validated strictly and reports are inert text', () => {
   assert.match(ingestReport(request, dpo, 'added'), /Queued “Direct Preference Optimization” \(arXiv:2305\.18290\) for your library/);
   assert.match(ingestReport(request, dpo, 'present'), /is already in your library/);
   assert.match(ingestReport(request, dpo, 'failed'), /couldn't add it right now/);
-  assert.match(ingestReport(request, null, 'unavailable'), /couldn't search arXiv right now/);
+  assert.match(ingestReport(request, null, 'unavailable'), /couldn't search for .* right now/);
+  const web = { source_id: 'openalex:W1000000001', title: 'Deep learning', year: 2015, kind: 'web' as const, host: 'repository.example.org' };
+  assert.match(ingestReport(request, web, 'added'), /Queued “Deep learning” \(open-access PDF from repository\.example\.org\) for your library/);
+  assert.match(ingestReport(request, web, 'failed'), /Try Ingest again later/);
+  assert.match(ingestReport(request, web, 'needs_update'), /isn't on arXiv\. Adding open-access papers from other sites needs the latest/);
+  const closed = { ...web, host: null, link: 'https://doi.org/10.1038/nature14539' };
+  assert.match(ingestReport(request, closed, 'closed'), /“Deep learning” isn't openly available .* It's at https:\/\/doi\.org\/10\.1038\/nature14539$/);
+  assert.ok(!ingestReport(request, { ...closed, link: 'https://evil.example/[x](javascript:alert(1))' }, 'closed').includes('evil'));
+  assert.ok(!ingestReport(request, { ...closed, link: 'javascript:alert(1)' }, 'closed').includes('javascript'));
+});
+
+test('client capabilities: known ones kept, unknown ones ignored, malformed rejected', () => {
+  const quoted = paperBody({ selection: { quote: '[3] LeCun et al.' }, action: 'ingest' });
+  assert.deepEqual(validateChatRequest({ ...quoted, capabilities: ['web_import', 'future_feature', 'web_import'] }).capabilities, ['web_import']);
+  assert.deepEqual(validateChatRequest(quoted).capabilities, []);
+  assert.deepEqual(validateChatRequest({ ...quoted, capabilities: null }).capabilities, []);
+  for (const capabilities of ['web_import', [1], ['x'.repeat(33)], Array(9).fill('web_import'), { web_import: true }]) {
+    assert.throws(() => validateChatRequest({ ...quoted, capabilities }), { code: 'invalid_request' });
+  }
+  assert.notEqual(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, capabilities: ['web_import'] })));
+  assert.equal(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, capabilities: ['unknown'] })));
 });
 
 function ingestBody() {
@@ -212,7 +232,7 @@ test('ingest adds one title-matched paper after settlement and reports it in the
   let tools: unknown;
   const h = harness({ generate: async (params, stream) => { tools = (params as { tools?: unknown }).tools; return toolGenerate({ title: 'Direct Preference Optimization', year: 2023 })(params, stream); } });
   h.deps.findPaper = async wanted => { found.push(wanted); return { status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', year: 2023 } }; };
-  h.deps.importPaper = async id => { imported.push(id); assert.ok(names(h.calls).includes('worker_settle_operation')); return 'added'; };
+  h.deps.importPaper = async paper => { imported.push(paper.source_id); assert.ok(names(h.calls).includes('worker_settle_operation')); return 'added'; };
   await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
   assert.deepEqual(tools, [ADD_PAPER_TOOL]);
   assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, firstAuthor: null, arxivID: null }]);
@@ -228,7 +248,7 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   let imports = 0;
   missing.deps.findPaper = async () => ({ status: 'not_found' }); missing.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(missing.deps, ingestBody(), missing.emit, new AbortController().signal);
-  assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv/);
+  assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv or as an open-access paper/);
   assert.equal(imports, 0);
 
   const invalid = harness({ generate: toolGenerate({ title: 'Valid title', url: 'https://evil.example' }) });
@@ -252,7 +272,7 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   const busy = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
   busy.deps.findPaper = async () => { throw new Error('search_busy'); }; busy.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(busy.deps, ingestBody(), busy.emit, new AbortController().signal);
-  assert.match((busy.events[1].data as { text: string }).text, /couldn't search arXiv right now/);
+  assert.match((busy.events[1].data as { text: string }).text, /couldn't search for “Direct Preference Optimization” right now/);
 
   // A tool call cut off by max_tokens is never executed.
   const truncated = harness({ generate: async (_p, stream) => { stream.onText('That is DPO.');
@@ -284,8 +304,42 @@ test('the ingest budget bounds post-settlement work', async () => {
   h.deps.findPaper = (_wanted, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
   h.deps.importPaper = async () => 'added';
   await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
-  assert.match((h.events[1].data as { text: string }).text, /couldn't search arXiv right now/);
+  assert.match((h.events[1].data as { text: string }).text, /couldn't search for .* right now/);
   assert.equal(h.events.at(-1)?.event, 'done');
+});
+
+test('ingest adds an open-access web paper only for builds that show web papers', async () => {
+  const deepLearning = { source_id: 'openalex:W1000000001', title: 'Deep learning', year: 2015, kind: 'web' as const, host: 'repository.example.org' };
+  const capable = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
+  const options: unknown[] = [], imported: unknown[] = [];
+  capable.deps.findPaper = async (_wanted, _signal, option) => { options.push(option); return { status: 'found', paper: deepLearning }; };
+  capable.deps.importPaper = async paper => { imported.push(paper); return 'added'; };
+  await runChat(capable.deps, { ...ingestBody(), capabilities: ['web_import'] }, capable.emit, new AbortController().signal);
+  assert.deepEqual(options, [{ web: true }]);
+  assert.deepEqual(imported, [deepLearning]);
+  assert.match((capable.events[1].data as { text: string }).text, /Queued “Deep learning” \(open-access PDF from repository\.example\.org\)/);
+
+  // An older build: never imported, even if a search returned a web paper.
+  const older = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
+  let imports = 0;
+  older.deps.findPaper = async (_wanted, _signal, option) => { options.push(option); return { status: 'found', paper: deepLearning }; };
+  older.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(older.deps, ingestBody(), older.emit, new AbortController().signal);
+  assert.deepEqual(options.at(-1), { web: false });
+  assert.equal(imports, 0);
+  assert.deepEqual(older.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'needs_update' }]);
+
+  const update = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
+  update.deps.findPaper = async () => ({ status: 'needs_update', paper: deepLearning });
+  update.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(update.deps, ingestBody(), update.emit, new AbortController().signal);
+  assert.match((update.events[1].data as { text: string }).text, /needs the latest Science Reader version/);
+  const closed = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
+  closed.deps.findPaper = async () => ({ status: 'closed', paper: { ...deepLearning, host: null, link: 'https://doi.org/10.1038/nature14539' } });
+  closed.deps.importPaper = async () => { imports++; return 'added'; };
+  await runChat(closed.deps, { ...ingestBody(), capabilities: ['web_import'] }, closed.emit, new AbortController().signal);
+  assert.match((closed.events[1].data as { text: string }).text, /isn't openly available/);
+  assert.equal(imports, 0);
 });
 
 test('web search is offered only when the server enables it, and never on Ingest', async () => {

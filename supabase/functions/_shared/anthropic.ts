@@ -96,13 +96,14 @@ export interface PaperContext { title: string | null; text: string }
  * Stable instructions first, then the paper (cached prefix), then the turns.
  * Nothing volatile precedes the cache breakpoint.
  */
-/** Ingest's one client tool. The server finds the paper on arXiv by title
- * (strict match) and adds it as the reader; the result is reported to the
- * reader directly, so the tool needs no second model call. */
+/** Ingest's one client tool. The server finds the paper by title (strict
+ * match; arXiv first, then an open-access copy through OpenAlex) and adds it as
+ * the reader; the result is reported to the reader directly, so the tool needs
+ * no second model call. */
 export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
   name: 'add_paper',
   description: 'Adds the paper the reader selected (a reference or citation) to their Science Reader library. '
-    + 'The app searches arXiv for the exact title and adds the match; only arXiv papers can be added. Call it at most once.',
+    + 'The app looks up the exact title on arXiv and, failing that, an open-access copy elsewhere, and adds the match. Call it at most once.',
   input_schema: {
     type: 'object',
     properties: {
