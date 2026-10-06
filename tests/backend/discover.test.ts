@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
+import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
   assert.match(arxivSearchURL('https://arxiv.org/abs/2305.18290v3')!, /id_list=2305.18290v3&max_results=1/);
@@ -129,4 +129,20 @@ test('topic search: OpenAlex relevance and citations decide, ML papers and exact
   const titles = [r('a', 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model', ['cs.LG']), r('b', 'Diffusion models of growth', ['cond-mat'])];
   assert.deepEqual(exactTitleMatches(titles, 'direct preference optimization').map(x => x.source_id), ['a']);
   assert.deepEqual(exactTitleMatches(titles, 'diffusion models'), [], 'a phrase inside a longer title is not an exact title');
+});
+
+test('when arXiv is throttled, results come from OpenAlex metadata in the same ranking', () => {
+  const work = { title: 'Attention Is  All You Need', publication_year: 2017, relevance_score: 120, cited_by_count: 100000,
+    authorships: [{ author: { display_name: 'Ashish Vaswani' } }, { author: { display_name: 'Noam Shazeer' } }, { author: {} }],
+    abstract_inverted_index: { The: [0], dominant: [1], sequence: [2], 'models.': [3] },
+    locations: [{ landing_page_url: 'https://doi.org/10.48550/arxiv.1706.03762' }, { landing_page_url: 'https://arxiv.org/abs/1706.03762v7' }] };
+  assert.deepEqual(openAlexResult(work), { source_id: '1706.03762', revision: 7, title: 'Attention Is All You Need', authors: ['Ashish Vaswani', 'Noam Shazeer'],
+    year: 2017, abstract: 'The dominant sequence models.', categories: [] });
+  assert.equal(openAlexResult({ ...work, locations: [{ landing_page_url: 'https://arxiv.org/abs/1706.03762' }] })!.revision, 1, 'unknown version shows v1; adding ignores it');
+  assert.equal(openAlexResult({ ...work, locations: [] }), null);
+  assert.equal(openAlexResult({ ...work, title: '' }), null);
+  const ranking = rankOpenAlex({ results: [work] });
+  assert.equal(ranking[0].result?.title, 'Attention Is All You Need');
+  assert.equal(openAlexArxivWorkURL('1706.03762'), 'https://api.openalex.org/works/doi:10.48550/arXiv.1706.03762');
+  assert.ok(new URL(openAlexSearchURLs('cnn')[0]).searchParams.get('select')!.includes('abstract_inverted_index'));
 });

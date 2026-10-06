@@ -2,8 +2,8 @@
 // global arXiv request pacing with the paper pipeline.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
-import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, mergeDiscovery, exactTitleMatches, openAlexSearchURLs, orderByRanking, parseArxivRSS, parseArxivSearch,
-  rankOpenAlex, type RankedWork } from '../_shared/discover.ts';
+import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs,
+  orderByRanking, parseArxivRSS, parseArxivSearch, rankOpenAlex, type DiscoveryResult, type RankedWork } from '../_shared/discover.ts';
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -40,23 +40,48 @@ Deno.serve(async request => {
       if (ids) urls = [...urls.slice(0, urls.length - 1), ids];
     }
     const slot = await rpc<{ reserved: boolean; wait_ms: number; spacing_ms?: number }>(service, 'worker_pipeline_arxiv_slot', { p_slots: urls.length, p_max_wait_ms: 8000 });
-    if (!slot.reserved) throw new PublicError(503, 'search_busy');
+    if (!slot.reserved) {
+      // arXiv's pacing is taken (imports use it too): OpenAlex's ranked results alone.
+      const ranked = orderByRanking(ranking.map(r => r.result).filter((r): r is DiscoveryResult => !!r), ranking, query);
+      if (ranked.length) return Response.json({ results: mergeDiscovery([ranked]) }, { headers });
+      throw new PublicError(503, 'search_busy');
+    }
     if (slot.wait_ms > 0) await new Promise(resolve => setTimeout(resolve, slot.wait_ms));
-    const lists = [];
+    // arXiv's API throttles intermittently (429): each call may fail on its own.
+    const lists: (DiscoveryResult[] | null)[] = [];
     for (const [index, url] of urls.entries()) {
       if (index > 0) await new Promise(resolve => setTimeout(resolve, slot.spacing_ms ?? 3000));
-      const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(20_000),
-        headers: { accept: recent ? 'application/rss+xml' : 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
-      if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new PublicError(503, 'search_unavailable'); }
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.length > 6 * 1024 * 1024) throw new PublicError(503, 'search_unavailable');
-      lists.push(recent ? parseArxivRSS(bytes) : parseArxivSearch(bytes));
+      try {
+        const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000),
+          headers: { accept: recent ? 'application/rss+xml' : 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
+        if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error(`arxiv_${response.status}`); }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length > 6 * 1024 * 1024) throw new Error('arxiv_too_large');
+        lists.push(recent ? parseArxivRSS(bytes) : parseArxivSearch(bytes));
+      } catch (error) {
+        console.log(JSON.stringify({ function: 'discover', event: 'arxiv_failed', code: error instanceof Error ? error.message.slice(0, 40) : 'unknown' }));
+        lists.push(null);
+      }
     }
+    const last = lists.length - 1;
     if (ranking.length) {
-      lists[lists.length - 1] = orderByRanking(lists[lists.length - 1], ranking, query);
-      if (lists.length > 1) lists[0] = exactTitleMatches(lists[0], query);
+      // The ranked list: arXiv's metadata in OpenAlex's order, or OpenAlex's own metadata if arXiv failed.
+      lists[last] = lists[last] ? orderByRanking(lists[last]!, ranking, query)
+        : orderByRanking(ranking.map(r => r.result).filter((r): r is DiscoveryResult => !!r), ranking, query);
+      if (last > 0) lists[0] = lists[0] ? exactTitleMatches(lists[0]!, query) : [];
+    } else if (lists[last] === null && !recent && !openAlex.length) {
+      // An arXiv ID lookup: OpenAlex's record of that paper.
+      const id = new URL(urls[last]).searchParams.get('id_list')?.replace(/v\d+$/, '');
+      if (id) {
+        try {
+          const response = await fetch(openAlexArxivWorkURL(id), { redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
+          const work = response.ok ? openAlexResult(await response.json()) : null;
+          lists[last] = work && work.source_id === id ? [work] : null;
+        } catch { lists[last] = null; }
+      }
     }
-    return Response.json({ results: mergeDiscovery(lists) }, { headers });
+    if (lists.every(list => list === null)) throw new PublicError(503, 'search_unavailable');
+    return Response.json({ results: mergeDiscovery(lists.filter((list): list is DiscoveryResult[] => !!list)) }, { headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'search_unavailable');
     return Response.json({ code: failure.code }, { status: failure.status, headers });

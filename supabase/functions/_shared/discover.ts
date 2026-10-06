@@ -59,7 +59,7 @@ function openAlexText(query: string): string | null {
 export function openAlexSearchURLs(query: string): string[] {
   const text = openAlexText(query);
   if (!text) return [];
-  const select = 'id,title,publication_year,cited_by_count,relevance_score,locations';
+  const select = 'id,title,publication_year,cited_by_count,relevance_score,locations,authorships,abstract_inverted_index';
   const relevant = new URL('https://api.openalex.org/works');
   relevant.search = new URLSearchParams({ search: text, filter: `locations.source.id:${OPENALEX_ARXIV_SOURCE}`, 'per-page': '40', select }).toString();
   const cited = new URL('https://api.openalex.org/works');
@@ -68,17 +68,45 @@ export function openAlexSearchURLs(query: string): string[] {
   return [relevant.href, cited.href];
 }
 
-export interface RankedWork { sourceID: string; score: number }
+/** A ranked arXiv work; `result` is OpenAlex's own metadata, used when arXiv is unavailable. */
+export interface RankedWork { sourceID: string; score: number; result?: DiscoveryResult }
 
-function arxivIDOf(work: { locations?: unknown }): string | null {
+function arxivLocationOf(work: { locations?: unknown }): { sourceID: string; version: number | null } | null {
   for (const location of Array.isArray(work.locations) ? work.locations.slice(0, 20) : []) {
     for (const key of ['landing_page_url', 'pdf_url']) {
       const value = (location as Record<string, unknown>)?.[key];
-      const match = typeof value === 'string' ? /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v\d+)?(?:\.pdf)?$/i.exec(value) : null;
-      if (match) { try { return arxivReference(match[1]).sourceID; } catch { /* not an arXiv ID */ } }
+      const match = typeof value === 'string' ? /arxiv\.org\/(?:abs|pdf)\/([^?#\s]+?)(?:v(\d{1,3}))?(?:\.pdf)?$/i.exec(value) : null;
+      if (match) { try { return { sourceID: arxivReference(match[1]).sourceID, version: match[2] ? Number(match[2]) : null }; } catch { /* not an arXiv ID */ } }
     }
   }
   return null;
+}
+function arxivIDOf(work: { locations?: unknown }): string | null { return arxivLocationOf(work)?.sourceID ?? null; }
+
+/** OpenAlex's metadata as a search result (title, authors, year, abstract; no arXiv
+ * categories; the version from its arXiv link, else 1 — adding ignores it). */
+export function openAlexResult(work: unknown): DiscoveryResult | null {
+  const w = work as { title?: unknown; publication_year?: unknown; authorships?: unknown; abstract_inverted_index?: unknown; locations?: unknown };
+  const location = arxivLocationOf(w);
+  if (!location || typeof w.title !== 'string' || !w.title.trim()) return null;
+  const authors = (Array.isArray(w.authorships) ? w.authorships.slice(0, 9) : [])
+    .map(a => (a as { author?: { display_name?: unknown } })?.author?.display_name).filter((n): n is string => typeof n === 'string').map(n => n.slice(0, 256));
+  let abstract: string | null = null;
+  const index = w.abstract_inverted_index;
+  if (index && typeof index === 'object' && !Array.isArray(index)) {
+    const words: string[] = [];
+    for (const [word, positions] of Object.entries(index as Record<string, unknown>).slice(0, 5000)) {
+      if (Array.isArray(positions)) for (const at of positions) if (typeof at === 'number' && at >= 0 && at < 5000) words[at] = word;
+    }
+    abstract = words.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().slice(0, 700) || null;
+  }
+  return { source_id: location.sourceID, revision: location.version ?? 1, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 2000), authors,
+    year: typeof w.publication_year === 'number' ? w.publication_year : null, abstract, categories: [] };
+}
+
+/** OpenAlex's record of one arXiv paper (by its DataCite DOI), for ID lookups when arXiv is unavailable. */
+export function openAlexArxivWorkURL(sourceID: string): string {
+  return `https://api.openalex.org/works/doi:10.48550/arXiv.${encodeURIComponent(sourceID)}`;
 }
 
 /** arXiv IDs best first: 0.5 × relevance (normalized; 0.7 for a classic found
@@ -86,7 +114,7 @@ function arxivIDOf(work: { locations?: unknown }): string | null {
 export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }, limit = 25): RankedWork[] {
   const lists = [relevant, cited].map(json => (json as { results?: unknown })?.results);
   if (!Array.isArray(lists[0])) throw new Error('invalid_openalex');
-  const works = new Map<string, { relevance: number; citations: number }>();
+  const works = new Map<string, { relevance: number; citations: number; result?: DiscoveryResult }>();
   lists.forEach((list, index) => {
     for (const work of Array.isArray(list) ? list.slice(0, 50) : []) {
       const w = work as { relevance_score?: unknown; cited_by_count?: unknown; locations?: unknown };
@@ -96,7 +124,8 @@ export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }
       if (index === 0 && !relevance) continue;
       const citations = typeof w.cited_by_count === 'number' && w.cited_by_count > 0 ? w.cited_by_count : 0;
       const known = works.get(sourceID);
-      works.set(sourceID, { relevance: Math.max(known?.relevance ?? 0, relevance), citations: Math.max(known?.citations ?? 0, citations) });
+      works.set(sourceID, { relevance: Math.max(known?.relevance ?? 0, relevance), citations: Math.max(known?.citations ?? 0, citations),
+        result: known?.result ?? openAlexResult(work) ?? undefined });
     }
   });
   // A work found only among the most cited matches counts when it is cited at
@@ -106,7 +135,7 @@ export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }
   for (const [sourceID, w] of works) if (!w.relevance && w.citations < relevantCitations) works.delete(sourceID);
   const maxRelevance = Math.max(1, ...[...works.values()].map(w => w.relevance));
   const maxCitations = Math.max(1, ...[...works.values()].map(w => w.citations));
-  return [...works].map(([sourceID, w]) => ({ sourceID,
+  return [...works].map(([sourceID, w]) => ({ sourceID, result: w.result,
     score: 0.5 * (w.relevance ? w.relevance / maxRelevance : 0.7) + 0.5 * Math.log10(1 + w.citations) / Math.log10(1 + maxCitations) }))
     .sort((a, b) => b.score - a.score).slice(0, limit);
 }
