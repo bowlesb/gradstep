@@ -64,7 +64,7 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
         let reader = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); reader.name = "iPad reader and chat"; reader.lifetime = .keepAlways; add(reader)
         app.segmentedControls.buttons["Browse"].tap()
-        XCTAssertTrue(app.navigationBars["Library"].exists)
+        XCTAssertTrue(app.searchFields["library.search"].exists)
         XCTAssertTrue(app.webViews.firstMatch.exists)
         app.buttons["Settings"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))

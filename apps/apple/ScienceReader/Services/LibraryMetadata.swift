@@ -9,7 +9,11 @@ enum LibraryLayout: String, CaseIterable, Sendable {
 
     /// Below this container width (iPhone portrait, the iPad Browse column, narrow split view) or
     /// at accessibility text sizes, "Table" shows detailed rows instead.
-    static let tableMinimumWidth: CGFloat = 700
+    /// The native iPad table needs its columns' width (design audit F1: at 834 pt titles and
+    /// status were clipped); narrower iPad containers show detailed rows.
+    static let tableMinimumWidth: CGFloat = 980
+    /// The app-drawn iPhone landscape table is narrower.
+    static let compactTableMinimumWidth: CGFloat = 700
 }
 
 /// Friendly names for arXiv categories. The Feed's chips and the Library's Topics share them.

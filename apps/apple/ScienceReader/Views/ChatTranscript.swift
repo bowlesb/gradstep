@@ -24,6 +24,11 @@ struct ChatTranscript: View {
                     if following { hasNewMessages = false }
                 })
                 .id(scope)
+                // A soft top edge instead of messages sliced under the header.
+                .mask(VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
+                    Color.black
+                })
             if messages.isEmpty {
                 emptyState.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(16)
             }
@@ -105,9 +110,10 @@ private struct TranscriptMessage: View {
                     .buttonStyle(.bordered).accessibilityIdentifier("chat.message.diagram.\(message.payload.entityID.wire)")
                 }
             }
-            .padding(12).background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
+            // Design audit F7: answers sit on the page (more room for equations); your messages keep a bubble.
+            .padding(message.payload.role == .user ? 12 : 0)
+            .background(message.payload.role == .user ? Color.accentColor.opacity(0.13) : Color.clear, in: RoundedRectangle(cornerRadius: 14))
             .accessibilityElement(children: .contain)
-            if message.payload.role != .user { Spacer(minLength: 24) }
         }
         .padding(.horizontal, 16).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
         .frame(maxWidth: 720).frame(maxWidth: .infinity)

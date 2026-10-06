@@ -55,7 +55,7 @@ final class VisualScenarioTests: XCTestCase {
             },
             "chat-answer": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=answer"]) { app in
                 self.ask(app, "Why scale by the square root of d_k?")
-                sleep(3)
+                sleep(3); self.dismissKeyboard(app)
             },
             "chat-diagram": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=diagram"]) { app in
                 self.ask(app, "Draw the attention computation")
@@ -84,9 +84,8 @@ final class VisualScenarioTests: XCTestCase {
             "library-options": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.tapMenu(app, "Library options")
             },
-            "library-add": Scenario(arguments: ["--workflow-fixture"]) { app in
-                let add = app.buttons["Add a paper"]
-                XCTAssertTrue(add.waitForExistence(timeout: 5)); add.tap(); sleep(1)
+            "library-add": Scenario(arguments: ["--workflow-fixture", "--visual-show-import"]) { app in
+                XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 5)); sleep(1)
             },
             "paper-options": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.openSample(app)

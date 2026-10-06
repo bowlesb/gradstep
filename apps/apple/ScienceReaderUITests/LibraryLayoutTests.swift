@@ -18,8 +18,12 @@ final class LibraryLayoutTests: XCTestCase {
         return app
     }
 
+    /// Layout and sort choices live in the options menu's "View as" and "Sort by" submenus.
     private func choose(_ item: String, in app: XCUIApplication, screenshot: String? = nil) {
         app.buttons["Library options"].tap()
+        let submenu = ["List", "Table", "Detailed rows"].contains(item) ? "View as" : "Sort by"
+        let opener = app.buttons[submenu].firstMatch
+        XCTAssertTrue(opener.waitForExistence(timeout: 5), "Submenu \(submenu)"); opener.tap()
         let button = app.buttons[item].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 5), "Menu item \(item)")
         if let screenshot {

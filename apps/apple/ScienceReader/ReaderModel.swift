@@ -2571,6 +2571,8 @@ extension ReaderModel {
         let prefix = "--library-layout="
         libraryLayout = arguments.first { $0.hasPrefix(prefix) }.flatMap { LibraryLayout(rawValue: String($0.dropFirst(prefix.count))) } ?? .list
         LibraryTableSettings.reset()
+        // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
+        if arguments.contains("--visual-show-import") { showImport = true }
     }
 
     /// Installs a varied synthetic library: papers with added dates, imports, offline states,
