@@ -182,12 +182,16 @@ export async function fetchOpenAlexWork(fetcher: typeof fetch, url: string): Pro
  * A closed location that slips through fails safely (login pages are refused). */
 export function openPDFLocations(work: unknown): string[] {
   if (!work || typeof work !== 'object') return [];
-  type Location = { pdf_url?: unknown; is_oa?: unknown } | null;
+  type Location = { pdf_url?: unknown; landing_page_url?: unknown; is_oa?: unknown } | null;
   const w = work as { best_oa_location?: unknown; locations?: unknown };
   const best = (w.best_oa_location && typeof w.best_oa_location === 'object' ? w.best_oa_location : null) as Location;
   const all = (Array.isArray(w.locations) ? w.locations.slice(0, 50) : []) as Location[];
-  const url = (location: Location) => location && typeof location.pdf_url === 'string'
-    ? publicHTTPS(location.pdf_url.replace(/^http:\/\//i, 'https://')) : null;
+  // Some locations (e.g. JMLR) give the PDF itself as the landing page and no pdf_url.
+  const url = (location: Location) => {
+    const raw = typeof location?.pdf_url === 'string' ? location.pdf_url
+      : typeof location?.landing_page_url === 'string' && /^[^?#]+\.pdf(?:[?#]|$)/i.test(location.landing_page_url) ? location.landing_page_url : null;
+    return raw ? publicHTTPS(raw.replace(/^http:\/\//i, 'https://')) : null;
+  };
   const ordered = [url(best), ...all.map(url).filter(u => u && OPEN_VENUES.test(u.hostname)), ...all.filter(l => l?.is_oa === true).map(url)];
   const result: string[] = [];
   for (const candidate of ordered) {

@@ -94,10 +94,10 @@ for (const m of descriptor.members) {
   const bytes = Buffer.from(await (await fetch(m.url)).arrayBuffer()); total += bytes.length;
   assert.equal(createHash('sha256').update(bytes).digest('hex'), m.sha256, m.path);
 }
-const html = descriptor.members.find(m => m.path.endsWith('.html'));
-if (html) {
-  const page = await (await fetch(html.url)).text();
-  log('attribution', /personal use of one Science Reader account/.test(page) ? 'private (ok)' : 'MISSING', /arXiv:/.test(page.slice(0, 4000)) ? '— mentions arXiv (unexpected)' : '');
-}
+const notice = descriptor.members.find(m => m.path === 'NOTICE.txt');
+const attribution = notice ? (await (await fetch(notice.url)).text()).split('Document attribution').at(1) ?? '' : '';
+assert.match(attribution, /Converted for the personal use of one Science Reader account; not redistributed\. Original: https:\/\//, 'private attribution');
+assert.ok(!/arXiv:/.test(attribution), 'no arXiv attribution on a web paper');
+log('attribution ok:', attribution.trim().split('\n').at(-1).slice(0, 160));
 log('reader bundle verified:', descriptor.members.length, 'members,', total, 'bytes');
 log('credits after', JSON.stringify((await user.rpc('v1_credit_balance')).data));

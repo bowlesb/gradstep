@@ -61,6 +61,12 @@ test('OpenAlex work: catalog metadata and open-access PDF locations', () => {
     'https://mirror-a.example.net/deep.pdf']);
   assert.deepEqual(openPDFLocations({ locations: [{ pdf_url: 'https://evil-jmlr.org/x.pdf', is_oa: false }, { pdf_url: 'https://proceedings.mlr.press/v37/x.pdf' }] }),
     ['https://proceedings.mlr.press/v37/x.pdf']);
+  // OpenAlex's actual Dropout record: the JMLR PDF is the landing page, pdf_url is null, nothing is labelled open.
+  assert.deepEqual(openPDFLocations({ best_oa_location: null, locations: [
+    { is_oa: false, landing_page_url: 'http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.669.8604', pdf_url: null },
+    { is_oa: false, landing_page_url: 'https://jmlr.csail.mit.edu/papers/volume15/srivastava14a/srivastava14a.pdf', pdf_url: null },
+    { is_oa: true, landing_page_url: 'https://repository.example.org/item/7', pdf_url: null }] }),
+    ['https://jmlr.csail.mit.edu/papers/volume15/srivastava14a/srivastava14a.pdf']);
   assert.equal(parsed.landingURL, 'https://www.nature.com/articles/nature14539');
   const bare = openAlexWork({ ...work, best_oa_location: null, locations: [], publication_date: '2015-02-30' })!;
   assert.deepEqual(bare.pdfURLs, []);
