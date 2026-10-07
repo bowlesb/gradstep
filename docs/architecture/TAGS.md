@@ -101,7 +101,9 @@ conversions use the same arXiv metadata).
 `state_seq`, unchanged untagged entries, personal tags, replay/conflict, removal), `tests/backend/tags.test.ts`
 (vocabulary parity, request, parsing, pricing, failure billing, the run loop), Core `PaperTagsTests`, app
 `LibraryModelTests.testTagEditsShowAtOnceAndSyncAsOwnAndHiddenLists`, visual scenarios `paper-top`,
-`paper-tags-edit`, `paper-tags-suggest`.
+`paper-tags-edit`, `paper-tags-suggest`. Screens without UI automation: launch the reader fixture with
+`--offline-reader-fixture --reset-offline-reader-fixture --mathpix-reader-fixture --visual-open-paper` (add
+`--visual-edit-tags` for the sheet); 2026-10-07 captures in `.artifacts/visual/tags/` (iPhone and iPad, light and dark).
 
 ## Known limits
 
