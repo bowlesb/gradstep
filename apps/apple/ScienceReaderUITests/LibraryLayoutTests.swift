@@ -223,7 +223,7 @@ final class LibraryLayoutTests: XCTestCase {
         attach(app, "Failed filter with Retry")
         retry.tap()
         XCTAssertTrue(retry.waitForNonExistence(timeout: 5), "Retry gives way to the running import")
-        let running = NSPredicate(format: "label CONTAINS %@", "Downloading PDF")
+        let running = NSPredicate(format: "label CONTAINS %@", "Downloading")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: running, object: cell(downloadFailed, in: app))], timeout: 5),
                        .completed, "Downloading again at once: \(cell(downloadFailed, in: app).label)")
         attach(app, "Retried import downloading")

@@ -367,7 +367,7 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(model.libraryStatus(for: .pending(failed)), .active("Downloading…"))
         XCTAssertEqual(retried.facts.step, .downloading)
         XCTAssertNil(retried.facts.importAction)
-        XCTAssertEqual(LibraryTableColumn.progress.spoken(retried), "Downloading PDF")
+        XCTAssertEqual(LibraryTableColumn.progress.spoken(retried), LibraryImportStep.downloading.title)
 
         await model.changeImport(tooLarge, retry: true)
         XCTAssertFalse(model.isRetrying(tooLarge), "Not retryable: Retry does nothing")

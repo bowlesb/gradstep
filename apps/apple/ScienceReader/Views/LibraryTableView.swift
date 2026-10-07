@@ -475,21 +475,25 @@ struct LibraryFilterBar: View {
         let summary = model.libraryFilterSummary()
         let chips = summary.chips(selected: model.libraryFilter, tagSelected: model.libraryTagFilter != nil)
         if !chips.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    // Tags first: it combines with the others, and on a phone the row runs past the edge.
-                    if summary.showsTags(tagSelected: model.libraryTagFilter != nil) { tagMenu(summary) }
-                    ForEach(chips, id: \.self) { filter in
-                        ChipButton(title: filter.title, selected: model.libraryFilter == filter,
-                                   count: filter == .failed ? summary.count(.failed) : nil, countIsProblem: true) {
-                            model.libraryFilter = filter
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // Tags first: it combines with the others, and on a phone the row runs past the edge.
+                        if summary.showsTags(tagSelected: model.libraryTagFilter != nil) { tagMenu(summary) }
+                        ForEach(chips, id: \.self) { filter in
+                            ChipButton(title: filter.title, selected: model.libraryFilter == filter,
+                                       count: filter == .failed ? summary.count(.failed) : nil, countIsProblem: true) {
+                                model.libraryFilter = filter
+                            }
+                            .accessibilityIdentifier("library.filter.\(filter.rawValue)")
+                            .accessibilityValue(filter == .all ? "" : "\(summary.count(filter))")
                         }
-                        .accessibilityIdentifier("library.filter.\(filter.rawValue)")
-                        .accessibilityValue(filter == .all ? "" : "\(summary.count(filter))")
                     }
                 }
+                .contentMargins(.horizontal, DesignMetrics.margin, for: .scrollContent)
+                // The chosen filter stays in view (one chosen elsewhere, or past the edge on a phone).
+                .onAppear { if model.libraryFilter != .all { proxy.scrollTo(model.libraryFilter, anchor: .center) } }
             }
-            .contentMargins(.horizontal, DesignMetrics.margin, for: .scrollContent)
             .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
             .listRowSeparator(.hidden)
             .accessibilityElement(children: .contain)
