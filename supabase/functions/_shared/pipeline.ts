@@ -406,8 +406,8 @@ async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, poli
   const credit = e.title ? `"${e.title}"${byline}${source ? `, ${source}` : ''}` : source ?? original;
   if (web && !e.owner_id) throw new PermanentFailure('render_failed', 'render');
   const attribution = e.owner_id
-    ? `${credit}. Converted for the personal use of one Science Reader account; not redistributed. Original: ${original}`
-    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Science Reader (layout and math rendering changed). Original: ${original}`;
+    ? `${credit}. Converted for the personal use of one Gradstep account; not redistributed. Original: ${original}`
+    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Gradstep (layout and math rendering changed). Original: ${original}`;
   let bundle: RenderedBundle;
   try {
     bundle = await deps.render({ archive: new Map(files.map(f => [f.path, f.bytes])), attribution, titleFallback: e.title ?? undefined,

@@ -148,7 +148,7 @@ export async function readChatBody(request: Request, maximum = MAX_BODY_BYTES, t
   } finally { if (timer) clearTimeout(timer); reader.releaseLock(); }
 }
 
-const BASE_INSTRUCTIONS = `You are the research assistant in Science Reader, an app people use to read machine-learning papers.
+const BASE_INSTRUCTIONS = `You are the research assistant in Gradstep, an app people use to read machine-learning papers.
 Lead with the answer, then the reasoning that supports it. Keep answers focused; use short Markdown sections or lists when they help.
 Write mathematics in LaTeX with \\( ... \\) for inline math and \\[ ... \\] for display math. Do not use dollar-sign delimiters.
 If you are unsure or something is outside what you can verify, say so plainly. Never invent citations, results, or paper details.`;
@@ -236,7 +236,7 @@ export function ingestReport(request: PaperRequest, found: FoundPaper | null, re
       const link = inertURL(found?.link);
       return `\n\n${title} isn't openly available (no arXiv or open-access copy), so it wasn't added.${link ? ` It's at ${link}` : ''}`;
     }
-    case 'needs_update': return `\n\n${title} isn't on arXiv. Adding open-access papers from other sites needs the latest Science Reader version.`;
+    case 'needs_update': return `\n\n${title} isn't on arXiv. Adding open-access papers from other sites needs the latest Gradstep version.`;
     case 'not_found': return `\n\nI couldn't find ${wanted} on arXiv or as an open-access paper, so it wasn't added.`;
     default: return `\n\nI couldn't search for ${wanted} right now, so it wasn't added. Try again later.`;
   }

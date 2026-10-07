@@ -31,7 +31,7 @@ AUTH_PATH = '/v1/projects/' + PROJECT + '/config/auth'
 CAPABILITY = 'APPLE_ID_AUTH'
 CONSENT = [{'key': 'APPLE_ID_AUTH_APP_CONSENT',
             'options': [{'key': 'PRIMARY_APP_CONSENT', 'enabled': True}]}]
-CODE_TEMPLATE = ('<h2>Your Science Reader sign-in code</h2>\n'
+CODE_TEMPLATE = ('<h2>Your Gradstep sign-in code</h2>\n'
                  '<p>Enter this code in the app:</p>\n'
                  '<p><strong>{{ .Token }}</strong></p>\n'
                  '<p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>\n')

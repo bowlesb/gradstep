@@ -33,9 +33,9 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(LibraryFormat.familyName("Plato"), "Plato")
         XCTAssertEqual(LibraryFormat.familyName("Zeyuan Allen-Zhu"), "Allen-Zhu")
 
-        var paper = Paper(id: UUID(), title: "T", authors: "Science Reader · offline sample", year: nil, abstract: "",
+        var paper = Paper(id: UUID(), title: "T", authors: "Gradstep · offline sample", year: nil, abstract: "",
                           keywords: [], fileURL: nil, artifactID: nil)
-        XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "Science Reader · offline sample", "Joined byline when names are unknown")
+        XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "Gradstep · offline sample", "Joined byline when names are unknown")
         paper.authorNames = ["Kaiming He", "Xiangyu Zhang", "Shaoqing Ren", "Jian Sun"]
         XCTAssertEqual(LibraryFormat.shortAuthors(for: paper), "He, Zhang +2")
     }

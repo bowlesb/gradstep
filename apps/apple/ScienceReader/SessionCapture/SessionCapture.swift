@@ -95,7 +95,7 @@ final class SessionCapture {
         let model = withUnsafeBytes(of: &system.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
         let meta: [String: Any] = [
-            "format": "science-reader-session-1", "app": "Paperstep",
+            "format": "science-reader-session-1", "app": "Gradstep",
             "version": info?["CFBundleShortVersionString"] as? String ?? "", "build": info?["CFBundleVersion"] as? String ?? "",
             "device": model, "system": UIDevice.current.systemVersion, "idiom": UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone",
             "screen_scale": screen?.scale ?? 0, "started_at": ISO8601DateFormatter().string(from: startedAt ?? Date()),
@@ -117,7 +117,7 @@ final class SessionCapture {
 
     /// One zip per session (system zip of the folder), named for the Mac's review script.
     private static func package(_ directory: URL) -> URL? {
-        let destination = root.appendingPathComponent("paperstep-session-\(directory.lastPathComponent).zip")
+        let destination = root.appendingPathComponent("gradstep-session-\(directory.lastPathComponent).zip")
         var result: URL?, failure: NSError?
         NSFileCoordinator().coordinate(readingItemAt: directory, options: .forUploading, error: &failure) { zipped in
             try? FileManager.default.removeItem(at: destination)

@@ -1866,7 +1866,7 @@ final class ReaderModel {
         let bundle: VerifiedReaderBundle
         do { bundle = try ReaderBundleLoader.sample() }
         catch { self.error = "The offline sample couldn’t be verified. Try reinstalling this development build."; return }
-        let paper = Paper(id: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!, title: "Reading machine learning papers", authors: "Science Reader · offline sample", year: 2026,
+        let paper = Paper(id: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000001")!, title: "Reading machine learning papers", authors: "Gradstep · offline sample", year: 2026,
             abstract: "A local reading fixture with equations, a wide table, figure, and references. It demonstrates the reader without uploading a paper or using credits.",
             keywords: ["attention", "optimization", "evaluation"], fileURL: bundle.entryURL,
             artifactID: UUID(uuidString: "aaaaaaaa-0000-0000-0000-000000000002"), isSample: true, readerBundle: bundle)

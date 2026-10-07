@@ -86,7 +86,7 @@ fixed. Verified: local database/backend/app tests and a staging smoke test (forg
 nothing granted). **Not yet verified with a real sandbox purchase** (needs the subscriptions out of Missing Metadata; TestFlight
 build 4 has the store). See [purchases](architecture/PURCHASES.md).
 
-**TestFlight**: App Store Connect record "Paperstep" (name provisional; in-app naming TBD), bundle
+**TestFlight**: App Store Connect record "Gradstep" (owner decision 2026-10-06; renamed from "Paperstep"), bundle
 `com.sciencereader.ios`, manual App Store signing, builds 1–5 uploaded to the internal "Owner" group (build 3 adds account
 deletion, build 4 Get credits, build 5 Get credits beside "Not enough credits" in chat and the Library) (`scripts/upload-testflight.sh`). Email sign-in codes are sent through Resend (generic sender
 `onboarding@resend.dev`, which only delivers to the Resend account's own address until a domain is verified);

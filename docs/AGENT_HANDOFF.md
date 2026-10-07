@@ -34,7 +34,7 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   See [privacy and sync](architecture/PRIVACY_AND_SYNC.md).
 - **Purchases**: [PURCHASES.md](architecture/PURCHASES.md); products created by `scripts/setup-store-products.mjs`
   (idempotent; also sets sandbox notifications to staging); `node scripts/smoke-store.mjs` checks the deployed functions.
-- **TestFlight**: App Store Connect app "Paperstep" (provisional), `scripts/upload-testflight.sh` with
+- **TestFlight**: App Store Connect app "Gradstep" (renamed from "Paperstep" 2026-10-06), `scripts/upload-testflight.sh` with
   `BUILD_NUMBER=N` (ASC API key in ignored `.env.appstore` / `secrets/`), internal group "Owner".
 - **Admin**: MFA dashboard with budgets, provider usage and a Processing tab (papers, paid attempts).
 

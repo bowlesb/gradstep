@@ -88,7 +88,7 @@ struct RootView: View {
             if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
         }) { ReportComposer(model: model) }
         .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service) } }
-        .alert("Science Reader", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+        .alert("Gradstep", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
         #if INTERNAL
@@ -146,7 +146,7 @@ struct RootView: View {
     private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Label("Science Reader", systemImage: "books.vertical").font(.headline)
+                Label("Gradstep", systemImage: "books.vertical").font(.headline)
                 Spacer()
                 Picker("View", selection: $model.wideMode) {
                     ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }

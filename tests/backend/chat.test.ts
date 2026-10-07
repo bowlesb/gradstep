@@ -334,7 +334,7 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   update.deps.findPaper = async () => ({ status: 'needs_update', paper: deepLearning });
   update.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(update.deps, ingestBody(), update.emit, new AbortController().signal);
-  assert.match((update.events[1].data as { text: string }).text, /needs the latest Science Reader version/);
+  assert.match((update.events[1].data as { text: string }).text, /needs the latest Gradstep version/);
   const closed = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
   closed.deps.findPaper = async () => ({ status: 'closed', paper: { ...deepLearning, host: null, link: 'https://doi.org/10.1038/nature14539' } });
   closed.deps.importPaper = async () => { imports++; return 'added'; };

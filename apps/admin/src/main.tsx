@@ -121,7 +121,7 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
   </>;
 }
 
-function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Science Reader</span></div>; }
+function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Gradstep</span></div>; }
 function Empty({ text }: { text: string }) { return <p className="empty">{text}</p>; }
 function Metric({ label, value }: { label: string; value: number }) { return <section className="metric"><p>{label}</p><strong>{value.toLocaleString()}</strong></section>; }
 function Counts({ values, empty }: { values: Record<string, number>; empty: string }) {
@@ -168,7 +168,7 @@ function TwoFactor({ onVerified }: { onVerified: () => Promise<void> }) {
   useEffect(() => { void backend?.auth.mfa.listFactors().then(({ data }) => { const first = data?.totp.find(item => item.status === 'verified'); if (first) setFactor(first.id); }); }, []);
   async function enroll() {
     if (!backend) return; setBusy(true); setError('');
-    const { data, error } = await backend.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Science Reader administration' });
+    const { data, error } = await backend.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Gradstep administration' });
     if (error) setError('Authenticator setup could not start. Try again.');
     else { setFactor(data.id); setQR(data.totp.qr_code.startsWith('data:') ? data.totp.qr_code : 'data:image/svg+xml,' + encodeURIComponent(data.totp.qr_code)); }
     setBusy(false);

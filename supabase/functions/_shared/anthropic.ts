@@ -102,7 +102,7 @@ export interface PaperContext { title: string | null; text: string }
  * no second model call. */
 export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
   name: 'add_paper',
-  description: 'Adds the paper the reader selected (a reference or citation) to their Science Reader library. '
+  description: 'Adds the paper the reader selected (a reference or citation) to their Gradstep library. '
     + 'The app looks up the exact title on arXiv and, failing that, an open-access copy elsewhere, and adds the match. Call it at most once.',
   input_schema: {
     type: 'object',

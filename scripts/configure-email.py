@@ -30,7 +30,7 @@ desired = {
     'smtp_user': providers.get('SMTP_USER', 'resend'),
     'smtp_pass': providers['RESEND_API_KEY'],
     'smtp_admin_email': providers.get('SMTP_FROM', 'onboarding@resend.dev'),
-    'smtp_sender_name': providers.get('SMTP_SENDER_NAME', 'Paperstep'),
+    'smtp_sender_name': providers.get('SMTP_SENDER_NAME', 'Gradstep'),
     'rate_limit_email_sent': 30,  # per hour; Resend's free tier allows 100/day
 }
 url = f'https://api.supabase.com/v1/projects/{PROJECT}/config/auth'

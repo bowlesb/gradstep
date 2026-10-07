@@ -201,3 +201,22 @@ Decision (details in [chat](architecture/CHAT.md#web-search-on-in-staging)):
   does not change with the plan: set `TAVILY_SEARCH_ALLOWANCE` to the new allowance less a margin. A paid plan is
   needed for production keys (1,000 requests/minute) before public launch.
 
+## Product name: Gradstep (owner decided 2026-10-06)
+
+Owner: "lets do gradstep then", after the [naming study](brand/naming-2026-10-06.md) (top pick) and a check of
+Gradstack (rejected: gradstack.ai/.io belong to a live AI hiring startup since March 2026, and "stack" reads as
+careers/developer tools rather than ML). Gradstep: a gradient step is the basic unit of ML training; each paper is a step.
+
+- User-visible name is **Gradstep**: App Store Connect record renamed from "Paperstep" (2026-10-06), home-screen name
+  (`CFBundleDisplayName`), consent and privacy copy, alerts, the iPad sidebar title, the admin site, sign-in emails
+  ("Your Gradstep sign-in code", sender name Gradstep), session recordings (`gradstep-session-*.zip`; the review
+  script still reads `paperstep-` files), and chat instructions and conversion attribution text.
+- Internal identifiers stay: bundle `com.sciencereader.ios`, the `ScienceReader` code names, the Supabase
+  organization/projects, and content-addressed sample bundles (their text still says Science Reader).
+- Domains (checked 2026-10-06, registry data): gradstep.ai, .io, .co, .dev, .org, .net, getgradstep.com unregistered;
+  gradstep.app registered (Porkbun, January 2026, dead Vercel page); gradstep.com for sale at $1,995. Recommended:
+  **gradstep.ai** (≈ $70–90/year, often two years upfront) and optionally getgradstep.com. The owner buys it; it then
+  becomes the verified Resend sending domain for sign-in codes. Not a trademark clearance: an attorney search is
+  still advised before public launch.
+- Logo: not yet chosen (concepts: Folio, Nabla, Ribbon were the favourites).
+
