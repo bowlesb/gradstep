@@ -136,6 +136,25 @@ type Claim = { p_paper_id: string; p_claim_id: string; p_generation: number };
 /** `defer` (seconds) releases the claim with a delay after syncing imports. */
 type StepResult = { entry: PaperEntry; stop?: 'release'; defer?: number };
 
+/** Readers' progress is refreshed at most this often per paper (the server throttles each import alike). */
+export const PROGRESS_INTERVAL_MS = 5_000;
+/** When each claim last told readers something: its stage projection, or a progress report. */
+const progressReported = new WeakMap<Claim, number>();
+
+/** Tells the readers waiting on this paper what the worker sees of the current stage (the provider's pages,
+ * the PDF's size and pages; migration 030). Best effort: at most every 5 s, starting 5 s after the stage was
+ * projected, and a failure never affects the stage. */
+async function reportProgress(deps: PipelineDeps, claim: Claim, seen: { pagesDone?: number | null; pages?: number | null; bytes?: number | null }): Promise<void> {
+  const last = progressReported.get(claim);
+  if (last !== undefined && deps.now() - last < PROGRESS_INTERVAL_MS) return;
+  progressReported.set(claim, deps.now());
+  try {
+    await deps.rpc('worker_pipeline_progress', { ...claim, p_pages_done: seen.pagesDone ?? null, p_pages: seen.pages ?? null, p_bytes: seen.bytes ?? null });
+  } catch (error) {
+    deps.log('progress_failed', { paper: claim.p_paper_id, code: error instanceof PipelineRPCError ? error.code : 'unknown' });
+  }
+}
+
 /** Not a failure: the paper is simply not due yet (e.g. arXiv pacing). */
 export class Deferral extends Error {
   readonly seconds: number;
@@ -244,6 +263,8 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
   }
   const pages = await countPages(bytes);
   if (pages > 250) throw new PermanentFailure('too_large');
+  // A slow download: readers see the size and pages while the copy is stored.
+  await reportProgress(deps, claim, { pages, bytes: bytes.length });
   const digest = await sha256(bytes);
   const path = `${e.owner_id ? `private/${e.owner_id}/` : ''}originals/${digest}.pdf`;
   await deps.storage.upload(path, bytes, 'application/pdf');
@@ -332,6 +353,7 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
   // Polling is I/O, not CPU: wait in this invocation for up to ~90 s.
   let polled = await poll();
   for (let polls = 0; polled && polls < 22 && !['completed', 'error'].includes(polled.state) && deps.now() < waitUntil; polls++) {
+    await reportProgress(deps, claim, { pagesDone: polled.completedPages, pages: polled.pages });
     await deps.sleep(4000); polled = await poll();
   }
   if (!polled) return fail('conversion_failed', e.attempt.page_limit);
@@ -434,6 +456,8 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
     // Per-import failures back off inside the RPC; never a stage failure.
     try { await deps.rpc('worker_pipeline_sync_imports', claim); }
     catch (error) { deps.log('sync_failed', { paper: claimed.id, code: error instanceof PipelineRPCError ? error.code : 'unknown' }); }
+    // A stage projection carries a fresh progress detail; reports wait 5 s from here.
+    progressReported.set(claim, deps.now());
   };
   let entry = claimed;
   let projected: string | null = null;
