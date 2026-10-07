@@ -33,7 +33,10 @@ complete iPhone Simulator passage/offline journeys. The offline candidate also p
 Reader navigation is now merged (`b7a7c31` → `6bd877b`) for the next build: Find in paper, Contents hierarchy,
 figure gallery and the resizable/hideable iPad/Mac chat column. Its independent review passed 68 app tests (2 skips),
 11 iPhone and 5 iPad journeys, and a fresh universal Catalyst build. Main `bf01894` adds decoded thumbnail cache
-accounting. The chat branch is verifying the combined layout and a title-overlap correction.
+accounting. Chat quality `80724a5` is reviewed and merged as `2b5d7d4`: narrow titles fit, paper-specific history is
+available, equation prompts are clearer and diagram repairs require a complete validated response. Combined checks
+pass 224 backend, 213 Core, 48 app regressions, eight iPhone journeys, iPad resize/rotation/relaunch and a universal
+Catalyst build. Matching backend deployment is required before shipping these actions in build 17.
 See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
 
 ## Browser/Mac integration checkpoint — local, not deployed
