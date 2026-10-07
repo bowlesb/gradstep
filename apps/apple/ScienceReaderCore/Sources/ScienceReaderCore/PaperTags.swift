@@ -1,12 +1,12 @@
 import Foundation
 
-/// A paper's tags (docs/architecture/TAGS.md, migration 029). The server keeps three lists per
+/// A paper's tags (docs/architecture/TAGS.md, migration 030). The server keeps three lists per
 /// library item: the catalog's tags for the paper (`tags`), the reader's own (`user_tags`) and the
 /// catalog tags the reader removed (`hidden_tags`). What the reader sees is the catalog's tags
 /// minus the removed ones, then their own. Personal tags sync through the server like archive
 /// state; they are not end-to-end encrypted.
 public enum PaperTags {
-    /// Server limits (migration 029's `valid_tag_list`): characters are Unicode scalars, as PostgreSQL counts them.
+    /// Server limits (migration 030's `valid_tag_list`): characters are Unicode scalars, as PostgreSQL counts them.
     public static let maximumCharacters = 40
     public static let maximumBytes = 120
     public static let maximumOwnTags = 12

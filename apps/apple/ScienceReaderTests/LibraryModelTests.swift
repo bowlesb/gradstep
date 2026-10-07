@@ -28,7 +28,7 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var heldChanges: (StubProtocol, Data)?
     private var privateEvents: [[String: Any]] = []
     private var privateCalls: [String] = []
-    /// The catalog's topic tags on the item entry (migration 029); none by default (no `tags` key).
+    /// The catalog's topic tags on the item entry (migration 030); none by default (no `tags` key).
     var catalogTags: [String] = []
 
     init(activated: Bool = false) {
@@ -527,7 +527,7 @@ final class LibraryModelTests: XCTestCase {
         try await capture(window, name: "Cancelled import leaves the existing library intact")
     }
 
-    /// Tags (migration 029): catalog tags arrive with the entry; an edit shows at once, is sent as the reader's own
+    /// Tags (migration 030): catalog tags arrive with the entry; an edit shows at once, is sent as the reader's own
     /// and hidden lists at the observed revision, and the synced entry keeps showing the same tags.
     func testTagEditsShowAtOnceAndSyncAsOwnAndHiddenLists() async throws {
         let server = LibraryModelServer(activated: true)

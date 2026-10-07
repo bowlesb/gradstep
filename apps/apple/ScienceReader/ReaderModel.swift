@@ -48,7 +48,7 @@ struct Paper: Identifiable, Sendable {
     /// those the reader removed, then the reader's own, including an edit still syncing. Library columns and
     /// filters, the reader's header chips and search use these.
     var tags: [String] = []
-    /// The server's lists behind `tags` (migration 029): the catalog's, the reader's own and the removed ones.
+    /// The server's lists behind `tags` (migration 030): the catalog's, the reader's own and the removed ones.
     var catalogTags: [String] = []
     var ownTags: [String] = []
     var hiddenTags: [String] = []
@@ -2665,6 +2665,12 @@ final class ReaderModel {
         await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID, activation: activation,
                                     deploymentID: variant.deployment)
         tab = .library; wideMode = .library
+        // Visual checks without UI automation (docs/VISUAL_CHECK.md): open the fixture paper, and Edit tags over it.
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--visual-open-paper"), let paper = papers.first(where: { $0.id == OfflineReaderFixture.document }) {
+            select(paper)
+            if arguments.contains("--visual-edit-tags") { editTags(for: paper) }
+        }
     }
 
     /// Synthetic process-restart journeys use the real encrypted SQLite path,

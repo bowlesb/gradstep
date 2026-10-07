@@ -1,4 +1,4 @@
-// Catalog topic tags (docs/architecture/TAGS.md, migration 029). The pipeline worker claims
+// Catalog topic tags (docs/architecture/TAGS.md, migration 030). The pipeline worker claims
 // paper versions that readers have (or are adding), asks Claude Haiku to choose 3-7 tags from
 // Gradstep's vocabulary given only the title and abstract (structured output constrained to the
 // vocabulary), and records them under a platform-funded hold (never charged to readers). When

@@ -446,7 +446,7 @@ public actor EncryptedStore {
         return handle
     }
 
-    /// A tag edit for one library item (migration 029), resolved against pending edits in one transaction.
+    /// A tag edit for one library item (migration 030), resolved against pending edits in one transaction.
     @discardableResult
     public func editLibraryTags(scope: LibraryCommandScope, documentID: UUID, tags: [String], hiddenTags: [String],
                                 observedRevision: Int64, display: String? = nil) throws -> LocalLibraryCommandHandle {
