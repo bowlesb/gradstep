@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
 import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
+import { Accounts, liveAccountsApi } from './accounts';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
 import './style.css';
@@ -28,6 +29,7 @@ function App() {
   const [reloads, setReloads] = useState(0);
   const currentUser = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
+  const accountsApi = useMemo(() => liveAccountsApi(session?.user.id ?? ''), [session?.user.id]);
 
   useEffect(() => {
     if (!backend) return;
@@ -74,7 +76,7 @@ function App() {
   }
   if (account && !account.operator_verified) return <TwoFactor onVerified={refresh} />;
   const owner = account.roles.includes('owner');
-  return <Shell tabs={owner ? ['Overview', 'Usage', 'Processing', 'Reliability', 'Support'] : ['Support']} tab={tab} onTab={setTab}
+  return <Shell tabs={owner ? ['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support'] : ['Support']} tab={tab} onTab={setTab}
     counts={{ Support: overview?.open_reports }} email={session.user.email ?? ''} onSignOut={() => void backend?.auth.signOut()}
     loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
@@ -91,6 +93,7 @@ function App() {
         {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
+      {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
   </Shell>;
 }
@@ -242,9 +245,10 @@ function PrivateAttachment({ id }: { id: string }) {
 }
 
 const root = createRoot(document.getElementById('root')!);
-// Development-only screenshot fixture (`?fixture=reliability`); production builds drop this branch and its module.
-if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'reliability') {
-  void import('./fixtures').then(({ ReliabilityFixture }) => root.render(<React.StrictMode><ReliabilityFixture /></React.StrictMode>));
+// Development-only screenshot fixtures (`?fixture=reliability`, `?fixture=accounts`); production builds drop this branch and its module.
+if (import.meta.env.DEV && ['reliability', 'accounts'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture }) => root.render(<React.StrictMode>
+    {new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture /> : <ReliabilityFixture />}</React.StrictMode>));
 } else {
   root.render(<React.StrictMode><App /></React.StrictMode>);
 }
