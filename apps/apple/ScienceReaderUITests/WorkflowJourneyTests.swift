@@ -448,6 +448,52 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "Cancel leaves the reader in the app")
     }
 
+    /// Launches the chat fixture in `mode` and asks one question in chat (the
+    /// wide iPad layout has no tab bar; its general chat is a segment).
+    private func askChatFixture(_ mode: String, _ question: String) -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(question)
+        app.buttons["chat.send"].tap()
+        return app
+    }
+
+    /// Scrolls the transcript until `element` is fully on screen.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, up: Bool) {
+        let transcript = app.tables["chat.transcript"]
+        let visible = { transcript.frame.insetBy(dx: -1, dy: -1).contains(element.frame) }
+        for _ in 0..<8 where !visible() {
+            if up { transcript.swipeDown(velocity: .slow) } else { transcript.swipeUp(velocity: .slow) }
+        }
+        XCTAssertTrue(visible(), "\(element.identifier) is on screen")
+    }
+
+    /// Audit gap 4: a Markdown table in an answer is a native table, read row by row.
+    func testAnswerTableRendersAsATable() throws {
+        let app = askChatFixture("research", "Compare the preference optimization objectives")
+        let table = app.descendants(matching: .any)["chat.table.1"]
+        XCTAssertTrue(table.waitForExistence(timeout: 20))
+        XCTAssertTrue(table.label.contains("Table, 4 rows, 4 columns"), table.label)
+        XCTAssertEqual(app.descendants(matching: .any)["chat.table.1.header"].label, "Columns: Method, Objective, Reward model, Win rate")
+        XCTAssertTrue(app.descendants(matching: .any)["chat.table.1.row.2"].label.hasPrefix("Row 2: Method, DPO; Objective, -\\log"),
+                      app.descendants(matching: .any)["chat.table.1.row.2"].label)
+        XCTAssertTrue(app.descendants(matching: .any)["chat.table.1.row.4"].label.contains("v(x | y)"), "A pipe inside code stays in its cell")
+        XCTAssertFalse(app.descendants(matching: .any)["chat.table.1.row.5"].exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "|:---")).firstMatch.exists,
+                       "No pipe text remains once the answer is complete")
+        // The text around the table is still read as the assistant's message.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Assistant: This synthetic fixture")).firstMatch.exists)
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(table, in: app, up: true)
+        capture(app, "Answer table")
+    }
+
     /// Discovery audit (records every issue, fails on none): Library, reader,
     /// chat with an answer and diagram, the diagram itself, and Settings.
     /// Run with `TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test …`; read the `AXAUDIT` lines.

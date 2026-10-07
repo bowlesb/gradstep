@@ -186,7 +186,7 @@ Platform, External audience in testing mode, test users only; branding gradstep.
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
   testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
   synthetic-account hook.
-- **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
+- **Chat polish**: long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
 - **Accessibility**: an opt-in XCTest audit (`TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1`, test

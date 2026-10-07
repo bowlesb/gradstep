@@ -17,8 +17,11 @@ public enum ChatBlock: Equatable, Sendable {
     case listItem(marker: String, depth: Int, [ChatInline])
     /// LaTeX body of `\[ … \]` or `$$ … $$`.
     case displayMath(String)
-    /// Fenced code or a Markdown table, shown monospaced and unwrapped.
+    /// Fenced code, or table rows that are not (yet) a complete table: shown
+    /// monospaced and unwrapped.
     case preformatted(String)
+    /// A complete GFM table: header, alignment row and body rows.
+    case table(ChatTable)
     /// The web sources list the server appends to an answer that searched.
     case sources([ChatSource])
 }
@@ -28,11 +31,143 @@ public struct ChatSource: Equatable, Sendable {
     public let url: URL
 }
 
+/// A GFM table from an answer. Cells keep their inline Markdown and math; a
+/// pipe inside inline code or math, or escaped as `\|`, belongs to its cell.
+public struct ChatTable: Equatable, Sendable {
+    public enum Alignment: Equatable, Sendable { case leading, center, trailing }
+    public struct Cell: Equatable, Sendable {
+        /// The cell's Markdown, with `\|` resolved to `|` outside math.
+        public let source: String
+        public let parts: [ChatInline]
+        public init(_ source: String) { self.source = source; parts = ChatRichText.inline(source) }
+    }
+    /// Larger tables stay pipe text (they are rarely readable as a grid on a phone).
+    public static let maximumColumns = 12
+    public static let maximumRows = 120
+
+    public let header: [Cell]
+    public let alignments: [Alignment]
+    /// Body rows, each padded with empty cells or cut to the header's width (as GFM does).
+    public let rows: [[Cell]]
+
+    /// `rows`: the trimmed source lines, header first, then the alignment row.
+    /// Nil unless the header and alignment row agree on the number of columns.
+    public init?(rows lines: [String]) {
+        guard lines.count >= 2, lines.count - 2 <= Self.maximumRows else { return nil }
+        let header = Self.cells(lines[0]), separator = Self.cells(lines[1])
+        guard !header.isEmpty, header.count <= Self.maximumColumns, header.count == separator.count else { return nil }
+        var alignments: [Alignment] = []
+        for marker in separator {
+            guard let alignment = Self.alignment(marker) else { return nil }
+            alignments.append(alignment)
+        }
+        self.header = header.map(Cell.init)
+        self.alignments = alignments
+        rows = lines.dropFirst(2).map { line in
+            let cells = Self.cells(line)
+            return (0..<header.count).map { Cell($0 < cells.count ? cells[$0] : "") }
+        }
+    }
+
+    private static func alignment(_ marker: String) -> Alignment? {
+        guard marker.range(of: #"^:?-+:?$"#, options: .regularExpression) != nil else { return nil }
+        switch (marker.hasPrefix(":"), marker.hasSuffix(":")) {
+        case (true, true): return .center
+        case (false, true): return .trailing
+        default: return .leading
+        }
+    }
+
+    /// Splits one row on unescaped pipes outside inline code and math, dropping
+    /// the outer pipes. Cells are trimmed; `\|` becomes `|` except inside math.
+    static func cells(_ line: String) -> [String] {
+        var cells: [String] = [], current = ""
+        var index = line.startIndex, endedWithPipe = false
+        while index < line.endIndex {
+            let character = line[index], next = line.index(after: index)
+            endedWithPipe = false
+            if character == "\\", next < line.endIndex {
+                if line[next] == "|" { current.append("|"); index = line.index(after: next); continue }
+                if line[next] == "(", let close = line.range(of: "\\)", range: line.index(after: next)..<line.endIndex) {
+                    current += line[index..<close.upperBound]; index = close.upperBound; continue
+                }
+                // Any other escape (such as `\$`) is copied as is and never opens anything.
+                current += line[index...next]; index = line.index(after: next); continue
+            }
+            if character == "`" {
+                let run = line[index...].prefix(while: { $0 == "`" })
+                let afterRun = run.endIndex
+                if let close = Self.closingRun(of: run.count, in: line, from: afterRun) {
+                    current += line[index..<close].replacingOccurrences(of: "\\|", with: "|")
+                    index = close
+                } else {
+                    current += run; index = afterRun
+                }
+                continue
+            }
+            if character == "$", let math = ChatRichText.dollarMath(line, at: index) {
+                current += line[index..<math.end]; index = math.end; continue
+            }
+            if character == "|" { cells.append(current); current = ""; endedWithPipe = true; index = next; continue }
+            current.append(character); index = next
+        }
+        if !endedWithPipe { cells.append(current) }
+        if line.hasPrefix("|"), !cells.isEmpty { cells.removeFirst() }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// The end of a code span: just past a backtick run of exactly `count`.
+    private static func closingRun(of count: Int, in line: String, from start: String.Index) -> String.Index? {
+        var index = start
+        while index < line.endIndex {
+            guard line[index] == "`" else { index = line.index(after: index); continue }
+            let run = line[index...].prefix(while: { $0 == "`" })
+            if run.count == count { return run.endIndex }
+            index = run.endIndex
+        }
+        return nil
+    }
+
+    // MARK: Spoken form (VoiceOver)
+
+    /// A cell as plain words: emphasis and code marks removed, math as its LaTeX.
+    public static func spokenText(_ cell: Cell) -> String {
+        let text = cell.parts.map { part -> String in
+            switch part {
+            case .math(let latex): return latex
+            case .text(let value):
+                let prepared = ChatDisplayText.inlineMarkdownPreservingBackslashes(ChatRichText.inertLinks(value))
+                guard let attributed = try? AttributedString(markdown: prepared, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+                else { return value }
+                return String(attributed.characters)
+            }
+        }.joined()
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// "Columns: Method, Win rate".
+    public var spokenHeader: String {
+        "Columns: " + header.map { Self.spokenText($0).isEmpty ? "blank" : Self.spokenText($0) }.joined(separator: ", ")
+    }
+
+    /// "Row 2: Method, DPO; Win rate, 64%". Empty cells are skipped.
+    public func spokenRow(_ index: Int) -> String {
+        let values = zip(header, rows[index]).compactMap { column, cell -> String? in
+            let value = Self.spokenText(cell), name = Self.spokenText(column)
+            guard !value.isEmpty else { return nil }
+            return name.isEmpty ? value : "\(name), \(value)"
+        }
+        return "Row \(index + 1): " + (values.isEmpty ? "blank" : values.joined(separator: "; "))
+    }
+}
+
 public enum ChatRichText {
     /// Upper bound on parsed input; longer messages keep their tail as plain text.
     public static let maximumParsedBytes = 200_000
 
-    public static func parse(_ source: String) -> [ChatBlock] {
+    /// `streaming`: the text may still grow, so table rows at its very end stay
+    /// pipe text until a following line (or the finished answer) completes them.
+    public static func parse(_ source: String, streaming: Bool = false) -> [ChatBlock] {
         var text = source
         var overflow: String?
         if text.utf8.count > maximumParsedBytes {
@@ -43,15 +178,42 @@ public enum ChatRichText {
         var blocks: [ChatBlock] = []
         let trailing = trailingSources(text)
         if let trailing { text = trailing.body }
-        for segment in displaySegments(text) {
+        let segments = displaySegments(text)
+        // Only the very end of a still-growing answer can hold an unfinished table.
+        let growing = streaming && overflow == nil && trailing == nil
+        for (index, segment) in segments.enumerated() {
             switch segment {
             case .math(let body): blocks.append(.displayMath(body))
-            case .text(let chunk): blocks.append(contentsOf: lineBlocks(chunk))
+            case .text(let chunk): blocks.append(contentsOf: lineBlocks(chunk, growing: growing && index == segments.count - 1))
             }
         }
         if let overflow { blocks.append(.paragraph([.text(overflow)])) }
         if let trailing { blocks.append(.sources(trailing.sources)) }
         return blocks
+    }
+
+    /// Blocks as reading text for VoiceOver, close to their source: inline
+    /// Markdown kept (the caller renders it), math as its delimited LaTeX, a
+    /// table as its spoken rows. Sources are read from their own list.
+    public static func spokenText(_ blocks: [ChatBlock]) -> String {
+        func line(_ parts: [ChatInline]) -> String {
+            parts.map { part in
+                switch part {
+                case .text(let value): value
+                case .math(let latex): "\\(\(latex)\\)"
+                }
+            }.joined()
+        }
+        return blocks.compactMap { block -> String? in
+            switch block {
+            case .paragraph(let parts), .heading(_, let parts): line(parts)
+            case .listItem(let marker, _, let parts): "\(marker) \(line(parts))"
+            case .displayMath(let latex): "\\[\(latex)\\]"
+            case .preformatted(let text): text
+            case .table(let table): ([table.spokenHeader] + table.rows.indices.map(table.spokenRow)).joined(separator: "\n")
+            case .sources: nil
+            }
+        }.joined(separator: "\n\n")
     }
 
     // MARK: Sources
@@ -116,7 +278,7 @@ public enum ChatRichText {
 
     // MARK: Line blocks
 
-    private static func lineBlocks(_ chunk: String) -> [ChatBlock] {
+    private static func lineBlocks(_ chunk: String, growing: Bool) -> [ChatBlock] {
         var blocks: [ChatBlock] = []
         var paragraph: [String] = []
         var table: [String] = []
@@ -126,18 +288,28 @@ public enum ChatRichText {
             if !joined.isEmpty { blocks.append(.paragraph(inline(joined))) }
             paragraph = []
         }
-        func flushTable() { if !table.isEmpty { blocks.append(.preformatted(table.joined(separator: "\n"))); table = [] } }
-        for rawLine in chunk.components(separatedBy: "\n") {
+        /// Rows become a table only once complete and well formed; otherwise they stay pipe text.
+        func flushTable(complete: Bool) {
+            guard !table.isEmpty else { return }
+            if complete, let parsed = ChatTable(rows: table) { blocks.append(.table(parsed)) }
+            else { blocks.append(.preformatted(table.joined(separator: "\n"))) }
+            table = []
+        }
+        let lines = chunk.components(separatedBy: "\n")
+        for (index, rawLine) in lines.enumerated() {
             let line = rawLine.replacingOccurrences(of: "\r", with: "")
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // While the answer grows, its last line is unfinished: it may still become a row.
+            let unfinished = growing && index == lines.count - 1
             if var open = fence {
                 if trimmed.hasPrefix("```") { blocks.append(.preformatted(open.joined(separator: "\n"))); fence = nil }
                 else { open.append(line); fence = open }
                 continue
             }
-            if trimmed.hasPrefix("```") { flushParagraph(); flushTable(); fence = []; continue }
-            if trimmed.hasPrefix("|") && trimmed.count > 1 { flushParagraph(); table.append(trimmed); continue }
-            flushTable()
+            if trimmed.hasPrefix("```") { flushParagraph(); flushTable(complete: true); fence = []; continue }
+            if trimmed.hasPrefix("|") && (trimmed.count > 1 || unfinished) { flushParagraph(); table.append(trimmed); continue }
+            if unfinished && trimmed.isEmpty && !table.isEmpty { continue }
+            flushTable(complete: true)
             if trimmed.isEmpty { flushParagraph(); continue }
             if let heading = headingLevel(trimmed) {
                 flushParagraph()
@@ -152,7 +324,7 @@ public enum ChatRichText {
             paragraph.append(line)
         }
         if let open = fence { paragraph.append(contentsOf: ["```"] + open) }
-        flushTable(); flushParagraph()
+        flushTable(complete: !growing); flushParagraph()
         return blocks
     }
 
@@ -224,7 +396,7 @@ public enum ChatRichText {
         return result
     }
 
-    private static func dollarMath(_ text: String, at index: String.Index) -> (body: String, end: String.Index)? {
+    static func dollarMath(_ text: String, at index: String.Index) -> (body: String, end: String.Index)? {
         let start = text.index(after: index)
         guard start < text.endIndex, text[start] != "$", !text[start].isWhitespace else { return nil }
         var cursor = start

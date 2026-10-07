@@ -1,9 +1,9 @@
 # Native chat formatting
 
-## Implemented (2026-10-05)
+## Implemented (2026-10-05; tables 2026-10-07)
 
 Chat messages render natively: `ChatRichText` (Core) parses Markdown-like blocks (paragraphs, headings, lists,
-fenced code/tables as monospaced text, inert links) with inline `\( \)`/`$ $` and display `\[ \]`/`$$ $$` math;
+fenced code as monospaced text, GFM tables, inert links) with inline `\( \)`/`$ $` and display `\[ \]`/`$$ $$` math;
 `ChatRichTextView` typesets math with SwiftMath 1.7.3 (CoreText, Latin Modern Math), scaling wide display equations
 to fit. Stored text is never changed. `ChatMathTypesetting.prepare` first rewrites LaTeX SwiftMath cannot parse into
 supported equivalents (`\operatorname`→`\mathrm`, `\boldsymbol`→`\bm`, `\dfrac`→`\frac`, sizing commands dropped,
@@ -13,6 +13,19 @@ split only outside nested environments, `\tag`). SwiftMath silently skips non-AS
 `ChatMathTypesetting.customSymbols` (glyphs verified to draw). Measured with SwiftMath's parser: 57 of 904 distinct
 equations from six real papers (6.3%) fell back to source before; all parse after (the three using registered
 symbols parse once the app registers them). Anything still unsupported shows its source.
+
+**Tables (2026-10-07, legacy gap 4).** A run of lines starting with `|` whose second line is a valid alignment row
+with the header's column count becomes a `ChatTable` (alignment from `:---`, `:---:`, `---:`; body rows padded or
+cut to the header's width, as GFM does; at most 12 columns and 120 rows, larger tables stay pipe text). Cells split on
+unescaped pipes outside inline code and math (`\|` is a literal pipe, kept as `\|` inside math) and render with the
+paragraph inline renderer (bold, italic, code, inline math). `ChatTableView` draws a native `Grid`: semibold header on
+a faint fill, a rule under it and hairlines between rows, a rounded outline. It keeps its natural width when it fits,
+wraps cells at 9 × the text size next, and otherwise scrolls sideways with cells wrapped at 14 ×. While an answer
+streams, rows at its very end stay monospaced pipe text until a following line (or the finished answer) completes
+the table, so the layout changes once. VoiceOver: a message with a table is a container; the text around the table
+stays one combined element per run, and the table is an element ("Table, 4 rows, 4 columns") whose children are
+"Columns: …" and "Row n: header, value; …" (identifiers `chat.table.N`, `.header`, `.row.M`). Messages without a
+table keep the single combined element.
 
 The plan below (WebKit typesetter) is superseded and kept for history.
 

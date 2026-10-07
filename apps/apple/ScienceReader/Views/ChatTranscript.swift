@@ -94,10 +94,8 @@ private struct TranscriptMessage: View {
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
-                    ChatRichTextView(source: message.payload.text ?? "", fontSize: fontSize, showSources: false)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("chat.message.text.\(message.id.wire)")
-                        .accessibilityLabel(Text("\(message.payload.role == .user ? "You" : "Assistant"): \(Text(Self.inlineSource(sources?.body ?? message.payload.text)))"))
+                    ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
+                                    speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)")
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
                 }
                 if message.payload.status == .interrupted {
@@ -119,13 +117,6 @@ private struct TranscriptMessage: View {
         .padding(.horizontal, 16).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
         .frame(maxWidth: 720).frame(maxWidth: .infinity)
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
-    }
-
-    /// Inline Markdown, but backslashes stay literal: until rich rendering
-    /// lands, LaTeX source such as `\(`, `\[`, `\{` and `\_` displays verbatim
-    /// instead of losing its backslash to Markdown escaping.
-    static func inlineSource(_ text: String?) -> LocalizedStringKey {
-        LocalizedStringKey(ChatDisplayText.inlineMarkdownPreservingBackslashes(text ?? ""))
     }
 }
 
