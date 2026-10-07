@@ -7,7 +7,8 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 ## Scenarios
 
 `apps/apple/ScienceReaderUITests/VisualScenarioTests.swift` holds named, deterministic screens built from fixtures
-(no network, no account): `library`, `library-search`, `library-table`, `library-detailed`, `library-metadata-list`, `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
+(no network, no account): `library`, `library-search`, `library-table`, `library-detailed`, `library-metadata-list`, `library-slow-import`, `library-slow-import-table` (an import taking
+longer than usual, one a minute into downloading, one failed), `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
 `chat-history`, `signin`; and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),

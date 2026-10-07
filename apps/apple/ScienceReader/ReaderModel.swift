@@ -91,7 +91,17 @@ final class ReaderModel {
     var tab: ReaderTab = .library
     var wideMode: WideMode = .library
     var papers: [Paper] = [] { didSet { libraryPapersChanged(from: oldValue) } }
-    private(set) var libraryImports: [LibraryImportRecord] = [] { didSet { if libraryImports != oldValue { librarySearchSourceChanged(); updateImportPolling() } } }
+    private(set) var libraryImports: [LibraryImportRecord] = [] {
+        didSet {
+            guard libraryImports != oldValue else { return }
+            importSteps.observe(libraryImports, now: importClock())
+            librarySearchSourceChanged(); updateImportPolling()
+        }
+    }
+    /// When each import in progress entered its current step, as this device saw it (rows show how long).
+    private(set) var importSteps = ImportStepClock()
+    /// The step clock's time source (tests inject one).
+    @ObservationIgnored var importClock: () -> Date = { Date() }
     private var importPollTask: Task<Void, Never>?
     private(set) var libraryRefreshing = false
     private(set) var libraryIssue: String?
@@ -571,7 +581,8 @@ final class ReaderModel {
                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
                 topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
-                needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits)
+                needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits,
+                stepTiming: importSteps.timing(of: item))
         case .queued:
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
@@ -2633,11 +2644,13 @@ extension ReaderModel {
     }
 
     func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],
-                                       activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus]) {
+                                       activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus],
+                                       importStepStarts: [UUID: Date] = [:]) {
         fixtureOfflineStatus = offline
         libraryCreationSequences = sequences
         readingActivity = activity
         libraryImports = imports
+        for item in imports { if let since = importStepStarts[item.id] { importSteps.record(item, since: since) } }
         papers = papers.filter { $0.isSample } + fixturePapers
     }
 }

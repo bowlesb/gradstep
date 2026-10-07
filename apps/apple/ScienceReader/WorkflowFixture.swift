@@ -106,8 +106,11 @@ extension ReaderModel {
             if let error { value["error_code"] = error }
             return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
         }
-        let imports = [
-            try importRecord(20, sequence: 10, phase: "acquiring", progress: "converting", error: nil,
+        // `--slow-import-fixture`: the converting import has been in its step for minutes (taking longer than usual),
+        // another has been downloading for a minute, and a third failed to download (retryable).
+        let slow = ProcessInfo.processInfo.arguments.contains("--slow-import-fixture")
+        var imports = [
+            try importRecord(20, sequence: slow ? 13 : 10, phase: "acquiring", progress: "converting", error: nil,
                 title: "Scaling Laws for Neural Language Models", authors: ["Jared Kaplan", "Sam McCandlish", "Tom Henighan",
                 "Tom B. Brown", "Benjamin Chess", "Rewon Child", "Scott Gray", "Alec Radford", "Jeffrey Wu", "Dario Amodei"],
                 published: "2020-01-23", categories: ["cs.LG", "stat.ML"], source: "2001.08361"),
@@ -115,7 +118,16 @@ extension ReaderModel {
                 title: "Constitutional AI: Harmlessness from AI Feedback", authors: ["Yuntao Bai", "Saurav Kadavath", "Sandipan Kundu"],
                 published: "2022-12-15", categories: ["cs.CL", "cs.AI"], source: "2212.08073"),
         ]
-        installLibraryMetadataFixture(papers: papers, imports: imports, sequences: sequences, activity: activity, offline: offline)
+        if slow {
+            imports.append(try importRecord(22, sequence: 12, phase: "acquiring", progress: "downloading", error: nil,
+                title: "Denoising Diffusion Probabilistic Models", authors: ["Jonathan Ho", "Ajay Jain", "Pieter Abbeel"],
+                published: "2020-06-19", categories: ["cs.LG", "stat.ML"], source: "2006.11239"))
+            imports.append(try importRecord(23, sequence: 11, phase: "failed", progress: nil, error: "download_failed",
+                title: "Language Models are Few-Shot Learners", authors: ["Tom B. Brown", "Benjamin Mann", "Nick Ryder"],
+                published: "2020-05-28", categories: ["cs.CL"], source: "2005.14165"))
+        }
+        installLibraryMetadataFixture(papers: papers, imports: imports, sequences: sequences, activity: activity, offline: offline,
+            importStepStarts: slow ? [id(20): now - 4.5 * 60, id(22): now - 75] : [:])
     }
 
     private func configureBranchWorkflowFixture(documentID: UUID) throws {

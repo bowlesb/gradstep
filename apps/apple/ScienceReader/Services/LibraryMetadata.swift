@@ -146,60 +146,153 @@ enum LibraryFormat {
     static func chats(_ count: Int) -> String { count == 1 ? "1 chat" : "\(count) chats" }
 }
 
+/// The step an import in progress is on, as its row names it.
+enum LibraryImportStep: Equatable, Sendable {
+    case queued, finding, preparing, downloading, converting, building
+
+    /// The list's name for the step.
+    var title: String {
+        switch self {
+        case .queued: "Queued"; case .finding: "Finding paper"; case .preparing: "Preparing PDF"
+        case .downloading: "Downloading PDF"; case .converting: "Converting equations and figures"; case .building: "Building reader"
+        }
+    }
+    /// Short enough for a table column.
+    var shortTitle: String {
+        switch self { case .downloading: "Downloading"; case .converting: "Converting"; default: title }
+    }
+    /// "Downloading PDF…"; waiting in the queue has no ellipsis.
+    func label(short: Bool) -> String {
+        let name = short ? shortTitle : title
+        return self == .queued ? name : name + "…"
+    }
+    /// The status line with how long the step has run: "Downloading PDF · 1 min", then past three minutes
+    /// "Downloading PDF · Taking longer than usual". In the first minute, the plain label.
+    func status(short: Bool, elapsed: ImportStepElapsed?) -> String {
+        guard let suffix = elapsed?.label else { return label(short: short) }
+        return (short ? shortTitle : title) + " · " + suffix
+    }
+    /// What VoiceOver reads: "Downloading PDF, 4 minutes, taking longer than usual".
+    func spokenStatus(elapsed: ImportStepElapsed?) -> String {
+        guard let time = elapsed?.spokenLabel else { return title }
+        return title + ", " + time
+    }
+}
+
+/// How long an import has been on its current step, as this device has seen it.
+struct ImportStepElapsed: Equatable {
+    /// Past this, the row says the step is taking longer than usual (pipeline reliability, 2026-10-06).
+    static let slowAfter: TimeInterval = 3 * 60
+    let seconds: TimeInterval
+
+    init(since start: Date, now: Date) { seconds = max(0, now.timeIntervalSince(start)) }
+
+    var minutes: Int { Int(seconds / 60) }
+    var isSlow: Bool { seconds >= Self.slowAfter }
+    /// After the step's name: nothing in the first minute, then "1 min", "2 min", then "Taking longer than usual".
+    var label: String? { isSlow ? "Taking longer than usual" : minutes > 0 ? "\(minutes) min" : nil }
+    /// "2 minutes"; "1 hour 5 minutes, taking longer than usual"; nothing in the first minute.
+    var spokenLabel: String? {
+        guard minutes > 0 else { return nil }
+        let hours = minutes / 60, rest = minutes % 60
+        let time = ((hours > 0 ? [hours == 1 ? "1 hour" : "\(hours) hours"] : [])
+            + (rest > 0 ? [rest == 1 ? "1 minute" : "\(rest) minutes"] : [])).joined(separator: " ")
+        return isSlow ? time + ", taking longer than usual" : time
+    }
+}
+
+/// When this device first saw each import in progress on its current step. In memory only: a relaunch starts
+/// counting again and nothing is sent anywhere (the server's own step timings feed the admin Reliability tab).
+struct ImportStepClock: Equatable {
+    private struct Mark: Equatable { let step: LibraryImportStep; let intentRevision: Int64; let since: Date }
+    private var marks: [UUID: Mark] = [:]
+
+    /// Keeps the start of imports still on the same step, starts the clock for a new step (or a retry), and
+    /// forgets imports that finished, failed or left the library.
+    mutating func observe(_ imports: [LibraryImportRecord], now: Date) {
+        var next: [UUID: Mark] = [:]
+        for item in imports {
+            guard let step = item.step else { continue }
+            if let mark = marks[item.id], mark.step == step, mark.intentRevision == item.intentRevision { next[item.id] = mark }
+            else { next[item.id] = Mark(step: step, intentRevision: item.intentRevision, since: now) }
+        }
+        marks = next
+    }
+
+    /// Records that the import entered its current step at `since` (fixtures).
+    mutating func record(_ item: LibraryImportRecord, since: Date) {
+        guard let step = item.step else { return }
+        marks[item.id] = Mark(step: step, intentRevision: item.intentRevision, since: since)
+    }
+
+    /// The step the import is on now and since when; nil when it isn't in progress or this device hasn't seen
+    /// that step (the row then shows the plain status).
+    func timing(of item: LibraryImportRecord) -> ImportStepTiming? {
+        guard let step = item.step, let mark = marks[item.id], mark.step == step,
+              mark.intentRevision == item.intentRevision else { return nil }
+        return ImportStepTiming(step: step, since: mark.since)
+    }
+}
+
+/// An import's current step and when this device first saw it there.
+struct ImportStepTiming: Equatable {
+    let step: LibraryImportStep
+    let since: Date
+}
+
 extension LibraryImportRecord {
-    /// The server's progress when known, in any active phase (an import can still
-    /// read "accepted" while its paper is already converting).
-    private var progressLabel: String? {
-        switch progress {
-        case .finding: "Finding paper…"
-        case .downloading: "Downloading PDF…"
-        case .converting: "Converting equations and figures…"
-        case .rendering, .finishing: "Building reader…"
+    /// The step while the import is in progress, from the server's progress when known (an import can still
+    /// read "accepted" while its paper is already converting), else from its phase.
+    var step: LibraryImportStep? {
+        switch phase {
+        case .accepted, .resolving, .acquiring:
+            switch progress {
+            case .finding: .finding
+            case .downloading: .downloading
+            case .converting: .converting
+            case .rendering, .finishing: .building
+            default: phase == .accepted ? .queued : phase == .resolving ? .finding : .preparing
+            }
         default: nil
         }
     }
-    /// The list's full status line.
+    /// The list's full status line. Failures say what failed in plain words.
     var libraryStatus: String {
         switch phase {
-        case .accepted: progressLabel ?? "Queued"
-        case .resolving: progressLabel ?? "Finding paper…"
-        case .acquiring: progressLabel ?? "Preparing PDF…"
-        case .sourceOnly: "Available at source"
+        case .accepted, .resolving, .acquiring: return step?.label(short: false) ?? "Queued"
+        case .sourceOnly: return "Available at source"
         case .failed:
             switch errorCode {
-            case .insufficientCredits: "Not enough credits to convert this paper"
-            case .tooLarge: "This PDF is too large to convert"
-            case .pdfInvalid: "This PDF couldn’t be read"
-            case .conversionFailed: "Conversion failed"
-            case .downloadFailed, .rateLimited: "Couldn’t download this paper"
-            default: "Couldn’t import this paper"
+            case .insufficientCredits: return "Not enough credits to convert this paper"
+            case .tooLarge: return "This PDF is too large to convert"
+            case .pdfInvalid: return "This PDF couldn’t be read"
+            case .conversionFailed: return "Conversion failed"
+            case .downloadFailed, .rateLimited: return "Couldn’t download this paper"
+            case .metadataUnavailable: return "Couldn’t get this paper’s details"
+            case .licenseUnverified: return "Couldn’t confirm this paper’s license"
+            default: return "Couldn’t import this paper"
             }
-        case .membershipConflict: "Not added to library"
-        case .ready: "Added"
-        case .cancelled: "Cancelled"
+        case .membershipConflict: return "Not added to library"
+        case .ready: return "Added"
+        case .cancelled: return "Cancelled"
         }
     }
     /// The same status, short enough for a table column.
     var libraryShortStatus: String {
         switch phase {
-        case .accepted, .resolving, .acquiring:
-            switch progress {
-            case .converting: "Converting…"
-            case .rendering, .finishing: "Building reader…"
-            case .downloading: "Downloading…"
-            case .finding: "Finding paper…"
-            default: phase == .accepted ? "Queued" : phase == .resolving ? "Finding paper…" : "Preparing PDF…"
-            }
+        case .accepted, .resolving, .acquiring: return step?.label(short: true) ?? "Queued"
         case .failed:
             switch errorCode {
-            case .insufficientCredits: "Needs credits"
-            case .tooLarge: "Too large to convert"
-            case .pdfInvalid: "PDF unreadable"
-            case .conversionFailed: "Conversion failed"
-            case .downloadFailed, .rateLimited: "Download failed"
-            default: "Import failed"
+            case .insufficientCredits: return "Needs credits"
+            case .tooLarge: return "Too large to convert"
+            case .pdfInvalid: return "PDF unreadable"
+            case .conversionFailed: return "Conversion failed"
+            case .downloadFailed, .rateLimited: return "Download failed"
+            case .metadataUnavailable: return "Details unavailable"
+            case .licenseUnverified: return "License unconfirmed"
+            default: return "Import failed"
             }
-        default: libraryStatus
+        default: return libraryStatus
         }
     }
     var isActive: Bool { [.resolving, .acquiring].contains(phase) }
@@ -226,6 +319,8 @@ struct LibraryRowFacts {
     let pages: Int?
     let status: Status
     let needsCredits: Bool
+    /// An import in progress: its step and when this device first saw it there.
+    var stepTiming: ImportStepTiming? = nil
 
     var statusText: String? {
         switch status { case .none: nil; case .active(let text), .info(let text), .problem(let text): text }
