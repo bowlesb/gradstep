@@ -65,9 +65,13 @@ final class PassageJourneyTests: XCTestCase {
             app.buttons["chat.returnToPaper"].tap()
             waitFor("The paper returns to the passage", passageVisible)
         } else {
-            // The chat is beside the paper; start another so the tap visibly brings this one back.
-            app.buttons["New chat"].tap()
-            waitFor("A new chat") { title.label == "Conversation: New chat" }
+            // The chat is beside the paper; switch it to General chat (no keyboard over the paper) so the tap visibly
+            // brings this conversation back.
+            title.tap()
+            let general = app.buttons["General chat"]
+            XCTAssertTrue(general.waitForExistence(timeout: 5)); general.tap()
+            waitFor("General chat") { title.label == "Conversation: New chat" }
+            waitFor("The paper still shows the passage", passageVisible)
         }
         XCTAssertFalse(explain.exists)
         capture(app, "Passage with a chat is underlined")
