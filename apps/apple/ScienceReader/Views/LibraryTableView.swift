@@ -300,10 +300,10 @@ enum LibraryCell {
         case .active(let text):
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini).accessibilityHidden(true)
-                Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                step(text, timing: facts.stepTiming)
             }.accessibilityElement(children: .combine)
         case .info(let text):
-            Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+            step(text, timing: facts.stepTiming)
         case .problem(let text):
             VStack(alignment: .leading, spacing: 2) {
                 Label { Text(text).foregroundStyle(.secondary).lineLimit(2) } icon: {
@@ -314,6 +314,26 @@ enum LibraryCell {
                         .accessibilityIdentifier("import.getCredits")
                 }
             }
+        }
+    }
+
+    /// A status, and for an import in progress beneath it how long the step has run ("1 min", then "Taking
+    /// longer than usual"), changing once a minute without animation.
+    @ViewBuilder private static func step(_ text: String, timing: ImportStepTiming?) -> some View {
+        if let timing {
+            TimelineView(.periodic(from: timing.since, by: 60)) { context in
+                let elapsed = ImportStepElapsed(since: timing.since, now: context.date)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                    if let label = elapsed.label {
+                        Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(timing.step.spokenStatus(elapsed: elapsed))
+            }
+        } else {
+            Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
         }
     }
 }
@@ -422,14 +442,14 @@ struct DetailedImportRow: View {
             }
             HStack(spacing: 6) {
                 if item.isActive { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                Text(item.libraryShortStatus).font(.caption).foregroundStyle(.secondary)
+                ImportStatusText(item: item, since: facts.stepTiming?.since, short: true).font(.caption).foregroundStyle(.secondary)
                 if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
                     Button("Get credits", action: getCredits).font(.caption.weight(.semibold)).buttonStyle(.borderless)
                         .accessibilityIdentifier("import.getCredits")
                 }
                 if !item.isActive, let url = URL(string: item.sourceURL) {
                     Spacer(minLength: 8)
-                    Link("View source", destination: url).font(.caption.weight(.semibold))
+                    Link("View source", destination: url).font(.caption.weight(.semibold)).foregroundStyle(.tint)
                 }
             }
         }

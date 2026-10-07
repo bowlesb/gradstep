@@ -154,6 +154,158 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(LibraryTableComparator(field: .progress).sort, LibrarySearchSort(field: .progress))
     }
 
+    // MARK: Import progress (pipeline reliability, 2026-10-06)
+
+    private func importRecord(_ id: UUID = UUID(), phase: String, progress: String? = nil, error: String? = nil,
+                              intentRevision: Int = 1, state: Int = 1) throws -> LibraryImportRecord {
+        var value: [String: Any] = ["id": id.wire, "created_seq": 1, "state_seq": state, "intent_revision": intentRevision,
+            "visible": true, "phase": phase, "source": "arxiv", "source_id": "2006.11239",
+            "source_url": "https://arxiv.org/abs/2006.11239", "retryable": phase == "failed"]
+        if let progress { value["progress"] = progress }
+        if let error { value["error_code"] = error }
+        return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    func testStepTimeIsQuietThenSaysTakingLongerThanUsualAfterThreeMinutes() {
+        func elapsed(_ seconds: TimeInterval) -> ImportStepElapsed { ImportStepElapsed(since: now, now: now + seconds) }
+        XCTAssertNil(elapsed(0).label, "Nothing in the first minute")
+        XCTAssertNil(elapsed(59).label)
+        XCTAssertEqual(elapsed(60).label, "1 min")
+        XCTAssertEqual(elapsed(179).label, "2 min")
+        XCTAssertFalse(elapsed(179).isSlow)
+        XCTAssertTrue(elapsed(180).isSlow, "Three minutes in the same step is slow")
+        XCTAssertEqual(elapsed(180).label, "Taking longer than usual")
+        XCTAssertEqual(elapsed(3 * 3_600).label, "Taking longer than usual")
+        XCTAssertEqual(elapsed(-90).seconds, 0, "A clock set back never shows negative time")
+        XCTAssertNil(elapsed(-90).label)
+
+        XCTAssertNil(elapsed(30).spokenLabel)
+        XCTAssertEqual(elapsed(60).spokenLabel, "1 minute")
+        XCTAssertEqual(elapsed(150).spokenLabel, "2 minutes")
+        XCTAssertEqual(elapsed(4 * 60 + 10).spokenLabel, "4 minutes, taking longer than usual")
+        XCTAssertEqual(elapsed(65 * 60).spokenLabel, "1 hour 5 minutes, taking longer than usual")
+        XCTAssertEqual(elapsed(120 * 60).spokenLabel, "2 hours, taking longer than usual")
+    }
+
+    func testImportStatusNamesTheStepAndHowLongItHasRun() throws {
+        func elapsed(_ seconds: TimeInterval) -> ImportStepElapsed { ImportStepElapsed(since: now, now: now + seconds) }
+        let downloading = try importRecord(phase: "acquiring", progress: "downloading")
+        let step = try XCTUnwrap(downloading.step)
+        XCTAssertEqual(step, .downloading)
+        XCTAssertEqual(downloading.libraryStatus, "Downloading PDF…", "Unchanged without a time")
+        XCTAssertEqual(downloading.libraryShortStatus, "Downloading…")
+        XCTAssertEqual(step.status(short: false, elapsed: nil), "Downloading PDF…")
+        XCTAssertEqual(step.status(short: false, elapsed: elapsed(40)), "Downloading PDF…")
+        XCTAssertEqual(step.status(short: false, elapsed: elapsed(90)), "Downloading PDF · 1 min")
+        XCTAssertEqual(step.status(short: true, elapsed: elapsed(90)), "Downloading · 1 min")
+        XCTAssertEqual(step.status(short: false, elapsed: elapsed(200)), "Downloading PDF · Taking longer than usual",
+                       "The step's name stays")
+        XCTAssertEqual(step.spokenStatus(elapsed: elapsed(40)), "Downloading PDF")
+        XCTAssertEqual(step.spokenStatus(elapsed: elapsed(200)), "Downloading PDF, 3 minutes, taking longer than usual")
+
+        // Every phase in progress has a step; its plain label is the status shown before this change.
+        let expected: [(String, String?, LibraryImportStep, String, String)] = [
+            ("accepted", nil, .queued, "Queued", "Queued"),
+            ("accepted", "converting", .converting, "Converting equations and figures…", "Converting…"),
+            ("resolving", nil, .finding, "Finding paper…", "Finding paper…"),
+            ("resolving", "finding", .finding, "Finding paper…", "Finding paper…"),
+            ("acquiring", nil, .preparing, "Preparing PDF…", "Preparing PDF…"),
+            ("acquiring", "rendering", .building, "Building reader…", "Building reader…"),
+            ("acquiring", "finishing", .building, "Building reader…", "Building reader…"),
+            ("acquiring", "future_progress", .preparing, "Preparing PDF…", "Preparing PDF…"),
+        ]
+        for (phase, progress, step, full, short) in expected {
+            let item = try importRecord(phase: phase, progress: progress)
+            XCTAssertEqual(item.step, step, "\(phase) \(progress ?? "-")")
+            XCTAssertEqual(item.libraryStatus, full)
+            XCTAssertEqual(item.libraryShortStatus, short)
+        }
+        XCTAssertEqual(LibraryImportStep.queued.status(short: false, elapsed: elapsed(130)), "Queued · 2 min")
+        for phase in ["failed", "ready", "cancelled", "source_only", "membership_conflict"] {
+            XCTAssertNil(try importRecord(phase: phase).step, "\(phase) is not in progress")
+        }
+    }
+
+    func testFailedImportsSayWhatFailed() throws {
+        let messages: [(String, String, String)] = [
+            ("download_failed", "Couldn’t download this paper", "Download failed"),
+            ("rate_limited", "Couldn’t download this paper", "Download failed"),
+            ("conversion_failed", "Conversion failed", "Conversion failed"),
+            ("metadata_unavailable", "Couldn’t get this paper’s details", "Details unavailable"),
+            ("too_large", "This PDF is too large to convert", "Too large to convert"),
+            ("pdf_invalid", "This PDF couldn’t be read", "PDF unreadable"),
+            ("insufficient_credits", "Not enough credits to convert this paper", "Needs credits"),
+            ("license_unverified", "Couldn’t confirm this paper’s license", "License unconfirmed"),
+            ("something_new", "Couldn’t import this paper", "Import failed"),
+        ]
+        for (code, full, short) in messages {
+            let item = try importRecord(phase: "failed", error: code)
+            XCTAssertEqual(item.libraryStatus, full, code)
+            XCTAssertEqual(item.libraryShortStatus, short, code)
+        }
+    }
+
+    func testStepClockKeepsTheStartUntilTheStepChanges() throws {
+        var clock = ImportStepClock()
+        let id = UUID(), other = UUID()
+        let downloading = try importRecord(id, phase: "acquiring", progress: "downloading")
+        clock.observe([downloading], now: now)
+        XCTAssertEqual(clock.timing(of: downloading), ImportStepTiming(step: .downloading, since: now))
+
+        // Polls that change other fields keep the start; a new import starts its own.
+        let polled = try importRecord(id, phase: "acquiring", progress: "downloading", state: 5)
+        let queued = try importRecord(other, phase: "accepted")
+        clock.observe([polled, queued], now: now + 120)
+        XCTAssertEqual(clock.timing(of: polled)?.since, now)
+        XCTAssertEqual(clock.timing(of: queued)?.since, now + 120)
+
+        // The next step starts again; rendering and finishing are one step ("Building reader").
+        let converting = try importRecord(id, phase: "acquiring", progress: "converting", state: 6)
+        clock.observe([converting, queued], now: now + 300)
+        XCTAssertEqual(clock.timing(of: converting), ImportStepTiming(step: .converting, since: now + 300))
+        XCTAssertNil(clock.timing(of: polled), "A stale row's step doesn't borrow the new step's time")
+        let rendering = try importRecord(id, phase: "acquiring", progress: "rendering", state: 7)
+        clock.observe([rendering], now: now + 400)
+        let finishing = try importRecord(id, phase: "acquiring", progress: "finishing", state: 8)
+        clock.observe([finishing], now: now + 500)
+        XCTAssertEqual(clock.timing(of: finishing)?.since, now + 400)
+        XCTAssertNil(clock.timing(of: queued), "An import that left the library is forgotten")
+
+        // A failure has no step; a retry (new intent) starts counting again, even in the same step.
+        let failed = try importRecord(id, phase: "failed", error: "download_failed", state: 9)
+        clock.observe([failed], now: now + 600)
+        XCTAssertNil(clock.timing(of: failed))
+        let retried = try importRecord(id, phase: "acquiring", progress: "finishing", intentRevision: 2, state: 10)
+        clock.observe([retried], now: now + 700)
+        XCTAssertEqual(clock.timing(of: retried)?.since, now + 700)
+        let retriedAgain = try importRecord(id, phase: "acquiring", progress: "finishing", intentRevision: 3, state: 11)
+        clock.observe([retriedAgain], now: now + 800)
+        XCTAssertEqual(clock.timing(of: retriedAgain)?.since, now + 800, "A new intent without a seen failure also restarts")
+    }
+
+    func testModelTimesImportStepsWithItsClock() throws {
+        let model = ReaderModel(configuration: nil)
+        var clock = now
+        model.importClock = { clock }
+        let id = UUID()
+        let downloading = try importRecord(id, phase: "acquiring", progress: "downloading")
+        model.installLibraryMetadataFixture(papers: [], imports: [downloading], sequences: [:], activity: [:], offline: [:])
+        XCTAssertEqual(model.libraryFacts(for: .pending(downloading)).stepTiming, ImportStepTiming(step: .downloading, since: now))
+        XCTAssertEqual(model.libraryStatus(for: .pending(downloading)), .active("Downloading…"))
+
+        clock = now + 240
+        let polled = try importRecord(id, phase: "acquiring", progress: "downloading", state: 2)
+        model.installLibraryMetadataFixture(papers: [], imports: [polled], sequences: [:], activity: [:], offline: [:])
+        let timing = try XCTUnwrap(model.libraryFacts(for: .pending(polled)).stepTiming)
+        XCTAssertEqual(timing.since, now, "Still the same step")
+        XCTAssertTrue(ImportStepElapsed(since: timing.since, now: clock).isSlow)
+
+        let failed = try importRecord(id, phase: "failed", error: "download_failed", state: 3)
+        model.installLibraryMetadataFixture(papers: [], imports: [failed], sequences: [:], activity: [:], offline: [:])
+        XCTAssertNil(model.libraryFacts(for: .pending(failed)).stepTiming)
+        XCTAssertEqual(model.libraryStatus(for: .pending(failed)), .problem("Download failed"))
+    }
+
     // MARK: Model
 
     func testOpeningReadingAndChatsUpdateActivityAndActivityOrders() async throws {

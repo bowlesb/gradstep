@@ -40,6 +40,12 @@ final class VisualScenarioTests: XCTestCase {
                 sleep(2)
             },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
+            // Pipeline reliability: an import whose step has run for minutes says it is taking longer than usual.
+            // List layout; with the table layout, detailed rows on iPhone portrait and the table on iPad.
+            "library-slow-import": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture"]) { app in self.showSlowImport(app) },
+            "library-slow-import-table": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table"]) { app in
+                self.showSlowImport(app)
+            },
             "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
                 let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.swipeLeft(); sleep(1)
@@ -166,6 +172,24 @@ final class VisualScenarioTests: XCTestCase {
         case "chat": app.segmentedControls.buttons["Reader"].tap()
         default: app.segmentedControls.buttons[tab.capitalized].tap()
         }
+    }
+
+    /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
+    /// the time: "Converting equations and figures, 4 minutes, taking longer than usual".
+    private func showSlowImport(_ app: XCUIApplication) {
+        let status = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "minutes, taking longer than usual")).firstMatch
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        // Short drags, until it is clear of the tab bar (compact layouts). Element frames don't follow a landscape
+        // rotation, so there one drag brings the row (just above the tab bar) into view.
+        let drag = { // held at the end, so the list doesn't coast past the row
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)),
+                       withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        let tab = app.buttons["tab.library"]
+        if XCUIDevice.shared.orientation.isLandscape { if tab.exists { drag() } }
+        else { for _ in 0..<8 where !status.isHittable || (tab.exists && status.frame.maxY > tab.frame.minY - 24) { drag() } }
+        sleep(1)
     }
 
     private func tapMenu(_ app: XCUIApplication, _ label: String) {

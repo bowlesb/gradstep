@@ -443,13 +443,26 @@ struct LibraryView: View {
                             DetailedImportRow(item: item, facts: model.libraryFacts(for: entry), showTopics: model.showTopics,
                                               getCredits: { model.showStore = true })
                         } else {
-                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics, getCredits: { model.showStore = true })
+                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
+                                      stepSince: model.importSteps.timing(of: item)?.since, getCredits: { model.showStore = true })
                         }
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("import.\(item.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                        // Like paper rows: cancel (and retry a failed import) by swiping, so a slow import is
+                        // easy to stop. The same actions as the long-press menu.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) { Task { await model.changeImport(item, retry: false) } } label: {
+                                Label("Cancel import", systemImage: "xmark.circle")
+                            }.tint(.red).disabled(!model.canChangeLibrary)
+                            if item.phase == .failed && item.retryable {
+                                Button { Task { await model.changeImport(item, retry: true) } } label: {
+                                    Label("Retry import", systemImage: "arrow.clockwise")
+                                }.tint(.accentColor).disabled(!model.canChangeLibrary)
+                            }
+                        }
                 case .queued(let command):
                     VStack(alignment: .leading, spacing: 4) {
                         Text(command.display ?? "Queued paper").font(.headline)
@@ -470,10 +483,11 @@ struct ImportRow: View {
     let item: LibraryImportRecord
     var showAbstract = true
     var showTopics = true
+    /// When this device first saw the import on its current step (shown as how long the step has run).
+    var stepSince: Date? = nil
     /// Offered when the conversion failed for lack of credits.
     var getCredits: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    private var status: String { item.libraryStatus }
     private var active: Bool { item.isActive }
     var body: some View {
         // Design audit F6: title, then authors (secondary), then abstract and details (tertiary).
@@ -493,7 +507,7 @@ struct ImportRow: View {
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             HStack(spacing: 6) {
                 if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                Text(status).font(.footnote).foregroundStyle(.secondary)
+                ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
                 if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
                     Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
                         .accessibilityIdentifier("import.getCredits")
@@ -504,6 +518,40 @@ struct ImportRow: View {
                 }
             }.padding(.top, 2)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// An import's status line. While it is in progress, how long the current step has run follows quietly
+/// ("Downloading PDF · 1 min"), and past three minutes "Taking longer than usual". It changes once a minute,
+/// without animation; VoiceOver reads the step and the time.
+struct ImportStatusText: View {
+    let item: LibraryImportRecord
+    let since: Date?
+    var short = false
+    var body: some View {
+        if let since, let step = item.step {
+            TimelineView(.periodic(from: since, by: 60)) { context in
+                let elapsed = ImportStepElapsed(since: since, now: context.date)
+                Group {
+                    if let time = elapsed.label {
+                        // One line when it fits; otherwise the time on a line of its own, never broken mid-phrase.
+                        ViewThatFits(in: .horizontal) {
+                            Text(step.status(short: short, elapsed: elapsed))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(short ? step.shortTitle : step.title)
+                                Text(time)
+                            }
+                        }
+                    } else {
+                        Text(step.label(short: short))
+                    }
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(step.spokenStatus(elapsed: elapsed))
+            }
+        } else {
+            Text(short ? item.libraryShortStatus : item.libraryStatus)
+        }
     }
 }
 
