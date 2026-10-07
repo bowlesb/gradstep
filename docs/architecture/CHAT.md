@@ -110,3 +110,14 @@ Rate version `beta-credits-v1`: credits = ⌈micro-USD / 5,000⌉ (1 credit ≈ 
 ## Open items
 
 UI journeys for Stop and Ingest; formulas SwiftMath cannot typeset fall back to LaTeX source; long papers raise the per-question hold (context is the whole MMD). The stale-hold sweep exists (migration 015).
+
+## Selection actions and Related (2026-10-06)
+
+The reader's selection actions are shown as **Explain**, **Why it matters**, **Related** and **Add paper** (identifiers
+unchanged: define/relevance/similar/ingest). **Related** sends `action: "related"` (requires a selection; app
+builds from 2026-10-06): the server adds instructions to search the web on distinct angles (up to 5 searches; the
+hold is sized for 5) and list 4–8 related papers with arXiv/DOI links. Without web search it says so and never
+invents links. Web search uses the basic `web_search_20250305` tool: `web_search_20260209` (dynamic filtering by
+model-written code) failed in production on 2026-10-06 (code exit 1, 0 sources, filtering notes leaked into the
+answer). Each answer logs `chat_answer` with counts only (action, mode, web searches, sources) and records
+`web_searches` in its usage units.

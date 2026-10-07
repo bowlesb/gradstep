@@ -430,7 +430,7 @@ struct LibraryView: View {
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if !paper.isSample {
                                 Button(role: .destructive) { Task { await model.removePaper(paper) } } label: { Label("Remove", systemImage: "trash") }
-                                    .disabled(!model.canChangeLibrary)
+                                    .tint(.red).disabled(!model.canChangeLibrary)
                                 let archived = model.isArchived(paper)
                                 Button { Task { await model.setArchived(paper, archived: !archived) } } label: {
                                     Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox")

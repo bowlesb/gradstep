@@ -37,6 +37,10 @@ final class VisualScenarioTests: XCTestCase {
                 sleep(2)
             },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
+            "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
+                let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.swipeLeft(); sleep(1)
+            },
             "paper": Scenario(arguments: ["--workflow-fixture"]) { app in self.openSample(app) },
             "paper-contents": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.openSample(app)
