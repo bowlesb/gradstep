@@ -19,9 +19,17 @@ struct PaperReadingLocation: Equatable {
 }
 
 struct PaperJumpRequest: Equatable, Identifiable {
+    enum Target: Equatable {
+        /// A Contents entry: the heading goes to the top of the page.
+        case heading
+        /// The figure gallery's "Show in paper": the figure is centered and highlighted, with Back.
+        case figure
+    }
     let id = UUID()
     let locationKey: String
+    /// The heading's ID, or the figure's for `.figure`.
     let headingID: String
+    var target: Target = .heading
 }
 
 struct PaperHeading: Equatable, Identifiable {
@@ -113,6 +121,9 @@ struct PaperView: View {
     @State private var reloadID = UUID()
     @State private var selectionClearID = UUID()
     @State private var figure: String?
+    @State private var showFigures = false
+    /// "Show in paper" from the gallery, applied once the gallery has closed.
+    @State private var figureToShow: String?
     @State private var loadingPaper = true
     /// After following a citation: offer "Back" to the place left.
     @State private var citationBack = false
@@ -234,6 +245,10 @@ struct PaperView: View {
                         .controlGroupStyle(.compactMenu)
                         MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
                             .disabled(!canFind)
+                        if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
+                            MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
+                                .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
+                        }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
@@ -259,6 +274,17 @@ struct PaperView: View {
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
                 }.presentationDetents([.medium, .large]).macSheetKeys()
             }
+            .sheet(isPresented: $showFigures, onDismiss: {
+                // After the gallery has gone, so the jump and its highlight are seen.
+                if let id = figureToShow, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .figure) }
+                figureToShow = nil
+            }) {
+                if let bundle = model.selectedPaper?.readerBundle {
+                    FigureGalleryView(bundle: bundle, baseFontSize: model.paperFontSize) { id in
+                        figureToShow = id; showFigures = false
+                    }.macSheetKeys()
+                }
+            }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
                     Group {
@@ -277,7 +303,7 @@ struct PaperView: View {
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
-            selection = nil; figure = nil; showContents = false; readerFailed = false
+            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
             citationBack = false; reference = nil; model.referenceNotice = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
         }
@@ -678,9 +704,10 @@ struct PaperWebView: UIViewRepresentable {
                   request.locationKey == parent.locationKey, request.id != lastJumpID else { return }
             inFlightJumpID = request.id
             let load = loadingID
-            web.callAsyncJavaScript("""
-                return window.__scienceReaderJumpToHeading(id,reduced);
-                """, arguments: ["id": request.headingID, "reduced": parent.reduceMotion], in: nil, in: .defaultClient) { [weak self, weak web] result in
+            let script = request.target == .figure ? "return window.__scienceReaderShowFigure(id,reduced);"
+                : "return window.__scienceReaderJumpToHeading(id,reduced);"
+            web.callAsyncJavaScript(script, arguments: ["id": request.headingID, "reduced": parent.reduceMotion],
+                                    in: nil, in: .defaultClient) { [weak self, weak web] result in
                     guard let self, let web, self.active, self.loadingID == load else { return }
                     self.inFlightJumpID = nil
                     if case .success(let value) = result, value as? Bool == true {

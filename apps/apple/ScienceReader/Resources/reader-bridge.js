@@ -1273,4 +1273,16 @@
       if (event.key === 'Enter' || event.key === ' ') {event.preventDefault();open();}
     });
   }
+
+  // Figure gallery, "Show in paper" (docs/LEGACY_GAP_AUDIT.md #6): the figure is centered (from the top
+  // when taller than the page), highlighted like a citation's reference, and native Back returns to the
+  // place left; the saved reading position stays there until Back or a screen's scroll away.
+  window.__scienceReaderShowFigure = id => {
+    if (!config || config.figure_id || !figureIDs.has(id)) return false;
+    const element = document.getElementById(id);
+    if (!element) return false;
+    const range = document.createRange(); range.selectNode(element);
+    jumpToReference({id, range}, null);
+    return true;
+  };
 })();

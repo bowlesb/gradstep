@@ -105,4 +105,41 @@ final class PaperToolsTests: XCTestCase {
         let heading = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A. 2 ")).firstMatch
         XCTAssertTrue(wait { heading.exists && abs(heading.frame.minY - web.frame.minY) < 80 }, "The entry jumps to its heading")
     }
+
+    // MARK: - Figure gallery (gap 6)
+
+    func testFigureGalleryOpensAFigureAndShowsItInThePaperWithBack() throws {
+        let app = openSample()
+        let web = app.webViews.firstMatch
+        let title = web.staticTexts["An interactive reading sample · 2026"]
+        let start = title.frame.minY - web.frame.minY
+        app.buttons["Paper options"].tap()
+        app.buttons["paper.figures"].tap()
+        let first = app.buttons["figures.item.0"], second = app.buttons["figures.item.1"]
+        XCTAssertTrue(first.waitForExistence(timeout: 5)); XCTAssertTrue(second.exists)
+        XCTAssertTrue(first.label.hasPrefix("Figure 1. A simplified attention data flow."), first.label)
+        XCTAssertTrue(second.label.hasPrefix("Figure 2. A reading checklist"), second.label)
+        sleep(1) // thumbnails decode
+        capture(app, "Figure gallery")
+
+        second.tap()
+        XCTAssertTrue(app.navigationBars["Figure 2"].waitForExistence(timeout: 5))
+        let detail = app.webViews.allElementsBoundByIndex.last!
+        XCTAssertTrue(detail.images.firstMatch.waitForExistence(timeout: 5), "The figure's offline image")
+        XCTAssertFalse(app.buttons["Next figure"].isEnabled)
+        app.buttons["Previous figure"].tap()
+        XCTAssertTrue(app.navigationBars["Figure 1"].waitForExistence(timeout: 5))
+        capture(app, "A figure from the gallery")
+
+        app.buttons["figures.showInPaper"].tap()
+        let back = app.buttons["reader.citation.back"]
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Back is offered after Show in paper")
+        let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure: Queries and keys")).firstMatch
+        XCTAssertTrue(wait { figure.exists && web.frame.contains(CGPoint(x: figure.frame.midX, y: figure.frame.midY)) },
+                      "The figure is shown in the paper")
+        capture(app, "Show in paper: the figure highlighted, with Back")
+        back.tap()
+        XCTAssertTrue(wait { title.exists && abs(title.frame.minY - web.frame.minY - start) < 3 && !back.exists },
+                      "Back returns to the place left")
+    }
 }

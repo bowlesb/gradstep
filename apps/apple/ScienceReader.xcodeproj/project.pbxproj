@@ -89,6 +89,7 @@
 		7B6ECC0C4064EDE1348737C6 /* BranchPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */; };
 		7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
 		7BC3644F9BF56309E3F859CB /* GoogleSignIn-PROVENANCE.md in Resources */ = {isa = PBXBuildFile; fileRef = 3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */; };
+		7D6032E1194A25E295F4F111 /* FigureGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412F7CE5828148A87E72C09C /* FigureGallery.swift */; };
 		7F28F7CC08D6253FDFDA9B8D /* ImportProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3D1F438A38856740453FBC /* ImportProgress.swift */; };
 		81C88DBE0463F19584B38655 /* AuthenticationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED5C0AC6E18061F191F30F7 /* AuthenticationCoordinatorTests.swift */; };
 		81F4B31C1ED5D7F66D4686E4 /* OfflineResourceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */; };
@@ -132,6 +133,7 @@
 		AC9F6CBCB7AE7D8AFED96D75 /* GoogleSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */; };
 		B1713C47ADAC1C5C2F62FC21 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BB0761CB97647F552ADC5A /* DesignSystem.swift */; };
 		B272479F6321F27A9150E93F /* ChatConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4945661F367880A111DF5CF2 /* ChatConsentView.swift */; };
+		B2752212310A9B97DD23EC2A /* FigureGallery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412F7CE5828148A87E72C09C /* FigureGallery.swift */; };
 		B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		B422CD71DBFDFA34FF6388D7 /* GoogleSignIn-PROVENANCE.md in Resources */ = {isa = PBXBuildFile; fileRef = 3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */; };
 		B460865CD511CCB74668327C /* ChatRichTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AFED85CC085152AD2629AC /* ChatRichTextView.swift */; };
@@ -251,6 +253,7 @@
 		3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = "GoogleSignIn-PROVENANCE.md"; sourceTree = "<group>"; };
 		3CB1587BDBC05A7A1CB6AA48 /* FeedTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedTableView.swift; sourceTree = "<group>"; };
 		40956B60129F7C2C369B441F /* ChatHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryTests.swift; sourceTree = "<group>"; };
+		412F7CE5828148A87E72C09C /* FigureGallery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FigureGallery.swift; sourceTree = "<group>"; };
 		4322D94A725E781DDD6CE62A /* LibraryModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryModelTests.swift; sourceTree = "<group>"; };
 		44EA809E32C50B2747229C55 /* ScienceReader.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46DD9E9113B03CAE53BF0271 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -544,6 +547,7 @@
 				16BB0761CB97647F552ADC5A /* DesignSystem.swift */,
 				09F00A3E50BBA6CA58D4062C /* DiagramView.swift */,
 				3CB1587BDBC05A7A1CB6AA48 /* FeedTableView.swift */,
+				412F7CE5828148A87E72C09C /* FigureGallery.swift */,
 				59CC84EF0734AAAD333D116D /* ImportProgressView.swift */,
 				26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */,
 				50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */,
@@ -811,6 +815,7 @@
 				FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */,
 				FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */,
 				D7454B3BF7F9D5B8F05C53BE /* FeedTableView.swift in Sources */,
+				7D6032E1194A25E295F4F111 /* FigureGallery.swift in Sources */,
 				7F28F7CC08D6253FDFDA9B8D /* ImportProgress.swift in Sources */,
 				E98136122C1A1C624B2FC731 /* ImportProgressView.swift in Sources */,
 				968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */,
@@ -944,6 +949,7 @@
 				D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */,
 				53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */,
 				CAA65E94C9DFB4DC65E59BEE /* FeedTableView.swift in Sources */,
+				B2752212310A9B97DD23EC2A /* FigureGallery.swift in Sources */,
 				644622E1D3FD4B5CA5445C1F /* ImportProgress.swift in Sources */,
 				DE68ADA4AF263020D08BD3A3 /* ImportProgressView.swift in Sources */,
 				23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */,

@@ -51,6 +51,50 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(detail.web?.url, bundle.entryURL)
     }
 
+    // MARK: - Figure gallery (docs/LEGACY_GAP_AUDIT.md #6)
+
+    func testGalleryFiguresReadTheirNumberAndCaption() throws {
+        func label(_ text: String) -> [String?] { let value = GalleryFigure.label(text); return [value.number, value.caption] }
+        XCTAssertEqual(label(#"Figure 4: Best of N baseline for N = \{ 1,4,16,64,128 \} . Performance plateaus."#),
+                       ["Figure 4", "Best of N baseline for N = { 1,4,16,64,128 }. Performance plateaus."])
+        XCTAssertEqual(label("Fig. 2. Left: the frontier."), ["Figure 2", "Left: the frontier."])
+        XCTAssertEqual(label("FIGURE 12a | Ablations"), ["Figure 12a", "Ablations"])
+        XCTAssertEqual(label("Figure A. 1: Proof sketch"), ["Figure A.1", "Proof sketch"])
+        XCTAssertEqual(label("Table 3: Results"), ["Table 3", "Results"])
+        XCTAssertEqual(label("Queries and keys produce weights."), [nil, "Queries and keys produce weights."])
+        let figures = GalleryFigure.all(in: try ReaderBundleLoader.sample().index)
+        XCTAssertEqual(figures.map(\.number), ["Figure 1", "Figure 2"])
+        XCTAssertTrue(figures[0].caption.hasPrefix("A simplified attention data flow."))
+        XCTAssertNotNil(figures[0].imagePath)
+    }
+
+    func testShowFigureCentersItHighlightsItAndBackReturns() async throws {
+        let bundle = try ReaderBundleLoader.sample(), harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let figure = try XCTUnwrap(bundle.index.figures.last)
+        let rejected = try await script(web, "return window.__scienceReaderShowFigure('not-a-figure');") as? Bool
+        XCTAssertEqual(rejected, false)
+        let reported = harness.locations.count
+        let shown = try await script(web, "return window.__scienceReaderShowFigure(id);", ["id": figure.id]) as? Bool
+        XCTAssertEqual(shown, true)
+        let visible = try await eventually {
+            try await self.script(web, """
+                const rect = document.getElementById(id).getBoundingClientRect();
+                return window.scrollY > 0 && rect.top >= 0 && rect.bottom <= innerHeight && document.querySelector('.sr-flash') !== null;
+                """, ["id": figure.id]) as? Bool == true
+        }
+        XCTAssertTrue(visible, "The figure is in view and highlighted")
+        XCTAssertEqual(harness.citationStates.last, true, "Back is offered")
+        XCTAssertEqual(harness.locations.count, reported, "The saved place stays where reading left off")
+        let back = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
+        XCTAssertEqual(back, true)
+        let returned = try await eventually { try await self.script(web, "return window.scrollY;") as? Double == 0 }
+        XCTAssertTrue(returned, "Back returns to the top, where reading was")
+        XCTAssertEqual(harness.citationStates.last, false)
+    }
+
     func testSelectedTableRetainsCellAndRowSeparators() async throws {
         let bundle = try ReaderBundleLoader.sample()
         let harness = try Harness(bundle: bundle)
