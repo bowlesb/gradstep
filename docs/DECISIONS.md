@@ -291,3 +291,26 @@ device can approve a new one), not on every sign-in.
   filled" when none exists; **Save to Passwords** on a fresh staging account opens Apple's password-saving sheet, which
   the Simulator closes because it has no iCloud Keychain. Saving and filling on a real device is not yet verified
   (physical iPhone work is paused).
+
+## Admin accounts (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+The owner asked for an owner-only Accounts tab so testers can be managed without an engineer
+([gap audit](LEGACY_GAP_AUDIT.md)). Migration 031, Edge function `admin-accounts`, admin tab **Accounts**.
+
+- **Who:** owners signed in with MFA only, through the existing `is_operator('owner')` gate (`v1_admin_actor` on the
+  caller's own token); the service functions re-check that the acting account is an open owner. Support operators
+  don't see the tab.
+- **Add tester:** creates the Auth login with the email confirmed and no password through the Auth admin API;
+  `disable_signup` stays on and nothing is emailed. The page shows instructions to send and reminds the owner to add
+  the tester to TestFlight. The existing `auth.users` trigger creates the account row. Adding an existing email
+  changes nothing. Starting credits default to 1,000 (the approved tester grant) and are granted once per account.
+- **Grants:** `adjustment` credits that never expire, 1–2,000 per grant (server-side), a required one-line reason
+  (3–500 characters, kept in the audit log; the ledger reason is "Admin grant: …"), once per request ID; the page
+  asks for confirmation above 500.
+- **Disable:** a Supabase Auth ban (100 years), recorded in the audit log *before* the ban is applied; owners can't
+  be disabled here. An open session keeps working until its access token expires (up to an hour); making the
+  database refuse banned logins immediately is a possible follow-up (it would change `app_private.actor()`, used by
+  every RPC, so it was not done unreviewed). Deletion stays in the app.
+- **Status shown:** active, disabled (banned), closing (deletion started, login not yet removed), closed (deleted).
+  Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
+  relies on Supabase linking identities with the same verified email; not yet tried on staging.

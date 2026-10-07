@@ -56,6 +56,15 @@ paper directly (no chat); automated user-workflow checks run after deploys and o
 ([workflow checks](architecture/WORKFLOW_CHECKS.md)) with results in the admin Reliability tab. One paper table
 (`PaperTable`) serves Library and Feed at every size.
 
+**Admin Accounts tab** (overnight 2026-10-07; [decision](DECISIONS.md#admin-accounts-agent-decisions-overnight-2026-10-07-owner-asleep-all-reversible)):
+owners with MFA list every account (email, status, plan, credits, library size, sign-in methods, created, last
+sign-in; search and sort; synthetic test logins marked), add testers (confirmed login, no email sent, starting
+credits once), grant credits (audited, at most 2,000) and disable/enable sign-in (audited Auth ban). Migration
+`…031_admin_accounts.sql` and the `admin-accounts` function are **written and tested locally only — not yet applied
+or deployed to staging**. Verified: database suite (new `test_owner_accounts.sql`), backend suite (10 new cases with
+fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
+dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
