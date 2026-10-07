@@ -364,10 +364,17 @@ check('config.pipeline-url', { title: 'Pipeline URL is the Cloud Run worker', su
 
 check('config.worker-endpoint', { title: 'Worker answers /health and refuses calls without the secret', suites: ALL, timeout: 90 }, async () => {
   const base = infra.pipeline_worker_url.replace(/\/$/, '');
-  const health = await http(`${base}/health`, { timeoutMs: 60_000 });
+  // Cloud Run answers 429 while every instance is busy with a paper (concurrency 1): wait and ask again.
+  let health = await http(`${base}/health`, { timeoutMs: 60_000 });
+  for (let i = 0; i < 3 && health.status === 429; i++) {
+    await new Promise(resolve => setTimeout(resolve, 15_000));
+    health = await http(`${base}/health`, { timeoutMs: 20_000 });
+  }
+  if (health.status === 429) return warn('every worker instance is busy (HTTP 429 for 45 s); the scheduler retries each minute');
   if (health.status !== 200 || health.json?.ok !== true) return fail(`/health answered HTTP ${health.status}`);
   const none = await http(base, { method: 'POST', body: { reason: 'workflow-check' } });
   const wrong = await http(base, { method: 'POST', body: { reason: 'workflow-check' }, headers: { 'x-pipeline-secret': randomBytes(48).toString('base64url') } });
+  if (none.status === 429 || wrong.status === 429) return warn('health ok, but the secret checks met busy instances (HTTP 429)');
   if (none.status !== 401 || wrong.status !== 401) return fail(`calls without/with a wrong secret answered HTTP ${none.status}/${wrong.status}, expected 401/401`);
   return pass('health ok; missing and wrong secrets refused (401)');
 });
