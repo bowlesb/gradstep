@@ -28,13 +28,15 @@ enum EmailCodeDelivery: Equatable, Sendable {
 }
 
 enum AuthenticationError: Error, Equatable, Sendable, LocalizedError {
-    case configuration, invalidEmail, invalidCode
+    /// noAccount: sign-up is closed (invitation-only beta) and no account uses this identity.
+    case configuration, noAccount, invalidEmail, invalidCode
     case rateLimited(retryAfterSeconds: Int?)
     case connection, invalidResponse, credentialStorage, rejected
 
     var errorDescription: String? {
         switch self {
         case .configuration: "Sign-in is not configured for this build."
+        case .noAccount: "No account uses this email yet."
         case .invalidEmail: "Enter a valid email address."
         case .invalidCode: "That code wasn’t accepted. Check it or request a new code."
         case .rateLimited: "Too many attempts. Wait before trying again."

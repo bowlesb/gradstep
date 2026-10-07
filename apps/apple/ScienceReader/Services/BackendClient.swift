@@ -750,7 +750,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             }
             return .rateLimited(retryAfterSeconds: retry)
         }
-        if codes.contains(where: { ["provider_disabled", "email_provider_disabled", "otp_disabled", "signup_disabled"].contains($0) }) { return .configuration }
+        if codes.contains("signup_disabled") { return .noAccount }
+        if codes.contains(where: { ["provider_disabled", "email_provider_disabled", "otp_disabled"].contains($0) }) { return .configuration }
         if codes.contains("email_address_invalid") { return .invalidEmail }
         if case .emailVerify = route, codes.contains(where: { ["otp_expired", "invalid_credentials"].contains($0) }) { return .invalidCode }
         return .rejected

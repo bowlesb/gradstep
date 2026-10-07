@@ -153,6 +153,15 @@ $4.48 left under the cap. On 2026-10-06 at 17:20 PDT the cap showed $6.56 spent.
 Tavily Project plan $30 from 2026-10-06) are recorded in [operations](architecture/OPERATIONS_AND_BILLING.md#fixed-commitments).
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
+## Sign-in on TestFlight (owner report 2026-10-06)
+
+Apple works. Google fails because the Google provider was never configured on staging (`external_google_enabled`
+false, no client): the server answers "Unsupported provider". Email codes fail for any address without an account
+because sign-up is closed (`signup_disabled`); the app showed "Sign-in isn’t available in this build" and now says
+the email has no account (next build). Codes to the owner's existing account are accepted by the server; delivery
+uses Resend's shared test sender, which delivers only to the Resend account's own address. The app has no password
+sign-in (replaced by email codes on 2026-10-04); only the local admin site uses a password.
+
 ## Still required
 
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before

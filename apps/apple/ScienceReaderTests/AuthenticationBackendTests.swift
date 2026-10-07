@@ -253,6 +253,17 @@ final class AuthenticationBackendTests: XCTestCase {
         XCTAssertEqual(fixture.server.requests().map(\.url.path), ["/auth/v1/otp", "/auth/v1/verify"])
     }
 
+    func testClosedSignupIsReportedAsNoAccountNotAsMissingConfiguration() async throws {
+        let fixture = try AuthenticationFixture([
+            .ok(Data(#"{"code":422,"error_code":"signup_disabled","msg":"Signups not allowed for this instance"}"#.utf8), status: 422),
+            .ok(Data(#"{"code":400,"error_code":"otp_disabled"}"#.utf8), status: 400)])
+        defer { fixture.close() }
+        let request = try await fixture.client.prepareEmailSignIn(email: "new.person@example.invalid")
+        await error(.noAccount) { _ = try await fixture.client.sendEmailCode(id: request.id) }
+        let disabled = try await fixture.client.prepareEmailSignIn(email: "new.person@example.invalid")
+        await error(.configuration) { _ = try await fixture.client.sendEmailCode(id: disabled.id) }
+    }
+
     func testReplacementCancelsTheOldSendAndCannotVerifyOrCancelNewAuthority() async throws {
         let account = UUID(), fixture = try AuthenticationFixture([.hold, .ok(), .ok(AuthenticationFixture.session())])
         defer { fixture.close() }

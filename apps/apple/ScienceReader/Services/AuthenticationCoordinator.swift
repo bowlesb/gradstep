@@ -17,12 +17,13 @@ enum AuthenticationPresentationError: Error, Equatable { case cancelled, unavail
 final class AuthenticationCoordinator {
     enum Method: Equatable { case apple, google, email }
     enum Issue: Equatable {
-        case configuration, presentation, invalidEmail, invalidCode, rateLimited
+        case configuration, noAccount, presentation, invalidEmail, invalidCode, rateLimited
         case connection, invalidResponse, credentialStorage, rejected
 
         var message: String {
             switch self {
-            case .configuration: "Sign-in isn’t available in this build."
+            case .configuration: "This sign-in method isn’t available yet. Try another."
+            case .noAccount: "There’s no account for this email yet. The beta is by invitation: use the email you were invited with, or Sign in with Apple."
             case .presentation: "Couldn’t open sign-in. Please try again."
             case .invalidEmail: "Enter a valid email address."
             case .invalidCode: "That code wasn’t accepted. Check it or request a new one."
@@ -393,6 +394,7 @@ final class AuthenticationCoordinator {
         if let error = error as? AuthenticationError {
             return switch error {
             case .configuration: .configuration
+            case .noAccount: .noAccount
             case .invalidEmail: .invalidEmail
             case .invalidCode: .invalidCode
             case .rateLimited: .rateLimited
