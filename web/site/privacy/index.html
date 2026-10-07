@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gradstep Privacy</title>
+<meta name="description" content="How Gradstep handles your data during its private beta.">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <header class="brand"><a href="/" style="display:flex;align-items:center;gap:10px;color:inherit;text-decoration:none"><span class="mark" aria-hidden="true"></span>Gradstep</a></header>
+  <h1>Privacy</h1>
+  <p class="muted">Private beta · last updated 6 October 2026</p>
+  <p>Gradstep is an iPhone and iPad app for reading machine-learning papers. This page explains what data the app and its servers handle during the private beta, who processes it, and the choices you have.</p>
+
+  <h2>Your notes and conversations</h2>
+  <p>Your saved conversations and notes are encrypted on your devices with keys that stay on your devices. Our servers store them only in encrypted form and cannot read them. A new device is approved from a device you are already signed in on, or with your recovery code. If you lose every device and your recovery code, we cannot recover that content.</p>
+
+  <h2>AI answers</h2>
+  <p>When you ask a question, the app sends your question, any passage you selected, earlier messages in that conversation and, for questions about a paper, the paper's text to Anthropic, whose Claude models write the answer. When a question needs the web, the searches Claude writes go to Tavily or, as a backup, Anthropic's search provider; search services see only the searches. Our servers pass this through without storing it. These providers process it under their own terms and may keep it for a limited time. You agree to this the first time you ask a question, and the answer is saved, encrypted, on your device.</p>
+
+  <h2>Papers</h2>
+  <p>When you add a paper, our servers fetch it (from arXiv or an open-access source) and convert it with Mathpix so equations and figures display properly. Papers whose license allows sharing may be converted once and reused for other readers. Other papers, and anything you upload, are converted privately for your account. Your library lists which papers you have added.</p>
+
+  <h2>Your account</h2>
+  <p>You sign in with Apple, Google or an email code. We keep your email address and the identifiers from these sign-in services to run your account. Sign-in codes are sent by email through Resend.</p>
+
+  <h2>Purchases and credits</h2>
+  <p>Plans and credit packs are sold through the App Store. Apple processes payment; we receive transaction details to add credits to your account and keep a record of credit use.</p>
+
+  <h2>Reports and support</h2>
+  <p>If you send a report from the app, we store its text and any screenshots you attach, privately, to investigate it.</p>
+
+  <h2>What we don't do</h2>
+  <ul>
+    <li>We don't sell your data or use it for advertising.</li>
+    <li>The app contains no advertising or third-party analytics code.</li>
+    <li>We don't train AI models on your data.</li>
+  </ul>
+
+  <h2>Where data is processed</h2>
+  <p>Our database and file storage run on Supabase in the United States (US West). Paper processing runs on Google Cloud in the United States (US West). This website is served by Cloudflare. The providers named above process data as described in each section.</p>
+
+  <h2>Deleting your account</h2>
+  <p>You can delete your account in the app (Settings → Account). We then delete your library, encrypted history, private papers, reports and sign-in details. Records needed for accounting, such as credit and usage totals, are kept without your account identity. Shared paper conversions that other readers use remain. Deleted data leaves our backups as they expire.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about privacy: <a href="mailto:privacy@gradstep.ai">privacy@gradstep.ai</a>.</p>
+
+  <footer>
+    <a href="/">Gradstep</a>
+  </footer>
+</main>
+</body>
+</html>
