@@ -173,6 +173,14 @@ On launch, foreground, login, reconnect, or a realtime notification, fetch every
 - **Notes/highlights:** explicit revisions; retain concurrent text changes rather than silently choose one. Changes to independent records commute. Stable anchors include document/artifact version and text context.
 - **Reading position:** store per-device positions plus a causally versioned shared resume position. An old offline reading session must not automatically replace a later intentional position on reconnect. Preserve alternatives when intent is ambiguous; do not use maximum page number as the definition of progress.
 - **Deletion:** durable tombstones dominate stale edits. An offline device cannot resurrect deleted content. Keep tombstones until the acknowledged-device/retention policy makes compaction safe; expired devices re-bootstrap from a verified snapshot.
+- **Deleting a conversation (All chats, 2026-10-07):** appends the conversation's tombstone through the same
+  encrypted outbox. Every device hides it (and its diagrams) once synced and refuses to continue it; an unsent
+  follow-up stays a recoverable draft. Tombstones retain the encrypted history, so the UI promises removal from
+  the user's chats, not erasure from the server; account deletion erases it.
+- **Event times (2026-10-07):** new conversation, message, diagram and tombstone events carry `createdAt` (author
+  device clock, Unix milliseconds) inside the encrypted payload, for display only (All chats' Started and Last
+  used). It never orders branches, conflicts or sync; older events have none and older decoders ignore it. History
+  without times is ordered by its arrival in this device's journal, an unsynced in-memory hint.
 - **Corruption/unknown versions:** do not advance the cursor past unprocessable content or overwrite a valid encrypted store with an empty one. Show recovery/update state and preserve recoverable data.
 - **Sign-out/account changes:** partition all state by account. Retain or discard pending local work only through an explicit user action; never upload it under the next account. Wipe scoped local keys/caches according to the chosen sign-out policy.
 

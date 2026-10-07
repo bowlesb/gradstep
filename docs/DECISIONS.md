@@ -270,3 +270,48 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+
+## All chats as a table (owner asked 2026-10-07)
+
+Owner: "the all chats UX is terrible, bad use of space, we also need a nice table, better more dense rows, not
+overdoing it, thoughtful. But at the very least I should be able to see a table with my chats, sort them based on
+last used, etc." Decided by the agent overnight (owner asked not to stop for feedback); all reversible.
+
+- **Same place, same entry points.** "Chat history" (chat top bar) and "All chats" (Library, chat and Settings menus)
+  still open one sheet titled All chats with Done; All diagrams is unchanged. The sheet now opens full height on
+  iPhone and page-sized on iPad (iOS 18+), since a table needs the room.
+- **A table in the `PaperTable` pattern** (`Views/ChatHistoryView.swift`): a pinned header of column titles (tap to
+  sort, tap again to reverse; "· Started ⌄" beside Conversation when the sorted column doesn't fit), compact rows
+  (~52 pt: 7 pt vertical padding, 16 pt sides), columns added by priority while they fit, never sideways scrolling.
+  Columns: **Conversation** (the first question on one line; under it, muted, the paper's title, or the newest
+  answer as one plain line when the Paper column is shown), **Paper** (title, "General", or "Paper chat" when the
+  paper is no longer in the library), **Messages**, **Started**, **Last used** (always rightmost: "Just now",
+  "5 min ago", "2 h ago", "Yesterday", "Mon", "Oct 3", "Sep 2025"). iPhone portrait: Conversation and Last used;
+  iPhone landscape and iPad: all five. Default order **Last used, newest first**; it isn't remembered between
+  openings. At accessibility text sizes rows replace the table (title, paper, "2 h ago · 6 messages").
+  A separate table rather than `PaperTable` itself: chats aren't papers, and `PaperTable` was being changed by another
+  session the same night; merging the two into one generic table is a later cleanup.
+- **Search and a quick filter.** A search field ("Search chats": every word must match a question in the
+  conversation or the paper's title, ignoring case and accents) and chips **All · Paper chats · General** with the
+  count ("34 chats", "5 of 34 chats"). Both apply to drafts too. No date grouping (Today / This week / Earlier):
+  it only makes sense for one sort, and the Last used column already says it.
+- **Unsent drafts stay on top**, in their own section ("Unsent drafts"), with a pencil, "Draft · <paper or General
+  chat>" and when they were edited; tap reopens, swipe or long-press discards, as before.
+- **Row actions.** Tap opens the conversation (as before). Long-press: **Open paper** (paper chats whose paper is in
+  the library) and **Delete conversation**; swipe: **Delete**. Both ask first ("… will be removed from your chats on
+  all your devices"). There was no delete before: it appends the conversation tombstone the sync design already had
+  (hidden on every device once synced, its diagrams too, continuing it blocked, an unsent follow-up kept as a draft).
+  The encrypted records stay on the server until account deletion; the app doesn't claim otherwise. Delete needs
+  this account's encrypted history on the device (not offered signed out).
+- **Times in history.** Events carried no time, so "Last used" had nothing to read. New conversation, message and
+  diagram events now carry `createdAt` (the author device's clock, Unix ms) **inside the encrypted payload**: the
+  service learns nothing it didn't already (it sees when ciphertext arrives), older app builds ignore the field,
+  and no migration or server change is involved. History saved before this has no times: those conversations show
+  "—" and sort after dated ones, among themselves by the order they reached this device (`PrivateState` keeps that
+  arrival order as an unsynced, uncompared hint). The original web app showed server `created_at`/`updated_at`.
+- **What the original web view had** (`reference/web/components/AllChatsView.tsx`): a desktop table Paper · Chat ·
+  Type (Paper/General badge) · Started · Last active · Msgs, newest activity first, no sorting, search or actions; a
+  card list on phones (title, paper, badge, relative time); a "New chat" button and a count in the header. Kept: the
+  columns (Type became the filter chips and the Paper column's "General"), newest-first, relative times, the count.
+  Dropped: the badge styling, the New chat button (the chat's own compose button stays one tap away), the
+  highlighted-passage quote of the in-panel history (not stored separately in the native history).

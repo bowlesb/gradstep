@@ -73,7 +73,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
-        .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
+        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model) }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
@@ -901,59 +901,21 @@ struct PrivacyView: View {
     }
 }
 
+/// All diagrams. (All chats is `ChatHistoryView`, a table.)
 struct HistoryView: View {
     @Bindable var model: ReaderModel
     let diagrams: Bool
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            let entities = diagrams ? [] : model.privateState.entities(kind: .conversation)
-            let savedDiagrams = diagrams ? model.privateState.diagrams() : []
-            let drafts = diagrams ? [] : model.unsentDrafts
+            let savedDiagrams = model.privateState.diagrams()
             List {
-                if !drafts.isEmpty {
-                    Section {
-                        ForEach(drafts) { draft in
-                            Button { model.openUnsentDraft(draft.id); dismiss() } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(draft.text).lineLimit(2)
-                                    Text(draft.failed ? "Not saved" : (draft.context == "general" ? "General chat" : "Paper chat"))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.accessibilityIdentifier("chat.draft.\(draft.id.wire)")
-                                .swipeActions(allowsFullSwipe: false) {
-                                    Button("Discard", role: .destructive) { model.discardUnsentDraft(draft.id) }
-                                }
-                        }
-                    } header: { Text("Unsent drafts") } footer: {
-                        Text(model.draftsArePersistent ? "Drafts stay on this device." : "Kept for this session.")
-                    }
+                ForEach(savedDiagrams, id: \.id) { saved in
+                    NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
+                        .accessibilityIdentifier("diagram.\(saved.id.wire)")
                 }
-                Section {
-                    ForEach(entities, id: \.self) { id in
-                        if let event = model.privateState.revisions(for: id).first {
-                            // Design audit F16: a conversation row says what it is about.
-                            let paper = event.payload.documentID.flatMap { document in model.papers.first { $0.id == document } }
-                            Button { model.openConversation(id); dismiss() } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(event.payload.text ?? "Untitled").foregroundStyle(.primary).lineLimit(2)
-                                        Text(paper.map { "Paper chat · \($0.title)" } ?? (event.payload.documentID == nil ? "General chat" : "Paper chat"))
-                                            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
-                                }.contentShape(Rectangle())
-                            }.tint(.primary).accessibilityLabel(event.payload.text ?? "Untitled")
-                        }
-                    }
-                    ForEach(savedDiagrams, id: \.id) { saved in
-                        NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
-                            .accessibilityIdentifier("diagram.\(saved.id.wire)")
-                    }
-                } header: { if !drafts.isEmpty { Text("Saved conversations") } }
-            }.overlay { if entities.isEmpty && savedDiagrams.isEmpty && drafts.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
-                .navigationTitle(diagrams ? "All diagrams" : "All chats").navigationBarTitleDisplayMode(.inline)
+            }.overlay { if savedDiagrams.isEmpty { ContentUnavailableView("No diagrams yet", systemImage: "square.stack.3d.up") } }
+                .navigationTitle("All diagrams").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.presentationDetents([.medium, .large])
     }
