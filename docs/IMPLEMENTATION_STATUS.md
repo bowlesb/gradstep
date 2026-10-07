@@ -49,6 +49,13 @@ allowance keeps within the plan. Live on staging: the same Related request cost 
 with Anthropic's search (15 vs 23 credits). Consent v2 names Tavily. **TestFlight build 12** (uploaded 2026-10-06 18:39 PDT, processed VALID) carries citations, archive, the selection-action changes and consent v2; unit 256, Core 170, backend 181, database suites pass; full iPhone and iPad UI suites pass except the known rotation flake, which passed after a Simulator reboot. See [chat](architecture/CHAT.md#web-search-on-in-staging)
 and [decisions](DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
 
+**Reliability (2026-10-06 night):** paper processing moved to Cloud Run with a loop breaker and timing records
+([reliability](architecture/PIPELINE_RELIABILITY.md)); repository landing pages (Zenodo) are followed to their PDF;
+Add paper finds papers in about a second and never ends silently; **Add to library** on a reference queues the
+paper directly (no chat); automated user-workflow checks run after deploys and on a schedule
+([workflow checks](architecture/WORKFLOW_CHECKS.md)) with results in the admin Reliability tab. One paper table
+(`PaperTable`) serves Library and Feed at every size.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified

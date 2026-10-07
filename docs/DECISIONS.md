@@ -250,3 +250,23 @@ careers/developer tools rather than ML). Gradstep: a gradient step is the basic 
   password. Verified: a code to a non-owner address was delivered (Resend test inbox), 2026-10-06. Sign-up stays
   invite-only; testers need an account created for them.
 
+## Add a reference without chat (owner asked 2026-10-06)
+
+Owner: "if you click on a reference, and ask for Add the reference, no chat is needed, it should just get queued and
+then start to get processed, and it needs to be extremely reliable … for regular pdfs maybe a chat makes sense."
+
+- **Reference actions → Add to library** calls `functions/v1/add-reference` (no model, no credits): an arXiv id or DOI
+  in the entry, else the entry's own title (quoted, or between the authors and the venue) through the shared strict
+  search (OpenAlex, arXiv, Tavily), else Crossref's citation matcher, else OpenAlex search; a found paper is accepted
+  only if its title appears in the entry. The reader shows the outcome in a banner ("Added …", "already in your
+  library", "isn't openly available", "Couldn't identify this reference" with **Ask in chat**, which runs the
+  existing Add paper chat). Outcomes are recorded as `reference` reliability events (migration 026).
+- The selection action **Add paper** (on an in-text citation) still uses the chat.
+- Live: seven real entries resolved correctly (1–16 s); the Simulator journey (DPO citation 11 → PaLM) passed.
+
+## Workflow checks schedule (owner decided 2026-10-06)
+
+October's staging provider cap raised to **$25** (from $9.80; within the $30/month AI/OCR allowance). Paid checks run
+Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
+owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
+
