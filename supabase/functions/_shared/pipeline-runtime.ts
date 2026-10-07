@@ -1,9 +1,16 @@
-// Deno wiring for the paper pipeline: service-role RPC and Storage adapters.
+// Paper pipeline wiring (Edge Functions under Deno, the Cloud Run worker under Node):
+// service-role RPC and Storage adapters.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { BUCKET, PipelineRPCError, type PipelineDeps } from './pipeline.ts';
 
+/** An environment variable under Deno or Node. */
+export function runtimeEnv(name: string): string | undefined {
+  const scope = globalThis as { Deno?: { env: { get(key: string): string | undefined } }; process?: { env: Record<string, string | undefined> } };
+  return scope.Deno ? scope.Deno.env.get(name) : scope.process?.env[name];
+}
+
 export function pipelineService(): SupabaseClient {
-  const url = Deno.env.get('SUPABASE_URL'), key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  const url = runtimeEnv('SUPABASE_URL'), key = runtimeEnv('SUPABASE_SERVICE_ROLE_KEY');
   if (!url || !key) throw new Error('service_unavailable');
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(60_000) }) } });
