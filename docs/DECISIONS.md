@@ -516,6 +516,10 @@ Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [M
 
 ## Topic tags (owner asked 2026-10-07; agent decisions, reversible)
 
+**Owner decided 2026-10-07:** personal tags stay server-visible (not end-to-end encrypted), as built; the owner wants
+them for product analytics. Any analytics use stays within the privacy notice (gradstep.ai/privacy says the server
+keeps the tags you give papers and that they are not end-to-end encrypted) and reports aggregates, not individuals.
+
 Owner: "I thought we had a tagging system based on topics? … it was useful and we need to bring that back and make
 it a first class citizen." Design: [Topic tags](architecture/TAGS.md).
 
