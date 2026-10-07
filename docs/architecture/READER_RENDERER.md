@@ -35,13 +35,91 @@ with one entry per line. Entries are keyed by `[n]`/`n.` (or `ol` position), by 
 author surname + year; each gets `data-sr-reference="ref-<key>"` (block IDs are untouched — they are the selection
 and position identity). In-text citations become `span.sr-cite[role=link]` wrappers around existing text: numbered
 `[16]`, `[3, 5]`, `[1–4]` when every number is in the bibliography, labelled keys likewise, and author–year
-(`(Vaswani et al., 2017)`, `(Gu, Dao, et al. 2020)`, `Vaswani et al. (2017)`) only on a single surname+year match.
-Math, code, links, headings and the bibliography itself are skipped; every block's text is unchanged (checked on 13 retained
-bundles of 12 papers: 1,107 links, all sampled author–year targets correct, no block text changed). A tap scrolls to the
+citations when exactly one entry fits (below). Math, code, links, headings and the bibliography itself are skipped;
+every block's text is unchanged. A tap scrolls to the
 entry (smooth unless Reduce Motion), highlights it briefly and shows a native Back that returns to the block-relative
 place left; Back disappears on return, after scrolling a screen away, or on a Contents jump. While Back is shown the
 saved reading position stays at the place left. Tapping an entry offers Open (arXiv ID, then DOI, then an `https`
 link), Add to library (the Ingest action with the entry as the passage) and Copy.
+
+Author–year citations (owner feedback 2026-10-07: "Stadter et al, 2021" did not link; same bridge, no re-render).
+The matching is a pure section of `reader-bridge.js` (`CitationMatcher`, between `BEGIN/END CITATION MATCHER`)
+that `scripts/citation-harness.mjs` evaluates unchanged in Node.
+
+- **Entries** are parsed once into authors (surname words folded — lower case, diacritics removed — with the last
+  word as key), years with suffix letters (an arXiv ID's year when none is printed) and whether the list ends in
+  "et al.". Formats: "Ashish Vaswani, Noam Shazeer, and …", "Vaswani, A., Shazeer, N., and …", "Duchi, John, Hazan,
+  Elad, …", "Smith JA, Doe B", "P.Städter, Y. Schälte" (missing space), particles ("Aäron van den Oord",
+  "van der Maaten, L."), multi-word surnames ("Erik F. Tjong Kim Sang"), groups ("BIG-bench collaboration") and
+  organisations ("OpenAI", "XLA"). The list ends at the first stop after a word (not an initial), a quote, a year or
+  "In:". A bibliography paragraph line starting with a lower-case particle and a surname ("de Freitas, N., …") is a
+  new entry, and a paragraph that starts an appendix ("Appendix", "B Experiment details", no year) ends the
+  bibliography (ViT's appendix had been swallowed, hiding its citations).
+- **Citations** are found per block over the block's whole text (text nodes joined; skipped elements, cell and item
+  boundaries become U+2063), so one split by `<em>` or a `<br>` still links — in pieces, one focus stop. Each year
+  is read backwards for the names before it: parenthetical and bracketed `(Stadter et al, 2021)`,
+  `[Krizhevsky et al., 2012]`, `(Gu, Goel, and Ré 2022)`, `(Kingma & Ba, 2015)`, narrative `Stadter et al. (2021)`,
+  `van der Maaten and Hinton (2008)`, `Y. Li et al. 2023`, "et al" with or without period or comma, semicolon and
+  comma lists, and further years of the same names (`(Peters et al., 2017, 2018a)`, `(Wu et al., 2022a,b)`,
+  `(Radford et al., 2018; 2019)`), each pair its own link; a lone year or letter carries an `aria-label` with the
+  names. A year counts only inside brackets, directly after the names in brackets, or after "et al.".
+- **Resolution**: first author by the longest matching end of the cited name ("Following Vaswani" → Vaswani), the
+  year, later cited names in order; then, among several, the cited names in their places, the author count (one name
+  without "et al." is the one-author entry; "et al." prefers three or more), initials ("J. Ba" is Jimmy Ba, not Jimmy
+  Lei Ba), the suffix letter (or entry order when the bibliography prints no letters), and one copy of a duplicated
+  entry. A leading word that is no known author is dropped ("BiRNN, Schuster and Paliwal"). Still several → no link.
+- **Look**: author–year links use the numbered links' color; on touch screens (`hover: none`) every citation link has
+  a faint underline (1 px, 40% of the link color). Tap, Back and the reference actions are unchanged.
+
+Measurement (`node scripts/citation-harness.mjs`, headless WebKit, 22 papers: 12 from the retained `.artifacts/bundles`
+and 10 author–year or unusual ones downloaded read-only from staging `paper-assets/reader/` — `091b956f`, `2821790`,
+`32198d5`, `40637fd`, `a144b53`, `a5be95c`, `be18585`, `c64887c`, `37ec638`, `264dd07`, manifest hashes verified — into
+`.artifacts/cite-bundles/staging/`; ground truth is an independent oracle: each year's preceding words against each
+entry's first author and year). Unambiguous author–year citations linked to the expected entry:
+
+| Paper | Unambiguous | Before | After |
+|---|---:|---:|---:|
+| Mamba | 228 | 216 (94.7%) | 228 (100%) |
+| ViT (An Image is Worth 16x16 Words) | 99 | 82 (94.3%) | 99 (100%) |
+| LoRA | 129 | 128 (99.2%) | 129 (100%) |
+| BERT | 96 | 92 (95.8%) | 96 (100%) |
+| Chain-of-Thought Prompting | 145 | 139 (95.9%) | 145 (100%) |
+| PaLM | 366 | 349 (95.4%) | 366 (100%) |
+| Neural Machine Translation (Bahdanau) | 59 | 51 (86.4%) | 59 (100%) |
+| TimeSformer | 111 | 108 | 110 (99.1%) |
+| Dropout | 70 | 65 (92.9%) | 70 (100%) |
+| Layer Normalization (`[Name et al., 2012]`) | 56 | 0 (0%) | 54 (96.4%) |
+| Training Numerical Intelligence ("Städter et al., 2021") | 89 | 40 (44.9%) | 89 (100%) |
+| Attention, Adam, Motion Tokenizers, Batch Norm | 123 | 123 (100%) | 123 (100%) |
+| **All** | **1,571** | **1,393 (89.5%)** | **1,568 (99.8%)** |
+
+No wrong link against the oracle; 28 of the 29 citations the oracle could not decide link correctly by author count,
+position or initials (the one left, "Luong et al. (2015)" in Attention's table, fits two three-author entries). The
+three misses are an OCR'd "[Amari] 1998]" and "|2016|" and a "2019a" the bibliography prints as "2019b". A manual check
+of 30 random author–year links (seed 7) found 30 correct. Numbered and labelled papers keep exactly their links
+(DDPM 112, PPO 28, Scaling Laws 38, Mistral 29, DPO 91); all links 1,791 → 1,987; no block text changed; slowest paper
+(PaLM) ready in under 0.3 s.
+
+Spot check (`--sample=30 --seed=7`, each read against the sentence and the entry; all correct): PaLM — Du et al.,
+2021 → GLaM (twice); Patterson et al., 2021 → carbon emissions; Jouppi et al., 2020 → TPU v4 supercomputer; Lee et al.,
+2021 → deduplicating training data; Vaswani et al., 2017 → Attention (twice); Austin et al. (2021) → program synthesis;
+Chen et al., 2021 → Codex. Mamba — Hendrycks and Gimpel 2016 → GELUs; Ivanov et al. 2021 → data movement; Hoffmann
+et al. 2022 → Chinchilla. CoT — Lan et al. (2021) → MWPToolkit; Marasović et al., 2022 → few-shot self-rationalization;
+Ling et al., 2017 → program induction; Rajagopal et al., 2021 → SelfExplain. BERT — Dai and Le, 2015 → semi-supervised
+sequence learning; Clark et al., 2018 → cross-view training (not Clark & Gardner 2018); Peters et al., 2018a → ELMo.
+TimeSformer — Radford et al., 2019 → GPT-2; Fan et al., 2019 → bLVNet; Stroud et al., 2020 → D3D. Training Numerical
+Intelligence — Gandhi et al., 2025 → ResearchCodeAgent. Bahdanau — Hochreiter and Schmidhuber (1997) → LSTM; Forcada and
+Neco, 1997 → hetero-associative memories. LoRA — Lester et al., 2021 → prompt tuning; Jaderberg et al., 2014 → low-rank
+expansions. Batch Norm — Srivastava et al., 2014 → Dropout. ViT — Wang et al., 2019 → deep Transformers for MT;
+Wang et al., 2020a → Axial-DeepLab.
+
+Tests: `PaperWebViewTests` — `testAuthorYearFormsLinkEachNameAndYear` (a synthetic page with every form above, the
+split and caption cases, focus stops, labels, color, touch underline, a tap on "b" and Back) and
+`testAuthorYearCitationsLinkOnlyOnAnUnambiguousMatch`; `testAuthorYearCitationScreenshots` captures a real bundle
+light/dark before and after a jump when `TEST_RUNNER_SCIENCE_READER_CITATION_BUNDLE` is set (skipped otherwise).
+2026-10-07, iOS 26.4 Simulators: all citation tests and `ReaderNavigationTests` pass on iPhone and iPad; on iPad two
+older tests (`testContentsPreserveArtifactAnchorsAndUseThemForNavigation`, 38 pt off;
+`testInvalidDOMAndUnlistedImagesFailThenFreshVerifiedBundleLoads`, load timeout) fail the same way without this change.
 
 Publication line: native passes `year · venue · source` (`Paper.publicationLine`) and the bridge inserts it after the
 authors (or the title) as a `data-sr-chrome` element before the first layout. It is `user-select: none`, outside every

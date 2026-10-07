@@ -393,3 +393,23 @@ last used, etc." Decided by the agent overnight (owner asked not to stop for fee
   columns (Type became the filter chips and the Paper column's "General"), newest-first, relative times, the count.
   Dropped: the badge styling, the New chat button (the chat's own compose button stays one tap away), the
   highlighted-passage quote of the in-panel history (not stored separately in the native history).
+
+## Author–year citations link like numbered ones (owner asked 2026-10-07)
+
+Owner: "when references are indicated like 'Stadter et al, 2021', I don't see an obvious way to use them as
+hyperlinks, like if they are numbers (which seems to work)". Decided without waking the owner (reversible, reader-only):
+
+- **Same interaction as numbers.** An author–year citation links to its bibliography entry only when exactly one entry
+  fits; the tap, highlight, Back and reference actions are the numbered ones. Each name–year pair is its own link
+  ("(Peters et al., 2017, 2018a)" is two). Ambiguous citations stay plain text rather than risk a wrong jump.
+- **Discoverability (styling only).** Same link color as numbers; on touch screens every citation link (numbered too)
+  gets a faint 1 px underline at 40% of the link color, so long author–year spans show their extent. No new controls.
+- **Matching rules** (detail and measurements in [Reader renderer](architecture/READER_RENDERER.md)): diacritics
+  folded, particles and multi-word surnames, "et al" with or without period, "and"/"&", groups, brackets, narrative and
+  parenthetical forms, lists, suffix letters; ties broken by cited names' places, author count, initials, suffix
+  letter or entry order. The bibliography now ends at an appendix paragraph, and lower-case-particle surnames start a
+  new entry.
+- **Measured, not assumed.** `scripts/citation-harness.mjs` runs the bridge in headless WebKit over 22 real bundles
+  (12 retained, 10 downloaded read-only from staging storage): unambiguous author–year citations linked 89.5% → 99.8%
+  (1,393 → 1,568 of 1,571), no wrong link against the oracle, 30/30 random links correct by hand, numbered papers
+  unchanged, no block text changed. The owner's "Städter et al., 2021" paper went from 44.9% to 100%.
