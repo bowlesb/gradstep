@@ -711,7 +711,7 @@ struct ChatView: View {
                             Button { model.stopAnswer() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
                                 .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
                         } else {
-                            Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
+                            Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
                                 .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
                                 // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
                                 .macKeyboardShortcut(.return, modifiers: .command)
@@ -732,6 +732,21 @@ struct ChatView: View {
                 if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
                 ToolbarItem(placement: .topBarTrailing) { optionsMenu }
             }
+        }
+    }
+
+    private func send() {
+        // Mac (⌘Return): the composer ends editing first, so it can't write the sent text back afterwards;
+        // then it takes the focus again for the next question.
+        guard Platform.isMac, composerFocused else { Task { await model.sendMessage() }; return }
+        composerFocused = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(60))
+            await model.sendMessage()
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            composerFocused = true
         }
     }
 
