@@ -1,7 +1,7 @@
 import React from 'react';
 import { environment } from './backend';
 
-export function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Gradstep</span></div>; }
+export function Brand() { return <div className="brand"><img className="brand-symbol" src="/brand-icon.svg" alt="" width={24} height={24} /><span>Gradstep</span></div>; }
 
 // The signed-in frame: sidebar navigation and the page header. Shared with the
 // development-only fixtures so screenshots show the real arrangement.

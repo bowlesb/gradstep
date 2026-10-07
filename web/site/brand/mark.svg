@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="688" height="620" viewBox="168 196 688 620">
+  <title>06 Nabla: mark</title>
+  <defs></defs>
+  <g id="mark">
+  <path d="M 376 356 L 604 442 L 458 520 L 512 598" fill="none" stroke="#6366F1" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="376" cy="356" r="24" fill="#6366F1"/><circle cx="604" cy="442" r="21" fill="#6366F1"/><circle cx="458" cy="520" r="18" fill="#6366F1"/>
+  <circle cx="512" cy="598" r="34" fill="#F2B544"/>
+  <path d="M 228 266 L 796 266 L 512 757.9 Z" fill="none" stroke="#1E1C52" stroke-width="64" stroke-linejoin="round"/>
+  </g>
+</svg>
