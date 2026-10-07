@@ -25,7 +25,7 @@ rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: n
 
 ## Native takeover checkpoint — 2026-10-07
 
-Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple processing is awaiting read-back. It includes the
+Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple read-back confirms **VALID / IN_BETA_TESTING**. It includes the
 floating chrome and feedback #4–#6, reviewed offline-save compatibility repair (`cf67138` → `274366b`) and
 passage-linked conversations (`e0dc706` → `1aeaea2`). The fresh combined build passes 20 app regressions and three
 complete iPhone Simulator passage/offline journeys. The offline candidate also passed 207 Core + 4 OAuth tests,
