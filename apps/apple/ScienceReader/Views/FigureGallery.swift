@@ -113,9 +113,14 @@ private struct GalleryCell: View {
     }
 }
 
-/// Small decoded copies of the bundle's images (already admitted by ReaderBundleLoader), kept while the app runs.
+/// Small decoded copies of the bundle's images (already admitted by ReaderBundleLoader), evicted as readers browse.
 @MainActor enum GalleryThumbnails {
-    private static let cache = NSCache<NSString, UIImage>()
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 32
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
 
     static func image(bundle: VerifiedReaderBundle, path: String?) async -> UIImage? {
         guard let path, let data = bundle.data(for: path) else { return nil }
@@ -128,7 +133,9 @@ private struct GalleryCell: View {
                       kCGImageSourceThumbnailMaxPixelSize: 720] as CFDictionary) else { return nil }
             return UIImage(cgImage: thumbnail)
         }.value
-        if let image { cache.setObject(image, forKey: key) }
+        if let image, let pixels = image.cgImage {
+            cache.setObject(image, forKey: key, cost: pixels.bytesPerRow * pixels.height)
+        }
         return image
     }
 }
