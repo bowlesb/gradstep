@@ -44,6 +44,11 @@ struct Paper: Identifiable, Sendable {
     var archived = false
     /// Where it was published ("NeurIPS"), from the library metadata (`publicationLine`).
     var venue: String? = nil
+    /// Topic tags as display names (first-class tags; personal edits later). Empty until a paper has its own, when
+    /// the Library shows topic names derived from `keywords` instead (`LibraryTags`).
+    var tags: [String] = []
+    /// Where the paper came from (a web paper's page; the Library's Source column shows its host).
+    var sourceURL: String? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
@@ -124,8 +129,18 @@ final class ReaderModel {
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
     private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { librarySearchSourceChanged() } } }
-    /// Show archived papers in the Library (Show › Archived papers).
-    var showArchivedPapers = false { didSet { if showArchivedPapers != oldValue { librarySearchSourceChanged() } } }
+    #if DEBUG && targetEnvironment(simulator)
+    /// Fixture runs only: Retry and Remove on imports act locally (there is no account or server).
+    @ObservationIgnored var fixtureImportChanges = false
+    var fixtureRetriedImports: Set<UUID> = []
+    #endif
+    /// The Library's quick filter (All, Unread, Reading, Failed, Archived) and tag filter. Not persisted, like the
+    /// sort: each launch starts with All.
+    var libraryFilter = LibraryFilter.all { didSet { if libraryFilter != oldValue { librarySearchSourceChanged() } } }
+    var libraryTagFilter: String? { didSet { if libraryTagFilter != oldValue { librarySearchSourceChanged() } } }
+    var libraryFiltered: Bool { libraryFilter != .all || libraryTagFilter != nil }
+    /// The table's columns, per width class (Library options › Columns).
+    var libraryColumns = LibraryColumnSettings.load(from: .standard) { didSet { libraryColumns.save(to: .standard) } }
     /// Papers marked archived, including changes still syncing (for row labels and actions).
     func isArchived(_ paper: Paper) -> Bool {
         for command in libraryCommands.reversed() where command.isUnfinished {
@@ -161,7 +176,7 @@ final class ReaderModel {
             if librarySort.field.usesActivity { librarySearchSourceChanged() } else { queueLibrarySearch() }
         }
     }
-    var libraryLayout = LibraryLayout(rawValue: UserDefaults.standard.string(forKey: "library.layout") ?? "") ?? .list {
+    var libraryLayout = LibraryLayout(saved: UserDefaults.standard.string(forKey: "library.layout")) {
         didSet { UserDefaults.standard.set(libraryLayout.rawValue, forKey: "library.layout") }
     }
     var feedLayout = FeedLayout(rawValue: UserDefaults.standard.string(forKey: "feed.layout") ?? "") ?? .list {
@@ -429,7 +444,8 @@ final class ReaderModel {
             old.id == new.id && old.title == new.title && old.authors == new.authors &&
             old.year == new.year && old.authorNames == new.authorNames &&
             old.abstract == new.abstract && old.keywords == new.keywords &&
-            old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision
+            old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision &&
+            old.tags == new.tags && old.archived == new.archived && old.pageCount == new.pageCount && old.sourceURL == new.sourceURL
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
     }
@@ -481,6 +497,31 @@ final class ReaderModel {
         }
     }
 
+    /// How many rows each quick filter holds, and the tags to filter by within the current quick filter, most used
+    /// first (the filter row's chips and Tags menu). Archive changes still syncing already count.
+    func libraryFilterSummary() -> LibraryFilterSummary {
+        var pendingArchive: [UUID: Bool] = [:]
+        for command in libraryCommands where command.isUnfinished {
+            if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
+        }
+        var counts: [LibraryFilter: Int] = [:], tagRows: [[String]] = []
+        for paper in papers {
+            let activity = readingActivity[paper.id], tags = LibraryTags.tags(for: paper)
+            for filter in LibraryFilter.allCases where filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived,
+                                                                          opened: activity?.openedAt, progress: activity?.progress) {
+                counts[filter, default: 0] += 1
+                if filter == libraryFilter { tagRows.append(tags) }
+            }
+        }
+        for item in libraryImports {
+            for filter in LibraryFilter.allCases where filter.includesImport(item.phase) {
+                counts[filter, default: 0] += 1
+                if filter == libraryFilter { tagRows.append(LibraryTags.tags(for: item)) }
+            }
+        }
+        return LibraryFilterSummary(counts: counts, tags: LibraryTags.counts(tagRows))
+    }
+
     private func prepareLibrarySearchSource() -> Bool {
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
         let start = DispatchTime.now().uptimeNanoseconds
@@ -497,23 +538,32 @@ final class ReaderModel {
         for command in libraryCommands where command.isUnfinished {
             if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
         }
+        // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
+        let filter = libraryFilter, tagFilter = libraryTagFilter
+        func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
         for paper in papers {
-            if (pendingArchive[paper.id] ?? paper.archived) && !showArchivedPapers { continue }
             let activity = readingActivity[paper.id]
+            let tags = LibraryTags.tags(for: paper)
+            guard filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived, opened: activity?.openedAt,
+                                       progress: activity?.progress), tagged(tags) else { continue }
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
-                                       chats: paperChatCounts[paper.id] ?? 0)
-            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords,
+                                       chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
+                                       source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
                    sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
         for item in libraryImports {
+            let tags = LibraryTags.tags(for: item)
+            guard filter.includesImport(item.phase), tagged(tags) else { continue }
             let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
-                                       year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) })
+                                       year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
+                                       source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil))
             append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
-                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []), sequence: item.createdSequence, keys: keys)
+                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []) + tags, sequence: item.createdSequence, keys: keys)
         }
-        for command in libraryCommands {
+        for command in libraryCommands where filter.includesQueued && tagFilter == nil {
             // Cached mappings suppress duplicate presentation only; they do
             // not resolve the durable command or authorize a mutation.
             guard case .beginImport(let source, let revision, _) = command.mutation,
@@ -570,27 +620,47 @@ final class ReaderModel {
         return LibrarySearchCandidate(id: entry.id, title: entry.title, fields: [], recentSequence: .max, position: .max)
     }
 
-    /// What the table and detailed rows show for one entry, from current model state.
+    /// What the table shows for one entry, from current model state.
     func libraryFacts(for entry: LibraryListEntry) -> LibraryRowFacts {
         let status = libraryStatus(for: entry)
         switch entry {
         case .paper(let paper):
             let activity = readingActivity[paper.id]
             return LibraryRowFacts(id: entry.id, title: paper.title, paper: paper, authors: LibraryFormat.shortAuthors(for: paper),
-                year: paper.year, topics: ArxivTopics.names(for: paper.keywords), added: paper.addedAt,
+                year: paper.year, tags: LibraryTags.tags(for: paper), added: paper.addedAt,
                 opened: activity?.openedAt, progress: activity?.progress, chats: paperChatCounts[paper.id] ?? 0,
-                pages: paper.pageCount, status: status, needsCredits: false)
+                pages: paper.pageCount, status: status, needsCredits: false,
+                source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL),
+                spokenSource: LibrarySourceLabel.spoken(sourceID: paper.sourceID, url: paper.sourceURL))
         case .pending(let item):
+            let retrying = isRetrying(item)
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil,
                 authors: LibraryFormat.shortAuthors(item.metadata?.authors ?? []),
                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
-                topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
+                tags: LibraryTags.tags(for: item), added: nil, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
-                needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits,
-                stepTiming: importSteps.timing(of: item))
+                needsCredits: !retrying && item.phase == .failed && item.errorCode == .insufficientCredits,
+                stepTiming: importSteps.timing(of: item),
+                source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil),
+                spokenSource: LibrarySourceLabel.spoken(sourceID: item.sourceID, url: nil),
+                step: retrying ? item.retryStep : item.step,
+                importAction: LibraryImportAction.available(for: item, retrying: retrying))
         case .queued:
-            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
+            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, tags: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
+        }
+    }
+
+    /// A failed import whose Retry is on its way to the server: it shows as running again at once (owner feedback
+    /// 2026-10-07), until the server's own state arrives. A retry the server refused (needs review) stops counting.
+    func isRetrying(_ item: LibraryImportRecord) -> Bool {
+        guard item.phase == .failed else { return false }
+        #if DEBUG && targetEnvironment(simulator)
+        if fixtureRetriedImports.contains(item.id) { return true }
+        #endif
+        return libraryCommands.contains { command in
+            guard command.isUnfinished, case .retryImport(let id, let revision) = command.mutation else { return false }
+            return id == item.id && revision == item.intentRevision
         }
     }
 
@@ -606,6 +676,7 @@ final class ReaderModel {
             case .none: return paper.isSample ? .none : .info("Not downloaded")
             }
         case .pending(let item):
+            if isRetrying(item) { return .active(item.retryStep.label(short: true)) }
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
             case .failed, .membershipConflict: return .problem(item.libraryShortStatus)
@@ -620,7 +691,7 @@ final class ReaderModel {
     /// Opening a paper records when this account last opened it on this device.
     private func recordOpened(_ paper: Paper, at date: Date = Date()) {
         readingActivity[paper.id, default: PaperActivity()].openedAt = date
-        readingActivityChanged(resort: librarySort.field == .opened)
+        readingActivityChanged(resort: librarySort.field == .opened || libraryFilter.usesActivity)
     }
 
     /// The reader reports its place (throttled while scrolling). The position stays per immutable
@@ -633,7 +704,7 @@ final class ReaderModel {
             // Whole-percent changes only, so scrolling doesn't redraw the library continuously.
             if previous.map({ LibraryFormat.percent($0) }) != LibraryFormat.percent(progress) {
                 readingActivity[documentID, default: PaperActivity()].progress = progress
-                if librarySort.field == .progress { scheduleActivityResort() }
+                if librarySort.field == .progress || libraryFilter.usesActivity { scheduleActivityResort() }
             }
         }
         readingActivityChanged(resort: false)
@@ -660,7 +731,7 @@ final class ReaderModel {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self, self.sessionID == scope else { return }
             self.readingResort = nil
-            if self.librarySort.field == .progress { self.librarySearchSourceChanged() }
+            if self.librarySort.field == .progress || self.libraryFilter.usesActivity { self.librarySearchSourceChanged() }
         }
     }
 
@@ -715,7 +786,7 @@ final class ReaderModel {
         }
         if activity != readingActivity {
             readingActivity = activity
-            if librarySort.field.usesActivity { librarySearchSourceChanged() }
+            if librarySort.field.usesActivity || libraryFilter.usesActivity { librarySearchSourceChanged() }
         }
     }
 
@@ -1482,7 +1553,23 @@ final class ReaderModel {
         } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 
+    /// Retry and Remove on an import can run (the row's buttons and menu).
+    var canChangeImports: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        if fixtureImportChanges { return true }
+        #endif
+        return canChangeLibrary
+    }
+
     func changeImport(_ item: LibraryImportRecord, retry: Bool) async {
+        #if DEBUG && targetEnvironment(simulator)
+        if fixtureImportChanges {
+            // Fixture runs only (no account or server): a retry shows as running again; Remove takes the row away.
+            guard !retry || (item.phase == .failed && item.retryable) else { return }
+            if retry { fixtureRetriedImports.insert(item.id) } else { libraryImports.removeAll { $0.id == item.id } }
+            return
+        }
+        #endif
         guard canChangeLibrary, let commands = libraryCommandCoordinator,
               completeLibrary?.imports.contains(where: { $0.id == item.id && $0.intentRevision == item.intentRevision }) == true,
               !retry || (item.phase == .failed && item.retryable) else { return }
@@ -2666,6 +2753,15 @@ extension ReaderModel {
         func argument(_ prefix: String) -> String? { arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } }
         libraryLayout = argument("--library-layout=").flatMap(LibraryLayout.init(rawValue:)) ?? .list
         feedLayout = argument("--feed-layout=").flatMap(FeedLayout.init(rawValue:)) ?? .list
+        // Default columns unless named (`--library-columns=year,tags,progress`, for both widths).
+        var columns = LibraryColumnSettings()
+        if let named = argument("--library-columns=") {
+            let chosen = Set(named.split(separator: ",").compactMap { LibraryTableColumn(rawValue: String($0)) })
+            columns.compact = chosen; columns.regular = chosen
+        }
+        libraryColumns = columns
+        libraryFilter = argument("--library-filter=").flatMap(LibraryFilter.init(rawValue:)) ?? .all
+        libraryTagFilter = argument("--library-tag=")
         // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
         if arguments.contains("--visual-show-import") { showImport = true }
     }
@@ -2688,6 +2784,7 @@ extension ReaderModel {
                                        activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus],
                                        importStepStarts: [UUID: Date] = [:]) {
         fixtureOfflineStatus = offline
+        fixtureImportChanges = true
         libraryCreationSequences = sequences
         readingActivity = activity
         libraryImports = imports

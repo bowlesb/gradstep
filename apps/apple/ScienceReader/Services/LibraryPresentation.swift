@@ -29,7 +29,8 @@ enum LibraryPresentationRow: Sendable {
                 fileURL: nil, artifactID: item.artifactID,
                 sourceID: item.sourceID, sourceRevision: item.sourceRevision,
                 authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt.date, pageCount: item.pageCount,
-                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue),
+                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue,
+                sourceURL: item.sourceURL),
                 createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))
         case .import(let value):
             return .imported(id: value.id, visible: value.visible ? value : nil)

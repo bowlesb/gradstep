@@ -186,9 +186,10 @@ struct ReaderControlMaterial: ViewModifier {
 struct LibraryView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// For the menu's "Table"/"Detailed rows" label; the content measures its own width.
+    /// The pane's width (the List's readable column, and the column chooser's "needs more room").
     @State private var containerWidth: CGFloat = 0
     @State private var searchFocused = false
+    @State private var showColumns = false
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -214,9 +215,20 @@ struct LibraryView: View {
                     ContentUnavailableView {
                         Label("No matching papers", systemImage: "magnifyingglass")
                     } description: {
-                        Text("Try a different title, author, or topic.")
+                        Text(model.libraryFiltered ? "Try a different title, author, or tag, or search all papers." : "Try a different title, author, or topic.")
                     } actions: {
                         Button("Clear search") { model.libraryQuery = "" }.accessibilityIdentifier("search.clear")
+                        if model.libraryFiltered { Button("Show all papers") { clearFilters() }.accessibilityIdentifier("library.filter.clear") }
+                    }
+                } else if !model.librarySearchPending && model.libraryRows.isEmpty && model.libraryFiltered {
+                    // A filter with nothing in it (the last failed import was retried, say): one way back.
+                    ContentUnavailableView {
+                        Label(model.libraryTagFilter.map { "No papers tagged “\($0)”" } ?? model.libraryFilter.emptyTitle,
+                              systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Other papers are in All.")
+                    } actions: {
+                        Button("Show all papers") { clearFilters() }.accessibilityIdentifier("library.filter.clear")
                     }
                 } else if !model.librarySearchPending && model.libraryRows.isEmpty {
                     ContentUnavailableView {
@@ -227,19 +239,23 @@ struct LibraryView: View {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
                 } else if tableShown {
-                    // Owner request 2026-10-06: the same table on every size, with the columns that fit.
+                    // Owner requests 2026-10-06/07: the same table on every size, with the reader's columns that fit.
                     LibraryPaperTable(model: model) {
                         banners(inset: false).listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
+                        LibraryFilterBar(model: model)
                     }
                     .refreshable { await model.refreshLibrary() }
                     .overlay(alignment: .top) { updatingIndicator }
                 } else {
-                    // Detailed rows are also the table's form at accessibility text sizes.
-                    libraryList(detailed: model.libraryLayout != .list)
+                    // Also the table's form at accessibility text sizes.
+                    libraryList()
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            .sheet(isPresented: $showColumns) {
+                LibraryColumnsSheet(model: model, tableWidth: max(0, containerWidth - 2 * DesignMetrics.margin))
+            }
             // Owner decision (2026-10-05, build 8 follow-up): one header row instead of the navigation
             // bar's title row and search drawer. At rest: search, Add and one options menu. While
             // searching: Cancel, and the Library/arXiv switch under the field.
@@ -255,10 +271,12 @@ struct LibraryView: View {
 
     private var searching: Bool { searchFocused || !model.searchQuery.isEmpty || model.searchExternal }
     /// The table spans the pane; everything else sits in the readable column. At accessibility text sizes the
-    /// table shows as detailed rows.
+    /// table shows the List's rows (DESIGN.md › Tables).
     private var tableShown: Bool {
         model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize
     }
+
+    private func clearFilters() { model.libraryFilter = .all; model.libraryTagFilter = nil }
 
     /// Only states the reader can act on; none while browsing normally.
     @ViewBuilder private func banners(inset: Bool) -> some View {
@@ -344,12 +362,16 @@ struct LibraryView: View {
                 } label: {
                     Label { Text("Sort by"); Text(model.librarySort.field.label) } icon: { menuIcon("arrow.up.arrow.down") }
                 }
-                // Topics is a column in the table, a line in the rows.
-                Menu {
-                    if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
-                    Toggle("Topics", isOn: $model.showTopics)
-                    Toggle("Archived papers", isOn: $model.showArchivedPapers)
-                } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
+                if tableShown {
+                    // Owner request 2026-10-07: columns that can be turned on or off (a sheet; changes show at once).
+                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }
+                } else {
+                    // The List's lines. (Archived papers are a filter now: the Archived chip.)
+                    Menu {
+                        Toggle("Abstracts", isOn: $model.showAbstracts)
+                        Toggle("Topics", isOn: $model.showTopics)
+                    } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
+                }
             }
             Section {
                 MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
@@ -370,19 +392,20 @@ struct LibraryView: View {
     }
 
     private func sortFields(table: Bool) -> [LibrarySearchSort.Field] {
-        // Authors is a table column's sort; it stays listed while it is the current order.
-        LibrarySearchSort.Field.allCases.filter { $0 != .authors || table || model.librarySort.field == .authors }
+        // Authors, Tags, Pages and Source are the table's orders; each stays listed while it is the current order.
+        LibrarySearchSort.Field.allCases.filter { !$0.isTableOnly || table || model.librarySort.field == $0 }
     }
 
     @ViewBuilder private var updatingIndicator: some View {
         if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
     }
 
-    /// The List layout (unchanged), and detailed rows: the narrow form of the table layout.
-    private func libraryList(detailed: Bool) -> some View {
+    /// The List layout (also the table's form at accessibility text sizes), with the same filters.
+    private func libraryList() -> some View {
         List {
             banners(inset: false).listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
+            LibraryFilterBar(model: model)
             ForEach(model.libraryRows) { entry in
             #if OFFLINE_RESOURCE_MEASUREMENTS
             let resourceDocumentID: UUID? = {
@@ -395,26 +418,19 @@ struct LibraryView: View {
                 switch entry {
                 case .paper(let paper):
                     Button { model.select(paper) } label: {
-                        if detailed {
-                            DetailedPaperRow(facts: model.libraryFacts(for: entry), selected: highlightsSelection && model.selectedPaper?.id == paper.id,
-                                             offlineStatus: model.offlineStatus(for: paper), showTopics: model.showTopics)
-                        } else {
-                            PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
-                        }
+                        PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
                     }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) { LibrarySwipeActions(model: model, entry: entry) }
                 case .pending(let item):
-                    Group {
-                        if detailed {
-                            DetailedImportRow(item: item, facts: model.libraryFacts(for: entry), showTopics: model.showTopics,
-                                              getCredits: { model.showStore = true })
-                        } else {
-                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
-                                      stepSince: model.importSteps.timing(of: item)?.since, getCredits: { model.showStore = true })
-                        }
+                    let retrying = model.isRetrying(item)
+                    ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
+                              stepSince: model.importSteps.timing(of: item)?.since, retrying: retrying,
+                              action: LibraryImportAction.available(for: item, retrying: retrying),
+                              actionEnabled: model.canChangeImports) { action in
+                        LibraryImportAction.perform(action, on: item, model: model)
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
                         .accessibilityElement(children: .contain)
@@ -444,10 +460,14 @@ struct ImportRow: View {
     var showTopics = true
     /// When this device first saw the import on its current step (shown as how long the step has run).
     var stepSince: Date? = nil
-    /// Offered when the conversion failed for lack of credits.
-    var getCredits: (() -> Void)? = nil
+    /// Retry was tapped and is on its way: shown as running again at once.
+    var retrying = false
+    /// A stopped import's one action (Retry, Get credits, Remove), shown inline (owner feedback 2026-10-07).
+    var action: LibraryImportAction? = nil
+    var actionEnabled = true
+    var perform: ((LibraryImportAction) -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    private var active: Bool { item.isActive }
+    private var active: Bool { item.isActive || retrying }
     var body: some View {
         // Design audit F6: title, then authors (secondary), then abstract and details (tertiary).
         VStack(alignment: .leading, spacing: 4) {
@@ -466,10 +486,17 @@ struct ImportRow: View {
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             HStack(spacing: 6) {
                 if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
-                if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
-                    Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
-                        .accessibilityIdentifier("import.getCredits")
+                if retrying {
+                    Text(item.retryStep.label(short: false)).font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
+                }
+                if let action, let perform {
+                    Button(action.title) { perform(action) }.font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                        .tint(action == .remove ? Color.secondary : Color.accentColor)
+                        .disabled(!actionEnabled && action != .getCredits)
+                        .accessibilityHint(action.hint)
+                        .accessibilityIdentifier(action == .getCredits ? "import.getCredits" : "import.\(action.title.lowercased()).\(item.id.wire)")
                 }
                 if !active, let url = URL(string: item.sourceURL) {
                     Spacer(minLength: 8)

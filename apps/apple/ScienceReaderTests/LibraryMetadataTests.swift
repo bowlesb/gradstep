@@ -81,18 +81,10 @@ final class LibraryMetadataTests: XCTestCase {
 
         let paper = Paper(id: UUID(), title: "Attention", authors: "", year: 2017, abstract: "", keywords: [], fileURL: nil, artifactID: nil)
         let full = LibraryRowFacts(id: "paper/x", title: "Attention", paper: paper, authors: "Vaswani, Shazeer +6", year: 2017,
-            topics: ["Language", "Machine learning"], added: now - 7 * day, opened: now, progress: 0.6, chats: 2, pages: 15,
+            tags: ["Language", "Machine learning"], added: now - 7 * day, opened: now, progress: 0.6, chats: 2, pages: 15,
             status: .none, needsCredits: false)
-        XCTAssertEqual(full.summaryLine(showTopics: true), "Vaswani, Shazeer +6 · 2017 · Language, Machine learning")
-        XCTAssertEqual(full.summaryLine(showTopics: false), "Vaswani, Shazeer +6 · 2017")
-        XCTAssertEqual(full.activityLine(now: now, calendar: calendar), "Added Sep 28 · Opened today · 60% read · 2 chats")
-        let sparse = LibraryRowFacts(id: "paper/y", title: "Note", paper: paper, authors: nil, year: nil, topics: [], added: nil,
-            opened: nil, progress: nil, chats: 0, pages: nil, status: .none, needsCredits: false)
-        XCTAssertEqual(sparse.summaryLine(showTopics: true), "")
-        XCTAssertEqual(sparse.activityLine(now: now, calendar: calendar), "Not opened", "Unknown facts are omitted, never blank")
         let pending = LibraryRowFacts(id: "import/z", title: "Pending", paper: nil, authors: "Kaplan, McCandlish +8", year: 2020,
-            topics: [], added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: .active("Converting…"), needsCredits: false)
-        XCTAssertEqual(pending.activityLine(now: now, calendar: calendar), "", "Imports have no reading activity")
+            tags: [], added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: .active("Converting…"), needsCredits: false)
         XCTAssertEqual(pending.statusText, "Converting…")
         XCTAssertNil(full.statusText, "A ready paper has no status label")
     }
@@ -294,7 +286,7 @@ final class LibraryMetadataTests: XCTestCase {
         model.papers = [first, second]
         await model.waitForLibrarySearch()
         XCTAssertNil(model.readingActivity[second.id])
-        XCTAssertEqual(model.libraryFacts(for: .paper(second)).activityLine(), "Not opened")
+        XCTAssertNil(model.libraryFacts(for: .paper(second)).opened, "Not opened")
 
         model.select(second)
         let opened = try XCTUnwrap(model.readingActivity[second.id]?.openedAt)

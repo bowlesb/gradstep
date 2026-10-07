@@ -1,15 +1,16 @@
 import Foundation
 import ScienceReaderCore
 
-/// Library layout (owner decision 2026-10-05): the List stays the default. "Table" is the app's own sortable table
-/// (`PaperTable`) at every width, with as many columns as fit (owner request 2026-10-06); at accessibility text
-/// sizes it shows detailed rows instead.
+/// Library layout. The Table (the app's own sortable table, `PaperTable`) is the Library's main view at every size
+/// (owner request 2026-10-07: "it should be a proper table"); the List is the compact alternative. At accessibility
+/// text sizes the table shows the List's rows. "Detailed rows" was removed (2026-10-07).
 enum LibraryLayout: String, CaseIterable, Sendable {
-    case list, detailed, table
+    case table, list
 
-    var title: String {
-        switch self { case .list: "List"; case .detailed: "Detailed rows"; case .table: "Table" }
-    }
+    var title: String { self == .list ? "List" : "Table" }
+
+    /// A saved choice. Only an explicit List stays the List; "detailed" (removed) and no choice open the Table.
+    init(saved: String?) { self = saved == LibraryLayout.list.rawValue ? .list : .table }
 }
 
 /// Feed layout: the List (title, authors, abstract, Add) or the same table as the Library's.
@@ -63,6 +64,7 @@ enum ArxivTopics {
 
     /// At most `limit` distinct friendly names, in the paper's own category order.
     static func names(for categories: [String], limit: Int = 2) -> [String] {
+        guard limit > 0 else { return [] }
         var seen = Set<String>(), result: [String] = []
         for category in categories {
             let name = name(for: category)
@@ -71,6 +73,175 @@ enum ArxivTopics {
             if result.count == limit { break }
         }
         return result
+    }
+}
+
+/// A paper's tags as the Library shows and filters them: its own tags (display names) when it has any, else topic
+/// names derived from its arXiv categories (the Feed chips' names).
+enum LibraryTags {
+    static func tags(for paper: Paper) -> [String] {
+        let own = distinct(paper.tags)
+        return own.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: .max) : own
+    }
+
+    static func tags(for item: LibraryImportRecord) -> [String] {
+        ArxivTopics.names(for: item.metadata?.categories ?? [], limit: .max)
+    }
+
+    /// Trimmed, non-empty, first spelling of each kept (case-insensitive).
+    static func distinct(_ names: [String]) -> [String] {
+        var seen = Set<String>(), result: [String] = []
+        for name in names {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed.lowercased()).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    /// The tag filter's choices: each tag with how many rows carry it, most used first, then A to Z.
+    static func counts(_ rows: [[String]]) -> [(tag: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for tags in rows { for tag in Set(tags) { counts[tag, default: 0] += 1 } }
+        return counts.map { (tag: $0.key, count: $0.value) }.sorted {
+            $0.count != $1.count ? $0.count > $1.count : $0.tag.localizedStandardCompare($1.tag) == .orderedAscending
+        }
+    }
+}
+
+/// The Source column: the arXiv identifier, or for a web paper the host it came from ("nature.com").
+enum LibrarySourceLabel {
+    static func label(sourceID: String?, url: String?) -> String? {
+        guard let sourceID, !sourceID.isEmpty else { return nil }
+        guard LibrarySource.isWebSourceID(sourceID) else { return sourceID }
+        return url.flatMap(host) ?? "Open access"
+    }
+
+    /// "arXiv 1706.03762", "From nature.com".
+    static func spoken(sourceID: String?, url: String?) -> String? {
+        guard let label = label(sourceID: sourceID, url: url) else { return nil }
+        guard let sourceID, LibrarySource.isWebSourceID(sourceID) else { return "arXiv " + label }
+        return label == "Open access" ? label : "From " + label
+    }
+
+    static func host(_ url: String) -> String? {
+        guard let host = URL(string: url)?.host(), !host.isEmpty, host != "openalex.org" else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+}
+
+/// The Library's quick filters (owner request 2026-10-07: "people can navigate and find papers easily"). Reading
+/// states are this device's own activity; Failed is imports that stopped; Archived replaces Show › Archived papers.
+enum LibraryFilter: String, CaseIterable, Sendable {
+    case all, unread, reading, failed, archived
+
+    var title: String {
+        switch self {
+        case .all: "All"; case .unread: "Unread"; case .reading: "Reading"; case .failed: "Failed"; case .archived: "Archived"
+        }
+    }
+    /// What the empty filter says ("No unread papers").
+    var emptyTitle: String {
+        switch self {
+        case .all: "No papers"; case .unread: "No unread papers"; case .reading: "Nothing in progress"
+        case .failed: "No failed imports"; case .archived: "No archived papers"
+        }
+    }
+    /// Membership depends on this device's reading activity.
+    var usesActivity: Bool { self == .unread || self == .reading }
+
+    /// A paper: Unread was never opened here; Reading was opened (or has progress) and isn't finished.
+    func includesPaper(archived: Bool, opened: Date?, progress: Double?) -> Bool {
+        switch self {
+        case .all: return !archived
+        case .archived: return archived
+        case .failed: return false
+        case .unread: return !archived && opened == nil && (progress ?? 0) <= 0
+        case .reading:
+            return !archived && (opened != nil || (progress ?? 0) > 0) && LibraryFormat.percent(progress ?? 0) < 100
+        }
+    }
+
+    /// An import shows under All, and under Failed once it has stopped.
+    func includesImport(_ phase: LibraryImportPhase) -> Bool {
+        switch self {
+        case .all: true
+        case .failed: phase == .failed || phase == .membershipConflict
+        case .unread, .reading, .archived: false
+        }
+    }
+
+    /// An Add still waiting to sync shows only under All.
+    var includesQueued: Bool { self == .all }
+}
+
+/// What the filter row offers: rows per quick filter and the tags within the current one.
+struct LibraryFilterSummary: Equatable {
+    var counts: [LibraryFilter: Int] = [:]
+    var tags: [(tag: String, count: Int)] = []
+
+    func count(_ filter: LibraryFilter) -> Int { counts[filter] ?? 0 }
+
+    /// The quick filters worth offering: All, then each one that would show something different from All (or is
+    /// chosen). Empty when nothing narrows the list (a new library), so the filter row stays hidden.
+    func chips(selected: LibraryFilter, tagSelected: Bool) -> [LibraryFilter] {
+        func differs(_ filter: LibraryFilter) -> Bool {
+            switch filter {
+            case .all: false
+            case .archived: count(filter) > 0                                      // never part of All
+            case .unread, .reading, .failed: count(filter) > 0 && count(filter) < count(.all)
+            }
+        }
+        let shown = LibraryFilter.allCases.filter { $0 == .all || $0 == selected || differs($0) }
+        return shown.count > 1 || showsTags(tagSelected: tagSelected) ? shown : []
+    }
+
+    /// The Tags menu is offered when there are tags to choose between.
+    func showsTags(tagSelected: Bool) -> Bool { tagSelected || tags.count > 1 }
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.counts == b.counts && a.tags.map(\.tag) == b.tags.map(\.tag) && a.tags.map(\.count) == b.tags.map(\.count)
+    }
+}
+
+/// Which Library table columns are turned on, kept per device and separately for compact (iPhone) and regular
+/// (iPad, Mac) widths (owner request 2026-10-07: "columns that can be turned on or off"). Title is always shown.
+struct LibraryColumnSettings: Equatable, Sendable {
+    enum WidthClass: String, CaseIterable, Sendable {
+        case compact, regular
+        var title: String { self == .compact ? "iPhone" : "iPad and Mac" }
+    }
+
+    static let defaultsKeyPrefix = "library.columns."
+    /// Phone: Year and Progress in portrait; landscape adds the dates and chats where they fit.
+    static let compactDefault: Set<LibraryTableColumn> = [.year, .added, .opened, .chats, .progress]
+    static let regularDefault: Set<LibraryTableColumn> = [.year, .tags, .added, .opened, .chats, .progress]
+
+    var compact = Self.compactDefault
+    var regular = Self.regularDefault
+
+    static func defaultColumns(_ width: WidthClass) -> Set<LibraryTableColumn> { width == .compact ? compactDefault : regularDefault }
+
+    subscript(width: WidthClass) -> Set<LibraryTableColumn> {
+        get { width == .compact ? compact : regular }
+        set { if width == .compact { compact = newValue } else { regular = newValue } }
+    }
+
+    /// Unknown names (a column a later build removed) are ignored; a missing key means the defaults.
+    static func load(from defaults: UserDefaults) -> Self {
+        var settings = Self()
+        for width in WidthClass.allCases {
+            guard let saved = defaults.string(forKey: defaultsKeyPrefix + width.rawValue) else { continue }
+            settings[width] = Set(saved.split(separator: ",").compactMap { LibraryTableColumn(rawValue: String($0)) })
+        }
+        return settings
+    }
+
+    func save(to defaults: UserDefaults) {
+        for width in WidthClass.allCases {
+            let names = LibraryTableColumn.allCases.filter(self[width].contains).map(\.rawValue)
+            defaults.set(names.joined(separator: ","), forKey: Self.defaultsKeyPrefix + width.rawValue)
+        }
     }
 }
 
@@ -320,9 +491,12 @@ extension LibraryImportRecord {
         }
     }
     var isActive: Bool { [.resolving, .acquiring].contains(phase) }
+    /// The step a retry starts again from, shown as soon as Retry is tapped: downloading again when the paper's
+    /// details are known (the server resumes it as acquiring), else finding it.
+    var retryStep: LibraryImportStep { metadataID == nil ? .finding : .downloading }
 }
 
-/// Everything the Table and detailed rows show for one library entry.
+/// Everything the Table shows for one library entry.
 struct LibraryRowFacts {
     enum Status: Equatable {
         case none                    // ready: never a noisy "Ready" label
@@ -335,7 +509,8 @@ struct LibraryRowFacts {
     let paper: Paper?
     let authors: String?
     let year: Int?
-    let topics: [String]
+    /// Display names (`LibraryTags`): the paper's own tags, else topics from its categories.
+    let tags: [String]
     let added: Date?
     let opened: Date?
     let progress: Double?
@@ -345,27 +520,42 @@ struct LibraryRowFacts {
     let needsCredits: Bool
     /// An import in progress: its step and when this device first saw it there.
     var stepTiming: ImportStepTiming? = nil
+    /// The arXiv identifier, or a web paper's host.
+    var source: String? = nil
+    var spokenSource: String? = nil
+    /// An import in progress, or one being retried: the step it is on.
+    var step: LibraryImportStep? = nil
+    /// What a stopped import offers beside its status (owner feedback 2026-10-07: a failed import should never just
+    /// sit there).
+    var importAction: LibraryImportAction? = nil
 
     var statusText: String? {
         switch status { case .none: nil; case .active(let text), .info(let text), .problem(let text): text }
     }
+}
 
-    /// Line 2 of a detailed row: "Vaswani, Shazeer +6 · 2017 · Language, Machine learning".
-    func summaryLine(showTopics: Bool) -> String {
-        ([authors, year.map(String.init)].compactMap { $0 } + (showTopics && !topics.isEmpty ? [topics.joined(separator: ", ")] : []))
-            .joined(separator: " · ")
+/// The one action a stopped import shows inline, beside its status.
+enum LibraryImportAction: Equatable, Sendable {
+    /// The server can run it again (download or details failed).
+    case retry
+    /// Conversion is waiting for credits.
+    case getCredits
+    /// Nothing can be retried (too large, unreadable PDF…): take it off the list.
+    case remove
+
+    var title: String {
+        switch self { case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove" }
     }
 
-    /// Line 3: "Added Mon · Opened today · 60% read · 2 chats". Unknown facts are left out.
-    func activityLine(now: Date = Date(), calendar: Calendar = .current) -> String {
-        var parts: [String] = []
-        if let added { parts.append("Added " + LibraryFormat.relativeDayInSentence(added, now: now, calendar: calendar)) }
-        if paper != nil {
-            if let opened { parts.append("Opened " + LibraryFormat.relativeDayInSentence(opened, now: now, calendar: calendar)) }
-            else { parts.append("Not opened") }
+    /// Nil while the import is running, or while a retry is on its way.
+    static func available(for item: LibraryImportRecord, retrying: Bool) -> Self? {
+        guard !retrying else { return nil }
+        switch item.phase {
+        case .failed:
+            if item.errorCode == .insufficientCredits { return .getCredits }
+            return item.retryable ? .retry : .remove
+        case .membershipConflict: return .remove
+        default: return nil
         }
-        if let progress { parts.append("\(LibraryFormat.percent(progress))% read") }
-        if chats > 0 { parts.append(LibraryFormat.chats(chats)) }
-        return parts.joined(separator: " · ")
     }
 }

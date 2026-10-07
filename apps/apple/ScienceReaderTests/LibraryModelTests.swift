@@ -29,7 +29,11 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var privateEvents: [[String: Any]] = []
     private var privateCalls: [String] = []
 
-    init(activated: Bool = false) {
+    /// The baseline import failed to download (retryable), with its paper's details known.
+    private let pendingFailed: Bool
+
+    init(activated: Bool = false, pendingFailed: Bool = false) {
+        self.pendingFailed = pendingFailed
         if activated {
             var device = LocalDevice.create(accountID: account)
             device.bundle = KeyBundle.generate(accountID: account)
@@ -78,7 +82,7 @@ private final class LibraryModelServer: @unchecked Sendable {
                 if let arrival = holdChanges {
                     holdChanges = nil; heldChanges = (request, response.0); arrival.fulfill()
                 } else { request.respond(response.0, status: response.1) }
-            case "v2_begin_import", "v2_cancel_import", "v2_set_library_item": handleCommand(request)
+            case "v2_begin_import", "v2_cancel_import", "v2_retry_import", "v2_set_library_item": handleCommand(request)
             case "v1_key_state":
                 privateCalls.append("key_state"); request.respond(keyState ?? Data("null".utf8))
             case "v2_pull_events":
@@ -154,6 +158,18 @@ private final class LibraryModelServer: @unchecked Sendable {
                 revision = (row["intent_revision"] as! Int) + 1
                 row["intent_revision"] = revision; row["state_seq"] = cursor; row["visible"] = false; row["phase"] = "cancelled"
                 entry = row
+            case "v2_retry_import":
+                // As the server does: a failed, retryable import with known details resumes as acquiring.
+                guard let id = input["p_import_id"] as? String,
+                      var row = changedEntries[id] ?? (id == importID.wire ? pending() : nil),
+                      row["phase"] as? String == "failed", row["retryable"] as? Bool == true,
+                      row["intent_revision"] as? Int == input["p_expected_revision"] as? Int else {
+                    request.respond(Data("{}".utf8), status: 409); return
+                }
+                revision = (row["intent_revision"] as! Int) + 1
+                row["intent_revision"] = revision; row["state_seq"] = cursor; row["phase"] = "acquiring"
+                row["error_code"] = NSNull(); row["retryable"] = false
+                entry = row
             case "v2_set_library_item":
                 guard input["p_document_id"] as? String == documentID.wire, input["p_present"] as? Bool == false,
                       input["p_expected_revision"] as? Int == 1 else {
@@ -190,6 +206,11 @@ private final class LibraryModelServer: @unchecked Sendable {
          "original_availability_revision": 1, "render_availability_revision": available ? 1 : 2]
     }
     func pending(state: Int = 2, resolved: Bool = false, sourceOnly: Bool = false) -> [String: Any] {
+        if pendingFailed, !resolved, !sourceOnly {
+            var row = pending(state: state, sourceOnly: true)
+            row["phase"] = "failed"; row["error_code"] = "download_failed"; row["retryable"] = true
+            return row
+        }
         let pinned = resolved || sourceOnly
         return ["kind": "import", "id": importID.wire, "created_seq": 2, "state_seq": state, "intent_revision": 1,
                 "visible": !resolved, "phase": resolved ? "ready" : (sourceOnly ? "source_only" : "accepted"),
@@ -508,6 +529,40 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(server.commands().map(\.endpoint), ["v2_begin_import", "v2_begin_import", "v2_cancel_import"])
         XCTAssertNil(model.error)
         try await capture(window, name: "Cancelled import leaves the existing library intact")
+    }
+
+    /// Owner feedback 2026-10-07: a failed import offers Retry, and a retried row shows as downloading again at once —
+    /// while the request is still on its way — then follows the server's own state.
+    func testRetryShowsTheFailedImportDownloadingAtOnce() async throws {
+        let server = LibraryModelServer(activated: true, pendingFailed: true), fixture = try fixture(server)
+        let model = fixture.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        XCTAssertTrue(model.canChangeImports)
+        let failed = try XCTUnwrap(model.libraryImports.first { $0.id == server.importID })
+        XCTAssertEqual(failed.phase, .failed)
+        XCTAssertEqual(model.libraryStatus(for: .pending(failed)), .problem("Download failed"), "Plain words")
+        XCTAssertEqual(model.libraryFacts(for: .pending(failed)).importAction, .retry, "Retry beside the status")
+
+        let arrival = expectation(description: "Retry request issued")
+        server.enqueueCommand(.hold(arrival))
+        await model.changeImport(failed, retry: true)
+        try await observe("Retry saved on this device") { model.isRetrying(failed) }
+        XCTAssertEqual(model.libraryStatus(for: .pending(failed)), .active("Downloading…"), "Running again before the server answers")
+        let facts = model.libraryFacts(for: .pending(failed))
+        XCTAssertEqual(facts.step, .downloading)
+        XCTAssertNil(facts.importAction, "No second Retry while one is on its way")
+        await fulfillment(of: [arrival], timeout: 5)
+        XCTAssertEqual(server.commands().map(\.endpoint), ["v2_retry_import"])
+
+        server.releaseCommand()
+        try await observe("The server's state replaces the local one") {
+            model.libraryCommands.isEmpty && model.libraryImports.first { $0.id == server.importID }?.phase == .acquiring
+        }
+        let resumed = try XCTUnwrap(model.libraryImports.first { $0.id == server.importID })
+        XCTAssertFalse(model.isRetrying(resumed))
+        XCTAssertEqual(model.libraryFacts(for: .pending(resumed)).step, .preparing, "Acquiring, before the worker reports downloading")
+        XCTAssertNil(model.error)
     }
 
     func testRemoveSavedPaperWaitsForCatchupAndKeepsPrivateChatAndDraft() async throws {
