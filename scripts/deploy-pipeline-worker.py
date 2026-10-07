@@ -5,11 +5,12 @@
   python3 scripts/deploy-pipeline-worker.py run              # run that image locally against staging
   python3 scripts/deploy-pipeline-worker.py deploy --project <gcp-project> [--region us-west1]
   python3 scripts/deploy-pipeline-worker.py cutover          # point staging's pg_cron/pg_net at the service
+  python3 scripts/deploy-pipeline-worker.py retry-failed --label <deploy>  # retry failed papers once (deploy does this)
 
 Secrets come from .env.staging / .env.providers into Secret Manager (deploy) or the
 container environment (run); values are never printed.
 """
-import argparse, json, os, shutil, subprocess, tempfile, time, urllib.request
+import argparse, json, os, shutil, subprocess, tempfile, time, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +84,23 @@ def deploy(project, region):
     url = gcloud('run', 'services', 'describe', SERVICE, '--project', project, '--region', region,
                  '--format', 'value(status.url)', capture=True).stdout.strip()
     print('Deployed', url)
+    return image.rsplit(':', 1)[1]
+
+def retry_failed(label):
+    """A deploy is when a code bug stops being one: every failed paper that can resume without
+    charge (metadata, download, render; not too_large) is retried once per deploy label
+    (migration 027, worker_pipeline_retry_failed). Prints counts only."""
+    env = secrets()
+    request = urllib.request.Request(env['SUPABASE_URL'].rstrip('/') + '/rest/v1/rpc/worker_pipeline_retry_failed',
+        data=json.dumps({'p_deploy': label}).encode(), method='POST',
+        headers={'apikey': env['SUPABASE_SERVICE_ROLE_KEY'], 'Authorization': 'Bearer ' + env['SUPABASE_SERVICE_ROLE_KEY'],
+                 'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response: result = json.load(response)
+    except urllib.error.HTTPError as error:
+        print(f'Retry after deploy skipped (HTTP {error.code}; is migration 027 applied?)'); return
+    print(f"Retry after deploy {label}: {result.get('papers', 0)} failed paper(s) retried once, "
+          f"{result.get('retried', 0)} with readers waiting; {result.get('healed', 0)} import(s) healed")
 
 def cutover(url):
     """Point staging's scheduler and import trigger at the worker (Vault: science_reader_pipeline_url)."""
@@ -105,16 +123,20 @@ def workflow_checks():
         raise SystemExit('Deployed, but workflow checks FAILED (table above; report under .artifacts/workflow-checks/).')
 
 parser = argparse.ArgumentParser()
-parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover'])
-parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url')
+parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover', 'retry-failed'])
+parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url'); parser.add_argument('--label')
 parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploy/cutover')
 args = parser.parse_args()
 if args.command == 'build': build()
 elif args.command == 'run': run()
 elif args.command == 'deploy':
     if not args.project: raise SystemExit('--project is required')
-    deploy(args.project, args.region)
+    label = deploy(args.project, args.region)
+    retry_failed(label)
     if not args.skip_checks: workflow_checks()
+elif args.command == 'retry-failed':
+    if not args.label: raise SystemExit('--label is required (letters, digits, . _ : -)')
+    retry_failed(args.label)
 else:
     if not args.url or not args.url.startswith('https://'): raise SystemExit('--url https://… is required')
     cutover(args.url)

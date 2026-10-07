@@ -46,6 +46,9 @@ def context():
     (target / 'scripts').mkdir(); (target / 'infra').mkdir()
     shutil.copy(ROOT / 'services/workflow-checks/Dockerfile', target / 'Dockerfile')
     shutil.copy(ROOT / 'scripts/workflow-checks.mjs', target / 'scripts/workflow-checks.mjs')
+    # downloads.corpus runs the pipeline's own download code (dependency-free TypeScript; Node 24 strips types).
+    (target / 'supabase/functions/_shared').mkdir(parents=True)
+    shutil.copy(ROOT / 'supabase/functions/_shared/web-source.ts', target / 'supabase/functions/_shared/web-source.ts')
     for name in ['staging.json', 'workflow-checks.json']:
         if (ROOT / 'infra' / name).exists(): shutil.copy(ROOT / 'infra' / name, target / 'infra' / name)
     return target

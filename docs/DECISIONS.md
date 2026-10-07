@@ -270,3 +270,81 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+
+## Recovery code in Apple Passwords (owner asked 2026-10-06)
+
+Owner: "can we build an integration with Apple password manager so its easy for users to sync the retrieval password
+into Apple". The recovery code is needed only on a device that has no approved device to approve it (an approved
+device can approve a new one), not on every sign-in.
+
+- The recovery screen offers **Save to Passwords**: the code is saved as a password for `gradstep.ai` (title
+  "Gradstep recovery code", user name = the account email) through the system prompt
+  (`ASCredentialDataManager.save` on iOS 26.2+, `SecAddSharedWebCredential` before). Saving also ticks "I saved this
+  code". It is optional; copying the code still works.
+- On a new device, **Use code saved in Passwords** asks the system to offer passwords saved for `gradstep.ai`
+  (`ASAuthorizationPasswordProvider`) and fills the field; the field also accepts Password AutoFill.
+- Requires the `webcredentials:gradstep.ai` associated domain (App ID capability enabled; `gradstep.ai/.well-known/
+  apple-app-site-association` lists the app) and the "Gradstep App Store" profile.
+- Apple documents iCloud Keychain (which Passwords uses) as end-to-end encrypted; Gradstep's server still never receives the code. Anyone who can
+  open the person's Passwords can read the code, as with any password they store there.
+- Evidence (2026-10-06, iPhone Simulator): **Use code saved in Passwords** runs and reports "No saved recovery code was
+  filled" when none exists; **Save to Passwords** on a fresh staging account opens Apple's password-saving sheet, which
+  the Simulator closes because it has no iCloud Keychain. Saving and filling on a real device is not yet verified
+  (physical iPhone work is paused).
+
+## Self-healing downloads (decided 2026-10-07)
+
+Decided overnight under the owner's "don't stop to ask"; for review.
+
+Owner: a "Download failed" must never just sit in a reader's library. Decided and recorded here; details in
+[import reliability](architecture/PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027).
+
+- **Automatic retry, at most three times, 15 min / 2 h / 12 h**, for download failures that can change: host busy or
+  unreachable (`source_unavailable`), a bot check (`source_blocked`), no PDF at the link (`not_pdf`), gone or refused
+  (`download_failed`), a crash loop. **Not** for refusals that cannot change: a sign-in or paywall (`pdf_restricted`)
+  or the size limit (`too_large`). Every failure keeps the reader's Retry, which runs at once and does not use up an
+  automatic retry. A successful download resets the count.
+- **While a retry is scheduled the import stays `failed`** (honest: it did fail) with the new code
+  `download_retrying` ("Couldn’t download yet · Trying again automatically") and a new top-level entry key
+  `auto_retry_at`, present only then, so every other entry's JSON is unchanged (older builds show "Couldn’t import
+  this paper" and keep Retry). Rejected: keeping the import "Downloading…" for up to 12 h (the app would say
+  "taking longer than usual" for hours).
+- **A retry is a worker checkpoint, not a reader intent**: new `state_seq`, intent revision unchanged, so a reader's
+  Cancel still applies and needs no new revision.
+- **Healing**: a failed, retryable import whose paper has since moved on (another reader's retry or import) is put
+  back in the pipeline automatically. Found on staging: three imports stuck `failed` beside a paper that was `done`.
+- **After every pipeline worker deploy**, every failed paper that can resume without charge (metadata, download,
+  render; not `too_large`) is retried once per deploy label — including sign-in/bot refusals, since a deploy is when
+  our misclassification stops being one. Not counted as an automatic retry.
+- **Reader messages** (app, `LibraryImportErrorCode`): `pdf_restricted` "This PDF needs a sign-in or subscription",
+  `source_blocked` "The paper’s website blocked the download", `source_unavailable` "The paper’s website isn’t
+  responding", `not_pdf` "The paper’s link doesn’t lead to a PDF", `download_retrying` as above.
+- **We do not evade bot checks** (no browser user agent, no challenge solving). Copies on hosts that challenged every
+  automated request in the survey (ACM, OUP, Wiley, T&F, Elsevier, Science, PNAS, ACS, SAGE, IOP, Cell, PeerJ,
+  SSRN, eScholarship, OpenReview, IUCr, Lancet) are tried after every other copy; PubMed Central copies are fetched
+  from NLM's official open data on S3 (`pmc-oa-opendata`), the documented programmatic route.
+- **Ingest's notion of "openly available" is unchanged** (explicit PDF locations only). The pipeline additionally
+  tries PMC open data and open repository records; widening Ingest to count those is a possible follow-up.
+
+## Admin accounts (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+The owner asked for an owner-only Accounts tab so testers can be managed without an engineer
+([gap audit](LEGACY_GAP_AUDIT.md)). migration 028, Edge function `admin-accounts`, admin tab **Accounts**.
+
+- **Who:** owners signed in with MFA only, through the existing `is_operator('owner')` gate (`v1_admin_actor` on the
+  caller's own token); the service functions re-check that the acting account is an open owner. Support operators
+  don't see the tab.
+- **Add tester:** creates the Auth login with the email confirmed and no password through the Auth admin API;
+  `disable_signup` stays on and nothing is emailed. The page shows instructions to send and reminds the owner to add
+  the tester to TestFlight. The existing `auth.users` trigger creates the account row. Adding an existing email
+  changes nothing. Starting credits default to 1,000 (the approved tester grant) and are granted once per account.
+- **Grants:** `adjustment` credits that never expire, 1–2,000 per grant (server-side), a required one-line reason
+  (3–500 characters, kept in the audit log; the ledger reason is "Admin grant: …"), once per request ID; the page
+  asks for confirmation above 500.
+- **Disable:** a Supabase Auth ban (100 years), recorded in the audit log *before* the ban is applied; owners can't
+  be disabled here. An open session keeps working until its access token expires (up to an hour); making the
+  database refuse banned logins immediately is a possible follow-up (it would change `app_private.actor()`, used by
+  every RPC, so it was not done unreviewed). Deletion stays in the app.
+- **Status shown:** active, disabled (banned), closing (deletion started, login not yet removed), closed (deleted).
+  Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
+  relies on Supabase linking identities with the same verified email; not yet tried on staging.

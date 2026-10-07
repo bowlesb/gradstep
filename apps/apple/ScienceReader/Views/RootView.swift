@@ -979,6 +979,34 @@ struct RecoveryView: View {
     @Bindable var model: ReaderModel
     @State private var input = ""
     @State private var saved = false
+    @State private var anchor: UIWindow?
+    @State private var passwords: PasswordsState = .idle
+    private enum PasswordsState: Equatable { case idle, working, saved, failed(String) }
+
+    private func saveToPasswords(_ code: String) {
+        guard let anchor, passwords != .working else { return }
+        passwords = .working
+        Task {
+            do {
+                try await RecoveryPasswords.save(code: code, account: RecoveryPasswords.account(email: model.email), anchor: anchor)
+                passwords = .saved; saved = true
+            } catch RecoveryPasswords.Failure.cancelled {
+                passwords = .idle
+            } catch {
+                passwords = .failed("Couldn’t save to Passwords. Copy the code and keep it somewhere safe instead.")
+            }
+        }
+    }
+
+    private func fillFromPasswords() {
+        guard let anchor, passwords != .working else { return }
+        passwords = .working
+        Task {
+            do { input = try await RecoveryPasswords.request(anchor: anchor); passwords = .idle }
+            catch { passwords = .failed("No saved recovery code was filled. You can paste it instead.") }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -992,11 +1020,24 @@ struct RecoveryView: View {
                 if model.needsRecovery {
                     Section("Recovery code") {
                         TextField("Paste your recovery code", text: $input, axis: .vertical).font(.system(.body, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
+                            .textContentType(.password).accessibilityIdentifier("recovery.input")
+                        Button { fillFromPasswords() } label: { Label("Use code saved in Passwords", systemImage: "key.fill") }
+                            .disabled(anchor == nil || passwords == .working || model.isBusy).accessibilityIdentifier("recovery.fromPasswords")
+                        if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
                         Button("Recover this device") { Task { await model.finishRecovery(code: input) } }.disabled(input.isEmpty || model.isBusy)
                     }
                 } else if let code = model.recoveryCode {
                     Section {
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()
+                            .accessibilityIdentifier("recovery.code")
+                        if passwords == .saved {
+                            Label("Saved in Passwords under gradstep.ai", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                                .accessibilityIdentifier("recovery.savedToPasswords")
+                        } else {
+                            Button { saveToPasswords(code) } label: { Label("Save to Passwords", systemImage: "key.fill") }
+                                .disabled(anchor == nil || passwords == .working).accessibilityIdentifier("recovery.saveToPasswords")
+                        }
+                        if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
                         Toggle("I saved this code somewhere safe", isOn: $saved)
                         Button("Continue") { Task { await model.finishRecovery() } }.disabled(!saved || model.isBusy)
                     }
@@ -1010,7 +1051,8 @@ struct RecoveryView: View {
                     }
                 }
                 if model.isBusy { ProgressView() }
-            }.navigationTitle("Private library").navigationBarTitleDisplayMode(.inline)
+            }.background { AuthenticationWindowReader { anchor = $0 }.frame(width: 0, height: 0) }
+                .navigationTitle("Private library").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
