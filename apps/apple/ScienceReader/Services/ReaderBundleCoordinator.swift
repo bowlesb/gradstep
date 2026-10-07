@@ -197,7 +197,12 @@ final class ReaderBundleCoordinator {
                 if let previous { _ = try await previous.value }
                 // The retained task is an ordering/error barrier, not another
                 // owner of the full decoded catalog returned by the store.
-                _ = try await store.saveLibraryPresentation(observation, scope: scope)
+                do { _ = try await store.saveLibraryPresentation(observation, scope: scope) }
+                catch let error as OfflineCacheError where error.replacesSavedLibrary {
+                    // Repair presentation equality only. Core still authenticates the saved rows and
+                    // retains identity, sequence and sticky reader-availability checks.
+                    _ = try await store.rebuildLibraryPresentation(observation, scope: scope)
+                }
                 return try await readDirectory(store, scope)
             }
             saved = Task {
@@ -409,9 +414,10 @@ final class ReaderBundleCoordinator {
         eligibility[value.binding.artifactID] = try latestObservation.map { try old.applying(observation: $0, binding: value.binding) } ?? old
     }
 
-    private func reportCacheFailure() {
-        report("Your latest library update wasn’t saved for offline use. Reopen the app to try again.")
-    }
+    /// Saving an optional offline copy must not imply that the accepted server update failed.
+    static let cacheFailureMessage = "Your latest library update couldn’t be saved on this device. Reopen the app to try again."
+
+    private func reportCacheFailure() { report(Self.cacheFailureMessage) }
 
     private func release(_ operation: Install) {
         guard operation.cleanup == nil else { return }

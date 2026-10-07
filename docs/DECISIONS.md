@@ -663,3 +663,36 @@ every minute): about $54/month for a mostly idle instance. It now uses request-b
 revision gradstep-pipeline-00007): every handler awaits its work before responding, so nothing runs unbilled after a
 response. Expected at current volume: ~$0–3/month, mostly within the free tier. Next (approved): wake the worker when
 work is queued, with a 10–15 minute sweep, instead of every minute; its design is shown to the owner before deploy.
+
+## Offline-save recovery across app upgrades (2026-10-07)
+
+The owner's build-15 offline-save banner was caused by build 14 saving library entries without the later tags and
+import-progress fields. Local checkpoint format 3 marks that decoder boundary, so the next complete server
+observation replaces an older readable snapshot without treating those omitted fields as a changed server revision.
+For current-format caches, repair is restricted to those four display fields; immutable pins, membership, artifact,
+availability and sequence checks remain enforced. Quarantine survives local copy removal and a repaired checkpoint.
+
+The untested handoff also proposed rebuilding unreadable policy and a Try again button that saved only the latest
+observation. Review removed those paths: they could forget a failed quarantine before an ordinary outage. A real
+persistence failure continues to preserve bytes/private content, halt ordered cache installs and ask for reopening.
+This is a client-only compatibility fix; no database migration, cache deletion, server rewrite or deployment is needed.
+Local verification and remaining limits are recorded in [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review).
+
+## Passage-linked conversations (owner asked 2026-10-07; agent decisions, all reversible)
+
+Owner: conversations linked to the passage they came from — the paper ↔ chat loop the original app was built around
+([gap 1](LEGACY_GAP_AUDIT.md#1-conversations-linked-to-their-passage)). Built in `Views/PaperPassages.swift`,
+`ScienceReaderCore/PassageAnchor.swift` and the end of `reader-bridge.js`.
+
+| Decision | Choice |
+|---|---|
+| What is saved | A `TextAnchor` on the new conversation's root event: artifact ID, the first block the selection touches (`elementID`), the quote exactly as asked (formulas as their LaTeX), and up to 32 characters of the paper's text before and after it (whitespace collapsed, read by the bridge with the same text rules as selections). No `page`. |
+| Wire format | Unchanged (format 1, no bump). `anchor` has been a `PrivateEvent` field since the first build (`34100c5`), every build decodes it, and the frozen Node ↔ Swift fixture already carries one; builds before this simply never read it. It is inside the encrypted payload, so the service learns nothing new. Older conversations have no anchor; nothing is migrated. |
+| Which actions | Explain, Why it matters, Related and Add paper on a text selection or a tapped formula in the paper. Not: chat-answer quote actions (Ask about this, Explain, Define — the text is the answer's, not the paper's), Ask about this paper, or a reference's "Ask in chat". Selection actions always start a new conversation, so continuing one adds nothing. |
+| Go to passage | In the chat's title menu and its "…" menu, and on an All chats row (long-press, and a VoiceOver action), for anchored chats whose paper is in the library. Opens the paper if needed, keeps the conversation as the chat's, waits for the reader like a contents jump, centers the passage and tints it for ~2.6 s, and offers the citation **Back** to where reading left off. Unlike a citation peek, the passage then becomes the remembered reading place (as a contents jump does). A request not applied within a minute is dropped. |
+| Finding it | Same artifact: the exact quote, preferring its block. Otherwise, or if that fails, the legacy cascade: exact quote → collapsed whitespace → the quote's first line and its 80/60/40/25-character openings (≥ 20 characters) → the text between the saved prefix and suffix (each ≥ 8 characters, within max(400, 2 × quote) characters). Several matches: the one in the anchored block (same artifact only), then the one with matching context. Nothing: "Couldn't find the passage this chat came from. The paper may have changed since." A paper no longer in the library: "The paper this chat came from isn't in your library." |
+| Marks | CSS custom highlights (no element added, so selection, citations, figures and reading positions are untouched): a 2 pt accent underline at 50 % (55 % lighter in dark mode). A formula, which is drawn rather than text, gets a line under it (inline) or a bar beside it (display). Marks use exact and collapsed-whitespace matches only, including anchors from an earlier conversion of the same paper. |
+| Tapping a mark | Opens its conversation; several on that spot offer "Chats about this passage". Links, citations, contents rows, figures, references, tags and formulas keep their own taps, and nothing opens while text is selected. A marked formula therefore still selects on tap; its chat is reached from the chat or All chats. |
+| Setting | Settings › Reading › **Underline passages with chats** (on by default; this device only). Cheap, so included. |
+| All chats | With the Paper column shown (iPhone landscape, iPad), an anchored row's muted second line is the passage in quotes (math readable) instead of the newest answer; in iPhone portrait the second line stays the paper's title. The title still reads "Explain · ‹passage›". |
+| Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader doesn't show marks yet, and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |

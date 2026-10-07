@@ -2,6 +2,39 @@
 
 Status, 2026-10-04: **Core persistence and native installation/reopening are implemented and independently reviewed.** The encrypted install–terminate–relaunch journey passes on iPhone and iPad Simulators. It uses a Simulator-only Debug synthetic account/library fixture, the existing authored bundle and real encrypted SQLite storage. It does not invent membership for a real server account or exempt the sample from eligibility rules. Library, Paper, Contents, figures and chat retain their navigation. The current native suite has 210 passing tests, three expected live/device skips and no failures, including the later search, retention, authentication and restoration-projection regressions. Production artifact delivery, real-account offline acceptance and the final [Mathpix pipeline](MATHPIX_PIPELINE.md) remain separate gates.
 
+## Build 14 → 15 cache upgrade (2026-10-07, local review)
+
+The cache checkpoint now records format 3, covering the topic tags and import progress fields added in builds
+that decode migrations 029/030. A complete server observation replaces a readable older-format snapshot rather
+than comparing fields that the old build could not preserve. Downloaded bytes, private notes/chats and pending
+commands are unchanged.
+
+A conflicting current-format presentation may be rebuilt only when the existing checkpoint and rows authenticate,
+immutable identities and retained entries agree, sequences do not go backwards, and every saved reader eligibility
+policy accepts the observation. Rebuilding never resets quarantine, availability revisions or membership history;
+unreadable cache policy remains a reported failure. A failed ordered save still halts further cache installs.
+The draft's latest-snapshot-only retry is omitted because it could skip a failed quarantine followed by an outage.
+The error therefore asks the reader to reopen the app.
+
+Verified in the offline-save worktree, `.artifacts/offline-save-review/`:
+
+- Core: **207 Swift tests plus 4 OAuth XCTest tests pass** (`core-final.log`), including the 56-entry build-15 shape,
+  format upgrade/restart, metadata-only repair, retained quarantine after local removal, unreadable-policy refusal,
+  changed pins and same-cursor entry additions. The existing 4,000-row/137.8 MB encrypted fixture also passes.
+- iPhone 17 Pro Simulator: **321 unit tests, 5 opt-in skips, zero failures**, plus both authored and Mathpix
+  encrypted-paper relaunch journeys (`ios-final.xcresult`). Equations, figure assets, offline badges and saved
+  questions survive restart; representative equation-action and figure-caption attachments were reviewed.
+- Mac Catalyst: **298 applicable unit tests, 4 opt-in skips, zero failures** (`mac-verified.xcresult`). The existing
+  development identity signs and launches the fixture build on macOS 26.3.1. Both test targets now explicitly
+  support Catalyst and macOS 14, matching the app; otherwise Xcode preflight incorrectly required macOS 26.4.
+  A final development-signed arm64/x86_64 build also passes (`mac-universal-final.xcresult`). The citation
+  underline assertion now follows hover capability; both that test and the new native cache regression pass
+  again on iPhone (`ios-platform-check.xcresult`). No production rendering rule changed.
+
+The builds use only `fixture.invalid` and a public fixture key. No hosted application/provider calls, physical-device work, deployment
+or TestFlight upload was performed. Mac keyboard/UI workflows, live sign-in, sync and purchases remain separate
+acceptance gates. Existing simulator/WebKit and older fixture cleanup warnings do not constitute a runtime failure.
+
 The [Core verifier](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/ReaderBundle.swift) retains exact authenticated `manifestData`. The [native loader](../../apps/apple/ScienceReader/Services/ReaderBundleLoader.swift) has directory and memory entry points sharing PNG/JPEG structural and ImageIO admission (JPEG only for the Mathpix MathML profile). [OfflineCache](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OfflineCache.swift) and [OfflineCacheStorage](../../apps/apple/ScienceReaderCore/Sources/ScienceReaderCore/OfflineCacheStorage.swift) provide encrypted complete-presentation and bundle persistence through `EncryptedStore`. The [native coordinator](../../apps/apple/ScienceReader/Services/ReaderBundleCoordinator.swift) owns install/open verification, accepted writes, removal, cache ordering and retirement. ReaderModel restores the directory and complete presentation before network synchronization, then hydrates only a selected paper.
 
 ## Selected policy and bounds

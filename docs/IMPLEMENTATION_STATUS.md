@@ -23,6 +23,15 @@ The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_202610
 paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
 rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
 
+## Native takeover checkpoint — 2026-10-07
+
+Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple read-back confirms **VALID / IN_BETA_TESTING**. It includes the
+floating chrome and feedback #4–#6, reviewed offline-save compatibility repair (`cf67138` → `274366b`) and
+passage-linked conversations (`e0dc706` → `1aeaea2`). The fresh combined build passes 20 app regressions and three
+complete iPhone Simulator passage/offline journeys. The offline candidate also passed 207 Core + 4 OAuth tests,
+321 iPhone tests (5 skips), 298 Catalyst tests (4 skips) and a universal signed Mac build. No physical phone work.
+See [handoff](HANDOFF_20261007.md) for still-isolated uploads, purchase diagnostics, navigation and chat branches.
+
 ## Browser/Mac integration checkpoint — local, not deployed
 
 The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
@@ -243,6 +252,17 @@ New events carry an encrypted `createdAt`; older history shows "—" and sorts b
 only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHistoryTests`, UI `ChatHistoryTableTests`
 and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
 `chat-history-actions`. Not yet seen with a real signed-in history or on a device.
+
+**Passage-linked conversations** (owner request 2026-10-07, [decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible),
+legacy gap 1): selection actions save a `TextAnchor` (artifact, block, quote, 32 characters each side) inside the
+conversation's encrypted event (wire format unchanged); **Go to passage** from the chat's title menu, its "…" menu
+and All chats opens the paper, lands on the passage with Back, and falls back to the legacy text-search cascade on
+another conversion ("Couldn't find the passage…" when nothing matches); passages with chats are underlined (CSS
+custom highlights, no DOM change) and a tap opens the chat, or a chooser when several share it; Settings › Reading can
+hide the underlines; All chats shows the passage as a wide row's second line. Verified in the Simulator only (iPhone
+17 Pro, iPad Pro 11"): Core `PassageAnchorTests`, app `PaperPassageTests` (bridge: context, cascade, short quotes,
+formulas, marks vs selection/citations/layout/position, taps, native request), UI `PassageJourneyTests`; screenshots
+light, dark and iPad. Not yet seen with real synced history, on a device, in the browser reader or run on the Mac.
 
 ## Verified locally
 
