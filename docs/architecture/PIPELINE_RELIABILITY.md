@@ -94,6 +94,92 @@ confirm this paper’s license" (they read "Couldn’t import this paper" before
 specific. Unit tests: `LibraryMetadataTests` (injected clock); screens: `library-slow-import`,
 `library-slow-import-table` (`--slow-import-fixture`).
 
+## Self-healing downloads (migration 027)
+
+> **Status 2026-10-07:** implemented and tested locally (migration `202610070027_download_retry.sql`, worker and
+> download code, app codes); **migration not applied to staging, worker not deployed**. Decision:
+> [DECISIONS](../DECISIONS.md#self-healing-downloads-decided-2026-10-07).
+
+### Root causes on staging (2026-10-07, read-only)
+
+| Import(s) | Paper | Cause | Reproduced locally | Status |
+|---|---|---|---|---|
+| owner, Zenodo W1572676502 | private, `failed download_failed` | Zenodo answered 406 to a PDF-only Accept; its record page needed `citation_pdf_url` | downloads (653 KB, 5–9 s) | fixed already (2026-10-07 ~04:02 UTC); needs a retry |
+| synthetic, Zenodo (1) | private, `failed` | same | same | fixed already; needs a retry |
+| synthetic, Zenodo (3) | private, **`done`** | same, then a later import of the same paper succeeded | — | stranded: failed imports were never re-projected → **healing** |
+| owner, 2610.03771 | private, `failed download_failed` | 44.6 MB download exceeded Edge memory; failed by hand | ready in 37 s on Cloud Run | fixed already (Cloud Run); needs a retry |
+| owner, 2610.02287 (`conversion_failed`) | shared, **`done`** | 49-page render exceeded Edge CPU; failed by hand; later done | — | stranded → **healing** |
+
+No currently failed import was truly unavailable. A survey of real open-access locations from OpenAlex (~120
+works, 40 sources) found these patterns, all now handled (tests in `tests/backend/download-sources.test.ts`):
+
+| Pattern | Hosts seen | Before | Now |
+|---|---|---|---|
+| `citation_pdf_url` over http | PMLR, JMLR, CVF | refused (not https) | fetched over https |
+| unquoted attributes | ACL Anthology | link not found | parsed |
+| `citation_pdf_url` = `http://localhost:4000/…` | DSpace 7 (Aberdeen) | refused | rebased on the page's host |
+| PDF in an `<iframe>` | IEEE stamp pages | no link | followed |
+| browser-only PDF (proof-of-work) | PubMed Central | failed | NLM open data on S3 (`pmc-oa-opendata/PMC<id>.1/…pdf`) |
+| PDF served as `text/html`, page served as `application/pdf` | various | misread | bodies sniffed (`%PDF-` / `<`) |
+| sign-in round trip with a long token | Springer, HighWire | refused (> 1000 chars) | redirect hops up to 4096 chars (stored locations stay ≤ 1000) |
+| incomplete TLS chain | books.nips.cc | transient (5 retries) | permanent for that location |
+| bot checks (Cloudflare, AWS WAF/CloudFront, Akamai, Radware, Turnstile) | ACM, OUP, Wiley, T&F, Elsevier, Science, PNAS, ACS, SAGE, IOP, Cell, PeerJ, SSRN, eScholarship, OpenReview, IUCr, Lancet, DSpace@MIT | `download_failed` | `source_blocked`; those hosts' copies tried last |
+
+Not fixable without a browser (and not attempted): bot checks, OpenReview's Turnstile, HighWire's access check
+(genome.cshlp.org). A per-download cookie jar was tested and not needed (Springer completes without cookies;
+HighWire refuses with them too).
+
+### Locations
+
+`downloadLocations(work)` (pipeline only; at most three, the stored limit): explicit PDFs on hosts that serve them,
+then PMC copies via open data, then open repository records (landing pages that declare the PDF: Zenodo DOIs, DSpace
+handles, HAL), then explicit PDFs on hosts that challenged every request. `openPDFLocations` (what Ingest calls
+"openly available") is unchanged.
+
+### Reasons readers see
+
+| Code | When | Automatic retry | App |
+|---|---|---|---|
+| `download_retrying` | a retry is scheduled (entry also has `auto_retry_at`) | — | "Couldn’t download yet · Trying again automatically" / "Retrying soon" |
+| `source_unavailable` | busy (429/5xx) or unreachable for 5 tries | yes | "The paper’s website isn’t responding" |
+| `source_blocked` | bot check, 403/405/451 | yes | "The paper’s website blocked the download" |
+| `not_pdf` | a page that declares no PDF, or a non-PDF file | yes | "The paper’s link doesn’t lead to a PDF" |
+| `download_failed` | gone, refused redirect, private host, TLS, crash loop | yes | "Couldn’t download this paper" |
+| `pdf_restricted` | 401/402, a password field, an IdP/login URL, paywall wording | no (Retry kept) | "This PDF needs a sign-in or subscription" |
+| `too_large` | over 64 MiB / 250 pages / owner quota | no (Retry kept) | "This PDF is too large to convert" |
+
+With several locations, transient wins (the stage retries soon); otherwise the most telling permanent reason
+(too large > sign-in > blocked > no PDF > failed).
+
+### Retry design
+
+- **Schedule** (trigger `pipeline_auto_retry_schedule`): a paper entering `failed` with `resume_stage = download`
+  and a retryable code gets `auto_retry_at` = now + 15 min / 2 h / 12 h by `auto_retries` (0/1/2); none after three.
+  Leaving `failed` clears it; leaving `download` forward resets `auto_retries`.
+- **Sweep** (`worker_pipeline_auto_retry`, called by the worker before each claim, at most every 20 s): due,
+  unclaimed papers are locked (claims skip them); each failed, retryable, wanted import is moved back exactly as the
+  reader's Retry does (phase, new `state_seq`, error cleared; the `pipeline_link_import` trigger makes the next claim
+  resume the paper) but keeps its intent revision. Readers at the active-import limit: +15 min, not counted. Nobody
+  waiting: schedule dropped. The same sweep **heals** failed, retryable imports whose paper is no longer failed.
+- **After a deploy** (`worker_pipeline_retry_failed(label)`, called by `deploy-pipeline-worker.py deploy`, or
+  `retry-failed --label`): every failed paper resumable without charge (metadata, download, render; not
+  `too_large`) once per label, plus healing.
+- **Projection**: `worker_pipeline_sync_imports` writes `download_retrying` and the import's `auto_retry_at` with the
+  new `state_seq`; `library_import_entry` adds `auto_retry_at` only for a failed import with a schedule, so every
+  other entry is byte-for-byte 019's (tested against 019's definition).
+- Metrics: each automatic retry is an `import` phase change, so a retried import can count as failed more than once
+  in the daily outcomes; `download_retrying` shows as its own cause.
+
+### Verification
+
+- `tests/database/test_download_retry.sql`: the 15 min / 2 h / 12 h ladder then the cause; no retry for paywall and
+  size; Retry while scheduled; healing after another reader's import; deploy retry once per label (not for size);
+  cancel drops the schedule; active-import limit postpones; crash loops scheduled; entries equal 019's otherwise;
+  workers only. `tests/backend/download-sources.test.ts` and `web-source.test.ts`: every pattern above.
+- Workflow check `downloads.corpus` (free `deploy` suite): 12 real locations (Zenodo record and DOI, EPrints, HAL,
+  DSpace 7, PMC, PMLR, JMLR, ACL Anthology, CVF; OpenReview expected `source_blocked`; arXiv refused on the web
+  path) through `fetchFirstWebPDF`, plus one arXiv-path PDF. Run locally 2026-10-07: 13/13 as expected, 28 s, 10.5 MB.
+
 ## Verification
 
 - Database tests: crash sweep, three-crash failure per stage, backoff, provider stages never auto-fail, counters

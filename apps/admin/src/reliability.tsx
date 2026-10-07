@@ -15,6 +15,9 @@ const CAUSES: Record<string, string> = {
   download_failed: 'Couldn’t download', conversion_failed: 'Conversion failed', metadata_unavailable: 'Couldn’t find the paper',
   too_large: 'Too large', pdf_invalid: 'Not a valid PDF', insufficient_credits: 'Not enough credits', rate_limited: 'Rate limited',
   license_unverified: 'License unverified', unknown: 'Unknown',
+  // Migration 027: a scheduled automatic retry, and the download causes readers are told.
+  download_retrying: 'Download failed (retry scheduled)', pdf_restricted: 'Sign-in or paywall', source_blocked: 'Blocked by the website',
+  source_unavailable: 'Website not responding', not_pdf: 'No PDF at the link',
 };
 const STAGE_ORDER = ['metadata', 'private_split', 'download', 'ocr_fund', 'ocr_submit', 'ocr_wait', 'render', 'needs_credits', 'failed'];
 const STAGES: Record<string, string> = {

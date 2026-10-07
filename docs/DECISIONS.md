@@ -291,3 +291,37 @@ device can approve a new one), not on every sign-in.
   filled" when none exists; **Save to Passwords** on a fresh staging account opens Apple's password-saving sheet, which
   the Simulator closes because it has no iCloud Keychain. Saving and filling on a real device is not yet verified
   (physical iPhone work is paused).
+
+## Self-healing downloads (decided 2026-10-07)
+
+Decided overnight under the owner's "don't stop to ask"; for review.
+
+Owner: a "Download failed" must never just sit in a reader's library. Decided and recorded here; details in
+[import reliability](architecture/PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027).
+
+- **Automatic retry, at most three times, 15 min / 2 h / 12 h**, for download failures that can change: host busy or
+  unreachable (`source_unavailable`), a bot check (`source_blocked`), no PDF at the link (`not_pdf`), gone or refused
+  (`download_failed`), a crash loop. **Not** for refusals that cannot change: a sign-in or paywall (`pdf_restricted`)
+  or the size limit (`too_large`). Every failure keeps the reader's Retry, which runs at once and does not use up an
+  automatic retry. A successful download resets the count.
+- **While a retry is scheduled the import stays `failed`** (honest: it did fail) with the new code
+  `download_retrying` ("Couldn’t download yet · Trying again automatically") and a new top-level entry key
+  `auto_retry_at`, present only then, so every other entry's JSON is unchanged (older builds show "Couldn’t import
+  this paper" and keep Retry). Rejected: keeping the import "Downloading…" for up to 12 h (the app would say
+  "taking longer than usual" for hours).
+- **A retry is a worker checkpoint, not a reader intent**: new `state_seq`, intent revision unchanged, so a reader's
+  Cancel still applies and needs no new revision.
+- **Healing**: a failed, retryable import whose paper has since moved on (another reader's retry or import) is put
+  back in the pipeline automatically. Found on staging: three imports stuck `failed` beside a paper that was `done`.
+- **After every pipeline worker deploy**, every failed paper that can resume without charge (metadata, download,
+  render; not `too_large`) is retried once per deploy label — including sign-in/bot refusals, since a deploy is when
+  our misclassification stops being one. Not counted as an automatic retry.
+- **Reader messages** (app, `LibraryImportErrorCode`): `pdf_restricted` "This PDF needs a sign-in or subscription",
+  `source_blocked` "The paper’s website blocked the download", `source_unavailable` "The paper’s website isn’t
+  responding", `not_pdf` "The paper’s link doesn’t lead to a PDF", `download_retrying` as above.
+- **We do not evade bot checks** (no browser user agent, no challenge solving). Copies on hosts that challenged every
+  automated request in the survey (ACM, OUP, Wiley, T&F, Elsevier, Science, PNAS, ACS, SAGE, IOP, Cell, PeerJ,
+  SSRN, eScholarship, OpenReview, IUCr, Lancet) are tried after every other copy; PubMed Central copies are fetched
+  from NLM's official open data on S3 (`pmc-oa-opendata`), the documented programmatic route.
+- **Ingest's notion of "openly available" is unchanged** (explicit PDF locations only). The pipeline additionally
+  tries PMC open data and open repository records; widening Ingest to count those is a possible follow-up.
