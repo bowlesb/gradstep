@@ -22,6 +22,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 MAX_OBJECTS = 50000
 MAX_JSON = 2 * 1024 * 1024
+MAX_METADATA = 128 * 1024 * 1024
+FINALIZATION_RESERVE = 65536
 MiB = 1024 * 1024
 SHA = re.compile(r'^[0-9a-f]{64}$')
 MEMBER = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,239}$')
@@ -68,10 +70,11 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class Client:
-    def __init__(self, project, key, max_download_bytes):
+    def __init__(self, project, key, max_download_bytes, max_metadata_bytes=MAX_METADATA):
         if not re.fullmatch('[a-z]{20}', project) or not key: raise InventoryError('invalid_project_or_credentials')
         self.origin = f'https://{project}.supabase.co'
         self.key, self.maximum, self.downloaded = key, max_download_bytes, 0
+        self.metadata_maximum, self.metadata_downloaded = max_metadata_bytes, 0
         self.opener = urllib.request.build_opener(NoRedirect)
 
     def request(self, path, payload=None, maximum=MAX_JSON, storage=False, retain=True):
@@ -82,7 +85,15 @@ class Client:
         headers = {'Authorization': 'Bearer ' + self.key, 'apikey': self.key, 'Accept-Encoding': 'identity'}
         body = None if payload is None else canonical(payload)
         if body is not None: headers['Content-Type'] = 'application/json'
-        if storage and self.downloaded + maximum > self.maximum: raise InventoryError('download_budget_exhausted')
+        if storage:
+            # An unknown-length response needs a one-byte overrun probe. Admit
+            # that byte too; never cross the aggregate ceiling to discover it.
+            if self.downloaded + maximum + 1 > self.maximum: raise InventoryError('download_budget_exhausted')
+        else:
+            reserve = 0 if path == '/rest/v1/rpc/worker_asset_inventory_finish' else FINALIZATION_RESERVE
+            remaining = self.metadata_maximum - self.metadata_downloaded - reserve
+            if remaining < 2: raise InventoryError('metadata_budget_exhausted')
+            maximum = min(maximum, remaining - 1)
         request = urllib.request.Request(self.origin + path, data=body, headers=headers)
         try:
             with self.opener.open(request, timeout=60) as response:
@@ -93,6 +104,7 @@ class Client:
                 while chunk := response.read(min(65536, maximum - size + 1)):
                     size += len(chunk)
                     if storage: self.downloaded += len(chunk)
+                    else: self.metadata_downloaded += len(chunk)
                     if size > maximum: raise InventoryError('response_limit')
                     hasher.update(chunk)
                     if retain: chunks.append(chunk)
@@ -212,11 +224,11 @@ def manifest_members(row, body):
     return result
 
 
-def reconcile(client, scan, max_bytes):
+def reconcile(client, scan, max_bytes, save_proof=None):
     """Only manifests already bound to an owned, verified DB identity may add rows."""
     report = {'format': 1, 'scan_id': scan, 'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(),
               'complete': False, 'object_count': 0, 'byte_count': 0, 'discrepancies': dict.fromkeys(KINDS, 0),
-              'issues': [], 'imported_manifests': 0, 'downloaded_bytes': 0}
+              'issues': [], 'imported_manifests': 0, 'downloaded_bytes': 0, 'metadata_bytes_before_finalization': 0}
     begun = False
     def issue(kind, path=None, code=None):
         report['discrepancies'][kind] = min(MAX_OBJECTS, report['discrepancies'][kind] + 1)
@@ -282,10 +294,16 @@ def reconcile(client, scan, max_bytes):
     except InventoryError as error: issue('incomplete', code=str(error))
     except Exception: issue('incomplete', code='inventory_consistency_error')
     report['downloaded_bytes'] = client.downloaded
+    report['metadata_bytes_before_finalization'] = getattr(client, 'metadata_downloaded', 0)
     report['complete'] = begun and not any(report['discrepancies'].values())
     # Hash of this exact proof payload is stored; finalization status is an
     # external wrapper so it cannot change the proof after it was committed.
     proof = hashlib.sha256(canonical(report)).hexdigest()
+    if save_proof is not None:
+        try: save_proof({'report': report, 'report_sha256': proof})
+        except Exception:
+            return {'report': report, 'report_sha256': proof, 'recorded': False,
+                    'scan_may_remain_active': begun, 'proof_persistence_failed': True}
     recorded = False
     if begun:
         try:
@@ -302,7 +320,14 @@ def write_report(path, result):
     # Local diagnostics contain hashes and opaque IDs only, but still keep the
     # operational report private. Refuse symlink overwrite.
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, 'wb') as output: output.write(canonical(result) + b'\n')
+    with os.fdopen(fd, 'wb') as output:
+        output.write(canonical(result) + b'\n')
+        output.flush()
+        os.fsync(output.fileno())
+    # A closed file can still live only in the directory cache after a crash.
+    directory = os.open(path.parent, os.O_RDONLY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
 
 
 def main():
@@ -311,19 +336,25 @@ def main():
     parser.add_argument('--apply', action='store_true', help='record a scan and verified manifest members; never enables enforcement')
     parser.add_argument('--scan-id', type=uuid.UUID, help='resume the exact active scan after an interrupted local process')
     parser.add_argument('--max-download-bytes', type=int, default=5 * 1024 ** 3)
+    parser.add_argument('--max-metadata-bytes', type=int, default=MAX_METADATA)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
         config = json.loads((ROOT / 'infra/account.json').read_text())
         project = config['projects'][args.environment]['id']
         integer(args.max_download_bytes, 64 * 1024 ** 3, 1)
+        integer(args.max_metadata_bytes, 1024 ** 3, MAX_JSON + FINALIZATION_RESERVE)
         if args.output.exists(): raise InventoryError('report_already_exists')
-        client = Client(project, os.environ.get('SCIENCE_READER_SERVICE_ROLE_KEY'), args.max_download_bytes)
+        proof_file = args.output.with_name(args.output.name + '.proof.json')
+        if args.apply and proof_file.exists(): raise InventoryError('report_already_exists')
+        client = Client(project, os.environ.get('SCIENCE_READER_SERVICE_ROLE_KEY'), args.max_download_bytes, args.max_metadata_bytes)
         if args.apply:
-            result = reconcile(client, str(args.scan_id or uuid.uuid4()), args.max_download_bytes)
+            result = reconcile(client, str(args.scan_id or uuid.uuid4()), args.max_download_bytes,
+                               save_proof=lambda proof: write_report(proof_file, proof))
         else:
             result = {'applied': False, 'status': client.rpc('worker_asset_spending_status', {}),
                       'proposed_download_ceiling_bytes': args.max_download_bytes,
+                      'proposed_metadata_ceiling_bytes': args.max_metadata_bytes,
                       'requires': ['pipeline_disabled_and_drained', 'reviewed_storage_transfer_allowance', 'apply_flag']}
         write_report(args.output, result)
         ok = not args.apply or result['recorded'] and result['report']['complete']

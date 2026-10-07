@@ -123,6 +123,84 @@ select test.assert(not exists(select 1 from app_private.reader_transfer_months w
 select test.assert(exists(select 1 from app_private.reader_transfer_months where scope_id='environment' and authorized_bytes>0),'environment cost evidence retained');
 select test.reject(format('select public.worker_reader_delivery_observed(%L,%L,0,0,%L)',:'delivery'::jsonb->>'grant_id',:'member','upstream_failed'),'query returned no rows');
 select test.assert(not exists(select 1 from app_private.reader_transfer_months where scope_id='34000000-0000-0000-0000-000000000001'),'late observation cannot resurrect private rows');
+
+-- Operator scans require a fully drained pipeline and never enable enforcement.
+select test.reject('select public.worker_asset_inventory_begin(gen_random_uuid())','asset_workers_not_drained');
+select public.worker_set_pipeline_enabled(false);
+update app_private.pipeline_papers set claim_id=null,lease_until=null;
+select gen_random_uuid() as scan \gset
+select public.worker_asset_inventory_begin(:'scan');
+select public.worker_asset_inventory_begin(:'scan');
+select test.reject('select public.worker_asset_inventory_begin(gen_random_uuid())','asset_inventory_reconciling');
+select test.reject('select public.worker_asset_enforcement(true,''dual'')','asset_inventory_incomplete');
+select test.reject(format('select public.worker_asset_inventory_page(%L,null,null)',:'scan'),'invalid_inventory_scan');
+select test.assert(jsonb_array_length(public.worker_asset_inventory_page(:'scan',null,1)->'objects')=1,'inventory pages are bounded');
+
+-- A verified legacy manifest is the authority for member ownership; the
+-- operator must hash the manifest and every member before this trusted RPC.
+insert into app_private.stored_objects(bucket,path,document_id,state,sha256,byte_count,media_type,verified_at)
+ values('paper-assets','raw/'||repeat('8',64)||'/manifest.json',:'doc','verified',decode(repeat('8',64),'hex'),100,'application/json',clock_timestamp())
+ returning id as legacy_manifest \gset
+select jsonb_build_array(
+ jsonb_build_object('relative_path','standalone.mmd','sha256',repeat('9',64),'bytes',100,'media_type','text/plain; charset=utf-8'),
+ jsonb_build_object('relative_path','output.mmd.zip','sha256',repeat('a',64),'bytes',100,'media_type','application/zip'),
+ jsonb_build_object('relative_path','lines.json','sha256',repeat('b',64),'bytes',100,'media_type','application/json')) as legacy_members \gset
+select public.worker_asset_inventory_manifest(:'scan',:'legacy_manifest',:'legacy_members');
+select public.worker_asset_inventory_manifest(:'scan',:'legacy_manifest',:'legacy_members');
+select test.assert((select count(*)=3 from app_private.paper_asset_manifest_members where manifest_object_id=:'legacy_manifest'),'legacy members imported idempotently');
+select test.assert((select media_type='text/plain' from app_private.stored_objects where path='raw/'||repeat('8',64)||'/standalone.mmd'),'canonical MIME agrees across new writes and legacy import');
+select test.reject(format('select public.worker_asset_inventory_manifest(%L,%L,%L)',:'scan',:'legacy_manifest','[{"relative_path":"../outside","sha256":"'||repeat('b',64)||'","bytes":1,"media_type":"text/plain"}]'),'invalid_manifest_inventory');
+select test.reject(format('select public.worker_asset_inventory_manifest(%L,%L,%L)',:'scan',:'legacy_manifest','[{"relative_path":"missing-sha","bytes":1,"media_type":"text/plain"}]'),'invalid_manifest_inventory');
+select test.reject(format('select public.worker_asset_inventory_manifest(%L,%L,%L)',:'scan',:'legacy_manifest',jsonb_set(:'legacy_members'::jsonb,'{0,bytes}','101')),'asset_identity_conflict');
+select test.reject(format('select public.worker_asset_inventory_finish(%L,0,0,%L,decode(repeat(''c'',64),''hex''))',:'scan','{"incomplete":0}'),'invalid_inventory_scan');
+select public.worker_set_pipeline_enabled(true);
+select test.reject(format('select public.worker_asset_inventory_finish(%L,0,0,%L,decode(repeat(''c'',64),''hex''))',:'scan','{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":0}'),'asset_workers_not_drained');
+select public.worker_set_pipeline_enabled(false);
+select public.worker_asset_inventory_finish(:'scan',12,2150,'{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":1}',decode(repeat('c',64),'hex'));
+select test.assert((select not enforced and inventory_verified_at is null and inventory_discrepancies=1 from app_private.paper_asset_policy),'incomplete scan cannot leave enforcement certified');
+select test.reject('select public.worker_asset_enforcement(true,''dual'')','asset_inventory_incomplete');
+select gen_random_uuid() as clean_scan \gset
+select public.worker_asset_inventory_begin(:'clean_scan');
+select public.worker_asset_inventory_finish(:'clean_scan',12,2150,'{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":0}',decode(repeat('d',64),'hex'));
+select public.worker_asset_inventory_finish(:'clean_scan',12,2150,'{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":0}',decode(repeat('d',64),'hex'));
+select test.assert((select not enforced and inventory_verified_at is not null from app_private.paper_asset_policy),'successful reconciliation still requires explicit enforcement cutover');
+select test.reject(format('select public.worker_asset_inventory_finish(%L,13,2150,%L,decode(repeat(''d'',64),''hex''))',:'clean_scan','{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":0}'),'inventory_result_conflict');
+select public.worker_asset_enforcement(true,'dual');
+select test.assert((select enforced from app_private.paper_asset_policy),'explicit cutover follows a complete scan');
+
+-- Maintenance can release a future phase, but never uncertain physical bytes
+-- or a still-claimed/active paper's reservation.
+insert into app_private.pipeline_papers(source_id,stage,document_id,generation)
+ values('2410.03408','failed',:'doc',1) returning id as stopped_paper \gset
+insert into app_private.pipeline_papers(source_id,stage,document_id,generation,claim_id,lease_until)
+ values('2410.03409','failed',:'doc',1,gen_random_uuid(),clock_timestamp()+interval '5 minutes') returning id as active_paper \gset
+insert into app_private.paper_asset_holds(paper_id,kind,bytes,objects)
+ values(:'stopped_paper','reader',1000,2),(:'active_paper','reader',1000,2);
+insert into app_private.stored_objects(bucket,path,document_id,sha256,byte_count,media_type)
+ values('paper-assets','raw/'||repeat('f',64)||'/unresolved.mmd',:'doc',decode(repeat('f',64),'hex'),123,'text/plain') returning id as unresolved_object \gset
+insert into app_private.paper_asset_uploads(id,paper_id,claim_id,generation,kind,document_id,manifest_object_id,request_sha256)
+ values(gen_random_uuid(),:'stopped_paper',gen_random_uuid(),1,'raw',:'doc',:'unresolved_object',decode(repeat('a',64),'hex')) returning id as stopped_upload \gset
+insert into app_private.paper_asset_upload_members values(:'stopped_upload',:'unresolved_object');
+insert into app_private.paper_asset_write_attempts(id,upload_id,object_id)
+ values(gen_random_uuid(),:'stopped_upload',:'unresolved_object');
+select public.worker_asset_maintenance(100);
+select test.assert(not exists(select 1 from app_private.paper_asset_holds where paper_id=:'stopped_paper'),'future unused phase released');
+select test.assert(exists(select 1 from app_private.paper_asset_holds where paper_id=:'active_paper'),'claimed future phase retained');
+select test.assert((select state='pending' and byte_count=123 from app_private.stored_objects where id=:'unresolved_object'),'physical pending bytes remain inventoried');
+select test.assert(exists(select 1 from app_private.paper_asset_write_attempts where object_id=:'unresolved_object' and finished_at is null),'unknown write remains quarantined');
+update app_private.pipeline_papers set claim_id=null,lease_until=null;
+select test.assert(not (select enabled from app_private.pipeline_policy),'scan guard fixture is disabled');
+select test.reject('select public.worker_asset_inventory_begin(gen_random_uuid())','asset_workers_not_drained');
+select public.worker_pipeline_asset_written(id,true) from app_private.paper_asset_write_attempts where object_id=:'unresolved_object';
+select gen_random_uuid() as maintenance_scan \gset
+select public.worker_asset_inventory_begin(:'maintenance_scan');
+select public.worker_asset_maintenance(100);
+select test.assert(exists(select 1 from app_private.paper_asset_holds where paper_id=:'active_paper'),'scan preserves even unclaimed terminal future holds');
+-- The trusted fixture models an unexpected legacy writer; finalization must
+-- independently recheck drain state rather than trust the earlier begin.
+insert into app_private.paper_asset_write_attempts(id,upload_id,object_id)
+ values(gen_random_uuid(),:'stopped_upload',:'unresolved_object');
+select test.reject(format('select public.worker_asset_inventory_finish(%L,0,0,%L,decode(repeat(''d'',64),''hex''))',:'maintenance_scan','{"incomplete":0,"mismatched":0,"missing_verified":0,"unowned":0,"untracked":0}'),'asset_workers_not_drained');
 set role authenticated;
 select test.reject('select public.worker_asset_spending_status()','permission denied');
 select test.reject('select * from app_private.paper_asset_write_attempts','permission denied');

@@ -102,6 +102,42 @@ def verify(bin_path, db, base):
         return json.loads(sql("select json_build_array(spent_microusd,reserved_microusd) from app_private.platform_budgets "
                               "where period=date_trunc('month',now() at time zone 'UTC')::date;"))
 
+    def import_paper(account, source):
+        return ("set role authenticated; "
+                f"select set_config('request.jwt.claim.sub','{account}',false); "
+                f"select public.v2_begin_import('{uuid.uuid4()}','{source}',0); reset role;")
+
+    def funding_fixture(accounts):
+        # Account/import entry points are real. The already-verified PDF is a
+        # deterministic DB fixture; no file is downloaded or sent to Mathpix.
+        source = '2610.' + str(uuid.uuid4().int % 100000).zfill(5)
+        document, claim = str(uuid.uuid4()), str(uuid.uuid4())
+        for account in accounts:
+            sql(import_paper(account, source) + " select 'imported';")
+        paper = sql(f"select id from app_private.pipeline_papers where source_id='{source}' and owner_id is null;")
+        sql(f"insert into app_private.documents(id,sha256,scope,reuse_evidence,byte_count,page_count) "
+            f"values('{document}',sha256('{document}'),'shared_catalog','{{\"fixture\":true}}',1000,2); "
+            f"update app_private.pipeline_papers set document_id='{document}',eligible=true,page_count=2,stage='ocr_fund',"
+            f"claim_id='{claim}',generation=1,lease_until=clock_timestamp()+interval '5 minutes' where id='{paper}'; "
+            f"set role service_role; select public.worker_pipeline_admit_processing('{paper}','{claim}',1); select 'prepared';")
+        return source, paper, claim
+
+    def fund(paper, claim):
+        return (f"set role service_role; select public.worker_pipeline_fund('{paper}','{claim}',1,2,"
+                f"sha256('funding-options'),sha256('{paper}'));")
+
+    def grant(account):
+        sql(f"set role service_role; select public.worker_grant_credits('{account}','adjustment','fund-race-{account}',"
+            "100,now()-interval '1 day',null,'Local funding concurrency fixture');")
+
+    def funding_outcome(paper):
+        return json.loads(sql(f"select json_build_object('accounts',coalesce(json_agg(funder_account_id),'[]'),"
+                              f"'count',count(*)) from app_private.ocr_attempts where paper_id='{paper}';"))
+
+    def release_funding(paper, claim):
+        sql(f"set role service_role; select public.worker_pipeline_abandon_funding('{paper}','{claim}',1,'fixture_not_sent'); "
+            f"select public.worker_pipeline_release('{paper}','{claim}',1); select public.worker_asset_maintenance();")
+
     # Fixtures live only in the disposable test DB. Financial rows are append-only
     # and deliberately are not bypassed/deleted as a cleanup shortcut.
     sql("insert into app_private.platform_budgets(period,limit_microusd,work_enabled) values(date_trunc('month',now() at time zone 'UTC')::date,30000000,true) "
@@ -161,6 +197,58 @@ def verify(bin_path, db, base):
             assert sql(f"select provider_liability_microusd from app_private.metered_operations where account_id='{d}' and id='{do}';") == '0'
             assert sql(f"select count(*) from app_private.provider_usage_events where provider_event_id='attempt:{dt}';") == '1'
             print(f'PASS concurrent {first_action}-first outcome leaves one known expense and zero unresolved dollar liability', flush=True)
+
+        owner, _ = identity()
+        sql(f"insert into app_private.app_roles(account_id,role) values('{owner}','owner'); select 'owner';")
+        for unavailable in ('closed', 'suspended'):
+            lead, backup = sorted([identity()[0], identity()[0]])
+            grant(lead)
+            grant(backup)
+            _, paper, claim = funding_fixture([lead, backup])
+            # Stable ordering makes the first candidate both the first account
+            # lock and the first possible payer (not an accident of UUID order).
+            sql(f"update app_private.import_requests set created_at=now()-interval '1 minute' where account_id='{lead}'; select 'ordered';")
+            before = budget()
+            transition = (f"select public.worker_delete_account_begin('{lead}');" if unavailable == 'closed' else
+                          f"select public.worker_admin_set_sign_in('{owner}','{uuid.uuid4()}','{lead}',true,'Local funding race');")
+            first.complete('begin; set role service_role; ' + transition)
+            pending = second.send(fund(paper, claim))
+            blocked(second, first)
+            # The funder has captured the committed importer set but cannot
+            # inspect the first account's new status until its writer commits.
+            assert funding_outcome(paper)['count'] == 0
+            first.complete('commit;')
+            result = json.loads(second.until(pending)[-1])
+            assert result['funding'] == 'funded', result
+            assert funding_outcome(paper) == {'accounts': [backup], 'count': 1}
+            assert sql(f"select count(*) from app_private.metered_operations where account_id='{lead}';") == '0'
+            assert budget() == [before[0], before[1] + 10_000], (before, budget())
+            release_funding(paper, claim)
+            assert budget() == before
+            print(f'PASS first importer {unavailable} during funding; second eligible account funds once without a lock inversion', flush=True)
+
+        existing, _ = identity()
+        added, _ = identity()
+        grant(added)  # The original interested account deliberately has no credits.
+        source, paper, claim = funding_fixture([existing])
+        before = budget()
+        first.complete(f"begin; reset role; select 1 from app_private.accounts where id='{existing}' for update;")
+        pending = second.send(fund(paper, claim))
+        blocked(second, first)  # Snapshot is taken; the paper fence has not been acquired.
+        third = Session()
+        third.complete('begin; ' + import_paper(added, source) + ' commit;')
+        assert sql(f"select count(*) from app_private.pipeline_imports where paper_id='{paper}';") == '2'
+        first.complete('commit;')
+        deferred = json.loads(second.until(pending)[-1])
+        assert deferred['funding'] == 'waiting' and deferred['stage'] == 'ocr_fund', deferred
+        assert funding_outcome(paper)['count'] == 0
+        assert budget() == before, 'An account absent from the locked snapshot cannot be charged'
+        assert sql(f"select count(*) from app_private.metered_operations where account_id='{added}';") == '0'
+        assert json.loads(sql(fund(paper, claim)))['funding'] == 'funded'
+        assert funding_outcome(paper) == {'accounts': [added], 'count': 1}
+        release_funding(paper, claim)
+        assert budget() == before
+        print('PASS newly committed importer after account snapshot defers funding; a fresh fenced attempt selects it safely', flush=True)
     finally:
         for session in sessions:
             session.close()

@@ -1,6 +1,6 @@
 # Paper storage and delivery spending
 
-Status: implementation in progress, 2026-10-07. This is the contract for migration 035 and the worker/client
+Status: locally implemented and under independent review, 2026-10-07. This is the contract for migration 035 and the worker/client
 transition. It does not describe a deployed limit. The [cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md)
 identified incomplete storage accounting and replayable reader URLs (F5/F6).
 
@@ -32,6 +32,12 @@ for an unresolved upload. Unknown writes remain quarantined until reconciliation
 an operational condition with an age/count, not an invisible free-space assumption. Account deletion includes these
 plans and all inventory members. A truncated recursive Storage listing is an explicit incomplete deletion, never
 permission to mark all files erased. Legacy prefixes remain a transition fallback, not the new inventory authority.
+
+Worker maintenance releases only future phase holds for failed, source-only or completed papers with no current
+claim. It never removes planned objects, verifies an unknown write, or infers absence from a timer. Unused delivery
+reservations expire; a consumed delivery remains charged. Failed writes can therefore reduce available capacity until
+an operator resolves them, and that condition is visible. Retained originals and published bundles have no automatic
+eviction in this release. A safe content-replica/eviction lifecycle remains a separate design before any such deletion.
 
 ## Reader transfer
 
@@ -80,6 +86,55 @@ Acceptance includes competing admissions at one remaining slot, stale/late write
 manifest membership, cross-owner deduplication rejection, deletion during upload, >20,000-object incomplete scans,
 simultaneous token redemption, expiry/removal/closure/range rejection before Storage access, cross-month redemption,
 quota races, lost-response retries, legacy-client behavior and unchanged offline installation.
+
+## Reconciliation interfaces and operator tool
+
+`scripts/reconcile-paper-assets.py` defaults to a read-only spending-status report. Its explicit `--apply` mode uses
+the configured Science Reader project from `infra/account.json` and `SCIENCE_READER_SERVICE_ROLE_KEY` from the process
+environment. It never enables enforcement or deletes files. Every report file is created with mode 0600 and contains
+path hashes and opaque identifiers, not private paths, paper text, bearer URLs or credentials. A report must be saved
+to a new filename. `--max-download-bytes` bounds content reads (default 5 GiB), including overlength probes;
+`--max-metadata-bytes` separately bounds aggregate listing/RPC response bodies (default 128 MiB, including a reserved
+64 KiB for finalization). Counters label content separately from metadata received before finalization. This scan
+uses normal Storage transfer and is not a free provider operation; these payload bounds do not measure HTTP overhead.
+The proof payload is saved beside the requested report with suffix `.proof.json` before the database is allowed to
+record certification. Both the file and its containing directory are synced. A failed local write leaves the scan active. Final confirmation is a separate wrapper around
+that immutable proof hash; a lost database reply does not rewrite its evidence.
+
+The service-only RPC contract is:
+
+- `worker_asset_inventory_begin(scan_id)` requires disabled pipeline execution, no outstanding claims (including
+  expired claims), and no unresolved writes. It reserves a scan identity; normal write admission blocks during it.
+- `worker_asset_inventory_page(scan_id, after, limit)` returns an ordered cursor page of nondeleted identities and
+  authoritative document ownership; the limit is at most 500. No ownership is inferred from uploaded path text.
+- `worker_asset_inventory_manifest(scan_id, manifest_id, members)` adds exact member identities only to an already
+  verified tracked raw/reader manifest. The trusted operator first verifies that manifest's stored digest, every
+  member's size/digest, and the raw manifest's document digest. Canonical MIME identity omits charset parameters.
+- `worker_asset_inventory_finish(scan_id, object_count, byte_count, discrepancies, report_sha256)` stores the immutable
+  proof hash and exact discrepancy counters: incomplete, mismatched, missing_verified, unowned and untracked. A failed
+  scan disables certification; a successful scan records verification but does not enable admission enforcement.
+- `worker_asset_enforcement(enabled, delivery_mode)` is a separate reviewed cutover. Enabling requires a completed,
+  discrepancy-free scan and all global/per-owner capacity checks. Modes remain legacy, dual or bounded.
+
+The tool requires a short final page in every folder, bounds folder fan-out/depth, object count, metadata responses
+and content bytes, and rejects repeated/nonadvancing pages. It compares complete Storage listings before and after
+hashing. A changed listing or changed DB identity fails the scan. Untracked files stay untracked and block success;
+the tool does not adopt their claimed ownership or delete them. Unknown-write absence cannot become verification.
+An interrupted active scan can be resumed with its `--scan-id`; if finalization cannot be confirmed, the saved report
+explicitly says the scan may remain active. Keep workers paused until that condition is resolved.
+
+Lock order is budget periods/accounts before papers on financial paths (`pipeline_money_lock` in migration 034),
+and owner account before paper before global capacity on upload admission. Maintenance takes paper/capacity before
+reader policy. Delivery takes account before reader policy. Account closure shares the account-first order and
+withholds its entire physical deletion batch until all issued private writes are terminal; its later finish cannot
+release bytes for an unresolved writer. Personal delivery receipts and counters are erased on closure; aggregate
+environment transfer totals remain without item/account membership. Late observations cannot recreate removed rows.
+
+Local evidence: original→OCR→raw→render→delivery→deletion SQL lifecycle, actual concurrent PostgreSQL capacity/deletion/
+redemption races, quiesced scan and maintenance SQL tests, synthetic nested-listing/hash/changed-snapshot operator tests,
+backend delivery/deletion fixtures, complete web unit tests and production build, Swift Core transport validation and
+a Catalyst compile against a fixture backend. No hosted scan, deployment, signed-URL retirement, or production-client
+cutover has been performed by this work.
 
 ## Pending PDF-upload branch (reviewed 2026-10-07)
 

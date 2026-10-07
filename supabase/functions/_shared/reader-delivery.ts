@@ -3,7 +3,7 @@ import { PublicError, sha256, uuid } from './http.ts';
 export interface ReaderDeliveryDeps {
   account(request: Request): Promise<string>;
   rpc<T>(name: string, parameters: Record<string, unknown>): Promise<T>;
-  download(bucket: string, path: string, maximum: number): Promise<Uint8Array>;
+  download(bucket: string, path: string, maximum: number, observed?: (bytes: number) => void): Promise<Uint8Array>;
 }
 interface Redemption { grant_id: string; bucket: string; path: string; bytes: number; sha256: string; media_type: string }
 
@@ -23,7 +23,7 @@ export async function deliverReaderMember(request: Request, deps: ReaderDelivery
   let received = 0, observation: 'response_created' | 'upstream_failed' | 'integrity_failed' | 'cancelled' = 'upstream_failed';
   try {
     request.signal.throwIfAborted();
-    const bytes = await deps.download(admitted.bucket, admitted.path, admitted.bytes);
+    const bytes = await deps.download(admitted.bucket, admitted.path, admitted.bytes, bytes => { received = Math.min(bytes, admitted.bytes); });
     received = Math.min(bytes.length, admitted.bytes);
     if (bytes.length !== admitted.bytes || await sha256(bytes) !== admitted.sha256) {
       observation = 'integrity_failed'; throw new PublicError(503, 'reader_integrity_failed');
@@ -47,7 +47,7 @@ export async function deliverReaderMember(request: Request, deps: ReaderDelivery
 /** Read a trusted Storage object with a transport bound, before concatenation.
  * Callers make one request; automatic retries would need another admission. */
 export async function boundedStorageDownload(url: string, key: string, bucket: string, path: string, maximum: number,
-  fetcher: typeof fetch = fetch): Promise<Uint8Array> {
+  fetcher: typeof fetch = fetch, observed?: (bytes: number) => void): Promise<Uint8Array> {
   if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 67_108_864) throw new Error('storage_download_bound');
   const target = `${url.replace(/\/$/, '')}/storage/v1/object/${encodeURIComponent(bucket)}/${path.split('/').map(encodeURIComponent).join('/')}`;
   const response = await fetcher(target, { headers: { Authorization: `Bearer ${key}`, apikey: key }, redirect: 'error',
@@ -60,6 +60,7 @@ export async function boundedStorageDownload(url: string, key: string, bucket: s
     while (true) {
       const next = await reader.read(); if (next.done) break;
       size += next.value.length;
+      observed?.(Math.min(size, maximum));
       if (size > maximum) { await reader.cancel(); throw new Error('storage_object_too_large'); }
       parts.push(next.value);
     }

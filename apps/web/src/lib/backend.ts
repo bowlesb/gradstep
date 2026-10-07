@@ -25,7 +25,8 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'library_environment_receipt_limit', 'import_not_retryable', 'invalid_library_cursor', 'invalid_arxiv_id', 'invalid_import_request',
   'too_many_enrollment_requests', 'enrollment_mismatch', 'enrollment_conflict', 'enrollment_id_conflict', 'invalid_management_token',
   'reader_not_ready', 'reader_integrity_failed', 'reader_unavailable', 'item_unavailable', 'origin_unavailable', 'insufficient_credits',
-  'account_busy', 'platform_budget_exhausted', 'import_unavailable']);
+  'account_busy', 'platform_budget_exhausted', 'import_unavailable', 'reader_transfer_limit', 'reader_upgrade_required',
+  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 

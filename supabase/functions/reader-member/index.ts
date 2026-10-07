@@ -11,7 +11,7 @@ Deno.serve(async request => {
     return await deliverReaderMember(request, {
       account: async r => (await userClient(r)).accountID,
       rpc: (name, args) => rpc(service, name, args),
-      download: (bucket, path, maximum) => boundedStorageDownload(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, bucket, path, maximum),
+      download: (bucket, path, maximum, observed) => boundedStorageDownload(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, bucket, path, maximum, fetch, observed),
     }, headers);
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'reader_not_ready');

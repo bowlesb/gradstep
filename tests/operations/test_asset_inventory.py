@@ -2,7 +2,10 @@ import copy
 import hashlib
 import importlib.util
 import json
+import io
+import os
 from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 import uuid
@@ -159,6 +162,37 @@ class AssetInventoryTests(unittest.TestCase):
             opening.assert_not_called()
         with self.assertRaisesRegex(ASSETS.InventoryError, 'redirect_refused'): ASSETS.NoRedirect().redirect_request()
 
+    def test_body_probes_and_metadata_have_separate_aggregate_limits(self):
+        client = ASSETS.Client('a' * 20, 'fixture-secret', 10, 10 + ASSETS.FINALIZATION_RESERVE)
+        with mock.patch.object(client.opener, 'open') as opening:
+            # Ten bytes plus the required overrun probe cannot fit ten bytes.
+            with self.assertRaisesRegex(ASSETS.InventoryError, 'download_budget_exhausted'):
+                client.blob('reader/fixture/index.html', 10)
+            opening.assert_not_called()
+        class Reply(io.BytesIO):
+            headers = {}
+        with mock.patch.object(client.opener, 'open', return_value=Reply(b'0123456789')):
+            with self.assertRaisesRegex(ASSETS.InventoryError, 'response_limit'):
+                client.request('/storage/v1/object/list/paper-assets', {})
+        self.assertEqual(client.metadata_downloaded, 10)
+        self.assertEqual(client.downloaded, 0)
+        with mock.patch.object(client.opener, 'open') as opening:
+            with self.assertRaisesRegex(ASSETS.InventoryError, 'metadata_budget_exhausted'):
+                client.request('/storage/v1/object/list/paper-assets', {})
+            opening.assert_not_called()
+        # Metadata exhaustion leaves room for the bounded failure certificate.
+        with mock.patch.object(client.opener, 'open', return_value=Reply(b'{}')):
+            self.assertEqual(client.rpc('worker_asset_inventory_finish', {}), {})
+
+    def test_report_is_private_and_file_and_directory_are_synced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'proof.json'
+            with mock.patch.object(ASSETS.os, 'fsync', wraps=os.fsync) as sync:
+                ASSETS.write_report(path, {'fixture': True})
+                self.assertEqual(sync.call_count, 2)
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError): ASSETS.write_report(path, {'fixture': False})
+
     def test_failed_record_keeps_its_active_scan_and_immutable_report(self):
         client = Fixture(); original = client.rpc
         def rpc(name, args):
@@ -169,6 +203,22 @@ class AssetInventoryTests(unittest.TestCase):
         self.assertFalse(result['recorded'])
         self.assertTrue(result['scan_may_remain_active'])
         self.assertEqual(result['report_sha256'], hashlib.sha256(ASSETS.canonical(result['report'])).hexdigest())
+
+    def test_proof_is_saved_before_certification_and_failed_save_never_certifies(self):
+        client = Fixture()
+        saved = []
+        def save(proof):
+            self.assertFalse(any(call[0] == 'worker_asset_inventory_finish' for call in client.calls))
+            saved.append(proof)
+        result = ASSETS.reconcile(client, str(uuid.uuid4()), 10 * ASSETS.MiB, save)
+        self.assertTrue(result['recorded'])
+        self.assertEqual(saved, [{'report': result['report'], 'report_sha256': result['report_sha256']}])
+        client = Fixture()
+        def failed(_): raise OSError('fixture-disk-full')
+        result = ASSETS.reconcile(client, str(uuid.uuid4()), 10 * ASSETS.MiB, failed)
+        self.assertFalse(result['recorded'])
+        self.assertTrue(result['scan_may_remain_active'])
+        self.assertFalse(any(call[0] == 'worker_asset_inventory_finish' for call in client.calls))
 
 
 if __name__ == '__main__': unittest.main()

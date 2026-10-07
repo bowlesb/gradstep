@@ -91,6 +91,10 @@ enum BackendError: LocalizedError {
             case "confirmation_required": "Type DELETE to confirm."
             case "purchases_unavailable": "Purchases aren’t available right now. Try again later."
             case "platform_budget_exhausted": "Cloud processing is temporarily paused. Downloaded papers remain available."
+            case "reader_transfer_limit": "Paper downloads are temporarily limited. Downloaded papers remain available."
+            case "reader_upgrade_required": "Update Gradstep to download this paper. Downloaded papers remain available."
+            case "reader_grant_unavailable", "reader_grant_consumed": "The download needs to restart. Open the paper again."
+            case "asset_inventory_incomplete": "This paper is temporarily unavailable. Downloaded papers remain available."
             case "key_authority_required", "stale_key_epoch": "This device needs updated encryption keys from an approved device or recovery code."
             case "invalid_credentials": "The email or password was not accepted."
             case "email_not_confirmed": "Confirm your email before signing in."
@@ -533,8 +537,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try JSONDecoder().decode(ReaderArtifactDescriptor.self, from: data)
     }
 
-    /// Fetches one signed bundle member. Signed Storage URLs stay on the
-    /// configured project host and carry no account credential.
+    /// Fetches one bundle member on the configured project host. Bounded
+    /// delivery authenticates the captured account; legacy URLs carry no bearer.
     func readerMember(_ member: ReaderArtifactDescriptor.Member, accountID: UUID) async throws -> Data {
         let transport = try ReaderMemberTransport.validated(member.url, backendURL: config.url)
         if transport == .bounded {

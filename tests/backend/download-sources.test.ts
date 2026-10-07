@@ -172,7 +172,7 @@ test('the pipeline sweeps automatic retries before it claims, and never stops on
     return { calls, logs };
   };
   const swept = await run(true, () => ({ retried: 2, healed: 1, postponed: 0 }));
-  assert.deepEqual(swept.calls, ['worker_pipeline_policy', 'worker_expire_stale_chat_operations', 'worker_pipeline_auto_retry', 'worker_pipeline_claim']);
+  assert.deepEqual(swept.calls, ['worker_pipeline_policy', 'worker_expire_stale_chat_operations', 'worker_asset_maintenance', 'worker_pipeline_auto_retry', 'worker_pipeline_claim']);
   assert.ok(swept.logs.includes('auto_retry'));
   const broken = await run(true, () => { throw new Error('function missing (027 not applied)'); });
   assert.ok(broken.calls.includes('worker_pipeline_claim') && broken.logs.includes('auto_retry_failed'));

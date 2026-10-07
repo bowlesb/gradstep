@@ -85,3 +85,19 @@ test('Storage response bounds cancel before unlimited buffering and never retry'
   await assert.rejects(boundedStorageDownload('https://fixture.invalid', 'fake-service-key', 'paper-assets', 'reader/hash/a', 5, fetcher as typeof fetch), /too_large/);
   assert.equal(gets, 1); assert.equal(cancelled, 1);
 });
+
+test('a failed partial read preserves admitted liability and records received bytes separately', async () => {
+  const receipt = crypto.randomUUID(), object = crypto.randomUUID();
+  const observations: Record<string, unknown>[] = [];
+  const deps: ReaderDeliveryDeps = {
+    account: async () => 'account',
+    rpc: async <T>(name: string, params: Record<string, unknown>) => {
+      if (name === 'worker_reader_delivery_redeem') return { grant_id: receipt, bucket: 'paper-assets', path: 'reader/hash/a.txt',
+        bytes: 100, sha256: 'a'.repeat(64), media_type: 'text/plain' } as T;
+      observations.push(params); return null as T;
+    },
+    download: async (_bucket, _path, _maximum, observed) => { observed?.(37); throw new Error('connection_reset'); },
+  };
+  await assert.rejects(deliverReaderMember(new Request(`https://fixture.invalid/functions/v1/reader-member?grant=${'a'.repeat(64)}&member=${object}`), deps, {}));
+  assert.deepEqual(observations, [{ p_grant_id: receipt, p_object_id: object, p_upstream_bytes: 37, p_response_bytes: 0, p_observation: 'upstream_failed' }]);
+});

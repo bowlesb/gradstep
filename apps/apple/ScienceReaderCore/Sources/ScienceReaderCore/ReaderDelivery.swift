@@ -21,7 +21,7 @@ public enum ReaderMemberTransport: Sendable, Equatable {
 }
 
 /// Response of the authenticated `reader-artifact` function: the trusted
-/// manifest digest plus short-lived signed URLs for each bundle member. The
+/// manifest digest plus short-lived member delivery URLs. The
 /// installer re-verifies every byte against `manifestSHA256` before use.
 public struct ReaderArtifactDescriptor: Decodable, Sendable, Equatable {
     public struct Member: Decodable, Sendable, Equatable {

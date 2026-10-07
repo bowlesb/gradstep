@@ -88,6 +88,15 @@ test('the worker sweep resumes pending deletions', async () => {
   assert.deepEqual(logs, [{ event: 'account_deletion_swept', account_id: account, step: undefined }]);
 });
 
+test('unknown writes block physical erasure and its completion rather than racing a late upload', async () => {
+  const { service, removed, rpcs } = fakeService({ 'paper-assets': [`private/${account}/originals/a.pdf`] });
+  const outcome = await completeAccountDeletion(service, account, { blocked: 'asset_write_uncertain', objects: [],
+    prefixes: [{ bucket: 'paper-assets', prefix: `private/${account}/` }] });
+  assert.deepEqual(outcome, { complete: false, step: 'files', code: 'asset_write_uncertain' });
+  assert.equal(removed.length, 0);
+  assert.equal(rpcs.length, 0);
+});
+
 test('a truncated file or folder scan never confirms erasure or releases capacity', async () => {
   for (const folders of [false, true]) {
     let listed = 0, removed = 0, finished = 0, loginDeleted = 0;

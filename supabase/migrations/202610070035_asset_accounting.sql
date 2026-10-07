@@ -137,14 +137,12 @@ end $$;
 create function public.worker_pipeline_fund(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_page_limit integer,
  p_options_sha256 bytea,p_request_sha256 bytea) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare p app_private.pipeline_papers;
 begin
- perform app_private.pipeline_money_lock(p_paper_id);
- p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
- -- The durable reservation is a preceding transaction: never carry the
- -- storage-capacity lock into budget/account financial locks.
+ -- The durable reservation is a preceding transaction. The underlying 034
+ -- funder owns account-snapshot locking and the paper fence; do not pre-lock the
+ -- paper or capacity here. Maintenance never releases holds of an active claim.
  if (select enforced from app_private.paper_asset_policy where singleton) and
-  (select count(*) from app_private.paper_asset_holds where paper_id=p.id and kind in ('raw','reader'))<>2
+  (select count(*) from app_private.paper_asset_holds where paper_id=p_paper_id and kind in ('raw','reader'))<>2
  then raise exception 'asset_reservation_required'; end if;
  return app_private.worker_pipeline_fund(p_paper_id,p_claim_id,p_generation,p_page_limit,p_options_sha256,p_request_sha256);
 end $$;
@@ -297,6 +295,11 @@ create function public.worker_pipeline_original(p_paper_id uuid,p_claim_id uuid,
 language plpgsql security definer set search_path='' as $$
 declare result jsonb;
 begin
+ perform app_private.paper_asset_lock_owner(p_paper_id);
+ perform app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ perform 1 from app_private.paper_storage_capacity where singleton for update;
+ perform 1 from app_private.documents d join app_private.stored_objects o on o.document_id=d.id
+  where o.bucket='paper-assets' and o.path=p_path for update of d;
  perform app_private.paper_asset_require_complete(p_paper_id,p_claim_id,p_generation,'original',p_path);
  perform app_private.mark_paper_availability(id,'available') from app_private.stored_objects where path=p_path and state='verified';
  result:=app_private.worker_pipeline_original(p_paper_id,p_claim_id,p_generation,p_sha256,p_bytes,p_pages,p_path);
@@ -320,6 +323,11 @@ create function public.worker_pipeline_published(p_paper_id uuid,p_claim_id uuid
 language plpgsql security definer set search_path='' as $$
 declare result jsonb;
 begin
+ perform app_private.paper_asset_lock_owner(p_paper_id);
+ perform app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ perform 1 from app_private.paper_storage_capacity where singleton for update;
+ perform 1 from app_private.documents d join app_private.stored_objects o on o.document_id=d.id
+  where o.bucket='paper-assets' and o.path='reader/'||encode(p_manifest_sha256,'hex')||'/manifest.json' for update of d;
  perform app_private.paper_asset_require_complete(p_paper_id,p_claim_id,p_generation,'reader','reader/'||encode(p_manifest_sha256,'hex')||'/manifest.json');
  perform app_private.mark_paper_availability(id,'available') from app_private.stored_objects
   where path='reader/'||encode(p_manifest_sha256,'hex')||'/manifest.json' and state='verified';
@@ -411,6 +419,30 @@ begin
   n:=n+1;
  end loop;
  return n;
+end $$;
+
+-- Remove only future phase reservations of stopped, unclaimed jobs. Planned
+-- pending/verified/deleting objects and unresolved writes remain inventoried.
+-- A retry must pass admission/its exact upload plan again before any write.
+create function public.worker_asset_maintenance(p_limit integer default 100) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; released integer:=0; n integer; expired integer;
+begin
+ if p_limit is null or p_limit not between 1 and 1000 then raise exception 'invalid_limit'; end if;
+ -- Match deletion's paper -> capacity -> reader-policy ordering. SKIP LOCKED
+ -- avoids holding capacity while waiting on the next actively claimed paper.
+ for p in select pp.* from app_private.pipeline_papers pp
+  where pp.claim_id is null and pp.stage in ('failed','source_only','done')
+   and exists(select 1 from app_private.paper_asset_holds h where h.paper_id=pp.id)
+  order by pp.id limit p_limit for update of pp skip locked loop
+  perform 1 from app_private.paper_storage_capacity where singleton for update;
+  if not (select reconciliation_id is not null from app_private.paper_asset_policy where singleton) then
+   delete from app_private.paper_asset_holds where paper_id=p.id;
+   get diagnostics n=row_count; released:=released+n;
+  end if;
+ end loop;
+ expired:=public.worker_reader_delivery_expire(p_limit);
+ return jsonb_build_object('future_holds_released',released,'delivery_grants_expired',expired);
 end $$;
 
 create function public.worker_reader_delivery_create(p_account_id uuid,p_item_id uuid,p_token_sha256 bytea,p_transport text) returns jsonb
@@ -675,7 +707,7 @@ do $$ declare name text; f regprocedure; begin
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
   and p.proname in ('worker_pipeline_admit_download','worker_pipeline_admit_processing','worker_pipeline_fund','worker_pipeline_asset_plan','worker_pipeline_asset_write',
    'worker_pipeline_asset_written','worker_pipeline_original','worker_pipeline_collected','worker_pipeline_published','worker_delete_account_begin','worker_delete_account_finish',
-   'worker_reader_delivery_create','worker_reader_delivery_redeem','worker_reader_delivery_observed','worker_reader_delivery_expire','worker_chat_context','worker_asset_spending_status',
+   'worker_reader_delivery_create','worker_reader_delivery_redeem','worker_reader_delivery_observed','worker_reader_delivery_expire','worker_asset_maintenance','worker_chat_context','worker_asset_spending_status',
    'worker_asset_inventory_begin','worker_asset_inventory_page','worker_asset_inventory_manifest','worker_asset_inventory_finish','worker_asset_enforcement') loop
   execute format('revoke all on function %s from public,anon,authenticated',f);
   execute format('grant execute on function %s to service_role',f);

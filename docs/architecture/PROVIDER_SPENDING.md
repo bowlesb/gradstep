@@ -104,3 +104,18 @@ independent PostgreSQL sessions with observed lock barriers: only one account ob
 prepaid unit; the same attempt grants once; and settlement racing a late result in either order
 leaves one recorded expense and no duplicate or lost liability. No paid provider requests were
 made by these checks.
+
+### Funding, retries and populated upgrade (2026-10-07)
+
+Pipeline funding captures eligible account identities before locking its paper, acquires those account locks in
+UUID order, and rechecks closure, suspension and stage after waiting. A newly committed importer outside that
+snapshot causes a short deferral before any credit reservation or provider grant. Retry sweeps use the same
+account-before-paper order, then take the short policy lock; they only process captured accounts. Hitting the
+200-candidate batch limit preserves the unfinished deploy label so the next sweep can finish the same deployment.
+
+Independent PostgreSQL sessions verify the first funder closing or becoming suspended, a late importer, retry
+versus funding/closure, and the policy/paper lock interaction. The 201-candidate fixture verifies bounded progress.
+The populated-upgrade test applies 034 to historical submitted OCR and tag operations: both become unknown
+attempts without changing their existing platform holds; a customer refund retains the liability; late usage
+records expense exactly once. The integrated database suite, 253 backend checks and 214 Swift Core tests pass.
+These are local fixtures and concurrency checks, not hosted rollout or evidence of live provider billing.

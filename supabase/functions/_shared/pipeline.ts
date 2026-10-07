@@ -541,6 +541,9 @@ export async function runPipeline(deps: PipelineDeps, deadline: number): Promise
   const policy = await deps.rpc<PipelinePolicy>('worker_pipeline_policy', {});
   // Housekeeping: release chat holds whose invocation died before settling.
   await deps.rpc('worker_expire_stale_chat_operations', {}).catch(() => deps.log('chat_sweep_failed'));
+  // Unused future storage phases and expired reader grants can be released;
+  // attempted writes and actual deliveries retain their recorded liability.
+  await deps.rpc('worker_asset_maintenance', { p_limit: 100 }).catch(() => deps.log('asset_sweep_failed'));
   if (!policy.enabled) return { processed: 0 };
   // Self-healing (migration 027): failed downloads whose automatic retry is due, and failed imports
   // whose paper has since moved on, go back into the pipeline before the next claim. At most one

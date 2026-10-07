@@ -411,9 +411,9 @@ begin
 end $$;
 
 -- Pipeline/tag integrations are below; financial locks must precede paper locks.
-create function app_private.pipeline_money_lock(p_paper_id uuid) returns void
+create function app_private.pipeline_money_lock(p_paper_id uuid,p_include_candidates boolean default false) returns uuid[]
 language plpgsql security definer set search_path='' as $$
-declare period_key date; acct_id uuid;
+declare period_key date; acct_id uuid; locked_accounts uuid[];
 begin
  for period_key in select distinct period from (
   select date_trunc('month',now() at time zone 'UTC')::date period
@@ -422,13 +422,243 @@ begin
    where x.paper_id=p_paper_id and x.state in ('funded','submitting','submitted','uncertain')) b order by period loop
   perform 1 from app_private.platform_budgets where period=period_key for update;
  end loop;
- for acct_id in select id from (
+ -- Capture all linked accounts when choosing a first funder, including inactive
+ -- interests: a reactivated existing link must not add an unlocked account later.
+ select coalesce(array_agg(id order by id),'{}'::uuid[]) into locked_accounts from (
   select owner_id id from app_private.pipeline_papers where id=p_paper_id
-  union select funder_account_id from app_private.ocr_attempts where paper_id=p_paper_id and state in ('funded','submitting','submitted','uncertain')) a
-  where id is not null order by id loop
+  union select funder_account_id from app_private.ocr_attempts where paper_id=p_paper_id and state in ('funded','submitting','submitted','uncertain')
+  union select account_id from app_private.pipeline_imports where p_include_candidates and paper_id=p_paper_id
+ ) a where id is not null;
+ foreach acct_id in array locked_accounts loop
   perform 1 from app_private.accounts where id=acct_id for update;
  end loop;
+ return locked_accounts;
 end $$;
+
+-- First funding uses the exact locked candidate snapshot. Closed/suspended first
+-- importers cannot abort another eligible account's funding or invert paper locks.
+create or replace function public.worker_pipeline_fund(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_page_limit integer,
+ p_options_sha256 bytea,p_request_sha256 bytea) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare p app_private.pipeline_papers; pol app_private.pipeline_policy; run uuid; raw_run uuid; artifact uuid; candidate record; op uuid;
+ credits bigint; microusd bigint; funded boolean:=false; paused boolean:=false; locked_accounts uuid[];
+begin
+ locked_accounts:=app_private.pipeline_money_lock(p_paper_id,true);
+ -- Stronger than the ordinary stage fence: prevent a new import FK from joining
+ -- after the snapshot check. A just-committed new link is retried next claim.
+ perform 1 from app_private.pipeline_papers where id=p_paper_id for update;
+ p:=app_private.pipeline_fenced(p_paper_id,p_claim_id,p_generation);
+ if exists(select 1 from app_private.pipeline_imports where paper_id=p.id and not(account_id=any(locked_accounts))) then
+  update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '1 second' where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','waiting');
+ end if;
+ select * into strict pol from app_private.pipeline_policy;
+ if p.stage<>'ocr_fund' then raise exception 'invalid_pipeline_stage'; end if;
+ if p_page_limit is null or p_page_limit<1 or p_page_limit>least(p.page_count,pol.max_ocr_pages)
+  or octet_length(p_options_sha256)<>32 or octet_length(p_request_sha256)<>32 then raise exception 'invalid_ocr_request'; end if;
+ -- No document lock here (reservation takes budget -> account). The partial
+ -- unique index on active attempts serializes funding of identical bytes.
+ select ra.id into artifact from app_private.render_artifacts ra join app_private.ocr_runs r on r.id=ra.ocr_run_id
+  join app_private.stored_objects mo on mo.id=ra.manifest_object_id
+  where r.document_id=p.document_id and ra.renderer_version=pol.renderer_version and mo.state='verified' limit 1;
+ if artifact is not null then
+  update app_private.pipeline_papers set artifact_id=artifact where id=p.id;
+  perform app_private.pipeline_set_stage(p.id,'done');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','reused');
+ end if;
+ -- Retained raw OCR (another slot, an earlier renderer) is re-rendered free.
+ select r.id into raw_run from app_private.ocr_runs r join app_private.stored_objects o on o.id=r.raw_bundle_object_id
+  where r.document_id=p.document_id and r.provider='mathpix' and o.state='verified' order by (r.options_sha256=p_options_sha256) desc limit 1;
+ if raw_run is not null then
+  update app_private.pipeline_papers set ocr_run_id=raw_run where id=p.id;
+  perform app_private.pipeline_set_stage(p.id,'render');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','reused_raw');
+ end if;
+ -- Deterministic provider failures are not retried at platform cost forever.
+ if (select count(*) from app_private.ocr_attempts where document_id=p.document_id and state='failed'
+  and error_code in ('conversion_failed','conversion_timeout'))>=2 then
+  perform app_private.pipeline_set_stage(p.id,'failed','conversion_failed');
+  select * into p from app_private.pipeline_papers where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','refused');
+ end if;
+ if exists(select 1 from app_private.ocr_attempts where document_id=p.document_id and state in ('funded','submitting','submitted','uncertain')) then
+  -- Another source slot is converting identical bytes; wait for it.
+  update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '15 seconds' where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','waiting');
+ end if;
+ if not exists(select 1 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date and work_enabled) then
+  update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '5 minutes',error_code='service_paused' where id=p.id;
+  return app_private.pipeline_entry(p)||jsonb_build_object('funding','paused');
+ end if;
+ insert into app_private.ocr_runs(document_id,provider,options_sha256) values(p.document_id,'mathpix',p_options_sha256)
+  on conflict(document_id,provider,options_sha256) do nothing;
+ select id into strict run from app_private.ocr_runs where document_id=p.document_id and provider='mathpix' and options_sha256=p_options_sha256;
+ credits:=p_page_limit::bigint*pol.ocr_credits_per_page; microusd:=p_page_limit::bigint*pol.ocr_microusd_per_page;
+ for candidate in select i.account_id from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
+  where pi.paper_id=p.id and i.account_id=any(locked_accounts) and i.desired_present and i.phase in ('accepted','resolving','acquiring')
+   and exists(select 1 from app_private.accounts a where a.id=i.account_id and a.closed_at is null and not a.spending_suspended)
+  order by i.created_at,i.account_id loop
+  op:=gen_random_uuid();
+  begin
+   perform public.worker_reserve_operation(candidate.account_id,op,'ocr',p_request_sha256,pol.rate_version,credits,microusd);
+   insert into app_private.ocr_attempts(paper_id,document_id,ocr_run_id,funder_account_id,operation_id,page_limit,state)
+    values(p.id,p.document_id,run,candidate.account_id,op,p_page_limit,'funded');
+   funded:=true; exit;
+  exception
+   when others then
+    if sqlerrm in ('platform_budget_exhausted','too_many_active_operations') then paused:=true;
+    elsif sqlerrm<>'insufficient_credits' then raise; end if;
+  end;
+ end loop;
+ if funded then
+  update app_private.pipeline_papers set ocr_run_id=run where id=p.id;
+  perform app_private.pipeline_set_stage(p.id,'ocr_submit');
+ elsif paused then update app_private.pipeline_papers set next_attempt_at=clock_timestamp()+interval '5 minutes',error_code='service_paused' where id=p.id;
+ else perform app_private.pipeline_set_stage(p.id,'needs_credits','insufficient_credits','ocr_fund'); end if;
+ select * into p from app_private.pipeline_papers where id=p.id;
+ return app_private.pipeline_entry(p)||jsonb_build_object('funding',case when funded then 'funded' when paused then 'paused' else 'needs_credits' end);
+end $$;
+
+-- Reviewed draft for insertion into provider accounting migration034.
+-- Discovery is an unlocked, bounded snapshot. Lock accounts (including private
+-- owners) first, then only still-due paper rows, then the short policy CAS.
+-- Never discover a new account to lock after holding a paper or policy row.
+
+create function app_private.pipeline_retry_lock_accounts(p_candidates jsonb,p_papers uuid[]) returns uuid[]
+language plpgsql security definer set search_path='' as $$
+declare captured uuid[]; locked uuid[];
+begin
+ select coalesce(array_agg(id order by id),'{}') into captured from (
+  select c.account_id id from jsonb_to_recordset(p_candidates) as c(account_id uuid)
+  union select owner_id from app_private.pipeline_papers where id=any(p_papers) and owner_id is not null
+ ) a;
+ -- Lock closed rows too: closure that won the race must finish before a
+ -- private paper is touched. All individual import actions recheck open state.
+ select coalesce(array_agg(id order by id),'{}') into locked from (
+  select id from app_private.accounts where id=any(captured) order by id for no key update
+ ) a;
+ return locked;
+end $$;
+
+create function app_private.pipeline_retry_captured(p_candidates jsonb,p_locked_papers uuid[],p_heal boolean) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare link record; outcome text; outcomes jsonb:='{}'; healed integer:=0; key text; listed boolean; paper uuid;
+begin
+ for link in select * from jsonb_to_recordset(p_candidates)
+  as c(account_id uuid,import_id uuid,paper_id uuid,listed boolean) order by c.account_id,c.import_id loop
+  listed:=link.paper_id=any(p_locked_papers);
+  -- This exact account/import/paper was captured before the account locks.
+  -- Links added or moved during the wait are left to a later sweep.
+  if not exists(select 1 from app_private.import_requests i join app_private.pipeline_imports pi
+   on (pi.account_id,pi.import_id)=(i.account_id,i.id)
+   join app_private.accounts a on a.id=i.account_id and a.closed_at is null
+   join app_private.pipeline_papers pp on pp.id=pi.paper_id
+   where i.account_id=link.account_id and i.id=link.import_id and pi.paper_id=link.paper_id
+    and i.phase='failed' and i.retryable and i.desired_present
+    and (listed or (p_heal and pp.stage not in ('failed','needs_credits')))) then continue; end if;
+  begin outcome:=app_private.pipeline_auto_retry_import(link.account_id,link.import_id);
+  exception when others then outcome:='skipped';
+  end;
+  if listed then
+   key:=link.paper_id::text;
+   outcomes:=outcomes||jsonb_build_object(key,case when outcome='retried' or outcomes->>key='retried' then 'retried'
+    when outcome='limited' or outcomes->>key='limited' then 'limited' else 'none' end);
+  elsif outcome='retried' then healed:=healed+1;
+  end if;
+ end loop;
+ -- A new/uncaptured interested account cannot be processed under held paper
+ -- locks. Preserve a later retry instead of silently dropping its schedule.
+ foreach paper in array p_locked_papers loop
+  if coalesce(outcomes->>paper::text,'none')<>'retried' and exists(
+   select 1 from app_private.pipeline_imports pi join app_private.import_requests i
+    on (i.account_id,i.id)=(pi.account_id,pi.import_id)
+   join app_private.accounts a on a.id=i.account_id and a.closed_at is null
+   where pi.paper_id=paper and i.phase='failed' and i.retryable and i.desired_present)
+  then outcomes:=outcomes||jsonb_build_object(paper::text,'limited'); end if;
+ end loop;
+ return jsonb_build_object('papers',outcomes,'healed',healed);
+end $$;
+
+create or replace function public.worker_pipeline_auto_retry(p_min_interval_seconds integer default 0,p_limit integer default 20) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare discovered uuid[]; due uuid[]; accounts uuid[]; candidates jsonb; result jsonb; outcome text; paper uuid;
+ retried integer:=0; postponed integer:=0;
+begin
+ if p_min_interval_seconds is null or p_min_interval_seconds not between 0 and 3600 or p_limit is null or p_limit not between 1 and 100
+ then raise exception 'invalid_auto_retry_request'; end if;
+ if not exists(select 1 from app_private.pipeline_policy where singleton and enabled
+  and auto_retry_swept_at<=clock_timestamp()-make_interval(secs=>p_min_interval_seconds))
+ then return jsonb_build_object('swept',false,'retried',0,'healed',0,'postponed',0); end if;
+ select coalesce(array_agg(x.id order by x.id),'{}') into discovered from (
+  select pp.id from app_private.pipeline_papers pp where pp.auto_retry_at<=clock_timestamp() and pp.stage='failed'
+   and (pp.lease_until is null or pp.lease_until<=clock_timestamp()) order by pp.auto_retry_at,pp.id limit p_limit
+ ) x;
+ select coalesce(jsonb_agg(to_jsonb(c) order by c.account_id,c.import_id),'[]') into candidates
+  from app_private.pipeline_retry_candidates(discovered,true) c;
+ accounts:=app_private.pipeline_retry_lock_accounts(candidates,discovered);
+ select coalesce(array_agg(x.id order by x.id),'{}') into due from (
+  select pp.id from app_private.pipeline_papers pp where pp.id=any(discovered)
+   and (pp.owner_id is null or pp.owner_id=any(accounts)) and pp.auto_retry_at<=clock_timestamp() and pp.stage='failed'
+   and (pp.lease_until is null or pp.lease_until<=clock_timestamp()) order by pp.id for no key update skip locked
+ ) x;
+ -- Keep the throttling decision atomic, but take its mutex only after every
+ -- account/paper needed by this finite sweep has been selected and locked.
+ update app_private.pipeline_policy set auto_retry_swept_at=clock_timestamp()
+  where singleton and enabled and auto_retry_swept_at<=clock_timestamp()-make_interval(secs=>p_min_interval_seconds);
+ if not found then return jsonb_build_object('swept',false,'retried',0,'healed',0,'postponed',0); end if;
+ result:=app_private.pipeline_retry_captured(candidates,due,true);
+ foreach paper in array due loop
+  outcome:=coalesce(result->'papers'->>paper::text,'none');
+  update app_private.pipeline_papers set auto_retry_at=case when outcome='limited' then clock_timestamp()+interval '15 minutes' end,
+   auto_retries=auto_retries+case when outcome='retried' then 1 else 0 end where id=paper;
+  if outcome='retried' then retried:=retried+1; elsif outcome='limited' then postponed:=postponed+1; end if;
+ end loop;
+ return jsonb_build_object('swept',true,'retried',retried,'healed',(result->>'healed')::integer,'postponed',postponed);
+end $$;
+
+create or replace function public.worker_pipeline_retry_failed(p_deploy text,p_limit integer default 200) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare discovered uuid[]; papers uuid[]; accounts uuid[]; candidates jsonb; result jsonb;
+begin
+ if p_deploy is null or p_deploy !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$' or p_limit is null or p_limit not between 1 and 1000
+ then raise exception 'invalid_retry_request'; end if;
+ if not (select enabled from app_private.pipeline_policy) then return jsonb_build_object('enabled',false,'papers',0,'retried',0,'healed',0); end if;
+ select coalesce(array_agg(x.id order by x.id),'{}') into discovered from (
+  select pp.id from app_private.pipeline_papers pp where pp.stage='failed' and pp.resume_stage in ('metadata','download','render')
+   and pp.error_code is distinct from 'too_large' and pp.deploy_retry is distinct from p_deploy
+   and (pp.lease_until is null or pp.lease_until<=clock_timestamp()) order by pp.updated_at,pp.id limit p_limit
+ ) x;
+ select coalesce(jsonb_agg(to_jsonb(c) order by c.account_id,c.import_id),'[]') into candidates
+  from app_private.pipeline_retry_candidates(discovered,true) c;
+ accounts:=app_private.pipeline_retry_lock_accounts(candidates,discovered);
+ select coalesce(array_agg(x.id order by x.id),'{}') into papers from (
+  select pp.id from app_private.pipeline_papers pp where pp.id=any(discovered)
+   and (pp.owner_id is null or pp.owner_id=any(accounts)) and pp.stage='failed' and pp.resume_stage in ('metadata','download','render')
+   and pp.error_code is distinct from 'too_large' and pp.deploy_retry is distinct from p_deploy
+   and (pp.lease_until is null or pp.lease_until<=clock_timestamp()) order by pp.id for no key update skip locked
+ ) x;
+ -- Match the automatic path's account -> paper -> policy order, and recheck
+ -- pause after any lock wait before restarting imports.
+ perform 1 from app_private.pipeline_policy where singleton and enabled for update;
+ if not found then return jsonb_build_object('enabled',false,'papers',0,'retried',0,'healed',0); end if;
+ result:=app_private.pipeline_retry_captured(candidates,papers,true);
+ -- A bounded candidate snapshot or active-import quota can defer a paper.
+ -- Do not spend its one-per-deploy opportunity when nothing restarted.
+ update app_private.pipeline_papers set deploy_retry=p_deploy where id=any(papers)
+  and coalesce(result->'papers'->>id::text,'none')<>'limited';
+ return jsonb_build_object('enabled',true,'papers',cardinality(papers),
+  'retried',(select count(*) from jsonb_each_text(result->'papers') e where e.value='retried'),
+  'deferred',(select count(*) from jsonb_each_text(result->'papers') e where e.value='limited'),'healed',(result->>'healed')::integer);
+end $$;
+
+-- Retire the old rescan-after-paper-lock helper; public signatures and roles
+-- stay unchanged. All new snapshot helpers are private implementation details.
+drop function app_private.pipeline_retry_papers(uuid[],boolean);
+revoke all on function app_private.pipeline_retry_lock_accounts(jsonb,uuid[]),
+ app_private.pipeline_retry_captured(jsonb,uuid[],boolean) from public,anon,authenticated,service_role;
+
 
 -- Existing paid submissions are liabilities, not fresh transport permissions.
 insert into app_private.provider_attempts(id,account_id,operation_id,provider,route,model,request_sha256,ceiling_microusd,

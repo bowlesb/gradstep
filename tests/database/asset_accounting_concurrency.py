@@ -113,6 +113,19 @@ def verify(bin_path, db, base):
                                    'sha256': str(index + 5) * 64, 'bytes': 1000, 'media_type': 'application/pdf'}])
             return f"select public.worker_pipeline_asset_plan('{papers[index]}','{claims[index]}',1,'{upload}','original','{objects}',1);"
 
+        # Publication must take paper before capacity/availability. The former
+        # wrapper did the reverse and deadlocked this exact interleaving.
+        upload, attempt = str(uuid.uuid4()), str(uuid.uuid4())
+        original = json.loads(sql(plan(0, upload)))['objects'][0]['id']
+        sql(f"select public.worker_pipeline_asset_write('{papers[0]}','{claims[0]}',1,'{upload}','{original}','{attempt}'); select public.worker_pipeline_asset_written('{attempt}',true); select 1;")
+        paper_holder, publisher = Session(), Session()
+        paper_holder.complete(f"begin; select id from app_private.pipeline_papers where id='{papers[0]}' for update;")
+        publisher.send(f"select public.worker_pipeline_original('{papers[0]}','{claims[0]}',1,decode(repeat('5',64),'hex'),1000,1,'private/{accounts[0]}/originals/{'5' * 64}.pdf');")
+        blocked_by(publisher, paper_holder)
+        paper_holder.complete(f"select singleton from app_private.paper_storage_capacity for update; update app_private.pipeline_papers set stage='failed' where id='{papers[0]}'; commit;")
+        publisher.error('invalid_pipeline_stage')
+        print('PASS publication waits on paper before taking capacity or availability locks', flush=True)
+
         closer, planner = Session(), Session()
         closer.complete(f"begin; select public.worker_delete_account_begin('{accounts[2]}');")
         planner.send(plan(2, str(uuid.uuid4())))
