@@ -61,6 +61,31 @@ A purchase (its original transaction ID) belongs to one account, bound on first 
 - The app hides plans when the Apple Account's current plan belongs to another account, so an upgrade bought
   there cannot land on the other account.
 
+## Purchase/account lock ordering (migration036, local)
+
+The spending review reproduced a deadlock between a deleted-account restore and multi-account OCR funding:
+purchase ownership's foreign-key checks could lock the new account before the old one while funding locked the
+same accounts in UUID order. This affects Production as well as Sandbox and concerns availability/retries, not a
+demonstrated duplicate grant.
+
+Migration036 retains018's purchase rules and adds a shared ordered lock protocol. After the Sandbox-only allowance
+gate, both environments take a transaction advisory gate, reject inconsistent transaction/original binding, take
+that original's advisory gate, and lock all captured accounts in UUID order before ownership/ledger foreign-key
+checks. The captured set includes historical transaction owners whose older buckets may be affected by refunds or
+upgrades. Unknown attribution remains supported; a late account discovery aborts for retry rather than expanding
+the locked set. The detailed ordering and namespace allocation are in
+[spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036).
+
+The applied018 migration is unchanged. Removing only the lock additions from036's replacement recorder yields
+018's original purchase body byte for byte; the existing upgrade-credit discrepancy is not changed by this repair.
+
+Local verification: the complete fresh database suite passes, including eight independent-session purchase cases.
+Four run actual account-closure, OCR-funding and purchase RPCs together (Production/Sandbox, recorded restore and
+first-seen deleted-token binding). Two use the composed funding account-lock prefix to verify historical upgrade
+buckets; the remaining cases cover late account creation and conflicting original IDs. Restoring the unchanged018
+recorder in a disposable database reproduces the original deadlock under the same actual Production RPC schedule.
+Evidence is under `.artifacts/purchase-lock-review/` in the spending worktree; no hosted mutation was performed.
+
 ## Verification
 
 `_shared/app-store.ts` uses Apple's `@apple/app-store-server-library` `SignedDataVerifier`: the certificate
@@ -147,6 +172,12 @@ The real-purchase regression remains required before calling the purchase flow r
 Sandbox online-check exception, hosted schema change, new purchase or physical-device action is included
 in the local evidence above. Apple's reference implementation and test certificate chain are
 at [apple/app-store-server-library-node](https://github.com/apple/app-store-server-library-node).
+
+Before the cost-control rollout, extend owner purchase detail to show the recorded grant and Sandbox allowance
+decision alongside verification status. The current **Confirmed** label means a verified receipt was recorded; it can
+still represent zero credits because an allowance is exhausted or the verified Apple identity is missing.
+`store_sandbox_decisions` already retains the requested/granted amount and reason; that distinction is not yet surfaced
+by the Purchases page. It must not be inferred from receipt verification alone.
 
 Local checks: all 224 backend tests; 12 purchase tests under both Node and Deno, including
 the real SDK against a loopback OCSP responder returning HTTP 503; the database suites and
