@@ -303,7 +303,7 @@ Made overnight without check-ins (owner asleep); each choice below is easy to ch
   (or with progress) and under 100 %; Failed = stopped imports; Archived replaces Show › Archived papers (removed).
   Only filters that would change the list appear, and the row is hidden for a library with nothing to narrow. Filters
   aren't kept across launches (like the sort). Search still filters live, within the filter, and now matches tags.
-- **Keyboard and pointer** (iPad, Mac): ↑/↓ choose a row, Return opens it, Escape lets go; hovered rows get a quiet
+- **Keyboard and pointer** (iPad, Mac): ↑/↓ choose a row and Return opens it (key commands, so no focus is needed; a click opens a row as a tap does); hovered rows get a quiet
   fill; the header stays pinned.
 - **Stopped imports never just sit**: the status reads in plain words ("Download failed") and the row shows one action
   as a small button — **Retry** when the server can run it again (download, details, rate limit), **Get credits** when

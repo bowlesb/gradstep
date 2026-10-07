@@ -134,7 +134,6 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     @State private var hovered: Row.ID?
     /// The row chosen with the arrow keys (hardware keyboard); Return opens it.
     @State private var keyboardRow: Row.ID?
-    @FocusState private var focused: Bool
 
     private static var rowInsets: EdgeInsets {
         EdgeInsets(top: 10, leading: DesignMetrics.margin, bottom: 10, trailing: DesignMetrics.margin)
@@ -174,40 +173,41 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             .listSectionSpacing(0)
             .environment(\.defaultMinListHeaderHeight, 0)
             .environment(\.defaultMinListRowHeight, 0)
-            // Hardware keyboard (iPad, Mac): ↑/↓ choose a row, Return opens it, Escape lets go.
-            .focusable(interactions: .edit)
-            .focused($focused)
-            .focusEffectDisabled()
-            .onKeyPress(.downArrow) { moveKeyboardRow(by: 1, proxy: proxy) }
-            .onKeyPress(.upArrow) { moveKeyboardRow(by: -1, proxy: proxy) }
-            .onKeyPress(.return) {
-                guard let id = keyboardRow, let row = rows.first(where: { $0.id == id }), let action = primaryAction(row) else { return .ignored }
-                action.perform(); return .handled
-            }
-            .onKeyPress(.escape) {
-                guard keyboardRow != nil else { return .ignored }
-                keyboardRow = nil; return .handled
-            }
-            .onAppear { focused = true }
+            // Hardware keyboard (iPad, Mac): ↑/↓ choose a row, Return opens it. Key commands rather than focus, so
+            // they work as soon as the table shows; a focused text field (search) keeps its own keys.
+            .background { keyCommands(proxy) }
             .onChange(of: rows.map(\.id)) { _, ids in if let id = keyboardRow, !ids.contains(id) { keyboardRow = nil } }
         }
         .accessibilityIdentifier(identifier)
     }
 
+    private func keyCommands(_ proxy: ScrollViewProxy) -> some View {
+        Group {
+            Button("Next paper") { moveKeyboardRow(by: 1, proxy: proxy) }.keyboardShortcut(.downArrow, modifiers: [])
+            Button("Previous paper") { moveKeyboardRow(by: -1, proxy: proxy) }.keyboardShortcut(.upArrow, modifiers: [])
+            Button("Open") {
+                guard let id = keyboardRow, let row = rows.first(where: { $0.id == id }) else { return }
+                primaryAction(row)?.perform()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(keyboardRow == nil)
+        }
+        .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
+    }
+
     /// The keyboard's row, else the hovered one, gets a quiet fill (the selection color for the keyboard).
     private func rowBackground(_ row: Row) -> Color? {
-        if keyboardRow == row.id { return Color.accentColor.opacity(focused ? 0.14 : 0.08) }
+        if keyboardRow == row.id { return Color.accentColor.opacity(0.14) }
         if hovered == row.id { return Color.primary.opacity(0.05) }   // as `macRowHover()`, on iPad too
         return nil
     }
 
-    private func moveKeyboardRow(by step: Int, proxy: ScrollViewProxy) -> KeyPress.Result {
-        guard !rows.isEmpty else { return .ignored }
+    private func moveKeyboardRow(by step: Int, proxy: ScrollViewProxy) {
+        guard !rows.isEmpty else { return }
         let index = keyboardRow.flatMap { id in rows.firstIndex { $0.id == id } }
         let next = index.map { min(rows.count - 1, max(0, $0 + step)) } ?? (step > 0 ? 0 : rows.count - 1)
         keyboardRow = rows[next].id
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { proxy.scrollTo(rows[next].id) }
-        return .handled
     }
 
     // MARK: Header

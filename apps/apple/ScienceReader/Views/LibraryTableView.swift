@@ -247,6 +247,8 @@ struct LibraryProgressCell: View {
         if let progress = facts.importProgress {
             // An import under way: "Reading 62%", a slim bar, "40 s left" (pipeline progress, 2026-10-07).
             ImportProgressView(progress: progress, style: .compact, explain: explain)
+                // Its first line sits on the row's first baseline, like the other cells.
+                .alignmentGuide(.firstTextBaseline) { $0[.top] + 13 }
         // Waiting in the queue isn't work yet: no spinner (below, with its time).
         } else if let step = facts.step, step != .queued {
             VStack(alignment: .leading, spacing: 2) {
