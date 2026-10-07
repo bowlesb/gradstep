@@ -4,10 +4,12 @@ import type { Session } from '@supabase/supabase-js';
 import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
+import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
 import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
+const loadChecks = () => rpc<WorkflowChecks>('v1_admin_workflow_checks', { p_days: 14 });
 
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);
 const date = (value: string) => new Date(value).toLocaleString();
@@ -88,7 +90,7 @@ function App() {
         <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
         {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
-      {tab === 'Reliability' && owner && <Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} />}
+      {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
   </Shell>;
 }

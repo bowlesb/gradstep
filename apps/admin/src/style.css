@@ -116,3 +116,4 @@ progress::-webkit-progress-bar{background:#262836}
 .legend,.event-kind{color:#a3a9bb}
 .table-view summary{color:#a5a9ff}
 }
+.check-status{font-size:12px;font-weight:600;border-radius:5px;padding:2px 7px}.check-status.pass{background:#e4f5eb;color:#26824c}.check-status.fail{background:#fde8e8;color:#b42318}.check-status.warn{background:#fff4e0;color:#9a5b00}.check-status.skip{background:#f0f1f5;color:#72798a}td.reason{max-width:520px;color:#5d6475;font-size:12px}.history{display:inline-flex;gap:2px}.history i{width:6px;height:16px;border-radius:2px;background:#d7dae3}.history i.pass{background:#4caf7a}.history i.fail{background:#e5484d}.history i.warn{background:#f2b544}@media (prefers-color-scheme:dark){.check-status.pass{background:#173b28;color:#7ad3a0}.check-status.fail{background:#3b1717;color:#ff9b9b}.check-status.warn{background:#3b2c12;color:#f2c97a}.check-status.skip{background:#2a2c36;color:#a6abba}td.reason{color:#a6abba}}
