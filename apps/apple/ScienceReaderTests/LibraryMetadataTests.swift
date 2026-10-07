@@ -57,7 +57,9 @@ final class LibraryMetadataTests: XCTestCase {
     }
 
     func testTopicNames() {
-        XCTAssertEqual(ArxivTopics.names(for: ["cs.CL", "cs.LG", "cs.AI"]), ["Language", "Machine learning"], "At most two")
+        // Categories with a tag-vocabulary equivalent use its names (docs/architecture/TAGS.md).
+        XCTAssertEqual(ArxivTopics.names(for: ["cs.CL", "cs.LG", "cs.AI"]), ["Natural language processing", "Machine learning"], "At most two")
+        XCTAssertEqual(ArxivTopics.names(for: ["cs.LG", "stat.ML", "cs.CV"]), ["Machine learning", "Computer vision"], "Same name once")
         XCTAssertEqual(ArxivTopics.names(for: ["math.OC"]), ["Optimization"])
         XCTAssertEqual(ArxivTopics.names(for: ["math.ST", "stat.TH", "cs.LG"]), ["Statistics theory", "Machine learning"], "Duplicates collapse")
         XCTAssertEqual(ArxivTopics.name(for: "math.KT"), "Mathematics", "Archive name when the category has none")
@@ -65,7 +67,10 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(ArxivTopics.name(for: "attention"), "Attention", "Free-text keywords read as words")
         XCTAssertEqual(ArxivTopics.name(for: "xx.YY"), "xx.YY", "Unknown codes stay as they are")
         XCTAssertTrue(ArxivTopics.names(for: []).isEmpty)
-        for (code, name) in ArxivTopics.feedNames { XCTAssertEqual(ArxivTopics.name(for: code), name, "Feed labels are unchanged") }
+        for (code, name) in ArxivTopics.feedNames {
+            XCTAssertEqual(ArxivTopics.name(for: code), TagVocabulary.name(forCategory: code) ?? name, "Vocabulary names, else the Feed's labels")
+        }
+        XCTAssertEqual(ArxivTopics.name(for: "cs.DC"), "Distributed", "A broader category keeps its own label")
     }
 
     func testProgressAndActivityLines() {

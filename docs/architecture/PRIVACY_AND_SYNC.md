@@ -38,6 +38,8 @@ Email delivery must use a verified sender with bounded sending/verification rate
 | Private uploaded papers | Owner-scoped storage and explicit cloud OCR processing; this does not automatically inherit the private-chat E2EE claim |
 | Chats, titles, selected-text anchors, notes, private diagrams | Encrypted by the client before persistence and synchronization |
 | Library membership, file size, timing, devices, usage, subscription | Service-visible metadata needed for access, synchronization, and billing |
+| Archive state and personal topic tags (2026-10-07) | Service-visible library-item fields, synced through the server; not end-to-end encrypted ([Topic tags](TAGS.md)) |
+| Paper title and abstract for catalog tags | Public catalog metadata sent to Anthropic (Claude Haiku) once per paper version; no reader data |
 | AI requests and responses | Selected plaintext visible to the chosen cloud provider and processing service during the request |
 | Submitted bug screenshots/notes | Explicitly shared with support after preview; separate support retention/access policy |
 

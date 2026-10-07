@@ -21,7 +21,7 @@ enum LibraryPresentationRow: Sendable {
         switch entry {
         case .item(let item):
             guard item.visible else { return nil }
-            return .item(.init(paper: Paper(id: item.documentID,
+            var paper = Paper(id: item.documentID,
                 title: item.metadata?.title ?? "Untitled paper",
                 authors: item.metadata?.authors.joined(separator: ", ") ?? "",
                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
@@ -29,8 +29,10 @@ enum LibraryPresentationRow: Sendable {
                 fileURL: nil, artifactID: item.artifactID,
                 sourceID: item.sourceID, sourceRevision: item.sourceRevision,
                 authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt.date, pageCount: item.pageCount,
-                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue),
-                createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))
+                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue)
+            paper.catalogTags = item.tags ?? []; paper.ownTags = item.userTags ?? []; paper.hiddenTags = item.hiddenTags ?? []
+            paper.tags = item.effectiveTags
+            return .item(.init(paper: paper, createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))
         case .import(let value):
             return .imported(id: value.id, visible: value.visible ? value : nil)
         }

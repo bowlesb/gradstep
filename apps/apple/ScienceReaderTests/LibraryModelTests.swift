@@ -28,6 +28,8 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var heldChanges: (StubProtocol, Data)?
     private var privateEvents: [[String: Any]] = []
     private var privateCalls: [String] = []
+    /// The catalog's topic tags on the item entry (migration 030); none by default (no `tags` key).
+    var catalogTags: [String] = []
 
     init(activated: Bool = false) {
         if activated {
@@ -78,7 +80,7 @@ private final class LibraryModelServer: @unchecked Sendable {
                 if let arrival = holdChanges {
                     holdChanges = nil; heldChanges = (request, response.0); arrival.fulfill()
                 } else { request.respond(response.0, status: response.1) }
-            case "v2_begin_import", "v2_cancel_import", "v2_set_library_item": handleCommand(request)
+            case "v2_begin_import", "v2_cancel_import", "v2_set_library_item", "v2_set_item_tags": handleCommand(request)
             case "v1_key_state":
                 privateCalls.append("key_state"); request.respond(keyState ?? Data("null".utf8))
             case "v2_pull_events":
@@ -160,6 +162,16 @@ private final class LibraryModelServer: @unchecked Sendable {
                     request.respond(Data("{}".utf8), status: 409); return
                 }
                 revision = 2; entry = item(state: cursor, visible: false)
+            case "v2_set_item_tags":
+                guard input["p_document_id"] as? String == documentID.wire, input["p_expected_revision"] as? Int == 1,
+                      let own = input["p_tags"] as? [String], let hidden = input["p_hidden_tags"] as? [String] else {
+                    request.respond(Data("{}".utf8), status: 409); return
+                }
+                revision = 2
+                var row = item(state: cursor); row["membership_revision"] = 2
+                if !own.isEmpty { row["user_tags"] = own }
+                if !hidden.isEmpty { row["hidden_tags"] = hidden }
+                entry = row
             default: request.respond(Data("{}".utf8), status: 404); return
             }
             changedEntries[entry["id"] as! String] = entry
@@ -180,6 +192,11 @@ private final class LibraryModelServer: @unchecked Sendable {
          "published_at": "2024-04-03", "updated_at": "2024-05-02", "categories": ["cs.LG", "stat.ML"], "venue": NSNull()]
     }
     func item(state: Int = 1, visible: Bool = true, available: Bool = true) -> [String: Any] {
+        var row = itemRow(state: state, visible: visible, available: available)
+        if visible && !catalogTags.isEmpty { row["tags"] = catalogTags }
+        return row
+    }
+    private func itemRow(state: Int, visible: Bool, available: Bool) -> [String: Any] {
         ["kind": "item", "id": itemID.wire, "document_id": documentID.wire, "created_seq": 1, "state_seq": state,
          "membership_revision": visible ? 1 : 2, "visible": visible, "added_at": "2026-10-03T10:00:00Z", "last_remove_seq": visible ? 0 : state,
          "approval_id": approvalID.wire, "version_id": versionID.wire, "metadata_id": metadataID.wire, "source": "arxiv",
@@ -508,6 +525,40 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(server.commands().map(\.endpoint), ["v2_begin_import", "v2_begin_import", "v2_cancel_import"])
         XCTAssertNil(model.error)
         try await capture(window, name: "Cancelled import leaves the existing library intact")
+    }
+
+    /// Tags (migration 030): catalog tags arrive with the entry; an edit shows at once, is sent as the reader's own
+    /// and hidden lists at the observed revision, and the synced entry keeps showing the same tags.
+    func testTagEditsShowAtOnceAndSyncAsOwnAndHiddenLists() async throws {
+        let server = LibraryModelServer(activated: true)
+        server.catalogTags = ["Machine learning", "Transformers"]
+        let fixture = try fixture(server), model = fixture.model
+        await model.start()
+        let paper = try XCTUnwrap(model.papers.first)
+        XCTAssertEqual(paper.tags, ["Machine learning", "Transformers"])
+        XCTAssertEqual(paper.catalogTags, ["Machine learning", "Transformers"])
+        let issued = expectation(description: "Tag edit issued")
+        server.enqueueCommand(.hold(issued))
+        let problem = await model.saveTags(["Transformers", "Reading  group "], for: paper)
+        XCTAssertNil(problem)
+        XCTAssertEqual(model.papers.first?.tags, ["Transformers", "Reading group"], "Shown before the server confirms")
+        await fulfillment(of: [issued], timeout: 5)
+        let command = try XCTUnwrap(server.commands().last)
+        XCTAssertEqual(command.endpoint, "v2_set_item_tags")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: command.body) as? [String: Any])
+        XCTAssertEqual(body["p_tags"] as? [String], ["Reading group"])
+        XCTAssertEqual(body["p_hidden_tags"] as? [String], ["Machine learning"])
+        XCTAssertEqual(body["p_expected_revision"] as? Int, 1)
+        server.releaseCommand()
+        try await observe("Tag edit synced") { model.libraryCommands.isEmpty && model.papers.first?.ownTags == ["Reading group"] }
+        XCTAssertEqual(model.papers.first?.tags, ["Transformers", "Reading group"])
+        XCTAssertEqual(model.papers.first?.hiddenTags, ["Machine learning"])
+        XCTAssertEqual(model.ownTagsInLibrary(excluding: UUID()), ["Reading group"])
+        // A sample or a paper outside the library is never edited.
+        let outside = await model.saveTags(["X"], for: Paper(id: UUID(), title: "Elsewhere", authors: "", year: nil, abstract: "",
+                                                             keywords: [], fileURL: nil, artifactID: nil))
+        XCTAssertNotNil(outside)
+        XCTAssertNil(model.error)
     }
 
     func testRemoveSavedPaperWaitsForCatchupAndKeepsPrivateChatAndDraft() async throws {

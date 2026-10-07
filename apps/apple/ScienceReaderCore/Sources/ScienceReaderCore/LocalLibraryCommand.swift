@@ -32,6 +32,8 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
     case retryImport(importID: UUID, expectedRevision: Int64)
     /// Archive or unarchive a library item (migration 020); uses the item's membership revision.
     case setArchived(documentID: UUID, archived: Bool, expectedRevision: Int64)
+    /// The reader's own tags and hidden catalog tags for a library item (migration 030); replaces both lists.
+    case setTags(documentID: UUID, tags: [String], hiddenTags: [String], expectedRevision: Int64)
 
     func validate() throws {
         switch self {
@@ -42,13 +44,25 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
             guard revision >= 0, revision < Int64.max else { throw LibraryCommandError.invalidMutation }
         case .cancelImport(_, let revision), .retryImport(_, let revision), .setArchived(_, _, let revision):
             guard revision > 0, revision < Int64.max else { throw LibraryCommandError.invalidMutation }
+        case .setTags(_, let tags, let hidden, let revision):
+            guard revision > 0, revision < Int64.max, PaperTags.isValid(tags, limit: PaperTags.maximumOwnTags),
+                  PaperTags.isValid(hidden, limit: PaperTags.maximumHiddenTags) else { throw LibraryCommandError.invalidMutation }
+        }
+    }
+
+    /// The library item's document for item commands (membership, archive, tags share one revision).
+    public var itemDocument: UUID? {
+        switch self {
+        case .setMembership(let document, _, _, _), .setArchived(let document, _, _), .setTags(let document, _, _, _): document
+        case .beginImport, .cancelImport, .retryImport: nil
         }
     }
 
     var expectedRevision: Int64 {
         switch self {
         case .beginImport: 0
-        case .setMembership(_, _, let value, _), .cancelImport(_, let value), .retryImport(_, let value), .setArchived(_, _, let value): value
+        case .setMembership(_, _, let value, _), .cancelImport(_, let value), .retryImport(_, let value), .setArchived(_, _, let value),
+             .setTags(_, _, _, let value): value
         }
     }
 
@@ -71,6 +85,10 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         case .setArchived(let document, let archived, let revision):
             endpoint = "v2_set_item_archived"
             parameters["p_document_id"] = document.wire; parameters["p_archived"] = archived; parameters["p_expected_revision"] = revision
+        case .setTags(let document, let tags, let hidden, let revision):
+            endpoint = "v2_set_item_tags"
+            parameters["p_document_id"] = document.wire; parameters["p_tags"] = tags; parameters["p_hidden_tags"] = hidden
+            parameters["p_expected_revision"] = revision
         }
         let body = try JSONSerialization.data(withJSONObject: parameters, options: [.sortedKeys, .withoutEscapingSlashes])
         guard body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
@@ -97,6 +115,8 @@ public enum LibrarySuccessor: Codable, Equatable, Sendable {
     case setMembership(present: Bool, approvalID: UUID?)
     case cancelImport
     case setArchived(archived: Bool)
+    /// A later tag edit, sent after the earlier one with that edit's resulting revision.
+    case setTags(tags: [String], hiddenTags: [String])
 }
 
 public enum LibraryCommandPhase: String, Codable, Sendable {
@@ -228,6 +248,35 @@ struct LibraryCommandJournal: Equatable {
         default: throw LibraryCommandError.invalidTransition
         }
         _ = try hold(successor, after: handle, display: value.display)
+    }
+
+    /// A tag edit against the current queue, in one transaction: the reader may edit again before an
+    /// earlier edit has synced. An unissued earlier edit is replaced; an issued one gets the new lists as
+    /// its held successor (frozen from its receipt's revision), replacing an unissued successor. Another
+    /// pending change to the same paper (archive, removal) must finish first.
+    mutating func editTags(documentID: UUID, tags: [String], hiddenTags: [String], observedRevision: Int64,
+                           scope: LibraryCommandScope, display: String?) throws -> LocalLibraryCommandHandle {
+        let mutation = LibraryMutation.setTags(documentID: documentID, tags: tags, hiddenTags: hiddenTags, expectedRevision: observedRevision)
+        try mutation.validate()
+        guard let target = rows.values.first(where: { $0.isUnfinished && sameTarget($0, mutation) }) else {
+            return try enqueue(mutation, scope: scope, display: display)
+        }
+        let lane = rows.values.filter { $0.laneID == target.laneID && $0.isUnfinished }.sorted { $0.handle.localSequence < $1.handle.localSequence }
+        guard let latest = lane.last else { throw LibraryCommandError.targetBusy }
+        let isTags: Bool
+        switch (latest.mutation, latest.successor) {
+        case (.setTags?, _), (nil, .setTags?): isTags = true
+        default: isTags = false
+        }
+        // A conflicted edit waits for catch-up, then needs review: a new edit starts after that.
+        guard isTags, latest.receipt.map({ $0.result.status == .applied }) ?? true else { throw LibraryCommandError.targetBusy }
+        let successor = LibrarySuccessor.setTags(tags: tags, hiddenTags: hiddenTags)
+        if !latest.everSubmitted, latest.receipt == nil {
+            try discard(latest.handle, revision: latest.revision)
+            if let parent = latest.predecessor { return try hold(successor, after: parent, display: display) }
+            return try enqueue(mutation, scope: scope, display: display)
+        }
+        return try hold(successor, after: latest.handle, display: display)
     }
 
     mutating func begin(_ handle: LocalLibraryCommandHandle, writerID: UUID) throws -> LibraryCommandAttempt {
@@ -383,9 +432,8 @@ struct LibraryCommandJournal: Equatable {
     }
     private func sameTarget(_ value: LocalLibraryCommand, _ mutation: LibraryMutation) -> Bool {
         guard let other = value.mutation else { return false }
+        if let a = other.itemDocument, let b = mutation.itemDocument { return a == b }
         switch (other, mutation) {
-        case let (.setMembership(a, _, _, _), .setMembership(b, _, _, _)), let (.setArchived(a, _, _), .setArchived(b, _, _)),
-             let (.setArchived(a, _, _), .setMembership(b, _, _, _)), let (.setMembership(a, _, _, _), .setArchived(b, _, _)): return a == b
         case let (.beginImport(a, ar, _), .beginImport(b, br, _)): return a == b && ar == br
         case let (.cancelImport(a, _), .cancelImport(b, _)), let (.cancelImport(a, _), .retryImport(b, _)),
              let (.retryImport(a, _), .cancelImport(b, _)), let (.retryImport(a, _), .retryImport(b, _)): return a == b
@@ -403,6 +451,8 @@ struct LibraryCommandJournal: Equatable {
         case let (.setArchived(archived), .setArchived(document, before, _)):
             guard archived != before else { throw LibraryCommandError.invalidMutation }
             return .setArchived(documentID: document, archived: archived, expectedRevision: revision)
+        case let (.setTags(tags, hidden), .setTags(document, _, _, _)):
+            return .setTags(documentID: document, tags: tags, hiddenTags: hidden, expectedRevision: revision)
         default: throw LibraryCommandError.invalidMutation
         }
     }
@@ -416,7 +466,7 @@ struct LibraryCommandJournal: Equatable {
         guard let mutation = value.mutation, let request = value.request, result.revision >= 0 else { throw LibraryCommandError.invalidReceipt }
         let kind: LibraryEntryKind
         switch mutation {
-        case .setMembership, .setArchived: kind = .item
+        case .setMembership, .setArchived, .setTags: kind = .item
         case .beginImport, .cancelImport, .retryImport: kind = .import
         }
         guard result.kind == kind else { throw LibraryCommandError.invalidReceipt }
@@ -432,14 +482,15 @@ struct LibraryCommandJournal: Equatable {
             guard result.status == .applied, result.id == request.operationID else { throw LibraryCommandError.invalidReceipt }
         case .cancelImport(let id, _), .retryImport(let id, _):
             guard result.id == id, result.revision > 0 else { throw LibraryCommandError.invalidReceipt }
-        case .setMembership, .setArchived: break
+        case .setMembership, .setArchived, .setTags: break
         }
     }
     private func validateReceipt(_ response: LibraryCommandResponse, for value: LocalLibraryCommand) throws {
         try response.validate(); try validateResult(response.result, for: value)
         guard let entry = response.entry else { return }
         switch (value.mutation, entry) {
-        case let (.setMembership(document, _, _, _), .item(item)), let (.setArchived(document, _, _), .item(item)):
+        case let (.setMembership(document, _, _, _), .item(item)), let (.setArchived(document, _, _), .item(item)),
+             let (.setTags(document, _, _, _), .item(item)):
             guard item.documentID == document, item.membershipRevision >= response.result.revision else { throw LibraryCommandError.invalidReceipt }
         case let (.beginImport(source, revision, _), .import(imported)):
             guard imported.sourceID == source, imported.requestedRevision == revision,

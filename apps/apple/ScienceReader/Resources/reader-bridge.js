@@ -525,6 +525,11 @@
       '.sr-flash{position:absolute;z-index:-1;pointer-events:none;border-radius:8px;background:var(--sr-flash);transition:opacity .9s ease}.sr-flash.sr-flash-done{opacity:0}',
       '.sr-paper-line{font-size:.82rem;line-height:1.4;color:#666;margin:-.3em 0 1.2em;-webkit-user-select:none;user-select:none}',
       '@media(prefers-color-scheme:dark){.sr-paper-line{color:#9a9a9a}}@media(prefers-reduced-motion:reduce){.sr-flash{transition:none}}',
+      // Tags: small quiet chips under the paper line; the whole row is one tap target (padding) that opens Edit tags.
+      '.sr-paper-tags{display:flex;flex-wrap:wrap;gap:.4em;margin:-1.05em 0 .75em;padding:.45em 0;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
+      '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
+      '.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
+      '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.36)}}',
     ].join('');
     document.head.append(style);
   };
@@ -538,6 +543,38 @@
     let anchor = document.querySelector('h1[data-reader-block]') || document.querySelector('h1');
     while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
     if (anchor) anchor.after(line); else document.body.prepend(line);
+  };
+  // The paper's tags as chips under the paper line (or the title and authors). A tap opens Edit tags.
+  const installPaperTags = tags => {
+    document.querySelector('[data-sr-paper-tags]')?.remove();
+    if (!Array.isArray(tags)) return;
+    const names = tags.filter(tag => typeof tag === 'string' && tag.trim()).slice(0, 24).map(tag => tag.trim().slice(0, 60));
+    if (!names.length) return;
+    const row = document.createElement('div');
+    row.className = 'sr-paper-tags'; row.setAttribute(CHROME, ''); row.setAttribute('data-sr-paper-tags', '');
+    row.setAttribute('role', 'button'); row.tabIndex = 0;
+    row.setAttribute('aria-label', 'Tags: ' + names.join(', ') + '. Edit tags');
+    for (const name of names) {
+      const chip = document.createElement('span');
+      chip.className = 'sr-tag'; chip.setAttribute('aria-hidden', 'true'); chip.textContent = name;
+      row.append(chip);
+    }
+    row.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); post({type:'tags'}); }
+    });
+    let anchor = document.querySelector('[data-sr-paper-line]');
+    if (!anchor) {
+      anchor = document.querySelector('h1[data-reader-block]') || document.querySelector('h1');
+      while (anchor?.nextElementSibling?.classList.contains('reader-authors')) anchor = anchor.nextElementSibling;
+    }
+    if (anchor) anchor.after(row); else document.body.prepend(row);
+  };
+  window.__scienceReaderSetPaperTags = tags => {
+    if (config?.figure_id) return false;
+    const location = citationBack ? null : (lastPosition ?? window.__scienceReaderLocation());
+    installPaperTags(tags);
+    if (location) window.__scienceReaderRestore(location);
+    return true;
   };
   window.__scienceReaderSetPaperLine = text => {
     if (config?.figure_id) return false;
@@ -553,6 +590,7 @@
     if (!config?.figure_id) {
       installCitationStyle(); collectReferences(); linkCitations();
       installPaperLine(window.__readerPaperLine);
+      installPaperTags(window.__readerPaperTags);
     }
     if (config?.figure_id) {
       if (!figureIDs.has(config.figure_id)) throw new Error('invalid_reader_figure');
@@ -812,6 +850,13 @@
       if (gesture?.id === event.pointerId && Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)>8) gesture.moved = true;
     },{passive:true});
     document.addEventListener('pointercancel',() => {if (gesture) gesture.moved = true;},{passive:true});
+    // The tag chips open Edit tags (capture: nothing else handles a tap on them).
+    document.addEventListener('click',event => {
+      const element = event.target instanceof Element ? event.target : event.target.parentElement;
+      if (!element?.closest('[data-sr-paper-tags]') || gesture?.moved) return;
+      gesture = null; event.preventDefault(); event.stopPropagation();
+      post({type:'tags'});
+    },true);
     // Citations first (capture), so one inside a figure caption doesn't also open the figure.
     document.addEventListener('click',event => {
       const element = event.target instanceof Element ? event.target : event.target.parentElement;

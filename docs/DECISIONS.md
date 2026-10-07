@@ -461,6 +461,29 @@ Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [M
   Store profile ("Gradstep Mac App Store"). Not created by the agent: the existing installer certificate's
   key is held outside this project, and new signing certificates are the owner's to hold.
 
+## Topic tags (owner asked 2026-10-07; agent decisions, reversible)
+
+Owner: "I thought we had a tagging system based on topics? … it was useful and we need to bring that back and make
+it a first class citizen." Design: [Topic tags](architecture/TAGS.md).
+
+- **Consistent catalog tags**: 3–7 names per paper version from a curated vocabulary (`gradstep-tags-v1`, 120 tags:
+  23 areas, 97 topics, each defined), chosen once by Claude Haiku 4.5 (`claude-haiku-4-5-20251001`) from title +
+  abstract with the vocabulary as a structured-output enum; arXiv categories as the fallback when the model is
+  unavailable. Not free keywords (the web app's drifted between papers).
+- **Paid by the platform** under the platform budget (a 0-credit `metadata` hold per paper, $0.01 ceiling), never by
+  readers: measured $0.0038 per paper (≈ $0.38 per 100 papers, once per version). Runs in the Cloud Run pipeline
+  worker (needs `ANTHROPIC_API_KEY` there) after each paper and each minute; existing papers backfill the same way
+  or with `scripts/tag-catalog.mjs run`.
+- **Personal tags are service-visible**, synced like archive state (`v2_set_item_tags`, revision-checked,
+  replayable), not end-to-end encrypted; the Edit tags sheet says so. This supersedes the earlier plan to keep
+  personal labels in encrypted events for tags (server-side joins with catalog tags; no encrypted tag format
+  exists). Removing a paper clears its personal tags.
+- **What readers see** = catalog tags − tags they removed + their own. Feed chips use the vocabulary's names where
+  an arXiv category means the same thing (cs.CL → Natural language processing); others keep their labels.
+- Live check (13 calls, $0.049): good tags for Attention, DPO, Mamba, Switch Transformers, RAG, Chain-of-thought,
+  NeRF, PPO (after adding "Policy optimization"); remaining errors are comparison/adjacent tags (DDPM → GANs,
+  Whisper → Large language models), removable by readers.
+
 ## Floating chrome and the app's own icons (owner asked 2026-10-07)
 
 Owner, with two Gemini screenshots: "I like the way that they have something at the bottom, but things can kind of

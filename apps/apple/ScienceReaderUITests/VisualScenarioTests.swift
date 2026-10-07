@@ -166,6 +166,19 @@ final class VisualScenarioTests: XCTestCase {
             },
             // Citations and the publication line (owner feedback, build 11 session).
             "paper-top": Scenario(arguments: Self.mathpixFixture) { app in self.openMathpix(app) },
+            // Topic tags (docs/architecture/TAGS.md): chips under the publication line; Edit tags from the paper's options.
+            "paper-tags-edit": Scenario(arguments: Self.mathpixFixture) { app in
+                self.openMathpix(app); self.tapMenu(app, "Paper options")
+                app.buttons["Edit tags"].tap()
+                XCTAssertTrue(app.navigationBars["Edit tags"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "paper-tags-suggest": Scenario(arguments: Self.mathpixFixture) { app in
+                self.openMathpix(app); self.tapMenu(app, "Paper options")
+                app.buttons["Edit tags"].tap()
+                let field = app.textFields["tags.field"]
+                XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText("rein")
+                XCTAssertTrue(app.buttons["tags.suggestion.Reinforcement learning"].waitForExistence(timeout: 5)); sleep(1)
+            },
             "paper-citation": Scenario(arguments: Self.mathpixFixture) { app in
                 self.openMathpix(app); self.contents(app, "1 Introduction"); sleep(1)
             },

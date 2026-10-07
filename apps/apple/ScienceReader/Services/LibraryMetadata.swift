@@ -19,9 +19,11 @@ enum FeedLayout: String, CaseIterable, Sendable {
     var title: String { self == .list ? "List" : "Table" }
 }
 
-/// Friendly names for arXiv categories. The Feed's chips and the Library's Topics share them.
+/// Friendly names for arXiv categories. The Feed's chips and the Library's Topics share them. Categories the tag
+/// vocabulary maps ("cs.CL" → "Natural language processing") use its names, so topics and tags read the same
+/// everywhere (docs/architecture/TAGS.md); other categories keep these labels.
 enum ArxivTopics {
-    /// The Feed's original labels; unchanged.
+    /// The Feed's original labels, for categories outside the tag vocabulary.
     static let feedNames = ["cs.LG": "Machine learning", "cs.CL": "Language", "cs.AI": "AI", "cs.CV": "Vision",
                             "stat.ML": "Statistical ML", "cs.RO": "Robotics", "cs.NE": "Neural computing", "cs.IR": "Retrieval",
                             "math.OC": "Optimization", "cs.CR": "Security", "cs.DC": "Distributed"]
@@ -53,6 +55,7 @@ enum ArxivTopics {
                                    "math-ph": "Mathematical physics", "nlin": "Nonlinear sciences", "quant-ph": "Quantum physics", "gr-qc": "Relativity and cosmology"]
 
     static func name(for category: String) -> String {
+        if let name = TagVocabulary.name(forCategory: category) { return name }
         if let name = names[category] { return name }
         let archive = category.split(separator: ".", maxSplits: 1).first.map(String.init) ?? category
         if category.contains("."), let name = archives[archive] { return name }

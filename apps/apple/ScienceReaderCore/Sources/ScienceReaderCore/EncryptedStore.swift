@@ -446,6 +446,19 @@ public actor EncryptedStore {
         return handle
     }
 
+    /// A tag edit for one library item (migration 030), resolved against pending edits in one transaction.
+    @discardableResult
+    public func editLibraryTags(scope: LibraryCommandScope, documentID: UUID, tags: [String], hiddenTags: [String],
+                                observedRevision: Int64, display: String? = nil) throws -> LocalLibraryCommandHandle {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        next.prune()
+        let handle = try next.editTags(documentID: documentID, tags: tags, hiddenTags: hiddenTags, observedRevision: observedRevision,
+                                       scope: scope, display: display)
+        try persistLibraryJournal(next)
+        return handle
+    }
+
     @discardableResult
     public func holdLibrarySuccessor(_ successor: LibrarySuccessor, after handle: LocalLibraryCommandHandle,
                                      scope: LibraryCommandScope, display: String? = nil) throws -> LocalLibraryCommandHandle {

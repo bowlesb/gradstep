@@ -44,6 +44,14 @@ struct Paper: Identifiable, Sendable {
     var archived = false
     /// Where it was published ("NeurIPS"), from the library metadata (`publicationLine`).
     var venue: String? = nil
+    /// The paper's topic tags as the reader sees them (docs/architecture/TAGS.md): the catalog's tags minus
+    /// those the reader removed, then the reader's own, including an edit still syncing. Library columns and
+    /// filters, the reader's header chips and search use these.
+    var tags: [String] = []
+    /// The server's lists behind `tags` (migration 030): the catalog's, the reader's own and the removed ones.
+    var catalogTags: [String] = []
+    var ownTags: [String] = []
+    var hiddenTags: [String] = []
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
@@ -79,6 +87,11 @@ struct ReaderDocumentScope: Hashable {
     let artifactID: UUID?
     let fileURL: URL?
     let manifestSHA256: String?
+}
+
+struct TagEditorRequest: Identifiable, Equatable {
+    let id = UUID()
+    let paperID: UUID
 }
 
 struct ChatFollowRequest: Equatable {
@@ -127,7 +140,9 @@ final class ReaderModel {
     private(set) var offlineCacheIssue: String?
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
-    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { librarySearchSourceChanged() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] {
+        didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } }
+    }
     /// Show archived papers in the Library (Show › Archived papers).
     var showArchivedPapers = false { didSet { if showArchivedPapers != oldValue { librarySearchSourceChanged() } } }
     /// Papers marked archived, including changes still syncing (for row labels and actions).
@@ -139,6 +154,8 @@ final class ReaderModel {
     }
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
+    /// The Edit tags sheet (paper options, the library row's long-press menu, the reader's tag chips).
+    var tagEditor: TagEditorRequest?
     var librarySignInRequired: Bool { accountID == nil }
     var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary != nil && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
     var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
@@ -437,7 +454,7 @@ final class ReaderModel {
         let sameText = previous.count == papers.count && zip(previous, papers).allSatisfy { old, new in
             old.id == new.id && old.title == new.title && old.authors == new.authors &&
             old.year == new.year && old.authorNames == new.authorNames &&
-            old.abstract == new.abstract && old.keywords == new.keywords &&
+            old.abstract == new.abstract && old.keywords == new.keywords && old.tags == new.tags &&
             old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
@@ -512,7 +529,7 @@ final class ReaderModel {
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
                                        chats: paperChatCounts[paper.id] ?? 0)
-            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords,
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + paper.tags,
                    sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
         for item in libraryImports {
@@ -1245,7 +1262,7 @@ final class ReaderModel {
         libraryRefreshAttempt = nil; libraryRefreshing = false; libraryHasSnapshot = false; libraryIssue = nil
         completeLibrary = nil; libraryCommands = []; libraryCommandGeneration = -1
         libraryPublicationDeferred = false; deferredLibraryObservation = nil
-        libraryCommandIssue = nil; showLibraryChanges = false; showImport = false
+        libraryCommandIssue = nil; showLibraryChanges = false; showImport = false; tagEditor = nil
         publishedGeneration = -1; publishedPendingCount = 0
         support?.cancel(); support = nil
         draftQueue?.close(); draftQueue = nil; pendingDraftCheckpoints = [:]; draftsRestored = false
@@ -1423,14 +1440,18 @@ final class ReaderModel {
 
     /// Feed topics from the library's arXiv categories (owner feedback 2026-10-06: a single
     /// cross-listed paper put "hep-ph" first). A topic needs two papers unless it is core ML;
-    /// the most frequent come first; at most six.
+    /// the most frequent come first; at most six. Chips show the tag vocabulary's names
+    /// (`ArxivTopics.name`), so categories with the same name ("cs.LG" and "stat.ML" are both
+    /// Machine learning) show once, as the more frequent one.
     var feedCategories: [String] {
         var counts: [String: Int] = [:]
         for paper in papers where !paper.isSample { for keyword in paper.keywords where keyword.contains(".") || keyword.contains("-") { counts[keyword, default: 0] += 1 } }
         let core: Set<String> = ["cs.LG", "cs.CL", "cs.AI", "cs.CV", "stat.ML", "cs.NE", "cs.RO", "cs.IR"]
+        var names = Set<String>()
         let top = counts.filter { $0.value >= 2 || core.contains($0.key) }
-            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(6).map(\.key)
-        return top.isEmpty ? ["cs.LG", "cs.CL", "cs.AI", "stat.ML"] : top
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.map(\.key)
+            .filter { names.insert(ArxivTopics.name(for: $0)).inserted }.prefix(6)
+        return top.isEmpty ? ["cs.LG", "cs.CL", "cs.AI", "cs.CV"] : Array(top)
     }
 
     func selectFeedCategory(_ category: String) { feedCategory = category; loadFeed() }
@@ -1496,6 +1517,77 @@ final class ReaderModel {
             _ = try await commands.enqueue(.setArchived(documentID: item.documentID, archived: archived, expectedRevision: item.membershipRevision),
                                            display: String(paper.title.unicodeScalars.prefix(200)))
         } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
+    }
+
+    // MARK: Tags (docs/architecture/TAGS.md)
+
+    /// Tag edits waiting to sync, by paper; the newest wins. A follow-up edit held behind a sent one
+    /// names its paper through that predecessor.
+    private var pendingTagEdits: [UUID: (own: [String], hidden: [String])] {
+        var edits: [UUID: (own: [String], hidden: [String])] = [:]
+        let byIntent = Dictionary(libraryCommands.map { ($0.handle.intentID, $0) }, uniquingKeysWith: { first, _ in first })
+        for command in libraryCommands.sorted(by: { $0.handle.localSequence < $1.handle.localSequence }) where command.isUnfinished {
+            if case .setTags(let document, let own, let hidden, _) = command.mutation { edits[document] = (own, hidden) }
+            else if command.mutation == nil, case .setTags(let own, let hidden) = command.successor,
+                    let parent = command.predecessor.flatMap({ byIntent[$0.intentID] }), let document = parent.mutation?.itemDocument {
+                edits[document] = (own, hidden)
+            }
+        }
+        return edits
+    }
+
+    private static func withTagEdit(_ paper: Paper, _ edit: (own: [String], hidden: [String])?) -> Paper {
+        var row = paper
+        row.tags = PaperTags.effective(catalog: paper.catalogTags, own: edit?.own ?? paper.ownTags, hidden: edit?.hidden ?? paper.hiddenTags)
+        return row
+    }
+
+    /// What the reader asked for shows at once, before the edit syncs (and stays if it can't).
+    private func applyPendingTagEdits() {
+        let edits = pendingTagEdits
+        let updated = papers.map { Self.withTagEdit($0, edits[$0.id]) }
+        if updated.map(\.tags) != papers.map(\.tags) { papers = updated }
+        if let selected = selectedPaper, let current = papers.first(where: { $0.id == selected.id }), current.tags != selected.tags {
+            selectedPaper?.tags = current.tags
+        }
+    }
+
+    func editTags(for paper: Paper) {
+        guard !paper.isSample, papers.contains(where: { $0.id == paper.id }) else { return }
+        tagEditor = TagEditorRequest(paperID: paper.id)
+    }
+
+    /// The reader's own tags on other papers, most used first (suggestions in the Edit tags sheet).
+    func ownTagsInLibrary(excluding paperID: UUID) -> [String] {
+        var counts: [String: (name: String, count: Int)] = [:]
+        for paper in papers where paper.id != paperID {
+            for tag in PaperTags.effective(catalog: [], own: paper.ownTags, hidden: []) {
+                let key = tag.lowercased()
+                counts[key] = (counts[key]?.name ?? tag, (counts[key]?.count ?? 0) + 1)
+            }
+        }
+        return counts.values.sorted { $0.count == $1.count ? $0.name < $1.name : $0.count > $1.count }.map(\.name)
+    }
+
+    /// Saves `desired` as the tags the reader sees for `paper` (catalog tags left out are hidden; the
+    /// rest are their own). Nil on success, otherwise what to tell the reader.
+    func saveTags(_ desired: [String], for paper: Paper) async -> String? {
+        guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
+              let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
+              let commands = libraryCommandCoordinator else { return "Tags can be changed once your library is up to date." }
+        let edit = PaperTags.edit(catalog: item.tags ?? [], desired: desired)
+        guard edit.own.count <= PaperTags.maximumOwnTags else { return "A paper can have up to \(PaperTags.maximumOwnTags) tags of your own." }
+        let scope = sessionID
+        do {
+            try await commands.editTags(documentID: item.documentID, tags: edit.own, hiddenTags: edit.hidden,
+                                        observedRevision: item.membershipRevision, display: String(paper.title.unicodeScalars.prefix(200)))
+            return nil
+        } catch LibraryCommandError.targetBusy {
+            return "This paper has another change waiting to sync. Try again in a moment."
+        } catch {
+            guard sessionID == scope, !(error is CancellationError) else { return nil }
+            return (error as? LocalizedError)?.errorDescription ?? "Your tags couldn’t be saved. Try again."
+        }
     }
 
     func changeImport(_ item: LibraryImportRecord, retry: Bool) async {
@@ -1608,6 +1700,7 @@ final class ReaderModel {
 
     private func applyLibraryProjection(_ rows: [LibraryPresentationRow]) {
         let previous = Dictionary(papers.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let tagEdits = pendingTagEdits
         let items = rows.compactMap { if case .item(let item) = $0 { return item }; return nil }
         let next = items.map { item in
             let paper = item.paper
@@ -1625,7 +1718,7 @@ final class ReaderModel {
             let file = readable && cached?.artifactID == paper.artifactID ? cached?.fileURL : nil
             var row = paper
             row.fileURL = file; row.readerBundle = file == nil ? nil : cached?.readerBundle
-            return row
+            return Self.withTagEdit(row, tagEdits[row.id])
         }
         let samples = papers.filter { candidate in candidate.isSample && !next.contains(where: { $0.id == candidate.id }) }
         // Samples have no server membership. Preserve the local sample
@@ -2622,6 +2715,12 @@ final class ReaderModel {
         await prepareOfflineLibrary(accountID: fixtureDevice.accountID, scope: sessionID, activation: activation,
                                     deploymentID: variant.deployment)
         tab = .library; wideMode = .library
+        // Visual checks without UI automation (docs/VISUAL_CHECK.md): open the fixture paper, and Edit tags over it.
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--visual-open-paper"), let paper = papers.first(where: { $0.id == OfflineReaderFixture.document }) {
+            select(paper)
+            if arguments.contains("--visual-edit-tags") { editTags(for: paper) }
+        }
     }
 
     /// Synthetic process-restart journeys use the real encrypted SQLite path,
