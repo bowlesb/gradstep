@@ -348,3 +348,24 @@ The owner asked for an owner-only Accounts tab so testers can be managed without
 - **Status shown:** active, disabled (banned), closing (deletion started, login not yet removed), closed (deleted).
   Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
   relies on Supabase linking identities with the same verified email; not yet tried on staging.
+
+## Mac app (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [Mac app](architecture/MAC_APP.md).
+
+- **Mac Catalyst with the Mac idiom on the existing target**, not a separate AppKit app: one code base, the
+  same bundle ID and App Store record (universal purchase), iOS build settings unchanged (`[sdk=macosx*]`
+  conditions only).
+- **Window:** always the wide layout; the view switch and Settings move into the window toolbar (platform
+  adaptation; the arrangement, modes and panes are the iPad's). Minimum 720 × 520 pt so it tiles on a
+  13-inch screen; size remembered. No privacy cover when the app is inactive (a Mac window stays visible).
+- **Menu bar mirrors on-screen controls** (no menu-only features). ⌘F finds in the paper while reading and
+  searches the library elsewhere (⌥⌘F always searches the library, as in Mail/Notes) — a change from
+  "⌘F = library search" because a reader pressing ⌘F in a paper expects to find text, not to leave it.
+- **Chat sends with ⌘Return** (Return = new line, as on iPad).
+- **Fixtures** compile for Debug builds on the Simulator or a Mac (`FIXTURE_HOST`), never for devices or
+  distributed builds.
+- **Distribution:** `scripts/upload-testflight-mac.sh`. Build 15 archived and signed for development; the
+  upload waits for the owner: a Mac Installer Distribution identity in the keychain and a Mac Catalyst App
+  Store profile ("Gradstep Mac App Store"). Not created by the agent: the existing installer certificate's
+  key is held outside this project, and new signing certificates are the owner's to hold.
