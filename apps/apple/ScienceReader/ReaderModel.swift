@@ -94,12 +94,16 @@ final class ReaderModel {
     private(set) var libraryImports: [LibraryImportRecord] = [] {
         didSet {
             guard libraryImports != oldValue else { return }
-            importSteps.observe(libraryImports, now: importClock())
+            let now = importClock()
+            importSteps.observe(libraryImports, now: now)
+            importProgressTracker.observe(libraryImports, now: now)
             librarySearchSourceChanged(); updateImportPolling()
         }
     }
     /// When each import in progress entered its current step, as this device saw it (rows show how long).
     private(set) var importSteps = ImportStepClock()
+    /// When each import's progress detail arrived here and how far its bar has got (rows count down from it).
+    private(set) var importProgressTracker = ImportProgressTracker()
     /// The step clock's time source (tests inject one).
     @ObservationIgnored var importClock: () -> Date = { Date() }
     private var importPollTask: Task<Void, Never>?
@@ -587,11 +591,16 @@ final class ReaderModel {
                 topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
                 needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits,
-                stepTiming: importSteps.timing(of: item))
+                stepTiming: importSteps.timing(of: item), importProgress: importProgress(for: item))
         case .queued:
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
         }
+    }
+
+    /// An import in progress: its step in the reader's words, percent and time left (nil when it isn't in progress).
+    func importProgress(for item: LibraryImportRecord) -> ImportProgress? {
+        importProgressTracker.progress(of: item, stepSince: importSteps.timing(of: item)?.since, now: importClock())
     }
 
     /// Only the Status column's value (cheap enough to check every row for the column's visibility).
@@ -2296,7 +2305,8 @@ final class ReaderModel {
     var sessionState: [String: String] {
         let sheet: String? = showSignIn ? "sign_in" : showRecovery ? "recovery" : chatConsentPrompt != nil ? "chat_consent"
             : showStore ? "store" : showImport ? "import" : showLibraryChanges ? "library_changes" : showAllChats ? "all_chats"
-            : showDiagrams ? "diagrams" : presentedDiagram != nil ? "diagram" : showReport ? "report" : showReports ? "reports" : nil
+            : showDiagrams ? "diagrams" : presentedDiagram != nil ? "diagram" : showReport ? "report" : showReports ? "reports"
+            : showImportHelp ? "import_help" : nil
         var state: [String: String] = ["tab": tab.rawValue, "signed_in": isSignedIn ? "1" : "0", "sync": syncStatus]
         if let sheet { state["sheet"] = sheet }
         if let paper = selectedPaper { state["paper"] = String(paper.id.uuidString.prefix(8)) }
@@ -2322,6 +2332,9 @@ final class ReaderModel {
         return state
     }
     #endif
+
+    /// "Why does this take a minute?": what happens while a paper is being made readable.
+    var showImportHelp = false
 
     // MARK: App Store purchases (docs/architecture/PURCHASES.md)
 
@@ -2686,12 +2699,13 @@ extension ReaderModel {
 
     func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],
                                        activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus],
-                                       importStepStarts: [UUID: Date] = [:]) {
+                                       importStepStarts: [UUID: Date] = [:], importDetailsReceived: [UUID: Date] = [:]) {
         fixtureOfflineStatus = offline
         libraryCreationSequences = sequences
         readingActivity = activity
         libraryImports = imports
         for item in imports { if let since = importStepStarts[item.id] { importSteps.record(item, since: since) } }
+        for item in imports { if let at = importDetailsReceived[item.id] { importProgressTracker.record(item, receivedAt: at) } }
         papers = papers.filter { $0.isSample } + fixturePapers
     }
 }
