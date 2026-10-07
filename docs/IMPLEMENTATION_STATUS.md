@@ -56,6 +56,15 @@ paper directly (no chat); automated user-workflow checks run after deploys and o
 ([workflow checks](architecture/WORKFLOW_CHECKS.md)) with results in the admin Reliability tab. One paper table
 (`PaperTable`) serves Library and Feed at every size.
 
+**Admin Accounts tab** (overnight 2026-10-07; [decision](DECISIONS.md#admin-accounts-agent-decisions-overnight-2026-10-07-owner-asleep-all-reversible)):
+owners with MFA list every account (email, status, plan, credits, library size, sign-in methods, created, last
+sign-in; search and sort; synthetic test logins marked), add testers (confirmed login, no email sent, starting
+credits once), grant credits (audited, at most 2,000) and disable/enable sign-in (audited Auth ban). Migration
+`…028_admin_accounts.sql` was applied to staging and the `admin-accounts` function deployed on 2026-10-07 (the
+deploy check `admin.accounts-gate` refuses anonymous and customer callers). Verified: database suite (new `test_owner_accounts.sql`), backend suite (10 new cases with
+fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
+dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
@@ -140,6 +149,14 @@ Simulator only (iPhone 17 Pro Max, iPad Pro 13"): unit tests for formatting, sor
 `library-detailed`, `library-metadata-list` in light/dark/XL and landscape; the default List is pixel-identical
 before/after. Not yet seen with a real signed-in library or on a device.
 
+**All chats as a table** (owner request 2026-10-07, [decision](DECISIONS.md#all-chats-as-a-table-owner-asked-2026-10-07)):
+a dense, sortable table of conversations (Conversation, Paper, Messages, Started, Last used; newest first), search,
+All · Paper chats · General, unsent drafts on top, Open paper and Delete (a conversation tombstone, confirmed first).
+New events carry an encrypted `createdAt`; older history shows "—" and sorts by arrival. Verified in the Simulator
+only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHistoryTests`, UI `ChatHistoryTableTests`
+and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
+`chat-history-actions`. Not yet seen with a real signed-in history or on a device.
+
 ## Verified locally
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
@@ -149,6 +166,8 @@ before/after. Not yet seen with a real signed-in library or on a device.
   DPO output, chat validation/pricing/settlement, renderer hostile-input and tamper checks, Mathpix,
   archive, arXiv).
 - Swift: ScienceReaderCore package tests (166) and app unit tests (248, 3 skipped; 2026-10-05 library metadata view); iPhone and iPad UI suites.
+- Recovery code ↔ Apple Passwords (2026-10-06, Simulator only): fill-from-Passwords handles "none saved"; Save to
+  Passwords reaches Apple's save sheet, which the Simulator can't complete without iCloud Keychain. Needs a device check.
 
 ## Foundations from earlier checkpoints (still true)
 

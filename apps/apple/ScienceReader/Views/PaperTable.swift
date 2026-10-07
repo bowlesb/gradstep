@@ -197,7 +197,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// The keyboard's row, else the hovered one, gets a quiet fill (the selection color for the keyboard).
     private func rowBackground(_ row: Row) -> Color? {
         if keyboardRow == row.id { return Color.accentColor.opacity(focused ? 0.14 : 0.08) }
-        if hovered == row.id { return Color(uiColor: .tertiarySystemFill) }
+        if hovered == row.id { return Color.primary.opacity(0.05) }   // as `macRowHover()`, on iPad too
         return nil
     }
 

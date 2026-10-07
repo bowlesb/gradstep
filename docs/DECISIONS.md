@@ -311,4 +311,196 @@ Made overnight without check-ins (owner asleep); each choice below is easy to ch
   Progress cell, or under the title when Progress isn't shown; the List shows the same button. The long-press menu
   and swipe say Retry / Remove (Cancel import while an import still runs). Tapping Retry shows the row
   **downloading again at once** (finding, if its details were never found), from the queued retry command, until the
-  server's own state arrives. Automatic server-side retries are out of scope here.
+  server's own state arrives. An import the server is retrying by itself (`download_retrying`, migration 027)
+  counts as under way: no Retry, not under Failed. Imports in progress show `ImportProgressView` (compact) in the
+  Progress cell. The Mac's View menu gets Filter Library in place of Show › Archived Papers.
+
+## Recovery code in Apple Passwords (owner asked 2026-10-06)
+
+Owner: "can we build an integration with Apple password manager so its easy for users to sync the retrieval password
+into Apple". The recovery code is needed only on a device that has no approved device to approve it (an approved
+device can approve a new one), not on every sign-in.
+
+- The recovery screen offers **Save to Passwords**: the code is saved as a password for `gradstep.ai` (title
+  "Gradstep recovery code", user name = the account email) through the system prompt
+  (`ASCredentialDataManager.save` on iOS 26.2+, `SecAddSharedWebCredential` before). Saving also ticks "I saved this
+  code". It is optional; copying the code still works.
+- On a new device, **Use code saved in Passwords** asks the system to offer passwords saved for `gradstep.ai`
+  (`ASAuthorizationPasswordProvider`) and fills the field; the field also accepts Password AutoFill.
+- Requires the `webcredentials:gradstep.ai` associated domain (App ID capability enabled; `gradstep.ai/.well-known/
+  apple-app-site-association` lists the app) and the "Gradstep App Store" profile.
+- Apple documents iCloud Keychain (which Passwords uses) as end-to-end encrypted; Gradstep's server still never receives the code. Anyone who can
+  open the person's Passwords can read the code, as with any password they store there.
+- Evidence (2026-10-06, iPhone Simulator): **Use code saved in Passwords** runs and reports "No saved recovery code was
+  filled" when none exists; **Save to Passwords** on a fresh staging account opens Apple's password-saving sheet, which
+  the Simulator closes because it has no iCloud Keychain. Saving and filling on a real device is not yet verified
+  (physical iPhone work is paused).
+
+## Self-healing downloads (decided 2026-10-07)
+
+Decided overnight under the owner's "don't stop to ask"; for review.
+
+Owner: a "Download failed" must never just sit in a reader's library. Decided and recorded here; details in
+[import reliability](architecture/PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027).
+
+- **Automatic retry, at most three times, 15 min / 2 h / 12 h**, for download failures that can change: host busy or
+  unreachable (`source_unavailable`), a bot check (`source_blocked`), no PDF at the link (`not_pdf`), gone or refused
+  (`download_failed`), a crash loop. **Not** for refusals that cannot change: a sign-in or paywall (`pdf_restricted`)
+  or the size limit (`too_large`). Every failure keeps the reader's Retry, which runs at once and does not use up an
+  automatic retry. A successful download resets the count.
+- **While a retry is scheduled the import stays `failed`** (honest: it did fail) with the new code
+  `download_retrying` ("Couldn’t download yet · Trying again automatically") and a new top-level entry key
+  `auto_retry_at`, present only then, so every other entry's JSON is unchanged (older builds show "Couldn’t import
+  this paper" and keep Retry). Rejected: keeping the import "Downloading…" for up to 12 h (the app would say
+  "taking longer than usual" for hours).
+- **A retry is a worker checkpoint, not a reader intent**: new `state_seq`, intent revision unchanged, so a reader's
+  Cancel still applies and needs no new revision.
+- **Healing**: a failed, retryable import whose paper has since moved on (another reader's retry or import) is put
+  back in the pipeline automatically. Found on staging: three imports stuck `failed` beside a paper that was `done`.
+- **After every pipeline worker deploy**, every failed paper that can resume without charge (metadata, download,
+  render; not `too_large`) is retried once per deploy label — including sign-in/bot refusals, since a deploy is when
+  our misclassification stops being one. Not counted as an automatic retry.
+- **Reader messages** (app, `LibraryImportErrorCode`): `pdf_restricted` "This PDF needs a sign-in or subscription",
+  `source_blocked` "The paper’s website blocked the download", `source_unavailable` "The paper’s website isn’t
+  responding", `not_pdf` "The paper’s link doesn’t lead to a PDF", `download_retrying` as above.
+- **We do not evade bot checks** (no browser user agent, no challenge solving). Copies on hosts that challenged every
+  automated request in the survey (ACM, OUP, Wiley, T&F, Elsevier, Science, PNAS, ACS, SAGE, IOP, Cell, PeerJ,
+  SSRN, eScholarship, OpenReview, IUCr, Lancet) are tried after every other copy; PubMed Central copies are fetched
+  from NLM's official open data on S3 (`pmc-oa-opendata`), the documented programmatic route.
+- **Ingest's notion of "openly available" is unchanged** (explicit PDF locations only). The pipeline additionally
+  tries PMC open data and open repository records; widening Ingest to count those is a possible follow-up.
+
+## Admin accounts (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+The owner asked for an owner-only Accounts tab so testers can be managed without an engineer
+([gap audit](LEGACY_GAP_AUDIT.md)). migration 028, Edge function `admin-accounts`, admin tab **Accounts**.
+
+- **Who:** owners signed in with MFA only, through the existing `is_operator('owner')` gate (`v1_admin_actor` on the
+  caller's own token); the service functions re-check that the acting account is an open owner. Support operators
+  don't see the tab.
+- **Add tester:** creates the Auth login with the email confirmed and no password through the Auth admin API;
+  `disable_signup` stays on and nothing is emailed. The page shows instructions to send and reminds the owner to add
+  the tester to TestFlight. The existing `auth.users` trigger creates the account row. Adding an existing email
+  changes nothing. Starting credits default to 1,000 (the approved tester grant) and are granted once per account.
+- **Grants:** `adjustment` credits that never expire, 1–2,000 per grant (server-side), a required one-line reason
+  (3–500 characters, kept in the audit log; the ledger reason is "Admin grant: …"), once per request ID; the page
+  asks for confirmation above 500.
+- **Disable:** a Supabase Auth ban (100 years), recorded in the audit log *before* the ban is applied; owners can't
+  be disabled here. An open session keeps working until its access token expires (up to an hour); making the
+  database refuse banned logins immediately is a possible follow-up (it would change `app_private.actor()`, used by
+  every RPC, so it was not done unreviewed). Deletion stays in the app.
+- **Status shown:** active, disabled (banned), closing (deletion started, login not yet removed), closed (deleted).
+  Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
+  relies on Supabase linking identities with the same verified email; not yet tried on staging.
+
+## All chats as a table (owner asked 2026-10-07)
+
+Owner: "the all chats UX is terrible, bad use of space, we also need a nice table, better more dense rows, not
+overdoing it, thoughtful. But at the very least I should be able to see a table with my chats, sort them based on
+last used, etc." Decided by the agent overnight (owner asked not to stop for feedback); all reversible.
+
+- **Same place, same entry points.** "Chat history" (chat top bar) and "All chats" (Library, chat and Settings menus)
+  still open one sheet titled All chats with Done; All diagrams is unchanged. The sheet now opens full height on
+  iPhone and page-sized on iPad (iOS 18+), since a table needs the room.
+- **A table in the `PaperTable` pattern** (`Views/ChatHistoryView.swift`): a pinned header of column titles (tap to
+  sort, tap again to reverse; "· Started ⌄" beside Conversation when the sorted column doesn't fit), compact rows
+  (~52 pt: 7 pt vertical padding, 16 pt sides), columns added by priority while they fit, never sideways scrolling.
+  Columns: **Conversation** (the first question on one line; under it, muted, the paper's title, or the newest
+  answer as one plain line when the Paper column is shown), **Paper** (title, "General", or "Paper chat" when the
+  paper is no longer in the library), **Messages**, **Started**, **Last used** (always rightmost: "Just now",
+  "5 min ago", "2 h ago", "Yesterday", "Mon", "Oct 3", "Sep 2025"). iPhone portrait: Conversation and Last used;
+  iPhone landscape and iPad: all five. Default order **Last used, newest first**; it isn't remembered between
+  openings. At accessibility text sizes rows replace the table (title, paper, "2 h ago · 6 messages").
+  A separate table rather than `PaperTable` itself: chats aren't papers, and `PaperTable` was being changed by another
+  session the same night; merging the two into one generic table is a later cleanup.
+- **Search and a quick filter.** A search field ("Search chats": every word must match a question in the
+  conversation or the paper's title, ignoring case and accents) and chips **All · Paper chats · General** with the
+  count ("34 chats", "5 of 34 chats"). Both apply to drafts too. No date grouping (Today / This week / Earlier):
+  it only makes sense for one sort, and the Last used column already says it.
+- **Unsent drafts stay on top**, in their own section ("Unsent drafts"), with a pencil, "Draft · <paper or General
+  chat>" and when they were edited; tap reopens, swipe or long-press discards, as before.
+- **Row actions.** Tap opens the conversation (as before). Long-press: **Open paper** (paper chats whose paper is in
+  the library) and **Delete conversation**; swipe: **Delete**. Both ask first ("… will be removed from your chats on
+  all your devices"). There was no delete before: it appends the conversation tombstone the sync design already had
+  (hidden on every device once synced, its diagrams too, continuing it blocked, an unsent follow-up kept as a draft).
+  The encrypted records stay on the server until account deletion; the app doesn't claim otherwise. Delete needs
+  this account's encrypted history on the device (not offered signed out).
+- **Times in history.** Events carried no time, so "Last used" had nothing to read. New conversation, message and
+  diagram events now carry `createdAt` (the author device's clock, Unix ms) **inside the encrypted payload**: the
+  service learns nothing it didn't already (it sees when ciphertext arrives), older app builds ignore the field,
+  and no migration or server change is involved. History saved before this has no times: those conversations show
+  "—" and sort after dated ones, among themselves by the order they reached this device (`PrivateState` keeps that
+  arrival order as an unsynced, uncompared hint). The original web app showed server `created_at`/`updated_at`.
+- **What the original web view had** (`reference/web/components/AllChatsView.tsx`): a desktop table Paper · Chat ·
+  Type (Paper/General badge) · Started · Last active · Msgs, newest activity first, no sorting, search or actions; a
+  card list on phones (title, paper, badge, relative time); a "New chat" button and a count in the header. Kept: the
+  columns (Type became the filter chips and the Paper column's "General"), newest-first, relative times, the count.
+  Dropped: the badge styling, the New chat button (the chat's own compose button stays one tap away), the
+  highlighted-passage quote of the in-panel history (not stored separately in the native history).
+
+## Author–year citations link like numbered ones (owner asked 2026-10-07)
+
+Owner: "when references are indicated like 'Stadter et al, 2021', I don't see an obvious way to use them as
+hyperlinks, like if they are numbers (which seems to work)". Decided without waking the owner (reversible, reader-only):
+
+- **Same interaction as numbers.** An author–year citation links to its bibliography entry only when exactly one entry
+  fits; the tap, highlight, Back and reference actions are the numbered ones. Each name–year pair is its own link
+  ("(Peters et al., 2017, 2018a)" is two). Ambiguous citations stay plain text rather than risk a wrong jump.
+- **Discoverability (styling only).** Same link color as numbers; on touch screens every citation link (numbered too)
+  gets a faint 1 px underline at 40% of the link color, so long author–year spans show their extent. No new controls.
+- **Matching rules** (detail and measurements in [Reader renderer](architecture/READER_RENDERER.md)): diacritics
+  folded, particles and multi-word surnames, "et al" with or without period, "and"/"&", groups, brackets, narrative and
+  parenthetical forms, lists, suffix letters; ties broken by cited names' places, author count, initials, suffix
+  letter or entry order. The bibliography now ends at an appendix paragraph, and lower-case-particle surnames start a
+  new entry.
+- **Measured, not assumed.** `scripts/citation-harness.mjs` runs the bridge in headless WebKit over 22 real bundles
+  (12 retained, 10 downloaded read-only from staging storage): unambiguous author–year citations linked 89.5% → 99.8%
+  (1,393 → 1,568 of 1,571), no wrong link against the oracle, 30/30 random links correct by hand, numbered papers
+  unchanged, no block text changed. The owner's "Städter et al., 2021" paper went from 44.9% to 100%.
+
+## Import progress (owner asked 2026-10-07)
+
+Owner: "when items are processing, we should have a better UX, ideally, we have an estimate of the total time, and
+have a percent done, with stages that make more sense to the user (What does 'Converting...' mean?) What is a reader
+to the user?" Agent decisions overnight (owner asleep; all reversible); design in
+[import progress](architecture/IMPORT_PROGRESS.md).
+
+- **Steps in the reader's words:** Finding the paper → Downloading the PDF (40.8 MB) → Reading equations and figures
+  (page 12 of 27) → Preparing it for reading; also "Waiting to start", "Waiting to continue" (budget pause) and
+  "Couldn't download yet · Trying again automatically" (027's automatic retry, shown as under way, not as a failure).
+  No user-facing "converting", "rendering", "reader" or "bundle" on import rows.
+- **The readable result is "a readable version"** where a noun is needed (the explainer); rows avoid naming it.
+  "Reader" stays an internal word. Failure messages ("Conversion failed", "…to convert this paper") were left for a
+  separate pass.
+- **Percent and time left are computed by the server** from measured stage times (30-day medians, defaults from the
+  staging canary), scaled by pages, using Mathpix's page progress during OCR, and sent as `progress_detail` on the
+  import entry (migration 029). The percent never goes backwards within an attempt; the time is shown only when
+  trustworthy, rounded ("About 40 s left"), said loosely before the page count is known ("Usually under a minute"),
+  and replaced by "Taking longer than usual" when the paper is backing off or well past its estimate.
+- **Updates are throttled:** at most one progress entry per import per 5 s, only when the reader would see something
+  new, within a per-account progress rate (720/hour) separate from library writes; the app moves the bar and counts
+  down between updates.
+- **Explained once:** an info button beside the progress opens "Getting a paper ready" (four steps, about a minute,
+  carries on if you leave the app).
+- **Look:** a slim neutral bar (the accent bar remains reading progress), "62% · About 40 s left" beside it.
+
+## Mac app (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [Mac app](architecture/MAC_APP.md).
+
+- **Mac Catalyst with the Mac idiom on the existing target**, not a separate AppKit app: one code base, the
+  same bundle ID and App Store record (universal purchase), iOS build settings unchanged (`[sdk=macosx*]`
+  conditions only).
+- **Window:** always the wide layout; the view switch and Settings move into the window toolbar (platform
+  adaptation; the arrangement, modes and panes are the iPad's). Minimum 720 × 520 pt so it tiles on a
+  13-inch screen; size remembered. No privacy cover when the app is inactive (a Mac window stays visible).
+- **Menu bar mirrors on-screen controls** (no menu-only features). ⌘F finds in the paper while reading and
+  searches the library elsewhere (⌥⌘F always searches the library, as in Mail/Notes) — a change from
+  "⌘F = library search" because a reader pressing ⌘F in a paper expects to find text, not to leave it.
+- **Chat sends with ⌘Return** (Return = new line, as on iPad).
+- **Fixtures** compile for Debug builds on the Simulator or a Mac (`FIXTURE_HOST`), never for devices or
+  distributed builds.
+- **Distribution:** `scripts/upload-testflight-mac.sh`. Build 15 archived and signed for development; the
+  upload waits for the owner: a Mac Installer Distribution identity in the keychain and a Mac Catalyst App
+  Store profile ("Gradstep Mac App Store"). Not created by the agent: the existing installer certificate's
+  key is held outside this project, and new signing certificates are the owner's to hold.

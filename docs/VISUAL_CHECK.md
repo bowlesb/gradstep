@@ -12,11 +12,13 @@ table in the Browse column), `library-metadata-list`, `library-slow-import`, `li
 longer than usual, one a minute into downloading, one failed), `library-columns` (the column chooser),
 `library-table-columns-all` (every column on), `library-filter-failed` (Failed filter: Retry and Get credits),
 `library-retry` (right after Retry: downloading again), `library-filter-tag` (a tag chosen), `library-tag-menu`,
-`library-swipe`, `feed`, `feed-results` (the Feed's
+`library-import-progress`, `library-import-progress-help`, `library-import-progress-table` (imports at every step with
+percent and time left; the explainer sheet), `library-swipe`, `feed`, `feed-results` (the Feed's
 List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
-`chat-history`, `signin`; and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
+`chat-history`, `signin`; All chats over ~30 fixture conversations (`--chat-history-fixture`): `chat-history-table` (with
+an unsent draft), `chat-history-search` ("DPO"), `chat-history-actions` (a row's long-press menu); and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
 `paper-citation`, `paper-reference` (after a citation, Back shown) and `paper-reference-actions`. Add a scenario
 when feedback concerns a screen that isn't covered; reproduce the state from the session timeline (tab, sheet,
 keyboard, orientation, device). Screens that need real data use the staging journey (`scripts/live-journey.mjs`).
@@ -40,10 +42,9 @@ node scripts/visual-check.mjs capture --label=after  --scenarios=chat-keyboard,s
 node scripts/visual-check.mjs compare --before=before --after=after
 ```
 
-- Sessions working in parallel use Simulators of their own: `--udid=<UDID>[,<UDID>]` (folders are named after the
-  Simulator, e.g. `gs-table-iphone-light`), `--devices=label:<UDID>,ipad`, or `GS_SIMULATOR_IPHONE=<UDID>` (any
-  `GS_SIMULATOR_<NAME>`) to point a named device elsewhere; `--derived=/private/tmp/…` keeps the build in a folder of
-  their own and `--skip-build` reuses it.
+- Parallel sessions use their own Simulators and build folder: `--udids=iphone:<UDID>,ipad:<UDID>` runs those device
+  names on the given Simulators (same models), and `--derived=/private/tmp/<session>/derived` keeps builds apart;
+  `--skip-build` reuses that build for another variant or orientation.
 - Devices: `iphone` (17 Pro), `small` (17e), `max` (17 Pro Max), `ipad` (Pro 11"), `ipad13` (Pro 13"), `mini` (iPad mini). Variants:
   `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text). The status bar is pinned to 9:41 and full battery.
 - Output: `.artifacts/visual/<label>/<device>-<variant>/<scenario>.png`, a contact sheet `<label>-sheet.png`, and

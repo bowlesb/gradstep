@@ -1,10 +1,11 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { PipelineMetrics } from './backend';
+import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type AccountSort } from './accounts';
 import { Reliability } from './reliability';
 import { Shell } from './shell';
 
 // Development-only sample data for screenshots: `?fixture=reliability` (add `&state=empty`
-// for empty states). main.tsx loads this module only when import.meta.env.DEV is true,
+// for empty states) and `?fixture=accounts`. main.tsx loads this module only when import.meta.env.DEV is true,
 // so production builds contain neither the data nor the entry point.
 
 const DAY = 86_400_000;
@@ -90,8 +91,65 @@ export function ReliabilityFixture() {
   const [reloads, setReloads] = useState(0);
   const empty = new URLSearchParams(location.search).get('state') === 'empty';
   const load = useCallback((days: number) => new Promise<PipelineMetrics>(resolve => setTimeout(() => resolve(empty ? emptyMetrics(days) : fixtureMetrics(days)), 120)), [empty]);
-  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
+  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Reliability load={load} reloadKey={reloads} />
+  </Shell>;
+}
+
+// ── Accounts (`?fixture=accounts`) ── example addresses only; changes stay in memory.
+const ago = (days: number, hours = 0) => new Date(Date.now() - (days * 24 + hours) * 3_600_000).toISOString();
+const person = (id: number, email: string | null, created: number, last: number | null, extra: Partial<AdminAccount> = {}): AdminAccount => ({
+  id: `31000000-0000-4000-8000-${String(id).padStart(12, '0')}`, email, synthetic: !!email?.endsWith('@example.invalid'), created_at: ago(created),
+  last_sign_in_at: last === null ? null : ago(last, 3), providers: ['email'], status: 'active', roles: [], plan: null,
+  credits: { available: 0, reserved: 0 }, library_items: 0, ...extra });
+const ACCOUNTS: AdminAccount[] = [
+  person(1, 'owner@example.com', 34, 0, { roles: ['owner'], providers: ['email', 'apple'], credits: { available: 1412, reserved: 40 }, library_items: 46,
+    plan: { plan: 'pro', environment: 'Sandbox', expires_at: ago(-21) } }),
+  person(2, 'mira.okafor@example.org', 6, 0, { providers: ['email', 'google'], credits: { available: 873, reserved: 0 }, library_items: 18 }),
+  person(3, 'j.lindqvist@example.net', 6, 2, { providers: ['apple'], credits: { available: 1000, reserved: 0 }, library_items: 3 }),
+  person(4, 'priya.raman@example.org', 5, null, { credits: { available: 1000, reserved: 0 } }),
+  person(5, 'tomas.ferreira@example.net', 12, 9, { status: 'disabled', credits: { available: 212, reserved: 0 }, library_items: 7 }),
+  person(6, 'gradstep-check-import-8f0c1e2a@example.invalid', 0, 0, { credits: { available: 300, reserved: 27 }, library_items: 1 }),
+  person(7, 'gradstep-check-chat-41b9d7c3@example.invalid', 0, 0, { credits: { available: 189, reserved: 0 } }),
+  person(8, 'science-reader-journey-5a2e@example.invalid', 3, 3, { credits: { available: 74, reserved: 0 }, library_items: 2 }),
+  person(9, 'leaving@example.org', 20, 4, { status: 'closing', credits: { available: 0, reserved: 0 } }),
+  person(10, null, 27, null, { status: 'closed', providers: [] }),
+];
+
+export function AccountsFixture() {
+  const [reloads, setReloads] = useState(0);
+  const empty = new URLSearchParams(location.search).get('state') === 'empty';
+  const [accounts, setAccounts] = useState(empty ? [] : ACCOUNTS);
+  const wait = <T,>(value: T) => new Promise<T>(resolve => setTimeout(() => resolve(value), 150));
+  const api = useMemo<AccountsApi>(() => ({
+    list: (search: string, sort: AccountSort, ascending: boolean) => {
+      const key = (a: AdminAccount) => (sort === 'created' ? a.created_at : a.last_sign_in_at);
+      const matched = accounts.filter(a => !search || (a.email ?? '').includes(search.toLowerCase())).sort((a, b) => {
+        const x = key(a), y = key(b);
+        if (!x || !y) return x === y ? 0 : x ? -1 : 1; // never signed in: last either way
+        return ascending ? x.localeCompare(y) : y.localeCompare(x);
+      });
+      return wait<AccountList>({ generated_at: new Date().toISOString(), total: accounts.length, matched: matched.length, accounts: matched });
+    },
+    addTester: (email: string, credits: number) => {
+      const existing = accounts.find(a => a.email === email.toLowerCase());
+      if (existing) return wait({ account_id: existing.id, email, created: false, status: existing.status, starting_credits: 0, starting_granted: false });
+      const added = person(100 + accounts.length, email.toLowerCase(), 0, null, { credits: { available: credits, reserved: 0 } });
+      setAccounts(list => [added, ...list]);
+      return wait({ account_id: added.id, email: added.email!, created: true, status: 'active' as const, starting_credits: credits, starting_granted: credits > 0 });
+    },
+    grant: (id: string, credits: number) => {
+      setAccounts(list => list.map(a => a.id === id ? { ...a, credits: { ...a.credits, available: a.credits.available + credits } } : a));
+      return wait({ credits, replayed: false });
+    },
+    setSignIn: (id: string, disabled: boolean) => {
+      setAccounts(list => list.map(a => a.id === id ? { ...a, status: disabled ? 'disabled' as const : 'active' as const } : a));
+      return wait({ disabled });
+    },
+  }), [accounts]);
+  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Accounts" onTab={() => undefined} counts={{ Support: 2 }}
+    email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
+    <Accounts api={api} reloadKey={reloads} />
   </Shell>;
 }

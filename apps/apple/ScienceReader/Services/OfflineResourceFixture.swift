@@ -1,4 +1,4 @@
-#if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+#if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
 import CryptoKit
 import Darwin
 import Foundation

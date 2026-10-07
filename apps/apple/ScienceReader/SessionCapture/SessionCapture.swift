@@ -97,7 +97,7 @@ final class SessionCapture {
         let meta: [String: Any] = [
             "format": "science-reader-session-1", "app": "Gradstep",
             "version": info?["CFBundleShortVersionString"] as? String ?? "", "build": info?["CFBundleVersion"] as? String ?? "",
-            "device": model, "system": UIDevice.current.systemVersion, "idiom": UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone",
+            "device": model, "system": UIDevice.current.systemVersion, "idiom": Platform.isMac ? "mac" : UIDevice.current.userInterfaceIdiom == .pad ? "pad" : "phone",
             "screen_scale": screen?.scale ?? 0, "started_at": ISO8601DateFormatter().string(from: startedAt ?? Date()),
             "video": videoRecording && FileManager.default.fileExists(atPath: directory.appendingPathComponent("screen.mp4").path),
             "voice": videoRecording && includeVoice,

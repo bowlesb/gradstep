@@ -34,7 +34,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   a menu. Rows: 16 pt sides, 10 pt vertical; pointer hover and the arrow-key row get a quiet fill; tap or Return =
   the screen's primary action, long-press = actions, swipe = delete-type actions; each row is one VoiceOver element
   reading every chosen column, its action button a separate one. At accessibility text sizes the screen's rows
-  replace the table.
+  replace the table. All chats (`Views/ChatHistoryView.swift`) is the same pattern for conversations: one-line
+  question with a muted second line, ~52 pt rows (7 pt vertical padding), Last used rightmost, a search field and
+  filter chips above.
 - **Filters**: quick filters are `ChipButton`s in one horizontally scrolling row that scrolls away with the rows
   (open space while browsing); a menu chip comes first (Tags ⌄); only filters that would change the list appear,
   and the row is hidden when none would. A problem count (Failed 2) is orange.

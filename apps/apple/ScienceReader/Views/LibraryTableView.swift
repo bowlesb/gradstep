@@ -104,6 +104,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
             return facts.opened.map { "Opened " + LibraryFormat.relativeDayInSentence($0, now: now) } ?? "Not opened"
         case .chats: return facts.chats > 0 ? LibraryFormat.chats(facts.chats) : nil
         case .progress:
+            if let progress = facts.importProgress { return progress.presentation(at: now).accessibilityLabel }
             if let timing = facts.stepTiming, timing.step == facts.step {
                 return timing.step.spokenStatus(elapsed: ImportStepElapsed(since: timing.since, now: now))
             }
@@ -121,7 +122,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
 
 extension LibraryColumnSettings.WidthClass {
     /// iPhone keeps its own columns; iPad and Mac share theirs (the table's width still decides what fits).
-    @MainActor static var current: Self { UIDevice.current.userInterfaceIdiom == .phone ? .compact : .regular }
+    @MainActor static var current: Self { Platform.isLargeScreen ? .regular : .compact }
 }
 
 /// The Library as a table: `PaperTable` over the library's rows, with the reader's columns. Tapping a paper opens it
@@ -143,9 +144,9 @@ struct LibraryPaperTable<Top: View>: View {
                    },
                    cell: { item, column in
                        LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
-                                        act: { perform($0, on: item) }, enabled: model.canChangeImports)
+                                        act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
                    },
-                   cellIsControl: { item, column in column == LibraryTableColumn.progress.rawValue && item.facts.importAction != nil },
+                   cellIsControl: { item, column in column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil) },
                    spoken: { item, column in LibraryTableColumn(rawValue: column)?.spoken(item) },
                    primaryAction: { action(for: $0) },
                    menu: { LibraryRowActions(model: model, entry: $0.entry, inTable: true) },
@@ -153,7 +154,7 @@ struct LibraryPaperTable<Top: View>: View {
                    detail: { item, shown in
                        // Without the Progress column an import still shows what it is doing, and its action.
                        if item.isImport, !shown.contains(LibraryTableColumn.progress.rawValue) {
-                           LibraryImportStatusLine(item: item, act: { perform($0, on: item) }, enabled: model.canChangeImports)
+                           LibraryImportStatusLine(item: item, act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
                        }
                    },
                    top: { top })
@@ -166,7 +167,7 @@ struct LibraryPaperTable<Top: View>: View {
 
     /// The open paper is highlighted only where it is shown beside the table (iPad Browse).
     private func isSelected(_ entry: LibraryListEntry) -> Bool {
-        guard model.wideMode == .browse, UIDevice.current.userInterfaceIdiom == .pad, case .paper(let paper) = entry else { return false }
+        guard model.wideMode == .browse, Platform.isLargeScreen, case .paper(let paper) = entry else { return false }
         return model.selectedPaper?.id == paper.id
     }
 
@@ -210,6 +211,7 @@ struct LibraryTableCell: View {
     var highlightedTag: String? = nil
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
+    var explain: (() -> Void)? = nil
 
     var body: some View {
         let facts = item.facts
@@ -224,7 +226,7 @@ struct LibraryTableCell: View {
         case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.relativeDay($0) } ?? (facts.paper == nil ? nil : "—"))
         // No chats is the usual case: left blank, so the counts stand out.
         case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
-        case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled)
+        case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)
         case nil: EmptyView()
         }
     }
@@ -237,11 +239,16 @@ struct LibraryProgressCell: View {
     let item: LibraryTableItem
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
+    /// "Why does this take a minute?" beside an import's progress.
+    var explain: (() -> Void)? = nil
 
     var body: some View {
         let facts = item.facts
+        if let progress = facts.importProgress {
+            // An import under way: "Reading 62%", a slim bar, "40 s left" (pipeline progress, 2026-10-07).
+            ImportProgressView(progress: progress, style: .compact, explain: explain)
         // Waiting in the queue isn't work yet: no spinner (below, with its time).
-        if let step = facts.step, step != .queued {
+        } else if let step = facts.step, step != .queued {
             VStack(alignment: .leading, spacing: 2) {
                 Label { Text(step.tableTitle) } icon: {
                     // Centred on the text rather than sitting on its baseline.
@@ -321,8 +328,17 @@ struct LibraryImportStatusLine: View {
     let item: LibraryTableItem
     var act: (LibraryImportAction) -> Void = { _ in }
     var enabled = true
+    var explain: (() -> Void)? = nil
     var body: some View {
         let facts = item.facts
+        if let progress = facts.importProgress {
+            ImportProgressView(progress: progress, style: .row, explain: explain).font(.footnote).foregroundStyle(.secondary)
+        } else {
+            line(facts)
+        }
+    }
+
+    private func line(_ facts: LibraryRowFacts) -> some View {
         HStack(alignment: .center, spacing: 10) {
             if let step = facts.step, step != .queued {
                 ProgressView().controlSize(.mini).accessibilityHidden(true)

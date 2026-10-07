@@ -35,7 +35,8 @@
     "account-delete",
     "store-sync",
     "app-store-notifications",
-    "add-reference"
+    "add-reference",
+    "admin-accounts"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

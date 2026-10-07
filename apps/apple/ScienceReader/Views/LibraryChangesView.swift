@@ -64,7 +64,7 @@ struct LibraryChangesView: View {
                 }
             }.navigationTitle("Pending changes").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button("Retry") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing) }
+                    ToolbarItem(placement: .topBarLeading) { Button("Retry") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing).macBarButton() }
                     ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 }
         }
