@@ -2074,7 +2074,7 @@ final class ReaderModel {
         guard draft.context == "general" || documentID != nil, chatWorkspace.selectDraft(id) != nil else { return }
         if let documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }
-            generalChat = false; wideMode = .reader
+            generalChat = false; wideMode = .reader; readerChatHidden = false
             openLocalPaperIfNeeded()
         } else { generalChat = true; wideMode = .chat }
         if let checkpoint = chatWorkspace.checkpoint(for: id), let conversation = checkpoint.conversationID,
@@ -2226,6 +2226,7 @@ final class ReaderModel {
     func newChat(general: Bool) {
         guard general || canUsePaperChat else { return }
         generalChat = general; activeConversation = nil
+        if !general { readerChatHidden = false }
     }
 
     func sendMessage() async {

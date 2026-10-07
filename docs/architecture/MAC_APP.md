@@ -19,6 +19,12 @@ hover capability. Evidence: `.artifacts/offline-save-review/mac-verified.xcresul
 No Developer Mode or security setting changed. This verifies native model/reader unit behavior and launch,
 not the keyboard/UI workflows or live services listed below.
 
+**Reader navigation review, 2026-10-07:** a new isolated unsigned Catalyst `build-for-testing` passes after
+merging the verified offline-save and passage changes (`1aeaea2`) into the navigation branch. The app and both
+test bundles contain arm64 and x86_64; the built configuration was checked against public fixture values.
+Evidence: `.artifacts/reader-navigation-review-20261007-4f918777ed/catalyst-build.xcresult` and
+`catalyst-build-evidence.json` in the navigation worktree. No Mac runtime assertions ran in this check.
+
 ## Spontaneous launch popup — 2026-10-07
 
 The owner reported “ScienceReader cannot be opened because of a problem” without deliberately launching an app.

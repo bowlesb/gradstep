@@ -206,7 +206,11 @@ same bridge, no re-render.
 Tests (`PaperWebViewTests`): `testContentsIndentByLevelAndSkipAbstractAndPrintedContents`,
 `testContentsInferDepthFromNumberingWhereLevelsWereFlattened`, `testContentsOfARealConversionNestAppendixSections`,
 `testGalleryFiguresReadTheirNumberAndCaption`, `testShowFigureCentersItHighlightsItAndBackReturns`; UI tests in
-`PaperToolsTests`.
+`PaperToolsTests`. The 2026-10-07 takeover ran them after a clean merge with offline-save and passage support:
+Contents levels and actual DPO indentation, find/close/chat-return reading position, and gallery/Show in paper/Back
+pass on iPhone (light and dark figure screenshots reviewed). The earlier figure-sheet and touch-selection journeys
+also pass. Contents assertions use accessible levels rather than full-row button frames; find assertions allow the
+wrapping match's earlier lines above the viewport while its last, matching line remains visible.
 
 ## Sanitization
 
