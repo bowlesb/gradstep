@@ -323,7 +323,10 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["tab.chat"].tap()
         app.buttons["Chat history"].tap()
-        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", journey.latex)).firstMatch
+        // All chats shows a selection chat by its short title, not the raw LaTeX prompt: an equation's Define asks
+        // the explain-equation question, so it reads "Explain · ‹symbols›".
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label CONTAINS %@",
+                                                     "Explain · ", "Define · ", journey.latex)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
         XCTAssertTrue(question.waitForExistence(timeout: 5))
         XCTAssertEqual(questions.count, 1, "The exact equation question is retained once after relaunch")

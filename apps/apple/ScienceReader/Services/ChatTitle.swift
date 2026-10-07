@@ -44,7 +44,19 @@ enum ChatTitle {
         let text = saved.trimmingCharacters(in: .whitespacesAndNewlines)
         for (prefix, label) in prompts {
             if text.hasPrefix(prefix) {
-                let quote = readable(String(text.dropFirst(prefix.count)), truncated: truncated, wholeWord: wholeWord)
+                let rest = String(text.dropFirst(prefix.count))
+                var quote = readable(rest, truncated: truncated, wholeWord: wholeWord)
+                if quote.isEmpty {
+                    // One formula longer than the saved title (or with no complete part): show what was saved of it
+                    // rather than the bare action.
+                    let partial = collapse(segments(rest).map { segment -> String in
+                        switch segment {
+                        case .text(let value): return value
+                        case .math(let body, _, _): return formula(body, cut: false)
+                        }
+                    }.joined(separator: " "))
+                    if !partial.isEmpty { quote = truncated && !partial.hasSuffix("…") ? partial + "…" : partial }
+                }
                 return quote.isEmpty ? label : "\(label) · \(quote)"
             }
             // No passage, or an earlier, longer prompt cut off before its passage.

@@ -87,7 +87,7 @@ final class LibraryLayoutTests: XCTestCase {
         for title in ["Pages", "Source"] { XCTAssertFalse(header(title, in: app).exists, "\(title) is off by default") }
         XCTAssertEqual(header("Added", in: app).value as? String, "Sorted descending", "Recent order is the Added column, newest first")
         XCTAssertTrue(cell(dpo, in: app).label.contains("Tags: Alignment, RLHF"), "A paper's own tags: \(cell(dpo, in: app).label)")
-        XCTAssertTrue(cell(attention, in: app).label.contains("Tags: Language, Machine learning"), "Topics from categories")
+        XCTAssertTrue(cell(attention, in: app).label.contains("Tags: Natural language processing, Machine learning"), "Topics from categories, in the tag vocabulary's names: \(cell(attention, in: app).label)")
         attach(app, "Library table")
 
         // Recent first (as the List): Attention was added after DPO.
