@@ -2,14 +2,14 @@ import Foundation
 import ScienceReaderCore
 
 /// An import in progress as its row shows it (owner, 2026-10-07: "an estimate of the total time, … a percent done,
-/// with stages that make more sense to the user"). Pure: the server's detail (migration 030) and when this device
+/// with stages that make more sense to the user"). Pure: the server's detail (migration 031) and when this device
 /// received it in, the time in, the words, the bar and what VoiceOver reads out. From servers without details it
 /// falls back to the step and how long it has run here ("Downloading the PDF · 2 min"), as before.
 /// Design: docs/architecture/IMPORT_PROGRESS.md.
 struct ImportProgress: Equatable, Sendable {
     /// The step, from the detail when there is one, else from the coarse progress.
     let step: LibraryImportStep
-    /// The server's latest detail; nil from servers before migration 030.
+    /// The server's latest detail; nil from servers before migration 031.
     let detail: LibraryImportProgressDetail?
     /// When this device received `detail`: the bar and the time left move on from here until the next one.
     let receivedAt: Date
@@ -17,6 +17,9 @@ struct ImportProgress: Equatable, Sendable {
     var floor = 0
     /// When this device first saw the import on its current step (for the fallback's elapsed time).
     var stepSince: Date? = nil
+    /// The download failed and the server will try again by itself (migration 027's `download_retrying`): not a dead
+    /// failure, so it is shown like work in progress.
+    var retrying = false
 
     /// The percent shown at `now`: the server's, moved on toward 99 % at the estimated finish (the same count-down
     /// the server assumes when it decides whether a reader needs a new detail), never below `floor`, never 100 %
@@ -45,6 +48,11 @@ struct ImportProgress: Equatable, Sendable {
     }
 
     func presentation(at now: Date) -> ImportProgressPresentation {
+        if retrying {
+            return ImportProgressPresentation(step: .downloading, title: "Couldn’t download yet", detail: nil, percent: nil,
+                                              timeText: "Trying again automatically", compactTimeText: "Trying again", isSlow: false,
+                                              accessibilityLabel: "Couldn’t download yet, trying again automatically")
+        }
         guard let detail else {
             // Older servers: the step and how long it has run here, exactly as before.
             let elapsed = stepSince.map { ImportStepElapsed(since: $0, now: now) }
@@ -215,9 +223,16 @@ struct ImportProgressTracker: Equatable {
 
     /// The import's progress, or nil when it isn't in progress. `now` stands in for an import not yet observed.
     func progress(of item: LibraryImportRecord, stepSince: Date?, now: Date) -> ImportProgress? {
+        if item.isRetryingAutomatically { return ImportProgress(step: .downloading, detail: nil, receivedAt: now, retrying: true) }
         guard let step = item.step else { return nil }
         let mark = marks[item.id].flatMap { $0.stateSequence == item.stateSequence && $0.intentRevision == item.intentRevision ? $0 : nil }
         return ImportProgress(step: step, detail: item.progressDetail, receivedAt: mark?.receivedAt ?? now, floor: mark?.floor ?? 0,
                               stepSince: stepSince)
     }
+}
+
+extension LibraryImportRecord {
+    /// Failed to download, and the server will try again by itself (migration 027): rows show it as under way,
+    /// and the library keeps polling for it.
+    var isRetryingAutomatically: Bool { phase == .failed && errorCode == .downloadRetrying }
 }

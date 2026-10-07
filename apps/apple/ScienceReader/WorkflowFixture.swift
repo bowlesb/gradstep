@@ -109,7 +109,7 @@ extension ReaderModel {
             return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
         }
         // `--import-progress-fixture` (import progress, 2026-10-07): imports at every step with the server's percent and
-        // time left (migration 030): just added, downloading a large PDF, reading page 12 of 27, nearly ready, one
+        // time left (migration 031): just added, downloading a large PDF, reading page 12 of 27, nearly ready, one
         // backing off after an error, and one from an older server (no detail: spinner and step time, as before).
         if ProcessInfo.processInfo.arguments.contains("--import-progress-fixture") {
             let progressImports = [
@@ -137,6 +137,9 @@ extension ReaderModel {
                 try importRecord(34, sequence: 11, phase: "acquiring", progress: "downloading", error: nil,
                     title: "Language Models are Few-Shot Learners", authors: ["Tom B. Brown", "Benjamin Mann", "Nick Ryder"],
                     published: "2020-05-28", categories: ["cs.CL"], source: "2005.14165"),
+                try importRecord(35, sequence: 10, phase: "failed", progress: nil, error: "download_retrying",
+                    title: "Adam: A Method for Stochastic Optimization", authors: ["Diederik P. Kingma", "Jimmy Ba"],
+                    published: "2014-12-22", categories: ["cs.LG"], source: "1412.6980"),
                 try importRecord(21, sequence: 3, phase: "failed", progress: nil, error: "insufficient_credits",
                     title: "Constitutional AI: Harmlessness from AI Feedback", authors: ["Yuntao Bai", "Saurav Kadavath", "Sandipan Kundu"],
                     published: "2022-12-15", categories: ["cs.CL", "cs.AI"], source: "2212.08073"),

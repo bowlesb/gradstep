@@ -146,7 +146,7 @@ export const PROGRESS_INTERVAL_MS = 5_000;
 const progressReported = new WeakMap<Claim, number>();
 
 /** Tells the readers waiting on this paper what the worker sees of the current stage (the provider's pages,
- * the PDF's size and pages; migration 030). Best effort: at most every 5 s, starting 5 s after the stage was
+ * the PDF's size and pages; migration 031). Best effort: at most every 5 s, starting 5 s after the stage was
  * projected, and a failure never affects the stage. */
 async function reportProgress(deps: PipelineDeps, claim: Claim, seen: { pagesDone?: number | null; pages?: number | null; bytes?: number | null }): Promise<void> {
   const last = progressReported.get(claim);

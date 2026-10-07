@@ -372,7 +372,7 @@ public enum LibraryImportProgress: Equatable, Codable, Sendable {
     }
 }
 
-/// How far an active import has got (migration 030, `progress_detail`): the step in the reader's words, the
+/// How far an active import has got (migration 031, `progress_detail`): the step in the reader's words, the
 /// percent done and, when the server trusts its estimate, the seconds left. Presentation only, and never a reason
 /// to reject an entry: decoding keeps unknown steps and drops values out of range, so a newer or malformed detail
 /// can't stop library sync.
@@ -468,7 +468,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let errorCode: LibraryImportErrorCode?
     public let retryable: Bool
     public let progress: LibraryImportProgress?
-    /// Percent, time left and the step in the reader's words (servers from migration 030; nil before).
+    /// Percent, time left and the step in the reader's words (servers from migration 031; nil before).
     public let progressDetail: LibraryImportProgressDetail?
 
     private enum CodingKeys: String, CodingKey {

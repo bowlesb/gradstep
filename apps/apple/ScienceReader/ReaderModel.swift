@@ -617,6 +617,7 @@ final class ReaderModel {
         case .pending(let item):
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
+            case .failed where item.isRetryingAutomatically: return .active(item.libraryShortStatus)
             case .failed, .membershipConflict: return .problem(item.libraryShortStatus)
             default: return .info(item.libraryShortStatus)
             }
@@ -1272,7 +1273,8 @@ final class ReaderModel {
     #endif
 
     private func updateImportPolling() {
-        let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) }
+        // Includes a download the server will retry by itself, so the row turns into progress when it does.
+        let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) || $0.isRetryingAutomatically }
         guard libraryImports.contains(where: isActive), accountID != nil else {
             importPollTask?.cancel(); importPollTask = nil; return
         }

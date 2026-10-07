@@ -9,7 +9,8 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 `apps/apple/ScienceReaderUITests/VisualScenarioTests.swift` holds named, deterministic screens built from fixtures
 (no network, no account): `library`, `library-search`, `library-table`, `library-table-browse` (iPad landscape: the
 table in the Browse column), `library-detailed`, `library-metadata-list`, `library-slow-import`, `library-slow-import-table` (an import taking
-longer than usual, one a minute into downloading, one failed), `library-swipe`, `feed`, `feed-results` (the Feed's
+longer than usual, one a minute into downloading, one failed), `library-import-progress`, `library-import-progress-help`,
+`library-import-progress-table` (imports at every step with percent and time left; the explainer sheet), `library-swipe`, `feed`, `feed-results` (the Feed's
 List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,

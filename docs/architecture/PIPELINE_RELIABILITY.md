@@ -79,6 +79,9 @@ builds render sample data with `?fixture=reliability`; production builds exclude
 
 ## App
 
+> **2026-10-07:** superseded for servers with migration 031 by [import progress](IMPORT_PROGRESS.md): the step in the
+> reader's words, percent and time left from the server. The behaviour below remains the fallback for older servers.
+
 Import rows show how long the current step has taken; past 3 minutes they say it is taking longer than usual and keep
 Cancel available. Failed imports keep Retry.
 

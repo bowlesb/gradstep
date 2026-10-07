@@ -274,7 +274,7 @@ struct ImportStepTiming: Equatable {
 }
 
 extension LibraryImportRecord {
-    /// The step while the import is in progress: the server's detailed step (migration 030), else its coarse
+    /// The step while the import is in progress: the server's detailed step (migration 031), else its coarse
     /// progress (an import can still read "accepted" while its paper is already converting), else its phase.
     var step: LibraryImportStep? {
         switch phase {

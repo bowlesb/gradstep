@@ -197,6 +197,23 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertEqual(old.presentation(at: now + 90).timeText, "1 min")
     }
 
+    func testADownloadTheServerWillRetryIsNotADeadFailure() throws {
+        var value = try record(phase: "failed", progress: nil)
+        XCTAssertNil(ImportProgressTracker().progress(of: value, stepSince: nil, now: now), "An ordinary failure has no progress")
+        value = try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: [
+            "id": UUID().wire, "created_seq": 1, "state_seq": 2, "intent_revision": 1, "visible": true, "phase": "failed",
+            "source": "arxiv", "source_id": "2006.11239", "source_url": "https://arxiv.org/abs/2006.11239", "retryable": false,
+            "error_code": "download_retrying", "auto_retry_at": "2026-10-07T10:00:00Z"] as [String: Any]))
+        XCTAssertTrue(value.isRetryingAutomatically)
+        let shown = try XCTUnwrap(ImportProgressTracker().progress(of: value, stepSince: nil, now: now)).presentation(at: now)
+        XCTAssertEqual(shown.title, "Couldn’t download yet")
+        XCTAssertEqual(shown.timeText, "Trying again automatically")
+        XCTAssertNil(shown.fraction, "Waiting, not measured: the spinner")
+        XCTAssertFalse(shown.isSlow)
+        let model = ReaderModel(configuration: nil)
+        XCTAssertEqual(model.libraryStatus(for: .pending(value)), .active("Retrying soon"), "Under way in the table, not a problem")
+    }
+
     // MARK: Model
 
     func testModelGivesRowsTheProgressWithItsClock() throws {

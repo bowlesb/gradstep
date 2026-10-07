@@ -83,7 +83,8 @@ differences:
 - **Stored progress** (all imports, from 019). `import_requests.progress` is written by
   `worker_pipeline_sync_imports` together with a new `state_seq`, instead of being computed from the paper's live
   stage, so an import entry's JSON at a given `state_seq` never changes (clients and the offline cache require
-  that). New imports start at `finding`.
+  that). New imports start at `finding`. From migration 031 active imports also carry `progress_detail` (step,
+  percent, time left), likewise stored and changed only with a new `state_seq`; see [import progress](IMPORT_PROGRESS.md).
 
 ## Delivery and chat context
 

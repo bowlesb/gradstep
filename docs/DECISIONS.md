@@ -348,3 +348,29 @@ The owner asked for an owner-only Accounts tab so testers can be managed without
 - **Status shown:** active, disabled (banned), closing (deletion started, login not yet removed), closed (deleted).
   Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
   relies on Supabase linking identities with the same verified email; not yet tried on staging.
+
+## Import progress (owner asked 2026-10-07)
+
+Owner: "when items are processing, we should have a better UX, ideally, we have an estimate of the total time, and
+have a percent done, with stages that make more sense to the user (What does 'Converting...' mean?) What is a reader
+to the user?" Agent decisions overnight (owner asleep; all reversible); design in
+[import progress](architecture/IMPORT_PROGRESS.md).
+
+- **Steps in the reader's words:** Finding the paper → Downloading the PDF (40.8 MB) → Reading equations and figures
+  (page 12 of 27) → Preparing it for reading; also "Waiting to start", "Waiting to continue" (budget pause) and
+  "Couldn't download yet · Trying again automatically" (027's automatic retry, shown as under way, not as a failure).
+  No user-facing "converting", "rendering", "reader" or "bundle" on import rows.
+- **The readable result is "a readable version"** where a noun is needed (the explainer); rows avoid naming it.
+  "Reader" stays an internal word. Failure messages ("Conversion failed", "…to convert this paper") were left for a
+  separate pass.
+- **Percent and time left are computed by the server** from measured stage times (30-day medians, defaults from the
+  staging canary), scaled by pages, using Mathpix's page progress during OCR, and sent as `progress_detail` on the
+  import entry (migration 031). The percent never goes backwards within an attempt; the time is shown only when
+  trustworthy, rounded ("About 40 s left"), said loosely before the page count is known ("Usually under a minute"),
+  and replaced by "Taking longer than usual" when the paper is backing off or well past its estimate.
+- **Updates are throttled:** at most one progress entry per import per 5 s, only when the reader would see something
+  new, within a per-account progress rate (720/hour) separate from library writes; the app moves the bar and counts
+  down between updates.
+- **Explained once:** an info button beside the progress opens "Getting a paper ready" (four steps, about a minute,
+  carries on if you leave the app).
+- **Look:** a slim neutral bar (the accent bar remains reading progress), "62% · About 40 s left" beside it.

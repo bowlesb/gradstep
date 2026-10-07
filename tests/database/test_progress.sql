@@ -1,4 +1,4 @@
--- Import progress (migration 030): an active import's entry carries the reader's step, percent and time left,
+-- Import progress (migration 031): an active import's entry carries the reader's step, percent and time left,
 -- stamped with each new state_seq (so the JSON at a state_seq never changes); worker reports are projected at
 -- most every 5 s, only with news, within the per-account progress rate; the percent never goes backwards in
 -- an attempt; entries without a detail keep their exact JSON.
@@ -173,7 +173,7 @@ select app_private.library_next_seq('30300000-0000-0000-0000-00000000000a') as s
 update app_private.import_requests set phase='failed',error_code='conversion_failed',retryable=true,state_seq=:s where id='30300000-0000-0000-0000-0000000000a1';
 select test.assert((select progress_detail is null and progress_at is null from app_private.import_requests where id='30300000-0000-0000-0000-0000000000a1')
  and app_private.library_import_entry('30300000-0000-0000-0000-00000000000a','30300000-0000-0000-0000-0000000000a1')
-  =app_private.library_import_entry_base('30300000-0000-0000-0000-00000000000a','30300000-0000-0000-0000-0000000000a1'),'failed: no detail, the entry as before 030');
+  =app_private.library_import_entry_base('30300000-0000-0000-0000-00000000000a','30300000-0000-0000-0000-0000000000a1'),'failed: no detail, the entry as before 031');
 select (intent_revision) as rev from app_private.import_requests where id='30300000-0000-0000-0000-0000000000a1' \gset
 set role authenticated;
 select set_config('request.jwt.claim.sub','30300000-0000-0000-0000-00000000000a',false);
@@ -182,7 +182,7 @@ reset role;
 select test.assert((pg_temp.detail('30300000-0000-0000-0000-0000000000a1')->>'percent')::int<(:'d6'::jsonb->>'percent')::int,'a retry starts its own percent');
 select test.assert(pg_temp.journal_matches('30300000-0000-0000-0000-00000000000a','30300000-0000-0000-0000-0000000000a1'),'journal: retry');
 
--- Ready: the import leaves the library list with no detail; its entry is exactly what it was before 030.
+-- Ready: the import leaves the library list with no detail; its entry is exactly what it was before 031.
 update app_private.pipeline_papers set page_count=27 where id=:'paper';
 set role service_role;
 select public.worker_pipeline_published(:'paper',:'claim',:'gen',('\x'||repeat('7c',32))::bytea,2048,'timestep-mathpix-mathml-v1');
@@ -192,11 +192,11 @@ reset role;
 select test.assert((select bool_and(phase='ready' and progress_detail is null) from app_private.import_requests
  where id in ('30300000-0000-0000-0000-0000000000a1','30300000-0000-0000-0000-0000000000b1')),'ready imports carry no detail');
 select test.assert(app_private.library_import_entry(account_id,id)=app_private.library_import_entry_base(account_id,id)
- and not (app_private.library_import_entry(account_id,id) ? 'progress_detail'),'ready entry unchanged by 030')
+ and not (app_private.library_import_entry(account_id,id) ? 'progress_detail'),'ready entry unchanged by 031')
  from app_private.import_requests where id in ('30300000-0000-0000-0000-0000000000a1','30300000-0000-0000-0000-0000000000b1');
 select test.assert(app_private.library_import_entry('30300000-0000-0000-0000-00000000000a',gen_random_uuid()) is null,'no entry for an unknown import');
 
--- An active import with no stored detail (created before 030) keeps byte-identical JSON.
+-- An active import with no stored detail (created before 031) keeps byte-identical JSON.
 set role authenticated;
 select public.v2_begin_import('30300000-0000-0000-0000-0000000000a3','1706.03762',0);
 reset role;

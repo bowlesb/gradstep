@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ScienceReaderCore
 
-/// `progress_detail` on import entries (migration 030): decoded leniently, compared like every other field at
+/// `progress_detail` on import entries (migration 031): decoded leniently, compared like every other field at
 /// equal state_seq, and kept through the offline cache's encoding.
 @Suite struct ImportProgressWireTests {
     private let account = UUID(uuidString: "a0000000-0000-0000-0000-000000000030")!
