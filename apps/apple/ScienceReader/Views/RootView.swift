@@ -865,7 +865,8 @@ struct ChatView: View {
                 }.foregroundStyle(.primary)
             }
             .accessibilityIdentifier("chat.context")
-            .accessibilityLabel(model.chatTitle)
+            // Not just the title: a new conversation is titled "New chat", like the button beside it.
+            .accessibilityLabel("Conversation: \(model.chatTitle)")
             .accessibilityValue(model.generalChat ? "General chat" : "Paper chat")
             .accessibilityHint("Switches between paper chat and general chat")
             if !model.generalChat, let paper = model.chatPaper, !besidePaper {

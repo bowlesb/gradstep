@@ -115,8 +115,6 @@ struct PaperView: View {
     @State private var citationBack = false
     @State private var citationReturnID: UUID?
     @State private var reference: ReaderReference?
-    /// Top of the floating bottom controls (global y); the page scrolls under everything below it.
-    @State private var controlsTop: CGFloat = 0
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -131,13 +129,11 @@ struct PaperView: View {
         NavigationStack {
             Group {
                 if let paper = model.selectedPaper, let bundle = paper.readerBundle, let readingKey, let readerScope = model.readerDocumentScope {
-                    // Floating chrome (2026-10-07): the paper runs under the tab bar and the reader's own bottom
-                    // controls, and fades out behind them; its top stays below the title bar (reading positions
-                    // and citation jumps are measured from there).
-                    GeometryReader { pane in
-                        // Measured from the controls' top edge (a proxy's safe area leaves out their own inset).
-                        let bottomInset = controlsTop > 0 ? max(0, pane.frame(in: .global).maxY - controlsTop) : pane.safeAreaInsets.bottom
-                        PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey, bottomInset: bottomInset,
+                    // Floating chrome (2026-10-07): the tab bar and the reader's controls float on a band below the
+                    // page, which fades its last lines. The page itself stops above them: reading positions,
+                    // heading and citation jumps are measured in the page's own viewport, which must be what shows.
+                    Group {
+                        PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
                                      reduceMotion: reduceMotion, selectionClearID: selectionClearID, onLoading: {
@@ -179,7 +175,6 @@ struct PaperView: View {
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
                     }
-                    .ignoresSafeArea(.container, edges: .bottom)
                     .overlay { if readerFailed {
                         ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
                             description: { Text("The reading bundle couldn’t be loaded completely.") }
@@ -187,9 +182,7 @@ struct PaperView: View {
                             .background(Color(uiColor: .systemBackground))
                     } }
                     .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        bottomControls(scope: readerScope).onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { controlsTop = $0 }
-                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls(scope: readerScope) }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                     .macPaperMenu(PaperMenuActions(
@@ -424,9 +417,6 @@ struct PaperWebView: UIViewRepresentable {
     var bundle: VerifiedReaderBundle? = nil
     var figureID: String? = nil
     let locationKey: String
-    /// Floating chrome over the bottom of the page (tab bar, reader controls): the text scrolls under it,
-    /// and its end can scroll clear of it.
-    var bottomInset: CGFloat = 0
     let location: PaperReadingLocation?
     let fontSize: Double
     let jump: PaperJumpRequest?
@@ -495,10 +485,7 @@ struct PaperWebView: UIViewRepresentable {
         let web = ReaderWebView(frame: .zero, configuration: configuration)
         if figureID == nil { ReaderWebView.paper = web }
         web.isOpaque = false; web.backgroundColor = .systemBackground
-        // The page's view starts below the title bar and runs to the screen's bottom edge, under the
-        // floating chrome, whose depth is the bottom inset (figures keep the system's insets).
-        web.scrollView.contentInsetAdjustmentBehavior = figureID == nil ? .never : .automatic
-        applyBottomInset(to: web)
+        web.scrollView.contentInsetAdjustmentBehavior = .automatic
         web.navigationDelegate = context.coordinator
         #if DEBUG
         web.isInspectable = true
@@ -506,15 +493,8 @@ struct PaperWebView: UIViewRepresentable {
         return web
     }
 
-    private func applyBottomInset(to web: WKWebView) {
-        guard figureID == nil, web.scrollView.contentInset.bottom != bottomInset else { return }
-        web.scrollView.contentInset.bottom = bottomInset
-        web.scrollView.verticalScrollIndicatorInsets.bottom = bottomInset
-    }
-
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
-        applyBottomInset(to: web)
         (web as? ReaderWebView)?.selectionAction = selectionAction
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false

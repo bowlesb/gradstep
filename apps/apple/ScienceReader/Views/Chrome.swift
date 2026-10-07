@@ -226,5 +226,6 @@ struct TabBarItem: View {
             .symbolRenderingMode(selected ? .palette : .monochrome)
             .foregroundStyle(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary), Color.gradstepAmber)
             .font(.system(size: 22, weight: .medium))
+            .accessibilityHidden(true)
     }
 }

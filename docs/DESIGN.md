@@ -17,22 +17,26 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   - *Tab bar*: one glass capsule, 58 pt tall, 16 pt from the sides (at most 520 pt wide on iPad), sitting in the home
     indicator's area. Each screen keeps room for it inside its NavigationStack (`tabBarSpace()`), so the last row
     scrolls clear of it with an 8 pt gap. It hides while a software keyboard is up. It does not shrink on scroll.
-  - *Headers*: the controls (Library search, + and …; Feed topics and …; the chat's Paper/General switch) float on a
+  - *Headers*: the controls (Library search, + and …; Feed topics and …) float on a
     band (`chromeBand(.top)`) that is 94–100 % the screen's background behind them, then fades out over 22 pt.
     Taps on the band stay with it; the fade below lets them through. Over a table the band stays solid (the column
     titles pin right under it). System title bars (Paper, Chat, Settings) keep the system's own treatment.
-  - *Chat*: the conversation runs the full height, under the title bar, the switch, the message box and the tab
-    bar. The message box is a glass pill (Send/Stop inside it on the right), floating above the tab bar on the bottom
-    band (`chromeBand(.bottom)`); the hide-keyboard button is a glass circle beside it.
-  - *Paper*: the page runs under the tab bar and the reader's floating controls (selection actions, Back, a
-    reference's outcome), which sit on the bottom band; its top stays below the title bar.
+  - *Chat*: nothing sits between the title bar and the conversation, which runs the full height, under the title
+    bar, the message box and the tab bar. Paper chat / General chat is the title's menu (chevron after the title;
+    under it the paper, tap to return, or "General chat"). The message box is a glass pill with the placeholder
+    "Chat" and Send/Stop inside it on the right, 10 pt above the tab bar on the bottom band (`chromeBand(.bottom)`);
+    the hide-keyboard button is a glass circle beside it (not on the Mac).
+  - *Paper*: the tab bar and the reader's floating controls (selection actions, Back, a reference's outcome) sit on
+    the bottom band, which fades the page's last lines; the page itself stops above the band and below the title
+    bar. (Running it under them changed the page's own viewport, which reading positions and heading and citation
+    jumps are measured in: returning to a place and landing on a reference failed.)
   - *Surfaces* (`chromeSurface`): Liquid Glass on iOS 26, a material with a hairline and soft shadow before it.
     With Reduce Transparency every surface is solid (secondary system background with a separator hairline) and
     every band is the plain background.
 - **Icons**: the app's own symbols (`GradstepSymbol`; `Assets.xcassets/Symbols`, drawn by `tools/icons`): rounded
   lines like the Nabla mark, each with one amber point — Feed (feed arcs from the point), Library (spines, the
   middle one banded), Paper (page with the reading point), Chat (bubble with · · •), Settings (gear around the
-  point), plus new chat, chat history, contents and the mark. The selected tab draws the line in accent and the
+  point), plus new chat, All chats (a list: bullets and lines), contents and the mark. The selected tab draws the line in accent and the
   point in amber (palette rendering) on a light accent capsule; other tabs are in the label color. Header buttons
   and menus draw them monochrome in accent. Universal actions keep system symbols (+, …, search, text size).
 - **Margins and rhythm**: 16 pt side margins; spacing steps 4/8/12/16/24 (4 within a row, 12 row padding, 24
