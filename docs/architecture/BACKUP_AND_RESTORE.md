@@ -18,13 +18,28 @@ Before automated retention of verified objects is enabled, its physical-deletion
 
 Do not restore pending/deleting objects as usable files. Resume their reconciliation only after quarantine checks. Database/object consistency does not mean a provider's external state was rolled back with the database.
 
-The local drill atomically closes platform paid-work admission and, when present, migration 011's metadata, original-download, verification and original-read gates. If `executor_authority` is present, quarantine also disables it, requires predecessor recovery, and advances its revision on every restore so an earlier admission CAS cannot remain current. This applies even when the snapshot has no execution rows or already records a recovery block: the snapshot may predate an issued operation. Epoch, policy, prior evidence, network leases, uncertain attempts, read grants, deletion state, and charged/reserved capacity remain intact. Ten disposable PostgreSQL regressions verify these transitions. Eight use minimal fixtures for old-checkpoint compatibility, independently present optional policies, and complete rollback on an incompatible present schema. Two apply the actual 001–012 schema and compare every `app_private` row across quarantine: an empty execution snapshot stays blocked and rejects its old activation revision; an outstanding connection survives, prevents activation at the new revision, and permits only status replay of its prior grant. Those cases use synthetic executor attestations and test the quarantine hook, not an encrypted 012 checkpoint or a hosted restore. A complete encrypted backup/restore drill against 012 is still required. Quarantine does not reconcile an external provider, invent a new admission epoch, or authorize a restored worker to resume.
+The local drill atomically closes platform paid-work admission and, when present, migration 011's metadata,
+original-download, verification and original-read gates. If legacy `executor_authority` is present, quarantine
+also disables it, requires predecessor recovery and advances its admission revision without releasing holds.
+With migration 031 present, quarantine **rotates `library_v4_config.dataset_epoch`** so pre-restore baselines,
+change cursors, metadata hydration and query continuations cannot be combined with a rewound database. The search
+normalization version is preserved: a different PostgreSQL normalization version requires a reviewed projection
+rebuild, not merely rewriting the version string.
+
+Thirteen disposable PostgreSQL regressions pass (2026-10-07). Twelve minimal cases cover optional legacy policies,
+repeated epoch rotation and complete rollback on an incompatible present schema. One applies the current schema
+through 032, preserves all personal rows, cursors, holds and usage, and verifies that all four v4 APIs reject the
+old dataset identity while a fresh baseline succeeds. Stale integration cases referencing the removed, unapplied
+012/013 Linux-executor migrations were replaced; their minimal compatibility checks remain. These tests exercise
+the quarantine hook, not an encrypted current-schema checkpoint or a hosted restore. Quarantine does not reconcile
+an external provider or authorize a restored worker to resume.
 
 ## Recovery procedure
 
 1. Decrypt and verify the manifest, the database dump, and every object in a local, access-restricted quarantine. Reject unknown formats, unsafe paths, missing/truncated files, or checksum mismatches.
 2. Restore into an isolated target with no provider keys, job schedules, outbound integrations, or customer traffic. Never restore over the source project. A local PostgreSQL drill proves data, schema, and file integrity; it does not prove hosted Auth, Storage, or encryption-root portability.
-3. For a hosted replacement, create compatible managed Auth/Storage schemas through Supabase, replay application migrations, then restore compatible data and immutable objects. Restore the Auth account mapping; invalidate old sessions. Reapply the versioned Auth trigger and any custom managed-schema policies.
+3. For a hosted replacement, create compatible managed Auth/Storage schemas through Supabase, replay application migrations, then restore compatible data and immutable objects. Restore the Auth account mapping; invalidate old sessions. Rotate the library dataset epoch before reopening
+   customer traffic, and verify/rebuild versioned search projections if the normalization runtime changed. Reapply the versioned Auth trigger and any custom managed-schema policies.
 4. Reconcile provider job IDs, outstanding reservations, subscription events, deletions, and storage states before enabling work. Keep all platform budgets paused until this is complete. Replaying a queued row must not submit another paid request automatically.
 5. Verify account isolation, device envelopes and encrypted history with retained test keys, private image/paper retrieval, credit conservation, and report threads. Record duration and recovered checkpoint age before claiming the proposed 24-hour recovery-point/one-working-day recovery-time targets.
 

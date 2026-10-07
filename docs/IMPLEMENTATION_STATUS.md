@@ -1,7 +1,74 @@
 # Implementation status
 
-Updated 2026-10-06 (citations, archive, Tavily search; earlier: the 2026-10-05 overnight build). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-07 (local library foundation, cost audit and podcast research; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
+
+## Library foundation and independent reviews — 2026-10-07
+
+The owner authorized additive database work on `codex/library-v4-foundation-20261007`. Migrations 031/032 separate
+compact synchronization, account-authorized immutable metadata and bounded indexed library queries. Query
+continuations restart after meaningful edits; progress updates preserve them. Old v2/v3 clients, command receipts,
+grouped changes and current quotas remain unchanged. This work is **local and not deployed or used by a client**.
+Independent reviews cover upgrade compatibility, paging, isolation and concurrent deletion; the
+[contract and validation evidence](architecture/LIBRARY_V4.md) records the exact scope. Synthetic 10k/50k read-model
+benchmarks do not establish end-to-end product capacity.
+
+The requested [credit, identity and cost audit](reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) is complete, with
+open findings and local reproductions. Priorities include live Cloud Run billing, Tavily admission coverage,
+invisible provider retries, unresolved Mathpix liability, and storage/download accounting. Fixed-cost forecasts
+were corrected; no cost fixes or continuous monitoring were deployed by this audit. Heavy-user estimates separate
+credits, provider expense, platform overhead and store commission. The $100 incremental beta budget is unchanged.
+
+The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_20261007.md) recommends a metered,
+paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
+rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
+
+## Browser/Mac integration checkpoint — local, not deployed
+
+The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
+`/Users/benbowlwes/science-reader-web-mac`, recovering the browser and floating-control branches. Integration
+includes `main` through `5f95c97`, preserving its newer chat-title fixes and TestFlight build 15 feedback records.
+The combined source passes a fresh universal Mac Catalyst Debug test build using public local fixtures, plus
+71 web unit/interop tests, the production build and 42 browser checks (15 known WebKit capability skips).
+Signed-in Mac journeys and distribution remain unverified; merge validation does not deploy a build.
+Mac sheet shortcuts now guard unsaved tags (including text still being typed) and busy report submission; Browse
+offers Find in Paper on ⌘F. The app and test targets compile for arm64 and x86_64. The keyboard runtime attempt
+started no assertions and was interrupted; developer-tool and Computer Use permissions still need resolution.
+See the [Mac checkpoint](architecture/MAC_APP.md#validation-checkpoint--2026-10-07).
+
+The owner selected **React + TypeScript + Vite for both browser reader and admin** after the
+[framework evaluation](architecture/WEB_FRAMEWORK_EVALUATION.md). The 168-sample comparison supports windowing
+and better data handling as the main large-library work; it does not establish 50,000-paper product capacity.
+
+Browser work now retires keys, pending requests and reader caches with their login lifetime; protects newer logins
+from delayed refresh/sign-out/verification; preserves request deadlines; stops disposed import polling; and prevents
+late reading saves from recreating forgotten device data. Device records must survive an IndexedDB roundtrip and
+remain usable before enrollment, including on retry/reload. Live tags now update through the reader bridge without
+replacing the document or losing the selection, reading place or citation return. Local validation: production build,
+**71 unit/interop tests**, **42 production-CSP browser checks** and **17 development Strict Mode journeys** pass.
+Direct paper URLs now wait for encrypted reading activity to load before restoring the paper, and received scroll
+reports no longer lose the last update to a second throttle. **Fifteen WebKit key-dependent journeys remain
+capability skips**, with safe refusal tested: WebKit cannot currently read back the non-extractable X25519 keys in
+this environment. Full Safari support requires further design/work; see
+[browser evidence and release gate](architecture/BROWSER_READER.md#evidence).
+
+The 4,000-entry browser fixture now verifies search, live tags, filters, sorting and reading while an import
+progresses. Empty catch-up and progress ticks no longer rerender the entire library. In short local production
+observations, progress-window script work fell from 825–1,097 ms to 9–18 ms; this still renders every row and does
+not increase supported capacity. See [measurement scope](architecture/BROWSER_READER.md#library-update-isolation--2026-10-07).
+
+Library commands now wait for a complete observation after their receipt, including the changed target, rather
+than publishing a single returned entry. Add captures the displayed cursor. Failed reads retain pending state;
+recovery completes the accepted form without a duplicate request, and stale actions show revision conflicts.
+See [command publication](architecture/BROWSER_READER.md#command-acknowledgements-and-complete-library-views).
+
+The [capacity plan](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm caches,
+compact sync, consistent paged queries and reviewed record retirement. The first backend foundation is implemented
+locally in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
+
+Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
+and verify browser deployment separately. Existing staging
+evidence below does not assert that this integration branch is deployed.
 
 ## Works end to end on staging
 
@@ -236,6 +303,18 @@ account). This also confirms that pre-created testers can use Apple or Google wi
 Email" relay address would create a separate account (no linking); testers should share their real email.
 
 ## Still required
+
+**Queued follow-ups (owner approved 2026-10-07, "item 5"; collected from finished agents' reports so none is stranded):**
+- Workflow check `pipeline.stuck` flags an import while an automatic retry is running (count from the paper's last
+  stage change, not the import's creation).
+- A full private storage quota shows "too large"; give it its own reason and message.
+- Reliability charts count each automatic retry's failure again.
+- Show when the next automatic download retry happens (`auto_retry_at`) on the row.
+- Failure wording pass ("Conversion failed", "…to convert this paper").
+- VoiceOver: the new chat selection/formula actions and the library rows' swipe and long-press actions.
+- Library: tap a tag chip to filter by it; remember filters between launches; show tags on papers still importing.
+- Admin: disabling sign-in should also end open sessions (today an open session lasts until its token expires).
+
 
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
   testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
