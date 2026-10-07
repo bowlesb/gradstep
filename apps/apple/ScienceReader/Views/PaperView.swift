@@ -268,6 +268,14 @@ struct PaperView: View {
                                 .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
                         }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
+                        // Its saved chats (owner request 2026-10-07: "a paper's own conversations when you open it").
+                        if let paper = model.selectedPaper, let count = model.paperChatCounts[paper.id], count > 0 {
+                            Button { model.openAllChats(paper: paper.id) } label: {
+                                Label { Text("Chats about this paper"); Text(ChatHistoryFormat.count(shown: count, total: count)) }
+                                    icon: { menuIcon(GradstepSymbol.chats) }
+                            }
+                            .accessibilityIdentifier("paper.chats")
+                        }
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                         }

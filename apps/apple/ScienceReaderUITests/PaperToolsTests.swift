@@ -30,6 +30,14 @@ final class PaperToolsTests: XCTestCase {
                        timeout: timeout) == .completed
     }
 
+    private func assertChatTitleFits(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let title = app.buttons["chat.context"], history = app.buttons["Chat history"], newChat = app.buttons["New chat"]
+        XCTAssertTrue(wait {
+            title.exists && title.isHittable && title.frame.width > 44
+                && title.frame.minX >= history.frame.maxX && title.frame.maxX <= newChat.frame.minX
+        }, "The conversation title stays readable between the toolbar controls", file: file, line: line)
+    }
+
     // MARK: - Find in paper (gap 7)
 
     /// "Find in paper" shows WebKit's find bar; a match scrolls into view and is highlighted without becoming a
@@ -163,14 +171,22 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
         XCTAssertTrue(composer.waitForExistence(timeout: 5), "Chat beside the paper by default")
         let paperWidth = web.frame.width
+        assertChatTitleFits(app)
         capture(app, "iPad landscape: paper and chat (default)")
 
         // Resize: drag the divider left; the chat widens once the drag ends.
         let divider = app.descendants(matching: .any).matching(identifier: "reader.chatDivider").firstMatch
         XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        let minimumGrip = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        minimumGrip.press(forDuration: 0.2, thenDragTo: minimumGrip.withOffset(CGVector(dx: 160, dy: 0)))
+        assertChatTitleFits(app)
+        capture(app, "iPad landscape: chat at minimum width")
+        divider.doubleTap()
+        XCTAssertTrue(wait { abs(web.frame.width - paperWidth) < 12 }, "Default split restored")
         let grip = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         grip.press(forDuration: 0.2, thenDragTo: grip.withOffset(CGVector(dx: -160, dy: 0)))
         XCTAssertTrue(wait { abs(web.frame.width - (paperWidth - 160)) < 12 }, "Paper \(paperWidth) → \(web.frame.width)")
+        assertChatTitleFits(app)
         capture(app, "iPad landscape: chat widened")
 
         // Hide: full-width paper; the paper's bar offers the chat back.
@@ -217,6 +233,7 @@ final class PaperToolsTests: XCTestCase {
         app.buttons["paper.showChat"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertTrue(wait { abs(web.frame.width - (paperWidth - 160)) < 12 }, "The chosen split width survives relaunch")
+        assertChatTitleFits(app)
         capture(app, "iPad landscape: chat shown again at its chosen width")
     }
 }

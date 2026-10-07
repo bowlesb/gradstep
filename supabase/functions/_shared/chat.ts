@@ -41,14 +41,22 @@ export interface ChatRequest {
   documentID: string | null;
   turns: ChatTurn[];
   selection: string | null;
-  /** Selection action needing server work beyond an answer: Ingest (add the cited paper) or
-   * Related (find related papers; always searches the web when search is on). */
-  action: 'ingest' | 'related' | null;
+  /** Selection action needing server work beyond an answer: Ingest (add the cited paper),
+   * Related (find related papers; always searches the web when search is on), Why it matters
+   * (`relevance`: the paper only, no web search), or a diagram the device could not draw
+   * (`diagram_fix`: one corrected diagram; see DIAGRAM_FIX_MAX_TOKENS). */
+  action: ChatAction | null;
   /** Client features: 'web_import' = the app shows web (non-arXiv) library entries. */
   capabilities: string[];
 }
 
 export const CLIENT_CAPABILITIES = ['web_import'] as const;
+export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
+const CHAT_ACTIONS: readonly string[] = ['ingest', 'related', 'relevance', 'diagram_fix'];
+/** A diagram repair: the broken source and Mermaid's error, as one user turn from the device. */
+export const DIAGRAM_FIX_MAX_BYTES = 24_000;
+/** A repair writes one diagram (no prose): a small output allowance keeps its hold and cost small. */
+export const DIAGRAM_FIX_MAX_TOKENS = 2_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const encoder = new TextEncoder();
@@ -96,10 +104,14 @@ export function validateChatRequest(input: unknown): ChatRequest {
     if (typeof value.quote !== 'string' || !value.quote.trim() || [...value.quote].length > MAX_SELECTION_SCALARS) invalid();
     selection = value.quote;
   }
-  let action: 'ingest' | 'related' | null = null;
+  let action: ChatAction | null = null;
   if (body.action !== undefined && body.action !== null) {
-    if ((body.action !== 'ingest' && body.action !== 'related') || selection === null) invalid();
-    action = body.action;
+    if (typeof body.action !== 'string' || !CHAT_ACTIONS.includes(body.action)) invalid();
+    action = body.action as ChatAction;
+    // A repair is general (no paper), one bounded turn, no selection; every other action acts on a selection.
+    if (action === 'diagram_fix') {
+      if (mode !== 'general' || selection !== null || turns.length !== 1 || encoder.encode(turns[0].text).length > DIAGRAM_FIX_MAX_BYTES) invalid();
+    } else if (selection === null) invalid();
   }
   let capabilities: string[] = [];
   if (body.capabilities !== undefined && body.capabilities !== null) {
@@ -167,15 +179,35 @@ Do not say whether it was added; the app reports that. If the passage does not r
 const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering. You have up to ${RELATED_SEARCH_MAX_USES} searches: spend them on distinct angles (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
 const RELATED_OFFLINE_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. List 4–8 papers you are confident exist (title, first author, year, one sentence on the relation), most relevant first. Say plainly that you could not search the web, and never invent papers or links.`;
 
+// Why it matters: the legacy app's relevance prompt ("Using ONLY the paper's content (do NOT search the web)").
+const RELEVANCE_INSTRUCTIONS = `The reader used "Why it matters" on the selected passage: explain the role it plays in this paper and why it matters to the paper's method, argument and results. Use only the paper's own content: do not search the web or bring in other papers or outside sources. If the paper does not make the passage's role clear, say so.`;
+
+// The legacy app's Mermaid label rules (app/api/chat/route.ts), which kept its diagrams parseable.
+const MERMAID_RULES = `Mermaid syntax rules (a diagram that breaks them cannot be drawn):
+- Use only ASCII in labels: no Unicode math symbols (×, →, ∂, Σ, ⋆, Greek letters) and no LaTeX. Write text equivalents instead ("*" or "times" for ×, "->" for →, "sum", "sigma").
+- Wrap any label that contains characters other than letters, digits and spaces in double quotes: A["Linear (d -> 4d)"], A -->|"x * W"| B. Never put a double quote inside a label (use single quotes).
+- Safe characters in labels: letters, digits, spaces, hyphens, underscores, periods, commas, colons, slashes.
+- Node IDs are short plain words without spaces (A, enc1, loss); never use "end" as an ID.
+- Keep labels short; one statement per line.`;
+
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
 Never write Mermaid, SVG or HTML diagram markup in the answer text.
-Diagrams are read on a phone: prefer top-to-bottom layouts (flowchart TD), short node labels, and at most about 12 nodes.`;
+Diagrams are read on a phone: prefer top-to-bottom layouts (flowchart TD), short node labels, and at most about 12 nodes.
+${MERMAID_RULES}`;
+
+// The device checks each diagram with the bundled Mermaid before showing it; one that fails is sent back once.
+const DIAGRAM_FIX_INSTRUCTIONS = `You draw diagrams for Gradstep, an app for reading machine-learning papers. The reader's app could not draw a Mermaid diagram from an earlier answer. The message gives its title, the error Mermaid reported and its source.
+Call create_diagram once with a corrected diagram: the same title and the same content, changing only what is needed to make it valid Mermaid. Write no other text.
+${MERMAID_RULES}`;
 
 const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on. If you used web search, end your answer with a line "Sources:" followed by one line per page you relied on (at most 8), each exactly in the form "1. Page title — https://…".`;
 
-export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | 'related' | null = null, webSearch = false): string {
+export function chatInstructions(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): string {
+  if (action === 'diagram_fix') return DIAGRAM_FIX_INSTRUCTIONS;
+  // Why it matters never searches (its request carries no search tool either).
+  const search = webSearch && action !== 'relevance';
   const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
-    : `${DIAGRAM_INSTRUCTIONS}${webSearch ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}${action === 'related' ? `\n\n${webSearch ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS}` : ''}`;
+    : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}${action === 'related' ? `\n\n${search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS}` : ''}${action === 'relevance' ? `\n\n${RELEVANCE_INSTRUCTIONS}` : ''}`;
   return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`;
 }
 
@@ -315,7 +347,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   try { await deps.rpc('worker_consume_request', { p_account_id: deps.accountID, p_route: 'chat' }); }
   catch (error) { throw new ChatFailure(reason(error) === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable'); }
   const request = validateChatRequest(body);
-  const search = request.action !== 'ingest' && deps.webSearch === true;
+  // Ingest, Why it matters (the paper only) and diagram repairs never search.
+  const search = !['ingest', 'relevance', 'diagram_fix'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
   // otherwise, and as its backup, Anthropic's search.
   const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
@@ -336,10 +369,12 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   const tavily = await tavilyReady === true;
   const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
+  const repair = request.action === 'diagram_fix';
   const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
-    selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
+    selection: request.selection, maxTokens: repair ? DIAGRAM_FIX_MAX_TOKENS : CHAT_MAX_TOKENS, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
       : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : search ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
-  const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
+  // A repair is its own metered operation: held and settled like any answer, with its smaller output allowance.
+  const hold = holdFor(promptCharacters(params), params.max_tokens);
   if (search) {
     // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap);
@@ -470,8 +505,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       const diagram = diagramRequest(drawing.input);
       deps.log({ event: diagram ? 'chat_diagram' : 'chat_diagram_invalid_input', operation_id: request.operationID });
       if (diagram && !signal.aborted) {
-        // The device keeps a diagram only with a non-empty answer.
-        if (!wroteText) emit({ event: 'delta', data: { text: `Diagram: “${diagram.title}”` } });
+        // The device keeps a diagram only with a non-empty answer (a repair replaces one; it needs no text).
+        if (!wroteText && !repair) emit({ event: 'delta', data: { text: `Diagram: “${diagram.title}”` } });
         emit({ event: 'diagram', data: diagram });
       }
     }
@@ -510,7 +545,7 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     let opening = true, outcome: ProviderOutcome;
     try {
       outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)], ...(tools ? { tools } : {}),
-        max_tokens: CHAT_MAX_TOKENS - used }, { ...options, onText: text => {
+        max_tokens: params.max_tokens - used }, { ...options, onText: text => {
         // A round after searches starts a new paragraph.
         if (opening && text) { if (separate && !/^\s/.test(text)) text = `\n\n${text}`; opening = false; }
         if (text.trim()) wrote = true;
@@ -530,7 +565,7 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
         ...(anthropicSearches ? { webSearches: anthropicSearches } : {}),
         ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
     };
-    const left = CHAT_MAX_TOKENS - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    const left = params.max_tokens - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
     if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round > search.cap || left < MIN_ROUND_TOKENS) return finish();
     const previous = extra.at(-1);
     const append = () => {

@@ -8,7 +8,7 @@ import {
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
-  canonicalRequest, chatInstructions, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 
@@ -1089,4 +1089,105 @@ test('the SDK adapter reports Anthropic search progress from the stream', async 
   assert.deepEqual(seen, ['Let me check. ', { kind: 'searching', query }, { kind: 'reading' }, 'Found it.', { kind: 'searching' }],
     'an unreadable query still reports searching');
   assert.equal(outcome.webSearches, 2);
+});
+
+// ---- Chat quality (2026-10-07): Why it matters, Mermaid rules, diagram repairs ----
+
+test('Why it matters uses only the paper: no search tool, even with Tavily ready', async () => {
+  const quoted = v2(paperBody({ selection: { quote: 'We use label smoothing of 0.1.' }, action: 'relevance' }));
+  assert.equal(validateChatRequest(quoted).action, 'relevance');
+  assert.throws(() => validateChatRequest(paperBody({ action: 'relevance' })), { code: 'invalid_request' }, 'Why it matters needs a selection');
+  const instructions = chatInstructions('paper', 'relevance', true);
+  assert.match(instructions, /Use only the paper's own content: do not search the web/);
+  assert.doesNotMatch(instructions, /You can search the web/);
+  assert.match(instructions, /create_diagram/, 'A diagram can still be asked for');
+  let sent: Sent | undefined;
+  const h = harness({ generate: async (params, stream) => { sent = params as unknown as Sent; stream.onText('It regularizes.'); return completeOutcome(); } });
+  const runs = searching(h, []);
+  await runChat(h.deps, quoted, h.emit, new AbortController().signal);
+  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram']);
+  assert.equal(runs.length, 0);
+  // No search allowance in the hold either.
+  const held = Number(h.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
+  assert.equal(held, holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming)).microusd);
+  assert.equal(h.answers[0].web_search_offered, false); assert.equal(h.answers[0].action, 'relevance');
+  // Ordinary questions on the same paper still search.
+  const plain = harness(); plain.deps.webSearch = true;
+  let plainTools: string[] = [];
+  plain.deps.generate = async (params, stream) => { plainTools = ((params as unknown as Sent).tools ?? []).map(t => t.name ?? ''); stream.onText('x'); return completeOutcome(); };
+  await runChat(plain.deps, paperBody(), plain.emit, new AbortController().signal);
+  assert.ok(plainTools.includes('web_search'));
+});
+
+test('diagram instructions carry the Mermaid label rules', () => {
+  for (const instructions of [chatInstructions('paper'), chatInstructions('general', null, true), chatInstructions('paper', 'related', true), chatInstructions('paper', 'diagram_fix')]) {
+    assert.match(instructions, /Use only ASCII in labels/);
+    assert.match(instructions, /Wrap any label that contains characters other than letters, digits and spaces in double quotes: A\["Linear \(d -> 4d\)"\]/);
+    assert.match(instructions, /never use "end" as an ID/);
+  }
+  assert.doesNotMatch(chatInstructions('paper', 'ingest'), /Mermaid/);
+  assert.match(JSON.stringify(CREATE_DIAGRAM_TOOL.input_schema.properties), /short ASCII labels/);
+});
+
+const repairText = 'Title: DPO pipeline\nMermaid error: Parse error on line 2\n\nflowchart TD\n A[Policy (π)] --> B[Loss]';
+function repairBody(overrides: Record<string, unknown> = {}) {
+  return v2(generalBody({ messages: [{ role: 'user', text: repairText }], action: 'diagram_fix', ...overrides }));
+}
+
+test('a diagram repair is a general, single-turn request without a selection', () => {
+  assert.equal(validateChatRequest(repairBody()).action, 'diagram_fix');
+  const bad = [
+    repairBody({ mode: 'paper', document_id: documentID }), repairBody({ selection: { quote: 'x' } }),
+    repairBody({ messages: [{ role: 'user', text: 'a' }, { role: 'assistant', text: 'b' }, { role: 'user', text: 'c' }] }),
+    repairBody({ messages: [{ role: 'user', text: 'x'.repeat(24_001) }] }),
+  ];
+  for (const body of bad) assert.throws(() => validateChatRequest(body), { code: 'invalid_request' });
+  assert.equal(validateChatRequest(repairBody({ messages: [{ role: 'user', text: 'x'.repeat(24_000) }] })).turns.length, 1);
+});
+
+test('a diagram repair is metered: a small hold, settled at its actual cost, one diagram and no caption', async () => {
+  let sent: Sent | undefined, system = '';
+  const h = harness({ generate: async params => {
+    sent = params as unknown as Sent;
+    system = ((params as unknown as { system: { text: string }[] }).system)[0].text;
+    return completeOutcome({ stopReason: 'tool_use',
+      attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 1_400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 600 } }],
+      toolCalls: [{ name: 'create_diagram', input: { title: 'DPO pipeline', mermaid: 'flowchart TD\n A["Policy (pi)"] --> B[Loss]' } }] });
+  } });
+  searching(h, []);
+  await runChat(h.deps, repairBody(), h.emit, new AbortController().signal);
+  // No paper, no search, only create_diagram, and the repair's own output allowance.
+  assert.ok(!names(h.calls).includes('worker_chat_context'));
+  assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram']);
+  assert.equal(sent!.max_tokens, DIAGRAM_FIX_MAX_TOKENS);
+  assert.match(system, /could not draw a Mermaid diagram/); assert.doesNotMatch(system, /Gradstep, an app people use/);
+  assert.deepEqual(h.events.map(e => e.event), ['diagram', 'done'], 'no "Diagram:" caption for a repair');
+  assert.deepEqual(h.events[0].data, { title: 'DPO pipeline', source: 'flowchart TD\n A["Policy (pi)"] --> B[Loss]' });
+  // Held like any answer (input at the write rate plus its whole output allowance, times the fallback headroom)…
+  const reserve = h.calls.find(c => c.name === 'worker_reserve_operation')!.params;
+  const hold = holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), DIAGRAM_FIX_MAX_TOKENS);
+  assert.equal(reserve.p_microusd, hold.microusd); assert.equal(reserve.p_credits, hold.credits);
+  assert.ok(hold.credits <= 25, `a repair holds at most 25 credits (${hold.credits})`);
+  assert.ok(hold.credits < holdFor(promptCharacters(chatRequestParams({ instructions: chatInstructions('general'), paper: null,
+    turns: [{ role: 'user', text: repairText }], selection: null, tools: [CREATE_DIAGRAM_TOOL] }))).credits / 3, 'far below an answer’s hold');
+  // …and settled at its actual cost: 1,400 input × $2 + 600 output × $10 per MTok = 8,800 µ$ → 2 credits.
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(settle.p_actual_microusd, 8_800); assert.equal(settle.p_actual_credits, 2);
+  assert.ok(names(h.calls).includes('worker_record_provider_usage'));
+  assert.equal(h.answers[0].action, 'diagram_fix'); assert.equal(h.answers[0].web_search_offered, false);
+  const logged = JSON.stringify([...h.logs, ...h.answers]);
+  assert.ok(!logged.includes('Policy') && !logged.includes('Parse error'), 'neither the source nor the error is logged');
+});
+
+test('a repair round cannot exceed its output allowance', async () => {
+  const rounds: number[] = [];
+  const h = harness({ generate: async params => {
+    rounds.push((params as unknown as Sent).max_tokens);
+    return completeOutcome({ stopReason: 'max_tokens',
+      attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 1_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: DIAGRAM_FIX_MAX_TOKENS } }] });
+  } });
+  await runChat(h.deps, repairBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(rounds, [DIAGRAM_FIX_MAX_TOKENS], 'one round, no continuation');
+  assert.ok(!h.events.some(e => e.event === 'diagram'));
+  assert.equal(h.events.at(-1)?.event, 'done');
 });

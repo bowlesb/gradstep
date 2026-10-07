@@ -384,6 +384,43 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Encrypted question restored alongside the installed paper")
     }
 
+    /// A diagram Mermaid can't parse is sent back once ("Fixing the diagram…"); when the correction fails too, its view
+    /// says so plainly, with the source collapsed.
+    func testABrokenDiagramIsFixedOnceThenExplained() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=broken_diagram", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons["tab.chat"].tap()
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText("Draw the attention computation")
+        // Dismiss before sending: the keyboard animation must not consume the
+        // fixture's short repair state before the test starts observing it.
+        if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
+        app.buttons["chat.send"].tap()
+        let fixing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label == %@",
+            "chat.message.progress", "Fixing the diagram…")).firstMatch
+        XCTAssertTrue(fixing.waitForExistence(timeout: 15), "The answer waits while its diagram is redrawn")
+        capture(app, "Fixing the diagram")
+        let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
+        XCTAssertTrue(open.waitForExistence(timeout: 15))
+        XCTAssertFalse(fixing.exists)
+        let title = app.buttons["chat.context"]
+        XCTAssertGreaterThanOrEqual(title.frame.minX, app.buttons["Chat history"].frame.maxX, "Long titles leave room for history")
+        XCTAssertLessThanOrEqual(title.frame.maxX, app.buttons["New chat"].frame.minX, "Long titles leave room for New chat")
+        open.tap()
+        XCTAssertTrue(app.staticTexts["Couldn’t draw this diagram"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Queries (Q)")).firstMatch.exists,
+                       "The source starts collapsed")
+        capture(app, "Diagram that couldn't be drawn")
+        let source = app.descendants(matching: .any)["diagram.source"].firstMatch
+        XCTAssertTrue(source.exists); source.tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Queries (Q)")).firstMatch.waitForExistence(timeout: 5))
+        capture(app, "Diagram source shown")
+    }
+
     func testAnAnswerDiagramOpensFromTheAnswerAndFromAllDiagrams() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -403,7 +440,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let canvas = app.webViews.firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         XCTAssertTrue(canvas.staticTexts["Softmax"].waitForExistence(timeout: 10), "The diagram's nodes render")
-        XCTAssertFalse(app.staticTexts["This diagram couldn’t be drawn."].exists)
+        XCTAssertFalse(app.staticTexts["Couldn’t draw this diagram"].exists)
         // The whole diagram is on screen and its labels are readable (it used to shrink to ~8 pt text).
         let last = canvas.staticTexts["Weighted values"]
         XCTAssertTrue(last.waitForExistence(timeout: 5))

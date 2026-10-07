@@ -200,6 +200,18 @@ the answer and an entry in All diagrams; the source is stored encrypted on devic
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
 the chat fixture.
 
+**Chat quality (2026-10-07, built and tested locally; the `chat` function is not yet deployed):** the legacy Mermaid
+label rules in the diagram instructions; each diagram parsed on device before it is kept, with one metered
+`diagram_fix` retry and "Couldn't draw this diagram" (source collapsed) when that fails too; "Why it matters" without
+web search (`action: "relevance"`); a dedicated prompt for Explain on a single equation; a "This paper" filter in All
+chats and the paper's other chats in the chat title menu. A repair needs its successful final event before replacing
+the original diagram. The chat title now fits between History and New chat, including the minimum iPad column,
+while keeping the full saved and accessibility title. Local verification: 224 backend, 213 Core, 48 selected app
+regressions (including the bundled Mermaid parser), eight iPhone UI journeys, the iPad resize/hide/rotation/relaunch
+journey, three inspected dark screens and a universal Mac Catalyst build. No live model or Mac runtime check was
+made. Evidence and deployment ordering: [chat validation](architecture/CHAT.md#chat-quality-validation--2026-10-07-local-only). See
+[decisions](DECISIONS.md#chat-quality-equations-diagrams-why-it-matters-a-papers-chats-owner-asked-2026-10-07-agent-decisions-reversible).
+
 **Web search in chat** is on in staging (owner decision 2026-10-05): up to three Anthropic searches per answer,
 a consent line naming it, and tappable Sources under the answer that show the full address before opening Safari.
 Verified live (searches charged at tokens + $0.01 each; the hold covers them) and by a Simulator UI test with the

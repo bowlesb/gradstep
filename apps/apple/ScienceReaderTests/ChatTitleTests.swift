@@ -21,7 +21,7 @@ final class ChatTitleTests: XCTestCase {
     func testOwnersHistoryFromBuild14() {
         // The display equation as the reader resolves it, cut at 100 characters inside the formula.
         let equation = "\\[\\begin{equation*}\n\\operatorname{Attention}(Q, K, V)=\\operatorname{softmax}\\left(\\frac{Q K^{T}}{\\sqrt{d_{k}}}\\right) V\n\\end{equation*}\\]"
-        XCTAssertEqual(ChatTitle.display(saved(SelectionAction.define.prompt(equation))), "Explain · Attention(Q, K, V)…")
+        XCTAssertEqual(ChatTitle.display(saved("Explain in plain terms, including any symbols: " + equation)), "Explain · Attention(Q, K, V)…")
         XCTAssertEqual(ChatTitle.display(SelectionAction.define.prompt(equation)), "Explain · Attention(Q, K, V)=softmax((Q Kᵀ)/√d_k) V",
                        "Uncut (longer than a saved title)")
         // Earlier wordings, still in history; Mathpix's spaced LaTeX.
@@ -79,6 +79,46 @@ final class ChatTitleTests: XCTestCase {
         XCTAssertEqual(ChatHistoryRow(summary: ConversationSummary(id: UUID(), title: " ", documentID: nil, messageCount: 0, startedAt: nil,
                                                                     lastUsedAt: nil, lastArrival: 0, latestAnswer: nil, questions: ""),
                                       paperTitle: nil).title, "Untitled conversation")
+    }
+
+    /// Explain on one equation (owner request 2026-10-07): the legacy app's equation prompt, shortened, with the
+    /// formula first so the title still reads "Explain · ‹formula›".
+    func testExplainingOneEquationUsesTheEquationPrompt() {
+        let equation = "\\[\\mathcal{L}_{\\text{simple}} = \\mathbb{E}_{t, x_0, \\epsilon}\\left[\\|\\epsilon - \\epsilon_\\theta(x_t, t)\\|^2\\right]\\]"
+        XCTAssertEqual(SelectionAction.define.prompt(equation),
+                       "Explain this equation: \\[\\mathcal{L}_{\\text{simple}} = \\mathbb{E}_{t, x_0, \\epsilon}\\left[\\|\\epsilon - \\epsilon_\\theta(x_t, t)\\|^2\\right]\\]"
+                       + "\n\nBriefly cover the background needed to read it, its overall message, what each symbol means, and how its notation compares with common ML conventions.")
+        let long = ChatTitle.display(saved(SelectionAction.define.prompt(equation)))
+        XCTAssertTrue(long.hasPrefix("Explain · L_simple = E_(t, x₀, ε)") && long.hasSuffix("…"), "Cut inside the formula: \(long)")
+        // Saved cut inside the instructions: the formula is whole, so no "…".
+        let forward = "\\[x_t = \\sqrt{\\bar{\\alpha}_t}\\, x_0 + \\sqrt{1 - \\bar{\\alpha}_t}\\, \\epsilon\\]"
+        XCTAssertTrue(SelectionAction.define.prompt(forward).count > ChatTitle.savedLimit)
+        let title = ChatTitle.display(saved(SelectionAction.define.prompt(forward)))
+        XCTAssertTrue(title.hasPrefix("Explain · x_t = √"), title)
+        XCTAssertFalse(title.contains("Briefly") || title.contains("\\") || title.hasSuffix("…"), title)
+        XCTAssertEqual(ChatTitle.display(SelectionAction.define.prompt("\\(z = \\mu + \\sigma \\odot \\epsilon\\)")), "Explain · z = μ + σ ⊙ ε",
+                       "Uncut: the instructions are left out")
+        XCTAssertEqual(ChatTitle.display(saved(SelectionAction.define.prompt("\\(a = b\\)") + "\n")), "Explain · a = b")
+        // Cut inside a long formula: its start, as before.
+        let attention = "\\[\\begin{equation*}\n\\operatorname{Attention}(Q, K, V)=\\operatorname{softmax}\\left(\\frac{Q K^{T}}{\\sqrt{d_{k}}}\\right) V\n\\end{equation*}\\]"
+        let cut = ChatTitle.display(saved(SelectionAction.define.prompt(attention)))
+        XCTAssertEqual(cut, "Explain · Attention(Q, K, V)=softmax…", "More of the formula fits than with the plain prompt")
+    }
+
+    func testOnlyASingleEquationGetsTheEquationPrompt() {
+        for equation in ["\\[x_t = \\sqrt{\\alpha_t} x_0\\]", "$$p(x) \\propto e^{-E(x)}$$", "\\(a \\leq b\\),", "\\(\\theta^* = \\arg\\min L\\).",
+                         "\\begin{equation}\ny = W x + b\n\\end{equation}", "\\[\\nabla f\\]"] {
+            XCTAssertTrue(SelectionAction.isSingleEquation(equation), equation)
+            XCTAssertTrue(SelectionAction.define.prompt(equation).hasPrefix("Explain this equation: "), equation)
+        }
+        for other in ["scaled dot-product attention", "\\(\\beta\\)", "\\(\\hat{m}_t / \\sqrt{\\hat{v}_t}\\)", "where \\(a = b\\)",
+                      "\\(a = b\\) and \\(c = d\\)", "\\[\\]", "\\[x = ", "\\(\\neg p\\)", ""] {
+            XCTAssertFalse(SelectionAction.isSingleEquation(other), other)
+        }
+        XCTAssertEqual(SelectionAction.define.prompt("\\(\\beta\\)"), "Explain in plain terms, including any symbols: \\(\\beta\\)",
+                       "A lone symbol keeps the plain prompt")
+        XCTAssertEqual(SelectionAction.relevance.prompt("\\[a = b\\]"), "Why does this matter to the paper's method and results? \\[a = b\\]",
+                       "Only Explain has an equation prompt")
     }
 
     /// A saved title cut inside one long display formula still names the formula (the journey fixtures' shape).
