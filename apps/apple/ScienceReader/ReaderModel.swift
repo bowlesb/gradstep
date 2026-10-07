@@ -1218,6 +1218,7 @@ final class ReaderModel {
         activated = true
         workOwnership.finishActivation(activation)
         libraryCommandCoordinator?.resume()
+        activateUploads()
         openLocalPaperIfNeeded()
         await synchronize()
         return activation
@@ -1323,6 +1324,7 @@ final class ReaderModel {
         librarySearchSourceChanged()
         let oldCommands = libraryCommandCoordinator; libraryCommandCoordinator = nil
         oldCommands?.close()
+        uploads.deactivate()
         let oldBundles = readerBundles; readerBundles = nil
         oldBundles?.close()
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
@@ -1385,6 +1387,7 @@ final class ReaderModel {
     }
 
     func refreshLibrary() async {
+        uploads.resume()
         guard let accountID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let scope = sessionID
         await loadLibrary(accountID: accountID, scope: scope)
@@ -2155,6 +2158,21 @@ final class ReaderModel {
     }
 
     // MARK: Add by any identifier or link, and PDF uploads (docs/architecture/PDF_UPLOADS.md)
+
+    /// PDFs on their way to the library (picked, dropped, shared or downloaded on this device).
+    let uploads = PDFUploadCenter()
+
+    /// Starts this account's upload queue once its library is ready; unsent uploads resume.
+    func activateUploads() {
+        guard let service = addingService, let accountID, let configuration else { return }
+        let scope = sessionID
+        uploads.activate(.init(service: service, accountID: accountID, deploymentID: configuration.url.absoluteString,
+            cursor: { [weak self] in
+                guard let self, self.sessionID == scope else { return nil }
+                return self.completeLibrary?.committedCursor
+            },
+            added: { [weak self] in Task { await self?.refreshLibrary() } }))
+    }
 
     /// The Add sheet's and uploads' network calls for the signed-in account (a script in UI fixtures).
     var addingService: (any PaperAddingService)? {
@@ -2991,6 +3009,13 @@ extension ReaderModel {
         """
         feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
         feedCategory = feedCategories.first; feedState = .loaded
+    }
+
+    /// Add-paper fixture: an import the scripted upload service created or retried (replaces one with the same ID).
+    func insertFixtureImport(_ record: LibraryImportRecord) {
+        fixtureImportChanges = true
+        libraryImports.removeAll { $0.id == record.id }
+        libraryImports.insert(record, at: 0)
     }
 
     func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],

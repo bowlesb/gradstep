@@ -68,4 +68,43 @@ final class AddPaperFlowTests: XCTestCase {
         if !closed { save("add-open-doi-stuck") }
         XCTAssertTrue(closed)
     }
+
+    /// Add › Choose a PDF (the fixture picks a sample PDF for the system picker): the Library shows the
+    /// upload's progress, then the paper as an import with the PDF's own title.
+    func testUploadAPDFFromFiles() {
+        let app = launch(["--visual-show-import"])
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 10))
+        save("add-sheet")
+        app.buttons["add.choosePDF"].tap()
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForNonExistence(timeout: 5), "the sheet closes once the PDF is queued")
+        let status = app.staticTexts["upload.status"]
+        if !status.waitForExistence(timeout: 5) { save("upload-debug"); print(app.debugDescription) }
+        XCTAssertTrue(status.exists)
+        XCTAssertTrue(status.label.contains("Sparse Attention, Revisited"), status.label)
+        save("upload-progress")
+        XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Sparse Attention, Revisited: A Workshop Draft"].waitForExistence(timeout: 5), "the uploaded paper is in the library")
+        save("upload-added")
+    }
+
+    /// A paper that isn't openly available: Add says so and offers the upload, which attaches to that paper.
+    func testUploadForAPaperThatIsNotOpen() {
+        let app = launch(["--visual-show-import"])
+        let field = app.textFields["import.reference"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        replace(field, with: Self.closedDOI, in: app)
+        app.buttons["import.add"].tap()
+        let upload = app.buttons["add.next.upload"]
+        XCTAssertTrue(upload.waitForExistence(timeout: 5))
+        upload.tap()
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForNonExistence(timeout: 5))
+        let notice = app.staticTexts["upload.notice"]
+        if !notice.waitForExistence(timeout: 10) { save("upload-closed-debug"); print(app.debugDescription) }
+        XCTAssertTrue(notice.exists)
+        // The failed import in the library also offers it inline (Upload PDF).
+        app.buttons["library.filter.failed"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "label == %@", "Upload PDF")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        save("library-upload-action")
+    }
 }

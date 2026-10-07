@@ -11,6 +11,9 @@ struct ImportPaperView: View {
     @State private var saving = false
     @State private var issue: String?
     @State private var outcome: AddOutcome?
+    /// The PDF picker, and what a chosen file attaches to.
+    @State private var picking: (target: PDFUploadTarget, title: String?)?
+    @State private var dropTargeted = false
 
     private var canAdd: Bool {
         #if DEBUG && FIXTURE_HOST
@@ -62,6 +65,16 @@ struct ImportPaperView: View {
                     Section { Label("Looking up the paper…", systemImage: "magnifyingglass").foregroundStyle(.secondary) }
                 }
                 if let outcome { outcomeSection(outcome) }
+                if canAdd {
+                    Section {
+                        Button { choosePDF(target: .newPaper, title: nil) } label: {
+                            Label("Choose a PDF…", systemImage: "doc.badge.plus")
+                        }.disabled(saving).accessibilityIdentifier("add.choosePDF")
+                    } header: { Text("PDF file") } footer: {
+                        Text(Platform.isLargeScreen ? "Or drop a PDF here. It’s converted for you alone and never shared."
+                             : "From Files. It’s converted for you alone and never shared.")
+                    }
+                }
                 if model.librarySignInRequired && !canAdd {
                     Section {
                         Text("Sign in to add papers to your library.").font(.footnote).foregroundStyle(.secondary)
@@ -77,6 +90,22 @@ struct ImportPaperView: View {
                 }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
                 .onChange(of: input) { _, _ in outcome = nil; issue = nil }
+                .fileImporter(isPresented: Binding(get: { picking != nil && !PDFUploadPresenter.fixturePicks }, set: { if !$0 { picking = nil } }),
+                              allowedContentTypes: [.pdf]) { result in
+                    guard let request = picking else { return }
+                    picking = nil
+                    if case .success(let url) = result { upload(url, target: request.target, title: request.title) }
+                }
+                .onDrop(of: [.pdf], isTargeted: $dropTargeted) { providers in
+                    guard canAdd else { return false }
+                    Task {
+                        let urls = await PDFUploadIntake.loadDropped(providers)
+                        guard let url = urls.first else { return }
+                        upload(url, target: .newPaper, title: nil)
+                    }
+                    return true
+                }
+                .overlay { if dropTargeted { RoundedRectangle(cornerRadius: 16).stroke(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false) } }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving).macBarButton() }
                     // Design audit 2: a task sheet confirms in the top bar.
@@ -98,6 +127,30 @@ struct ImportPaperView: View {
         Section {
             Text(outcome.message).font(.callout).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("add.outcome")
+            ForEach(outcome.steps, id: \.self) { step in
+                if case .uploadPDF(let target, let title) = step {
+                    Button { choosePDF(target: target, title: title) } label: { Label(step.title, systemImage: "doc.badge.plus") }
+                        .disabled(saving).accessibilityIdentifier(step.identifier)
+                }
+            }
+        }
+    }
+
+    private func choosePDF(target: PDFUploadTarget, title: String?) {
+        issue = nil
+        #if DEBUG && FIXTURE_HOST
+        // UI fixtures can't drive the system picker: they pick the sample PDF.
+        if AddPaperFixture.isEnabled, let url = try? AddPaperFixture.samplePDF() { upload(url, target: target, title: title); return }
+        #endif
+        picking = (target, title)
+    }
+
+    /// Queues the PDF (checked and copied first); the Library shows it from here, so the sheet closes.
+    private func upload(_ url: URL, target: PDFUploadTarget, title: String?) {
+        saving = true
+        Task {
+            defer { saving = false }
+            if let problem = await PDFUploadIntake.add(url, target: target, title: title, model: model) { issue = problem } else { dismiss() }
         }
     }
 }

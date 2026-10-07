@@ -114,6 +114,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
     private let network: URLSession
+    /// Library read version: 4 (uploads), or 3 on a server that doesn't have v4 yet.
+    private var libraryReadVersion = 4
     private let authNetwork: URLSession
     private let credentials: any AuthenticationCredentialStore
     private var credentialCleanupAttempt: UUID?
@@ -349,21 +351,28 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Library pages use their bounded wire decoder and keep the reconciler's
     /// original account/session/request ticket through the transport boundary.
-    /// v3 reads include web papers (v2, for older builds, leaves them out).
+    /// v4 reads include the reader's uploads (migration 031) and v3 web papers (v2, for older builds,
+    /// leaves both out). A server without v4 yet is read at v3 (no uploads exist there) for this client's life.
     func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
         let function: String, body: Data
         switch request.query {
         case .baseline(let cursor):
             struct Parameters: Encodable { let p_cursor: LibraryBaselineCursor?; let p_limit: Int }
-            function = "v3_library_page"
+            function = "v\(libraryReadVersion)_library_page"
             body = try ReaderCrypto.encode(Parameters(p_cursor: cursor, p_limit: request.limit))
         case .changes(let after, let through):
             struct Parameters: Encodable { let p_after: Int64; let p_through: Int64?; let p_limit: Int }
-            function = "v3_library_changes"
+            function = "v\(libraryReadVersion)_library_changes"
             body = try ReaderCrypto.encode(Parameters(p_after: after, p_through: through, p_limit: request.limit))
         }
-        let data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
+        let data: Data
+        do {
+            data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
                                         maximumResponseBytes: LibraryWire.maximumPageBytes, libraryErrors: true)
+        } catch is LibraryReadVersionMissing where libraryReadVersion == 4 {
+            libraryReadVersion = 3
+            return try await libraryPage(request)
+        }
         let page: LibraryPageDelivery.Page
         switch request.query {
         case .baseline: page = .baseline(try LibraryWire.decodeBaseline(data))
@@ -503,6 +512,73 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let body = try JSONEncoder().encode(Body(operation_id: UUID().wire, query: String(query.prefix(2_000)), capabilities: ["web_import", "pdf_upload"]))
         let data = try await authorized(path: "functions/v1/add-paper", body: body, accountID: accountID, maximumResponseBytes: 65_536)
         return try JSONDecoder().decode(AddPaperResult.self, from: data)
+    }
+
+    // MARK: PDF uploads (functions/v1/upload-pdf; docs/architecture/PDF_UPLOADS.md)
+
+    /// Begins (or resumes) an upload session: the server checks size, private storage, limits and credits,
+    /// and returns a signed token for the session's own path while the bytes are still to send.
+    func beginPDFUpload(_ job: PDFUploadJob, accountID: UUID) async throws -> PDFUploadTicket {
+        struct Body: Encodable {
+            let action = "begin"; let upload_id: String; let sha256: String; let byte_count: Int64; let target: String
+            let title: String?; let import_id: String?; let expected_revision: Int64?; let source_id: String?
+        }
+        let body: Body
+        switch job.target {
+        case .newPaper:
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, target: "paper", title: job.title,
+                        import_id: nil, expected_revision: nil, source_id: nil)
+        case .importID(let id, let revision):
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, target: "import", title: nil,
+                        import_id: id.wire, expected_revision: revision, source_id: nil)
+        case .source(let source):
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, target: "source", title: nil,
+                        import_id: nil, expected_revision: nil, source_id: source)
+        }
+        let data = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(body), accountID: accountID, maximumResponseBytes: 16_384)
+        let ticket = try JSONDecoder().decode(PDFUploadTicket.self, from: data)
+        guard ticket.upload_id == job.uploadID else { throw ReaderError.corruptData }
+        return ticket
+    }
+
+    /// Sends the PDF straight to private Storage with the session's signed token (never through a function).
+    /// An expired token or a reset connection is retried by asking for a new token.
+    func sendPDFUpload(file: URL, path: String, token: String, accountID: UUID, progress: @escaping @Sendable (Double) -> Void) async throws {
+        let account = accountID.uuidString.lowercased()
+        guard session?.user.id == accountID,
+              path.range(of: "^\(account)/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.pdf$", options: .regularExpression) != nil,
+              !token.isEmpty, token.utf8.count <= 4_096,
+              var components = URLComponents(url: config.url.appendingPathComponent("storage/v1/object/upload/sign/paper-uploads/" + path),
+                                             resolvingAgainstBaseURL: false) else { throw BackendError.signInRequired }
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        guard let url = components.url, url.host == config.url.host else { throw BackendError.unavailable }
+        var request = URLRequest(url: url, timeoutInterval: 600)
+        request.httpMethod = "PUT"
+        request.setValue("application/pdf", forHTTPHeaderField: "Content-Type")
+        request.setValue("true", forHTTPHeaderField: "x-upsert")
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        let (_, response) = try await network.upload(for: request, fromFile: file, delegate: UploadProgress(progress))
+        guard let status = (response as? HTTPURLResponse)?.statusCode else { throw BackendError.transport }
+        switch status {
+        case 200..<300: return
+        case 413: throw BackendError.rejected("upload_too_large")
+        // An expired or refused token: the next attempt asks for a new one.
+        case 400, 401, 403: throw BackendError.rejected("upload_token_refused")
+        default: throw BackendError.transport
+        }
+    }
+
+    /// Finalizes once the bytes are in Storage: the import is created (or retried). Idempotent.
+    func finalizePDFUpload(_ uploadID: UUID, observedCursor: Int64, accountID: UUID) async throws {
+        struct Body: Encodable { let action = "finalize"; let upload_id: String; let observed_cursor: Int64 }
+        _ = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(Body(upload_id: uploadID.wire, observed_cursor: observedCursor)),
+                                 accountID: accountID, maximumResponseBytes: LibraryWire.maximumPageBytes)
+    }
+
+    /// Where this device can try to fetch a failed web import's PDF.
+    func importPDFSources(_ importID: UUID, accountID: UUID) async throws -> PDFImportSources {
+        struct Parameters: Encodable, Sendable { let p_import_id: UUID }
+        return try await rpc("v1_import_pdf_sources", params: Parameters(p_import_id: importID), accountID: accountID)
     }
 
     /// Newest arXiv submissions in one category (Feed).
@@ -853,6 +929,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
             }
+            // PostgREST: no such function (a server before migration 031 has no v4 reads).
+            if libraryErrors, response.statusCode == 404, failure?.code == "PGRST202" { throw LibraryReadVersionMissing() }
             if libraryCommandErrors {
                 if response.statusCode == 401 { throw BackendError.signInRequired }
                 let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit",
@@ -866,7 +944,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 // strings never become an immutable-operation conflict.
                 throw BackendError.rejected("request_failed")
             }
-            let known = Set(["insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"])
+            let known = Set(["upload_too_large", "upload_quota", "upload_limit", "upload_storage_full", "upload_expired", "upload_id_conflict",
+                             "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "invalid_upload", "rate_limited",
+                             "library_active_import_limit", "import_not_retryable", "import_unavailable",
+                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"])
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }
@@ -894,6 +975,23 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
 /// Library and auth requests stay on their configured origin. Never follow a
 /// redirect before parsing an error or forward credentials to its target.
+private struct LibraryReadVersionMissing: Error {}
+
+/// Bytes sent of a PDF upload, as a fraction.
+private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {
+    private let report: @Sendable (Double) -> Void
+    init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        report(min(1, Double(totalBytesSent) / Double(totalBytesExpectedToSend)))
+    }
+    // The signed upload URL is final: a redirect is never followed.
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 private final class LibraryRedirectPolicy: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {

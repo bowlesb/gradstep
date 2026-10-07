@@ -14,10 +14,11 @@ export interface DeletionBegin {
 }
 
 /** Only these folders may be emptied for an account: its private folder, its
- * support folder, and its private conversions' raw/ and reader/ folders. */
+ * support folder, its PDF uploads folder, and its private conversions' raw/ and reader/ folders. */
 export function allowedPrefix(accountID: string, bucket: string, prefix: string): boolean {
   if (bucket === 'paper-assets') return prefix === `private/${accountID}/` || /^(raw|reader)\/[0-9a-f]{64}\/$/.test(prefix);
   if (bucket === 'support') return prefix === `${accountID}/`;
+  if (bucket === 'paper-uploads') return prefix === `${accountID}/`;
   return false;
 }
 export interface DeletionOutcome { complete: boolean; step?: 'files' | 'finish' | 'login' }

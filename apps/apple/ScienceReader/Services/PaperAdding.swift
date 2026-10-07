@@ -130,6 +130,10 @@ enum AddInput: Equatable, Sendable {
 /// The Add sheet's and uploads' network calls: the backend in the app, a script in UI fixtures.
 protocol PaperAddingService: Sendable {
     func addPaper(_ query: String) async throws -> AddPaperResult
+    func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket
+    func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws
+    func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws
+    func importSources(_ importID: UUID) async throws -> PDFImportSources
 }
 
 /// The signed-in account's backend.
@@ -137,4 +141,17 @@ struct BackendPaperAdding: PaperAddingService {
     let backend: BackendClient
     let accountID: UUID
     func addPaper(_ query: String) async throws -> AddPaperResult { try await backend.addPaper(query, accountID: accountID) }
+    func beginUpload(_ job: PDFUploadJob) async throws -> PDFUploadTicket { try await backend.beginPDFUpload(job, accountID: accountID) }
+    func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws {
+        try await backend.sendPDFUpload(file: file, path: path, token: token, accountID: accountID, progress: progress)
+    }
+    func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws {
+        try await backend.finalizePDFUpload(uploadID, observedCursor: observedCursor, accountID: accountID)
+    }
+    func importSources(_ importID: UUID) async throws -> PDFImportSources { try await backend.importPDFSources(importID, accountID: accountID) }
+}
+
+extension LibraryImportRecord {
+    /// A web paper or a reader's own upload can take a PDF from this device; arXiv papers always come from arXiv.
+    var canTakeUpload: Bool { LibrarySource.isWebSourceID(sourceID) || LibrarySource.isUploadSourceID(sourceID) }
 }

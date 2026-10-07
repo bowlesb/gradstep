@@ -69,6 +69,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
+        .modifier(PDFUploadPresenter(model: model))
         .sheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper).macSheetKeys() }
         }
@@ -275,6 +276,8 @@ struct LibraryView: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            // iPad and Mac: drop PDFs on the Library to add them (docs/architecture/PDF_UPLOADS.md).
+            .acceptsDroppedPDFs(model: model)
             .sheet(isPresented: $showColumns) {
                 LibraryColumnsSheet(model: model, tableWidth: max(0, containerWidth - 2 * DesignMetrics.margin))
             }
@@ -311,8 +314,10 @@ struct LibraryView: View {
         let issue = model.searchExternal ? nil : model.libraryIssue
         let pending = !model.searchExternal && (!model.libraryCommands.isEmpty || model.libraryCommandIssue != nil)
         let offline = model.searchExternal ? nil : model.offlineCacheIssue
-        if signIn || issue != nil || pending || offline != nil {
+        let uploading = !model.searchExternal && PDFUploadBanners.shows(model)
+        if signIn || issue != nil || pending || offline != nil || uploading {
             VStack(spacing: 8) {
+                if uploading { PDFUploadBanners(model: model) }
                 if signIn {
                     StatusBannerLink(tone: .info, systemImage: "lock.icloud", message: "Sign in to sync") { model.openSignIn() }
                         .accessibilityIdentifier("library.signIn")
@@ -538,7 +543,7 @@ struct ImportRow: View {
                             .accessibilityHint(action.hint)
                             .accessibilityIdentifier(action == .getCredits ? "import.getCredits" : "import.\(action.title.lowercased()).\(item.id.wire)")
                     }
-                    if !active, let url = URL(string: item.sourceURL) {
+                    if !active, let url = item.sourceURL.flatMap({ URL(string: $0) }) {
                         Spacer(minLength: 8)
                         Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
                     }

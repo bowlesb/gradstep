@@ -62,12 +62,12 @@ private final class Scenario: @unchecked Sendable {
             else if url.path.hasSuffix("v1_library") {
                 if holdRead { pending = request; arrived.fulfill() }
                 else { request.respond(Data("{}".utf8)) }
-            } else if url.path.hasSuffix("v3_library_page") {
+            } else if url.path.hasSuffix("v4_library_page") {
                 if holdRead { pending = request; arrived.fulfill() }
                 else { request.respond(Data("""
                     {"format":2,"account_id":"\(firstID.wire)","baseline_cursor":0,"retained_after":0,"entries":[],"next_cursor":null,"has_more":false}
                     """.utf8)) }
-            } else if url.path.hasSuffix("v3_library_changes") {
+            } else if url.path.hasSuffix("v4_library_changes") {
                 request.respond(Data("""
                     {"format":2,"account_id":"\(firstID.wire)","through":0,"retained_after":0,"changes":[],"next_cursor":0,"has_more":false}
                     """.utf8))

@@ -192,6 +192,7 @@ extension LibraryImportAction {
         case .retry: Task { await model.changeImport(item, retry: true) }
         case .remove: Task { await model.changeImport(item, retry: false) }
         case .getCredits: model.showStore = true
+        case .uploadPDF: model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)
         }
     }
 
@@ -200,6 +201,7 @@ extension LibraryImportAction {
         case .retry: "Tries the download again"
         case .getCredits: "Opens Get credits"
         case .remove: "Removes this import from your library"
+        case .uploadPDF: "Chooses the paper’s PDF from Files"
         }
     }
 }
@@ -421,7 +423,13 @@ struct LibraryRowActions: View {
             if item.phase == .failed, item.errorCode == .insufficientCredits {
                 Button("Get credits", systemImage: "creditcard") { model.showStore = true }
             }
-            if inTable, item.phase != .resolving, item.phase != .acquiring, let url = URL(string: item.sourceURL) {
+            // A web paper (or a reader's own upload) can take the PDF from this device (docs/architecture/PDF_UPLOADS.md).
+            if item.phase == .failed, item.canTakeUpload {
+                Button("Upload PDF…", systemImage: "doc.badge.plus") {
+                    model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)
+                }.disabled(!model.uploads.isActive)
+            }
+            if inTable, item.phase != .resolving, item.phase != .acquiring, let url = item.sourceURL.flatMap({ URL(string: $0) }) {
                 Link(destination: url) { Label("View source", systemImage: "safari") }
             }
             Button(stopped ? "Remove" : "Cancel import", systemImage: stopped ? "minus.circle" : "xmark.circle", role: .destructive) {

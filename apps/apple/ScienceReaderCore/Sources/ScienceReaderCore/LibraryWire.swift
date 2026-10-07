@@ -339,6 +339,9 @@ public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
     /// Migration 027 download causes: a sign-in or paywall, a website refusing automated downloads,
     /// a website not responding, a link that leads to no PDF.
     case pdfRestricted, sourceBlocked, sourceUnavailable, notPDF
+    /// Migration 031: no open copy of the paper exists (the reader can supply the PDF), and a reader's
+    /// upload that couldn't be used (missing or not what was sent; upload it again).
+    case notOpen, uploadFailed
     case other(String)
 
     static let known: [String: LibraryImportErrorCode] = [
@@ -346,7 +349,7 @@ public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
         "rate_limited": .rateLimited, "license_unverified": .licenseUnverified, "membership_conflict": .membershipConflict,
         "insufficient_credits": .insufficientCredits, "conversion_failed": .conversionFailed, "too_large": .tooLarge,
         "download_retrying": .downloadRetrying, "pdf_restricted": .pdfRestricted, "source_blocked": .sourceBlocked,
-        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF,
+        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF, "not_open": .notOpen, "upload_failed": .uploadFailed,
     ]
     public var rawValue: String {
         if case .other(let raw) = self { return raw }
@@ -477,7 +480,8 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let versionID: UUID?
     public let metadata: LibraryMetadata?
     public let metadataRecordedAt: LibraryTimestamp?
-    public let sourceURL: String
+    /// The paper's page (arXiv, or OpenAlex for a web paper). Nil only for a reader's own upload (v4 reads).
+    public let sourceURL: String?
     public let documentID: UUID?
     public let libraryItemID: UUID?
     public let errorCode: LibraryImportErrorCode?
@@ -747,9 +751,16 @@ private func arxivURL(_ source: String, _ revision: Int?) -> String {
 
 /// Where a library paper came from. v3 library reads carry arXiv papers and web
 /// papers: open-access copies found through OpenAlex (`openalex:W…`, revision 1),
-/// converted privately for this account. v2 reads (older builds) carry arXiv only.
+/// converted privately for this account. v4 reads add the reader's own PDF uploads
+/// (`upload:<uuid>`, revision 1, no source page). v2 reads (older builds) carry arXiv only.
 public enum LibrarySource {
-    public static let arxiv = "arxiv", web = "web"
+    public static let arxiv = "arxiv", web = "web", upload = "upload"
+
+    /// A reader's own uploaded PDF (`upload:` and a lowercase UUID).
+    public static func isUploadSourceID(_ value: String) -> Bool {
+        guard value.hasPrefix("upload:"), let id = UUID(uuidString: String(value.dropFirst("upload:".count))) else { return false }
+        return value == "upload:" + id.uuidString.lowercased()
+    }
 
     public static func isWebSourceID(_ value: String) -> Bool {
         let digits = value.utf8.dropFirst("openalex:W".utf8.count)
@@ -762,30 +773,33 @@ public enum LibrarySource {
         "https://openalex.org/works/" + sourceID.dropFirst("openalex:".count)
     }
 
-    /// Short source label: "arXiv v3", "arXiv", or "Open access" for a web paper.
+    /// Short source label: "arXiv v3", "arXiv", "Open access" for a web paper, "Your PDF" for an upload.
     public static func badge(sourceID: String?, revision: Int?) -> String? {
         guard let sourceID else { return nil }
         if isWebSourceID(sourceID) { return "Open access" }
+        if isUploadSourceID(sourceID) { return "Your PDF" }
         return revision.map { "arXiv v\($0)" } ?? "arXiv"
     }
 
     /// Title shown before a paper's metadata arrives.
     public static func placeholderTitle(sourceID: String) -> String {
-        isWebSourceID(sourceID) ? "Open-access paper" : "arXiv \(sourceID)"
+        isWebSourceID(sourceID) ? "Open-access paper" : isUploadSourceID(sourceID) ? "Uploaded PDF" : "arXiv \(sourceID)"
     }
 
     static func validItem(source: String, sourceID: String, revision: Int, url: String?) -> Bool {
         switch source {
         case arxiv: return url == arxivURL(sourceID, revision)
         case web: return isWebSourceID(sourceID) && revision == 1 && url.map(validHTTPS) == true
+        case upload: return isUploadSourceID(sourceID) && revision == 1 && url == nil
         default: return false
         }
     }
 
-    static func validImport(source: String, sourceID: String, requestedRevision: Int?, sourceRevision: Int?, url: String) -> Bool {
+    static func validImport(source: String, sourceID: String, requestedRevision: Int?, sourceRevision: Int?, url: String?) -> Bool {
         switch source {
         case arxiv: return url == arxivURL(sourceID, sourceRevision ?? requestedRevision)
         case web: return isWebSourceID(sourceID) && requestedRevision == nil && (sourceRevision ?? 1) == 1 && url == openAlexURL(sourceID)
+        case upload: return isUploadSourceID(sourceID) && requestedRevision == nil && (sourceRevision ?? 1) == 1 && url == nil
         default: return false
         }
     }

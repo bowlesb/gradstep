@@ -35,6 +35,7 @@ extension ReaderModel {
             try configureLibraryMetadataFixture(sample: sample)
         }
         if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
+        if AddPaperFixture.isEnabled { try configureAddPaperFixture() }
         tab = .library; wideMode = .library
         // Quick visual checks from the command line (`simctl launch … --start-tab=chat`): open on another tab.
         if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--start-tab=") })?.dropFirst("--start-tab=".count),

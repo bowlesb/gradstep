@@ -876,8 +876,8 @@ private final class OfflineModelServer: @unchecked Sendable {
                 let after = (Self.fields(request.request)["p_after"] as? NSNumber)?.int64Value ?? 0
                 request.respond(OfflineModelCatalog.bytes(["events": [], "next_cursor": after, "has_more": false]))
             case "v1_acknowledge_cursor": request.respond(Data(), status: 204)
-            case "v3_library_page": request.respond(catalog.baseline(state: state, availability: availability, additionalCatalogs: additionalCatalogs))
-            case "v3_library_changes":
+            case "v4_library_page": request.respond(catalog.baseline(state: state, availability: availability, additionalCatalogs: additionalCatalogs))
+            case "v4_library_changes":
                 let input = Self.fields(request.request)
                 let after = (input["p_after"] as? NSNumber)?.int64Value ?? 0
                 let through = (input["p_through"] as? NSNumber)?.int64Value ?? state

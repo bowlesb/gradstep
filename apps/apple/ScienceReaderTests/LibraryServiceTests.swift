@@ -396,6 +396,23 @@ final class LibraryTransportTests: XCTestCase {
         return (try await store.beginLibraryAttempt(handle, scope: scope), directory)
     }
 
+    /// Migration 031: v4 reads add uploads. A server without them yet is read at v3 for this client's life.
+    func testLibraryReadsFallBackToV3WhenTheServerHasNoV4() async throws {
+        let account = UUID(), f = LibraryFixture(accountID: account)
+        let missing = Data(#"{"code":"PGRST202","message":"Could not find the function public.v4_library_page"}"#.utf8)
+        let server = LibraryHTTPServer(account: account, replies: [
+            .init(data: missing, status: 404), .init(data: f.baseline([], high: 0)), .init(data: f.changes([], through: 0))])
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        var reconciler = LibraryReconciler(accountID: account)
+        let first = try reconciler.nextRequest(limit: 7), firstReply = try await client.libraryPage(first)
+        guard case .baseline(let page) = firstReply.page else { return XCTFail("Expected baseline") }
+        try reconciler.accept(page, for: first)
+        _ = try await client.libraryPage(try reconciler.nextRequest(limit: 7))
+        XCTAssertEqual(server.requests().map { $0.url!.lastPathComponent }, ["v4_library_page", "v3_library_page", "v3_library_changes"])
+    }
+
     func testBoundedTransportUsesV2ParametersAndPreservesExactRequestOwnership() async throws {
         let account = UUID(), f = LibraryFixture(accountID: account), id = UUID()
         let server = LibraryHTTPServer(account: account, replies: [
@@ -415,7 +432,7 @@ final class LibraryTransportTests: XCTestCase {
         let third = try reconciler.nextRequest(limit: 7), thirdReply = try await client.libraryPage(third)
         XCTAssertEqual(thirdReply.request, third)
         let requests = server.requests()
-        XCTAssertEqual(requests.map { $0.url!.lastPathComponent }, ["v3_library_page", "v3_library_page", "v3_library_changes"])
+        XCTAssertEqual(requests.map { $0.url!.lastPathComponent }, ["v4_library_page", "v4_library_page", "v4_library_changes"])
         XCTAssertTrue(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-library-token" })
         let continuation = try XCTUnwrap(try body(requests[1])["p_cursor"] as? [String: Any])
         XCTAssertEqual(continuation["account_id"] as? String, account.wire)

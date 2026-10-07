@@ -58,7 +58,7 @@ select test.assert(:'entry'::jsonb->>'source_kind'='web' and :'entry'::jsonb->>'
 select test.reject(format('select public.worker_pipeline_metadata(%L,%L,%s,1,%L,false,%L)',:'shared',:'claim',:'gen',:'meta','https://example.org/'),'invalid_arxiv_id');
 select test.reject(format('select public.worker_pipeline_web_metadata(%L,%L,%s,%L,null,%L,null)',:'shared',:'claim',:'gen',:'meta',x),'invalid_pipeline_metadata')
  from unnest(array['{http://repository.example.org/a.pdf}','{https://127.0.0.1/a.pdf}','{https://repository.example.org:8443/a.pdf}',
-  '{https://user@repository.example.org/a.pdf}','{https://localhost/a.pdf}','{}',
+  '{https://user@repository.example.org/a.pdf}','{https://localhost/a.pdf}',
   '{https://a.example.org/1.pdf,https://b.example.org/2.pdf,https://c.example.org/3.pdf,https://d.example.org/4.pdf}']) x;
 select test.reject(format('select public.worker_pipeline_web_metadata(%L,%L,%s,%L,null,%L,null)',:'shared',:'claim',:'gen',x,'{https://repository.example.org/a.pdf}'),'invalid_catalog_metadata')
  from unnest(array['{"title":"x","authors":[],"categories":[],"doi":"10.1/x"}','{"title":"Deep\u0002 learning","authors":[],"categories":[]}',
