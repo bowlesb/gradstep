@@ -117,6 +117,9 @@ Tests: `PaperWebViewTests` — `testAuthorYearFormsLinkEachNameAndYear` (a synth
 split and caption cases, focus stops, labels, color, touch underline, a tap on "b" and Back) and
 `testAuthorYearCitationsLinkOnlyOnAnUnambiguousMatch`; `testAuthorYearCitationScreenshots` captures a real bundle
 light/dark before and after a jump when `TEST_RUNNER_SCIENCE_READER_CITATION_BUNDLE` is set (skipped otherwise).
+2026-10-07, iOS 26.4 Simulators: all citation tests and `ReaderNavigationTests` pass on iPhone and iPad; on iPad two
+older tests (`testContentsPreserveArtifactAnchorsAndUseThemForNavigation`, 38 pt off;
+`testInvalidDOMAndUnlistedImagesFailThenFreshVerifiedBundleLoads`, load timeout) fail the same way without this change.
 
 Publication line: native passes `year · venue · source` (`Paper.publicationLine`) and the bridge inserts it after the
 authors (or the title) as a `data-sr-chrome` element before the first layout. It is `user-select: none`, outside every
