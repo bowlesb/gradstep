@@ -5,7 +5,7 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 ## Contract: `POST functions/v1/chat`
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
-- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored)}`.
+- Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" | "related" | "relevance" (each requires a selection) | "diagram_fix" (general mode, exactly one user turn ≤ 24,000 bytes, no selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored)}`.
 - Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
@@ -58,8 +58,22 @@ device keeps it only with a complete answer, sealing an encrypted `diagram` even
 `mermaid-v1`, with the answer's message entity ID) in the same batch as the answer. The answer shows "View diagram";
 Settings/Library → All diagrams lists saved diagrams. Rendering is on device with the bundled Mermaid 12.1.0
 (`scripts/vendor-mermaid.mjs`, hash-pinned) in a web view whose page allows no scripts, network or navigation;
-Mermaid runs in `securityLevel: 'strict'` from an app-owned user script. A diagram that cannot be drawn shows its
-source. This restores the legacy app's diagrams in a narrower form (Mermaid only; no arbitrary HTML/SVG).
+Mermaid runs in `securityLevel: 'strict'` from an app-owned user script. This restores the legacy app's diagrams in a
+narrower form (Mermaid only; no arbitrary HTML/SVG).
+
+**Fewer broken diagrams (2026-10-07).** The diagram instructions and the tool description carry the legacy app's Mermaid
+label rules (ASCII labels, quote labels with punctuation, safe characters, no `end` IDs). Before a diagram is kept, the
+device parses it with the bundled Mermaid (`mermaid.parse`, in an off-screen web view set up like the drawing one;
+`MermaidCheck`). One that fails is sent back **once** as a separate request, `action: "diagram_fix"`: general mode, one
+user turn (`Title: …`, `Mermaid error: …` ≤ 600 characters, the source), no conversation, paper, selection or search;
+instructions to call `create_diagram` with the same content made valid; **2,000 output tokens** (`DIAGRAM_FIX_MAX_TOKENS`).
+It is metered like any answer — its own operation, held (`holdFor(prompt, 2000)`, about 14–20 credits) and settled
+at actual cost (typically 2–3 credits), logged as `chat_answer` with `action: "diagram_fix"`. The answer shows "Fixing
+the diagram…" meanwhile and is saved with the corrected source if that parses, else with the original (the answer's
+title is kept). A request that fails (no credits, an older server) keeps the original. A diagram that still cannot be
+drawn says "Couldn't draw this diagram", with its source collapsed. Server-side parsing was ruled out: Mermaid
+12.1's parser bundles to 5.25 MB minified (over the 5 MB server-side bundling limit before the function's own code)
+and its flowchart parser needs a DOM (DOMPurify).
 
 ## Web search (on in staging)
 
@@ -168,3 +182,12 @@ builds from 2026-10-06): the server adds instructions to search the web on disti
 hold is sized for 5) and list 4–8 related papers with arXiv/DOI links. Without web search it says so and never
 invents links. Searches go to Tavily, with Anthropic's basic `web_search_20250305` as the backup ([web search](#web-search-on-in-staging));
 Tavily's `academic` flag keeps paper searches on scholarly sites. Each answer logs `chat_answer` with counts only.
+
+**Why it matters** sends `action: "relevance"` (2026-10-07): no search tool and no search hold even when search is on,
+and instructions to explain the passage's role using only the paper's content (the legacy prompt: "Using ONLY the
+paper's content (do NOT search the web)"). Follow-up questions in that chat are ordinary and may search. An older
+server rejects the action as `invalid_request` before any hold, so the chat function must be deployed before a build
+that sends it ships. **Explain** on a single equation (displayed, or inline with a relation) asks "Explain this equation:
+‹formula›" followed by one line asking for the background needed, its overall message, each symbol and how its
+notation compares with ML conventions (the legacy equation prompt, shortened); other selections keep "Explain in plain
+terms, including any symbols: ".

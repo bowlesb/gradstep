@@ -61,7 +61,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
-        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model).macSheetKeys() }
+        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
@@ -745,7 +745,7 @@ struct ChatView: View {
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { composerFocused = false; model.showAllChats = true } label: { Image(GradstepSymbol.chats) }
+                    Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { Image(GradstepSymbol.chats) }
                         .accessibilityLabel("Chat history")
                 }
                 // Design audit F8: the paper a conversation is about sits under its title (one tap back).
@@ -883,6 +883,34 @@ struct ChatView: View {
         }.pickerStyle(.inline)
     }
 
+    /// In a paper chat, All chats opens on this paper's chats ("This paper"; one tap on All shows everything).
+    private var chatsPaperID: UUID? { model.generalChat ? nil : model.chatPaper?.id }
+
+    /// The paper's other conversations, newest first, in the title menu (the legacy app opened a paper on its
+    /// History); all of them in All chats, filtered to this paper.
+    @ViewBuilder private var paperChatsSection: some View {
+        if let paper = chatsPaperID {
+            let chats = model.conversations(about: paper)
+            let others = chats.filter { $0.id != model.activeConversation }
+            if !others.isEmpty {
+                Section("Chats about this paper") {
+                    ForEach(others.prefix(5)) { chat in
+                        Button { composerFocused = false; model.openConversation(chat.id) } label: {
+                            let title = ChatTitle.display(chat.title)
+                            Text(title.isEmpty ? "Untitled conversation" : title)
+                            Text([ChatHistoryFormat.lastUsed(chat.lastUsedAt), ChatHistoryFormat.messages(chat.messageCount)].joined(separator: " · "))
+                        }
+                        .accessibilityIdentifier("chat.paperChat.\(chat.id.wire)")
+                    }
+                    MenuRow(chats.count == 1 ? "Show in All chats" : "All \(chats.count) chats about this paper", systemImage: GradstepSymbol.chats) {
+                        composerFocused = false; model.openAllChats(paper: paper)
+                    }
+                    .accessibilityIdentifier("chat.paperChats.all")
+                }
+            }
+        }
+    }
+
     /// iPad Reader layout: the paper is already open beside the chat.
     private var besidePaper: Bool { Platform.isLargeScreen && model.wideMode == .reader && model.tab != .chat }
 
@@ -890,7 +918,7 @@ struct ChatView: View {
     /// conversation is about (tap to return to it), or "General chat".
     private var titleView: some View {
         VStack(spacing: 1) {
-            Menu { contextPicker } label: {
+            Menu { contextPicker; paperChatsSection } label: {
                 HStack(spacing: 3) {
                     Text(model.chatTitle).font(.headline).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
@@ -900,7 +928,8 @@ struct ChatView: View {
             // Not just the title: a new conversation is titled "New chat", like the button beside it.
             .accessibilityLabel("Conversation: \(model.chatTitle)")
             .accessibilityValue(model.generalChat ? "General chat" : "Paper chat")
-            .accessibilityHint("Switches between paper chat and general chat")
+            .accessibilityHint(chatsPaperID == nil ? "Switches between paper chat and general chat"
+                               : "Switches between paper chat and general chat, or opens another chat about this paper")
             if !model.generalChat, let paper = model.chatPaper, !besidePaper {
                 Button { composerFocused = false; model.select(paper) } label: {
                     Label(paper.title, systemImage: "doc.text").labelStyle(.titleAndIcon).font(.caption).lineLimit(1)
@@ -923,7 +952,7 @@ struct ChatView: View {
                 MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
             }.controlGroupStyle(.compactMenu)
             Section {
-                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.showAllChats = true }
+                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
             }
             Section {

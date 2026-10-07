@@ -58,16 +58,25 @@ struct ChatHistoryView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
     @State private var search = ""
-    @State private var filter: ChatHistoryFilter = .all
+    @State private var filter: ChatHistoryFilter
+    /// Opened from a paper (its paper or chat screen): "This paper" is offered, and chosen first. Kept for the sheet's
+    /// life, so the table doesn't change while it closes.
+    @State private var paperID: UUID?
     @State private var sort = ChatHistorySort.default
     @State private var deleting: ChatHistoryRow?
     /// The list's width; rows sit inside the 16 pt margins.
     @State private var width: CGFloat = 0
 
+    init(model: ReaderModel, paperID: UUID? = nil) {
+        self.model = model
+        _paperID = State(initialValue: paperID)
+        _filter = State(initialValue: paperID == nil ? .all : .thisPaper)
+    }
+
     var body: some View {
         let summaries = model.conversationSummaries
         let titles = Dictionary(model.papers.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-        let rows = ChatHistoryQuery.rows(summaries, paperTitles: titles, filter: filter, search: search, sort: sort)
+        let rows = ChatHistoryQuery.rows(summaries, paperTitles: titles, filter: filter, paperID: paperID, search: search, sort: sort)
         let drafts = model.unsentDrafts.filter { includes($0, titles: titles) }
         NavigationStack {
             Group {
@@ -162,18 +171,32 @@ struct ChatHistoryView: View {
         let count = Text(ChatHistoryFormat.count(shown: shown, total: total))
             .font(.footnote).foregroundStyle(.secondary).monospacedDigit().lineLimit(1).fixedSize()
             .accessibilityIdentifier("chat.history.count")
-        return ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) { chips; Spacer(minLength: 8); count }
-            HStack(spacing: 8) { chips; Spacer(minLength: 0) }
-            ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { chips } }
+        return Group {
+            if paperID == nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { chips; Spacer(minLength: 8); count }
+                    HStack(spacing: 8) { chips; Spacer(minLength: 0) }
+                    ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { chips } }
+                }
+            } else {
+                // A fourth chip (opened from a paper): the count, which says how many chats are this paper's, moves
+                // under the chips rather than being left out.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { chips; Spacer(minLength: 8); count }
+                    VStack(alignment: .leading, spacing: 0) { HStack(spacing: 8) { chips; Spacer(minLength: 0) }; count }
+                    VStack(alignment: .leading, spacing: 0) { ScrollView(.horizontal, showsIndicators: false) { HStack(spacing: 8) { chips } }; count }
+                }
+            }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .padding(.horizontal, DesignMetrics.margin).padding(.bottom, 4)
         .background(Color(uiColor: .systemBackground))
     }
 
+    /// "This paper" (offered only when opened from a paper, and chosen then) leads, so it is never scrolled out of view.
     private var chips: some View {
-        ForEach(ChatHistoryFilter.allCases) { option in
+        let options = (paperID == nil ? [] : [ChatHistoryFilter.thisPaper]) + ChatHistoryFilter.allCases.filter { $0 != .thisPaper }
+        return ForEach(options) { option in
             ChipButton(title: option.title, selected: filter == option) {
                 withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { filter = option }
             }
@@ -186,7 +209,8 @@ struct ChatHistoryView: View {
         if !search.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: search)
         } else {
-            ContentUnavailableView(filter == .general ? "No general chats" : "No paper chats", systemImage: "bubble.left.and.bubble.right")
+            ContentUnavailableView(filter == .general ? "No general chats" : filter == .thisPaper ? "No chats about this paper" : "No paper chats",
+                                   systemImage: "bubble.left.and.bubble.right")
         }
     }
 
@@ -350,6 +374,7 @@ struct ChatHistoryView: View {
     private func includes(_ draft: ChatWorkspace.UnsentDraft, titles: [UUID: String]) -> Bool {
         switch filter {
         case .paper where draft.context == "general", .general where draft.context != "general": return false
+        case .thisPaper where paperID == nil || UUID(uuidString: String(draft.context.dropFirst("paper/".count))) != paperID: return false
         default: break
         }
         let context = draftContext(draft, titles: titles)

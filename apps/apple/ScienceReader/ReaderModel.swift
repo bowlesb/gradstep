@@ -315,7 +315,15 @@ final class ReaderModel {
     @ObservationIgnored private var accountPreparationTask: Task<Void, Never>?
     @ObservationIgnored private var authenticationRetirement: Task<Void, Never>?
     @ObservationIgnored private var pendingRecoveryPresentation: (sessionID: UUID, accountID: UUID)?
-    var showAllChats = false
+    var showAllChats = false { didSet { if !showAllChats { allChatsPaperID = nil } } }
+    /// The paper All chats was opened from (its paper or chat screen): it starts filtered to that paper's chats.
+    private(set) var allChatsPaperID: UUID?
+    func openAllChats(paper: UUID?) { allChatsPaperID = paper; showAllChats = true }
+    /// A paper's saved conversations, most recently used first (the chat title menu's "Chats about this paper").
+    func conversations(about paperID: UUID) -> [ConversationSummary] {
+        ChatHistoryQuery.rows(conversationSummaries, paperTitles: [:], filter: .thisPaper, paperID: paperID, search: "", sort: .default)
+            .map(\.summary)
+    }
     var showDiagrams = false
     var showReport = false
     var showReports = false

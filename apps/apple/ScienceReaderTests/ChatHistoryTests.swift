@@ -43,6 +43,18 @@ final class ChatHistoryTests: XCTestCase {
         ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: filter, search: search, sort: sort))
     }
 
+    /// Opened from a paper, All chats starts on "This paper": that paper's chats only, newest first.
+    func testThisPaperFilterShowsOnlyThatPapersChats() {
+        XCTAssertEqual(ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .thisPaper, paperID: attention, search: "", sort: .default)), [1])
+        XCTAssertEqual(ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .thisPaper, paperID: removed, search: "", sort: .default)), [4],
+                       "Also a paper no longer in the library")
+        XCTAssertEqual(ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .thisPaper, paperID: nil, search: "", sort: .default)), [],
+                       "Without a paper the filter matches nothing (and isn't offered)")
+        XCTAssertEqual(ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .thisPaper, paperID: dpo, search: "réference", sort: .default)), [3])
+        XCTAssertEqual(ChatHistoryFilter.thisPaper.title, "This paper")
+        XCTAssertEqual(ChatHistoryFilter.allCases.map(\.title), ["All", "Paper chats", "General", "This paper"])
+    }
+
     // MARK: Layout
 
     func testColumnsFollowTheWidth() {
