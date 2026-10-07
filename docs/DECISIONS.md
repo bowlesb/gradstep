@@ -663,3 +663,17 @@ every minute): about $54/month for a mostly idle instance. It now uses request-b
 revision gradstep-pipeline-00007): every handler awaits its work before responding, so nothing runs unbilled after a
 response. Expected at current volume: ~$0–3/month, mostly within the free tier. Next (approved): wake the worker when
 work is queued, with a 10–15 minute sweep, instead of every minute; its design is shown to the owner before deploy.
+
+## Offline-save recovery across app upgrades (2026-10-07)
+
+The owner's build-15 offline-save banner was caused by build 14 saving library entries without the later tags and
+import-progress fields. Local checkpoint format 3 marks that decoder boundary, so the next complete server
+observation replaces an older readable snapshot without treating those omitted fields as a changed server revision.
+For current-format caches, repair is restricted to those four display fields; immutable pins, membership, artifact,
+availability and sequence checks remain enforced. Quarantine survives local copy removal and a repaired checkpoint.
+
+The untested handoff also proposed rebuilding unreadable policy and a Try again button that saved only the latest
+observation. Review removed those paths: they could forget a failed quarantine before an ordinary outage. A real
+persistence failure continues to preserve bytes/private content, halt ordered cache installs and ask for reopening.
+This is a client-only compatibility fix; no database migration, cache deletion, server rewrite or deployment is needed.
+Local verification and remaining limits are recorded in [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review).

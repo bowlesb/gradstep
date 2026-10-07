@@ -1744,7 +1744,7 @@ final class ReaderModel {
                     deferredLibraryObservation = snapshot.observation
                 } else { try readerBundles?.observe(snapshot.observation) }
             }
-            catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
             presentLibraryEntries(snapshot.entries)
             libraryPublicationGeneration = snapshot.generation
         }
@@ -1758,7 +1758,7 @@ final class ReaderModel {
             do {
                 guard let readerBundles else { throw ReaderError.storageUnavailable }
                 try readerBundles.observe(observation)
-            } catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            } catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
         }
         deferredLibraryObservation = nil
         libraryPublicationDeferred = false
