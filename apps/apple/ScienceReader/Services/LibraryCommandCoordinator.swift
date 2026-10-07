@@ -49,6 +49,22 @@ final class LibraryCommandCoordinator {
         return handle
     }
 
+    /// A tag edit: replaces an unsent earlier edit, or follows a sent one (see `editLibraryTags`).
+    @discardableResult
+    func editTags(documentID: UUID, tags: [String], hiddenTags: [String], observedRevision: Int64,
+                  display: String?) async throws -> LocalLibraryCommandHandle {
+        try requireWritable()
+        let scope = scope
+        let (handle, snapshot) = try await persist { store in
+            let handle = try await store.editLibraryTags(scope: scope, documentID: documentID, tags: tags, hiddenTags: hiddenTags,
+                                                         observedRevision: observedRevision, display: display)
+            return (handle, try await store.libraryCommandSnapshot(scope: scope))
+        }
+        try requireOpen()
+        publish(snapshot, nil); flush()
+        return handle
+    }
+
     /// HTTP cancellation cannot undo an issued RPC. A submitted intent gets a
     /// separate held reversal, frozen from its own eventual receipt revision.
     func cancel(_ command: LocalLibraryCommand) async throws {

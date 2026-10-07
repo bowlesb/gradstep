@@ -11,11 +11,14 @@ import { runPipeline, type PipelineDeps } from '../../supabase/functions/_shared
 import { pipelineService, rpcAdapter, runtimeEnv, storageAdapter } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { renderReader } from '../../supabase/functions/_shared/reader-adapter.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
+import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 
 /** No new paper is claimed after this; Cloud Run's request timeout (900 s) leaves room to finish one. */
 export const RUN_BUDGET_MS = 480_000;
 /** Each paper's own deadline (the pipeline stops starting stages 30 s before it). */
 export const PAPER_DEADLINE_MS = 360_000;
+/** Topic tagging after each paper and at the end of a run (docs/architecture/TAGS.md). */
+export const TAG_DEADLINE_MS = 90_000;
 
 const log = (event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ event, ...fields }));
 
@@ -46,19 +49,42 @@ function deps(): PipelineDeps {
   };
 }
 
+/** Claude Haiku chooses catalog tags when the Anthropic key is configured; otherwise only the arXiv-category fallback runs. */
+function taggingDeps(): TaggingDeps {
+  const key = runtimeEnv('ANTHROPIC_API_KEY');
+  const client = key ? createTagClient(key) : null;
+  return {
+    rpc: rpcAdapter(pipelineService()), classify: client ? input => classifyPaper(client, input) : null,
+    uuid: () => randomUUID(), now: () => Date.now(), log: (event, fields = {}) => log(event, fields),
+  };
+}
+
 export interface RunResult { processed: number; ms: number }
-/** Works through due papers until none is due or the budget is spent. */
-export async function runOnce(make: () => PipelineDeps = deps, now: () => number = Date.now): Promise<RunResult> {
+/** Works through due papers until none is due or the budget is spent. Tags papers whose metadata
+ * has arrived after each one (a paper's tags are ready while it converts), and once more at the end. */
+export async function runOnce(make: () => PipelineDeps = deps, now: () => number = Date.now,
+  tagging: (() => TaggingDeps) | null = taggingDeps): Promise<RunResult> {
   const started = now();
   let processed = 0;
   // Finish any account deletion left incomplete (cheap when none is).
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
   const pipeline = make();
+  let tagger: TaggingDeps | null = null;
+  const tag = async (maxPapers: number) => {
+    if (!tagging) return;
+    try {
+      tagger ??= tagging();
+      const result = await tagCatalog(tagger, { deadline: now() + TAG_DEADLINE_MS, maxPapers });
+      if (result.model || result.fallback || result.failed || result.projected) log('tags_run', { ...result });
+    } catch (error) { log('tags_failed', { code: error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected' }); }
+  };
   while (now() - started < RUN_BUDGET_MS) {
     const result = await runPipeline(pipeline, now() + PAPER_DEADLINE_MS);
     if (!result.processed) break;
     processed += result.processed;
+    await tag(3);
   }
+  await tag(30);
   return { processed, ms: now() - started };
 }
 

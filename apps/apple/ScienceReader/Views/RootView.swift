@@ -83,6 +83,9 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
+        .sheet(item: $model.tagEditor) { request in
+            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper).macSheetKeys() }
+        }
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram).macSheetKeys() }
         }
@@ -557,7 +560,8 @@ struct PaperRow: View {
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
             let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
-            let topics = showTopics ? ArxivTopics.names(for: paper.keywords, limit: 3) : []
+            // Its tags when it has any (docs/architecture/TAGS.md), else its arXiv topics.
+            let topics = showTopics ? (paper.tags.isEmpty ? ArxivTopics.names(for: paper.keywords, limit: 3) : Array(paper.tags.prefix(3))) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }

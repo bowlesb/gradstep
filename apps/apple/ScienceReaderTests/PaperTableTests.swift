@@ -168,9 +168,9 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(order(.published, ascending: true), ["2609.11890", "2610.01234", "2610.01235", "2610.02287", "2610.03011"])
         XCTAssertEqual(order(.title, ascending: true), ["2610.01235", "2609.11890", "2610.03011", "2610.01234", "2610.02287"],
                        "Case doesn't matter")
-        XCTAssertEqual(order(.topic, ascending: true), ["2610.02287", "2610.01234", "2610.01235", "2610.03011", "2609.11890"],
-                       "Language, Machine learning (server order for ties), Robotics; no topic last")
-        XCTAssertEqual(order(.topic, ascending: false), ["2610.03011", "2610.01234", "2610.01235", "2610.02287", "2609.11890"],
+        XCTAssertEqual(order(.topic, ascending: true), ["2610.01234", "2610.01235", "2610.02287", "2610.03011", "2609.11890"],
+                       "Machine learning (server order for ties), Natural language processing, Robotics; no topic last")
+        XCTAssertEqual(order(.topic, ascending: false), ["2610.03011", "2610.02287", "2610.01234", "2610.01235", "2609.11890"],
                        "No topic stays last when reversed")
     }
 }
