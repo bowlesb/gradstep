@@ -131,29 +131,6 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(try order(rows, .init(field: .progress), query: "ta"), ["d", "a"], "Searching keeps only matches, in the chosen order")
     }
 
-    func testTableComparatorAgreesWithTheSearchOrder() throws {
-        let rows = (0..<12).map { n in
-            candidate("paper/\(n)", title: "Paper \(11 - n)", sequence: Int64(n % 5), position: n, year: n % 3 == 0 ? nil : 2010 + n % 4,
-                      authors: n % 4 == 0 ? nil : "Author \(n % 3)", opened: n % 2 == 0 ? now - Double(n) * day : nil,
-                      progress: n % 3 == 1 ? Double(n) / 12 : nil, chats: n % 4)
-        }
-        let entries = Dictionary(uniqueKeysWithValues: rows.map { candidate in
-            (candidate.id, LibraryTableRow(entry: .paper(Paper(id: UUID(), title: candidate.title, authors: "", year: nil, abstract: "",
-                keywords: [], fileURL: nil, artifactID: nil)), candidate: candidate))
-        })
-        for field in LibrarySearchSort.Field.allCases {
-            for ascending in [true, false] {
-                let sort = LibrarySearchSort(field: field, ascending: ascending)
-                let tableRows = rows.reversed().map { entries[$0.id]! }
-                let sorted = tableRows.sorted(using: LibraryTableComparator(sort)).map(\.candidate.id)
-                XCTAssertEqual(sorted, try order(rows, sort), "\(field) ascending=\(ascending)")
-            }
-        }
-        XCTAssertEqual(LibraryTableComparator(field: .year).order, .reverse, "Year starts newest first")
-        XCTAssertEqual(LibraryTableComparator(field: .title).order, .forward)
-        XCTAssertEqual(LibraryTableComparator(field: .progress).sort, LibrarySearchSort(field: .progress))
-    }
-
     // MARK: Import progress (pipeline reliability, 2026-10-06)
 
     private func importRecord(_ id: UUID = UUID(), phase: String, progress: String? = nil, error: String? = nil,

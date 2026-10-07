@@ -29,8 +29,8 @@ bibliography for in-text citations) and the server queues it through the user's 
 arXiv match. Verified on staging: a DPO passage citing "PPO; [39]" queued arXiv 1707.06347, and a repeat reported
 it was already in the library. See [chat](architecture/CHAT.md#ingest-selection-action).
 
-**Library and design** (owner requests 2026-10-05): a Library Table on iPad (sortable columns, reading activity)
-and detailed rows on iPhone; a one-row search header (search, Add, one … menu; Cancel and the Library/arXiv switch
+**Library and design** (owner requests 2026-10-05/06): a Library Table on every size (the shared `PaperTable`, also
+the Feed's Table layout; sortable columns, reading activity) and detailed rows; a one-row search header (search, Add, one … menu; Cancel and the Library/arXiv switch
 while searching); and an independent design audit of every screen against the owner's principles
 ([DESIGN](DESIGN.md), [audit 1](design-audits/2026-10-06-audit1.md)) with its findings applied: one menu/button
 style per screen, one status banner, type scale and margins, 720 pt columns on iPad, quieter chat and settings.
@@ -115,6 +115,13 @@ are applied to staging (hash in the ledger; immutable from now on). Two independ
 concurrency design were completed and their findings fixed before it was applied.
 
 **Library metadata view** (owner decision 2026-10-05, [decision](DECISIONS.md#library-metadata-view-owner-decided-2026-10-05)):
+Since 2026-10-06 the Table is one app-drawn `PaperTable` on every size (iPhone portrait: Title, Year, Progress;
+more columns as they fit), shared with the Feed's Table layout; see the decision's update. Verified in the Simulator
+only (iPhone 17 Pro, 17e, iPad Pro 11"; light, dark, largest text and an accessibility size; portrait and
+landscape): `PaperTableTests` (columns by width, header sorting, Feed order), `LibraryLayoutTests` (phone, iPad and
+Feed tables), visual scenarios `library-table`, `library-table-browse`, `library-slow-import-table`, `feed-table`,
+`feed-table-abstract`; the List, Detailed rows and the Feed List are pixel-identical to before. The original
+implementation, for the record:
 "Sort and details" adds Layout: List (default, unchanged) / Table. iPad shows a native sortable table (Title,
 Authors, Year, Topics, Added, Opened, Read, Chats; Pages hidden; Status only when not ready; column visibility and
 order persist); iPhone landscape shows an app-drawn table with the same sortable columns; narrow containers and
