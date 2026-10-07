@@ -31,7 +31,7 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   scroll), credits in Settings, app icon (legacy artwork) and privacy manifest. Existing navigation is preserved;
   the compact tab bar now sits behind the software keyboard like a system tab bar. The live journey passes on
   iPhone and iPad Simulators; Release and Internal device builds compile (unsigned).
-- **Account deletion**: Settings › Delete account… → `account-delete`; billing kept de-identified (owner decision).
+- **Account deletion**: Settings › Account › Delete account… → `account-delete`; billing kept de-identified (owner decision).
   See [privacy and sync](architecture/PRIVACY_AND_SYNC.md).
 - **Purchases**: [PURCHASES.md](architecture/PURCHASES.md); products created by `scripts/setup-store-products.mjs`
   (idempotent; also sets sandbox notifications to staging); `node scripts/smoke-store.mjs` checks the deployed functions.

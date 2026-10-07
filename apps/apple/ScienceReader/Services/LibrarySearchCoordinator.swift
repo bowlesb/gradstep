@@ -5,14 +5,17 @@ import Foundation
 /// (never opened, no year) stay last in either direction.
 struct LibrarySearchSort: Hashable, Sendable {
     enum Field: String, CaseIterable, Hashable, Sendable {
-        case recent, title, authors, year, opened, progress, chats
+        case recent, title, authors, year, opened, progress, chats, tags, pages, source
         var label: String {
             switch self {
             case .recent: "Recent"; case .title: "Title"; case .authors: "Authors"; case .year: "Year"
             case .opened: "Opened"; case .progress: "Progress"; case .chats: "Chats"
+            case .tags: "Tags"; case .pages: "Pages"; case .source: "Source"
             }
         }
-        var defaultAscending: Bool { self == .title || self == .authors }
+        /// Orders that only the table's columns offer (the List's Sort menu keeps its original choices).
+        var isTableOnly: Bool { self == .authors || self == .tags || self == .pages || self == .source }
+        var defaultAscending: Bool { self == .title || self == .authors || self == .tags || self == .source }
         /// Orders by this device's reading activity or private chats rather than library metadata.
         var usesActivity: Bool { self == .opened || self == .progress || self == .chats }
     }
@@ -35,6 +38,11 @@ struct LibrarySortKeys: Equatable, Sendable {
     var opened: Date? = nil
     var progress: Double? = nil
     var chats = 0
+    /// The first tag shown (`LibraryTags`).
+    var tag: String? = nil
+    var pages: Int? = nil
+    /// The Source column's label (arXiv identifier or host).
+    var source: String? = nil
 }
 
 /// The caller advances sourceRevision for searchable metadata changes, including
@@ -159,6 +167,17 @@ enum LibrarySearchEngine {
             case (nil, nil): nil
             }
         }
+        /// Text in reading order ("2001.08361" before "2106.09685"); missing values last.
+        func compareText(_ l: String?, _ r: String?) -> Bool {
+            switch (l, r) {
+            case let (l?, r?):
+                let order = l.localizedStandardCompare(r)
+                return order == .orderedSame ? recent : order == increasing
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): return recent
+            }
+        }
         switch sort.field {
         case .recent:
             if sort.ascending, left.recentSequence != right.recentSequence { return left.recentSequence < right.recentSequence }
@@ -179,6 +198,9 @@ enum LibrarySearchEngine {
         case .opened: return compare(left.keys.opened, right.keys.opened) ?? recent
         case .progress: return compare(left.keys.progress, right.keys.progress) ?? recent
         case .chats: return compare(left.keys.chats, right.keys.chats) ?? recent
+        case .tags: return compareText(left.keys.tag, right.keys.tag)
+        case .pages: return compare(left.keys.pages, right.keys.pages) ?? recent
+        case .source: return compareText(left.keys.source, right.keys.source)
         }
     }
 }

@@ -6,7 +6,8 @@ import ScienceReaderCore
 /// conversations written through the real encrypted fixture store, for All chats' table and its visual scenarios.
 /// Times are relative to launch so labels read "Just now", "2 h ago", "Yesterday", a weekday, a date and last year;
 /// two conversations have no recorded time, like history saved before 2026-10-07. One paper chat is about a paper
-/// no longer in the library. Compiled out of device and release builds.
+/// no longer in the library. Five begin with a reader selection action's prompt (equations as Mathpix writes them, a
+/// reference), as real history does. Compiled out of device and release builds.
 extension ReaderModel {
     static var chatHistoryFixtureEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--chat-history-fixture") }
 
@@ -70,15 +71,15 @@ extension ReaderModel {
             Chat(n: 2, paper: nil, title: "Compare DPO, IPO and KTO for a small preference dataset", follow: ["Which is most robust to noisy labels?", "And with 2k pairs?"], start: 3 * hour, last: 35 * minute),
             Chat(n: 3, paper: 3, title: "How do I pick the LoRA rank for a 7B model?", follow: [], start: 2.2 * hour, last: 2 * hour),
             Chat(n: 4, paper: 2, title: "Derive the DPO loss from the Bradley–Terry model", follow: ["Where does the reference policy enter?", "Is beta a temperature?", "What if pairs are ties?"], start: 6 * hour, last: 5 * hour),
-            Chat(n: 5, paper: 0, title: "Summarize the main equation in section 2", follow: [], start: 26 * hour, last: 25 * hour),
+            Chat(n: 5, paper: 0, title: "Explain in plain terms, including any symbols: \\[\\begin{equation*}\n\\operatorname{Attention}(Q, K, V)=\\operatorname{softmax}\\left(\\frac{Q K^{T}}{\\sqrt{d_{k}}}\\right) V\n\\end{equation*}\\]", follow: [], start: 26 * hour, last: 25 * hour),
             Chat(n: 6, paper: 4, title: "Why do residual connections help optimization?", follow: ["Does this explain the degradation problem?"], start: 3 * day, last: 1.2 * day),
             Chat(n: 7, paper: nil, title: "Explain the difference between KL penalty and clipping in PPO", follow: ["Which matters more for LLMs?"], start: 2 * day, last: 2 * day),
-            Chat(n: 8, paper: 5, title: "Is bias correction in Adam important?", follow: [], start: 2.5 * day, last: 2.5 * day),
-            Chat(n: 9, paper: 6, title: "What is the variance schedule and why linear?", follow: ["Would cosine be better?", "How many steps T?"], start: 4 * day, last: 3 * day),
+            Chat(n: 8, paper: 5, title: "Define this in the context of the paper: \\(\\hat { m } _ { t } / ( \\sqrt { \\hat { v } _ { t } } )\\)", follow: [], start: 2.5 * day, last: 2.5 * day),
+            Chat(n: 9, paper: 6, title: "Why does this matter to the paper's method and results? We find it beneficial to sample quality to train on the simplified objective \\(L_{\\text{simple}}\\)", follow: ["Would cosine be better?", "How many steps T?"], start: 4 * day, last: 3 * day),
             Chat(n: 10, paper: 7, title: "Do the scaling laws hold for code models?", follow: ["What about data repetition?"], start: 5 * day, last: 4 * day),
-            Chat(n: 11, paper: 1, title: "How is positional encoding added to the embeddings?", follow: [], start: 5 * day, last: 5 * day),
+            Chat(n: 11, paper: 1, title: "Find related papers, earlier and recent, with links: sinusoidal positional encodings let the model extrapolate to longer sequences", follow: [], start: 5 * day, last: 5 * day),
             Chat(n: 12, paper: nil, title: "Draft a reading plan for RLHF papers this month", follow: ["Add evaluation papers", "Shorter, please"], start: 6 * day, last: 5.5 * day),
-            Chat(n: 13, paper: 99, title: "What does the ablation in Table 4 show?", follow: [], start: 9 * day, last: 8 * day),
+            Chat(n: 13, paper: 99, title: "Find and add the paper referenced in this passage: [3] T. D. Lee and G. C. Wick. Negative metric and the unitarity of the S-matrix. Nuclear Physics B, 9(2):209–243, 1969.", follow: [], start: 9 * day, last: 8 * day),
             Chat(n: 14, paper: 3, title: "Can LoRA adapters be merged after training?", follow: ["Any accuracy loss?"], start: 10 * day, last: 9 * day),
             Chat(n: 15, paper: 2, title: "How sensitive is DPO to the beta hyperparameter?", follow: [], start: 11 * day, last: 11 * day),
             Chat(n: 16, paper: nil, title: "What is the intuition behind the reparameterization trick?", follow: ["Show the math", "Why can't we backprop through sampling?"], start: 14 * day, last: 12 * day),

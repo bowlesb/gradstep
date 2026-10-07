@@ -48,6 +48,7 @@ final class ChatHistoryTableTests: XCTestCase {
         assertAbove(row(2, app), row(3, app), "…before 2 hours ago")
         XCTAssertEqual(header("lastUsed", app).value as? String, "Sorted descending")
         XCTAssertEqual(row(1, app).label, "Why scale the dot products by the square root of d_k?", "The question is the row's label")
+        XCTAssertEqual(row(5, app).label, "Explain · Attention(Q, K, V)…", "A selection action's chat: its label and the passage, math readable")
         XCTAssertTrue((row(1, app).value as? String)?.contains("Attention Is All You Need") == true, "VoiceOver reads the paper too")
         attach("All chats, most recently used first")
 
@@ -104,6 +105,28 @@ final class ChatHistoryTableTests: XCTestCase {
         attach("All chats row actions")
         openPaper.tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+    }
+
+    /// Owner feedback, build 14 #7: selection-action chats are titled by the action and the passage, in the table and in
+    /// the chat itself.
+    func testSelectionActionChatsHaveShortTitles() {
+        let app = launch()
+        XCTAssertTrue(row(8, app).waitForExistence(timeout: 5))
+        XCTAssertEqual(row(8, app).label, "Define · m̂_t / (√v̂_t)")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Explain in plain terms")).firstMatch.exists)
+        row(8, app).tap()
+        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
+        let title = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Define · m̂_t / (√v̂_t)")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "The chat's title is the short one too")
+        attach("Chat titled by its selection action")
+
+        // Further down: a reference, found by searching its text.
+        let history = app.buttons["Chat history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("Wick")
+        XCTAssertTrue(row(13, app).waitForExistence(timeout: 5))
+        XCTAssertEqual(row(13, app).label, "Add paper · [3] T. D. Lee and G. C. Wick. Negative metric…")
     }
 
     func testDeletingAConversationAsksFirstAndRemovesIt() {

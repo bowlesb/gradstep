@@ -152,21 +152,43 @@ struct MenuRow: View {
     }
 }
 
-/// A filter chip (Feed topics): the selected one looks like the selected tab — accent text on a
-/// light accent capsule; others are body text on a quiet fill. 36 pt tall, 44 pt to tap.
+/// A filter chip (Feed topics, Library filters): the selected one looks like the selected tab — accent text on a
+/// light accent capsule; others are body text on a quiet fill. 36 pt tall, 44 pt to tap. An optional count follows
+/// the title (orange for problems, such as failed imports).
 struct ChipButton: View {
     let title: String
     let selected: Bool
+    var count: Int? = nil
+    var countIsProblem = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1)
-                .padding(.horizontal, 14).frame(height: 36)
-                .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                .background(selected ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
-                .frame(minHeight: 44).contentShape(Rectangle())
+            ChipLabel(title: title, selected: selected, count: count, countIsProblem: countIsProblem)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// A chip's look, also used by chips that open a menu (the Library's Tags).
+struct ChipLabel: View {
+    let title: String
+    let selected: Bool
+    var count: Int? = nil
+    var countIsProblem = false
+    var systemImage: String? = nil
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1)
+            if let count {
+                Text("\(count)").font(.subheadline.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(countIsProblem ? Color.orange : Color.secondary)
+            }
+            if let systemImage { Image(systemName: systemImage).font(.caption.weight(.semibold)).accessibilityHidden(true) }
+        }
+        .padding(.horizontal, 14).frame(height: 36)
+        .foregroundStyle(selected ? Color.accentColor : Color.primary)
+        .background(selected ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+        .frame(minHeight: 44).contentShape(Rectangle())
     }
 }

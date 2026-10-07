@@ -114,6 +114,25 @@ import Testing
         }
     }
 
+    @Test func parserReadsStatusEventsAndIgnoresUnknownOrMalformedOnes() throws {
+        var parser = ChatSSEParser()
+        let wire = "event: status\ndata: {\"kind\":\"searching\",\"query\":\"DPO\\nfollow-ups\\u0000 2025\"}\n\n"
+            + "event: status\ndata: {\"kind\":\"reading\",\"query\":\"ignored\"}\n\n"
+            + "event: status\ndata: {\"kind\":\"finding_paper\"}\n\nevent: status\ndata: {\"kind\":\"adding_paper\"}\n\n"
+            + "event: status\ndata: {\"kind\":\"thinking_harder\"}\n\nevent: status\ndata: {\"query\":1}\n\nevent: status\ndata: nope\n\n"
+            + "event: status\ndata: {\"kind\":\"searching\",\"query\":\"   \"}\n\nevent: delta\ndata: {\"text\":\"A\"}\n\n"
+        let events = try parser.consume(Array(wire.utf8))
+        #expect(events == [.status(ChatProgress(kind: .searching, query: "DPO follow-ups 2025")), .status(ChatProgress(kind: .reading)),
+                           .status(ChatProgress(kind: .findingPaper)), .status(ChatProgress(kind: .addingPaper)),
+                           .status(ChatProgress(kind: .searching)), .delta("A")])
+        #expect(ChatProgress(kind: .searching, query: "DPO follow-ups").text == "Searching the web for “DPO follow-ups”")
+        #expect(ChatProgress(kind: .searching).text == "Searching the web…")
+        #expect(ChatProgress(kind: .reading, query: "x").query == nil, "Only a search carries its query")
+        #expect(ChatProgress(kind: .findingPaper).text == "Finding the paper…")
+        #expect(ChatProgress(kind: .addingPaper).text == "Adding to your library…")
+        #expect(ChatProgress(kind: .searching, query: String(repeating: "q", count: 500)).query?.count == ChatProgress.maximumQueryCharacters)
+    }
+
     @Test func parserRejectsMalformedAndOversizedInput() throws {
         var malformed = ChatSSEParser()
         #expect(throws: ChatStreamError.malformed) { try malformed.consume(Array("event: delta\ndata: {\"txt\":1}\n\n".utf8)) }

@@ -91,8 +91,41 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case delta(String)
     /// A diagram the answer drew (sent before `done`).
     case diagram(title: String, source: String)
+    /// What the server is doing between pieces of text (searching, adding a paper).
+    case status(ChatProgress)
     case done(stopReason: String, credits: Int)
     case failure(code: String)
+}
+
+/// Server work in progress during an answer (`status` events, server 2026-10-07).
+/// Builds without this case ignore the event, as they ignore any unknown name.
+public struct ChatProgress: Equatable, Sendable {
+    public enum Kind: String, Equatable, Sendable {
+        case searching, reading, findingPaper = "finding_paper", addingPaper = "adding_paper"
+    }
+    public static let maximumQueryCharacters = 200
+    public let kind: Kind
+    /// The search query, for `searching` only (the reader's own answer; never logged).
+    public let query: String?
+
+    public init(kind: Kind, query: String? = nil) {
+        self.kind = kind
+        let cleaned = query.map { value in
+            String(value.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) })
+                .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        self.query = kind == .searching ? cleaned.flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumQueryCharacters)) } : nil
+    }
+
+    /// One line under the streaming answer.
+    public var text: String {
+        switch kind {
+        case .searching: query.map { "Searching the web for “\($0)”" } ?? "Searching the web…"
+        case .reading: "Reading results…"
+        case .findingPaper: "Finding the paper…"
+        case .addingPaper: "Adding to your library…"
+        }
+    }
 }
 
 public enum ChatStreamError: Error, Equatable {
@@ -174,6 +207,12 @@ public struct ChatSSEParser: Sendable {
             guard let diagram = try? JSONDecoder().decode(Diagram.self, from: payload),
                   ChatDiagram(title: diagram.title, source: diagram.source, messageID: nil) != nil else { throw ChatStreamError.malformed }
             return .diagram(title: diagram.title, source: diagram.source)
+        case "status":
+            // Informational only: an unknown kind or a malformed status is ignored, never fatal.
+            struct Status: Decodable { let kind: String; let query: String? }
+            guard let status = try? JSONDecoder().decode(Status.self, from: payload),
+                  let kind = ChatProgress.Kind(rawValue: status.kind) else { return nil }
+            return .status(ChatProgress(kind: kind, query: status.query))
         case "done":
             struct Done: Decodable { let stop_reason: String; let credits: Int }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }

@@ -116,6 +116,9 @@ column customization went with `Table`). Feed: "View as" List (default) / Table 
 (and first author), Topic, Published (month from the arXiv identifier — the server sends only the year) and Add;
 newest first; tapping a row shows its abstract under it; long-press offers Add to library and View on arXiv.
 
+**Superseded again (owner request 2026-10-07):** the Table is the default, Detailed rows are gone, and columns are
+chosen again (per device kind); see [Library as a proper table](#library-as-a-proper-table-owner-asked-2026-10-07).
+
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.
@@ -270,6 +273,47 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+
+## Library as a proper table (owner asked 2026-10-07)
+
+Owner: "I do not like the detailed rows right now, it should be a proper table, we need to have columns that can be
+turned on or off, it needs to be something where people can navigate and find papers easily … I see some in my list
+that say 'Download Failed'. They should never sit there like that, it should be a retry button at the very least."
+Made overnight without check-ins (owner asleep); each choice below is easy to change.
+
+- **The Table is the Library's main view** at every size; **List** stays the alternative ("View as"). **Detailed rows
+  are removed**: a saved "Detailed rows" (and no saved choice) opens the Table; an explicit List choice is kept. At
+  accessibility text sizes the Table shows the List's rows (as the Feed does) instead of detailed rows.
+- **Columns** (Library options › Columns, a half-height sheet of toggles; changes show at once): Title with the first
+  author (always), Year, Tags, Source (arXiv identifier or the web paper's host), Pages, Added, Opened, Chats,
+  Progress, in that row order. Choices are kept on the device, separately for iPhone and for iPad/Mac (by device kind
+  rather than size class, so rotating an iPhone never swaps sets). Defaults: iPhone Year, Added, Opened, Chats,
+  Progress (portrait shows Title, Year, Progress; landscape adds the rest); iPad/Mac add Tags; Source and Pages start
+  off. The width then decides which chosen columns fit (Progress, Year, Added, Opened, Chats, Tags, Pages, Source, in
+  that priority); a chosen column that doesn't fit says "Shown when there's room", and a column turned off never
+  shows. The title keeps at least 155 pt or 40 % of the row, so any one short column fits beside Progress on the
+  smallest iPhone and a Pro Max in portrait keeps two columns. Every column sorts from its header (Tags A→Z by first
+  tag, Pages longest first, Source A→Z); Tags, Pages and Source join Authors as table-only orders in Sort by.
+- **Tags**: `Paper.tags` (first-class tags, filled by the tags work) as display names, else topic names derived from
+  the arXiv categories (the Feed chips' names); imports use their categories. Shown as small chips (≤ 2 lines),
+  searchable, and filterable. No tag storage or editing here.
+- **Finding papers**: one row of chips above the table (and the List) that scrolls away with the rows: **Tags ⌄**
+  (a menu, most used first, with counts), **All · Unread · Reading · Failed n · Archived**. "In progress" is named
+  **Reading** so it isn't mistaken for imports in progress. Unread = never opened on this device; Reading = opened
+  (or with progress) and under 100 %; Failed = stopped imports; Archived replaces Show › Archived papers (removed).
+  Only filters that would change the list appear, and the row is hidden for a library with nothing to narrow. Filters
+  aren't kept across launches (like the sort). Search still filters live, within the filter, and now matches tags.
+- **Keyboard and pointer** (iPad, Mac): ↑/↓ choose a row and Return opens it (key commands, so no focus is needed; a click opens a row as a tap does); hovered rows get a quiet
+  fill; the header stays pinned.
+- **Stopped imports never just sit**: the status reads in plain words ("Download failed") and the row shows one action
+  as a small button — **Retry** when the server can run it again (download, details, rate limit), **Get credits** when
+  conversion waits for credits, otherwise **Remove** (too large, unreadable PDF…; nothing to retry). It sits in the
+  Progress cell, or under the title when Progress isn't shown; the List shows the same button. The long-press menu
+  and swipe say Retry / Remove (Cancel import while an import still runs). Tapping Retry shows the row
+  **downloading again at once** (finding, if its details were never found), from the queued retry command, until the
+  server's own state arrives. An import the server is retrying by itself (`download_retrying`, migration 027)
+  counts as under way: no Retry, not under Failed. Imports in progress show `ImportProgressView` (compact) in the
+  Progress cell. The Mac's View menu gets Filter Library in place of Show › Archived Papers.
 
 ## Recovery code in Apple Passwords (owner asked 2026-10-06)
 
@@ -483,6 +527,86 @@ it a first class citizen." Design: [Topic tags](architecture/TAGS.md).
 - Live check (13 calls, $0.049): good tags for Attention, DPO, Mamba, Switch Transformers, RAG, Chain-of-thought,
   NeRF, PPO (after adding "Policy optimization"); remaining errors are comparison/adjacent tags (DDPM → GANs,
   Whisper → Large language models), removable by readers.
+
+## The paper's own contents and bracketed citations (owner feedback on build 14, 2026-10-07)
+
+Owner: "What happened here" (a paper's printed contents as one run-on paragraph) and "The reference isn't working"
+(`[Gelfond and Lifschitz 1991]`, `[Lobo et al. 1992; Eiter et al. 1997b]`). Decided without asking (reversible,
+reader bridge only, no re-render); details and measurements in [Reader renderer](architecture/READER_RENDERER.md#the-papers-own-contents).
+
+- **Contents as a list, in the paper where it is printed.** One entry per line, indented by section depth, the page
+  right-aligned and muted, the dot leader as a faint dotted rule. Nothing moves or is added: the block's text and
+  selections are unchanged, and the app's own Contents sheet stays as it is.
+- **Conservative detection.** A paragraph is formatted only when all of it is entries (several leader entries, or —
+  without leaders — numbered entries in order after a "Contents" caption). Any other text keeps the paragraph as it
+  was. Across 48 real conversions only the 5 real lists changed.
+- **Entries link like citations.** An entry that matches a heading (number and title) — or, with no heading, one
+  numbered run-in head ("3.3.1 Exams Scheduling. …", ACM style; 13 of DLV's subsections exist only so) — jumps there
+  with the citation's highlight and Back. Lists of figures and tables are formatted but not linked (they would land
+  on a heading, not the figure). Unmatched entries stay plain rather than guess.
+- **Bracketed author–year citations needed no new rule.** Build 14 predates the author–year links; with the current
+  bridge the owner's paper links 210 of 210 measurable citations (build 14: 3). Small-capital spellings OCR can
+  produce ("AND", "ET AL.", "And" in entries) were added; `[Cadoli et al. 1997]`, which fits two entries, stays plain.
+
+## Chat answers: tables, papers named, progress (agent decisions 2026-10-07, overnight mandate)
+
+Legacy audit gaps 4, 2 and 9, built without questions under the overnight mandate; all reversible, all additions under
+or inside answers (no page arrangement or selection action changed).
+
+- **Tables** render as a native grid; while streaming, rows at the end stay pipe text until complete, so the layout
+  changes once. Tables over 12 columns or 120 rows stay pipe text. Details: [chat rendering](architecture/NATIVE_CHAT_RENDERING.md).
+- **Papers in this answer** lists arXiv IDs and DOIs found in the answer's own text, on the device, without a model
+  call (at most 8). A paper that appears only in the server's Sources list is not repeated (Sources already offers it).
+  Open asks first, like Sources. arXiv adds use the Add sheet's library command (latest version, not the version a link
+  names); DOIs use `add-reference` with the reader's outcome wording on the row. "Ask in chat" is not offered from
+  chat. A DOI paper added earlier shows "In your library" only once this session's add matched it (the library has
+  no DOI field).
+- **Progress**: a backward-compatible `status` stream event (`searching` with the query, `reading`, `finding_paper`,
+  `adding_paper`), shown as one line under the streaming answer. The query goes only to the reader's stream, never to
+  logs. Needs a chat function deploy (not deployed by this work); older servers simply send none.
+- **Owner feedback (build 14, items 3, 10, 11):** answer paragraphs, headings and list items are now read-only
+  selectable text views (same look; formulas are image attachments) because SwiftUI `Text` cannot extend its selection
+  menu. Selecting answer text offers **Ask about this** (puts `About “…”: ` before any draft in the composer and focuses
+  it), **Explain** and **Define** (sent as a new question in this chat; with a draft in the composer they wait there
+  instead of replacing it), then the system's Copy/Look Up/Share; Copy keeps formulas as `\( … \)`. A formula (long
+  press, right-click on the Mac; display formulas through their context menu) offers Copy LaTeX, Copy as text (a
+  Unicode approximation, `ChatMathText.plain`), Explain, Define, Ask about this. "Define" is a chat-only prompt
+  ("Define the terms and symbols in: …"); the paper's Explain prompt is reused. Your own messages and streaming answers
+  keep the system menu. A leading "Answer:" label is stripped on display (stored text unchanged) and the chat
+  instructions say not to write one. Bold/italic spans around inline math (`**$n = 0$:**`) now render as emphasis.
+
+## Settings and chat titles (owner feedback, build 14 #7–#9; agent decisions 2026-10-07, all reversible)
+
+Owner: "The account option tells me nothing, sync? Sign out and delete feel like they should be hidden away? What does
+appearance mean to the user?", of Acknowledgements in Settings "This doesn't look like it should be there", and chat
+titles that showed prompt text and raw LaTeX ("Explain in plain terms, including any symbols: \[\begin{equation*}…").
+
+- **One Account row** tops Settings: the email (or "Signed in with Apple" when the account has none) over "Signed in
+  with Apple · Synced". It opens **Account**: Email, Signed in with, **Sync** in plain words ("Your chats and notes are
+  synced · They're encrypted with keys held on your devices", "Waiting to sync 3 changes", "Syncing…", "Sync is
+  paused" with the reason, "Not synced yet" before this session's first sync finishes) and **Sync now** (moved there from Your research, beside the state it acts on), then **Sign
+  out** (with the pending-work note) and **Delete account…** (same sheet, flow and accessibility identifiers). Signing
+  out closes the page. Signed out, Settings keeps "Sign in or create an account". Credits, Reading, Your research and
+  Testing stay where they were.
+- **Sync says "chats and notes", not "library"**: the encrypted sync carries conversations, notes, reading places and
+  diagrams; the library list is the server's per account (its own pending changes show in the Library). "Encrypted
+  with keys held on your devices" repeats the Privacy page's existing claim; no new claim is made.
+- **Sign-in methods** are read from Auth's `app_metadata.providers` in the session Auth already returns (decoded
+  tolerantly and bounded, kept with the cached session; no server change). A session cached by an older build shows
+  none until the next sign-in.
+- **Theme**: "Appearance: System" became **Theme** — Light / Dark / Match device as a segmented control (a menu at
+  accessibility text sizes), the same stored setting.
+- **About Gradstep** is the last row: name, Version, Edition (private beta · staging), Privacy & data,
+  Acknowledgements. The Mathpix acknowledgement says "readable versions of papers" instead of "equation-aware readers".
+- **Chat titles are shortened at display time only** (the saved title stays the first question's first 100
+  characters; nothing saved or sent changes). In All chats (rows, search, the delete confirmation) and the chat's
+  title, a selection action's conversation reads "‹action› · ‹passage›": Explain, Why it matters, Related, Add paper,
+  and Define for the earlier "Define this in the context of the paper" wording. Every earlier prompt wording is
+  recognized; the prompts now live in one place (`SelectionAction.promptPrefix`, `Services/ChatTitle.swift`) so a new
+  wording keeps its short title. LaTeX in any title reads as symbols, building on the answer previews'
+  `ChatPreview.readableMath` (environments dropped, a/b, √x, x̂, numeric scripts and ᵀ as Unicode, letter subscripts as
+  `d_k` like the previews); a formula cut by the 100-character limit shows up to its last complete part, prose up to
+  its last whole word, then "…". Search matches the saved question and the short title.
 
 ## Floating chrome and the app's own icons (owner asked 2026-10-07)
 

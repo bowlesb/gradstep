@@ -206,9 +206,10 @@ struct RootView: View {
 struct LibraryView: View {
     @Bindable var model: ReaderModel
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    /// For the menu's "Table"/"Detailed rows" label; the content measures its own width.
+    /// The pane's width (the List's readable column, and the column chooser's "needs more room").
     @State private var containerWidth: CGFloat = 0
     @State private var searchFocused = false
+    @State private var showColumns = false
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -234,9 +235,20 @@ struct LibraryView: View {
                     ContentUnavailableView {
                         Label("No matching papers", systemImage: "magnifyingglass")
                     } description: {
-                        Text("Try a different title, author, or topic.")
+                        Text(model.libraryFiltered ? "Try a different title, author, or tag, or search all papers." : "Try a different title, author, or topic.")
                     } actions: {
                         Button("Clear search") { model.libraryQuery = "" }.accessibilityIdentifier("search.clear")
+                        if model.libraryFiltered { Button("Show all papers") { clearFilters() }.accessibilityIdentifier("library.filter.clear") }
+                    }
+                } else if !model.librarySearchPending && model.libraryRows.isEmpty && model.libraryFiltered {
+                    // A filter with nothing in it (the last failed import was retried, say): one way back.
+                    ContentUnavailableView {
+                        Label(model.libraryTagFilter.map { "No papers tagged “\($0)”" } ?? model.libraryFilter.emptyTitle,
+                              systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Other papers are in All.")
+                    } actions: {
+                        Button("Show all papers") { clearFilters() }.accessibilityIdentifier("library.filter.clear")
                     }
                 } else if !model.librarySearchPending && model.libraryRows.isEmpty {
                     ContentUnavailableView {
@@ -249,19 +261,23 @@ struct LibraryView: View {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
                 } else if tableShown {
-                    // Owner request 2026-10-06: the same table on every size, with the columns that fit.
+                    // Owner requests 2026-10-06/07: the same table on every size, with the reader's columns that fit.
                     LibraryPaperTable(model: model) {
                         banners(inset: false).listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
+                        LibraryFilterBar(model: model)
                     }
                     .refreshable { await model.refreshLibrary() }
                     .overlay(alignment: .top) { updatingIndicator }
                 } else {
-                    // Detailed rows are also the table's form at accessibility text sizes.
-                    libraryList(detailed: model.libraryLayout != .list)
+                    // Also the table's form at accessibility text sizes.
+                    libraryList()
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            .sheet(isPresented: $showColumns) {
+                LibraryColumnsSheet(model: model, tableWidth: max(0, containerWidth - 2 * DesignMetrics.margin))
+            }
             // Owner decision (2026-10-05, build 8 follow-up): one header row instead of the navigation
             // bar's title row and search drawer. At rest: search, Add and one options menu. While
             // searching: Cancel, and the Library/arXiv switch under the field.
@@ -282,10 +298,12 @@ struct LibraryView: View {
 
     private var searching: Bool { searchFocused || !model.searchQuery.isEmpty || model.searchExternal }
     /// The table spans the pane; everything else sits in the readable column. At accessibility text sizes the
-    /// table shows as detailed rows.
+    /// table shows the List's rows (DESIGN.md › Tables).
     private var tableShown: Bool {
         model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize
     }
+
+    private func clearFilters() { model.libraryFilter = .all; model.libraryTagFilter = nil }
 
     /// Only states the reader can act on; none while browsing normally.
     @ViewBuilder private func banners(inset: Bool) -> some View {
@@ -374,12 +392,16 @@ struct LibraryView: View {
                 } label: {
                     Label { Text("Sort by"); Text(model.librarySort.field.label) } icon: { menuIcon("arrow.up.arrow.down") }
                 }
-                // Topics is a column in the table, a line in the rows.
-                Menu {
-                    if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
-                    Toggle("Topics", isOn: $model.showTopics)
-                    Toggle("Archived papers", isOn: $model.showArchivedPapers)
-                } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
+                if tableShown {
+                    // Owner request 2026-10-07: columns that can be turned on or off (a sheet; changes show at once).
+                    MenuRow("Columns", systemImage: "tablecells") { showColumns = true }
+                } else {
+                    // The List's lines. (Archived papers are a filter now: the Archived chip.)
+                    Menu {
+                        Toggle("Abstracts", isOn: $model.showAbstracts)
+                        Toggle("Topics", isOn: $model.showTopics)
+                    } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
+                }
             }
             Section {
                 MenuRow("All chats", systemImage: GradstepSymbol.chats) { model.showAllChats = true }
@@ -400,19 +422,20 @@ struct LibraryView: View {
     }
 
     private func sortFields(table: Bool) -> [LibrarySearchSort.Field] {
-        // Authors is a table column's sort; it stays listed while it is the current order.
-        LibrarySearchSort.Field.allCases.filter { $0 != .authors || table || model.librarySort.field == .authors }
+        // Authors, Tags, Pages and Source are the table's orders; each stays listed while it is the current order.
+        LibrarySearchSort.Field.allCases.filter { !$0.isTableOnly || table || model.librarySort.field == $0 }
     }
 
     @ViewBuilder private var updatingIndicator: some View {
         if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
     }
 
-    /// The List layout (unchanged), and detailed rows: the narrow form of the table layout.
-    private func libraryList(detailed: Bool) -> some View {
+    /// The List layout (also the table's form at accessibility text sizes), with the same filters.
+    private func libraryList() -> some View {
         List {
             banners(inset: false).listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
+            LibraryFilterBar(model: model)
             ForEach(model.libraryRows) { entry in
             #if OFFLINE_RESOURCE_MEASUREMENTS
             let resourceDocumentID: UUID? = {
@@ -425,27 +448,20 @@ struct LibraryView: View {
                 switch entry {
                 case .paper(let paper):
                     Button { model.select(paper) } label: {
-                        if detailed {
-                            DetailedPaperRow(facts: model.libraryFacts(for: entry), selected: highlightsSelection && model.selectedPaper?.id == paper.id,
-                                             offlineStatus: model.offlineStatus(for: paper), showTopics: model.showTopics)
-                        } else {
-                            PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
-                        }
+                        PaperRow(paper: paper, selected: highlightsSelection && model.selectedPaper?.id == paper.id, offlineStatus: model.offlineStatus(for: paper), showAbstract: model.showAbstracts, showTopics: model.showTopics)
                     }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) { LibrarySwipeActions(model: model, entry: entry) }
                 case .pending(let item):
-                    Group {
-                        if detailed {
-                            DetailedImportRow(item: item, facts: model.libraryFacts(for: entry), showTopics: model.showTopics,
-                                              getCredits: { model.showStore = true })
-                        } else {
-                            ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
-                                      stepSince: model.importSteps.timing(of: item)?.since, progress: model.importProgress(for: item),
-                                      getCredits: { model.showStore = true }, explain: { model.showImportHelp = true })
-                        }
+                    let retrying = model.isRetrying(item)
+                    ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
+                              stepSince: model.importSteps.timing(of: item)?.since,
+                              progress: retrying ? nil : model.importProgress(for: item), retrying: retrying,
+                              action: LibraryImportAction.available(for: item, retrying: retrying),
+                              actionEnabled: model.canChangeImports, explain: { model.showImportHelp = true }) { action in
+                        LibraryImportAction.perform(action, on: item, model: model)
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
                         .accessibilityElement(children: .contain)
@@ -478,12 +494,16 @@ struct ImportRow: View {
     var stepSince: Date? = nil
     /// While in progress: the step in the reader's words, a bar and the time left (`ImportProgressView`).
     var progress: ImportProgress? = nil
-    /// Offered when the conversion failed for lack of credits.
-    var getCredits: (() -> Void)? = nil
+    /// Retry was tapped and is on its way: shown as running again at once.
+    var retrying = false
+    /// A stopped import's one action (Retry, Get credits, Remove), shown inline (owner feedback 2026-10-07).
+    var action: LibraryImportAction? = nil
+    var actionEnabled = true
     /// "Why does this take a minute?" beside the progress.
     var explain: (() -> Void)? = nil
+    var perform: ((LibraryImportAction) -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    private var active: Bool { item.isActive }
+    private var active: Bool { item.isActive || retrying }
     var body: some View {
         // Design audit F6: title, then authors (secondary), then abstract and details (tertiary).
         VStack(alignment: .leading, spacing: 4) {
@@ -506,10 +526,17 @@ struct ImportRow: View {
             } else {
                 HStack(spacing: 6) {
                     if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                    ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
-                    if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
-                        Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
-                            .accessibilityIdentifier("import.getCredits")
+                    if retrying {
+                        Text(item.retryStep.label(short: false)).font(.footnote).foregroundStyle(.secondary)
+                    } else {
+                        ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if let action, let perform {
+                        Button(action.title) { perform(action) }.font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                            .tint(action == .remove ? Color.secondary : Color.accentColor)
+                            .disabled(!actionEnabled && action != .getCredits)
+                            .accessibilityHint(action.hint)
+                            .accessibilityIdentifier(action == .getCredits ? "import.getCredits" : "import.\(action.title.lowercased()).\(item.id.wire)")
                     }
                     if !active, let url = URL(string: item.sourceURL) {
                         Spacer(minLength: 8)
@@ -808,6 +835,7 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 4) {
             TextField("Chat", text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Ask about this
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 18).padding(.vertical, 14)
             Group {
@@ -917,23 +945,32 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Owner feedback, build 14 #8: one Account row (who, how, synced?) opening the Account page, which
+                // holds sync, Sign out and Delete account (`SettingsPages.swift`).
                 Section {
                     if model.isSignedIn {
-                        Label(model.email.flatMap { $0.isEmpty ? nil : $0 } ?? "Signed in", systemImage: "person.crop.circle")
-                        LabeledContent("Sync", value: model.syncStatus)
-                        if let issue = model.syncIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
+                        NavigationLink {
+                            AccountView(model: model) { showDeleteAccount = true }
+                        } label: {
+                            let sync = SyncSummary.from(status: model.syncStatus, issue: model.syncIssue, pending: model.publishedPendingCount)
+                            let methods = model.email?.isEmpty == false ? AccountFormat.methods(model.signInProviders) : nil
+                            AccountRow(name: AccountFormat.name(email: model.email, providers: model.signInProviders),
+                                       detail: [methods.map { "Signed in with \($0)" }, sync.short].compactMap { $0 }.joined(separator: " · "))
+                        }
+                        .accessibilityIdentifier("account.row")
                         if let issue = model.accountPreparationIssue {
                             Text(issue).font(.footnote).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("account.preparationIssue")
                             Button("Try again") { Task { await model.retryAccountPreparation() } }
                                 .disabled(model.isBusy).accessibilityIdentifier("account.retryPreparation")
                         }
-                        Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
-                        Button("Delete account…", role: .destructive) { showDeleteAccount = true }.accessibilityIdentifier("account.delete")
                     }
-                    else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
-                } header: { Text("Account") } footer: {
-                    if model.isSignedIn { Text("Encrypted pending work stays on this device for your next sign-in.") }
+                    else {
+                        Button { model.openSignIn() } label: { Label("Sign in or create an account", systemImage: "person.crop.circle") }
+                            .accessibilityIdentifier("account.signIn")
+                    }
+                } footer: {
+                    if !model.isSignedIn { Text("Sign in to sync your library and chats between your devices.") }
                 }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
@@ -956,15 +993,15 @@ struct SettingsView: View {
                     }
                 }
                 Section("Reading") {
-                    Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
+                    ThemePicker(selection: $model.appearance)
                     sizeSlider("Paper text size", value: $model.paperFontSize, range: 14...26)
                     sizeSlider("Chat text size", value: $model.chatFontSize, range: 14...24)
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
+                // (Sync now moved to the Account page, beside the sync state it acts on.)
                 Section("Your research") {
                     openRow("All chats") { model.showAllChats = true }
                     openRow("All diagrams") { model.showDiagrams = true }
-                    Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }.disabled(!model.isSignedIn)
                 }
                 Section("Testing") {
                     #if INTERNAL
@@ -974,11 +1011,9 @@ struct SettingsView: View {
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
                     Button("Open reader sample") { model.openSample() }
                 }
-                Section("About") {
-                    NavigationLink("Privacy & data") { PrivacyView() }
-                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
-                    LabeledContent("Version", value: Self.version)
-                    LabeledContent("Environment", value: "Private beta · staging")
+                // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
+                Section {
+                    NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
                 }
             }
             .readableScrollColumn(width: width)
@@ -1274,7 +1309,7 @@ struct AcknowledgementsView: View {
         ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
         ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
-        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to build equation-aware readers; each reader includes its NOTICE.", "MIT / Apache 2.0"),
+        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to make readable versions of papers, equations included. Each readable version carries these notices.", "MIT / Apache 2.0"),
         ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
         ("OpenAlex", "Search ranking, and finding open-access copies of papers that aren't on arXiv (converted privately for you).", "CC0 data"),
     ]

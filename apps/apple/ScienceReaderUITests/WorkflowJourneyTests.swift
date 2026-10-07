@@ -374,7 +374,10 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         app.buttons["tab.chat"].tap()
         app.buttons["Chat history"].tap()
-        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", journey.latex)).firstMatch
+        // All chats shows a selection chat by its short title, not the raw LaTeX prompt: an equation's Define asks
+        // the explain-equation question, so it reads "Explain · ‹symbols›".
+        let saved = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@ OR label CONTAINS %@",
+                                                     "Explain · ", "Define · ", journey.latex)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5)); saved.tap()
         XCTAssertTrue(question.waitForExistence(timeout: 5))
         XCTAssertEqual(questions.count, 1, "The exact equation question is retained once after relaunch")
@@ -497,6 +500,139 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
             object: app.staticTexts["Open this source in Safari?"])], timeout: 5), .completed)
         XCTAssertEqual(app.state, .runningForeground, "Cancel leaves the reader in the app")
+    }
+
+    /// Launches the chat fixture in `mode` and asks one question in chat (the
+    /// wide iPad layout has no tab bar; its general chat is a segment).
+    private func askChatFixture(_ mode: String, _ question: String) -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
+        input.typeText(question)
+        app.buttons["chat.send"].tap()
+        return app
+    }
+
+    /// Scrolls the transcript until `element` is fully on screen.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, up: Bool) {
+        let transcript = app.tables["chat.transcript"]
+        let visible = { transcript.frame.insetBy(dx: -1, dy: -1).contains(element.frame) }
+        for _ in 0..<8 where !visible() {
+            if up { transcript.swipeDown(velocity: .slow) } else { transcript.swipeUp(velocity: .slow) }
+        }
+        XCTAssertTrue(visible(), "\(element.identifier) is on screen")
+    }
+
+    /// Audit gap 4: a Markdown table in an answer is a native table, read row by row.
+    func testAnswerTableRendersAsATable() throws {
+        let app = askChatFixture("research", "Compare the preference optimization objectives")
+        let table = app.descendants(matching: .any)["chat.table.1"]
+        XCTAssertTrue(table.waitForExistence(timeout: 20))
+        XCTAssertTrue(table.label.contains("Table, 4 rows, 4 columns"), table.label)
+        XCTAssertEqual(app.descendants(matching: .any)["chat.table.1.header"].label, "Columns: Method, Objective, Reward model, Win rate")
+        XCTAssertTrue(app.descendants(matching: .any)["chat.table.1.row.2"].label.hasPrefix("Row 2: Method, DPO; Objective, -\\log"),
+                      app.descendants(matching: .any)["chat.table.1.row.2"].label)
+        XCTAssertTrue(app.descendants(matching: .any)["chat.table.1.row.4"].label.contains("v(x | y)"), "A pipe inside code stays in its cell")
+        XCTAssertFalse(app.descendants(matching: .any)["chat.table.1.row.5"].exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "|:---")).firstMatch.exists,
+                       "No pipe text remains once the answer is complete")
+        // The text around the table is still read as the assistant's message, without its "Answer:" label.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Assistant: This synthetic fixture")).firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Answer:")).firstMatch.exists)
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(table, in: app, up: true)
+        capture(app, "Answer table")
+    }
+
+    /// Owner feedback #10 and #3: selecting answer text offers Ask about this, Explain and Define next to
+    /// Copy; a formula offers Copy LaTeX and Copy as text.
+    func testAnswerTextAndFormulasOfferChatActions() throws {
+        let app = askChatFixture("answer", "Why scale by the square root of d_k?")
+        let answer = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+            "chat.message.text.", "synthetic fixture answer")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 15))
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        sleep(1)
+        let item = { (title: String) in app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch }
+        // Long-press the first word ("Scaling").
+        answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 24, dy: 12)).press(forDuration: 1.2)
+        XCTAssertTrue(item("Ask about this").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItems["Copy"].exists, "Copy stays first")
+        XCTAssertTrue(item("Explain").exists) // Define follows (on a narrow screen, after the menu's arrow)
+        capture(app, "Answer text selection actions")
+        item("Ask about this").tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        let quoted = NSPredicate(format: "value BEGINSWITH %@", "About “Scaling”: ")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: quoted, object: composer)], timeout: 5), .completed,
+                       String(describing: composer.value))
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        sleep(1)
+        // Long-press the inline formula after "Scaling by ".
+        answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 112, dy: 12)).press(forDuration: 1.2)
+        XCTAssertTrue(item("Copy LaTeX").waitForExistence(timeout: 5))
+        XCTAssertTrue(item("Copy as text").exists)
+        capture(app, "Formula actions")
+    }
+
+    /// Audit gap 9: while the server searches, a status line says so (in place of
+    /// "Thinking…" before any text, then under the partial answer); it goes once text resumes.
+    func testSearchProgressShowsUnderTheStreamingAnswer() throws {
+        let app = askChatFixture("research", "What followed DPO?")
+        let any = app.descendants(matching: .any)
+        let thinking = any["chat.message.thinking"]
+        XCTAssertTrue(thinking.waitForExistence(timeout: 10))
+        let searching = NSPredicate(format: "label CONTAINS %@", "Searching the web for “direct preference optimization follow-ups”")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: searching, object: thinking)], timeout: 5), .completed, thinking.label)
+        let progress = any["chat.message.progress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 20), "The second search shows under the partial answer")
+        XCTAssertTrue(progress.label.contains("IPO KTO comparison") || progress.label == "Reading results…", progress.label)
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        capture(app, "Search progress under a streaming answer")
+        XCTAssertTrue(progress.waitForNonExistence(timeout: 20), "Cleared when text resumes")
+        XCTAssertTrue(any["chat.papers"].waitForExistence(timeout: 20))
+        XCTAssertFalse(progress.exists)
+    }
+
+    /// Audit gap 2: papers an answer names are listed under it, to open (after
+    /// seeing the address) or add; one only in Sources is not repeated.
+    func testAnswerPapersCanBeOpenedOrAdded() throws {
+        let app = askChatFixture("research", "Which papers should I read next?")
+        let papers = app.descendants(matching: .any)["chat.papers"]
+        XCTAssertTrue(papers.waitForExistence(timeout: 20))
+        let any = app.descendants(matching: .any)
+        XCTAssertTrue(any["chat.paper.1"].label.contains("Direct Preference Optimization: Your Language Model"), any["chat.paper.1"].label)
+        XCTAssertTrue(any["chat.paper.1"].label.contains("arXiv 2305.18290"))
+        XCTAssertTrue(any["chat.paper.2"].label.contains("A General Theoretical Paradigm"))
+        XCTAssertTrue(any["chat.paper.3"].label.contains("Rank Analysis of Incomplete Block Designs, DOI 10.2307/2334029"), any["chat.paper.3"].label)
+        XCTAssertFalse(any["chat.paper.4"].exists, "A paper only in Sources is not listed again")
+        for number in 1...3 { XCTAssertTrue(app.buttons["chat.paper.\(number).open"].exists) }
+        XCTAssertTrue(app.buttons["chat.paper.1.add"].exists)
+        XCTAssertTrue(app.buttons["chat.paper.3.add"].exists, "A DOI can be added too")
+        XCTAssertTrue(any["chat.paper.2.inLibrary"].exists)
+        XCTAssertFalse(app.buttons["chat.paper.2.add"].exists, "A paper already in the library has no Add")
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(papers, in: app, up: false)
+        capture(app, "Papers in this answer")
+
+        app.buttons["chat.paper.3.open"].tap()
+        XCTAssertTrue(app.staticTexts["Open this paper in Safari?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["https://doi.org/10.2307/2334029"].exists)
+        capture(app, "Paper address confirmation")
+        if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap() }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: app.staticTexts["Open this paper in Safari?"])], timeout: 5), .completed)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // The fixture has no server library: the add reports its outcome on the row.
+        app.buttons["chat.paper.1.add"].tap()
+        XCTAssertTrue(app.staticTexts["chat.paper.1.notice"].waitForExistence(timeout: 5))
+        capture(app, "Add outcome on the row")
     }
 
     /// Discovery audit (records every issue, fails on none): Library, reader,

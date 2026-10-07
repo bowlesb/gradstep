@@ -18,8 +18,15 @@
 //
 // The pure matcher (the bridge's CITATION MATCHER section) is evaluated unchanged here and in
 // the page; with it the report also lists citations it parsed but left ambiguous or unmatched.
+// Bracketed citations ("[Gelfond and Lifschitz 1991]", ACM style) get their own total.
 //
-// Default bundles: .artifacts/cite-bundles/ and .artifacts/bundles/, one level of subfolders (one per title).
+// The report also lists every block the bridge formatted as the paper's own contents (or list
+// of figures/tables): its caption, entries, entries linked to a heading or run-in head, and
+// links whose target disagrees with the entry (number or most words). Any formatted block that
+// is not a real contents list is a false positive.
+//
+// Bundle arguments are bundle folders or folders of them (one level). Default bundles:
+// .artifacts/cite-bundles/ and .artifacts/bundles/. One bundle per title unless --all-titles.
 import { readFileSync, readdirSync, existsSync, writeFileSync, statSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -39,22 +46,23 @@ if (!rules) throw new Error('the app bridge has no CITATION MATCHER section');
 const subjectMatcher = matcherOf(bridge);
 const Citations = subjectMatcher ? new Function(`${subjectMatcher}\nreturn CitationMatcher;`)() : null;
 
-// Measurement only: expose the bridge's reference list to read entry texts.
-const instrumented = bridge.replace('const references = {', 'const references = window.__srAudit = {');
-if (instrumented === bridge) throw new Error('bridge has no references table to observe');
+// Measurement only: expose the bridge's reference list to read entry texts, and (bridges that
+// format a paper's own contents) each contents link's heading.
+const instrumented = bridge.replace('const references = {', 'const references = window.__srAudit = {')
+  .replace('const contentsTargets = new WeakMap();', 'const contentsTargets = window.__srContents = new WeakMap();');
+if (!instrumented.includes('window.__srAudit')) throw new Error('bridge has no references table to observe');
 
-const dirs = argv.filter(a => !a.startsWith('--')).map(a => resolve(a));
-if (!dirs.length) {
-  const bases = ['.artifacts/cite-bundles', '.artifacts/bundles'].map(path => join(root, path));
-  const visit = (dir, depth) => {
-    for (const name of readdirSync(dir).sort()) {
-      const path = join(dir, name);
-      if (!statSync(path).isDirectory()) continue;
-      if (existsSync(join(path, 'index.html'))) dirs.push(path); else if (depth < 1) visit(path, depth + 1);
-    }
-  };
-  for (const base of bases) if (existsSync(base)) visit(base, 0);
-}
+const dirs = [];
+const visit = (dir, depth) => {
+  for (const name of readdirSync(dir).sort()) {
+    const path = join(dir, name);
+    if (!statSync(path).isDirectory()) continue;
+    if (existsSync(join(path, 'index.html'))) dirs.push(path); else if (depth < 1) visit(path, depth + 1);
+  }
+};
+const named = argv.filter(a => !a.startsWith('--')).map(a => resolve(a));
+for (const dir of named) if (existsSync(join(dir, 'index.html'))) dirs.push(dir); else visit(dir, 0);
+if (!named.length) for (const base of ['.artifacts/cite-bundles', '.artifacts/bundles'].map(path => join(root, path))) if (existsSync(base)) visit(base, 0);
 
 // ---- oracle ----
 const fold = value => value.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[‘’]/g, "'").toLowerCase();
@@ -120,7 +128,7 @@ const results = [], samples = [], seen = new Set();
 for (const dir of dirs) {
   const html = join(dir, 'index.html');
   const title = (readFileSync(html, 'utf8').match(/<title>([^<]*)/)?.[1] ?? dir).trim();
-  if (seen.has(title)) continue;
+  if (seen.has(title) && !args["all-titles"]) continue;
   seen.add(title);
   const context = await browser.newContext({ bypassCSP: true, viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -183,7 +191,14 @@ for (const dir of dirs) {
       blocks.push({ id: element.id, text, cites: merged.map(cite => ({ ...cite, text: text.slice(cite.start, cite.end) })) });
     }
     const entries = audit.entries.map(entry => ({ id: entry.id, text: entry.text, number: entry.number, label: entry.label }));
-    return { changed, blocks, entries, cites: document.querySelectorAll('.sr-cite').length };
+    // The paper's own contents lists the bridge formatted, with each heading link's target.
+    const contents = [...document.querySelectorAll('.sr-toc')].map(block => ({ id: block.id,
+      caption: (block.querySelector('.sr-toc-caption')?.textContent ?? (/^H[1-6]$/.test(block.previousElementSibling?.tagName) ? block.previousElementSibling.textContent : '')).trim(),
+      rows: [...block.querySelectorAll(':scope > .sr-toc-entry')].map(row => ({
+        label: row.querySelector('.sr-toc-label').textContent.replace(/\s+/g, ' ').trim(), page: row.querySelector('.sr-toc-page').textContent,
+        depth: Number(row.getAttribute('data-sr-depth')), linked: row.classList.contains('sr-toc-link'),
+        target: window.__srContents?.get(row)?.range.toString().replace(/\s+/g, ' ').trim() ?? null })) }));
+    return { changed, blocks, entries, contents, cites: document.querySelectorAll('.sr-cite').length };
   }, rules);
   await context.close();
 
@@ -200,10 +215,43 @@ for (const dir of dirs) {
   const row = { title, dir: dir.replace(root + '/', ''), entries: entries.length, links: state.cites, ms: elapsed, changed: state.changed,
     candidates: 0, unique: 0, linked: 0, wrong: 0, missed: 0, ambiguous: 0, ambiguousLinked: 0, extra: 0, uncited: 0,
     examples: { missed: [], wrong: [], ambiguous: [], extra: [], unmatched: [] } };
+  // Bracketed citations ("[Gelfond and Lifschitz 1991]", ACM style) are counted on their own too.
+  const textOf = new Map(state.blocks.map(block => [block.id, block.text]));
+  const bracketed = candidate => {
+    const open = [];
+    for (const char of textOf.get(candidate.block).slice(Math.max(0, candidate.start - 300), candidate.start)) {
+      if (char === '[' || char === '(') open.push(char); else if ((char === ']' || char === ')') && open.length) open.pop();
+    }
+    return open[open.length - 1] === '[';
+  };
+  Object.assign(row, { bracketUnique: 0, bracketLinked: 0 });
+  // Contents lists: entries, heading links, and links whose heading disagrees with the entry.
+  const words = value => new Set(fold(value).replace(/^\s*(?:\d{1,2}(?:\.\d{1,2})*|[a-z](?:\s?\.\s?\d{1,2})*)\.?\s+/, '').match(/[\p{L}\p{N}]+/gu) || []);
+  const numberOf = value => /^\s*(\d{1,2}(?:\.\d{1,2})*|[A-Z](?:\s?\.\s?\d{1,2})*)\.?\s/.exec(value)?.[1].replace(/\s/g, '') ?? null;
+  Object.assign(row, { contents: state.contents.length, contentsEntries: 0, contentsLinked: 0, contentsSuspect: 0 });
+  row.examples.contents = state.contents.map(list => `${list.caption || '(no caption)'}: ${list.rows.length} entries, ${list.rows.filter(entry => entry.linked).length} linked; `
+    + list.rows.slice(0, 3).map(entry => `${'  '.repeat(entry.depth)}${entry.label} … ${entry.page}`).join(' | '));
+  for (const list of state.contents) {
+    for (const entry of list.rows) {
+      row.contentsEntries += 1;
+      if (!entry.linked) continue;
+      row.contentsLinked += 1;
+      const a = words(entry.label), b = words(entry.target ?? ''), shared = [...a].filter(word => b.has(word)).length;
+      const numbers = [numberOf(entry.label), numberOf(entry.target ?? '')];
+      if (!entry.target || (numbers[0] && numbers[1] && numbers[0] !== numbers[1].toUpperCase()) || shared * 2 < Math.max(a.size, b.size)) {
+        row.contentsSuspect += 1;
+        (row.examples.contentsSuspect ??= []).push(`${entry.label} → ${entry.target}`);
+      }
+    }
+  }
   const covered = new Set();
   for (const candidate of candidates) {
     const cite = covering(candidate);
     if (cite) covered.add(cite);
+    if (candidate.found.length === 1 && bracketed(candidate)) {
+      row.bracketUnique += 1;
+      if (cite?.target === candidate.found[0].id) row.bracketLinked += 1;
+    }
     if (!candidate.found.length) {
       if (candidate.looksCited) { row.uncited += 1; if (row.examples.unmatched.length < EXAMPLES) row.examples.unmatched.push(candidate.context); }
       continue;
@@ -257,6 +305,12 @@ lines.push(`| **All (${results.length} papers)** | | ${total.links} | ${total.ca
 console.log(`Bridge: ${bridgePath.replace(root + '/', '')}\n`);
 console.log(lines.join('\n'));
 console.log(`\nBlocks with changed text: ${total.changed}. Slowest paper: ${Math.max(...results.map(row => row.ms))} ms (bridge ready, headless WebKit).`);
+const bracket = results.reduce((sum, row) => [sum[0] + row.bracketLinked, sum[1] + row.bracketUnique, sum[2] + (row.bracketUnique ? 1 : 0)], [0, 0, 0]);
+console.log(`Bracketed author–year citations ("[Name and Name 1991]"): ${bracket[0]} of ${bracket[1]} unambiguous linked (${pct(bracket[0], bracket[1])}, ${bracket[2]} papers).`);
+const listed = results.filter(row => row.contents);
+console.log(`\nContents lists formatted: ${listed.reduce((sum, row) => sum + row.contents, 0)} in ${listed.length} of ${results.length} papers; `
+  + `${listed.reduce((sum, row) => sum + row.contentsEntries, 0)} entries, ${listed.reduce((sum, row) => sum + row.contentsLinked, 0)} linked to a heading, `
+  + `${listed.reduce((sum, row) => sum + row.contentsSuspect, 0)} links whose heading disagrees with the entry.`);
 for (const row of results) {
   const shown = Object.entries(row.examples).filter(([, list]) => list.length);
   if (!shown.length) continue;

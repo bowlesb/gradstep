@@ -4,8 +4,8 @@
 import {
   ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
   SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
-  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL,
-  type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
+  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL, searchingStatus,
+  type ChatStatus, type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
 import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -149,7 +149,7 @@ export async function readChatBody(request: Request, maximum = MAX_BODY_BYTES, t
 }
 
 const BASE_INSTRUCTIONS = `You are the research assistant in Gradstep, an app people use to read machine-learning papers.
-Lead with the answer, then the reasoning that supports it. Keep answers focused; use short Markdown sections or lists when they help.
+Lead with the answer, then the reasoning that supports it. Start directly with the content: no label such as "Answer:". Keep answers focused; use short Markdown sections or lists when they help.
 Write mathematics in LaTeX with \\( ... \\) for inline math and \\[ ... \\] for display math. Do not use dollar-sign delimiters.
 If you are unsure or something is outside what you can verify, say so plainly. Never invent citations, results, or paper details.`;
 const PAPER_INSTRUCTIONS = `The reader is asking about the paper in the <paper> block (Mathpix Markdown of the full text).
@@ -252,6 +252,8 @@ export const INGEST_DEADLINE_MS = 45_000;
 
 export type ChatEvent = { event: 'delta'; data: { text: string } }
   | { event: 'diagram'; data: { title: string; source: string } }
+  /** Progress while the server searches or adds a paper. Builds that predate it ignore unknown events. */
+  | { event: 'status'; data: ChatStatus }
   | { event: 'done'; data: { stop_reason: string; credits: number; usage: Record<string, number> } }
   | { event: 'error'; data: { code: ChatErrorCode } };
 
@@ -374,10 +376,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   let outcome: ProviderOutcome;
   let wroteText = false, answerTail = '';
   const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
+  // Status lines go only to this reader's stream (the search query included); logs keep counts only.
+  const status = (data: ChatStatus) => { if (!signal.aborted) emit({ event: 'status', data }); };
   try {
     outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
+      onStatus: status,
     }, { tavily, backup: search, cap: searchCap }, stats);
   } finally {
     clearTimeout(timer);
@@ -426,13 +431,18 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
       const web = request.capabilities.includes('web_import');
       const clock = deps.now ?? Date.now, started = clock();
+      status({ kind: 'finding_paper' });
       const search = await deps.findPaper(wanted, budget, { web }).catch((): FindResult => ({ status: 'unavailable' }));
       const findMs = clock() - started;
       const found = 'paper' in search ? search.paper : null;
       let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
       if (signal.aborted) result = 'stopped';
       else if (search.status === 'found' && search.paper.kind === 'web' && !web) result = 'needs_update';
-      else if (search.status === 'found') result = budget.aborted ? 'unavailable' : await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
+      else if (search.status === 'found' && budget.aborted) result = 'unavailable';
+      else if (search.status === 'found') {
+        status({ kind: 'adding_paper' });
+        result = await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
+      }
       deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
       // Durable outcome (counts and timings only), so failures are visible without the log service.
       await deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID, p_operation_id: request.operationID, p_provider: 'ingest',
@@ -543,12 +553,15 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       if (searches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
       if (!input) return reply('Invalid search: give a short query.', true);
       if (!tavily || !deps.search) return reply(unavailable(canSwitch()), true);
+      options.onStatus?.(searchingStatus(input.query));
       const result = await deps.search.run(input, options.signal).catch((): SearchOutcome => ({ status: 'failed', failure: 'unavailable', retryAfterMs: null }));
       if (result.status === 'ok') { stats.tavily++; stats.credits += result.credits; return reply(searchResultContent(result.results)); }
       stats.failures++; tavily = false; failed = true;
       deps.log({ event: 'chat_search_failed', operation_id: operationID, provider: 'tavily', failure: result.failure });
       return reply(unavailable(canSwitch()), true);
     }));
+    // Results are in (at least one search succeeded): the answer continues from them.
+    if (results.some(result => !result.is_error && Array.isArray(result.content)) && !options.signal.aborted) options.onStatus?.({ kind: 'reading' });
     append();
     extra.push({ role: 'user', content: results });
     separate = wrote;

@@ -50,10 +50,34 @@ final class VisualScenarioTests: XCTestCase {
                 if app.segmentedControls.buttons["Browse"].exists { app.segmentedControls.buttons["Browse"].tap() }
                 sleep(2)
             },
-            "library-detailed": Scenario(arguments: Self.metadataFixture + ["--library-layout=detailed"]) { _ in sleep(1) },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
+            // The table as the reader sets it up (owner request 2026-10-07): the column chooser, quick filters, the tag
+            // menu, a failed import's Retry, and that row right after Retry.
+            "library-columns": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
+                self.tapMenu(app, "Library options")
+                let columns = app.buttons["Columns"].firstMatch
+                XCTAssertTrue(columns.waitForExistence(timeout: 5)); columns.tap()
+                XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "library-filter-failed": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table",
+                                                                                 "--library-filter=failed"]) { _ in sleep(1) },
+            "library-filter-tag": Scenario(arguments: Self.metadataFixture + ["--library-layout=table", "--library-tag=Language"]) { _ in sleep(1) },
+            "library-tag-menu": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
+                let tags = app.descendants(matching: .any)["library.filter.tags"].firstMatch
+                // The chip row scrolls sideways; Tags is its last chip.
+                if tags.waitForExistence(timeout: 5), !tags.isHittable { app.descendants(matching: .any)["library.filters"].firstMatch.swipeLeft() }
+                tags.tap(); sleep(1)
+            },
+            "library-retry": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table",
+                                                                         "--library-filter=failed"]) { app in
+                let retry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.import.retry.")).firstMatch
+                XCTAssertTrue(retry.waitForExistence(timeout: 5)); retry.tap(); sleep(1)
+            },
+            // Every column turned on: the width decides which show.
+            "library-table-columns-all": Scenario(arguments: Self.metadataFixture + ["--library-layout=table",
+                "--library-columns=year,tags,source,pages,added,opened,chats,progress"]) { _ in sleep(1) },
             // Pipeline reliability: an import whose step has run for minutes says it is taking longer than usual.
-            // List layout; with the table layout, detailed rows on iPhone portrait and the table on iPad.
+            // List layout, and the table.
             "library-slow-import": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture"]) { app in self.showSlowImport(app) },
             "library-slow-import-table": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table"]) { app in
                 self.showSlowImport(app)
@@ -224,6 +248,33 @@ final class VisualScenarioTests: XCTestCase {
                 for _ in 0..<6 { app.swipeUp() }
                 sleep(1)
             },
+            // Settings signed in (owner feedback, build 14 #8/#9): the Account row and its page, About and its
+            // Acknowledgements; `chat-title` opens a selection-action conversation to show its short title.
+            "settings-account": Scenario(arguments: Self.chatFixture) { app in self.go(app, "settings"); sleep(1) },
+            "settings-account-end": Scenario(arguments: Self.chatFixture) { app in
+                self.go(app, "settings")
+                for _ in 0..<6 { app.swipeUp() }
+                sleep(1)
+            },
+            "account": Scenario(arguments: Self.chatFixture) { app in
+                self.go(app, "settings")
+                let row = app.buttons["account.row"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "about": Scenario(arguments: ["--workflow-fixture"]) { app in self.openAbout(app) },
+            "acknowledgements": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.openAbout(app)
+                let row = app.buttons["about.acknowledgements"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "chat-title": Scenario(arguments: Self.historyFixture) { app in
+                self.openHistory(app)
+                let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000005"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5)); sleep(1)
+            },
         ]
     }
 
@@ -254,6 +305,15 @@ final class VisualScenarioTests: XCTestCase {
         if XCUIDevice.shared.orientation.isLandscape { if tab.exists { drag() } }
         else { for _ in 0..<8 where !status.isHittable || (tab.exists && status.frame.maxY > tab.frame.minY - 24) { drag() } }
         sleep(1)
+    }
+
+    /// Settings › About Gradstep (the last row; scrolled to on short screens and at large text).
+    private func openAbout(_ app: XCUIApplication) {
+        go(app, "settings")
+        let about = app.buttons["settings.about"]
+        for _ in 0..<8 where !(about.exists && about.isHittable) { app.swipeUp() }
+        XCTAssertTrue(about.waitForExistence(timeout: 5)); about.tap()
+        XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5)); sleep(1)
     }
 
     private func tapMenu(_ app: XCUIApplication, _ label: String) {

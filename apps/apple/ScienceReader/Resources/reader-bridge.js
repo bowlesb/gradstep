@@ -141,7 +141,8 @@
       const surname = parts.filter(word => kind(word) !== 'initial' && kind(word) !== 'suffix').map(fold);
       return surname.length ? {words: surname, key: surname[surname.length - 1], initials: given.map(word => fold(word)[0]).join('')} : null;
     };
-    const SEPARATOR = /\s*,\s*(?:and\s+|&\s*)?|\s*;\s*|\s+and\s+|\s*&\s*/;
+    // "and" as small capitals come out of OCR too: "Leone, N., And Pfeifer, G.", "GELFOND, M. AND LIFSCHITZ, V.".
+    const SEPARATOR = /\s*,\s*(?:(?:and|And|AND)\s+|&\s*)?|\s*;\s*|\s+(?:and|And|AND)\s+|\s*&\s*/;
     const ENTRY_ET_AL = /(?:^|\s+)(?:et\.?\s*al\.?|others)$/i;
     const parseAuthors = body => {
       // "P.Städter" → "P. Städter", "L.van der Maaten" → "L. van der Maaten". The list ends at a stop
@@ -162,7 +163,9 @@
       // "Smith JA, Doe B" (Vancouver).
       const vancouver = first.length >= 2 && /^\p{Lu}{1,3}$/u.test(first[first.length - 1]) && NAME_WORD.test(first[0]);
       // "Vaswani, A., Shazeer, N., and Polosukhin, I." or "Duchi, John, Hazan, Elad, and Singer, Yoram".
-      const surnameFirst = !vancouver && second.length > 0 && first.length <= 4 && first.every(word => ['name', 'particle'].includes(kind(word)))
+      // A short surname in small capitals ("LI, X. AND WU, Y.") reads like initials on its own.
+      const surnameFirst = !vancouver && second.length > 0 && first.length <= 4
+        && first.every(word => ['name', 'particle'].includes(kind(word)) || (first.length === 1 && /^\p{Lu}{2,3}$/u.test(word) && initialsOnly(second)))
         && (initialsOnly(second) || (first.length === 1 && second.length <= 2 && second.every(word => kind(word) === 'name' || INITIAL.test(word))
           && pieces.length % 2 === 0 && pieces.filter(piece => words(piece).length === 1).length * 2 >= pieces.length));
       if (surnameFirst) {
@@ -229,11 +232,13 @@
     // and De Meulder, 2003", "Y. Li et al. 2023", "BIG-bench collaboration, 2021" — and further years
     // of the same names: "(Peters et al., 2017, 2018a)", "(Wu et al., 2022a,b)".
     const PARTICLE = String.raw`(?:[Vv]an|[Vv]on|[Dd]e|[Dd]er|[Dd]en|[Dd]el|[Dd]ella|[Dd]i|[Dd]a|[Dd]u|[Dd]os|[Dd]as|[Ll]a|[Ll]e|[Tt]en|[Tt]er|zu|bin|al|el)`;
-    const CAPITAL = String.raw`(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}`;
+    // Small-capital (ACM) citations print "[GELFOND AND LIFSCHITZ 1991]", "[EITER ET AL. 1997b]": those words are no names.
+    const CAPITAL = String.raw`(?!(?:And|AND|ET|AL)\b)(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}`;
     const GROUP = String.raw`(?:collaboration|team|consortium|group|project|authors|contributors|community)`;
     const NAME = String.raw`(?:\p{Lu}\.\s?){0,3}(?:${PARTICLE}\s+){0,3}${CAPITAL}(?:\s+(?:${PARTICLE}\s+){0,3}(?:${CAPITAL}|\p{Lu}\.?(?=\s+\p{Lu})))*(?:\s+${GROUP})?`;
-    const ET_AL = String.raw`\s*,?\s*(?:(?:and|&)\s*)?e[tl]\.?\s*al\b\.?(?:['’]s)?`;
-    const LIST = String.raw`${NAME}(?:\s*,\s*${NAME})*(?:\s*,?\s*(?:and|&)\s+${NAME})?(?:${ET_AL})?`;
+    const AND = String.raw`(?:and|And|AND|&)`;
+    const ET_AL = String.raw`\s*,?\s*(?:${AND}\s*)?(?:e[tl]\.?\s*al|ET\.?\s*AL)\b\.?(?:['’]s)?`;
+    const LIST = String.raw`${NAME}(?:\s*,\s*${NAME})*(?:\s*,?\s*${AND}\s+${NAME})?(?:${ET_AL})?`;
     const BEFORE_YEAR = new RegExp(String.raw`(?<![\p{L}\p{N}'’\-])(${LIST})(\s*,?\s*(?:[(\[]\s*)?)$`, 'u');
     const LIST_ET_AL = new RegExp(ET_AL + '$', 'u');
     const NAME_IN_LIST = new RegExp(NAME, 'gu');
@@ -243,12 +248,19 @@
     // The names of a cited list, each with its folded surname words and their offsets.
     const names = (list, offset) => [...list.replace(LIST_ET_AL, '').matchAll(NAME_IN_LIST)].map(match => {
       const name = {words: [], starts: [], initials: ''};
+      let last = null;
       for (const word of match[0].matchAll(/\S+/g)) {
         if (/^(?:\p{Lu}\.?){1,2}$/u.test(word[0]) || /^(?:Jr|Sr|II|III|IV)\.?$/.test(word[0])) {
           if (!name.words.length) name.initials += fold(word[0])[0];
+          last = word;
           continue;
         }
         name.words.push(fold(word[0])); name.starts.push(offset + match.index + word.index);
+      }
+      // A two-letter surname in capitals ("[LI AND WU 2020]") is no pair of initials.
+      if (!name.words.length && last && /^\p{Lu}{2}$/u.test(last[0])) {
+        name.words.push(fold(last[0])); name.starts.push(offset + match.index + last.index);
+        name.initials = name.initials.slice(0, -1);
       }
       return name;
     }).filter(name => name.words.length);
@@ -505,13 +517,278 @@
     if (!references.entries.length) return;
     references.index = CitationMatcher.index(references.entries);
     for (const block of document.querySelectorAll('[data-reader-block]')) {
-      if (block.closest(SKIPPED) || references.members.has(block) || inBibliography(block)) continue;
+      if (block.closest(SKIPPED) || block.matches('.sr-toc') || references.members.has(block) || inBibliography(block)) continue;
       const {text, parts} = blockText(block);
       if (!/[\d[]/.test(text)) continue;
       const links = CitationMatcher.scan(text, references.index).filter(link => link.entry);
       if (links.length) wrapCitations(parts, links);
     }
   };
+  // BEGIN CONTENTS PARSER
+  // Pure text logic, no DOM: a paper's own table of contents (or list of figures/tables), which
+  // Mathpix keeps as one paragraph of lines like "2.1 Syntax ..... 3". U+FFFC stands for an inline
+  // element (an equation). scripts/citation-harness.mjs reports every block it formats.
+  const ContentsParser = (() => {
+    const CAPTION_WORDS = String.raw`(?:table\s+of\s+contents|contents|list\s+of\s+(?:figures|tables|algorithms|listings))`;
+    const CAPTION = new RegExp(String.raw`^\s*${CAPTION_WORDS}\s*:?(?=\s|$)`, 'i');
+    const CAPTION_ONLY = new RegExp(String.raw`^\s*(?:[0-9]+\.?\s+)?${CAPTION_WORDS}\s*:?\s*$`, 'i');
+    // "2.1", "3.1.1", "A", "G.1" ("G. 1" as OCR prints it), with an optional trailing period.
+    const NUMBER = /^(\d{1,2}(?:\.\d{1,2}){0,4}|[A-Z](?:\s?\.\s?\d{1,2}){0,4})\.?(?=\s+\S)/u;
+    // A dot leader (". . . .", ".....", "…", "·····") and the page: arabic, or lower-case roman.
+    const LEADER = /(\s*(?:(?:\.\s*){3,}|(?:…\s*)+|(?:·\s*){3,}))(\d{1,4}|[ivxlc]{1,7})(?=\s|$)/gu;
+    const normalNumber = value => value.replace(/\s+/g, '').toUpperCase();
+    const depthOf = value => Math.min(4, (value.match(/\./g) || []).length);
+    const numbered = (text, start, end) => {
+      const match = NUMBER.exec(text.slice(start, end));
+      return match ? {start, end: start + match[1].length, value: normalNumber(match[1])} : null;
+    };
+    const pageValue = value => /^\d+$/.test(value) ? Number(value) : null;
+    // Most pages run forwards (OCR may garble one).
+    const forwards = entries => {
+      const pages = entries.map(entry => entry.page.number).filter(value => value !== null);
+      let back = 0;
+      for (let i = 1; i < pages.length; i += 1) if (pages[i] < pages[i - 1]) back += 1;
+      return back * 5 <= Math.max(1, pages.length - 1);
+    };
+    // Section numbers in reading order: the next sibling, a first child, or the next of an
+    // ancestor ("2.3" → "3"); letters start appendices.
+    const follows = (previous, next) => {
+      const a = previous.split('.'), b = next.split('.');
+      const step = (x, y) => /^\d+$/.test(x) && /^\d+$/.test(y) ? Number(y) === Number(x) + 1
+        : /^[A-Z]$/.test(x) && /^[A-Z]$/.test(y) ? y.charCodeAt(0) === x.charCodeAt(0) + 1 : /^\d+$/.test(x) && y === 'A';
+      if (b.length === a.length + 1 && a.every((part, i) => part === b[i])) return b[b.length - 1] === '1' || b[b.length - 1] === '0';
+      if (b.length > a.length) return false;
+      return b.slice(0, -1).every((part, i) => part === a[i]) && step(a[b.length - 1], b[b.length - 1]);
+    };
+    const leaderEntries = (text, start) => {
+      const entries = [];
+      let cursor = start;
+      LEADER.lastIndex = start;
+      for (let match; (match = LEADER.exec(text));) {
+        const lead = text.slice(cursor, match.index).search(/\S/);
+        if (lead < 0) return null;
+        const from = cursor + lead, label = text.slice(from, match.index);
+        if (label.length > 200 || !/[\p{L}￼]/u.test(label) || (label.match(/\n/g) || []).length > 1) return null;
+        const pageStart = match.index + match[1].length, end = match.index + match[0].length;
+        entries.push({start: from, end, separator: text.slice(cursor, from), number: numbered(text, from, match.index),
+          leader: {start: match.index, end: pageStart}, page: {start: pageStart, end, value: match[2], number: pageValue(match[2])}});
+        cursor = end;
+      }
+      return text.slice(cursor).trim() ? null : entries;
+    };
+    // "1 Introduction 1" without leaders, one per line or run together: only after a "Contents"
+    // caption, with section numbers in order and pages running forwards.
+    const plainEntries = (text, start) => {
+      const lines = /\n/.test(text.slice(start).trim());
+      const NUM = String.raw`(?:\d{1,2}(?:\.\d{1,2}){0,4}|[A-Z](?:\s?\.\s?\d{1,2}){0,4})`;
+      const ENTRY = lines
+        ? new RegExp(String.raw`[^\S\n]*\n?[^\S\n]*((?:${NUM}\.?[^\S\n]+)?)([^\n]*?\S)([^\S\n]+)(\d{1,4})(?=[^\S\n]*(?:\n|$))`, 'uy')
+        : new RegExp(String.raw`\s*(${NUM}\.?\s+)(.+?\S)(\s+)(\d{1,4})(?=\s+${NUM}\.?\s+\S|\s*$)`, 'uy');
+      const entries = [];
+      ENTRY.lastIndex = start;
+      let cursor = start;
+      for (let match; cursor < text.length && (match = ENTRY.exec(text));) {
+        const end = match.index + match[0].length, pageStart = end - match[4].length;
+        const from = pageStart - match[3].length - match[2].length - match[1].length;
+        if (match[2].length > 200 || !/[\p{L}￼]/u.test(match[2])) return null;
+        entries.push({start: from, end, separator: text.slice(cursor, from), number: match[1] ? numbered(text, from, pageStart) : null,
+          leader: {start: pageStart - match[3].length, end: pageStart}, page: {start: pageStart, end, value: match[4], number: Number(match[4])}});
+        cursor = end;
+      }
+      if (text.slice(cursor).trim() || entries.length < 4) return null;
+      const numbers = entries.filter(entry => entry.number).map(entry => entry.number.value);
+      if (numbers.length * 4 < entries.length * 3 || (!lines && numbers.length < entries.length)) return null;
+      for (let i = 1; i < numbers.length; i += 1) if (!follows(numbers[i - 1], numbers[i])) return null;
+      return entries.every((entry, i) => !i || entry.page.number >= entries[i - 1].page.number) ? entries : null;
+    };
+    // The entries of a contents block, or null when the text is anything else.
+    const parse = (text, captioned) => {
+      if (text.length > 20000) return null;
+      const head = CAPTION.exec(text);
+      const caption = head ? {start: text.search(/\S/), end: head[0].length} : null;
+      const start = caption ? caption.end : 0;
+      const rest = text.slice(start);
+      let entries = leaderEntries(text, start);
+      if (entries && entries.length) {
+        // Several entries, each on its own line (a wrapped title may take two), or run together.
+        if (entries.length < 3 || !forwards(entries)) return null;
+        if (/\n/.test(rest.trim()) && entries.some((entry, i) => i > 0 && !/\n/.test(entry.separator))) return null;
+        if (!/\n/.test(rest.trim()) && entries.length < 4 && !caption && !captioned) return null;
+      } else if (caption || captioned) {
+        entries = plainEntries(text, start);
+        if (!entries) return null;
+      } else return null;
+      for (const entry of entries) entry.depth = entry.number ? depthOf(entry.number.value) : 0;
+      return {caption, entries};
+    };
+    return {CAPTION_ONLY, NUMBER, normalNumber, parse};
+  })();
+  // END CONTENTS PARSER
+
+  // A contents block becomes a list (one entry per line, indented by depth, the page muted on
+  // the right) by wrapping its own text; an entry whose title is a heading of the paper (or a
+  // numbered run-in head) jumps there with Back, like a citation. Paragraph text, IDs and
+  // selections are unchanged. Row → {id, range, heading?, start?}.
+  const contentsTargets = new WeakMap();
+  const foldTitle = value => value.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\\/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const plainText = node => {
+    if (node.nodeType === Node.TEXT_NODE) return node.data;
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    if (node.matches('[data-reader-equation]')) return ' ' + (node.getAttribute('data-latex') || node.textContent) + ' ';
+    return [...node.childNodes].map(plainText).join('');
+  };
+  const sectionTitle = text => {
+    const trimmed = text.trim(), match = ContentsParser.NUMBER.exec(trimmed);
+    return match ? {number: ContentsParser.normalNumber(match[1]), title: foldTitle(trimmed.slice(match[0].length))}
+      : {number: null, title: foldTitle(trimmed)};
+  };
+  const headingFor = (sections, number, title, whole) => {
+    if (!title) return null;
+    let found = sections.filter(section => section.title === title && (!number || !section.number || section.number === number));
+    if (found.length > 1 && number) found = found.filter(section => section.number === number);
+    // "A Survey of …" is a title, not appendix A.
+    if (!found.length && number) found = sections.filter(section => !section.number && section.title === whole);
+    if (!found.length && number) {
+      // The same number and nearly the same words (OCR, abbreviations).
+      const words = new Set(title.split(' '));
+      found = sections.filter(section => {
+        if (section.number !== number) return false;
+        const other = new Set(section.title.split(' '));
+        const shared = [...words].filter(word => other.has(word)).length;
+        return shared >= 2 && shared * 3 >= Math.max(words.size, other.size) * 2;
+      });
+    }
+    return found.length === 1 ? found[0].element : null;
+  };
+  // Run-in subsection heads Mathpix keeps inside paragraphs ("3.3.1 Exams Scheduling. Let us…",
+  // ACM style), found once at line starts: number → [{block, start, after}].
+  const RUN_IN = /(?:^|\n)([^\S\n]*)(\d{1,2}(?:\s?\.\s?\d{1,2}){1,4})\.?[^\S\n]+(?=\S)/g;
+  const runInHeads = () => {
+    const found = new Map();
+    for (const block of document.querySelectorAll('p[data-reader-block]')) {
+      if (block.matches('.sr-toc') || references.members.has(block) || inBibliography(block) || block.closest(`figure,.reader-table,li,[${CHROME}]`)) continue;
+      const text = block.textContent;
+      for (const match of text.matchAll(RUN_IN)) {
+        const number = ContentsParser.normalNumber(match[2]), start = match.index + (match[0].startsWith('\n') ? 1 : 0) + match[1].length;
+        found.set(number, [...(found.get(number) || []), {block, text, start, after: match.index + match[0].length}]);
+      }
+    }
+    return found;
+  };
+  const textRange = (block, start, end) => {
+    const range = document.createRange(), walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let offset = 0, begun = false;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const next = offset + node.data.length;
+      if (!begun && start < next) { range.setStart(node, start - offset); begun = true; }
+      if (begun && end <= next) { range.setEnd(node, end - offset); return range; }
+      offset = next;
+    }
+    return null;
+  };
+  // The one line in the paper that starts with this number and title, then "." or ":" (not a leader).
+  const runInFor = (heads, number, title) => {
+    const words = title.match(/[\p{L}\p{N}]+/gu);
+    if (!words || /￼/.test(title)) return null;
+    const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(String.raw`[^\p{L}\p{N}\n]+`)
+      + String.raw`[)\]]?[^\S\n]*[.:](?![^\S\n]*\.)`, 'iuy');
+    const found = (heads.get(number) || []).flatMap(head => {
+      pattern.lastIndex = head.after;
+      return pattern.test(head.text) ? [{...head, end: pattern.lastIndex}] : [];
+    });
+    if (found.length !== 1) return null;
+    // Resolved when used: citation links later split the text nodes (the text itself never changes).
+    const {block, start, end} = found[0];
+    return textRange(block, start, end) && {id: block.id, start: true, get range() { return textRange(block, start, end); }};
+  };
+  const formatContents = () => {
+    const linkable = [];
+    for (const block of document.querySelectorAll('p[data-reader-block]')) {
+      if (references.members.has(block) || inBibliography(block) || block.matches('.reader-authors,.reader-abstract')
+        || block.closest(`figure,.reader-table,li,[${CHROME}]`)) continue;
+      // The block's own children: text, line breaks and whole inline elements (an equation is one character).
+      const atoms = [];
+      let text = '', plain = true;
+      for (const node of block.childNodes) {
+        if (node.nodeType === Node.TEXT_NODE) { atoms.push({node, start: text.length, text: node.data}); text += node.data; }
+        else if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'BR') { atoms.push({node, start: text.length, size: 1}); text += '\n'; }
+        else if (node.nodeType === Node.ELEMENT_NODE && (node.matches('[data-reader-equation]') || !node.textContent.includes('\n'))) {
+          atoms.push({node, start: text.length, size: 1}); text += '￼';
+        } else plain = false;
+      }
+      const previous = block.previousElementSibling;
+      const heading = !!previous && /^H[1-6]$/.test(previous.tagName) && ContentsParser.CAPTION_ONLY.test(previous.textContent) ? previous.textContent : '';
+      if (!plain || (!heading && !/\.\s*\.\s*\.|…|·\s*·\s*·|contents|list\s+of/i.test(text))) continue;
+      const parsed = ContentsParser.parse(text, !!heading);
+      if (!parsed) continue;
+      // A list of figures or tables is shown the same way; only a table of contents links to headings.
+      const listing = /list\s+of/i.test(parsed.caption ? text.slice(parsed.caption.start, parsed.caption.end) : heading);
+      const slice = (from, to) => {
+        const nodes = [];
+        for (const atom of atoms) {
+          const end = atom.start + (atom.text?.length ?? atom.size);
+          if (end <= from || atom.start >= to) continue;
+          if (atom.text === undefined) { nodes.push(atom.node); continue; }
+          const part = atom.text.slice(Math.max(from, atom.start) - atom.start, Math.min(to, end) - atom.start);
+          if (part) nodes.push(document.createTextNode(part));
+        }
+        return nodes;
+      };
+      const words = (from, to) => slice(from, to).map(plainText).join('');
+      const span = (name, nodes) => { const element = document.createElement('span'); element.className = name; element.append(...nodes); return element; };
+      // Read everything needed before building, which moves the block's elements.
+      const before = block.textContent, original = [...block.childNodes];
+      const titles = parsed.entries.map(entry => {
+        const whole = words(entry.start, entry.leader.start);
+        return {whole: foldTitle(whole), title: foldTitle(entry.number ? words(entry.number.end, entry.leader.start) : whole),
+          text: entry.number ? text.slice(entry.number.end, entry.leader.start) : ''};
+      });
+      const out = [], rows = [];
+      let cursor = 0;
+      if (parsed.caption) {
+        out.push(...slice(0, parsed.caption.start), span('sr-toc-caption', slice(parsed.caption.start, parsed.caption.end)));
+        cursor = parsed.caption.end;
+      }
+      for (const entry of parsed.entries) {
+        out.push(...slice(cursor, entry.start));
+        const label = entry.number
+          ? span('sr-toc-label', [span('sr-toc-number', slice(entry.number.start, entry.number.end)), ...slice(entry.number.end, entry.leader.start)])
+          : span('sr-toc-label', slice(entry.start, entry.leader.start));
+        const leader = span('sr-toc-leader', slice(entry.leader.start, entry.leader.end));
+        leader.setAttribute('aria-hidden', 'true');
+        const row = span('sr-toc-entry', [label, leader, span('sr-toc-page', slice(entry.page.start, entry.page.end))]);
+        row.setAttribute('data-sr-depth', String(entry.depth));
+        out.push(row); rows.push({row, entry});
+        cursor = entry.end;
+      }
+      out.push(...slice(cursor, text.length));
+      block.replaceChildren(...out);
+      if (block.textContent !== before) { block.replaceChildren(...original); continue; }
+      block.classList.add('sr-toc');
+      if (parsed.entries.some(entry => entry.depth > 0)) block.classList.add('sr-toc-nested');
+      if (!listing) rows.forEach((row, i) => linkable.push({...row, ...titles[i]}));
+    }
+    // Links once every list is formatted, so no list is taken for run-in heads.
+    if (!linkable.length) return;
+    const sections = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].filter(element => !element.closest(`[${CHROME}]`))
+      .map(element => ({element, ...sectionTitle(plainText(element))}));
+    let heads = null;
+    for (const {row, entry, title, whole, text} of linkable) {
+      const heading = headingFor(sections, entry.number?.value ?? null, title, whole);
+      let target = null;
+      if (heading) {
+        const range = document.createRange(); range.selectNodeContents(heading);
+        target = {id: heading.id, heading, range};
+      } else if (entry.number?.value.includes('.')) target = runInFor(heads ??= runInHeads(), entry.number.value, text);
+      if (!target) continue;
+      contentsTargets.set(row, target);
+      row.classList.add('sr-toc-link'); row.setAttribute('role', 'link'); row.tabIndex = 0;
+      const name = row.querySelector('.sr-toc-label').textContent.replace(/\s+/g, ' ').trim();
+      row.setAttribute('aria-label', `${name}, page ${entry.page.value}`);
+    }
+  };
+
   const installCitationStyle = () => {
     const style = document.createElement('style');
     style.textContent = [
@@ -530,6 +807,17 @@
       '.sr-tag{font-size:.74rem;line-height:1.35;color:#5c5c63;background:rgba(120,120,128,.12);border-radius:999px;padding:.18em .7em;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}',
       '.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.22)}.sr-paper-tags:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px;border-radius:8px}',
       '@media(prefers-color-scheme:dark){.sr-tag{color:#a1a1a8;background:rgba(120,120,128,.24)}.sr-paper-tags:active .sr-tag{background:rgba(120,120,128,.36)}}',
+      // A paper's own contents: one entry per line, indented by depth, the page muted on the right.
+      ':root{--sr-muted:#6b6b70}@media(prefers-color-scheme:dark){:root{--sr-muted:#9d9da3}}',
+      '.sr-toc{font-size:.94rem;line-height:1.4}.sr-toc-caption{display:block;font-weight:650;margin-bottom:.35em}',
+      '.sr-toc-entry{display:flex;align-items:baseline;padding:.22em 0}.sr-toc-label{flex:0 1 auto;min-width:0}',
+      '.sr-toc-nested>.sr-toc-entry[data-sr-depth="0"]{font-weight:600}.sr-toc-nested>.sr-toc-entry[data-sr-depth="0"]:not(:first-child){margin-top:.3em}',
+      '.sr-toc-entry[data-sr-depth="1"]{padding-left:1.25em}.sr-toc-entry[data-sr-depth="2"]{padding-left:2.5em}',
+      '.sr-toc-entry[data-sr-depth="3"]{padding-left:3.5em}.sr-toc-entry[data-sr-depth="4"]{padding-left:4.25em}',
+      '.sr-toc-leader{flex:1 0 1.25em;font-size:0;line-height:0;margin:0 .5em;border-bottom:1px dotted color-mix(in srgb,var(--sr-muted) 55%,transparent)}',
+      '.sr-toc-page{flex:none;min-width:1.5em;text-align:right;color:var(--sr-muted);font-weight:400;font-size:.94em;font-variant-numeric:tabular-nums}',
+      '.sr-toc-link{cursor:pointer;border-radius:6px;-webkit-tap-highlight-color:var(--sr-flash)}.sr-toc-link .sr-toc-label{color:var(--sr-link)}',
+      '.sr-toc-link:focus-visible{outline:2px solid var(--sr-link);outline-offset:2px}',
     ].join('');
     document.head.append(style);
   };
@@ -588,7 +876,7 @@
     if (!validDocument()) throw new Error('invalid_reader_index');
     if (config && !config.figure_id) installLayout();
     if (!config?.figure_id) {
-      installCitationStyle(); collectReferences(); linkCitations();
+      installCitationStyle(); collectReferences(); formatContents(); linkCitations();
       installPaperLine(window.__readerPaperLine);
       installPaperTags(window.__readerPaperTags);
     }
@@ -719,8 +1007,15 @@
     const limit = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
     return Math.min(limit, Math.max(0, window.scrollY + rect.top - Math.max(16, (window.innerHeight - rect.height) / 2)));
   };
+  // A section (from the paper's own contents) goes to the top, as a Contents jump does.
+  const sectionTarget = entry => {
+    const limit = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const margin = entry.heading ? parseFloat(getComputedStyle(entry.heading).scrollMarginTop) || 0 : 22;
+    return Math.min(limit, Math.max(0, window.scrollY + entry.range.getBoundingClientRect().top - margin));
+  };
   const showReference = (entry, instant) => {
-    window.scrollTo({top: scrollTarget(entry.range.getBoundingClientRect()), behavior: instant || reducedMotion() ? 'instant' : 'smooth'});
+    const top = entry.heading || entry.start ? sectionTarget(entry) : scrollTarget(entry.range.getBoundingClientRect());
+    window.scrollTo({top, behavior: instant || reducedMotion() ? 'instant' : 'smooth'});
     if (citationBack) citationBack.landing = null;
     settled(() => {
       if (citationBack?.entry !== entry) return;
@@ -778,7 +1073,8 @@
       if (invalid || !range.intersectsNode(node)) return;
       if (node.nodeType === Node.ELEMENT_NODE) {
         if (node.hasAttribute(CHROME)) return; // App presentation (the paper line), not the paper's text.
-        if (node.matches('script,style,mjx-assistive-mml,[aria-hidden="true"]') && !node.hasAttribute('data-reader-equation')) return;
+        // A contents leader is hidden from VoiceOver, not from the paper's text.
+        if (node.matches('script,style,mjx-assistive-mml,[aria-hidden="true"]:not(.sr-toc-leader)') && !node.hasAttribute('data-reader-equation')) return;
         const equation = node.getAttribute('data-reader-equation');
         if (equation) {
           const block = enclosingBlock(node);
@@ -861,10 +1157,12 @@
     document.addEventListener('click',event => {
       const element = event.target instanceof Element ? event.target : event.target.parentElement;
       const cite = element?.closest('.sr-cite'), entry = cite && references.byID.get(cite.getAttribute('data-sr-cite'));
-      if (!entry || gesture?.moved || !window.getSelection()?.isCollapsed) return;
+      // An entry of the paper's own contents goes to its section, with the same Back.
+      const row = !entry && element?.closest('.sr-toc-link'), section = row && contentsTargets.get(row);
+      if ((!entry && !section) || gesture?.moved || !window.getSelection()?.isCollapsed) return;
       gesture = null; event.preventDefault(); event.stopPropagation();
       if (selectedEquation) { clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}}); }
-      jumpToReference(entry, cite);
+      jumpToReference(entry || section, entry ? cite : row);
     },true);
     document.addEventListener('click',event => {
       const moved = gesture?.moved; gesture = null;
@@ -890,9 +1188,10 @@
       }
     });
     document.addEventListener('keydown',event => {
-      const cite = event.target instanceof Element && event.target.matches('.sr-cite') ? event.target : null;
-      const entry = cite && (event.key === 'Enter' || event.key === ' ') && references.byID.get(cite.getAttribute('data-sr-cite'));
-      if (entry) { event.preventDefault(); event.stopPropagation(); jumpToReference(entry, cite); }
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const link = event.target instanceof Element && event.target.matches('.sr-cite,.sr-toc-link') ? event.target : null;
+      const target = link && (link.matches('.sr-cite') ? references.byID.get(link.getAttribute('data-sr-cite')) : contentsTargets.get(link));
+      if (target) { event.preventDefault(); event.stopPropagation(); jumpToReference(target, link); }
     },true);
     document.addEventListener('keydown',event => {
       if (event.key === 'Escape' && selectedEquation) {

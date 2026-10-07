@@ -52,6 +52,8 @@ struct Paper: Identifiable, Sendable {
     var catalogTags: [String] = []
     var ownTags: [String] = []
     var hiddenTags: [String] = []
+    /// Where the paper came from (a web paper's page; the Library's Source column shows its host).
+    var sourceURL: String? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
@@ -140,11 +142,19 @@ final class ReaderModel {
     private(set) var offlineCacheIssue: String?
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
-    private(set) var libraryCommands: [LocalLibraryCommand] = [] {
-        didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } }
-    }
-    /// Show archived papers in the Library (Show › Archived papers).
-    var showArchivedPapers = false { didSet { if showArchivedPapers != oldValue { librarySearchSourceChanged() } } }
+    private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
+    #if DEBUG && FIXTURE_HOST
+    /// Fixture runs only: Retry and Remove on imports act locally (there is no account or server).
+    @ObservationIgnored var fixtureImportChanges = false
+    var fixtureRetriedImports: Set<UUID> = []
+    #endif
+    /// The Library's quick filter (All, Unread, Reading, Failed, Archived) and tag filter. Not persisted, like the
+    /// sort: each launch starts with All.
+    var libraryFilter = LibraryFilter.all { didSet { if libraryFilter != oldValue { librarySearchSourceChanged() } } }
+    var libraryTagFilter: String? { didSet { if libraryTagFilter != oldValue { librarySearchSourceChanged() } } }
+    var libraryFiltered: Bool { libraryFilter != .all || libraryTagFilter != nil }
+    /// The table's columns, per width class (Library options › Columns).
+    var libraryColumns = LibraryColumnSettings.load(from: .standard) { didSet { libraryColumns.save(to: .standard) } }
     /// Papers marked archived, including changes still syncing (for row labels and actions).
     func isArchived(_ paper: Paper) -> Bool {
         for command in libraryCommands.reversed() where command.isUnfinished {
@@ -182,7 +192,7 @@ final class ReaderModel {
             if librarySort.field.usesActivity { librarySearchSourceChanged() } else { queueLibrarySearch() }
         }
     }
-    var libraryLayout = LibraryLayout(rawValue: UserDefaults.standard.string(forKey: "library.layout") ?? "") ?? .list {
+    var libraryLayout = LibraryLayout(saved: UserDefaults.standard.string(forKey: "library.layout")) {
         didSet { UserDefaults.standard.set(libraryLayout.rawValue, forKey: "library.layout") }
     }
     var feedLayout = FeedLayout(rawValue: UserDefaults.standard.string(forKey: "feed.layout") ?? "") ?? .list {
@@ -241,7 +251,7 @@ final class ReaderModel {
     }
     var canUsePaperChat: Bool { chatPaperID != nil || selectedPaper != nil }
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
-    var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text } ?? "New chat") }
+    var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text }.map(ChatTitle.display) ?? "New chat") }
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
     var privateState = PrivateState() {
         didSet {
@@ -318,6 +328,8 @@ final class ReaderModel {
     var recoveryCode: String?
     var needsRecovery = false
     var email: String?
+    /// How this account signs in ("apple", "google", "email") when Auth said; the Account page shows it.
+    private(set) var signInProviders: [String] = []
     var isBusy = false
     var headings: [PaperHeading] = []
     @ObservationIgnored var paperLocations: [String: PaperReadingLocation] = [:]
@@ -331,6 +343,7 @@ final class ReaderModel {
     private var chatAnswerIssues: [UUID: ChatAnswerIssue] = [:]
     /// Throttled partial text by generation ID; only the transcript reads it.
     private var chatStreamingText: [UUID: String] = [:]
+    private var chatStreamProgress: [UUID: ChatProgress] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?)?
@@ -355,7 +368,8 @@ final class ReaderModel {
     private var sessionID: UUID { workOwnership.accountSessionID }
     private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged() } } }
     private var publishedGeneration: Int64 = -1
-    private var publishedPendingCount = 0
+    /// Encrypted changes on this device not yet synced (the Account page says how many).
+    private(set) var publishedPendingCount = 0
     var readerSessionID: UUID { sessionID }
     var readerDocumentScope: ReaderDocumentScope? {
         selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL, manifestSHA256: $0.readerBundle?.manifestSHA256) }
@@ -454,8 +468,9 @@ final class ReaderModel {
         let sameText = previous.count == papers.count && zip(previous, papers).allSatisfy { old, new in
             old.id == new.id && old.title == new.title && old.authors == new.authors &&
             old.year == new.year && old.authorNames == new.authorNames &&
-            old.abstract == new.abstract && old.keywords == new.keywords && old.tags == new.tags &&
-            old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision
+            old.abstract == new.abstract && old.keywords == new.keywords &&
+            old.sourceID == new.sourceID && old.sourceRevision == new.sourceRevision &&
+            old.tags == new.tags && old.archived == new.archived && old.pageCount == new.pageCount && old.sourceURL == new.sourceURL
         }
         if !sameText || librarySearchSourceDirty { librarySearchSourceChanged() }
     }
@@ -507,6 +522,31 @@ final class ReaderModel {
         }
     }
 
+    /// How many rows each quick filter holds, and the tags to filter by within the current quick filter, most used
+    /// first (the filter row's chips and Tags menu). Archive changes still syncing already count.
+    func libraryFilterSummary() -> LibraryFilterSummary {
+        var pendingArchive: [UUID: Bool] = [:]
+        for command in libraryCommands where command.isUnfinished {
+            if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
+        }
+        var counts: [LibraryFilter: Int] = [:], tagRows: [[String]] = []
+        for paper in papers {
+            let activity = readingActivity[paper.id], tags = LibraryTags.tags(for: paper)
+            for filter in LibraryFilter.allCases where filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived,
+                                                                          opened: activity?.openedAt, progress: activity?.progress) {
+                counts[filter, default: 0] += 1
+                if filter == libraryFilter { tagRows.append(tags) }
+            }
+        }
+        for item in libraryImports {
+            for filter in LibraryFilter.allCases where filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically) {
+                counts[filter, default: 0] += 1
+                if filter == libraryFilter { tagRows.append(LibraryTags.tags(for: item)) }
+            }
+        }
+        return LibraryFilterSummary(counts: counts, tags: LibraryTags.counts(tagRows))
+    }
+
     private func prepareLibrarySearchSource() -> Bool {
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         let start = DispatchTime.now().uptimeNanoseconds
@@ -523,23 +563,32 @@ final class ReaderModel {
         for command in libraryCommands where command.isUnfinished {
             if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
         }
+        // The quick filter and tag filter decide which rows are candidates; search and sort then run over them.
+        let filter = libraryFilter, tagFilter = libraryTagFilter
+        func tagged(_ tags: [String]) -> Bool { tagFilter.map(tags.contains) ?? true }
         for paper in papers {
-            if (pendingArchive[paper.id] ?? paper.archived) && !showArchivedPapers { continue }
             let activity = readingActivity[paper.id]
+            let tags = LibraryTags.tags(for: paper)
+            guard filter.includesPaper(archived: pendingArchive[paper.id] ?? paper.archived, opened: activity?.openedAt,
+                                       progress: activity?.progress), tagged(tags) else { continue }
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
-                                       chats: paperChatCounts[paper.id] ?? 0)
-            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + paper.tags,
+                                       chats: paperChatCounts[paper.id] ?? 0, tag: tags.first, pages: paper.pageCount,
+                                       source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL))
+            append(.paper(paper), fields: [paper.title, paper.authors, paper.abstract, paper.sourceReference ?? ""] + paper.keywords + tags,
                    sequence: libraryCreationSequences[paper.id] ?? Int64.max, keys: keys)
         }
         for item in libraryImports {
+            let tags = LibraryTags.tags(for: item)
+            guard filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
             let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
-                                       year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) })
+                                       year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
+                                       source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil))
             append(.pending(item), fields: [reference, item.metadata?.title ?? "", item.metadata?.abstract ?? ""]
-                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []), sequence: item.createdSequence, keys: keys)
+                + (item.metadata?.authors ?? []) + (item.metadata?.categories ?? []) + tags, sequence: item.createdSequence, keys: keys)
         }
-        for command in libraryCommands {
+        for command in libraryCommands where filter.includesQueued && tagFilter == nil {
             // Cached mappings suppress duplicate presentation only; they do
             // not resolve the durable command or authorize a mutation.
             guard case .beginImport(let source, let revision, _) = command.mutation,
@@ -596,27 +645,47 @@ final class ReaderModel {
         return LibrarySearchCandidate(id: entry.id, title: entry.title, fields: [], recentSequence: .max, position: .max)
     }
 
-    /// What the table and detailed rows show for one entry, from current model state.
+    /// What the table shows for one entry, from current model state.
     func libraryFacts(for entry: LibraryListEntry) -> LibraryRowFacts {
         let status = libraryStatus(for: entry)
         switch entry {
         case .paper(let paper):
             let activity = readingActivity[paper.id]
             return LibraryRowFacts(id: entry.id, title: paper.title, paper: paper, authors: LibraryFormat.shortAuthors(for: paper),
-                year: paper.year, topics: ArxivTopics.names(for: paper.keywords), added: paper.addedAt,
+                year: paper.year, tags: LibraryTags.tags(for: paper), added: paper.addedAt,
                 opened: activity?.openedAt, progress: activity?.progress, chats: paperChatCounts[paper.id] ?? 0,
-                pages: paper.pageCount, status: status, needsCredits: false)
+                pages: paper.pageCount, status: status, needsCredits: false,
+                source: LibrarySourceLabel.label(sourceID: paper.sourceID, url: paper.sourceURL),
+                spokenSource: LibrarySourceLabel.spoken(sourceID: paper.sourceID, url: paper.sourceURL))
         case .pending(let item):
+            let retrying = isRetrying(item)
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil,
                 authors: LibraryFormat.shortAuthors(item.metadata?.authors ?? []),
                 year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) },
-                topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
+                tags: LibraryTags.tags(for: item), added: nil, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
-                needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits,
-                stepTiming: importSteps.timing(of: item), importProgress: importProgress(for: item))
+                needsCredits: !retrying && item.phase == .failed && item.errorCode == .insufficientCredits,
+                stepTiming: importSteps.timing(of: item), importProgress: retrying ? nil : importProgress(for: item),
+                source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil),
+                spokenSource: LibrarySourceLabel.spoken(sourceID: item.sourceID, url: nil),
+                step: retrying ? item.retryStep : item.step,
+                importAction: LibraryImportAction.available(for: item, retrying: retrying))
         case .queued:
-            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
+            return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, tags: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
+        }
+    }
+
+    /// A failed import whose Retry is on its way to the server: it shows as running again at once (owner feedback
+    /// 2026-10-07), until the server's own state arrives. A retry the server refused (needs review) stops counting.
+    func isRetrying(_ item: LibraryImportRecord) -> Bool {
+        guard item.phase == .failed, !item.isRetryingAutomatically else { return false }
+        #if DEBUG && FIXTURE_HOST
+        if fixtureRetriedImports.contains(item.id) { return true }
+        #endif
+        return libraryCommands.contains { command in
+            guard command.isUnfinished, case .retryImport(let id, let revision) = command.mutation else { return false }
+            return id == item.id && revision == item.intentRevision
         }
     }
 
@@ -637,6 +706,7 @@ final class ReaderModel {
             case .none: return paper.isSample ? .none : .info("Not downloaded")
             }
         case .pending(let item):
+            if isRetrying(item) { return .active(item.retryStep.label(short: true)) }
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
             case .failed where item.isRetryingAutomatically: return .active(item.libraryShortStatus)
@@ -652,7 +722,7 @@ final class ReaderModel {
     /// Opening a paper records when this account last opened it on this device.
     private func recordOpened(_ paper: Paper, at date: Date = Date()) {
         readingActivity[paper.id, default: PaperActivity()].openedAt = date
-        readingActivityChanged(resort: librarySort.field == .opened)
+        readingActivityChanged(resort: librarySort.field == .opened || libraryFilter.usesActivity)
     }
 
     /// The reader reports its place (throttled while scrolling). The position stays per immutable
@@ -665,7 +735,7 @@ final class ReaderModel {
             // Whole-percent changes only, so scrolling doesn't redraw the library continuously.
             if previous.map({ LibraryFormat.percent($0) }) != LibraryFormat.percent(progress) {
                 readingActivity[documentID, default: PaperActivity()].progress = progress
-                if librarySort.field == .progress { scheduleActivityResort() }
+                if librarySort.field == .progress || libraryFilter.usesActivity { scheduleActivityResort() }
             }
         }
         readingActivityChanged(resort: false)
@@ -692,7 +762,7 @@ final class ReaderModel {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled, let self, self.sessionID == scope else { return }
             self.readingResort = nil
-            if self.librarySort.field == .progress { self.librarySearchSourceChanged() }
+            if self.librarySort.field == .progress || self.libraryFilter.usesActivity { self.librarySearchSourceChanged() }
         }
     }
 
@@ -747,7 +817,7 @@ final class ReaderModel {
         }
         if activity != readingActivity {
             readingActivity = activity
-            if librarySort.field.usesActivity { librarySearchSourceChanged() }
+            if librarySort.field.usesActivity || libraryFilter.usesActivity { librarySearchSourceChanged() }
         }
     }
 
@@ -879,7 +949,7 @@ final class ReaderModel {
             let client = try backend ?? BackendClient(configuration: configuration); backend = client
             let existing = await client.currentUser()
             if let user = existing, sessionID == scope {
-                email = user.email; accountID = user.id
+                email = user.email; signInProviders = user.providers; accountID = user.id
                 beginAccountPreparation(user, client: client, scope: scope)
                 await accountPreparationTask?.value
             }
@@ -943,7 +1013,7 @@ final class ReaderModel {
               authentication?.presentation?.id == acceptance.presentationID,
               authentication?.phase == .accepted(accountID: acceptance.user.id),
               acceptance.readerSessionID == sessionID, accountID == nil, let backend else { return false }
-        accountID = acceptance.user.id; email = acceptance.user.email
+        accountID = acceptance.user.id; email = acceptance.user.email; signInProviders = acceptance.user.providers
         // Register account work before requesting dismissal; no await occurs
         // between coordinator validation, model acceptance and this handoff.
         beginAccountPreparation(acceptance.user, client: backend, scope: acceptance.readerSessionID)
@@ -1027,7 +1097,7 @@ final class ReaderModel {
             let user = try await backend.signIn(email: email, password: password)
             guard sessionID == scope else { return }
             accountID = user.id
-            self.email = user.email; showSignIn = false
+            self.email = user.email; self.signInProviders = user.providers; showSignIn = false
             try await signedIn(user, client: backend, scope: scope)
         } catch { if sessionID == scope { show(error) } }
     }
@@ -1277,7 +1347,7 @@ final class ReaderModel {
         discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
         feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
         generalChat = true
-        email = nil; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
+        email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
         showReportsAfterComposer = false; error = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
@@ -1590,7 +1660,23 @@ final class ReaderModel {
         }
     }
 
+    /// Retry and Remove on an import can run (the row's buttons and menu).
+    var canChangeImports: Bool {
+        #if DEBUG && FIXTURE_HOST
+        if fixtureImportChanges { return true }
+        #endif
+        return canChangeLibrary
+    }
+
     func changeImport(_ item: LibraryImportRecord, retry: Bool) async {
+        #if DEBUG && FIXTURE_HOST
+        if fixtureImportChanges {
+            // Fixture runs only (no account or server): a retry shows as running again; Remove takes the row away.
+            guard !retry || (item.phase == .failed && item.retryable) else { return }
+            if retry { fixtureRetriedImports.insert(item.id) } else { libraryImports.removeAll { $0.id == item.id } }
+            return
+        }
+        #endif
         guard canChangeLibrary, let commands = libraryCommandCoordinator,
               completeLibrary?.imports.contains(where: { $0.id == item.id && $0.intentRevision == item.intentRevision }) == true,
               !retry || (item.phase == .failed && item.retryable) else { return }
@@ -2031,44 +2117,77 @@ final class ReaderModel {
         let kind: Kind
         let message: String
         let reference: String
+        /// The library source the server matched (added or already present), if any.
+        var sourceID: String? = nil
     }
     var referenceNotice: ReferenceNotice?
 
     /// Adds the paper a bibliography entry cites, without a chat: the server identifies it and
     /// queues it like the Library's Add. When it can't, the notice offers "Ask in chat".
     func addReference(_ text: String) async {
-        guard isSignedIn, let backend, let accountID else { openSignIn(); return }
+        guard isSignedIn, backend != nil, accountID != nil else { openSignIn(); return }
         let scope = sessionID
         referenceNotice = ReferenceNotice(kind: .working, message: "Adding to your library…", reference: text)
-        let notice: ReferenceNotice
+        guard let notice = await referenceOutcome(text), sessionID == scope, referenceNotice?.reference == text else { return }
+        referenceNotice = notice
+    }
+
+    /// The `add-reference` call and its outcome, without presenting it (the reader shows a
+    /// banner; "Papers in this answer" shows it on the row). Nil when signed out.
+    func referenceOutcome(_ text: String) async -> ReferenceNotice? {
+        guard let backend, let accountID else { return nil }
         do {
             let result = try await backend.addReference(text, accountID: accountID)
             let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
-            switch result.status {
-            case "added": notice = .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text)
-            case "present": notice = .init(kind: .present, message: "\(title) is already in your library.", reference: text)
-            case "closed": notice = .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
-            case "not_found": notice = .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
-            case "needs_update": notice = .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
-            default: notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
-            }
+            let source = result.paper?.source_id
             if result.status == "added" { Task { await refreshLibrary() } }
+            switch result.status {
+            case "added": return .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text, sourceID: source)
+            case "present": return .init(kind: .present, message: "\(title) is already in your library.", reference: text, sourceID: source)
+            case "closed": return .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
+            case "not_found": return .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
+            case "needs_update": return .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
+            default: return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            }
         } catch {
-            notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
         }
-        guard sessionID == scope, referenceNotice?.reference == text else { return }
-        referenceNotice = notice
+    }
+
+    /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Ask about this
+    /// quotes it into the composer; Explain and Define ask about it as a new question in this chat.
+    enum ChatQuoteAction { case ask, explain, define }
+    /// Changes when the composer should take focus (Ask about this).
+    private(set) var chatComposerFocusRequest = UUID()
+
+    func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {
+        let quote = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatGenerationRequest.maximumSelectionScalars))
+        guard !quote.isEmpty else { return }
+        let draft = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch action {
+        case .ask:
+            // A reference the reader completes with their question; an existing draft follows it.
+            chatInput = "About “\(quote)”: " + draft
+            chatComposerFocusRequest = UUID()
+        case .explain, .define:
+            let prompt = action == .explain ? "Explain in plain terms, including any symbols: \(quote)"
+                : "Define the terms and symbols in: \(quote)"
+            // Never overwrite a draft: with one, the question waits in the composer instead.
+            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; chatComposerFocusRequest = UUID(); return }
+            chatInput = prompt
+            if !isSignedIn { openSignIn(); return }
+            let scope = sessionID, composer = chatComposerID
+            Task {
+                guard sessionID == scope, chatComposerID == composer, chatInput == prompt else { return }
+                await sendMessage()
+            }
+        }
     }
 
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
-        let prompts: [SelectionAction: String] = [
-            .define: "Explain in plain terms, including any symbols: \(quote)",
-            .relevance: "Why does this matter to the paper's method and results? \(quote)",
-            .similar: "Find related papers, earlier and recent, with links: \(quote)",
-            .ingest: "Find and add the paper referenced in this passage: \(quote)"
-        ]
-        newChat(general: false); chatInput = prompts[action] ?? quote
+        // The prompts live with `ChatTitle`, which turns them back into short titles.
+        newChat(general: false); chatInput = action.prompt(quote)
         tab = .chat; wideMode = .reader
         // The quote travels with this exact prompt and composer only.
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
@@ -2188,6 +2307,8 @@ final class ReaderModel {
         return generation
     }
     var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// What the server is doing for the visible answer (searching, adding a paper) until text resumes.
+    var chatStreamingProgress: ChatProgress? { visibleGeneration.flatMap { chatStreamProgress[$0.id] } }
     /// Saved branch messages plus the streaming answer, which already carries
     /// the identity its sealed encrypted message will use.
     var chatTranscriptMessages: [AppliedEvent] {
@@ -2288,7 +2409,10 @@ final class ReaderModel {
                 switch event {
                 case .delta(let piece):
                     text += piece
+                    // Text resumed: the server's status line has done its job.
+                    if piece.contains(where: { !$0.isWhitespace }) { chatStreamProgress[generation.id] = nil }
                     bufferAnswer(generation, text: text)
+                case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
                 case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
                 case .failure(let code): outcome = .failed(code: code)
@@ -2341,7 +2465,7 @@ final class ReaderModel {
         }
         guard ownsGeneration(generation) else { return }
         chatGenerations[generation.turn.composerID] = nil
-        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil
+        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
@@ -2399,7 +2523,7 @@ final class ReaderModel {
     /// interrupted encrypted turn in the old account's store before it retires.
     private func retireChatGenerations() {
         let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
-        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []
+        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
@@ -2738,7 +2862,7 @@ final class ReaderModel {
         let bundle = try JSONDecoder().decode(KeyBundle.self, from: encoded)
         var fixtureDevice = LocalDevice.create(accountID: fixtureAccount, localStoreKey: Data(repeating: 31, count: 32))
         fixtureDevice.bundle = bundle
-        accountID = fixtureAccount; email = "draft-fixture@example.invalid"; device = fixtureDevice
+        accountID = fixtureAccount; email = "draft-fixture@example.invalid"; signInProviders = ["apple"]; device = fixtureDevice
         let activation = workOwnership.beginActivation()
         defer { workOwnership.finishActivation(activation) }
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),
@@ -2816,6 +2940,15 @@ extension ReaderModel {
         func argument(_ prefix: String) -> String? { arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } }
         libraryLayout = argument("--library-layout=").flatMap(LibraryLayout.init(rawValue:)) ?? .list
         feedLayout = argument("--feed-layout=").flatMap(FeedLayout.init(rawValue:)) ?? .list
+        // Default columns unless named (`--library-columns=year,tags,progress`, for both widths).
+        var columns = LibraryColumnSettings()
+        if let named = argument("--library-columns=") {
+            let chosen = Set(named.split(separator: ",").compactMap { LibraryTableColumn(rawValue: String($0)) })
+            columns.compact = chosen; columns.regular = chosen
+        }
+        libraryColumns = columns
+        libraryFilter = argument("--library-filter=").flatMap(LibraryFilter.init(rawValue:)) ?? .all
+        libraryTagFilter = argument("--library-tag=")
         // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
         if arguments.contains("--visual-show-import") { showImport = true }
     }
@@ -2838,6 +2971,7 @@ extension ReaderModel {
                                        activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus],
                                        importStepStarts: [UUID: Date] = [:], importDetailsReceived: [UUID: Date] = [:]) {
         fixtureOfflineStatus = offline
+        fixtureImportChanges = true
         libraryCreationSequences = sequences
         readingActivity = activity
         libraryImports = imports

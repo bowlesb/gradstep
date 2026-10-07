@@ -113,7 +113,7 @@ struct FeedTable: View {
                    primaryAction: { action(for: $0) },
                    menu: { result in actions(result) },
                    swipe: { _ in EmptyView() },
-                   detail: { result in
+                   detail: { result, _ in
                        if expanded.contains(result.id), let abstract = result.abstract {
                            Text(abstract).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                                .frame(maxWidth: .infinity, alignment: .leading)

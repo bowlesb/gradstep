@@ -65,6 +65,16 @@ deploy check `admin.accounts-gate` refuses anonymous and customer callers). Veri
 fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
 dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
 
+**Chat answers (2026-10-07, legacy gaps 4, 2, 9; [decision](DECISIONS.md#chat-answers-tables-papers-named-progress-agent-decisions-2026-10-07-overnight-mandate)):**
+Markdown tables render as native tables (pipe text only while incomplete during streaming); **Papers in this
+answer** lists arXiv IDs and DOIs an answer names, with Open (confirmed) and Add to library; a `status` stream event
+shows "Searching the web for “…”", "Reading results…", "Finding the paper…", "Adding to your library…" under the
+streaming answer. Owner feedback (build 14, items 3, 10, 11): selected answer text offers Ask about this, Explain and
+Define next to Copy; formulas offer Copy LaTeX and Copy as text; the "Answer:" label is gone; bold around inline math
+renders. Verified with Core/unit/backend tests and Simulator UI journeys on the chat fixture (iPhone and
+iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
+progress and live DOI adds from an answer are unverified against staging.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
@@ -85,7 +95,7 @@ Verified live (searches charged at tokens + $0.01 each; the hold covers them) an
 chat fixture. The per-question hold is capped at the reader's balance once it is at least 50 credits.
 
 **Account deletion** (App Store requirement; owner decision 2026-10-05: billing records are kept de-identified):
-Settings › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
+Settings › Account › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
 private and support files (including the account's private conversions' `raw/` and `reader/` folders) and the
 login, and keeps credit, usage and operation records under the closed account's ID. Incomplete deletions are
 finished by the paper worker's sweep. Migration `…017_account_deletion.sql` is applied to staging. Verified live:
@@ -129,6 +139,16 @@ Design and failure handling: [paper pipeline](architecture/PAPER_PIPELINE.md), [
 [reader renderer](architecture/READER_RENDERER.md). Migrations `202610050014_paper_pipeline.sql`, `…015_stale_chat_holds.sql` and `…016_download_admission.sql`
 are applied to staging (hash in the ledger; immutable from now on). Two independent adversarial reviews of the money and
 concurrency design were completed and their findings fixed before it was applied.
+
+**Library as a proper table** (owner request 2026-10-07, [decision](DECISIONS.md#library-as-a-proper-table-owner-asked-2026-10-07)):
+the Table is the Library's default (List the alternative; Detailed rows removed), with a column chooser (Library
+options › Columns, per iPhone / iPad-Mac), Tags (own tags else topics) and Source/Pages columns, every column
+sortable, quick filters (Tags ⌄, All, Unread, Reading, Failed n, Archived), arrow keys/Return/hover on iPad and Mac,
+and an inline Retry / Get credits / Remove on stopped imports (Retry shows the row downloading at once). Verified in
+the Simulator only (iPhone 17 Pro, iPad Pro 11"): `PaperTableTests`, `LibraryModelTests` (Retry through the real
+command queue against the fake server), `LibraryLayoutTests`, and visual scenarios `library-table`,
+`library-columns`, `library-filter-failed`, `library-retry`, `library-filter-tag` in light and dark. Not yet seen with
+a real signed-in library, a hardware keyboard on a device, or on the Mac build.
 
 **Library metadata view** (owner decision 2026-10-05, [decision](DECISIONS.md#library-metadata-view-owner-decided-2026-10-05)):
 Since 2026-10-06 the Table is one app-drawn `PaperTable` on every size (iPhone portrait: Title, Year, Progress;
@@ -199,13 +219,17 @@ Update 22:45 PDT: Google sign-in is configured: OAuth web client in Google Cloud
 Platform, External audience in testing mode, test users only; branding gradstep.ai and its privacy page), redirect
 `https://coxhjvqpflgxkleydati.supabase.co/auth/v1/callback`; Supabase's Google provider enabled with it
 (credentials kept in `.env.providers`). Authorize now redirects to Google; an on-device sign-in is still to be tried.
+Update 2026-10-07: the owner signed in on device with Google and with Apple; both land in the same account as the
+email code (Supabase links identities that share a provider-verified email: email code, Apple and Google on one
+account). This also confirms that pre-created testers can use Apple or Google with the same address. Apple's "Hide My
+Email" relay address would create a separate account (no linking); testers should share their real email.
 
 ## Still required
 
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
   testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
   synthetic-account hook.
-- **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
+- **Chat polish**: long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
 - **Accessibility**: an opt-in XCTest audit (`TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1`, test
