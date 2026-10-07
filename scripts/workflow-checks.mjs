@@ -528,7 +528,8 @@ const DOWNLOAD_CORPUS = [
   ['zenodo DOI', 'https://doi.org/10.5281/zenodo.38240', 'pdf'],
   ['EPrints repository', 'https://research.gold.ac.uk/id/eprint/29758/', 'pdf'],
   ['HAL', 'https://hal.science/hal-04848132', 'pdf'],
-  ['DSpace 7 (localhost link)', 'https://aura.abdn.ac.uk/items/669c2d31-a1b5-4561-a9a6-8d0bda892553', 'pdf'],
+  // Downloads from a home or office address, but refuses Google Cloud's (where the worker and scheduled checks run).
+  ['DSpace 7 (localhost link)', 'https://aura.abdn.ac.uk/items/669c2d31-a1b5-4561-a9a6-8d0bda892553', 'pdf|source_blocked'],
   ['PubMed Central (open data)', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC4103590/', 'pdf'],
   ['PMLR (http link)', 'https://proceedings.mlr.press/v37/ioffe15.html', 'pdf'],
   ['JMLR', 'https://jmlr.org/papers/v15/srivastava14a.html', 'pdf'],
@@ -554,7 +555,7 @@ check('downloads.corpus', { title: 'Open-access PDFs download from each kind of 
   for (let i = 0; i < DOWNLOAD_CORPUS.length; i += 4) {
     results.push(...await Promise.all(DOWNLOAD_CORPUS.slice(i, i + 4).map(async ([name, url, expected]) => {
       let r = await attempt(url);
-      if (r.outcome !== expected && r.transient) { await sleep(5000, signal); r = await attempt(url); } // one more try for a busy host
+      if (!expected.split('|').includes(r.outcome) && r.transient) { await sleep(5000, signal); r = await attempt(url); } // one more try for a busy host
       return { name, expected, ...r };
     })));
   }
@@ -563,14 +564,16 @@ check('downloads.corpus', { title: 'Open-access PDFs download from each kind of 
     .then(async r => { const b = Buffer.from(await r.arrayBuffer()); return r.ok && b.subarray(0, 5).toString() === '%PDF-' ? { outcome: 'pdf', bytes: b.length } : { outcome: `http_${r.status}`, transient: r.status === 429 || r.status >= 500 }; })
     .catch(() => ({ outcome: 'unreachable', transient: true }));
   results.push({ name: 'arXiv (arXiv path)', expected: 'pdf', ...arxiv });
-  const wrong = results.filter(r => r.outcome !== r.expected && !r.transient), flaky = results.filter(r => r.outcome !== r.expected && r.transient);
-  const opened = results.filter(r => r.expected !== 'pdf' && r.outcome === 'pdf');
-  const text = r => `${r.name}: ${r.outcome}${r.outcome === r.expected ? '' : ` (expected ${r.expected})`}`;
+  // 'a|b': either outcome is right (a host that refuses some networks but not others).
+  const fits = r => r.expected.split('|').includes(r.outcome), refusal = r => !r.expected.split('|').includes('pdf');
+  const wrong = results.filter(r => !fits(r) && !r.transient), flaky = results.filter(r => !fits(r) && r.transient);
+  const opened = results.filter(r => refusal(r) && r.outcome === 'pdf');
+  const text = r => `${r.name}: ${r.outcome}${fits(r) ? '' : ` (expected ${r.expected})`}`;
   const metrics = { downloads_ok: results.filter(r => r.outcome === 'pdf').length, download_mb: +(results.reduce((n, r) => n + (r.bytes ?? 0), 0) / 1e6).toFixed(1) };
   const summary = `${results.length - wrong.length - flaky.length}/${results.length} as expected`;
   if (wrong.filter(r => !opened.includes(r)).length) return fail(`${summary} — ${wrong.filter(r => !opened.includes(r)).map(text).join('; ')} (a reader adding these papers would hit it)`, metrics);
   if (flaky.length || opened.length) return warn(`${summary} — ${[...flaky.map(r => `${text(r)}, host busy or unreachable`), ...opened.map(r => `${r.name} now downloads: update the corpus`)].join('; ')}`, metrics);
-  return pass(`${summary}: ${results.filter(r => r.outcome === 'pdf').length} PDFs (${metrics.download_mb} MB), refusals classified (${results.filter(r => r.expected !== 'pdf').map(r => `${r.name} → ${r.outcome}`).join(', ')})`, metrics);
+  return pass(`${summary}: ${results.filter(r => r.outcome === 'pdf').length} PDFs (${metrics.download_mb} MB), refusals classified (${results.filter(r => refusal(r) || r.outcome !== 'pdf').map(r => `${r.name} → ${r.outcome}`).join(', ')})`, metrics);
 });
 
 check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle verified', suites: ALL, timeout: 300 }, async ({ signal }) => {
