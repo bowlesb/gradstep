@@ -96,13 +96,19 @@ the app. Selections and reference taps report "Not yet available in the browser"
 
 ## Keys in the browser
 
-The wire formats are unchanged and implemented with WebCrypto: AES-256-GCM, HKDF-SHA256, X25519 (Chrome 133+,
-Safari 17+, Firefox 130+; an unsupported browser gets an explanation, never a fallback).
+The wire formats are unchanged and implemented with WebCrypto: AES-256-GCM, HKDF-SHA256, X25519. Browser versions
+alone do not establish storage support. An unsupported browser gets an explanation, never a plaintext or
+extractable-key fallback. **Safari/WebKit has a current key-persistence blocker**, below; X25519 generation
+succeeding is insufficient.
 
 - **Device identity.** A fresh device UUID, a 32-byte enrollment challenge and an X25519 key pair generated with
   `extractable: false` for the private key. Stored per environment and account in IndexedDB (`gradstep` database)
   as a `CryptoKey`, so page scripts (including any injected script) can *use* it while the page is open but can never
-  read or export its bytes. The public key is raw bytes.
+  read or export its bytes. The public key is raw bytes. After each device-record write commits, read it back and
+  prove the restored private key can open a disposable envelope addressed to its public key and the restored local
+  AES key decrypts a probe. Existing records undergo the same check on setup/retry/reload, so a failed write check
+  cannot be bypassed by retrying. Only then may bootstrap/enrollment rely on the saved identity. Pending candidates
+  are checked as well; failed validation preserves their material for recovery/investigation.
 - **Key bundle.** Never persisted in the browser. On each start the app reads `v1_key_state`, unwraps this device's
   envelope with the non-extractable key, validates the bundle exactly as Swift does, imports content keys as
   non-extractable AES-GCM keys, and keeps only the management token as bytes in memory (the server requires it).
@@ -133,7 +139,8 @@ Safari 17+, Firefox 130+; an unsupported browser gets an explanation, never a fa
   old server registration stays until device revocation exists (Phase 2). Nothing is lost on the server.
 - **Sign out.** Clears the session and visible state; keeps this browser's device keys (like the native app), so
   signing back in does not need the code. "Also remove this browser's keys" (for a shared computer) deletes the
-  IndexedDB record as well.
+  device and activity records in one transaction under the key operation lock before returning to sign-in. A failed
+  local removal stays visible and retryable. Late reading saves cannot recreate a forgotten/replaced device's data.
 - **Device-local reading data** (Opened, Progress, last position) is sealed with a separate non-extractable AES-GCM
   key in the same IndexedDB record (account bound into the authenticated data); never sent anywhere.
 
@@ -144,6 +151,20 @@ created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`)
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
 sign-out signs this one out. No redirect URL is needed for the email code, so **no Supabase Auth setting changes**.
+
+Each successful login receives an opaque client lifetime ID, stored alongside the tokens; refresh preserves that
+ID. This is local session metadata, not a server credential or backend format change. Legacy browser sessions
+without it retain a legacy marker through refresh until their next login. A changed lifetime/account, logout or
+cross-tab storage clear synchronously aborts the old auth scope. React's external-store snapshot includes a
+generation so even a batched logout/same-account login remounts key setup and clears the session-owned reader
+cache. Refresh preserves the UI and publishes its token before releasing the cross-tab lock; a shared in-flight
+promise also serializes same-tab refresh when Web Locks are unavailable.
+
+Key operations, library work and bundle downloads retain the auth scope they started in, in addition to their
+view's cancellation. A stale refresh, abandoned email verification or delayed local sign-out cannot overwrite/end
+a newer login. Caller cancellation and request deadlines both remain active through response-body reading.
+Cancellation does not undo an already-sent mutation; existing operation-ID replay and pending enrollment recovery
+still determine its outcome.
 
 Apple and Google web sign-in are Phase 2: Google needs `https://app.gradstep.ai/auth/callback` in the staging
 redirect allowlist (PKCE, code-only callback, validated as natively), Apple needs a reviewed Services ID
@@ -186,4 +207,51 @@ No migration, RPC or format change is required for Phase 1.
 
 ## Evidence
 
-Filled in as each item passes; see [Decisions](../DECISIONS.md#browser-reader-at-appgradstepai-owner-decided-2026-10-07-phase-1-by-agent).
+The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
+2026-10-07. Local evidence is separate from deployment evidence:
+
+- Production build and **53 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
+  same-account/cross-tab lifetimes, abandoned verification, a stale key operation finishing crypto, bounded response
+  bodies with caller cancellation, ordered encrypted reading-place persistence, and non-null unusable/extractable
+  stored keys that remain refused on retry without losing pending enrollment material.
+- Production-CSP Playwright: **20 passed, 4 capability skips** (2026-10-07). All 16 desktop/narrow Chromium cases
+  pass, including no-reload sign-out/recovery, reauthorization of a reopened reader, a late encrypted save after
+  forgetting keys and a delayed sign-out after another tab logs in. WebKit passes sign-in cancellation,
+  unsupported-key guidance, invite-only messaging and CSP checks. Its four key-dependent journeys are blocked
+  by the engine issue below; these are not Safari workflow passes.
+- Six desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
+  returning reader, new keys/reload, abandoned verification, late reading save, delayed sign-out and enrollment
+  persistence. Reproduce with `WEB_E2E_DEV=1 npm run e2e -- --project=desktop` and a `--grep` selecting those
+  journeys; the CSP-header test specifically requires the production preview server.
+- The React/Svelte experiment's successful WebKit table tests do not exercise crypto/key storage and therefore
+  do not imply that the complete browser app works there.
+- No deployment, live Safari profile, real Google/Apple browser OAuth, browser offline reader or browser chat has
+  been verified by these local checks.
+
+### Safari/WebKit release gate
+
+On this Mac, a standalone IndexedDB probe reproduced the problem in Playwright WebKit 26.6: ordinary objects and
+non-extractable AES-GCM keys round-trip, but X25519 private and public keys read back as null (a whole device
+record can read as undefined). Chromium 153.0.8010.12 reads and uses the private key successfully. The same
+failure is reported in [WebKit bug 312279](https://bugs.webkit.org/show_bug.cgi?id=312279), still NEW when checked
+2026-10-07. This is evidence from the test engine plus an upstream Safari report, not a run in the owner's Safari
+profile.
+
+The initial generation-only feature check allowed setup to appear successful, then asked for recovery after
+reload and could not save reading places. Device writes now require successful read-back and actual key use
+before bootstrap/enrollment; loading an existing device repeats validation before any enrollment RPC. The UI
+explains unsupported storage instead of claiming success. The independent
+`e2e/key-capability.ts` probe automatically enables full journeys on engines that pass; an explicit test checks
+safe refusal without server enrollment on engines that fail.
+
+**Full Safari support remains unfinished.** Any alternative such as locally wrapping an exportable X25519 key
+would change the documented key-custody properties and requires a separate design/review; it is not silently used
+to bypass this check. The current fix keeps non-extractable private keys and prevents unreliable enrollment.
+
+### Remaining reader follow-up
+
+The cache is now owned by one auth lifetime and keyed by account/item/artifact/availability revision, with at most
+three verified bundles. Unchanged metadata no longer regenerates the frame just because an item object changes.
+A genuine live metadata/tag change can still recreate `srcDoc` without preserving the current position; address
+that in the next reader UX pass. Large-library capacity and rendering work follow the
+[framework evaluation](WEB_FRAMEWORK_EVALUATION.md#large-library-architecture-findings).

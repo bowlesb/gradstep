@@ -1,23 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { type Session, auth, config } from '../lib/backend';
-import { type DeviceRecord, type Preparation, forgetDevice, loadDevice } from '../lib/keys';
+import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
 import { supportsX25519 } from '../lib/wire';
 import { Brand, Dialog, NOT_YET } from './common';
 import { KeySetup } from './Keys';
 import { LibraryView } from './Library';
-import { Reader } from './Reader';
+import { type ReaderCache, Reader } from './Reader';
 import { SignIn } from './SignIn';
 import { useLibrary } from './useLibrary';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
-
-function useSession(): Session | null {
-  const [session, setSession] = useState(auth.session);
-  useEffect(() => auth.subscribe(setSession), []);
-  return session;
-}
 
 function usePath(): [string, (path: string) => void] {
   const [path, setPath] = useState(location.pathname);
@@ -28,11 +22,7 @@ function usePath(): [string, (path: string) => void] {
 
 export function App() {
   const [supported, setSupported] = useState<boolean | null>(null);
-  const session = useSession();
-  // Keys belong to one account session; another (or no) account never sees them.
-  const [prepared, setPrepared] = useState<{ account: string; ready: Ready } | null>(null);
-  const account = session?.user.id ?? null;
-  const ready = prepared && prepared.account === account ? prepared.ready : null;
+  const { session, generation } = useSyncExternalStore(auth.subscribe, auth.snapshot);
 
   useEffect(() => {
     (async () => setSupported(!!config.url && typeof indexedDB !== 'undefined' && !!crypto?.subtle && await supportsX25519()))();
@@ -41,15 +31,21 @@ export function App() {
   if (supported === null) return null;
   if (!supported) return <Unsupported />;
   if (!session) return <SignIn />;
-  if (!ready) return <KeySetup key={session.user.id} account={session.user.id} email={session.user.email} onReady={value => setPrepared({ account: session.user.id, ready: value })} onSignOut={() => void auth.signOut()} />;
-  return <Signed key={session.user.id} session={session} ready={ready} />;
+  return <AccountSession key={generation} session={session} />;
+}
+
+/** Refreshing tokens preserves this tree; signing out or starting another login always retires it. */
+function AccountSession({ session }: { session: Session }) {
+  const [ready, setReady] = useState<Ready | null>(null);
+  if (!ready) return <KeySetup account={session.user.id} email={session.user.email} onReady={setReady} onSignOut={() => void auth.signOut()} />;
+  return <Signed session={session} ready={ready} />;
 }
 
 function Unsupported() {
   return (
     <main className="auth-shell"><section className="card auth-card"><Brand />
       <h1>This browser isn’t supported</h1>
-      <p className="muted">Gradstep keeps your encryption keys in the browser and needs a current version of Safari (17 or later), Chrome, Edge or Firefox, with site data allowed. Private windows may not work.</p>
+      <p className="muted">Gradstep needs encryption and local key storage, with site data allowed. Try another current browser, or use Gradstep on iPhone, iPad or Mac. Private windows may not work.</p>
     </section></main>
   );
 }
@@ -64,37 +60,56 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const [readerCache] = useState<ReaderCache>(() => new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let live = true;
-    loadDevice(account).then(async record => { if (!live) return; setDevice(record); setActivity(await loadActivity(record)); }).catch(() => {});
-    return () => { live = false; };
+    readDevice(account).then(async record => {
+      if (!record || record.deviceID !== ready.deviceID) return;
+      const saved = await loadActivity(record);
+      if (!live) return;
+      setDevice(record); setActivity(saved);
+    }).catch(() => {});
+    return () => { live = false; if (saveTimer.current) clearTimeout(saveTimer.current); readerCache.clear(); };
   }, [account, ready.deviceID]);
 
   const record = useCallback((itemID: string, value: Activity) => {
+    if (leaving) return;
     setActivity(previous => {
       const next = new Map(previous); next.set(itemID, value);
-      if (device) {
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(() => { saveActivity(device, next).catch(() => {}); }, 500);
-      }
       return next;
     });
-  }, [device]);
+  }, [leaving]);
+
+  useEffect(() => {
+    if (!device || leaving) return;
+    const timer = setTimeout(() => { saveActivity(device, activity).catch(() => {}); }, 500);
+    saveTimer.current = timer;
+    return () => clearTimeout(timer);
+  }, [device, activity, leaving]);
 
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const item = match ? library.entries.find((e): e is Item => e.kind === 'item' && e.id === match[1] && e.visible) : undefined;
   useEffect(() => { if (path !== '/' && !match) navigate('/'); }, [path, match, navigate]);
 
   async function signOut() {
+    if (leaving) return;
+    const owner = auth.snapshot();
+    setLeaving(true); setSignOutError(null);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    navigate('/');
-    // The session is cleared at once (this view closes); local cleanup follows.
-    const loggingOut = auth.signOut();
-    if (forget) await forgetDevice(account).catch(() => {});
-    else if (device) await saveActivity(device, activity).catch(() => {});
-    await loggingOut;
+    try {
+      // Finish local removal before another login can prepare this device. Failure stays visible and retryable.
+      if (forget) await forgetDevice(account);
+      else if (device) await saveActivity(device, activity).catch(() => {});
+      if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
+      navigate('/');
+      await auth.signOut(owner.generation);
+    } catch {
+      if (!owner.signal.aborted) { setSignOutError('Couldn’t remove this browser’s keys. Try again.'); setLeaving(false); }
+    }
   }
 
   return (
@@ -119,7 +134,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </div>
       </header>
       {match ? (
-        item ? <Reader account={account} item={item} saved={activity.get(item.id)} onActivity={record} onBack={() => navigate('/')} />
+        item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} onBack={() => navigate('/')} />
           : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
             : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>
       ) : (
@@ -130,14 +145,15 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <p>Chat is {NOT_YET.charAt(0).toLowerCase() + NOT_YET.slice(1)}</p>
         <div className="dialog-actions"><button className="primary" onClick={() => setChats(false)}>OK</button></div>
       </Dialog>
-      <Dialog open={signingOut} onClose={() => setSigningOut(false)} title="Sign out">
+      <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
         <p className="muted">This browser stays approved, so signing in again won’t need your recovery code.</p>
-        <label className="check"><input type="checkbox" checked={forget} onChange={e => setForget(e.target.checked)} data-testid="forget-device" />
+        <label className="check"><input type="checkbox" checked={forget} disabled={leaving} onChange={e => setForget(e.target.checked)} data-testid="forget-device" />
           Also remove this browser’s keys and reading places (use on a shared computer)</label>
+        {signOutError && <p className="issue" role="alert">{signOutError}</p>}
         <div className="dialog-actions">
-          <button className="secondary" onClick={() => setSigningOut(false)}>Cancel</button>
-          <button className="primary" onClick={() => void signOut()} data-testid="confirm-sign-out">Sign out</button>
+          <button className="secondary" disabled={leaving} onClick={() => setSigningOut(false)}>Cancel</button>
+          <button className="primary" disabled={leaving} onClick={() => void signOut()} data-testid="confirm-sign-out">{leaving ? 'Signing out…' : 'Sign out'}</button>
         </div>
       </Dialog>
     </div>

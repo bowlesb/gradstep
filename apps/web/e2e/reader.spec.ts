@@ -1,6 +1,7 @@
 // Browser reader journeys against the local fixture backend, under the production CSP.
 import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
+import { durableKeys } from './key-capability';
 
 const FIXTURE = 'http://127.0.0.1:54329';
 const shots = '../../.artifacts/web-e2e/';
@@ -13,8 +14,8 @@ function watch(page: Page) {
   page.on('pageerror', error => problems.push(String(error)));
   return problems;
 }
-async function signIn(page: Page, email: string) {
-  await page.goto('/');
+async function signIn(page: Page, email: string, navigate = true) {
+  if (navigate) await page.goto('/');
   await page.getByTestId('email').fill(email);
   await page.getByTestId('send-code').click();
   await expect(page.getByText(`We sent a 6-digit code to ${email}.`)).toBeVisible();
@@ -23,10 +24,32 @@ async function signIn(page: Page, email: string) {
 }
 const shot = (page: Page, name: string) => page.screenshot({ path: `${shots}${test.info().project.name}-${name}.png`, fullPage: false });
 
+async function holdReadingSave(page: Page) {
+  await page.evaluate(() => {
+    const hooks = window as unknown as { releaseActivity?: () => void; activityWaiting?: boolean; activityEncryptions: number };
+    hooks.activityEncryptions = 0;
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    crypto.subtle.encrypt = (async (algorithm: AesGcmParams, key: CryptoKey, data: BufferSource) => {
+      const value = await encrypt(algorithm, key, data);
+      if (algorithm.additionalData && new TextDecoder().decode(algorithm.additionalData).startsWith('gradstep/web-reading/v1/')) {
+        hooks.activityEncryptions++;
+        if (hooks.activityEncryptions === 1) {
+          hooks.activityWaiting = true;
+          return new Promise<ArrayBuffer>(resolve => { hooks.releaseActivity = () => resolve(value); });
+        }
+      }
+      return value;
+    }) as typeof crypto.subtle.encrypt;
+  });
+}
+
 test.beforeEach(async ({ request }) => { await request.post(`${FIXTURE}/__reset`); });
 
 test('returning reader: recovery code, library, retry, add paper, read, sign out and back', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   const problems = watch(page);
+  let descriptors = 0;
+  page.on('request', request => { if (request.url().includes('/functions/v1/reader-artifact?')) descriptors++; });
   await signIn(page, 'returning@example.test');
   await expect(page.getByRole('heading', { name: 'Restore your private library' })).toBeVisible();
   // Password AutoFill shape: a username for the account and a current-password field.
@@ -111,19 +134,27 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await expect(table.getByRole('link', { name: /Direct Preference Optimization/ })).toBeVisible();
   await expect(row.locator('.reading-progress')).toBeVisible(); // reading place kept on this device
 
+  // A new login authorizes the paper again instead of reusing the previous session's verified cache.
+  const previousDescriptors = descriptors;
+  await table.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  await expect(frame.locator('h1').first()).toContainText('Direct Preference Optimization');
+  expect(descriptors).toBe(previousDescriptors + 1);
+  await page.getByTestId('back-to-library').click();
+
   // Removing this browser's keys brings the recovery step back.
   await page.getByTestId('account-menu').click();
   await page.getByTestId('sign-out').click();
   await page.getByTestId('forget-device').check();
   await page.getByTestId('confirm-sign-out').click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
-  await page.waitForTimeout(300); // let the local key removal finish before reloading
-  await signIn(page, 'returning@example.test');
+  // No reload or artificial cleanup delay: the UI must retire its in-memory keys as well.
+  await signIn(page, 'returning@example.test', false);
   await expect(page.getByRole('heading', { name: 'Restore your private library' })).toBeVisible();
   expect(problems).toEqual([]);
 });
 
 test('new account: new keys and recovery code, empty library, reload stays ready', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   const problems = watch(page);
   await page.emulateMedia({ colorScheme: 'dark' });
   await signIn(page, 'new@example.test');
@@ -139,6 +170,100 @@ test('new account: new keys and recovery code, empty library, reload stays ready
   await page.reload();
   await expect(page.getByText('Your library is empty.')).toBeVisible();
   expect(problems).toEqual([]);
+});
+
+test('choosing another email cancels a verification that already reached the server', async ({ page }) => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route('**/auth/v1/verify', async route => {
+    if (route.request().postDataJSON().email !== 'returning@example.test') return route.continue();
+    const response = await route.fetch(); reached.resolve(); await release.promise;
+    await route.fulfill({ response }).catch(() => {}); // aborting the browser request may already have closed it
+  });
+  try {
+    await signIn(page, 'returning@example.test');
+    await reached.promise;
+    await page.getByRole('button', { name: 'Use another email' }).click();
+    await page.getByTestId('email').fill('new@example.test');
+    await page.getByTestId('send-code').click();
+    release.resolve();
+    await expect(page.getByText('We sent a 6-digit code to new@example.test.')).toBeVisible();
+    await expect(page.getByTestId('code')).toBeVisible();
+    await page.getByTestId('code').fill('123456');
+    await page.getByTestId('verify').click();
+    await expect(page.getByRole('heading', { name: /Save your recovery code|Couldn’t prepare this browser/ })).toBeVisible();
+  } finally { release.resolve(); }
+});
+
+test('a late encrypted reading-place save cannot recreate a forgotten device or its data', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  await signIn(page, 'returning@example.test');
+  await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
+  await page.getByTestId('recover').click();
+  await expect(page.getByTestId('library-table')).toBeVisible();
+  await holdReadingSave(page);
+  await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  await expect(page.frameLocator('[data-testid=reader-frame]').locator('h1').first()).toContainText('Direct Preference Optimization');
+  await page.waitForFunction(() => (window as unknown as { activityWaiting?: boolean }).activityWaiting);
+  await page.getByTestId('account-menu').click();
+  await page.getByTestId('sign-out').click();
+  await page.getByTestId('forget-device').check();
+  await page.getByTestId('confirm-sign-out').click();
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
+  // Acquiring the same activity lane waits for the released save to settle before inspecting real IndexedDB.
+  const count = await page.evaluate(() => navigator.locks.request('gradstep.activity.fixture:11111111-2222-4333-8444-555555555555', () => new Promise<number>((resolve, reject) => {
+    const opening = indexedDB.open('gradstep');
+    opening.onerror = () => reject(new Error('IndexedDB unavailable'));
+    opening.onsuccess = () => {
+      const db = opening.result, tx = db.transaction(['devices', 'activity']);
+      const devices = tx.objectStore('devices').count(), activity = tx.objectStore('activity').count();
+      tx.oncomplete = () => { db.close(); resolve(devices.result + activity.result); };
+    };
+  })));
+  expect(count).toBe(0);
+});
+
+test('a delayed sign-out cannot end a newer login from another tab', async ({ page, context, request }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  await signIn(page, 'returning@example.test');
+  await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
+  await page.getByTestId('recover').click();
+  await expect(page.getByTestId('library-table')).toBeVisible();
+  await holdReadingSave(page);
+  await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  await page.waitForFunction(() => (window as unknown as { activityWaiting?: boolean }).activityWaiting);
+  await page.getByTestId('account-menu').click();
+  await page.getByTestId('sign-out').click();
+  await page.getByTestId('confirm-sign-out').click();
+  await expect(page.getByTestId('confirm-sign-out')).toBeDisabled();
+  const other = await context.newPage();
+  await other.goto('/');
+  const response = await request.post(`${FIXTURE}/auth/v1/verify`, { headers: { apikey: 'fixture-anon' }, data: { type: 'email', email: 'new@example.test', token: '123456' } });
+  const next = await response.json();
+  await other.evaluate(session => localStorage.setItem('gradstep.fixture.session', JSON.stringify({
+    accessToken: session.access_token, refreshToken: session.refresh_token, expiresAt: session.expires_at,
+    lifetime: crypto.randomUUID(), user: session.user,
+  })), next);
+  await expect(page.getByRole('heading', { name: 'Save your recovery code' })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
+  await page.waitForFunction(() => (window as unknown as { activityEncryptions: number }).activityEncryptions >= 2);
+  await page.evaluate(() => navigator.locks.request('gradstep.activity.fixture:11111111-2222-4333-8444-555555555555', () => {}));
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await expect(page.getByRole('heading', { name: 'Save your recovery code' })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('gradstep.fixture.session')!).user.email)).toBe('new@example.test');
+});
+
+test('key enrollment requires a usable persisted key, with clear guidance on unsupported engines', async ({ page }) => {
+  const supported = await durableKeys(page);
+  let enrollments = 0;
+  page.on('request', request => { if (/\/v1_(bootstrap_keys|request_enrollment|approve_enrollment)$/.test(request.url())) enrollments++; });
+  await signIn(page, 'new@example.test');
+  if (supported) await expect(page.getByRole('heading', { name: 'Save your recovery code' })).toBeVisible();
+  else {
+    await expect(page.getByText('This browser can’t save the keys needed for your private library.', { exact: false })).toBeVisible();
+    await expect(page.getByTestId('confirm-code')).toHaveCount(0);
+  }
+  expect(enrollments).toBe(0);
 });
 
 test('an address without an account is told sign-up is invite-only', async ({ page }) => {

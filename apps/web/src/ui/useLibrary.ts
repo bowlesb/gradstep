@@ -1,7 +1,8 @@
 // Account-scoped library state: one bounded pull at a time, import polling on the native
 // schedule, refresh on focus, and commands with operation-ID replay. Memory only.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackendError } from '../lib/backend';
+import { auth, BackendError } from '../lib/backend';
+import { cancellation } from '../lib/cancellation';
 import { type Command, type Entry, type Import, Reconciler, sendCommand } from '../lib/library';
 import { type Mark, importStep, observe, pollDelay, retryingAutomatically } from '../lib/progress';
 
@@ -10,7 +11,7 @@ export type LoadState = 'loading' | 'ready' | 'error';
 export function useLibrary(account: string) {
   const reconciler = useRef(new Reconciler(account));
   const running = useRef<Promise<void> | null>(null);
-  const alive = useRef(true);
+  const lifetime = useRef<ReturnType<typeof cancellation> | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [marks, setMarks] = useState<Map<string, Mark>>(new Map());
@@ -24,34 +25,39 @@ export function useLibrary(account: string) {
   }, []);
 
   const refresh = useCallback((): Promise<void> => {
+    const owner = lifetime.current;
+    if (!owner || owner.signal.aborted) return Promise.reject(new BackendError('cancelled'));
     if (running.current) return running.current;
     const task = (async () => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           reconciler.current.prepareCatchUp();
-          await reconciler.current.pull();
-          if (!alive.current) return;
+          await reconciler.current.pull(owner.signal);
+          if (owner.signal.aborted) return;
           publish(); setState('ready');
           return;
         } catch (error) {
+          if (owner.signal.aborted) throw error;
           if (error instanceof BackendError && error.code === 'library_resync_required' && attempt === 0) { reconciler.current = new Reconciler(account); continue; }
-          if (alive.current) setState(s => (s === 'ready' ? 'ready' : 'error'));
+          setState(s => (s === 'ready' ? 'ready' : 'error'));
           throw error;
         }
       }
-    })().finally(() => { running.current = null; });
+    })().finally(() => { if (running.current === task) running.current = null; });
     running.current = task;
     return task;
   }, [account, publish]);
 
   useEffect(() => {
-    alive.current = true;
+    const owner = cancellation([auth.snapshot().signal]);
+    lifetime.current = owner;
+    running.current = null;
     refresh().catch(() => {});
     const focus = () => { if (document.visibilityState === 'visible') refresh().catch(() => {}); };
     document.addEventListener('visibilitychange', focus);
     window.addEventListener('focus', focus);
     const slow = setInterval(focus, 60_000);
-    return () => { alive.current = false; document.removeEventListener('visibilitychange', focus); window.removeEventListener('focus', focus); clearInterval(slow); };
+    return () => { owner.abort(); document.removeEventListener('visibilitychange', focus); window.removeEventListener('focus', focus); clearInterval(slow); };
   }, [refresh]);
 
   // Imports under way: poll fast at first, then slower (native importPollDelay); tick the bars every second.
@@ -59,8 +65,10 @@ export function useLibrary(account: string) {
   useEffect(() => {
     if (!active) return;
     const started = Date.now();
+    let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
+      if (disposed) return;
       timer = setTimeout(async () => {
         if (document.visibilityState === 'visible') await refresh().catch(() => {});
         tick();
@@ -68,20 +76,24 @@ export function useLibrary(account: string) {
     };
     tick();
     const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => { clearTimeout(timer); clearInterval(clock); };
+    return () => { disposed = true; clearTimeout(timer); clearInterval(clock); };
   }, [active, refresh]);
 
   const command = useCallback(async (key: string, make: () => Command) => {
+    const owner = lifetime.current;
+    if (!owner || owner.signal.aborted) throw new BackendError('cancelled');
     setPending(p => new Set(p).add(key));
     try {
       if (reconciler.current.committed === null) await refresh();
-      const response = await sendCommand(account, make());
+      owner.signal.throwIfAborted();
+      const response = await sendCommand(account, make(), undefined, owner.signal);
+      owner.signal.throwIfAborted();
       reconciler.current.accept(response);
       publish();
       await refresh().catch(() => {});
       return response;
     } finally {
-      setPending(p => { const n = new Set(p); n.delete(key); return n; });
+      if (!owner.signal.aborted) setPending(p => { const n = new Set(p); n.delete(key); return n; });
     }
   }, [account, publish, refresh]);
 

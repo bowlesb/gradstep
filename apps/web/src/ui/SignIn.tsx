@@ -24,15 +24,20 @@ export function SignIn() {
   const [now, setNow] = useState(Date.now());
   const codeField = useRef<HTMLInputElement>(null);
   const attempt = useRef(0);
+  const request = useRef<AbortController | null>(null);
+
+  useEffect(() => () => { attempt.current++; request.current?.abort(); }, []);
 
   useEffect(() => { if (step !== 'code') return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [step]);
   useEffect(() => { if (step === 'code') codeField.current?.focus(); }, [step]);
 
   async function send(address: string) {
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
     const id = ++attempt.current;
     setBusy(true); setIssue(null); setNote(null);
     try {
-      const { delivered } = await auth.sendCode(address);
+      const { delivered } = await auth.sendCode(address, controller.signal);
       if (id !== attempt.current) return;
       setCaptured(address); setCode(''); setStep('code'); setResendAt(Date.now() + 60_000);
       setNote(delivered ? `We sent a 6-digit code to ${address}.` : 'Couldn’t confirm delivery. You can still enter a code.');
@@ -54,13 +59,15 @@ export function SignIn() {
     const digits = code.replace(/\s/g, '');
     if (!/^[0-9]{6}$/.test(digits)) { setIssue('Enter the 6-digit code from the email.'); return; }
     const id = ++attempt.current;
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
     setBusy(true); setIssue(null);
-    try { await auth.verifyCode(captured, digits); }
+    try { await auth.verifyCode(captured, digits, controller.signal); }
     catch (error) { if (id === attempt.current) setIssue(issueText[error instanceof AuthError ? error.issue : 'rejected']); }
     finally { if (id === attempt.current) setBusy(false); }
   }
 
-  function anotherEmail() { attempt.current++; setStep('email'); setCode(''); setIssue(null); setNote(null); setBusy(false); }
+  function anotherEmail() { attempt.current++; request.current?.abort(); setStep('email'); setCode(''); setIssue(null); setNote(null); setBusy(false); }
 
   const wait = Math.max(0, Math.ceil((resendAt - now) / 1000));
   return (

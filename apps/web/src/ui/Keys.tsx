@@ -10,6 +10,7 @@ type View = { kind: 'preparing' } | { kind: 'needs_new_keys' } | { kind: 'recove
 
 function message(error: unknown): string {
   if (error instanceof WireError) {
+    if (error.code === 'unsupported_browser') return 'This browser can’t save the keys needed for your private library. Try another browser, or use Gradstep on iPhone, iPad or Mac.';
     if (error.code === 'invalid_recovery_code') return 'That recovery code doesn’t match this account. Check it and try again.';
     if (error.code === 'stale_epoch') return 'Your keys changed on another device. Try again.';
     return 'This browser’s keys couldn’t be checked. Try again.';
@@ -27,19 +28,23 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   const [view, setView] = useState<View>({ kind: 'preparing' });
   const [busy, setBusy] = useState(false);
   const [issue, setIssue] = useState<string | null>(null);
-  const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  const lifetime = useRef<AbortController | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
-  const route = useCallback((result: Preparation) => {
-    if (!alive.current) return;
+  const route = useCallback((result: Preparation, signal: AbortSignal) => {
+    if (signal.aborted) return;
     if (result.kind === 'ready') onReady(result); else setView({ kind: result.kind });
   }, [onReady]);
 
-  const start = useCallback(() => {
+  useEffect(() => {
+    const controller = new AbortController();
+    lifetime.current = controller;
     setView({ kind: 'preparing' }); setIssue(null);
-    prepare(account).then(route, error => { if (alive.current) setView({ kind: 'failed', message: message(error) }); });
-  }, [account, route]);
-  useEffect(start, [start]);
+    prepare(account, controller.signal).then(result => route(result, controller.signal), error => {
+      if (!controller.signal.aborted) setView({ kind: 'failed', message: message(error) });
+    });
+    return () => controller.abort();
+  }, [account, attempt, route]);
 
   return (
     <main className="auth-shell">
@@ -49,17 +54,19 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
         {view.kind === 'failed' && <>
           <h1>Couldn’t prepare this browser</h1>
           <p className="issue" role="alert">{view.message}</p>
-          <button className="primary" onClick={start}>Try again</button>
+          <button className="primary" onClick={() => setAttempt(a => a + 1)}>Try again</button>
         </>}
         {view.kind === 'recovery_required' && <Recover account={account} email={email} busy={busy} issue={issue} onSubmit={async code => {
+          const signal = lifetime.current!.signal;
           setBusy(true); setIssue(null);
-          try { route(await recoverWithCode(account, code)); } catch (error) { if (alive.current) setIssue(message(error)); }
-          finally { if (alive.current) setBusy(false); }
+          try { route(await recoverWithCode(account, code, signal), signal); } catch (error) { if (!signal.aborted) setIssue(message(error)); }
+          finally { if (!signal.aborted) setBusy(false); }
         }} />}
         {view.kind === 'needs_new_keys' && <NewKeys account={account} email={email} busy={busy} issue={issue} onConfirm={async (code, bundle) => {
+          const signal = lifetime.current!.signal;
           setBusy(true); setIssue(null);
-          try { route(await bootstrap(account, bundle, code)); } catch (error) { if (alive.current) setIssue(message(error)); }
-          finally { if (alive.current) setBusy(false); }
+          try { route(await bootstrap(account, bundle, code, signal), signal); } catch (error) { if (!signal.aborted) setIssue(message(error)); }
+          finally { if (!signal.aborted) setBusy(false); }
         }} />}
         <button className="link signout" onClick={onSignOut} disabled={busy}>Sign out</button>
       </section>

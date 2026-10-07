@@ -9,7 +9,7 @@ import { effectiveTags } from '../lib/paper';
 import { type FrameMessage, frameDocument, readFrameMessage } from '../reader/frame';
 import { Dialog, NOT_YET } from './common';
 
-const cache = new Map<string, VerifiedBundle>(); // a few verified bundles for quick reopening (memory only)
+export type ReaderCache = Map<string, VerifiedBundle>; // owned by one signed-in session, memory only
 const FONT_KEY = 'gradstep.reader.fontSize';
 const readFont = () => { try { const v = Number(localStorage.getItem(FONT_KEY)); return v >= 13 && v <= 28 ? v : 18; } catch { return 18; } };
 
@@ -33,9 +33,17 @@ function failure(error: unknown): string {
   return 'Couldn’t open this paper. Try again.';
 }
 
-export function Reader({ account, item, saved, onActivity, onBack }: { account: string; item: Item; saved?: Activity;
-  onActivity: (itemID: string, activity: Activity) => void; onBack: () => void }) {
-  const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(item.id) ?? null);
+type ReaderProps = { cache: ReaderCache; account: string; item: Item; saved?: Activity;
+  onActivity: (itemID: string, activity: Activity) => void; onBack: () => void };
+
+export function Reader(props: ReaderProps) {
+  const { account, item } = props;
+  const identity = JSON.stringify([account, item.id, item.artifact_id, item.readiness, item.render_availability, item.render_availability_revision]);
+  return <PaperReader key={identity} cacheKey={identity} {...props} />;
+}
+
+function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack }: ReaderProps & { cacheKey: string }) {
+  const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -54,20 +62,22 @@ export function Reader({ account, item, saved, onActivity, onBack }: { account: 
   useEffect(() => { document.title = `${title} · Gradstep`; return () => { document.title = 'Gradstep'; }; }, [title]);
 
   useEffect(() => {
-    if (cache.has(item.id)) { setBundle(cache.get(item.id)!); return; }
+    if (cache.has(cacheKey)) { setBundle(cache.get(cacheKey)!); return; }
     const controller = new AbortController();
     setError(null); setLoaded(0);
-    loadBundle(account, item.id, controller.signal, setLoaded).then(verified => {
-      cache.set(item.id, verified);
+    loadBundle(account, item.id, controller.signal, fraction => { if (!controller.signal.aborted) setLoaded(fraction); }).then(verified => {
+      if (controller.signal.aborted) return;
+      cache.set(cacheKey, verified);
       while (cache.size > 3) cache.delete(cache.keys().next().value!);
       setBundle(verified);
     }, e => { if (!controller.signal.aborted) setError(failure(e)); });
     return () => controller.abort();
-  }, [account, item.id, attempt]);
+  }, [account, item.id, cache, cacheKey, attempt]);
 
   // Built once per bundle: later font changes go through the bridge, so the place is kept.
-  const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine: publicationLine(item),
-    paperTags: effectiveTags(item), fontSize: readFont() }) : null, [bundle, item]);
+  const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
+  const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine,
+    paperTags: JSON.parse(paperTags) as string[], fontSize: readFont() }) : null, [bundle, paperLine, paperTags]);
   const figureDoc = useMemo(() => bundle && figure ? frameDocument(bundle, { parentOrigin: location.origin, figureID: figure }) : null, [bundle, figure]);
 
   const command = useCallback((name: string, ...args: unknown[]) => {

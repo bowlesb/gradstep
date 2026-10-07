@@ -13,6 +13,7 @@ export interface Activity { opened: number; progress: number; location?: Locatio
 const MAX = 5_000;
 const key = (account: string) => `${config.environment}:${account}`;
 const aad = (account: string) => utf8(`gradstep/web-reading/v1/${account}`);
+const saves = new Map<string, Promise<void>>();
 
 export async function loadActivity(device: DeviceRecord): Promise<Map<string, Activity>> {
   try {
@@ -23,7 +24,19 @@ export async function loadActivity(device: DeviceRecord): Promise<Map<string, Ac
   } catch { return new Map(); } // unreadable: start empty, replaced on the next save
 }
 
-export async function saveActivity(device: DeviceRecord, activity: Map<string, Activity>): Promise<void> {
-  const entries = [...activity].sort((a, b) => b[1].opened - a[1].opened).slice(0, MAX);
-  await idb.put('activity', key(device.accountID), await seal(device.localKey, utf8(JSON.stringify(entries)), aad(device.accountID)));
+export function saveActivity(device: DeviceRecord, activity: Map<string, Activity>): Promise<void> {
+  const identity = key(device.accountID), captured = [...activity];
+  const write = async () => {
+    const merged = await loadActivity(device);
+    for (const [id, value] of captured) if (!merged.has(id) || merged.get(id)!.opened <= value.opened) merged.set(id, value);
+    const entries = [...merged].sort((a, b) => b[1].opened - a[1].opened).slice(0, MAX);
+    const sealed = await seal(device.localKey, utf8(JSON.stringify(entries)), aad(device.accountID));
+    await idb.putActivity(identity, device.deviceID, sealed);
+  };
+  // Queue before encryption, and serialize cooperating tabs. An older snapshot cannot overtake a newer one.
+  const next = (saves.get(identity) ?? Promise.resolve()).catch(() => {}).then(() =>
+    navigator.locks ? navigator.locks.request(`gradstep.activity.${identity}`, write) : write())
+    .finally(() => { if (saves.get(identity) === next) saves.delete(identity); });
+  saves.set(identity, next);
+  return next;
 }

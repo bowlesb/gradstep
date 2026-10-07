@@ -338,13 +338,13 @@ export type Command =
   | { endpoint: 'v2_begin_import'; p_source_id: string; p_requested_revision: number | null; p_observed_cursor: number }
   | { endpoint: 'v2_retry_import' | 'v2_cancel_import'; p_import_id: string; p_expected_revision: number };
 
-export async function sendCommand(account: string, command: Command, operationID = crypto.randomUUID()): Promise<CommandResponse> {
+export async function sendCommand(account: string, command: Command, operationID = crypto.randomUUID(), signal?: AbortSignal): Promise<CommandResponse> {
   const { endpoint, ...params } = command;
   let lastError: unknown;
   // One automatic resend of the identical request after a lost reply; the server replays its receipt.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account }));
+      return decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal }));
     } catch (error) {
       lastError = error;
       if (!(error instanceof BackendError) || error.code !== 'connection') throw error;

@@ -35,4 +35,24 @@ export const idb = {
   get: <T>(store: Store, key: string) => run<T | undefined>(store, 'readonly', s => s.get(key)),
   put: (store: Store, key: string, value: unknown) => run<void>(store, 'readwrite', s => s.put(value, key)),
   delete: (store: Store, key: string) => run<void>(store, 'readwrite', s => s.delete(key)),
+  /** A delayed encrypted save must not recreate data after its device was forgotten or replaced. */
+  putActivity: async (key: string, deviceID: string, value: unknown): Promise<void> => {
+    const db = await database();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['devices', 'activity'], 'readwrite');
+      const device = tx.objectStore('devices').get(key);
+      device.onsuccess = () => { if (device.result?.deviceID === deviceID) tx.objectStore('activity').put(value, key); };
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(new Error('storage_unavailable'));
+    });
+  },
+  forgetDevice: async (key: string): Promise<void> => {
+    const db = await database();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['devices', 'activity'], 'readwrite');
+      tx.objectStore('devices').delete(key); tx.objectStore('activity').delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = tx.onabort = () => reject(new Error('storage_unavailable'));
+    });
+  },
 };

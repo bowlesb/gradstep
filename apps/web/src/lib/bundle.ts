@@ -2,7 +2,8 @@
 // ReaderDelivery.swift (descriptor) and MathpixReaderProvenance.swift. Every byte is checked
 // against the trusted manifest digest from `reader-artifact` before anything is shown.
 import { type Bytes, canonicalJSON, fromBase64, fromUtf8, isUUID, sha256Hex } from './bytes';
-import { BackendError, config, functionGet, signedMember } from './backend';
+import { auth, BackendError, config, functionGet, signedMember } from './backend';
+import { cancellation } from './cancellation';
 
 export class BundleError extends Error {}
 const fail = (what: string): never => { throw new BundleError(what); };
@@ -181,6 +182,15 @@ interface Descriptor { item_id: string; document_id: string; artifact_id: string
 
 /** Authorizes the download (reader-artifact), fetches each signed member and verifies everything. */
 export async function loadBundle(account: string, itemID: string, signal?: AbortSignal, onProgress?: (fraction: number) => void): Promise<VerifiedBundle> {
+  const scope = cancellation([auth.snapshot().signal, signal]);
+  try {
+    const bundle = await downloadBundle(account, itemID, scope.signal, onProgress);
+    scope.signal.throwIfAborted();
+    return bundle;
+  } finally { scope.abort(); }
+}
+
+async function downloadBundle(account: string, itemID: string, signal: AbortSignal, onProgress?: (fraction: number) => void): Promise<VerifiedBundle> {
   const d = await functionGet<Descriptor>(`reader-artifact?item_id=${itemID}`, { maximum: 1_048_576, account, signal });
   const origin = new URL(config.url).origin;
   if (!d || !isUUID(d.item_id) || d.item_id.toLowerCase() !== itemID || !isDigest(d.manifest_sha256) || typeof d.renderer_version !== 'string' || d.renderer_version.length > 64
