@@ -52,11 +52,15 @@ struct ChatFixtureTransport: ChatTransport {
                         let text = mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : Self.answer
                         let pieces = Self.pieces(of: text, size: 14)
                         let delay: Duration = mode == .slow ? .milliseconds(250) : .milliseconds(30)
+                        // research: a search before the first text, and another one mid-answer (status events).
+                        let secondSearch = mode == .research ? Self.pieces(of: Self.research.components(separatedBy: "Papers to read next")[0], size: 14).count : -1
+                        if mode == .research { try await Self.search("direct preference optimization follow-ups", continuation) }
                         for (index, piece) in pieces.enumerated() {
                             if mode == .interrupt, index == pieces.count / 2 {
                                 continuation.yield(.failure(code: "provider_unavailable"))
                                 break
                             }
+                            if index == secondSearch { try await Self.search("IPO KTO comparison", continuation) }
                             continuation.yield(.delta(piece))
                             try await Task.sleep(for: delay)
                         }
@@ -111,6 +115,14 @@ struct ChatFixtureTransport: ChatTransport {
       M --> O[Weighted values]
       V[Values] --> O
     """
+
+    /// A server-side search as the stream reports it: searching (with the query), then reading.
+    private static func search(_ query: String, _ continuation: AsyncThrowingStream<ChatStreamEvent, Error>.Continuation) async throws {
+        continuation.yield(.status(ChatProgress(kind: .searching, query: query)))
+        try await Task.sleep(for: .seconds(3))
+        continuation.yield(.status(ChatProgress(kind: .reading)))
+        try await Task.sleep(for: .milliseconds(1500))
+    }
 
     func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
 

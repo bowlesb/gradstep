@@ -494,6 +494,25 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer table")
     }
 
+    /// Audit gap 9: while the server searches, a status line says so (in place of
+    /// "Thinking…" before any text, then under the partial answer); it goes once text resumes.
+    func testSearchProgressShowsUnderTheStreamingAnswer() throws {
+        let app = askChatFixture("research", "What followed DPO?")
+        let any = app.descendants(matching: .any)
+        let thinking = any["chat.message.thinking"]
+        XCTAssertTrue(thinking.waitForExistence(timeout: 10))
+        let searching = NSPredicate(format: "label CONTAINS %@", "Searching the web for “direct preference optimization follow-ups”")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: searching, object: thinking)], timeout: 5), .completed, thinking.label)
+        let progress = any["chat.message.progress"]
+        XCTAssertTrue(progress.waitForExistence(timeout: 20), "The second search shows under the partial answer")
+        XCTAssertTrue(progress.label.contains("IPO KTO comparison") || progress.label == "Reading results…", progress.label)
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        capture(app, "Search progress under a streaming answer")
+        XCTAssertTrue(progress.waitForNonExistence(timeout: 20), "Cleared when text resumes")
+        XCTAssertTrue(any["chat.papers"].waitForExistence(timeout: 20))
+        XCTAssertFalse(progress.exists)
+    }
+
     /// Audit gap 2: papers an answer names are listed under it, to open (after
     /// seeing the address) or add; one only in Sources is not repeated.
     func testAnswerPapersCanBeOpenedOrAdded() throws {

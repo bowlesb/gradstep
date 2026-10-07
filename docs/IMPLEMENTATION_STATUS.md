@@ -56,6 +56,14 @@ paper directly (no chat); automated user-workflow checks run after deploys and o
 ([workflow checks](architecture/WORKFLOW_CHECKS.md)) with results in the admin Reliability tab. One paper table
 (`PaperTable`) serves Library and Feed at every size.
 
+**Chat answers (2026-10-07, legacy gaps 4, 2, 9; [decision](DECISIONS.md#chat-answers-tables-papers-named-progress-agent-decisions-2026-10-07-overnight-mandate)):**
+Markdown tables render as native tables (pipe text only while incomplete during streaming); **Papers in this
+answer** lists arXiv IDs and DOIs an answer names, with Open (confirmed) and Add to library; a `status` stream event
+shows "Searching the web for “…”", "Reading results…", "Finding the paper…", "Adding to your library…" under the
+streaming answer. Verified with Core/unit/backend tests and Simulator UI journeys on the chat fixture (iPhone and
+iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
+progress and live DOI adds from an answer are unverified against staging.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified

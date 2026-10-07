@@ -268,9 +268,26 @@ export function createAnthropicClient(options: { apiKey: string; fetch?: typeof 
     logLevel: 'off', ...(options.fetch ? { fetch: options.fetch } : {}) });
 }
 
+/** Server work during an answer, relayed to the reader's device as an SSE `status` event.
+ * `query` (searching only) goes to that device alone; it is never logged. */
+export interface ChatStatus { kind: 'searching' | 'reading' | 'finding_paper' | 'adding_paper'; query?: string }
+export const STATUS_QUERY_CHARS = 200;
+/** A search query for a status line: control characters removed, whitespace collapsed, bounded. */
+export function statusQuery(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const query = [...value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, STATUS_QUERY_CHARS).join('');
+  return query || undefined;
+}
+export function searchingStatus(query: unknown): ChatStatus {
+  const text = statusQuery(query);
+  return text ? { kind: 'searching', query: text } : { kind: 'searching' };
+}
+
 export interface StreamOptions {
   signal: AbortSignal;
   onText: (text: string) => void;
+  /** Progress between pieces of text (Anthropic's server-side search). */
+  onStatus?: (status: ChatStatus) => void;
   /** Estimated input tokens, charged at the uncached rate when billing is uncertain. */
   inputEstimateTokens: number;
   now?: () => number;
@@ -285,6 +302,8 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
   const now = options.now ?? Date.now;
   let messageID: string | null = null, model: string | null = null, startedAt = 0, visible = 0, sawFallback = false, searchesSeen = 0;
   let startUsage: Usage | null = null;
+  // Anthropic's search: its query streams in as the block's input; the search runs once the block ends.
+  const searchInputs = new Map<number, string>();
   const partial = (failure: ProviderFailure, billedWithoutStart: boolean): ProviderOutcome => {
     if (!messageID) {
       // A rejected HTTP request is not billed. Otherwise the provider may have
@@ -313,6 +332,16 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
         sawFallback = true;
       } else if (event.type === 'content_block_start' && event.content_block.type === 'server_tool_use' && event.content_block.name === 'web_search') {
         searchesSeen++;
+        searchInputs.set(event.index, '');
+      } else if (event.type === 'content_block_delta' && event.delta.type === 'input_json_delta' && searchInputs.has(event.index)) {
+        searchInputs.set(event.index, (searchInputs.get(event.index)! + event.delta.partial_json).slice(0, 4_000));
+      } else if (event.type === 'content_block_stop' && searchInputs.has(event.index)) {
+        let query: unknown;
+        try { query = (JSON.parse(searchInputs.get(event.index)!) as { query?: unknown } | null)?.query; } catch { query = undefined; }
+        searchInputs.delete(event.index);
+        options.onStatus?.(searchingStatus(query));
+      } else if (event.type === 'content_block_start' && (event.content_block as { type: string }).type === 'web_search_tool_result') {
+        options.onStatus?.({ kind: 'reading' });
       } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
         visible += event.delta.text.length;
         options.onText(event.delta.text);

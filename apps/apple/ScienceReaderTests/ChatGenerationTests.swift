@@ -147,6 +147,26 @@ final class ChatGenerationTests: XCTestCase {
                                                                      "And without scaling?", "Softmax saturates."], "Answers persist encrypted")
     }
 
+    /// Status events show what the server is doing until text resumes or the answer ends; never sealed.
+    func testServerStatusShowsUntilTextResumesAndIsNeverSaved() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "What followed DPO?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.status(ChatProgress(kind: .searching, query: "DPO follow-ups")))
+        try await waitUntil("searching shown") { model.chatStreamingProgress == ChatProgress(kind: .searching, query: "DPO follow-ups") }
+        transport.send(.status(ChatProgress(kind: .reading)))
+        try await waitUntil("reading shown") { model.chatStreamingProgress?.kind == .reading }
+        transport.send(.delta("IPO generalizes it."))
+        try await waitUntil("cleared by text") { model.chatStreamingProgress == nil }
+        transport.send(.status(ChatProgress(kind: .searching, query: "KTO")))
+        try await waitUntil("second search shown") { model.chatStreamingProgress?.query == "KTO" }
+        transport.send(.done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        XCTAssertNil(model.chatStreamingProgress, "Cleared when the answer ends")
+        XCTAssertEqual(model.chatMessages.last?.payload.text, "IPO generalizes it.", "Status text is never part of the answer")
+    }
+
     func testADrawnDiagramIsSealedWithItsAnswerAndSurvivesReopening() async throws {
         let (model, transport) = try await makeModel(consented: true)
         model.chatInput = "Draw the attention computation"

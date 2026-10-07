@@ -270,3 +270,20 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+## Chat answers: tables, papers named, progress (agent decisions 2026-10-07, overnight mandate)
+
+Legacy audit gaps 4, 2 and 9, built without questions under the overnight mandate; all reversible, all additions under
+or inside answers (no page arrangement or selection action changed).
+
+- **Tables** render as a native grid; while streaming, rows at the end stay pipe text until complete, so the layout
+  changes once. Tables over 12 columns or 120 rows stay pipe text. Details: [chat rendering](architecture/NATIVE_CHAT_RENDERING.md).
+- **Papers in this answer** lists arXiv IDs and DOIs found in the answer's own text, on the device, without a model
+  call (at most 8). A paper that appears only in the server's Sources list is not repeated (Sources already offers it).
+  Open asks first, like Sources. arXiv adds use the Add sheet's library command (latest version, not the version a link
+  names); DOIs use `add-reference` with the reader's outcome wording on the row. "Ask in chat" is not offered from
+  chat. A DOI paper added earlier shows "In your library" only once this session's add matched it (the library has
+  no DOI field).
+- **Progress**: a backward-compatible `status` stream event (`searching` with the query, `reading`, `finding_paper`,
+  `adding_paper`), shown as one line under the streaming answer. The query goes only to the reader's stream, never to
+  logs. Needs a chat function deploy (not deployed by this work); older servers simply send none.
+

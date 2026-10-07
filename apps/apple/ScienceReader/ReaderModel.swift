@@ -305,6 +305,7 @@ final class ReaderModel {
     private var chatAnswerIssues: [UUID: ChatAnswerIssue] = [:]
     /// Throttled partial text by generation ID; only the transcript reads it.
     private var chatStreamingText: [UUID: String] = [:]
+    private var chatStreamProgress: [UUID: ChatProgress] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?)?
@@ -2058,6 +2059,8 @@ final class ReaderModel {
         return generation
     }
     var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// What the server is doing for the visible answer (searching, adding a paper) until text resumes.
+    var chatStreamingProgress: ChatProgress? { visibleGeneration.flatMap { chatStreamProgress[$0.id] } }
     /// Saved branch messages plus the streaming answer, which already carries
     /// the identity its sealed encrypted message will use.
     var chatTranscriptMessages: [AppliedEvent] {
@@ -2158,7 +2161,10 @@ final class ReaderModel {
                 switch event {
                 case .delta(let piece):
                     text += piece
+                    // Text resumed: the server's status line has done its job.
+                    if piece.contains(where: { !$0.isWhitespace }) { chatStreamProgress[generation.id] = nil }
                     bufferAnswer(generation, text: text)
+                case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
                 case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
                 case .failure(let code): outcome = .failed(code: code)
@@ -2211,7 +2217,7 @@ final class ReaderModel {
         }
         guard ownsGeneration(generation) else { return }
         chatGenerations[generation.turn.composerID] = nil
-        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil
+        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
@@ -2268,7 +2274,7 @@ final class ReaderModel {
     /// interrupted encrypted turn in the old account's store before it retires.
     private func retireChatGenerations() {
         let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
-        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []
+        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false

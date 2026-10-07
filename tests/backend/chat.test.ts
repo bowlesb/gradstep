@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 import {
   ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
-  streamChat, UNKNOWN_MODEL_RATES, type ProviderOutcome, type StreamOptions,
+  streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
@@ -223,6 +223,10 @@ test('client capabilities: known ones kept, unknown ones ignored, malformed reje
   assert.equal(canonicalRequest(validateChatRequest(quoted)), canonicalRequest(validateChatRequest({ ...quoted, capabilities: ['unknown'] })));
 });
 
+/** The `index`th text event (status events may come between them). */
+const delta = (h: { events: ChatEvent[] }, index: number) => h.events.filter(e => e.event === 'delta')[index].data as { text: string };
+const statuses = (h: { events: ChatEvent[] }) => h.events.filter(e => e.event === 'status').map(e => e.data);
+
 function ingestBody() {
   return paperBody({ selection: { quote: '[12] Rafailov et al. Direct preference optimization. NeurIPS 2023.' }, action: 'ingest' });
 }
@@ -241,9 +245,11 @@ test('ingest adds one title-matched paper after settlement and reports it in the
   assert.deepEqual(tools, [ADD_PAPER_TOOL]);
   assert.deepEqual(found, [{ title: 'Direct Preference Optimization', year: 2023, firstAuthor: null, arxivID: null }]);
   assert.deepEqual(imported, ['2305.18290']);
-  assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
-  assert.match((h.events[1].data as { text: string }).text, /^\n\nQueued “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
-  assert.equal((h.events[2].data as { stop_reason: string }).stop_reason, 'end_turn');
+  // Progress while the server finds and adds the paper, then its report.
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'status', 'status', 'delta', 'done']);
+  assert.deepEqual(h.events.filter(e => e.event === 'status').map(e => e.data), [{ kind: 'finding_paper' }, { kind: 'adding_paper' }]);
+  assert.match(delta(h, 1).text, /^\n\nQueued “Direct Preference Optimization: Your Language Model is Secretly a Reward Model” \(arXiv:2305\.18290\)/);
+  assert.equal((h.events.at(-1)!.data as { stop_reason: string }).stop_reason, 'end_turn');
   assert.deepEqual(h.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'added' }]);
 });
 
@@ -252,7 +258,7 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   let imports = 0;
   missing.deps.findPaper = async () => ({ status: 'not_found' }); missing.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(missing.deps, ingestBody(), missing.emit, new AbortController().signal);
-  assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv or as an open-access paper/);
+  assert.match(delta(missing, 1).text, /couldn't find “A Paper Not On arXiv” on arXiv or as an open-access paper/);
   assert.equal(imports, 0);
 
   const invalid = harness({ generate: toolGenerate({ title: 'ab' }) });
@@ -260,7 +266,7 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   await runChat(invalid.deps, ingestBody(), invalid.emit, new AbortController().signal);
   // Never silent: the reader is told nothing was added, and the outcome is recorded.
   assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'delta', 'done']);
-  assert.match((invalid.events[1].data as { text: string }).text, /couldn’t read the paper’s details/);
+  assert.match(delta(invalid, 1).text, /couldn’t read the paper’s details/);
   assert.deepEqual(invalid.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'invalid_input' }]);
   const recorded = invalid.calls.find(c => c.name === 'worker_record_provider_usage' && c.params.p_provider === 'ingest')!;
   assert.equal((recorded.params.p_units as { result: string }).result, 'invalid_input');
@@ -275,12 +281,12 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   failing.deps.findPaper = async () => ({ status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } });
   failing.deps.importPaper = async () => { throw new Error('library_active_import_limit'); };
   await runChat(failing.deps, ingestBody(), failing.emit, new AbortController().signal);
-  assert.match((failing.events[1].data as { text: string }).text, /couldn't add it right now/);
+  assert.match(delta(failing, 1).text, /couldn't add it right now/);
 
   const busy = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
   busy.deps.findPaper = async () => { throw new Error('search_busy'); }; busy.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(busy.deps, ingestBody(), busy.emit, new AbortController().signal);
-  assert.match((busy.events[1].data as { text: string }).text, /couldn't search for “Direct Preference Optimization” right now/);
+  assert.match(delta(busy, 1).text, /couldn't search for “Direct Preference Optimization” right now/);
 
   // A tool call cut off by max_tokens is never executed.
   const truncated = harness({ generate: async (_p, stream) => { stream.onText('That is DPO.');
@@ -312,7 +318,7 @@ test('the ingest budget bounds post-settlement work', async () => {
   h.deps.findPaper = (_wanted, signal) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
   h.deps.importPaper = async () => 'added';
   await runChat(h.deps, ingestBody(), h.emit, new AbortController().signal);
-  assert.match((h.events[1].data as { text: string }).text, /couldn't search for .* right now/);
+  assert.match(delta(h, 1).text, /couldn't search for .* right now/);
   assert.equal(h.events.at(-1)?.event, 'done');
 });
 
@@ -325,7 +331,7 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   await runChat(capable.deps, { ...ingestBody(), capabilities: ['web_import'] }, capable.emit, new AbortController().signal);
   assert.deepEqual(options, [{ web: true }]);
   assert.deepEqual(imported, [deepLearning]);
-  assert.match((capable.events[1].data as { text: string }).text, /Queued “Deep learning” \(open-access PDF from repository\.example\.org\)/);
+  assert.match(delta(capable, 1).text, /Queued “Deep learning” \(open-access PDF from repository\.example\.org\)/);
 
   // An older build: never imported, even if a search returned a web paper.
   const older = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
@@ -341,12 +347,12 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   update.deps.findPaper = async () => ({ status: 'needs_update', paper: deepLearning });
   update.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(update.deps, ingestBody(), update.emit, new AbortController().signal);
-  assert.match((update.events[1].data as { text: string }).text, /needs the latest Gradstep version/);
+  assert.match(delta(update, 1).text, /needs the latest Gradstep version/);
   const closed = harness({ generate: toolGenerate({ title: 'Deep learning', year: 2015 }) });
   closed.deps.findPaper = async () => ({ status: 'closed', paper: { ...deepLearning, host: null, link: 'https://doi.org/10.1038/nature14539' } });
   closed.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(closed.deps, { ...ingestBody(), capabilities: ['web_import'] }, closed.emit, new AbortController().signal);
-  assert.match((closed.events[1].data as { text: string }).text, /isn't openly available/);
+  assert.match(delta(closed, 1).text, /isn't openly available/);
   assert.equal(imports, 0);
 });
 
@@ -1002,4 +1008,83 @@ test('Tavily input, results and HTTP failures are bounded and typed', async () =
   assert.deepEqual(await tavilySearch(down, 'k', { query: 'q', academic: false }, new AbortController().signal, { sleep: async () => {} }),
     { status: 'failed', failure: 'unavailable', retryAfterMs: null });
   assert.equal(tries, 2, 'one retry on a server error');
+});
+
+// ---- Status events (progress while searching or adding a paper) ----
+
+test('status events are SSE frames that older builds skip as an unknown event name', () => {
+  assert.equal(sseFrame({ event: 'status', data: { kind: 'searching', query: 'DPO follow-ups' } }),
+    'event: status\ndata: {"kind":"searching","query":"DPO follow-ups"}\n\n');
+  assert.equal(sseFrame({ event: 'status', data: { kind: 'reading' } }), 'event: status\ndata: {"kind":"reading"}\n\n');
+  // Status queries are bounded single lines.
+  assert.equal(statusQuery('  DPO\n\u0000follow-ups\t2025 '), 'DPO follow-ups 2025');
+  assert.equal(statusQuery('x'.repeat(500))!.length, STATUS_QUERY_CHARS);
+  assert.equal(statusQuery('   '), undefined); assert.equal(statusQuery(7), undefined);
+});
+
+test('a Tavily round reports searching with its query, then reading; the query is never logged', async () => {
+  const secretQuery = 'IPO preference optimization (private-question-marker)';
+  let calls = 0;
+  const h = harness({ generate: async (_params, stream) => {
+    if (++calls === 1) { stream.onText('Let me look.'); return searchRound([{ id: 'toolu_s1', input: { query: secretQuery, academic: true } }]); }
+    stream.onText('IPO generalizes DPO.');
+    return completeOutcome({ messageID: 'msg_final', sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }] });
+  } });
+  searching(h, [found]);
+  await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'status', 'status', 'delta', 'delta', 'done'], 'searching and reading come between the rounds');
+  assert.deepEqual(statuses(h), [{ kind: 'searching', query: secretQuery }, { kind: 'reading' }]);
+  noPlaintext([...h.logs, ...h.answers]);
+  assert.ok(!JSON.stringify(h.calls).includes('private-question-marker'), 'no query reaches the database');
+});
+
+test('failed searches report searching but not reading; parallel searches each report', async () => {
+  let calls = 0;
+  const h = harness({ generate: async (_params, stream) => {
+    if (++calls === 1) return searchRound([{ id: 'a', input: { query: 'one' } }, { id: 'b', input: { query: 'two' } }]);
+    stream.onText('Done.'); return completeOutcome();
+  } });
+  searching(h, [{ status: 'failed', failure: 'unavailable', retryAfterMs: null }, { status: 'failed', failure: 'unavailable', retryAfterMs: null }]);
+  h.deps.webSearch = true;
+  await runChat(h.deps, v2(paperBody()), h.emit, new AbortController().signal);
+  assert.deepEqual(statuses(h), [{ kind: 'searching', query: 'one' }, { kind: 'searching', query: 'two' }], 'no results, so no reading');
+});
+
+test('ingest reports finding the paper, and adding it only when it was found', async () => {
+  const missing = harness({ generate: toolGenerate({ title: 'A Paper Not On arXiv' }) });
+  missing.deps.findPaper = async () => ({ status: 'not_found' }); missing.deps.importPaper = async () => 'added';
+  await runChat(missing.deps, ingestBody(), missing.emit, new AbortController().signal);
+  assert.deepEqual(statuses(missing), [{ kind: 'finding_paper' }]);
+  // Stopped during the search: nothing more is sent.
+  const client = new AbortController();
+  const stopped = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization', year: 2023 }) });
+  stopped.deps.findPaper = async () => { client.abort(); return { status: 'found', paper: { source_id: '2305.18290', title: 'Direct Preference Optimization', year: 2023 } }; };
+  stopped.deps.importPaper = async () => 'added';
+  await runChat(stopped.deps, ingestBody(), stopped.emit, client.signal);
+  assert.deepEqual(statuses(stopped), [{ kind: 'finding_paper' }]);
+  assert.equal(stopped.events.some(e => e.event === 'done'), false);
+});
+
+test('the SDK adapter reports Anthropic search progress from the stream', async () => {
+  const query = 'DPO follow-ups 2025';
+  const client = fakeClient(sseResponse([start, ...text(0, 'Let me check. '),
+    { type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"query":"DPO follow' } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '-ups 2025"}' } },
+    { type: 'content_block_stop', index: 1 },
+    { type: 'content_block_start', index: 2, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [] } },
+    { type: 'content_block_stop', index: 2 },
+    ...text(3, 'Found it.'),
+    { type: 'content_block_start', index: 4, content_block: { type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_search', input: {} } },
+    { type: 'content_block_delta', index: 4, delta: { type: 'input_json_delta', partial_json: '{"qu' } },
+    { type: 'content_block_stop', index: 4 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+      usage: { ...usage0, output_tokens: 70, server_tool_use: { web_search_requests: 2, web_fetch_requests: 0 } } },
+    { type: 'message_stop' }]));
+  const seen: (string | ChatStatus)[] = [];
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, inputEstimateTokens: 2000,
+    onText: t => seen.push(t), onStatus: s => seen.push(s) });
+  assert.deepEqual(seen, ['Let me check. ', { kind: 'searching', query }, { kind: 'reading' }, 'Found it.', { kind: 'searching' }],
+    'an unreadable query still reports searching');
+  assert.equal(outcome.webSearches, 2);
 });

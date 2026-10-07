@@ -15,7 +15,8 @@ struct ChatTranscript: View {
         let scope = TranscriptScope(sessionID: model.readerSessionID, composerID: model.chatComposerID)
         let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
-            TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, diagrams: model.chatDiagrams,
+            TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, progress: model.chatStreamingProgress,
+                fontSize: fontSize, diagrams: model.chatDiagrams,
                 openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
@@ -74,6 +75,8 @@ private struct TranscriptJump: Equatable {
 private struct TranscriptMessage: View {
     let message: AppliedEvent
     let streaming: Bool
+    /// The server's latest status for the streaming answer (searching, adding a paper).
+    let progress: ChatProgress?
     let fontSize: Double
     let diagram: ChatDiagramLink?
     let openDiagram: (UUID) -> Void
@@ -90,15 +93,26 @@ private struct TranscriptMessage: View {
                     // share identical layout, with no row added or removed.
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Thinking…").font(.system(size: fontSize * 0.88)).foregroundStyle(.secondary)
+                        Text(verbatim: progress?.text ?? "Thinking…").font(.system(size: fontSize * 0.88)).foregroundStyle(.secondary)
+                            .lineLimit(2)
                     }
-                    .accessibilityElement(children: .ignore).accessibilityLabel("Assistant is answering")
+                    .accessibilityElement(children: .ignore).accessibilityLabel(Text(verbatim: progress?.text ?? "Assistant is answering"))
                     .accessibilityIdentifier("chat.message.thinking")
                 } else {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
                     ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
                                     speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)")
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
+                    // What the server is doing between pieces of text; cleared when text resumes.
+                    if streaming, let progress {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text(verbatim: progress.text).lineLimit(1).truncationMode(.middle)
+                        }
+                        .font(.system(size: fontSize * 0.78)).foregroundStyle(.secondary)
+                        .accessibilityElement(children: .ignore).accessibilityLabel(Text(verbatim: progress.text))
+                        .accessibilityIdentifier("chat.message.progress")
+                    }
                     // Papers the finished answer names (arXiv IDs, DOIs), found on the device.
                     if !streaming, message.payload.role == .assistant, message.payload.status == .complete, let papers {
                         let mentions = ChatPaperMentions.extract(from: message.payload.text ?? "")
@@ -130,6 +144,7 @@ private struct TranscriptMessage: View {
 private struct TranscriptTable: UIViewRepresentable {
     let messages: [AppliedEvent]
     let streamingID: UUID?
+    let progress: ChatProgress?
     let fontSize: Double
     let diagrams: [UUID: ChatDiagramLink]
     let openDiagram: (UUID) -> Void
@@ -170,6 +185,7 @@ private struct TranscriptTable: UIViewRepresentable {
         private var owner: TranscriptTable?
         private var displayed: [AppliedEvent] = []
         private var displayedStreamingID: UUID?
+        private var displayedProgress: ChatProgress?
         private var displayedFont = 0.0
         private var displayedDiagrams: [UUID: ChatDiagramLink] = [:]
         private var pending: TranscriptTable?
@@ -220,7 +236,8 @@ private struct TranscriptTable: UIViewRepresentable {
                 cell.backgroundConfiguration = .clear()
                 cell.isAccessibilityElement = false
                 cell.contentConfiguration = UIHostingConfiguration {
-                    TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID, fontSize: self.displayedFont,
+                    TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID,
+                        progress: id == self.displayedStreamingID ? self.displayedProgress : nil, fontSize: self.displayedFont,
                         diagram: self.displayedDiagrams[self.displayed[index].payload.entityID], openDiagram: { [weak self] id in self?.owner?.openDiagram(id) },
                         papers: self.owner?.papers,
                         first: index == 0, last: index == self.displayed.count - 1)
@@ -241,7 +258,7 @@ private struct TranscriptTable: UIViewRepresentable {
             }
             lastLocalRequest = value.localRequest
             guard displayed != value.messages || displayedFont != value.fontSize || displayedStreamingID != value.streamingID
-                    || displayedDiagrams != value.diagrams || applying else { return }
+                    || displayedProgress != value.progress || displayedDiagrams != value.diagrams || applying else { return }
             generation += 1
             pending = value
             applyPending(table)
@@ -252,10 +269,11 @@ private struct TranscriptTable: UIViewRepresentable {
             pending = nil
             if !following && anchors.isEmpty && !userScrolling { anchors = readAnchors(table) }
             let old = Dictionary(uniqueKeysWithValues: displayed.map { ($0.id, $0) })
-            let oldFont = displayedFont, oldStreaming = displayedStreamingID, oldDiagrams = displayedDiagrams
+            let oldFont = displayedFont, oldStreaming = displayedStreamingID, oldDiagrams = displayedDiagrams, oldProgress = displayedProgress
             let oldFirst = displayed.first?.id
             let oldLast = displayed.last?.id
             displayed = update.messages; displayedFont = update.fontSize; displayedStreamingID = update.streamingID
+            displayedProgress = update.progress
             displayedDiagrams = update.diagrams
             var snapshot = NSDiffableDataSourceSnapshot<Int, UUID>()
             snapshot.appendSections([0]); snapshot.appendItems(displayed.map(\.id))
@@ -265,6 +283,7 @@ private struct TranscriptTable: UIViewRepresentable {
                 let edgeChanged = (item.id == oldFirst) != (item.id == displayed.first?.id)
                     || (item.id == oldLast) != (item.id == displayed.last?.id)
                 let streamingChanged = (item.id == oldStreaming) != (item.id == displayedStreamingID)
+                    || (item.id == displayedStreamingID && oldProgress != displayedProgress)
                 let diagramChanged = oldDiagrams[item.payload.entityID] != displayedDiagrams[item.payload.entityID]
                 return old[item.id] != item || oldFont != displayedFont || edgeChanged || streamingChanged || diagramChanged ? item.id : nil
             })
