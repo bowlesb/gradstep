@@ -31,6 +31,7 @@ one-line reason a person can act on.
 | `import.arxiv` | add DPO (shared conversion) → ready; reader bundle downloaded and every member's SHA-256 verified; time to ready | worker/trigger/sync broken | all | 0 |
 | `library.sync` | archive, unarchive, remove, re-add each applied once (replays identical) and visible in `v3_library_changes`; stale revision → `revision_conflict` | sync regressions | all | 0 |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
+| `admin.accounts-gate` | `admin-accounts` refuses an anonymous caller (401) and a customer (403 `owner_mfa_required`); the refused grant changes nothing | admin function missing or its owner gate broken | all | 0 |
 | `chat.smoke` | general answer streams, ends with `done`, settles | chat down | daily, weekly (+deploy when `chat` is deployed) | ≈ $0.005 |
 | `chat.paper` | paper answer (Mistral 7B, 9 pages, shared; `--paper=<arXiv id>` to change) streams and ends with `done`; first-text and total time | paper context broken | daily, weekly | ≈ $0.04 |
 | `chat.related` | Related answer has ≥ 2 links (Sources) | web search returning 0 sources | daily, weekly | ≤ $0.18 (35 credits; Tavily is prepaid) |
