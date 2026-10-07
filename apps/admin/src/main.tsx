@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js';
 import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
+import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
@@ -88,9 +89,7 @@ function App() {
         <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
-      {tab === 'Usage' && overview && <section className="panel"><h2>Provider usage this month</h2><p className="muted">Recorded provider estimates; reconciliation can adjust final expense. Customer credits are accounted for separately.</p>
-        <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
-        {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
+      {tab === 'Usage' && owner && <Spending key={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
       {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
@@ -246,7 +245,9 @@ function PrivateAttachment({ id }: { id: string }) {
 
 const root = createRoot(document.getElementById('root')!);
 // Development-only screenshot fixtures (`?fixture=reliability`, `?fixture=accounts`); production builds drop this branch and its module.
-if (import.meta.env.DEV && ['reliability', 'accounts'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'spending') {
+  void import('./spending-fixture').then(({ SpendingFixture }) => root.render(<React.StrictMode><SpendingFixture /></React.StrictMode>));
+} else if (import.meta.env.DEV && ['reliability', 'accounts'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
   void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture }) => root.render(<React.StrictMode>
     {new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture /> : <ReliabilityFixture />}</React.StrictMode>));
 } else {

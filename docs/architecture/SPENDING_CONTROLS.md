@@ -12,7 +12,7 @@ The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST
 - Numeric-only unit records; no private prompts, replies, queries, titles, URLs or raw provider errors. Provider IDs/operation/account/route/model/rate and pricing snapshot permit investigations. Records retained under existing de-identified financial-account policy.
 - Tavily prepaid usage reserves exact units in a verified dated billing period and per-account UTC-day allowance. Unknown attempts retain units. Period starts/ends and baseline usage must be configured from provider evidence; migration default disabled. Legacy usage is not silently treated as complete.
 - Table capacity100k attempts/environment,20k/account,64/operation; bounded JSON/events. Growth stops admission instead of erasing financial/replay history. New analytics distinguishes coverage cutoff/historical legacy-only records.
-- Global monetary lock -> account -> attempt-policy/provider-period -> operation/attempt. Worker-specific paper/tag locks precede existing money admission, preserve existing order; no financial RPC acquires paper/tag locks afterward.
+- Financial operations take budget -> account -> attempt-policy/provider-period -> operation/attempt. Pipeline funding and settlement acquire budget/account locks before the paper fence. Tag claim/record retains its existing tag-row serialization; generic financial RPCs never acquire a tag row afterward.
 - Accounts can be suspended for new spending. Existing owner disable action sets that guard transactionally before the Auth API, and grant/read admissions honor it. Known in-flight liabilities still reconcile.
 - Read-only MFA-owner investigation APIs will expose incurred/reserved/uncertain costs, provider units, operation attempts, anomalies, overhead evidence freshness and reconciliation, separate from customer credits and vendor invoices. No claim of whole-system100USD guarantee absent vendor/infra limits.
 
@@ -60,3 +60,22 @@ Acceptance requires real concurrent database sessions using distinct app account
 with the same Apple identity, plus a shared account using distinct Apple identities; combined grants cannot exceed
 either allowance. Replays, missing/changed identities, unattributed-first reports, refunds/reversals, deleted-account
 restore and Production regression cases must preserve that invariant. The plan-change credit policy is unchanged.
+
+### Owner spending investigation (037, local verification)
+
+The owner-only **Spending** page replaces Usage and requires the existing MFA gate. Its 7/30/90-day summaries
+separate reported provider costs, conservative estimates, customer debits, and unresolved liabilities. An all-date
+unresolved filter includes old prepaid search attempts even when their dollar ceiling is zero. Operation and
+event-history pages use bounded keyset cursors; details show recorded pricing, provider request IDs, numeric units,
+refunds and later reconciliations. Private prompts and paper contents never enter these views.
+
+The operating forecast includes the full provider allocation plus dated overhead evidence. Missing components
+remain **not recorded** and make the forecast incomplete. The dashboard does not manufacture invoices from metrics
+or promise an infrastructure-wide vendor spending cap. External cost observations remain append-only.
+
+Local PostgreSQL checks pass for MFA/role boundaries, account scope, held versus expensed cost, refunds,
+immutable evidence, bounded pagination and unresolved attempts older than the selected window. The admin production
+build and `node scripts/check-spending-dashboard.mjs` pass. The loopback-only journey uses synthetic data to check
+details/history paging, keyboard focus and return, filters with delayed responses, zero-dollar unresolved work,
+empty/error states, phone-width layout and dark appearance. Screenshots under `.artifacts/spending-dashboard/`
+were inspected; development fixtures are excluded from production. Nothing in this checkpoint was deployed.

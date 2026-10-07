@@ -73,6 +73,30 @@ select public.v1_admin_spending(30,:'A') as with_overhead \gset
 select test.assert((:'with_overhead'::jsonb->'forecast'->>'overhead_allocation_microusd')::bigint=30000000 and (:'with_overhead'::jsonb->'forecast'->>'missing_components')::integer=7,'one commitment does not erase missing infrastructure evidence');
 select test.assert((:'with_overhead'::jsonb->'forecast'->>'funded_plan_microusd')::bigint=31000000,'provider allocation counted once alongside prepaid subscription');
 reset role;
+
+-- A short reporting window must not hide a much older unresolved vendor charge
+-- or a prepaid search whose dollar ceiling is zero. Exercise real admissions.
+set role service_role;
+select public.worker_provider_allowance_configure('37000000-0000-0000-0003-000000000001',now()-interval '1 day',now()+interval '29 days',20,0,now(),'fixture-search-baseline',true);
+select public.worker_reserve_operation(:'A','37000000-0000-0000-0001-000000000004','metadata',sha256('prepaid-admin-request'),'beta-credits-v1',0,0);
+select public.worker_provider_attempt_begin(:'A','37000000-0000-0000-0001-000000000004','37000000-0000-0000-0001-000000000004',
+ 'tavily','reference_lookup','search-basic',sha256('prepaid-admin-request'),0,'{"credits":1}');
+select public.worker_provider_attempt_finish(:'A','37000000-0000-0000-0001-000000000004','37000000-0000-0000-0001-000000000004',
+ 'unknown',null,null,'{}','transport_unknown');
+select public.worker_settle_operation(:'A','37000000-0000-0000-0001-000000000004',0,0);
+reset role;
+-- Fixture clock: their original starts predate even the longest reporting window.
+update app_private.metered_operations set created_at=now()-interval '120 days' where account_id=:'A' and id in (:'O2','37000000-0000-0000-0001-000000000004');
+update app_private.provider_attempts set created_at=now()-interval '120 days' where account_id=:'A' and id in (:'O2','37000000-0000-0000-0001-000000000004');
+set role authenticated;
+select public.v1_admin_spending(7,:'A') as aged_summary \gset
+select test.assert((:'aged_summary'::jsonb->'unresolved'->>'total')::integer=2 and
+ (:'aged_summary'::jsonb->'unresolved'->>'held_microusd')::bigint=20000,'all-time unknown attempts include zero-dollar prepaid requests');
+select public.v1_admin_spending_operations(7,:'A',null,null,null,50,true) as unknown_page \gset
+select test.assert(jsonb_array_length(:'unknown_page'::jsonb->'operations')=2 and :'unknown_page'::jsonb->>'since' is null,
+ 'unresolved drill-down spans all dates including zero-dollar prepaid liability');
+select test.assert(jsonb_array_length(public.v1_admin_spending_operations(7,:'A')->'operations')=2,'ordinary history retains its chosen time window');
+reset role;
 update app_private.accounts set closed_at=now() where id=:'A';
 set role authenticated;
 select test.assert((public.v1_admin_spending_operation(:'A',:'O2')->'account'->>'closed')::boolean,'de-identified financial records survive closure for authorized investigation');

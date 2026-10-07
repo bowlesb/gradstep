@@ -57,13 +57,14 @@ export function Spending({ api = liveSpendingApi, reloadKey = 0 }: { api?: Spend
   const [days, setDays] = useState(30), [account, setAccount] = useState<string | null>(null), [draft, setDraft] = useState('');
   const [summary, setSummary] = useState<SpendingSummary | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<{ account: string; operation: string } | null>(null);
+  const detailTrigger = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     let current = true; setSummary(null); setError(''); setSelected(null);
     api.summary(days, account).then(value => { if (current) setSummary(value); }, e => { if (current) setError(errorText(e)); });
     return () => { current = false; };
   }, [api, days, account, reloadKey, retry]);
   return <div className="spending">
-    <form className="toolbar" onSubmit={event => { event.preventDefault(); const value = draft.trim(); if (value && !uuid.test(value)) { setError('Enter a complete account ID.'); return; } setAccount(value || null); }}>
+    <form className="toolbar" onSubmit={event => { event.preventDefault(); const value = draft.trim(); if (value && !uuid.test(value)) { setError('Enter a complete account ID.'); return; } setError(''); setAccount(value.toLowerCase() || null); }}>
       <label>Period<select value={days} onChange={e => setDays(Number(e.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option><option value={90}>Last 90 days</option></select></label>
       <label className="account-filter">Account ID<input value={draft} onChange={e => setDraft(e.target.value)} placeholder="All accounts" spellCheck={false} /></label>
       <button type="submit" className="quiet">Apply filter</button>
@@ -90,8 +91,8 @@ export function Spending({ api = liveSpendingApi, reloadKey = 0 }: { api?: Spend
         {summary.providers.length >= summary.provider_group_limit && <p className="muted">Showing the {summary.provider_group_limit} busiest provider/model groups. Filter by account for a narrower view.</p>}
         <p className="muted">Attempt tracking began {date(summary.coverage_started_at)}. Earlier records: {summary.legacy.usage_records}, estimated {money(summary.legacy.estimated_microusd)}, adjustments {money(summary.legacy.reconciliation_microusd)}. They may not include every retry.</p>
       </section>
-      <OperationList key={`${days}:${account}:${reloadKey}:${retry}`} api={api} days={days} account={account} onSelect={setSelected} />
-      {selected && <OperationDetail key={`${selected.account}:${selected.operation}`} api={api} selected={selected} onClose={() => setSelected(null)} />}
+      <OperationList key={`${days}:${account}:${reloadKey}:${retry}`} api={api} days={days} account={account} onSelect={(value, trigger) => { detailTrigger.current = trigger; setSelected(value); }} />
+      {selected && <OperationDetail key={`${selected.account}:${selected.operation}`} api={api} selected={selected} onClose={() => { setSelected(null); detailTrigger.current?.focus(); }} />}
       <section className="panel"><h2>Search allowance</h2>
         {!summary.allowances.length && <p className="notice">Tavily is gated until its billing period, usage baseline and overage setting are verified.</p>}
         {summary.allowances.map(a => <div className="allowance-row" key={a.id}><strong>{a.provider}</strong><span>{new Date(a.starts_at).toLocaleDateString()} – {new Date(a.ends_at).toLocaleDateString()}</span><span>{a.baseline_units + a.spent_units} used + {a.reserved_units} held / {a.limit_units}</span><span className="badge">{a.enabled ? 'Enabled' : 'Paused'}</span><small className="muted">Baseline {a.baseline_units}; evidence {a.evidence_reference}, checked {date(a.observed_at)}</small></div>)}
@@ -106,7 +107,7 @@ function CostMetric({ title, value, note }: { title: string; value: string; note
   return <section className="metric"><p>{title}</p><strong>{value}</strong><small>{note}</small></section>;
 }
 
-function OperationList({ api, days, account, onSelect }: { api: SpendingApi; days: number; account: string | null; onSelect(value: { account: string; operation: string }): void }) {
+function OperationList({ api, days, account, onSelect }: { api: SpendingApi; days: number; account: string | null; onSelect(value: { account: string; operation: string }, trigger: HTMLButtonElement): void }) {
   const [onlyUnknown, setOnlyUnknown] = useState(false), [rows, setRows] = useState<SpendingOperation[]>([]), [cursor, setCursor] = useState<Cursor | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [retry, setRetry] = useState(0), generation = useRef(0);
   useEffect(() => {
@@ -123,7 +124,7 @@ function OperationList({ api, days, account, onSelect }: { api: SpendingApi; day
   return <section className="panel"><div className="section-heading"><h2>Investigate an operation</h2><label className="check"><input type="checkbox" checked={onlyUnknown} onChange={e => setOnlyUnknown(e.target.checked)} />Unresolved only, all dates</label></div>
     {error && <p className="error" role="alert">{error} <button className="quiet inline" onClick={() => setRetry(n => n + 1)}>Retry</button></p>}
     <div className="table-scroll"><table><thead><tr><th>Operation</th><th>Account</th><th>Started</th><th>State</th><th className="num">Credits</th><th className="num">Provider cost</th><th className="num">Held</th></tr></thead><tbody>{rows.map(row => <tr key={`${row.account_id}:${row.id}`}>
-      <td><button className="quiet inline" onClick={() => onSelect({ account: row.account_id, operation: row.id })}>{name(row.kind)} · {short(row.id)}</button><small>{row.attempts} attempts{!row.attempt_accounting ? ' · legacy coverage' : ''}</small></td><td><code title={row.account_id}>{short(row.account_id)}</code></td><td>{date(row.created_at)}</td><td>{name(row.state)}</td><td className="num">{row.actual_credits ?? `≤ ${row.credit_ceiling}`}</td><td className="num">{money(row.attempt_accounting ? row.current_provider_microusd : row.settled_microusd)}</td><td className="num">{money(row.state === 'settled' ? row.provider_liability_microusd : row.spend_ceiling_microusd)}</td>
+      <td><button className="quiet inline" onClick={event => onSelect({ account: row.account_id, operation: row.id }, event.currentTarget)}>{name(row.kind)} · {short(row.id)}</button><small>{row.attempts} attempts{!row.attempt_accounting ? ' · legacy coverage' : ''}</small></td><td><code title={row.account_id}>{short(row.account_id)}</code></td><td>{date(row.created_at)}</td><td>{name(row.state)}</td><td className="num">{row.actual_credits ?? `≤ ${row.credit_ceiling}`}</td><td className="num">{money(row.attempt_accounting ? row.current_provider_microusd : row.settled_microusd)}</td><td className="num">{money(row.state === 'settled' ? row.provider_liability_microusd : row.spend_ceiling_microusd)}</td>
     </tr>)}</tbody></table></div>
     {busy && <p role="status">Loading operations…</p>}{!busy && !error && !rows.length && <p className="empty">No matching operations.</p>}
     {cursor && <button className="quiet" disabled={busy} onClick={() => void next()}>Load more operations</button>}
