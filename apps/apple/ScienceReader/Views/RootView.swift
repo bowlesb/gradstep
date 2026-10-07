@@ -70,7 +70,7 @@ struct RootView: View {
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .sheet(item: $model.tagEditor) { request in
-            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper).macSheetKeys() }
+            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram).macSheetKeys() }
@@ -78,7 +78,7 @@ struct RootView: View {
         .sheet(isPresented: $model.showReport, onDismiss: {
             model.reportScreenshot = nil
             if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
-        }) { ReportComposer(model: model).macSheetKeys() }
+        }) { ReportComposer(model: model) }
         .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
         .alert("Gradstep", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
