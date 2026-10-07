@@ -487,11 +487,42 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.table.1.row.5"].exists)
         XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "|:---")).firstMatch.exists,
                        "No pipe text remains once the answer is complete")
-        // The text around the table is still read as the assistant's message.
+        // The text around the table is still read as the assistant's message, without its "Answer:" label.
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Assistant: This synthetic fixture")).firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Answer:")).firstMatch.exists)
         if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
         reveal(table, in: app, up: true)
         capture(app, "Answer table")
+    }
+
+    /// Owner feedback #10 and #3: selecting answer text offers Ask about this, Explain and Define next to
+    /// Copy; a formula offers Copy LaTeX and Copy as text.
+    func testAnswerTextAndFormulasOfferChatActions() throws {
+        let app = askChatFixture("answer", "Why scale by the square root of d_k?")
+        let answer = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+            "chat.message.text.", "synthetic fixture answer")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 15))
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        sleep(1)
+        let item = { (title: String) in app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch }
+        // Long-press the first word ("Scaling").
+        answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 24, dy: 12)).press(forDuration: 1.2)
+        XCTAssertTrue(item("Ask about this").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItems["Copy"].exists, "Copy stays first")
+        XCTAssertTrue(item("Explain").exists) // Define follows (on a narrow screen, after the menu's arrow)
+        capture(app, "Answer text selection actions")
+        item("Ask about this").tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        let quoted = NSPredicate(format: "value BEGINSWITH %@", "About “Scaling”: ")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: quoted, object: composer)], timeout: 5), .completed,
+                       String(describing: composer.value))
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        sleep(1)
+        // Long-press the inline formula after "Scaling by ".
+        answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 112, dy: 12)).press(forDuration: 1.2)
+        XCTAssertTrue(item("Copy LaTeX").waitForExistence(timeout: 5))
+        XCTAssertTrue(item("Copy as text").exists)
+        capture(app, "Formula actions")
     }
 
     /// Audit gap 9: while the server searches, a status line says so (in place of

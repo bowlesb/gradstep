@@ -95,7 +95,7 @@ public enum ChatPreview {
             switch block {
             case .paragraph(let content), .listItem(_, _, let content): inline = content
             case .heading(_, let content): inline = content; heading = true
-            case .displayMath, .preformatted, .sources: continue
+            case .displayMath, .preformatted, .table, .sources: continue
             }
             var line = inline.map { piece -> String in
                 switch piece {

@@ -86,7 +86,7 @@ struct ChatFixtureTransport: ChatTransport {
     /// A comparison table (inline math, bold, a pipe inside code), papers named by
     /// arXiv ID, arXiv link and DOI, and a source that appears only in Sources.
     static let research = """
-    This synthetic fixture compares preference-optimization objectives; no AI request was made and the numbers are placeholders.
+    **Answer:** This synthetic fixture compares preference-optimization objectives; no AI request was made and the numbers are placeholders.
 
     | Method | Objective | Reward model | Win rate |
     |:---|:---|:---:|---:|
@@ -95,7 +95,7 @@ struct ChatFixtureTransport: ChatTransport {
     | IPO | \\((\\Delta_\\theta - \\tfrac{1}{2\\beta})^2\\) | No | 63% |
     | KTO | prospect value `v(x | y)` | No | 62% |
 
-    DPO drops the separate reward model and the sampling loop, so it is cheaper to tune.
+    DPO drops the separate reward model and the sampling loop, so it is cheaper to tune. **At $\\beta = 0$:** the policy ignores the reference model.
 
     Papers to read next:
 

@@ -1976,6 +1976,36 @@ final class ReaderModel {
         }
     }
 
+    /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Ask about this
+    /// quotes it into the composer; Explain and Define ask about it as a new question in this chat.
+    enum ChatQuoteAction { case ask, explain, define }
+    /// Changes when the composer should take focus (Ask about this).
+    private(set) var chatComposerFocusRequest = UUID()
+
+    func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {
+        let quote = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatGenerationRequest.maximumSelectionScalars))
+        guard !quote.isEmpty else { return }
+        let draft = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch action {
+        case .ask:
+            // A reference the reader completes with their question; an existing draft follows it.
+            chatInput = "About “\(quote)”: " + draft
+            chatComposerFocusRequest = UUID()
+        case .explain, .define:
+            let prompt = action == .explain ? "Explain in plain terms, including any symbols: \(quote)"
+                : "Define the terms and symbols in: \(quote)"
+            // Never overwrite a draft: with one, the question waits in the composer instead.
+            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; chatComposerFocusRequest = UUID(); return }
+            chatInput = prompt
+            if !isSignedIn { openSignIn(); return }
+            let scope = sessionID, composer = chatComposerID
+            Task {
+                guard sessionID == scope, chatComposerID == composer, chatInput == prompt else { return }
+                await sendMessage()
+            }
+        }
+    }
+
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
         let prompts: [SelectionAction: String] = [

@@ -105,6 +105,8 @@ test('request params cache the paper prefix and enable adaptive thinking with se
   assert.equal(params.model, 'claude-sonnet-5-5'); assert.equal(params.max_tokens, CHAT_MAX_TOKENS);
   assert.deepEqual(params.thinking, { type: 'adaptive' }); assert.deepEqual(params.output_config, { effort: 'low' });
   assert.deepEqual(params.betas, [FALLBACK_BETA]); assert.equal(params.fallbacks, 'default');
+  // Owner feedback 2026-10-07: answers start with their content, not an "Answer:" label.
+  for (const mode of ['paper', 'general'] as const) assert.match(chatInstructions(mode), /no label such as "Answer:"/);
   const system = params.system as Anthropic.Beta.Messages.BetaTextBlockParam[];
   assert.equal(system.length, 2); assert.equal(system[0].cache_control, undefined);
   assert.deepEqual(system[1].cache_control, { type: 'ephemeral' });

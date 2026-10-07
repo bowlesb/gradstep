@@ -27,6 +27,16 @@ stays one combined element per run, and the table is an element ("Table, 4 rows,
 "Columns: …" and "Row n: header, value; …" (identifiers `chat.table.N`, `.header`, `.row.M`). Messages without a
 table keep the single combined element.
 
+**Selectable answers (2026-10-07, owner feedback 3, 10, 11).** Inline Markdown is parsed once per line with each
+formula as a private-use placeholder (`ChatRichText.styledRuns`), so emphasis spanning math applies; links stay inert
+(link attributes removed). In answers, paragraphs, headings and list items render through `ChatSelectableText`, a
+non-editable, non-scrolling `UITextView` (TextKit 2) sized to the proposed width, with inline formulas as
+`NSTextAttachment` images carrying their LaTeX (`.chatLatex`). Its edit menu adds Ask about this / Explain / Define
+before the system actions; a selection that is one formula, or a long press on it (`UITextItem` menu), offers Copy
+LaTeX, Copy as text, Explain, Define, Ask about this; display math has the same items as a context menu. Copy and
+quotes write formulas as `\( … \)`. User messages, tables and streaming answers keep the earlier rendering/menus.
+`ChatRichText.withoutAnswerLabel` hides a leading "Answer:" label in answers.
+
 **Papers in this answer (2026-10-07, legacy gap 2).** Under a complete assistant answer, `ChatPaperMentions` (Core)
 lists the papers its text names: arXiv links (`arxiv.org/abs|pdf/…`), `arXiv:ID`/`arXiv ID` (validated by
 `ArxivReference`), and DOIs (Crossref's pattern, trailing punctuation and unbalanced `)` trimmed; `10.48550/arXiv.*`

@@ -69,7 +69,9 @@ dark, 390 px phone, dialogs). Not yet exercised against staging or with a real o
 Markdown tables render as native tables (pipe text only while incomplete during streaming); **Papers in this
 answer** lists arXiv IDs and DOIs an answer names, with Open (confirmed) and Add to library; a `status` stream event
 shows "Searching the web for “…”", "Reading results…", "Finding the paper…", "Adding to your library…" under the
-streaming answer. Verified with Core/unit/backend tests and Simulator UI journeys on the chat fixture (iPhone and
+streaming answer. Owner feedback (build 14, items 3, 10, 11): selected answer text offers Ask about this, Explain and
+Define next to Copy; formulas offer Copy LaTeX and Copy as text; the "Answer:" label is gone; bold around inline math
+renders. Verified with Core/unit/backend tests and Simulator UI journeys on the chat fixture (iPhone and
 iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
 progress and live DOI adds from an answer are unverified against staging.
 

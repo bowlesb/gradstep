@@ -477,3 +477,13 @@ or inside answers (no page arrangement or selection action changed).
 - **Progress**: a backward-compatible `status` stream event (`searching` with the query, `reading`, `finding_paper`,
   `adding_paper`), shown as one line under the streaming answer. The query goes only to the reader's stream, never to
   logs. Needs a chat function deploy (not deployed by this work); older servers simply send none.
+- **Owner feedback (build 14, items 3, 10, 11):** answer paragraphs, headings and list items are now read-only
+  selectable text views (same look; formulas are image attachments) because SwiftUI `Text` cannot extend its selection
+  menu. Selecting answer text offers **Ask about this** (puts `About “…”: ` before any draft in the composer and focuses
+  it), **Explain** and **Define** (sent as a new question in this chat; with a draft in the composer they wait there
+  instead of replacing it), then the system's Copy/Look Up/Share; Copy keeps formulas as `\( … \)`. A formula (long
+  press, right-click on the Mac; display formulas through their context menu) offers Copy LaTeX, Copy as text (a
+  Unicode approximation, `ChatMathText.plain`), Explain, Define, Ask about this. "Define" is a chat-only prompt
+  ("Define the terms and symbols in: …"); the paper's Explain prompt is reused. Your own messages and streaming answers
+  keep the system menu. A leading "Answer:" label is stripped on display (stored text unchanged) and the chat
+  instructions say not to write one. Bold/italic spans around inline math (`**$n = 0$:**`) now render as emphasis.

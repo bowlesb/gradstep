@@ -101,7 +101,8 @@ private struct TranscriptMessage: View {
                 } else {
                     let sources = streaming ? nil : ChatRichText.trailingSources(message.payload.text ?? "")
                     ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
-                                    speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)")
+                                    speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)",
+                                    assistant: message.payload.role == .assistant, onQuote: quoteHandler)
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
                     // What the server is doing between pieces of text; cleared when text resumes.
                     if streaming, let progress {
@@ -138,6 +139,12 @@ private struct TranscriptMessage: View {
         .padding(.horizontal, 16).padding(.top, first ? 16 : 0).padding(.bottom, last ? 24 : 20)
         .frame(maxWidth: 720).frame(maxWidth: .infinity)
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
+    }
+
+    /// Selected answer text and formulas: Ask about this, Explain, Define (not while streaming).
+    private var quoteHandler: ChatQuoteHandler? {
+        guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
+        return { action, quote in model.chatQuoteAction(action, quote: quote) }
     }
 }
 

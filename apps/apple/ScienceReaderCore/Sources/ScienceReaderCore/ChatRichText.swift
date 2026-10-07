@@ -365,6 +365,73 @@ public enum ChatRichText {
         return result
     }
 
+    // MARK: Answer label
+
+    /// An answer's leading "Answer:" label (`**Answer:**`, `Answer:`, `## Answer:`), which says nothing
+    /// (owner feedback 2026-10-07). Display only; the stored text keeps it.
+    public static func withoutAnswerLabel(_ text: String) -> String {
+        guard let label = text.range(of: #"^\s*(?:#{1,6}\s+)?(?:\*\*|__|\*|_)?\s*answer\s*(?:\*\*|__|\*|_)?\s*:\s*(?:\*\*|__|\*|_)?[ \t]*\n*"#,
+                                     options: [.regularExpression, .caseInsensitive]) else { return text }
+        return String(text[label.upperBound...])
+    }
+
+    // MARK: Styled runs
+
+    /// Inline parts as runs to draw: Markdown (bold, italic, code) parsed once across the
+    /// whole line, so emphasis around inline math (`**$n = 0$:**`) applies instead of
+    /// showing its asterisks. Text runs carry Foundation's inline presentation intents.
+    public enum StyledRun: Equatable, Sendable {
+        case text(AttributedString)
+        case math(String, InlinePresentationIntent)
+    }
+
+    public static func styledRuns(_ parts: [ChatInline]) -> [StyledRun] {
+        // Each formula becomes one private-use placeholder while the Markdown is parsed.
+        let base: UInt32 = 0xF0000
+        var combined = "", formulas: [String] = []
+        for part in parts {
+            switch part {
+            case .text(let value): combined += String(String.UnicodeScalarView(value.unicodeScalars.filter { $0.value < base }))
+            case .math(let latex):
+                guard let placeholder = Unicode.Scalar(base + UInt32(formulas.count)) else { return fallbackRuns(parts) }
+                combined.unicodeScalars.append(placeholder); formulas.append(latex)
+            }
+        }
+        guard let parsed = try? AttributedString(markdown: ChatDisplayText.inlineMarkdownPreservingBackslashes(inertLinks(combined)),
+                                                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))
+        else { return fallbackRuns(parts) }
+        var runs: [StyledRun] = []
+        for run in parsed.runs {
+            let slice = parsed[run.range]
+            let intent = run.inlinePresentationIntent ?? []
+            var pending = ""
+            func flush() {
+                guard !pending.isEmpty else { return }
+                var text = AttributedString(pending); text.mergeAttributes(run.attributes)
+                text.link = nil // links stay inert: shown, never followed
+                runs.append(.text(text)); pending = ""
+            }
+            for scalar in String(slice.characters).unicodeScalars {
+                if scalar.value >= base, Int(scalar.value - base) < formulas.count {
+                    flush(); runs.append(.math(formulas[Int(scalar.value - base)], intent))
+                } else {
+                    pending.unicodeScalars.append(scalar)
+                }
+            }
+            flush()
+        }
+        return runs
+    }
+
+    private static func fallbackRuns(_ parts: [ChatInline]) -> [StyledRun] {
+        parts.map { part in
+            switch part {
+            case .text(let value): .text(AttributedString(value))
+            case .math(let latex): .math(latex, [])
+            }
+        }
+    }
+
     // MARK: Inline math
 
     /// Splits `\( … \)` and conservative `$ … $` (no space just inside the

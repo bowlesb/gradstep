@@ -30,16 +30,20 @@ struct ChatMessageText: View {
     /// "You" or "Assistant": the start of the message's spoken label.
     let speaker: String
     let identifier: String
+    /// An answer: its text is selectable with actions, and a leading "Answer:" label is not shown.
+    var assistant = false
+    var onQuote: ChatQuoteHandler?
 
     var body: some View {
-        let blocks = ChatRichText.parse(source, streaming: streaming)
+        let shown = assistant ? ChatRichText.withoutAnswerLabel(source) : source
+        let blocks = ChatRichText.parse(shown, streaming: streaming)
         if blocks.contains(where: { if case .table = $0 { true } else { false } }) {
-            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, speaker: speaker)
+            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, speaker: speaker, selectable: assistant, onQuote: onQuote)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(identifier)
         } else {
-            let spoken = streaming ? source : (ChatRichText.trailingSources(source)?.body ?? source)
-            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false)
+            let spoken = streaming ? shown : (ChatRichText.trailingSources(shown)?.body ?? shown)
+            ChatBlocksView(blocks: blocks, fontSize: fontSize, showSources: false, selectable: assistant, onQuote: onQuote)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier(identifier)
                 .accessibilityLabel(Text("\(speaker): \(Text(ChatInlineText.markdown(spoken, inertLinks: false)))"))
@@ -54,6 +58,10 @@ struct ChatBlocksView: View {
     let fontSize: Double
     var showSources = true
     var speaker: String?
+    /// Answers: paragraphs, headings and list items are selectable text views (same look).
+    var selectable = false
+    /// Answers: actions on selected text and formulas (nil while streaming).
+    var onQuote: ChatQuoteHandler?
     @Environment(\.colorScheme) private var colorScheme
 
     private enum Group { case flow([ChatBlock]), table(ChatTable, number: Int) }
@@ -101,17 +109,44 @@ struct ChatBlocksView: View {
     @ViewBuilder private func blockView(_ block: ChatBlock) -> some View {
         switch block {
         case .paragraph(let parts):
-            inlineText(parts, size: fontSize).lineSpacing(4).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            if selectable {
+                ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote)
+            } else {
+                inlineText(parts, size: fontSize).lineSpacing(4).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
         case .heading(let level, let parts):
-            inlineText(parts, size: fontSize * (level <= 2 ? 1.12 : 1.04)).fontWeight(.semibold)
-                .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).accessibilityAddTraits(.isHeader)
+            if selectable {
+                ChatSelectableText(parts: parts, size: fontSize * (level <= 2 ? 1.12 : 1.04), weight: .semibold, lineSpacing: 0,
+                                   dark: colorScheme == .dark, onQuote: onQuote)
+                    .accessibilityAddTraits(.isHeader)
+            } else {
+                inlineText(parts, size: fontSize * (level <= 2 ? 1.12 : 1.04)).fontWeight(.semibold)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled).accessibilityAddTraits(.isHeader)
+            }
         case .listItem(let marker, let depth, let parts):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).font(.system(size: fontSize)).foregroundStyle(.secondary).accessibilityHidden(marker == "•")
-                inlineText(parts, size: fontSize).lineSpacing(4).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                if selectable {
+                    // A text view has no baseline for SwiftUI: its first line's is the font's ascender.
+                    ChatSelectableText(parts: parts, size: fontSize, dark: colorScheme == .dark, onQuote: onQuote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .alignmentGuide(.firstTextBaseline) { _ in UIFont.systemFont(ofSize: fontSize).ascender }
+                } else {
+                    inlineText(parts, size: fontSize).lineSpacing(4).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                }
             }.padding(.leading, CGFloat(depth) * 16)
         case .displayMath(let latex):
-            displayMath(latex)
+            if let onQuote {
+                displayMath(latex).contextMenu {
+                    Button("Copy LaTeX", systemImage: "doc.on.doc") { ChatFormulaActions.copyLatex(latex) }
+                    Button("Copy as text", systemImage: "textformat") { ChatFormulaActions.copyText(latex) }
+                    Button("Explain", systemImage: "lightbulb") { onQuote(.explain, "\\[\(latex)\\]") }
+                    Button("Define", systemImage: "character.book.closed") { onQuote(.define, "\\[\(latex)\\]") }
+                    Button("Ask about this", systemImage: "text.bubble") { onQuote(.ask, "\\[\(latex)\\]") }
+                }
+            } else {
+                displayMath(latex)
+            }
         case .sources(let sources):
             if showSources { ChatSourcesView(sources: sources, fontSize: fontSize) }
         case .table(let table):
@@ -161,6 +196,175 @@ struct ChatBlocksView: View {
     }
 }
 
+/// Runs an action on text or a formula from an answer (Ask about this, Explain, Define).
+typealias ChatQuoteHandler = @MainActor (ReaderModel.ChatQuoteAction, String) -> Void
+
+extension NSAttributedString.Key {
+    /// The LaTeX of an inline formula drawn as an image attachment.
+    static let chatLatex = NSAttributedString.Key("ScienceReaderChatLatex")
+}
+
+/// The actions on one formula, shared by the display-math context menu and the
+/// selection menu of inline formulas.
+enum ChatFormulaActions {
+    @MainActor static func copyLatex(_ latex: String) { UIPasteboard.general.string = latex }
+    @MainActor static func copyText(_ latex: String) { UIPasteboard.general.string = ChatMathText.plain(latex) }
+
+    @MainActor static func menu(_ latex: String, quote: String, onQuote: @escaping ChatQuoteHandler) -> [UIMenuElement] {
+        [UIAction(title: "Copy LaTeX", image: UIImage(systemName: "doc.on.doc")) { _ in copyLatex(latex) },
+         UIAction(title: "Copy as text", image: UIImage(systemName: "textformat")) { _ in copyText(latex) },
+         UIAction(title: "Explain", image: UIImage(systemName: "lightbulb")) { _ in onQuote(.explain, quote) },
+         UIAction(title: "Define", image: UIImage(systemName: "character.book.closed")) { _ in onQuote(.define, quote) },
+         UIAction(title: "Ask about this", image: UIImage(systemName: "text.bubble")) { _ in onQuote(.ask, quote) }]
+    }
+}
+
+/// Answer text the reader can select and act on (owner feedback 2026-10-07): a read-only
+/// text view whose selection menu adds Ask about this, Explain and Define to Copy, and
+/// whose inline formulas (image attachments) offer Copy LaTeX and Copy as text. Copy and
+/// quotes keep formulas as their LaTeX. On the Mac it is the right-click menu.
+struct ChatSelectableText: UIViewRepresentable {
+    let parts: [ChatInline]
+    let size: Double
+    var weight: UIFont.Weight = .regular
+    var lineSpacing: CGFloat = 4
+    let dark: Bool
+    var onQuote: ChatQuoteHandler?
+
+    struct Key: Equatable { let parts: [ChatInline]; let size: Double; let weight: CGFloat; let dark: Bool }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var key: Key?
+        var onQuote: ChatQuoteHandler?
+
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard let onQuote, range.length > 0, let text = textView.attributedText else { return nil }
+            let quote = ChatSelectableText.quote(text, range: range)
+            guard !quote.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            if let latex = ChatSelectableText.soleFormula(text, range: range) {
+                return UIMenu(children: ChatFormulaActions.menu(latex, quote: quote, onQuote: onQuote))
+            }
+            let actions = [UIAction(title: "Ask about this", image: UIImage(systemName: "text.bubble")) { _ in onQuote(.ask, quote) },
+                           UIAction(title: "Explain", image: UIImage(systemName: "lightbulb")) { _ in onQuote(.explain, quote) },
+                           UIAction(title: "Define", image: UIImage(systemName: "character.book.closed")) { _ in onQuote(.define, quote) }]
+            // Copy (the system's edit group) stays first; the chat actions follow it, then Look Up, Share and the rest.
+            let isEdit = { (element: UIMenuElement) in (element as? UIMenu)?.identifier == .standardEdit }
+            return UIMenu(children: suggestedActions.filter(isEdit) + [UIMenu(options: .displayInline, children: actions)]
+                          + suggestedActions.filter { !isEdit($0) })
+        }
+
+        /// Long-press (or right-click) on an inline formula.
+        func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem, defaultMenu: UIMenu) -> UITextItem.MenuConfiguration? {
+            guard let onQuote, case .textAttachment = textItem.content, let text = textView.attributedText,
+                  let latex = ChatSelectableText.soleFormula(text, range: textItem.range) else { return nil }
+            return UITextItem.MenuConfiguration(menu: UIMenu(children: ChatFormulaActions.menu(latex, quote: "\\(\(latex)\\)", onQuote: onQuote)))
+        }
+
+        /// A tap on a formula does nothing (its image is not a document to preview or share).
+        func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+            if case .textAttachment = textItem.content { return nil }
+            return defaultAction
+        }
+    }
+
+    /// Copy keeps formulas as LaTeX instead of image placeholders.
+    final class TextView: UITextView {
+        override func copy(_ sender: Any?) {
+            guard let text = attributedText, selectedRange.length > 0 else { return super.copy(sender) }
+            UIPasteboard.general.string = ChatSelectableText.quote(text, range: selectedRange)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> TextView {
+        let view = TextView(usingTextLayoutManager: true)
+        view.isEditable = false; view.isSelectable = true; view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero; view.textContainer.lineFragmentPadding = 0
+        view.dataDetectorTypes = []
+        view.delegate = context.coordinator
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return view
+    }
+
+    func updateUIView(_ view: TextView, context: Context) {
+        context.coordinator.onQuote = onQuote
+        let key = Key(parts: parts, size: size, weight: weight.rawValue, dark: dark)
+        guard context.coordinator.key != key else { return }
+        context.coordinator.key = key
+        view.attributedText = attributed()
+        view.invalidateIntrinsicContentSize()
+    }
+
+    /// Wraps to any finite proposed width (so stacks can size it like Text); unproposed, one line.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: TextView, context: Context) -> CGSize? {
+        if let width = proposal.width, width.isFinite {
+            let fit = uiView.sizeThatFits(CGSize(width: max(width, 1), height: CGFloat.greatestFiniteMagnitude))
+            return CGSize(width: width, height: ceil(fit.height))
+        }
+        let fit = uiView.sizeThatFits(CGSize(width: CGFloat(10_000), height: CGFloat.greatestFiniteMagnitude))
+        return CGSize(width: ceil(fit.width), height: ceil(fit.height))
+    }
+
+    private func attributed() -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = lineSpacing
+        let base = UIFont.systemFont(ofSize: size, weight: weight)
+        for run in ChatRichText.styledRuns(parts) {
+            switch run {
+            case .text(let text):
+                let intent = text.inlinePresentationIntent ?? []
+                var attributes: [NSAttributedString.Key: Any] = [.font: Self.font(base, intent: intent), .foregroundColor: UIColor.label, .paragraphStyle: paragraph]
+                if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+                result.append(NSAttributedString(string: String(text.characters), attributes: attributes))
+            case .math(let latex, _):
+                if let rendered = ChatMathCache.shared.render(latex, size: size, display: false, dark: dark) {
+                    let attachment = NSTextAttachment(image: rendered.image)
+                    attachment.bounds = CGRect(x: 0, y: -rendered.descent, width: rendered.image.size.width, height: rendered.image.size.height)
+                    let piece = NSMutableAttributedString(attachment: attachment)
+                    piece.addAttributes([.chatLatex: latex, .paragraphStyle: paragraph, .font: base], range: NSRange(location: 0, length: piece.length))
+                    result.append(piece)
+                } else {
+                    result.append(NSAttributedString(string: "\\(\(latex)\\)", attributes: [
+                        .font: UIFont.monospacedSystemFont(ofSize: size * 0.9, weight: .regular), .foregroundColor: UIColor.label, .paragraphStyle: paragraph]))
+                }
+            }
+        }
+        return result
+    }
+
+    private static func font(_ base: UIFont, intent: InlinePresentationIntent) -> UIFont {
+        if intent.contains(.code) { return UIFont.monospacedSystemFont(ofSize: base.pointSize * 0.92, weight: .regular) }
+        var traits = base.fontDescriptor.symbolicTraits
+        if intent.contains(.stronglyEmphasized) { traits.insert(.traitBold) }
+        if intent.contains(.emphasized) { traits.insert(.traitItalic) }
+        guard let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else { return base }
+        return UIFont(descriptor: descriptor, size: base.pointSize)
+    }
+
+    /// The selected text with each formula as its delimited LaTeX.
+    static func quote(_ text: NSAttributedString, range: NSRange) -> String {
+        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+        var out = ""
+        text.enumerateAttribute(.chatLatex, in: clamped) { value, part, _ in
+            if let latex = value as? String { out += "\\(\(latex)\\)" } else { out += (text.string as NSString).substring(with: part) }
+        }
+        return out
+    }
+
+    /// The LaTeX when the range is a single formula (allowing surrounding spaces).
+    static func soleFormula(_ text: NSAttributedString, range: NSRange) -> String? {
+        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+        var formulas: [String] = [], other = false
+        text.enumerateAttribute(.chatLatex, in: clamped) { value, part, _ in
+            if let latex = value as? String { formulas.append(latex) }
+            else if !(text.string as NSString).substring(with: part).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { other = true }
+        }
+        return formulas.count == 1 && !other ? formulas[0] : nil
+    }
+}
+
 /// Inline Markdown with typeset inline math, shared by paragraphs and table cells.
 enum ChatInlineText {
     /// Inline Markdown whose LaTeX backslashes stay literal. Displayed text
@@ -169,12 +373,13 @@ enum ChatInlineText {
         LocalizedStringKey(ChatDisplayText.inlineMarkdownPreservingBackslashes(inertLinks ? ChatRichText.inertLinks(text) : text))
     }
 
+    /// Emphasis is parsed across the whole line, so `**$n = 0$:**` is bold, not asterisks.
     @MainActor static func text(_ parts: [ChatInline], size: Double, dark: Bool) -> Text {
-        parts.reduce(Text(verbatim: "")) { text, part in
-            switch part {
+        ChatRichText.styledRuns(parts).reduce(Text(verbatim: "")) { text, run in
+            switch run {
             case .text(let value):
-                return text + Text(markdown(value)).font(.system(size: size))
-            case .math(let latex):
+                return text + Text(value).font(.system(size: size))
+            case .math(let latex, _):
                 if let rendered = ChatMathCache.shared.render(latex, size: size, display: false, dark: dark) {
                     return text + Text(Image(uiImage: rendered.image)).baselineOffset(-rendered.descent)
                 }

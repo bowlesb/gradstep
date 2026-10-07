@@ -117,6 +117,49 @@ struct ChatRichTextTests {
         #expect(spoken == "Intro \\(x\\)\n\nColumns: a, b\nRow 1: a, 1; b, 2")
     }
 
+    // MARK: Owner feedback 2026-10-07
+
+    @Test func emphasisAroundInlineMathApplies() throws {
+        // `**$n = 0$:**` used to show its asterisks: emphasis is parsed across the formula.
+        let runs = ChatRichText.styledRuns(ChatRichText.inline("**$n = 0$:** the base case, *with \\(x\\) here*, `code`"))
+        guard case .math(let latex, let intent) = runs.first else { Issue.record("\(runs)"); return }
+        #expect(latex == "n = 0")
+        #expect(intent.contains(.stronglyEmphasized))
+        let texts = runs.compactMap { run -> (String, InlinePresentationIntent)? in
+            if case .text(let text) = run { return (String(text.characters), text.inlinePresentationIntent ?? []) }
+            return nil
+        }
+        #expect(texts.map(\.0).joined() == ": the base case, with  here, code", "No Markdown markers remain")
+        #expect(texts.first.map { $0.1.contains(.stronglyEmphasized) } == true)
+        #expect(texts.first(where: { $0.0.hasPrefix("with") }).map { $0.1.contains(.emphasized) } == true)
+        #expect(texts.last.map { $0.1.contains(.code) } == true)
+        #expect(runs.filter { if case .math = $0 { true } else { false } }.count == 2)
+        // Plain text with LaTeX backslashes and inert links is unchanged in meaning.
+        let plain = ChatRichText.styledRuns([.text("see [the paper](https://example.org) and \\{x\\}")])
+        let joined = plain.map { run -> String in if case .text(let text) = run { String(text.characters) } else { "" } }.joined()
+        #expect(joined == "see the paper (https://example.org) and \\{x\\}")
+        #expect(plain.allSatisfy { if case .text(let text) = $0 { text.runs.allSatisfy { $0.link == nil } } else { false } }, "Links stay inert")
+    }
+
+    @Test func aLeadingAnswerLabelIsNotShown() {
+        for text in ["**Answer:** DPO is simpler.", "Answer: DPO is simpler.", "**Answer**: DPO is simpler.", "## Answer:\nDPO is simpler.",
+                     "  __answer:__\n\nDPO is simpler."] {
+            #expect(ChatRichText.withoutAnswerLabel(text) == "DPO is simpler.", "\(text)")
+        }
+        for text in ["The answer: DPO.", "Answering this: DPO.", "**Answers differ:** yes"] {
+            #expect(ChatRichText.withoutAnswerLabel(text) == text)
+        }
+    }
+
+    @Test func formulasCopyAsReadableText() {
+        #expect(ChatMathText.plain(#"\mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V"#) == "softmax(QKᵀ/(√dₖ))V")
+        #expect(ChatMathText.plain(#"\alpha_t \leq \beta^{2}"#) == "αₜ ≤ β²")
+        #expect(ChatMathText.plain(#"-\log \sigma(\beta \Delta_\theta)"#) == "-log σ(β Δ_θ)")
+        #expect(ChatMathText.plain(#"\|w\|_2"#) == "‖w‖₂")
+        #expect(ChatMathText.plain(#"\sum_{i=1}^{n} x_i"#) == "∑ᵢ₌₁ⁿ xᵢ")
+        #expect(ChatMathText.plain(String(repeating: "{", count: 500)).isEmpty, "Deep nesting is bounded")
+    }
+
     @Test func dollarsAreConservative() {
         #expect(ChatRichText.inline("costs $5 and $10 today") == [.text("costs $5 and $10 today")])
         #expect(ChatRichText.inline("with $x^2$ here") == [.text("with "), .math("x^2"), .text(" here")])
