@@ -31,6 +31,9 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     under the tab bar. The page's viewport never changes size as controls come and go: reading positions and
     heading and citation jumps are measured in it (running the page under the tab bar, or shrinking it for the
     selection bar, moved the reading position near a paper's end).
+  - *Panes* (iPad and Mac Reader): the paper and its chat column are split by a hairline with a grabber; drag it to
+    resize (applied when the drag ends; double-tap for the default width), or Paper "…" › Hide chat for a full-width
+    paper, with a chat button in the paper's bar to bring it back. Both are kept per device (`Views/ReaderSplit.swift`).
   - *Surfaces* (`chromeSurface`): Liquid Glass on iOS 26, a material with a hairline and soft shadow before it.
     With Reduce Transparency every surface is solid (secondary system background with a separator hairline) and
     every band is the plain background.

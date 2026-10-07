@@ -625,6 +625,66 @@
   })();
   // END CONTENTS PARSER
 
+  // BEGIN CONTENTS OUTLINE
+  // Pure text logic, no DOM: the app's Contents sheet (docs/LEGACY_GAP_AUDIT.md #10). The paper's
+  // title, "Abstract" and a printed "Contents" heading are left out (References stays). Each entry's
+  // depth is its heading level's distance from the shallowest level shown. Where Mathpix flattened the
+  // levels — a section and its own subsection share one level, as DPO's "A. 1" and "A" — a
+  // numbered heading's depth comes from its number instead: "2.1.3" is two below "2", "A.1" one below
+  // "A"; in a paper numbered I, II, … (IEEE), capital letters are one below and "1)" two below.
+  // Port of the web app's inferDepthFromNumbering (lib/mathpix-cleanup.ts).
+  const ContentsOutline = (() => {
+    const MAX_DEPTH = 3;
+    const fold = value => value.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const SKIPPED = /^(?:abstract|contents|table of contents)$/;
+    const ROMAN = /^(?=[IVX])X{0,3}(?:IX|IV|V?I{0,3})$/;
+    // "2", "2.1.3", "A", "A.1", "A. 1" (as OCR prints it), "IV"; then ".", ")" or a space before the title.
+    const NUMBER = /^((?:\d{1,3}|[A-Z]|[IVX]{1,6})(?:\s?\.\s?\d{1,3}){0,4})(?:\s*[.)]\s*|\s+)(?=\S)/u;
+    const numbering = title => {
+      const match = NUMBER.exec(title.trim());
+      if (!match) return null;
+      const parts = match[1].split(/\s?\.\s?/);
+      return {head: parts[0], below: parts.length - 1, key: parts.join('.'), parent: parts.slice(0, -1).join('.')};
+    };
+    // Roman numbering when the paper has a numeral only Roman can be (II, IV, …) and at least two of them.
+    const romanScheme = numbers => {
+      const romans = numbers.filter(value => value && ROMAN.test(value.head));
+      return romans.length >= 2 && romans.some(value => value.head.length > 1 || value.head === 'V' || value.head === 'X');
+    };
+    const numberDepth = (value, roman) => {
+      if (!roman) return value.below;
+      const kind = /^\d/.test(value.head) ? 2 : ROMAN.test(value.head) ? 0 : 1;
+      return kind + value.below;
+    };
+    // items: [{id, title, level}] in reading order → [{id, title, level, depth}] to show.
+    const outline = (items, paperTitle) => {
+      const title = paperTitle ? fold(paperTitle) : null;
+      const shown = items.filter(item => {
+        const folded = fold(item.title);
+        return folded && !SKIPPED.test(folded) && folded !== title;
+      });
+      if (!shown.length) return [];
+      const numbers = shown.map(item => numbering(item.title));
+      const roman = romanScheme(numbers);
+      // Flattened: one level holds a section and its own subsection ("A" and "A.1"; with Roman numbering,
+      // a numeral and a letter or number). An unrelated "A Simple Baseline" beside "2.2" is not.
+      const byLevel = new Map();
+      shown.forEach((item, index) => {
+        if (numbers[index]) byLevel.set(item.level, [...(byLevel.get(item.level) || []), numbers[index]]);
+      });
+      const flattened = [...byLevel.values()].some(values => roman
+        ? new Set(values.map(value => numberDepth(value, true))).size > 1
+        : values.some(value => value.parent && values.some(other => other.key === value.parent)));
+      const top = Math.min(...shown.map(item => item.level));
+      const depths = shown.map((item, index) => flattened && numbers[index] ? numberDepth(numbers[index], roman) : item.level - top);
+      const least = Math.min(...depths);
+      return shown.map((item, index) => ({...item, depth: Math.min(MAX_DEPTH, depths[index] - least)}));
+    };
+    return {outline, numbering};
+  })();
+  // END CONTENTS OUTLINE
+
   // A contents block becomes a list (one entry per line, indented by depth, the page muted on
   // the right) by wrapping its own text; an entry whose title is a heading of the paper (or a
   // numbered run-in head) jumps there with Back, like a citation. Paragraph text, IDs and
@@ -913,7 +973,7 @@
         const element = document.getElementById(heading.id);
         if (!element || element.tagName !== 'H' + heading.level) throw new Error('invalid_reader_heading');
         headings.set(heading.id, element);
-        return {id: heading.id, title: heading.title};
+        return {id: heading.id, title: heading.title, level: heading.level};
       });
     } else {
       // Retain source anchors in the existing local navigation regressions.
@@ -928,11 +988,11 @@
           used.add(id);
         }
         headings.set(id,element);
-        return {id,title:element.textContent.trim().slice(0,2000)};
+        return {id,title:element.textContent.trim().slice(0,2000),level:Number(element.tagName[1])};
       });
       blocks.push(...document.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,figure,table,pre'));
     }
-    post({type:'headings',items});
+    post({type:'headings',items:ContentsOutline.outline(items, config?.title)});
     return true;
   })();
   // Attach a rejection observer immediately, even before didFinish awaits it.
@@ -1216,6 +1276,18 @@
       if (event.key === 'Enter' || event.key === ' ') {event.preventDefault();open();}
     });
   }
+
+  // Figure gallery, "Show in paper" (docs/LEGACY_GAP_AUDIT.md #6): the figure is centered (from the top
+  // when taller than the page), highlighted like a citation's reference, and native Back returns to the
+  // place left; the saved reading position stays there until Back or a screen's scroll away.
+  window.__scienceReaderShowFigure = id => {
+    if (!config || config.figure_id || !figureIDs.has(id)) return false;
+    const element = document.getElementById(id);
+    if (!element) return false;
+    const range = document.createRange(); range.selectNode(element);
+    jumpToReference({id, range}, null);
+    return true;
+  };
 
   // ---- Passage anchors: Go to passage and marks (docs/DECISIONS.md, "Passage-linked conversations") ----
   // A conversation started from a selection remembers its passage: block, quote and ~32 characters each side. The
