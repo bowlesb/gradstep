@@ -304,10 +304,20 @@ public struct ReaderSelection: Codable, Equatable, Sendable {
         }
         enum CodingKeys: String, CodingKey { case kind, text; case blockID = "block_id"; case equationID = "equation_id" }
     }
+    /// The paper's text just before and after the selection as the reader bridge reads it. Only used to find the
+    /// passage again (`TextAnchor`); never part of the question, and bounded when the anchor is made.
+    public struct Context: Codable, Equatable, Sendable {
+        public let prefix: String
+        public let suffix: String
+        public init(prefix: String, suffix: String) { self.prefix = prefix; self.suffix = suffix }
+    }
     public let manifestSHA256: String
     public let parts: [Part]
-    public init(manifestSHA256: String, parts: [Part]) { self.manifestSHA256 = manifestSHA256; self.parts = parts }
-    enum CodingKeys: String, CodingKey { case parts; case manifestSHA256 = "manifest_sha256" }
+    public let context: Context?
+    public init(manifestSHA256: String, parts: [Part], context: Context? = nil) {
+        self.manifestSHA256 = manifestSHA256; self.parts = parts; self.context = context
+    }
+    enum CodingKeys: String, CodingKey { case parts, context; case manifestSHA256 = "manifest_sha256" }
 
     public func resolvedQuote(in bundle: VerifiedReaderBundle) throws -> String {
         guard manifestSHA256 == bundle.manifestSHA256, (1...512).contains(parts.count) else { throw ReaderBundleError.invalidIndex }

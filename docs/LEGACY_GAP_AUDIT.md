@@ -29,6 +29,8 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 
 ### 1. Conversations linked to their passage
 
+**Status 2026-10-07:** built (Simulator-verified); see [the decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible).
+
 - **Legacy:** each chat stored `highlight_text` and `highlight_anchor` (`lib/db.ts:80-90`). Passages you had asked
   about were underlined in the paper, and tapping one opened its chat (`components/MarkdownReader.tsx:168-184`,
   `app/page.tsx:1121-1144`). The chat header had **Go to Selection** (phone) or **Selected Text** (desktop), which

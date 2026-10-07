@@ -1,7 +1,7 @@
 # Library capacity evolution
 
 Status: **staged implementation authorized**, 2026-10-07. The owner approved the database direction and independent
-review. [Library v4](LIBRARY_V4.md) records the first additive implementation in migrations 031/032, currently local
+review. [Library v4](LIBRARY_V4.md) records the first additive implementation in migrations 031/032, now applied to staging after encrypted backup (2026-10-07)
 and not enabled in clients. The cache changes and larger-capacity rollout below remain future work. The
 **4,000 retained-entry client bound and existing backend lifetime quotas remain unchanged**. React remains the
 browser/admin framework; SwiftUI/Catalyst remains the Apple client.

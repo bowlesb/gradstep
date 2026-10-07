@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-07 (local library foundation, cost audit and podcast research; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-07 (library foundation deployed to staging; cost work and takeover in progress). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
 ## Library foundation and independent reviews — 2026-10-07
@@ -8,7 +8,7 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 The owner authorized additive database work on `codex/library-v4-foundation-20261007`. Migrations 031/032 separate
 compact synchronization, account-authorized immutable metadata and bounded indexed library queries. Query
 continuations restart after meaningful edits; progress updates preserve them. Old v2/v3 clients, command receipts,
-grouped changes and current quotas remain unchanged. This work is **local and not deployed or used by a client**.
+grouped changes and current quotas remain unchanged. Migrations 031/032 were **applied and ledger-verified on staging at 15:37 PDT**, after an encrypted checkpoint. Deploy checks passed (13 passed, zero failed; one warning about earlier failed imports). Client adoption and larger quotas remain separate work.
 Independent reviews cover upgrade compatibility, paging, isolation and concurrent deletion; the
 [contract and validation evidence](architecture/LIBRARY_V4.md) records the exact scope. Synthetic 10k/50k read-model
 benchmarks do not establish end-to-end product capacity.
@@ -22,6 +22,15 @@ credits, provider expense, platform overhead and store commission. The $100 incr
 The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_20261007.md) recommends a metered,
 paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
 rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
+
+## Native takeover checkpoint — 2026-10-07
+
+Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple read-back confirms **VALID / IN_BETA_TESTING**. It includes the
+floating chrome and feedback #4–#6, reviewed offline-save compatibility repair (`cf67138` → `274366b`) and
+passage-linked conversations (`e0dc706` → `1aeaea2`). The fresh combined build passes 20 app regressions and three
+complete iPhone Simulator passage/offline journeys. The offline candidate also passed 207 Core + 4 OAuth tests,
+321 iPhone tests (5 skips), 298 Catalyst tests (4 skips) and a universal signed Mac build. No physical phone work.
+See [handoff](HANDOFF_20261007.md) for still-isolated uploads, purchase diagnostics, navigation and chat branches.
 
 ## Browser/Mac integration checkpoint — local, not deployed
 
@@ -64,7 +73,7 @@ See [command publication](architecture/BROWSER_READER.md#command-acknowledgement
 
 The [capacity plan](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm caches,
 compact sync, consistent paged queries and reviewed record retirement. The first backend foundation is implemented
-locally in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
+on staging in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
 
 Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
 and verify browser deployment separately. Existing staging
@@ -258,6 +267,17 @@ skipped; one web-view load timeout under Simulator load that passes alone); UI `
 (the extension is iOS only). Screens: `.artifacts/visual/pdf-uploads-2026-10-07/`. Not yet: deployment (migration, two functions, bucket, worker), provisioning for the Share
 extension (App Group, new App ID, profiles), a real upload or device download against staging, the Share
 extension through the system share sheet, a device check.
+
+**Passage-linked conversations** (owner request 2026-10-07, [decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible),
+legacy gap 1): selection actions save a `TextAnchor` (artifact, block, quote, 32 characters each side) inside the
+conversation's encrypted event (wire format unchanged); **Go to passage** from the chat's title menu, its "…" menu
+and All chats opens the paper, lands on the passage with Back, and falls back to the legacy text-search cascade on
+another conversion ("Couldn't find the passage…" when nothing matches); passages with chats are underlined (CSS
+custom highlights, no DOM change) and a tap opens the chat, or a chooser when several share it; Settings › Reading can
+hide the underlines; All chats shows the passage as a wide row's second line. Verified in the Simulator only (iPhone
+17 Pro, iPad Pro 11"): Core `PassageAnchorTests`, app `PaperPassageTests` (bridge: context, cascade, short quotes,
+formulas, marks vs selection/citations/layout/position, taps, native request), UI `PassageJourneyTests`; screenshots
+light, dark and iPad. Not yet seen with real synced history, on a device, in the browser reader or run on the Mac.
 
 ## Verified locally
 

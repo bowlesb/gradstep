@@ -71,7 +71,7 @@ struct OfflineCacheStorage {
         let sealed = try blob("SELECT sealed FROM local_library_cache_checkpoint WHERE id=1", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         let value = try decode(CachePresentationCheckpoint.self, sealed: sealed, digest: digest,
                                domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
-        guard [1, CachePresentationCheckpoint.currentFormat].contains(value.format), value.scope == scope, value.cursor >= 0,
+        guard (1...CachePresentationCheckpoint.currentFormat).contains(value.format), value.scope == scope, value.cursor >= 0,
               value.capturedAt.timeIntervalSinceReferenceDate.isFinite,
               value.rows.count <= LibraryWire.maximumRetainedEntries else { throw OfflineCacheError.corruptCache }
         var ids = Set<UUID>(), total = sealed.count
@@ -279,26 +279,38 @@ struct OfflineCacheStorage {
         roots.scope = scope; roots.bundles = OfflineCacheCodec.digest(sealed); writes.append(.bundleIndex(sealed))
     }
 
+    /// Rebuild a readable presentation without discarding reader policy or immutable identity.
+    /// Only presentation equality is relaxed: every retained row, monotonic sequence and eligibility
+    /// transition still validates, including sticky quarantine for copies that were removed locally.
     func preparePresentation(_ observation: LibraryCompleteObservation, roots: OfflineCacheRoots, capturedAt: Date,
-                             format: Int = CachePresentationCheckpoint.currentFormat) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
+                             format: Int = CachePresentationCheckpoint.currentFormat,
+                             rebuild: Bool = false) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
         guard observation.accountID == scope.accountID, capturedAt.timeIntervalSinceReferenceDate.isFinite else { throw OfflineCacheError.invalidObservation }
         try validateEntries(observation.entries, cursor: observation.committedCursor)
         let old = try presentation(roots), previous = try checkpoint(roots)
-        if let old {
-            guard observation.committedCursor >= old.committedCursor else { throw OfflineCacheError.staleObservation }
+        if let cursor = old?.committedCursor ?? previous?.cursor {
+            guard observation.committedCursor >= cursor else { throw OfflineCacheError.staleObservation }
         }
-        // A v2-era snapshot may lack web papers at the same cursor: replace it, don't compare.
+        // An earlier format's snapshot (fewer decoded fields, or no web papers) is replaced, not compared.
         if let old, previous?.format == CachePresentationCheckpoint.currentFormat {
             if observation.committedCursor == old.committedCursor {
-                guard observation.entries == old.entries else { throw OfflineCacheError.conflictingObservation }
-                return (nil, old)
+                guard Set(observation.entries.keys) == Set(old.entries.keys) else { throw OfflineCacheError.conflictingObservation }
+                if !rebuild {
+                    guard observation.entries == old.entries else { throw OfflineCacheError.conflictingObservation }
+                    return (nil, old)
+                }
             }
             guard Set(old.entries.keys).isSubset(of: Set(observation.entries.keys)) else { throw OfflineCacheError.invalidObservation }
             for (id, entry) in observation.entries {
                 if let prior = old.entries[id] {
                     try validateLibraryIdentity(prior, entry)
                     guard entry.stateSequence >= prior.stateSequence else { throw OfflineCacheError.staleObservation }
-                    guard entry.stateSequence != prior.stateSequence || entry == prior else { throw OfflineCacheError.conflictingObservation }
+                    if entry != prior, entry.stateSequence == prior.stateSequence || observation.committedCursor == old.committedCursor {
+                        guard rebuild else { throw OfflineCacheError.conflictingObservation }
+                        // Only fields older app builds omitted can differ without a state revision.
+                        // Pins, membership, artifact and availability changes must never enter through repair.
+                        try validatePresentationRepair(prior, entry)
+                    }
                 }
             }
         }
@@ -308,7 +320,9 @@ struct OfflineCacheStorage {
             if old?.entries[id] == entry, let existing = previous?.rows[name] { refs[name] = existing; continue }
             let rowID = previous?.rows[name]?.rowID ?? UUID()
             var prior: CacheItemPolicy?
-            if let previous, let ref = previous.rows[name] { prior = try storedRow(ref, entryID: id, cursor: previous.cursor).readerPolicy }
+            if let previous, let ref = previous.rows[name] {
+                prior = try storedRow(ref, entryID: id, cursor: previous.cursor).readerPolicy
+            }
             var policy: CacheItemPolicy?
             if case .item(let item) = entry, let artifact = item.artifactID ?? prior?.artifactID {
                 let base = prior?.artifactID == artifact ? prior?.eligibility ?? .init() : .init()
@@ -344,6 +358,16 @@ struct OfflineCacheStorage {
         }
         if changed { try indexWrite(index, roots: &next, writes: &writes) }
         return (.init(roots: next, writes: writes), .init(scope: scope, committedCursor: observation.committedCursor, capturedAt: capturedAt, entries: observation.entries))
+    }
+
+    private func validatePresentationRepair(_ old: LibraryEntry, _ new: LibraryEntry) throws {
+        func comparable(_ entry: LibraryEntry) throws -> NSDictionary {
+            guard var value = try JSONSerialization.jsonObject(with: OfflineCacheCodec.encode(entry)) as? [String: Any]
+            else { throw OfflineCacheError.corruptCache }
+            for field in ["tags", "user_tags", "hidden_tags", "progress_detail"] { value.removeValue(forKey: field) }
+            return value as NSDictionary
+        }
+        guard try comparable(old).isEqual(comparable(new)) else { throw OfflineCacheError.conflictingObservation }
     }
 
     private func bindingAAD(_ binding: ReaderArtifactBinding, id: UUID, ordinal: Int? = nil) -> [String] {

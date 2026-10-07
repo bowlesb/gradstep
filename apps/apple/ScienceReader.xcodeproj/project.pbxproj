@@ -141,6 +141,8 @@
 		A61F0E125DAF829B17493F71 /* AuthenticationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DDCC2B7B9C8AD8C39EC24E /* AuthenticationBackend.swift */; };
 		A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
 		A8F4D610BC3F49B09DECF111 /* DevicePDFFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034A41C47C7F9BD10076A3D1 /* DevicePDFFetcher.swift */; };
+
+		A786E485E3FC0D9E6BC4447B /* PassageJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DCACE306F3B111C9FA0B7B /* PassageJourneyTests.swift */; };
 		A97CC2B0617F36ACBD086534 /* LibraryCommandCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */; };
 		AABE57754E8B527961ECE92B /* ChatTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 559587C8055C36005CF1A542 /* ChatTitle.swift */; };
 		AB0AB94E5391C7CD99B0840E /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
@@ -160,6 +162,7 @@
 		BD61C87712AF1CD757EE22C7 /* ChatTransportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C36B2248A31D7B202EA750 /* ChatTransportTests.swift */; };
 		BF0C2383A841C6893CDC4A02 /* ChatHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1EE828CB7FE38FB7CE66E3 /* ChatHistory.swift */; };
 		C132F87BDA3BF32496C90E2E /* NativeGoogleAuthenticationButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA80067653668118DFE957C2 /* NativeGoogleAuthenticationButton.swift */; };
+		C14607251A246A90286C60E0 /* PaperPassageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4728A35EC97B0AF1A7A5EE5 /* PaperPassageTests.swift */; };
 		C18B2C6966B5F6B5E4B2CEDB /* LibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1075D26F85BEAFAA581EA8A4 /* LibraryService.swift */; };
 		C24A7231A5C8FBD16FC1122D /* LibraryTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */; };
 		C24D31B2AD151D8FB4E53DA3 /* ReaderBundleLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */; };
@@ -170,6 +173,7 @@
 		C95DC830F6848CF8B36CFD6A /* LiveSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */; };
 		C9D61116337A5E07AE1C533D /* PDFUploadViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A936FA1557A9E96F78AA01E4 /* PDFUploadViews.swift */; };
 		CAA65E94C9DFB4DC65E59BEE /* FeedTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CB1587BDBC05A7A1CB6AA48 /* FeedTableView.swift */; };
+		CB98962F65ED7082C19B9A2E /* PaperPassages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4ABC570F44408FB632FE94 /* PaperPassages.swift */; };
 		CC091EB2F87A2258224BA1A7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 08F459BCA3533E8A78699331 /* PrivacyInfo.xcprivacy */; };
 		CF3F86D0DCB5E1CDC69D02E6 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
 		D05FD9149CFB8D2358A57BBB /* LibraryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DE9ACB51B1629CC00F73F84 /* LibraryMetadata.swift */; };
@@ -209,6 +213,7 @@
 		F3A9F9A825586ABD0390AADD /* SessionCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */; };
 		F4B046F9350393446D8DAE4E /* ChatConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4945661F367880A111DF5CF2 /* ChatConsentView.swift */; };
 		F55AB1B399C624013D9599B2 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A4B62340948C8940C6CD5B5 /* Chrome.swift */; };
+		F561775929950966E15A84B1 /* PaperPassages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F4ABC570F44408FB632FE94 /* PaperPassages.swift */; };
 		F82176A485B9B99AD9D0D8E1 /* ChatHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE1EE828CB7FE38FB7CE66E3 /* ChatHistory.swift */; };
 		F94B3D695F611FA571383F3F /* PDFUploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5CB920627C19BEFC5B3D0CA /* PDFUploadQueue.swift */; };
 		FB74D6DD82A28EE6BF3C6EFD /* MacCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB872A26074F9F3954CEF367 /* MacCommands.swift */; };
@@ -362,12 +367,14 @@
 		993A9383154B5584EAB363F4 /* StorePurchaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorePurchaseTests.swift; sourceTree = "<group>"; };
 		9CF518EB70CCDBD0C070E910 /* LibraryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryServiceTests.swift; sourceTree = "<group>"; };
 		9EB039A013062B4EB535CEA4 /* VisualScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualScenarioTests.swift; sourceTree = "<group>"; };
+		9F4ABC570F44408FB632FE94 /* PaperPassages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperPassages.swift; sourceTree = "<group>"; };
 		A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchPresentationTests.swift; sourceTree = "<group>"; };
 		A587BFED5778D7F7DE7832D5 /* AuthenticationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationModelTests.swift; sourceTree = "<group>"; };
 		A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReaderResourceProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A87576DE63B383CD1FD6B82E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A936FA1557A9E96F78AA01E4 /* PDFUploadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFUploadViews.swift; sourceTree = "<group>"; };
 		AF110B147A6976DF04043D72 /* SessionTimeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTimeline.swift; sourceTree = "<group>"; };
+		B4728A35EC97B0AF1A7A5EE5 /* PaperPassageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperPassageTests.swift; sourceTree = "<group>"; };
 		B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderPNGValidator.swift; sourceTree = "<group>"; };
 		B9EB19E7A51033177B6309A6 /* WorkflowSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowSafetyTests.swift; sourceTree = "<group>"; };
 		BA80067653668118DFE957C2 /* NativeGoogleAuthenticationButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGoogleAuthenticationButton.swift; sourceTree = "<group>"; };
@@ -400,6 +407,7 @@
 		F440B89B75174BCEE986FB90 /* LiveSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSyncTests.swift; sourceTree = "<group>"; };
 		F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryView.swift; sourceTree = "<group>"; };
 		F5E2B5707AB958154DC93826 /* SessionCaptureViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCaptureViews.swift; sourceTree = "<group>"; };
+		F9DCACE306F3B111C9FA0B7B /* PassageJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassageJourneyTests.swift; sourceTree = "<group>"; };
 		FCB86C221E1C6004E7485C6E /* LibrarySearchModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibrarySearchModelTests.swift; sourceTree = "<group>"; };
 		FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinator.swift; sourceTree = "<group>"; };
 		FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkflowFixture.swift; sourceTree = "<group>"; };
@@ -596,6 +604,8 @@
 				39FCEB742527F9BFC5998184 /* OAuthSafetyTests.swift */,
 				886420F874B0D50DA6109672 /* OfflineModelTests.swift */,
 				75729735EA770090155ACE43 /* PaperAddingTests.swift */,
+
+				B4728A35EC97B0AF1A7A5EE5 /* PaperPassageTests.swift */,
 				DDAE04EA89A6EF880D4D0135 /* PaperTableTests.swift */,
 				60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */,
 				478532397D59FCEDCBFD5A9E /* PDFUploadTests.swift */,
@@ -629,6 +639,7 @@
 				50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */,
 				C78074324405596C300892BD /* NativeAuthenticationControls.swift */,
 				BA80067653668118DFE957C2 /* NativeGoogleAuthenticationButton.swift */,
+				9F4ABC570F44408FB632FE94 /* PaperPassages.swift */,
 				476DCA22DDC90DE260EE7C31 /* PaperTable.swift */,
 				EBA5A7FE1780246822D83E36 /* PaperView.swift */,
 				A936FA1557A9E96F78AA01E4 /* PDFUploadViews.swift */,
@@ -664,6 +675,7 @@
 				615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */,
 				26EDD5FD4DA19EC6B4A493DD /* MacKeyboardTests.swift */,
 				65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */,
+				F9DCACE306F3B111C9FA0B7B /* PassageJourneyTests.swift */,
 				927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */,
 				7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */,
 				6BD5A38A546B081FF23F3726 /* SettingsTests.swift */,
@@ -942,6 +954,8 @@
 				1D9E9B97B56F0C891B79F6F9 /* PDFUploadQueue.swift in Sources */,
 				014694C37E38CC57B3BECA43 /* PDFUploadViews.swift in Sources */,
 				8DC7FA28682356BA0EF13715 /* PaperAdding.swift in Sources */,
+
+				CB98962F65ED7082C19B9A2E /* PaperPassages.swift in Sources */,
 				15E1428855840D0B956EF063 /* PaperTable.swift in Sources */,
 				5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */,
 				2CDCF4C402B06CE842CAE54F /* ReaderBundleCoordinator.swift in Sources */,
@@ -1017,6 +1031,8 @@
 				88E57253CF742E3D4236D3F6 /* OfflineModelTests.swift in Sources */,
 				F05937844DF060AACDC77C92 /* PDFUploadTests.swift in Sources */,
 				479096BFFBAF92B512ACEDFC /* PaperAddingTests.swift in Sources */,
+
+				C14607251A246A90286C60E0 /* PaperPassageTests.swift in Sources */,
 				1FCA61999DA74A338DB3B20D /* PaperTableTests.swift in Sources */,
 				6E79A84877F64CFD3D7DA853 /* PaperWebViewTests.swift in Sources */,
 				DB725B375938298DF1ABFABD /* ReaderBundleCoordinatorTests.swift in Sources */,
@@ -1039,6 +1055,7 @@
 				DF2B8A487D1BD5BA8D99BC4C /* LibraryLayoutTests.swift in Sources */,
 				E922ADCA741286C9EF031C9C /* LiveJourneyTests.swift in Sources */,
 				043FF13ACE81D5850398D086 /* MacKeyboardTests.swift in Sources */,
+				A786E485E3FC0D9E6BC4447B /* PassageJourneyTests.swift in Sources */,
 				F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */,
 				F3A9F9A825586ABD0390AADD /* SessionCaptureTests.swift in Sources */,
 				E059E95BC6A5DD9E05A5F1AF /* SettingsTests.swift in Sources */,
@@ -1097,6 +1114,8 @@
 				F94B3D695F611FA571383F3F /* PDFUploadQueue.swift in Sources */,
 				C9D61116337A5E07AE1C533D /* PDFUploadViews.swift in Sources */,
 				E35409B595DA7073E9623186 /* PaperAdding.swift in Sources */,
+
+				F561775929950966E15A84B1 /* PaperPassages.swift in Sources */,
 				5A6586B219A3FD3351E21639 /* PaperTable.swift in Sources */,
 				4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */,
 				56A2187503493F3399981625 /* ReaderBundleCoordinator.swift in Sources */,
@@ -1182,8 +1201,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1374,8 +1395,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1391,8 +1414,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1435,8 +1460,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
@@ -1539,8 +1566,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
@@ -1667,8 +1696,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";

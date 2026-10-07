@@ -23,13 +23,15 @@ public struct ConversationSummary: Equatable, Sendable, Identifiable {
     public let latestAnswer: String?
     /// The questions asked, newest first (bounded), for local search.
     public let questions: String
+    /// The passage a selection action started this conversation from (saved, encrypted, with the conversation).
+    public let anchor: TextAnchor?
 
     public init(id: UUID, title: String, documentID: UUID?, messageCount: Int, startedAt: Date?, lastUsedAt: Date?,
-                lastArrival: Int, startArrival: Int? = nil, latestAnswer: String?, questions: String) {
+                lastArrival: Int, startArrival: Int? = nil, latestAnswer: String?, questions: String, anchor: TextAnchor? = nil) {
         self.id = id; self.title = title; self.documentID = documentID; self.messageCount = messageCount
         self.startedAt = startedAt; self.lastUsedAt = lastUsedAt; self.lastArrival = lastArrival
         self.startArrival = startArrival ?? lastArrival
-        self.latestAnswer = latestAnswer; self.questions = questions
+        self.latestAnswer = latestAnswer; self.questions = questions; self.anchor = anchor
     }
 
     /// Characters of the newest answer kept for the preview.
@@ -75,7 +77,7 @@ public extension PrivateState {
             result.append(ConversationSummary(id: id, title: root.payload.text ?? "", documentID: root.payload.documentID,
                 messageCount: Set(surviving.map(\.payload.entityID)).count,
                 startedAt: started.map(Self.date), lastUsedAt: last.map(Self.date), lastArrival: lastArrival,
-                startArrival: startArrival, latestAnswer: answer, questions: questions))
+                startArrival: startArrival, latestAnswer: answer, questions: questions, anchor: root.payload.anchor))
         }
         return result.sorted { $0.id.wire < $1.id.wire }
     }
