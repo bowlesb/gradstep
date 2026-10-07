@@ -305,7 +305,7 @@ final class ChatGenerationTests: XCTestCase {
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.selection, "scaled dot-product attention")
         XCTAssertEqual(request.documentID, sampleID)
-        XCTAssertEqual(request.turns.last?.text, "Explain this in plain terms, in the context of this paper (for notation or an equation, say what each symbol means): scaled dot-product attention")
+        XCTAssertEqual(request.turns.last?.text, "Explain in plain terms, including any symbols: scaled dot-product attention")
         transport.send(.done(stopReason: "end_turn", credits: 0))
         try await waitUntil("finished") { !model.isAnswering }
         XCTAssertEqual(model.chatAnswerIssue?.code, "provider_unavailable", "An empty completed answer is reported, not saved")

@@ -1877,9 +1877,9 @@ final class ReaderModel {
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
         let prompts: [SelectionAction: String] = [
-            .define: "Explain this in plain terms, in the context of this paper (for notation or an equation, say what each symbol means): \(quote)",
-            .relevance: "What role does this passage play in the paper's argument? Connect it to the method and the results: \(quote)",
-            .similar: "Find papers related to this passage — earlier work it builds on and recent follow-ups — with links: \(quote)",
+            .define: "Explain in plain terms, including any symbols: \(quote)",
+            .relevance: "Why does this matter to the paper's method and results? \(quote)",
+            .similar: "Find related papers, earlier and recent, with links: \(quote)",
             .ingest: "Find and add the paper referenced in this passage: \(quote)"
         ]
         newChat(general: false); chatInput = prompts[action] ?? quote
