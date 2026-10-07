@@ -24,7 +24,43 @@ struct BackendConfiguration: Sendable {
 }
 
 struct AuthSession: Codable, Sendable {
-    struct User: Codable, Equatable, Sendable { let id: UUID; let email: String? }
+    struct User: Codable, Equatable, Sendable {
+        let id: UUID
+        let email: String?
+        /// How the account signs in ("apple", "google", "email"), from Auth's `app_metadata.providers` when it was
+        /// sent; shown on the Account page only. Malformed or missing metadata is ignored, never a sign-in failure.
+        let providers: [String]
+
+        init(id: UUID, email: String?, providers: [String] = []) { self.id = id; self.email = email; self.providers = providers }
+
+        private enum CodingKeys: String, CodingKey { case id, email, app_metadata }
+        private enum MetadataKeys: String, CodingKey { case provider, providers }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(UUID.self, forKey: .id)
+            email = try container.decodeIfPresent(String.self, forKey: .email)
+            let metadata = try? container.nestedContainer(keyedBy: MetadataKeys.self, forKey: .app_metadata)
+            let listed = (try? metadata?.decodeIfPresent([String].self, forKey: .providers)) ?? nil
+            let single = (try? metadata?.decodeIfPresent(String.self, forKey: .provider)) ?? nil
+            providers = Self.bounded(listed ?? single.map { [$0] } ?? [])
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            try container.encodeIfPresent(email, forKey: .email)
+            if !providers.isEmpty {
+                var metadata = container.nestedContainer(keyedBy: MetadataKeys.self, forKey: .app_metadata)
+                try metadata.encode(providers, forKey: .providers)
+            }
+        }
+
+        /// Short lowercase provider names only, at most eight.
+        private static func bounded(_ names: [String]) -> [String] {
+            Array(names.filter { (1...32).contains($0.utf8.count) && $0.allSatisfy { $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "_") } }.prefix(8))
+        }
+    }
     let access_token: String
     let refresh_token: String
     let expires_at: TimeInterval

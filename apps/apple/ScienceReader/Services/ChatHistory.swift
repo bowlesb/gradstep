@@ -53,15 +53,19 @@ struct ChatHistoryRow: Identifiable, Equatable, Sendable {
     let summary: ConversationSummary
     /// The paper's title when it is in the library; nil for a general chat or a paper no longer in the library.
     let paperTitle: String?
+    /// The title shown: a selection action's short form ("Explain · Attention(Q, K, V)…", `ChatTitle`) or the question.
+    let title: String
     var id: UUID { summary.id }
     var isPaperChat: Bool { summary.documentID != nil }
 
+    init(summary: ConversationSummary, paperTitle: String?) {
+        self.summary = summary; self.paperTitle = paperTitle
+        let display = ChatTitle.display(summary.title)
+        title = display.isEmpty ? "Untitled conversation" : display
+    }
+
     /// "Attention Is All You Need", "Paper chat" (the paper isn't in the library) or "General chat".
     var contextTitle: String { paperTitle ?? (isPaperChat ? "Paper chat" : "General chat") }
-    var title: String {
-        let trimmed = summary.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Untitled conversation" : trimmed
-    }
 }
 
 enum ChatHistoryQuery {
@@ -84,8 +88,8 @@ enum ChatHistoryQuery {
     }
 
     static func matches(_ row: ChatHistoryRow, _ term: String) -> Bool {
-        row.summary.title.localizedStandardContains(term) || row.summary.questions.localizedStandardContains(term)
-            || row.contextTitle.localizedStandardContains(term)
+        row.summary.title.localizedStandardContains(term) || row.title.localizedStandardContains(term)
+            || row.summary.questions.localizedStandardContains(term) || row.contextTitle.localizedStandardContains(term)
     }
 
     /// A total order: the chosen column, then most recently used, then a stable identity.

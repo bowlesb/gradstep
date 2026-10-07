@@ -95,7 +95,7 @@ Verified live (searches charged at tokens + $0.01 each; the hold covers them) an
 chat fixture. The per-question hold is capped at the reader's balance once it is at least 50 credits.
 
 **Account deletion** (App Store requirement; owner decision 2026-10-05: billing records are kept de-identified):
-Settings › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
+Settings › Account › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
 private and support files (including the account's private conversions' `raw/` and `reader/` folders) and the
 login, and keeps credit, usage and operation records under the closed account's ID. Incomplete deletions are
 finished by the paper worker's sweep. Migration `…017_account_deletion.sql` is applied to staging. Verified live:

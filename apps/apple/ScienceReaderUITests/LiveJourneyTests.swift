@@ -187,6 +187,12 @@ final class LiveJourneyTests: XCTestCase {
         print("Store products shown:", ["Pro", "Standard", "400 Credits"].filter { app.staticTexts[$0].exists })
         app.buttons["Done"].tap()
 
+        // Settings › Account (the first row) › Delete account… (owner feedback, build 14 #8).
+        let account = app.buttons["account.row"]
+        for _ in 0..<4 where !(account.exists && account.isHittable) { app.swipeDown() }
+        XCTAssertTrue(account.waitForExistence(timeout: 10)); account.tap()
+        XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 10))
+        capture(app, "Account page")
         let delete = app.buttons["account.delete"]
         for _ in 0..<4 where !delete.isHittable { app.swipeUp() }
         XCTAssertTrue(delete.waitForExistence(timeout: 10)); delete.tap()

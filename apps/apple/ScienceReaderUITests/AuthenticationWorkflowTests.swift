@@ -154,6 +154,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         wait("Recovery closes after local account retirement") { !app.navigationBars["Private library"].exists }
         settings(app)
         XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["account.row"].exists, "No Account row (with Sign out behind it) once signed out")
         XCTAssertFalse(app.buttons["account.signOut"].exists)
     }
 
