@@ -23,6 +23,15 @@ export interface WebResult { url: string; title: string; text: string; published
 export type SearchFailure = 'limit' | 'rate_limited' | 'unauthorized' | 'rejected' | 'unavailable';
 export type SearchOutcome = { status: 'ok'; results: WebResult[]; credits: number }
   | { status: 'failed'; failure: SearchFailure; retryAfterMs: number | null };
+export interface SearchBilling {
+  state: 'succeeded' | 'rejected' | 'unknown'; requestID: string | null; credits: number | null; failureCode: string | null;
+}
+export type SearchAttemptOutcome = SearchOutcome & { billing: SearchBilling };
+
+/** Opaque provider identifiers only. Error text and queries never reach the ledger. */
+export function providerRequestID(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9._:/-]{1,256}$/.test(value) ? value : null;
+}
 
 /** Validates the model's search_web input (untrusted). */
 export function searchInput(input: unknown): SearchInput | null {
@@ -67,36 +76,46 @@ function failure(status: number): SearchFailure {
 }
 
 /**
- * One basic search (1 Tavily credit). Retries once, briefly, on a server error
- * or lost connection; never on limits. Never throws.
+ * One basic search (1 Tavily credit), exactly one transport attempt. The caller
+ * must durably admit it first (provider-spending.ts). A lost response or 5xx is
+ * unknown usage, not permission to retry or release the reserved credit.
  */
 export async function tavilySearch(fetcher: typeof fetch, apiKey: string, input: SearchInput, signal: AbortSignal,
-  options: { timeoutMs?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<SearchOutcome> {
+  options: { timeoutMs?: number } = {}): Promise<SearchAttemptOutcome> {
   const body = JSON.stringify({
-    query: input.query, search_depth: 'basic', topic: 'general', max_results: TAVILY_MAX_RESULTS,
+    query: input.query, search_depth: 'basic', auto_parameters: false, topic: 'general', max_results: TAVILY_MAX_RESULTS,
     include_answer: false, include_raw_content: false, include_images: false, include_usage: true,
     ...(input.academic ? { include_domains: ACADEMIC_DOMAINS } : {}),
   });
-  const sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
-  for (let attempt = 1; ; attempt++) {
-    if (signal.aborted) return { status: 'failed', failure: 'unavailable', retryAfterMs: null };
-    let status = 0, retryAfter: string | null = null;
-    try {
+  if (signal.aborted) return { status: 'failed', failure: 'unavailable', retryAfterMs: null,
+    billing: { state: 'rejected', requestID: null, credits: 0, failureCode: 'aborted_before_send' } };
+  let status = 0, retryAfter: string | null = null, requestID: string | null = null;
+  try {
       const response = await fetcher(TAVILY_SEARCH_URL, {
         method: 'POST', redirect: 'error', body,
         signal: AbortSignal.any([signal, AbortSignal.timeout(options.timeoutMs ?? TAVILY_TIMEOUT_MS)]),
         headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', accept: 'application/json' },
       });
       status = response.status; retryAfter = response.headers.get('retry-after');
+      requestID = providerRequestID(response.headers.get('request-id') ?? response.headers.get('x-request-id'));
       if (response.ok) {
-        const parsed = parseResults(await response.json().catch(() => null));
-        if (parsed) return { status: 'ok', ...parsed };
+        const raw = await response.json().catch(() => null);
+        requestID = providerRequestID(raw?.request_id) ?? requestID;
+        const parsed = parseResults(raw);
+        // include_usage is required: a usable result without final usage still
+        // retains the grant. Never invent a 1-credit exact provider report.
+        const used = raw?.usage?.credits;
+        if (parsed) return { status: 'ok', ...parsed, billing: {
+          state: Number.isSafeInteger(used) && used >= 0 && used <= 10 ? 'succeeded' : 'unknown',
+          requestID, credits: Number.isSafeInteger(used) && used >= 0 && used <= 10 ? used : null,
+          failureCode: Number.isSafeInteger(used) && used >= 0 && used <= 10 ? null : 'usage_missing',
+        } };
         status = 502;
       } else void response.body?.cancel().catch(() => {});
-    } catch { status = 0; }
-    const kind = failure(status);
-    if (kind === 'unavailable' && attempt === 1 && !signal.aborted) { await sleep(400); continue; }
-    const seconds = retryAfter && /^\d{1,5}$/.test(retryAfter) ? Number(retryAfter) * 1000 : null;
-    return { status: 'failed', failure: kind, retryAfterMs: seconds };
-  }
+  } catch { status = 0; }
+  const rejected = [400, 401, 403, 422, 429, 432, 433].includes(status);
+  const seconds = retryAfter && /^\d{1,5}$/.test(retryAfter) ? Number(retryAfter) * 1000 : null;
+  return { status: 'failed', failure: failure(status), retryAfterMs: seconds,
+    billing: { state: rejected ? 'rejected' : 'unknown', requestID, credits: rejected ? 0 : null,
+      failureCode: status ? `http_${status}` : 'transport_unknown' } };
 }

@@ -54,9 +54,9 @@ export function storageAdapter(client: SupabaseClient): PipelineDeps['storage'] 
   const bucket = () => client.storage.from(BUCKET);
   return {
     async upload(path, bytes, contentType) {
-      // Paths are content-addressed (sha256 in the path), so an overwrite can
-      // only ever write identical bytes.
-      const { error } = await bucket().upload(path, bytes, { contentType, upsert: true, cacheControl: '31536000' });
+      // The immutable inventory plan authorizes this single physical write.
+      // A conflict or lost reply requires reconciliation, never an overwrite.
+      const { error } = await bucket().upload(path, bytes, { contentType, upsert: false, cacheControl: '31536000' });
       if (error) throw new Error('storage_upload_failed');
     },
     async download(path, maximumBytes) {

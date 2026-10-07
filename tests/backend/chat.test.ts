@@ -331,7 +331,7 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   capable.deps.findPaper = async (_wanted, _signal, option) => { options.push(option); return { status: 'found', paper: deepLearning }; };
   capable.deps.importPaper = async paper => { imported.push(paper); return 'added'; };
   await runChat(capable.deps, { ...ingestBody(), capabilities: ['web_import'] }, capable.emit, new AbortController().signal);
-  assert.deepEqual(options, [{ web: true }]);
+  assert.deepEqual(options, [{ web: true, tavily: false }]);
   assert.deepEqual(imported, [deepLearning]);
   assert.match(delta(capable, 1).text, /Queued “Deep learning” \(open-access PDF from repository\.example\.org\)/);
 
@@ -341,7 +341,7 @@ test('ingest adds an open-access web paper only for builds that show web papers'
   older.deps.findPaper = async (_wanted, _signal, option) => { options.push(option); return { status: 'found', paper: deepLearning }; };
   older.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(older.deps, ingestBody(), older.emit, new AbortController().signal);
-  assert.deepEqual(options.at(-1), { web: false });
+  assert.deepEqual(options.at(-1), { web: false, tavily: false });
   assert.equal(imports, 0);
   assert.deepEqual(older.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'needs_update' }]);
 
@@ -418,21 +418,85 @@ test('an answer that lists its own sources gets no second list', async () => {
 test('a balance between 50 credits and the full hold caps the credit hold, never the budget hold', async () => {
   const run = async (available: number | null, generate?: ChatDependencies['generate']) => {
     const paper = new TextEncoder().encode(paperText.repeat(20));
-    const h = harness(generate ? { generate, paper } : { paper }); h.deps.availableCredits = async () => available;
+    const h = harness(generate ? { generate, paper } : { paper });
+    if (available !== null) h.deps.availableCredits = async () => available;
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-    return { h, reserve: h.calls.find(c => c.name === 'worker_reserve_operation')!.params };
+    return { h, reserve: h.calls.find(c => c.name === 'worker_reserve_operation')?.params };
   };
-  const full = (await run(null)).reserve;
+  const full = (await run(null)).reserve!;
   assert.ok(Number(full.p_credits) > 60, `full hold ${full.p_credits}`);
-  const capped = (await run(60)).reserve;
+  const capped = (await run(60)).reserve!;
   assert.equal(capped.p_credits, 60); assert.equal(capped.p_microusd, full.p_microusd);
-  assert.equal((await run(40)).reserve.p_credits, full.p_credits, 'below the minimum the full hold applies (and reservation decides)');
-  assert.equal((await run(100_000)).reserve.p_credits, full.p_credits);
+  assert.equal((await run(40)).reserve, undefined, 'clearly insufficient credits are refused before fetching the paper');
+  assert.equal((await run(100_000)).reserve!.p_credits, full.p_credits);
   // An answer costing more than the capped hold charges the balance and logs it.
   const costly = await run(60, async (_p, stream) => { stream.onText('x');
     return completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 31_000 } }] }); });
   assert.equal(costly.h.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_credits, 60);
   assert.ok(costly.h.logs.some(l => l.event === 'chat_credits_capped_at_balance'));
+});
+
+test('unavailable or clearly insufficient credits stop before paper context authorization and Storage GET', async () => {
+  for (const available of [null, 0, 1, 40]) {
+    const h = harness(); let downloads = 0;
+    h.deps.availableCredits = async () => available;
+    h.deps.loadPaper = async () => { downloads++; return new TextEncoder().encode(paperText); };
+    await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+    assert.equal(downloads, 0);
+    assert.ok(!h.calls.some(call => ['worker_chat_context', 'worker_reserve_operation'].includes(call.name)));
+    assert.deepEqual(h.events.at(-1), { event: 'error', data: { code: available === null ? 'service_unavailable' : 'insufficient_credits' } });
+  }
+});
+
+test('paper context byte authorization is passed to the single Storage read', async () => {
+  const bytes = new TextEncoder().encode(paperText);
+  const h = harness({ script: { worker_chat_context: () => ({ bucket: 'paper-assets', path: 'raw/mmd', byte_count: bytes.length }) } });
+  let downloads = 0;
+  h.deps.loadPaper = async (_bucket, _path, expected) => { downloads++; assert.equal(expected, bytes.length); return bytes; };
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  assert.equal(downloads, 1);
+});
+
+test('Ingest paid discovery requires consent v2 and the enabled server switch', async () => {
+  for (const [consent, enabled, allowed] of [['cloud-ai-v1', true, false], ['cloud-ai-v2', false, false], ['cloud-ai-v2', true, true]] as const) {
+    const h = harness({ generate: toolGenerate({ title: 'A sufficiently precise paper title' }) });
+    h.deps.webSearch = enabled;
+    h.deps.findPaper = async (_request, _signal, options) => { assert.equal(options.tavily, allowed); return { status: 'not_found' }; };
+    h.deps.importPaper = async () => 'failed';
+    await runChat(h.deps, { ...ingestBody(), consent_version: consent }, h.emit, new AbortController().signal);
+    assert.equal(h.events.at(-1)?.event, 'done');
+  }
+});
+
+test('native backup is absent when separately gated, even with general web search enabled', async () => {
+  const h = harness({ generate: async (params) => {
+    assert.ok(!params.tools?.some(tool => tool.name === 'web_search'));
+    return completeOutcome();
+  } });
+  h.deps.webSearch = true; h.deps.nativeSearch = false;
+  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
+  assert.equal(h.answers[0].web_search_offered, false);
+});
+
+test('pause_turn continuations share one search allowance and never report an unfinished answer as done', async () => {
+  const offered: number[] = [];
+  const h = harness({ generate: async params => {
+    offered.push((params.tools?.find(tool => tool.name === 'web_search') as { max_uses: number }).max_uses);
+    return completeOutcome({ stopReason: 'pause_turn', webSearches: 1, content: [] });
+  } });
+  h.deps.webSearch = true;
+  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
+  assert.deepEqual(offered, [3, 2, 1]);
+  assert.equal(h.events.at(-1)?.event, 'error');
+  assert.equal(h.answers[0].web_searches, 3);
+});
+
+test('pause_turn without search progress still obeys the pre-continuation round bound', async () => {
+  let requests = 0;
+  const h = harness({ generate: async () => { requests++; return completeOutcome({ stopReason: 'pause_turn', content: [] }); } });
+  h.deps.webSearch = true;
+  await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
+  assert.equal(requests, 4); assert.equal(h.events.at(-1)?.event, 'error');
 });
 
 test('SSE frames and bounded body reading', async () => {
@@ -474,6 +538,9 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
     : options.generate;
   const deps: ChatDependencies = {
     accountID: account,
+    // Native-search continuation behavior remains tested explicitly while the
+    // production admitted adapter gates native search pending a strict bound.
+    nativeSearch: true,
     rpc: async (name, params) => {
       calls.push({ name, params });
       const handler = script[name]; assert.ok(handler, `unexpected rpc ${name}`);
@@ -737,10 +804,10 @@ test('the SDK adapter reports refusals with their category', async () => {
   assert.equal(outcome.status, 'complete'); assert.equal(outcome.stopReason, 'refusal'); assert.equal(outcome.refusalCategory, 'general_harms');
 });
 
-test('the SDK adapter treats a rejected HTTP request as unbilled', async () => {
-  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, { status: 529 }));
+test('the SDK adapter treats an explicit validation rejection as unbilled', async () => {
+  const client = fakeClient(() => Response.json({ type: 'error', error: { type: 'invalid_request_error', message: 'Invalid' } }, { status: 400 }));
   const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 10 });
-  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_error'); assert.deepEqual(outcome.attempts, []);
+  assert.equal(outcome.status, 'failed'); assert.equal(outcome.failure, 'provider_rejected'); assert.deepEqual(outcome.attempts, []);
 });
 
 test('the SDK adapter estimates usage after an abort mid-stream', async () => {
@@ -777,12 +844,16 @@ test('the SDK adapter charges the input estimate when billing is uncertain befor
   assert.deepEqual(skipped.attempts, []);
 });
 
-test('non-ASCII prompt text is weighted as one token per UTF-8 byte', async () => {
+test('all prompt text and nested tool results use a conservative UTF-8 byte bound', async () => {
   const { promptCharacters } = await import('../../supabase/functions/_shared/anthropic.ts');
   const params = (text: string) => ({ model: 'x', max_tokens: 1, messages: [{ role: 'user' as const, content: text }] });
-  assert.equal(promptCharacters(params('abc')), 3);
-  assert.equal(promptCharacters(params('漢字')), 18);   // 2 chars × 3 bytes × 3
-  assert.equal(promptCharacters(params('é')), 6);      // 2 bytes × 3
+  const base = promptCharacters(params(''));
+  assert.equal(promptCharacters(params('abc')) - base, 9);
+  assert.equal(promptCharacters(params('漢字')) - base, 18);
+  assert.equal(promptCharacters(params('é')) - base, 6);
+  const nested = { ...params(''), messages: [{ role: 'user' as const,
+    content: [{ type: 'tool_result' as const, tool_use_id: 's1', content: 'private-result'.repeat(50) }] }] };
+  assert.ok(promptCharacters(nested) >= 3 * new TextEncoder().encode('private-result'.repeat(50)).length);
 });
 
 test('Related searches the web by instruction; every answer logs counts only', async () => {
@@ -939,8 +1010,8 @@ test('rounds stop at the search allowance; a failed round ends the answer and ke
   const greedy = harness({ generate: async () => { rounds++; return searchRound([{ id: `s${rounds}`, input: { query: `q${rounds}` } }]); } });
   searching(greedy, []);
   await runChat(greedy.deps, v2(paperBody()), greedy.emit, new AbortController().signal);
-  assert.equal(rounds, 5, 'three searches, one refused, then the answer ends');
-  assert.equal(greedy.events.at(-1)!.event, 'done');
+  assert.equal(rounds, 4, 'three searches and one answer round; an unfinished request is not completion');
+  assert.equal(greedy.events.at(-1)!.event, 'error');
   let calls = 0;
   const failing = harness({ generate: async () => {
     if (++calls === 1) return searchRound([{ id: 's1', input: { query: 'q' } }]);
@@ -998,18 +1069,22 @@ test('Tavily input, results and HTTP failures are bounded and typed', async () =
   const statuses: [number, string][] = [[432, 'limit'], [433, 'limit'], [401, 'unauthorized'], [400, 'rejected']];
   for (const [status, failure] of statuses) {
     const outcome = await tavilySearch(reply(status, {}) as typeof fetch, 'k', { query: 'q', academic: false }, new AbortController().signal);
-    assert.deepEqual(outcome, { status: 'failed', failure, retryAfterMs: null });
+    assert.deepEqual(outcome, { status: 'failed', failure, retryAfterMs: null,
+      billing: { state: 'rejected', requestID: null, credits: 0, failureCode: `http_${status}` } });
   }
   assert.deepEqual(await tavilySearch(reply(429, {}, { 'retry-after': '7' }) as typeof fetch, 'k', { query: 'q', academic: false }, new AbortController().signal),
-    { status: 'failed', failure: 'rate_limited', retryAfterMs: 7_000 });
+    { status: 'failed', failure: 'rate_limited', retryAfterMs: 7_000,
+      billing: { state: 'rejected', requestID: null, credits: 0, failureCode: 'http_429' } });
   let tries = 0;
   const flaky = (async () => { tries++; if (tries === 1) throw new TypeError('reset'); return new Response(JSON.stringify({ results: [] }), { status: 200 }); }) as typeof fetch;
-  assert.equal((await tavilySearch(flaky, 'k', { query: 'q', academic: false }, new AbortController().signal, { sleep: async () => {} })).status, 'ok');
+  assert.equal((await tavilySearch(flaky, 'k', { query: 'q', academic: false }, new AbortController().signal)).status, 'failed');
+  assert.equal(tries, 1, 'a lost response is never automatically resent');
   tries = 0;
   const down = (async () => { tries++; return new Response('{}', { status: 503 }); }) as typeof fetch;
-  assert.deepEqual(await tavilySearch(down, 'k', { query: 'q', academic: false }, new AbortController().signal, { sleep: async () => {} }),
-    { status: 'failed', failure: 'unavailable', retryAfterMs: null });
-  assert.equal(tries, 2, 'one retry on a server error');
+  assert.deepEqual(await tavilySearch(down, 'k', { query: 'q', academic: false }, new AbortController().signal),
+    { status: 'failed', failure: 'unavailable', retryAfterMs: null,
+      billing: { state: 'unknown', requestID: null, credits: null, failureCode: 'http_503' } });
+  assert.equal(tries, 1, 'server error does not create a hidden transport attempt');
 });
 
 // ---- Status events (progress while searching or adding a paper) ----

@@ -6,10 +6,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FindResult, FoundPaper, PaperRequest } from './chat.ts';
 import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from './discover.ts';
 import { publicHTTPS } from './web-source.ts';
-import { tavilySearch } from './tavily.ts';
+import type { SearchInput, SearchOutcome } from './tavily.ts';
 
-export function paperFinder(service: SupabaseClient, user: SupabaseClient, tavilyKey: string | undefined) {
-  async function findPaper(wanted: PaperRequest, signal: AbortSignal, { web }: { web: boolean }): Promise<FindResult> {
+/** Paid search is injected already admitted; a raw provider key is never accepted. */
+export function paperFinder(service: SupabaseClient, user: SupabaseClient,
+  search?: (input: SearchInput, signal: AbortSignal) => Promise<SearchOutcome>, fetcher: typeof fetch = fetch) {
+  async function findPaper(wanted: PaperRequest, signal: AbortSignal, { web, tavily = false }: { web: boolean; tavily?: boolean }): Promise<FindResult> {
     // One paced request at a time, stopping at the first clear match. A
     // failed query does not hide the others; all failing is "unavailable".
     const slot = async (slots: number) => {
@@ -26,7 +28,7 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient, tavil
       const find = openAlexFindURL(wanted);
       if (!find) return null;
       try {
-        const response = await fetch(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+        const response = await fetcher(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
           headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader)' } });
         if (!response.ok) { void response.body?.cancel().catch(() => {}); return null; }
         answered = true;
@@ -52,7 +54,7 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient, tavil
     const urls = arxivTitleURLs(wanted.title, wanted.arxivID);
     const arxiv = async (url: string, within: AbortSignal): Promise<FindResult | null> => {
       if (within.aborted) return null;
-      try { seen.push(...await searchArxiv([url], fetch, slot, within)); answered = true; } catch { return null; }
+      try { seen.push(...await searchArxiv([url], fetcher, slot, within)); answered = true; } catch { return null; }
       const match = matchPaper(wanted, seen);
       return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } } : null;
     };
@@ -72,15 +74,15 @@ export function paperFinder(service: SupabaseClient, user: SupabaseClient, tavil
       return null;
     })();
     const byWeb = (async (): Promise<FindResult | null> => {
-      if (!tavilyKey) return null;
+      if (!tavily || !search) return null;
       const query = `${wanted.title}${wanted.firstAuthor ? ` ${wanted.firstAuthor}` : ''} arXiv`;
-      const searched = await tavilySearch(fetch, tavilyKey, { query, academic: true }, fallback).catch(() => null);
+      const searched = await search({ query, academic: true }, fallback).catch(() => null);
       const ids = searched?.status === 'ok'
         ? [...new Set(searched.results.flatMap(r => /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(r.url)?.[1] ?? []))].slice(0, 5) : [];
       if (!ids.length) return null;
       const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
       try {
-        const match = matchPaper(wanted, await searchArxiv([url], fetch, slot, fallback));
+        const match = matchPaper(wanted, await searchArxiv([url], fetcher, slot, fallback));
         return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } } : null;
       } catch { return null; }
     })();

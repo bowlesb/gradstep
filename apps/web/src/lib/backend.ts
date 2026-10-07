@@ -2,6 +2,7 @@
 // configured origin only, no redirects, bounded bodies, one refresh at a time (across
 // tabs), finite error codes and no provider/server bodies in messages or logs.
 import { cancellation } from './cancellation';
+import { isUUID } from './bytes';
 
 export interface BackendConfig { url: string; anonKey: string; environment: string }
 
@@ -24,7 +25,8 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'library_environment_receipt_limit', 'import_not_retryable', 'invalid_library_cursor', 'invalid_arxiv_id', 'invalid_import_request',
   'too_many_enrollment_requests', 'enrollment_mismatch', 'enrollment_conflict', 'enrollment_id_conflict', 'invalid_management_token',
   'reader_not_ready', 'reader_integrity_failed', 'reader_unavailable', 'item_unavailable', 'origin_unavailable', 'insufficient_credits',
-  'account_busy', 'platform_budget_exhausted', 'import_unavailable']);
+  'account_busy', 'platform_budget_exhausted', 'import_unavailable', 'reader_transfer_limit', 'reader_upgrade_required',
+  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 
@@ -265,9 +267,17 @@ export async function functionGet<T>(path: string, options: { maximum?: number; 
 }
 
 /** A signed Storage URL on the configured project host; carries no account credential. */
-export async function signedMember(url: string, bytes: number, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+export async function signedMember(url: string, bytes: number, signal?: AbortSignal, account?: string): Promise<Uint8Array<ArrayBuffer>> {
   const parsed = new URL(url);
-  if (parsed.origin !== new URL(config.url).origin || !parsed.pathname.startsWith('/storage/v1/object/sign/')) throw new BackendError('reader_integrity_failed');
+  if (parsed.origin !== new URL(config.url).origin || parsed.username || parsed.password || parsed.hash) throw new BackendError('reader_integrity_failed');
+  if (parsed.pathname === '/functions/v1/reader-member') {
+    if (!account || parsed.searchParams.size !== 2 || !/^[0-9a-f]{64}$/.test(parsed.searchParams.get('grant') ?? '')
+      || !isUUID(parsed.searchParams.get('member')) || new Set(parsed.searchParams.keys()).size !== 2) throw new BackendError('reader_integrity_failed');
+    const data = await authorized(`functions/v1/reader-member${parsed.search}`, { method: 'GET', maximum: bytes, account, signal });
+    if (data.length !== bytes) throw new BackendError('reader_integrity_failed');
+    return data;
+  }
+  if (!parsed.pathname.startsWith('/storage/v1/object/sign/')) throw new BackendError('reader_integrity_failed');
   const deadline = requestDeadline([signal], 60_000);
   try {
     const response = await fetch(parsed, { redirect: 'error', cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer', signal: deadline.signal });

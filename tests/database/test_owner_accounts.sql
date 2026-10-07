@@ -173,7 +173,7 @@ select test.assert((select count(*)=1 and min(reason)='Beta top-up for chat test
 set role service_role;
 select public.worker_admin_set_sign_in('31000000-0000-0000-0000-00000000000a','31000000-0000-0000-0000-0000000000b1',
  '31000000-0000-0000-0000-00000000000c',true,'Left the beta') as s \gset
-select test.assert(:'s'::jsonb='{"auth_user_id":"31000000-0000-0000-0000-00000000000c","disabled":true,"replayed":false}'::jsonb,'disable returns the login to ban');
+select test.assert(:'s'::jsonb='{"auth_user_id":"31000000-0000-0000-0000-00000000000c","disabled":true,"replayed":false,"spending_suspended":true}'::jsonb,'disable returns the login to ban');
 select test.assert(public.worker_admin_set_sign_in('31000000-0000-0000-0000-00000000000a','31000000-0000-0000-0000-0000000000b1',
  '31000000-0000-0000-0000-00000000000c',true,'Left the beta')->>'replayed'='true','a retried request is a replay');
 select test.reject($$select public.worker_admin_set_sign_in('31000000-0000-0000-0000-00000000000a','31000000-0000-0000-0000-0000000000b1',

@@ -39,6 +39,7 @@
   "functions": [
     "support-assets",
     "reader-artifact",
+    "reader-member",
     "chat",
     "discover",
     "account-delete",

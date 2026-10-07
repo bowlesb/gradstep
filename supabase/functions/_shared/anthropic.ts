@@ -217,22 +217,13 @@ export function chatRequestParams(input: { instructions: string; paper: PaperCon
   };
 }
 
-/** Weighted character count for the hold estimate (all prompt text sent):
- * ASCII counts 1 (≈3 per token); every UTF-8 byte of non-ASCII text counts 3,
- * i.e. one token per byte, which bounds CJK and rare-symbol tokenization. */
+/** Conservative serialized input size, in the legacy three-characters/token
+ * scale accepted by holdFor. One token per UTF-8 byte avoids an ASCII prose
+ * heuristic undercounting code, citations and rare symbols. Include nested tool
+ * results and definitions, not just top-level text blocks. */
 export function promptCharacters(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): number {
-  let total = 0;
-  const weigh = (text: string) => {
-    for (const ch of text) { const code = ch.codePointAt(0)!; total += code < 0x80 ? 1 : 3 * (code < 0x800 ? 2 : code < 0x10000 ? 3 : 4); }
-  };
-  const add = (content: unknown) => {
-    if (typeof content === 'string') { weigh(content); return; }
-    if (Array.isArray(content)) for (const block of content) if (block && typeof block === 'object' && typeof (block as { text?: unknown }).text === 'string') weigh((block as { text: string }).text);
-  };
-  add(params.system);
-  for (const message of params.messages) add(message.content);
-  if (params.tools?.length) weigh(JSON.stringify(params.tools));
-  return total;
+  return new TextEncoder().encode(JSON.stringify({ system: params.system ?? [], messages: params.messages,
+    tools: params.tools ?? [] })).byteLength * 3;
 }
 
 export type ProviderFailure = 'aborted' | 'provider_error' | 'provider_rejected';
@@ -241,6 +232,8 @@ export interface ProviderOutcome {
   status: 'complete' | 'failed';
   failure: ProviderFailure | null;
   messageID: string | null;
+  /** Provider transport request ID for support/reconciliation; never content. */
+  requestID?: string | null;
   model: string | null;
   stopReason: string | null;
   refusalCategory: string | null;
@@ -261,10 +254,12 @@ export interface ProviderOutcome {
  * The function and tests construct clients here so error classes come from the
  * same SDK instance that `streamChat` checks with instanceof.
  */
-export function createAnthropicClient(options: { apiKey: string; fetch?: typeof fetch; maxRetries?: number; timeout?: number }): Anthropic {
+export function createAnthropicClient(options: { apiKey: string; fetch?: typeof fetch; maxRetries?: 0; timeout?: number }): Anthropic {
   // SDK logging stays off: its debug/error paths could include request or
   // response details, and this function logs only sanitized codes itself.
-  return new Anthropic({ apiKey: options.apiKey, maxRetries: options.maxRetries ?? 1, timeout: options.timeout ?? 60_000,
+  // Every transport attempt needs a durable grant. SDK retries are invisible
+  // to that boundary and can repeat a billed call after its response was lost.
+  return new Anthropic({ apiKey: options.apiKey, maxRetries: 0, timeout: options.timeout ?? 60_000,
     logLevel: 'off', ...(options.fetch ? { fetch: options.fetch } : {}) });
 }
 
@@ -310,7 +305,8 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
       // processed input before we lost the stream: charge the estimate.
       const attempts: ProviderAttempt[] = billedWithoutStart ? [{ model: params.model, estimated: true,
         usage: { ...emptyUsage(), input: Math.max(0, options.inputEstimateTokens) } }] : [];
-      return { status: 'failed', failure, messageID: null, model: null, stopReason: null, refusalCategory: null, attempts, exact: !billedWithoutStart };
+      return { status: 'failed', failure, messageID: null, requestID: stream?.request_id ?? null,
+        model: null, stopReason: null, refusalCategory: null, attempts, exact: !billedWithoutStart };
     }
     const elapsed = Math.max(0, now() - startedAt);
     const output = Math.min(params.max_tokens, Math.max(Math.ceil(visible / 3), Math.ceil(elapsed / 1000 * ESTIMATED_OUTPUT_TOKENS_PER_SECOND)));
@@ -318,7 +314,7 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     const usage = start ? { ...start.usage, output: Math.max(start.usage.output, output) } : { ...emptyUsage(), input: options.inputEstimateTokens, output };
     // Each search seen implied another pass over the prompt plus its results.
     usage.input += searchesSeen * (Math.max(0, options.inputEstimateTokens) + WEB_SEARCH_RESULT_TOKENS);
-    return { status: 'failed', failure, messageID, model, stopReason: null, refusalCategory: null,
+    return { status: 'failed', failure, messageID, requestID: stream?.request_id ?? null, model, stopReason: null, refusalCategory: null,
       attempts: [{ model: sawFallback ? null : model, usage, estimated: true }], exact: false, ...(searchesSeen ? { webSearches: searchesSeen } : {}) };
   };
   let stream: ReturnType<typeof client.beta.messages.stream> | undefined;
@@ -366,17 +362,20 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
       }
     }
     const webSearches = Math.max(searchesSeen, count(message.usage.server_tool_use?.web_search_requests));
-    return { status: 'complete', failure: null, messageID: message.id, model: message.model, stopReason: message.stop_reason,
-      refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}),
+    const finalUsage = message.usage && Number.isSafeInteger(message.usage.input_tokens) && message.usage.input_tokens >= 0
+      && Number.isSafeInteger(message.usage.output_tokens) && message.usage.output_tokens >= 0 && attempts.length > 0;
+    return { status: 'complete', failure: null, messageID: message.id, requestID: stream.request_id ?? null, model: message.model, stopReason: message.stop_reason,
+      refusalCategory: message.stop_details?.category ?? null, attempts, exact: !!finalUsage, ...(toolCalls.length ? { toolCalls } : {}),
       content: message.content as unknown[],
       ...(webSearches ? { webSearches } : {}), ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
   } catch (error) {
     stream?.abort();
     if (error instanceof Anthropic.APIUserAbortError || options.signal.aborted) return partial('aborted', true);
-    // A typed HTTP status before message_start means the request was rejected
-    // (429/5xx/4xx) and not billed; mid-stream error events still bill output.
+    // Explicit validation/auth/rate-limit rejections precede processing. A 5xx
+    // or timeout can follow processing: retain uncertainty, even before start.
     if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)) {
-      return partial(error.status >= 500 || error.status === 429 ? 'provider_error' : 'provider_rejected', false);
+      const rejected = [400, 401, 403, 404, 413, 422, 429].includes(error.status);
+      return partial(error.status >= 500 || error.status === 429 ? 'provider_error' : 'provider_rejected', !rejected);
     }
     return partial('provider_error', true);
   }

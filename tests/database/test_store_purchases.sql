@@ -195,10 +195,10 @@ select test.assert(pg_temp.available(:N)=2600,'a renewal does not end the curren
 
 -- Sandbox purchases (free) grant at most 1,000 credits per account per month.
 set role service_role;
-select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7101','7101',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox'))->>'credits'='400','sandbox pack 1');
-select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7102','7102',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox'))->>'credits'='400','sandbox pack 2');
-select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7103','7103',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox'))->>'credits'='200','sandbox pack 3 capped');
-select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7104','7104',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox'))
+select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7101','7101',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox',apptx=>'553'))->>'credits'='400','sandbox pack 1');
+select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7102','7102',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox',apptx=>'553'))->>'credits'='400','sandbox pack 2');
+select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7103','7103',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox',apptx=>'553'))->>'credits'='200','sandbox pack 3 capped');
+select test.assert(public.worker_record_store_transaction(:I,pg_temp.tx('7104','7104',:pack,now(),null,now(),:I,null,'Consumable',null,'Sandbox',apptx=>'553'))
  @> '{"outcome":"recorded","credits":0}','sandbox cap reached');
 reset role;
 select test.assert(pg_temp.available(:I)=1000,'sandbox credits capped at 1,000');

@@ -61,6 +61,17 @@ if remote['organization_id'] != 'mhiweqpcwyqtyorgqhla' or remote['name'] != 'sci
 if not args.skip_migrations:
     subprocess.run(['python3', str(ROOT/'scripts/migrate-supabase.py'), args.environment], check=True)
 
+# Purchase observation retention is a database-only scheduled task. Do not deploy
+# the new admission path if migration 038 or its active cleanup job is missing.
+selected_functions = args.functions if args.functions is not None else config['functions']
+if 'store-sync' in selected_functions:
+    readiness = request(env['SUPABASE_URL'] + '/rest/v1/rpc/worker_store_verification_readiness',
+                        {'Authorization': 'Bearer ' + env['SUPABASE_SERVICE_ROLE_KEY'], 'apikey': env['SUPABASE_SERVICE_ROLE_KEY']}, {})
+    cleanup = readiness.get('cleanup', {})
+    if not (cleanup.get('active') is True and cleanup.get('expected_command') is True and cleanup.get('schedule') == '17 * * * *'):
+        raise SystemExit('Purchase observation cleanup is not ready; review migration 038 and its database cron before deploying store-sync')
+    print('Verified bounded purchase diagnostics and hourly database cleanup')
+
 storage_config = request(base + '/config/storage', mgmt)
 if storage_config['fileSizeLimit'] < config['paper_bucket']['file_size_limit']:
     request(base + '/config/storage', mgmt, {'fileSizeLimit': config['paper_bucket']['file_size_limit']}, method='PATCH')

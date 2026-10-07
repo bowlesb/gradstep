@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { PDFDocument } from 'pdf-lib';
 import { handleUpload, sweepPdfUploads, uploadError, type UploadDeps } from '../../supabase/functions/_shared/pdf-uploads.ts';
 import { processPaper, readerAttribution, type PaperEntry, type PipelineDeps, type PipelinePolicy } from '../../supabase/functions/_shared/pipeline.ts';
@@ -102,7 +103,14 @@ function harness(responses: Record<string, (params: Record<string, unknown>) => 
   const calls: { name: string; params: Record<string, unknown> }[] = []; const originals = new Map<string, Uint8Array>(); const removed: string[] = [];
   const unexpected = async () => { throw new Error('unexpected'); };
   const deps: PipelineDeps = {
-    async rpc<T>(name: string, params: Record<string, unknown>): Promise<T> { calls.push({ name, params }); return (responses[name]?.(params) ?? null) as T; },
+    async rpc<T>(name: string, params: Record<string, unknown>): Promise<T> {
+      calls.push({ name, params });
+      if (responses[name]) return responses[name](params) as T;
+      if (name === 'worker_pipeline_asset_plan') return { upload_id: params.p_upload_id,
+        objects: (params.p_objects as { path: string }[]).map(o => ({ id: randomUUID(), path: o.path, verified: false })) } as T;
+      if (name === 'worker_pipeline_asset_write') return { write: true, verified: false } as T;
+      return null as T;
+    },
     storage: { async upload(path, bytes) { originals.set(path, bytes); }, download: unexpected, signedURL: unexpected },
     uploads: {
       async download(path, maximum) {
@@ -115,7 +123,7 @@ function harness(responses: Record<string, (params: Record<string, unknown>) => 
     },
     fetch: (async () => { throw new Error('no fetch for an upload'); }) as unknown as typeof fetch,
     mathpix: { submitOnce: unexpected, submitURL: unexpected, status: unexpected, conversion: unexpected, output: unexpected },
-    render: unexpected, async sleep() {}, now: () => Date.parse('2026-10-05T06:00:00Z'), uuid: () => '33333333-3333-4333-8333-333333333333',
+    render: unexpected, async sleep() {}, now: () => Date.parse('2026-10-05T06:00:00Z'), uuid: randomUUID,
     log() {}, resolveHost: async () => ['93.184.215.14'],
   };
   return { deps, calls, originals, removed };

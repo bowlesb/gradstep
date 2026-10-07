@@ -100,8 +100,10 @@ export function priceUsage(usage: { input_tokens?: number | null; output_tokens?
 
 /** Upper bound when a call may have been processed but returned nothing (connection lost). */
 export function estimateMicrousd(request: Anthropic.MessageCreateParamsNonStreaming): number {
-  const characters = JSON.stringify(request.system).length + JSON.stringify(request.messages).length + JSON.stringify(TAG_SCHEMA).length;
-  return Math.ceil(Math.ceil(characters / 3) * HAIKU_RATES.input + request.max_tokens * HAIKU_RATES.output);
+  // Byte-level upper bound includes structured-output schema, tool/message
+  // envelopes and escaped content. No prose-character/token heuristic.
+  const inputBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength;
+  return Math.ceil(inputBytes * HAIKU_RATES.input + request.max_tokens * HAIKU_RATES.output);
 }
 
 /** One classification. Never throws: every path says what is known about billing. */
@@ -111,12 +113,15 @@ export async function classifyPaper(client: Anthropic, input: TagInput): Promise
   try {
     message = await client.messages.create(request);
   } catch (error) {
-    // A typed HTTP status means the request was refused and not billed; a lost connection may have been.
-    if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)) {
+    // Explicit pre-processing rejection can release the hold. A 5xx, timeout
+    // or lost connection may follow a billed request and remains unknown.
+    if (error instanceof Anthropic.APIError && typeof error.status === 'number' && !(error instanceof Anthropic.APIConnectionError)
+      && [400, 401, 403, 404, 413, 422, 429].includes(error.status)) {
       return { status: 'failed', code: error.status === 429 || error.status >= 500 ? 'provider_unavailable' : 'provider_rejected',
         messageID: null, model: null, usage: null, microusd: 0 };
     }
-    return { status: 'failed', code: 'provider_transport', messageID: null, model: null, usage: null, microusd: estimateMicrousd(request) };
+    return { status: 'failed', code: 'provider_transport', messageID: null, model: null,
+      usage: { input_tokens: 0, output_tokens: 0, estimated: true }, microusd: estimateMicrousd(request) };
   }
   const usage: TagUsage = { input_tokens: message.usage?.input_tokens ?? 0, output_tokens: message.usage?.output_tokens ?? 0 };
   const microusd = priceUsage(message.usage ?? {});
@@ -188,9 +193,19 @@ export async function tagCatalog(deps: TaggingDeps, options: { deadline: number;
       const input = tagInput(candidate);
       const inputSHA = await sha256(encoder.encode(JSON.stringify([TAG_VOCABULARY_VERSION, TAG_MODEL, input.title, input.abstract, input.categories])));
       let outcome: Classification | null = null;
-      if (candidate.model && deps.classify) {
+      const quote = estimateMicrousd(tagRequest(input));
+      if (candidate.model && quote > candidate.hold_microusd) {
+        deps.log('tags_quote_exceeds_hold', { version: candidate.version_id, quote_microusd: quote, hold_microusd: candidate.hold_microusd });
+      } else if (candidate.model && deps.classify) {
         try { outcome = await deps.classify(input); }
-        catch { outcome = { status: 'failed', code: 'classifier_error', messageID: null, model: null, usage: null, microusd: estimateMicrousd(tagRequest(input)) }; }
+        catch { outcome = { status: 'failed', code: 'classifier_error', messageID: null, model: null,
+          usage: { input_tokens: 0, output_tokens: 0, estimated: true }, microusd: candidate.hold_microusd }; }
+        if (outcome.status === 'failed' && !outcome.messageID && (outcome.microusd > 0 || outcome.usage?.estimated)) {
+          // Customer fallback tags are available immediately, while provider
+          // liability stays at the full admitted ceiling until reconciled.
+          outcome = { ...outcome, microusd: candidate.hold_microusd,
+            usage: { input_tokens: 0, output_tokens: 0, estimated: true } };
+        }
       }
       const fallback = tagsFromCategories(input.categories);
       const params: Record<string, unknown> = {

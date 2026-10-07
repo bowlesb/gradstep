@@ -1,26 +1,12 @@
-// Gradstep paper pipeline worker for Google Cloud Run (docs/architecture/PIPELINE_RELIABILITY.md).
-// Runs the same pipeline code as the Edge `paper-worker` under Node 24, with the memory
-// and time large papers need. pg_cron and the import trigger call it through pg_net with
-// the pipeline secret (never a customer token). Each call works through due papers, one
-// at a time, until none is due or the run budget is spent, and answers when it is done.
+// The request remains open until the pipeline's worker thread finishes or is stopped.
+// Do not detach work from this lifecycle: Cloud Run uses request-based CPU billing.
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { resolve4, resolve6 } from 'node:dns/promises';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { MathpixClient } from '../../supabase/functions/_shared/mathpix.ts';
-import { runPipeline, type PipelineDeps } from '../../supabase/functions/_shared/pipeline.ts';
-import { pipelineService, rpcAdapter, runtimeEnv, storageAdapter, uploadStorageAdapter } from '../../supabase/functions/_shared/pipeline-runtime.ts';
-import { renderReader } from '../../supabase/functions/_shared/reader-adapter.ts';
-import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
-import { sweepPdfUploads } from '../../supabase/functions/_shared/pdf-uploads.ts';
-import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
+import { timingSafeEqual } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
+import type { RunResult } from './run.ts';
 
-/** No new paper is claimed after this; Cloud Run's request timeout (900 s) leaves room to finish one. */
-export const RUN_BUDGET_MS = 480_000;
-/** Each paper's own deadline (the pipeline stops starting stages 30 s before it). */
-export const PAPER_DEADLINE_MS = 360_000;
-/** Topic tagging after each paper and at the end of a run (docs/architecture/TAGS.md). */
-export const TAG_DEADLINE_MS = 90_000;
-
+/** Leave a full minute for termination, logging and the response before Cloud Run's 900 s limit. */
+export const HARD_RUN_LIMIT_MS = 840_000;
 const log = (event: string, fields: Record<string, unknown> = {}) => console.log(JSON.stringify({ event, ...fields }));
 
 export function sameSecret(given: string, expected: string): boolean {
@@ -28,100 +14,73 @@ export function sameSecret(given: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** A web PDF host's addresses (every one must be public; checked per redirect hop by the pipeline). */
-async function resolveHost(host: string): Promise<string[]> {
-  const answers = await Promise.allSettled([resolve4(host), resolve6(host)]);
-  const addresses = answers.flatMap(answer => answer.status === 'fulfilled' ? answer.value : []);
-  if (!addresses.length) throw new Error('dns_unresolved');
-  return addresses;
+export class RunFailure extends Error {
+  readonly code: 'run_timeout' | 'worker_failed' | 'worker_stopped' | 'invalid_worker_result';
+  constructor(code: RunFailure['code']) { super(code); this.code = code; }
 }
 
-function deps(): PipelineDeps {
-  const service = pipelineService();
-  const appID = runtimeEnv('MATHPIX_APP_ID'), appKey = runtimeEnv('MATHPIX_APP_KEY');
-  if (!appID || !appKey) throw new Error('provider_credentials_unavailable');
-  return {
-    rpc: rpcAdapter(service), storage: storageAdapter(service), uploads: uploadStorageAdapter(service), fetch,
-    mathpix: new MathpixClient({ appID, appKey }), render: renderReader,
-    sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => Date.now(), uuid: () => randomUUID(),
-    log: (event, fields = {}) => log(event, fields),
-    resolveHost,
-    // No self-kick: this run keeps claiming due papers itself.
-  };
+/** A real thread boundary enforces the wall-clock bound even if a renderer blocks its JS event loop.
+ * Termination does not retry or settle paid work: fenced claims and durable provider grants survive it.
+ * The small options surface permits real, provider-free worker fixtures in lifecycle tests. */
+export function runInWorker(options: { url?: URL; timeoutMs?: number } = {}): Promise<RunResult> {
+  return new Promise((resolve, reject) => {
+    const url = options.url ?? new URL('./run.ts', import.meta.url);
+    const worker = new Worker(url, { workerData: { pipelineRun: 1, entryPoint: url.href } });
+    let finishing = false;
+    const finish = async (result?: RunResult, error?: RunFailure) => {
+      if (finishing) return;
+      finishing = true;
+      clearTimeout(timer);
+      try {
+        // Always join, including after success: nothing may continue after the HTTP response.
+        await worker.terminate();
+        if (error) reject(error); else resolve(result!);
+      } catch { reject(new RunFailure('worker_failed')); }
+    };
+    const timer = setTimeout(() => { void finish(undefined, new RunFailure('run_timeout')); }, options.timeoutMs ?? HARD_RUN_LIMIT_MS);
+    worker.once('message', (value: unknown) => {
+      const message = value as { ok?: unknown; result?: Partial<RunResult> } | null;
+      if (message?.ok === false) return void finish(undefined, new RunFailure('worker_failed'));
+      if (message?.ok !== true || !Number.isSafeInteger(message.result?.processed) || message.result!.processed! < 0
+        || !Number.isFinite(message.result?.ms) || message.result!.ms! < 0) {
+        return void finish(undefined, new RunFailure('invalid_worker_result'));
+      }
+      void finish(message.result as RunResult);
+    });
+    worker.once('error', () => { void finish(undefined, new RunFailure('worker_failed')); });
+    worker.once('exit', () => { void finish(undefined, new RunFailure('worker_stopped')); });
+  });
 }
 
-/** Claude Haiku chooses catalog tags when the Anthropic key is configured; otherwise only the arXiv-category fallback runs. */
-function taggingDeps(): TaggingDeps {
-  const key = runtimeEnv('ANTHROPIC_API_KEY');
-  const client = key ? createTagClient(key) : null;
-  return {
-    rpc: rpcAdapter(pipelineService()), classify: client ? input => classifyPaper(client, input) : null,
-    uuid: () => randomUUID(), now: () => Date.now(), log: (event, fields = {}) => log(event, fields),
-  };
-}
-
-export interface RunResult { processed: number; ms: number }
-/** Works through due papers until none is due or the budget is spent. Tags papers whose metadata
- * has arrived after each one (a paper's tags are ready while it converts), and once more at the end. */
-export async function runOnce(make: () => PipelineDeps = deps, now: () => number = Date.now,
-  tagging: (() => TaggingDeps) | null = taggingDeps, sweepUploads = true): Promise<RunResult> {
-  const started = now();
-  let processed = 0;
-  // Finish any account deletion left incomplete (cheap when none is).
-  await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
-  // Delete readers' uploads that were used, abandoned or never finished (migration 039).
-  if (sweepUploads) {
+/** One independent handler per server; one in-flight run per instance. */
+export function createHandler(run: () => Promise<RunResult> = runInWorker) {
+  let running: Promise<RunResult> | null = null;
+  return async function handle(request: IncomingMessage, response: ServerResponse, secret = process.env.PIPELINE_SECRET): Promise<void> {
+    const send = (status: number, body: unknown) => {
+      response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+      response.end(JSON.stringify(body));
+    };
+    request.resume();
+    if (request.method === 'GET' && request.url === '/health') return send(200, { ok: true });
+    if (request.method !== 'POST') return send(405, { code: 'method_unavailable' });
+    const given = request.headers['x-pipeline-secret'];
+    if (!secret || secret.length < 32 || typeof given !== 'string' || !sameSecret(given, secret)) return send(401, { code: 'unauthorized' });
+    if (running) return send(202, { accepted: true, busy: true });
+    // Promise.resolve also gives a synchronous constructor error the same bounded failure path.
+    running = Promise.resolve().then(run);
     try {
-      const service = pipelineService();
-      await sweepPdfUploads(rpcAdapter(service), paths => uploadStorageAdapter(service).remove(paths), fields => log('pdf_uploads', fields));
-    } catch { log('pdf_uploads', { event: 'pdf_upload_sweep_failed' }); }
-  }
-  const pipeline = make();
-  let tagger: TaggingDeps | null = null;
-  const tag = async (maxPapers: number) => {
-    if (!tagging) return;
-    try {
-      tagger ??= tagging();
-      const result = await tagCatalog(tagger, { deadline: now() + TAG_DEADLINE_MS, maxPapers });
-      if (result.model || result.fallback || result.failed || result.projected) log('tags_run', { ...result });
-    } catch (error) { log('tags_failed', { code: error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected' }); }
+      const result = await running;
+      log('run_finished', { processed: result.processed, ms: result.ms });
+      send(200, { accepted: true, processed: result.processed });
+    } catch (error) {
+      const code = error instanceof RunFailure ? error.code : 'worker_failed';
+      log('run_failed', { code });
+      send(code === 'run_timeout' ? 504 : 500, { code: 'run_failed' });
+    } finally { running = null; }
   };
-  while (now() - started < RUN_BUDGET_MS) {
-    const result = await runPipeline(pipeline, now() + PAPER_DEADLINE_MS);
-    if (!result.processed) break;
-    processed += result.processed;
-    await tag(3);
-  }
-  await tag(30);
-  return { processed, ms: now() - started };
 }
 
-let running: Promise<RunResult> | null = null;
-
-export async function handle(request: IncomingMessage, response: ServerResponse, secret = runtimeEnv('PIPELINE_SECRET')): Promise<void> {
-  const send = (status: number, body: unknown) => {
-    response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-    response.end(JSON.stringify(body));
-  };
-  request.resume();
-  if (request.method === 'GET' && request.url === '/health') return send(200, { ok: true });
-  if (request.method !== 'POST') return send(405, { code: 'method_unavailable' });
-  const given = request.headers['x-pipeline-secret'];
-  if (!secret || secret.length < 32 || typeof given !== 'string' || !sameSecret(given, secret)) return send(401, { code: 'unauthorized' });
-  // One run per instance (Cloud Run concurrency is 1; this also covers local use).
-  if (running) return send(202, { accepted: true, busy: true });
-  running = runOnce();
-  try {
-    const result = await running;
-    log('run_finished', { processed: result.processed, ms: result.ms });
-    send(200, { accepted: true, processed: result.processed });
-  } catch (error) {
-    const code = error instanceof Error && /^[a-z_]{1,64}$/.test(error.message) ? error.message : 'unexpected';
-    log('run_failed', { code });
-    send(500, { code: 'run_failed' });
-  } finally { running = null; }
-}
-
+export const handle = createHandler();
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT ?? 8080);
   createServer((request, response) => { void handle(request, response); }).listen(port, () => log('listening', { port }));

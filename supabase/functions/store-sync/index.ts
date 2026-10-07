@@ -25,6 +25,20 @@ Deno.serve(async request => {
     verifier ??= appleVerifier(config);
     const results = await syncTransactions({
       verifier,
+      async beginVerification(account, attempt, digest) {
+        const admission = await rpc<{ granted: boolean }>(service, 'worker_store_verification_begin', {
+          p_account_id: account, p_attempt_id: attempt, p_submission_sha256: '\\x' + digest,
+        });
+        return admission.granted === true;
+      },
+      async finishVerification(account, attempt, outcome, diagnostic) {
+        await rpc(service, 'worker_store_verification_finish', {
+          p_account_id: account, p_attempt_id: attempt, p_outcome: outcome,
+          p_stage: diagnostic?.stage ?? null, p_apple_status: diagnostic?.apple_status ?? null,
+          p_transport_code: diagnostic?.transport_code ?? null,
+        });
+        console.log(JSON.stringify({ function: 'store-sync', event: 'verification', attempt_id: attempt, outcome, ...diagnostic }));
+      },
       async recordTransaction(account, record) {
         const { data, error } = await service.rpc('worker_record_store_transaction', { p_account_id: account, p_transaction: record });
         if (error) { if (REJECTED_DATA.test(error.message)) return { outcome: 'invalid' }; throw new PublicError(503, 'service_unavailable'); }

@@ -2,9 +2,11 @@
 // (arXiv id, DOI, Crossref's citation matcher, OpenAlex) and queues it with the caller's own
 // import, like the app's Add. No credits. Answers within ~25 s with a plain outcome the app shows.
 import { cors, serviceClient, userClient } from '../_shared/backend.ts';
-import { PublicError } from '../_shared/http.ts';
+import { PublicError, sha256 } from '../_shared/http.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
 import { MAX_REFERENCE_CHARS, resolveReference } from '../_shared/reference.ts';
+import { RpcFailure } from '../_shared/chat.ts';
+import { referenceLookupSpending } from '../_shared/provider-spending.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BUDGET_MS = 25_000;
@@ -18,7 +20,7 @@ Deno.serve(async request => {
     if (request.method !== 'POST') throw new PublicError(405, 'method_unavailable');
     const { accountID, user } = await userClient(request);
     const service = serviceClient();
-    let body: { operation_id?: unknown; reference?: unknown; capabilities?: unknown };
+    let body: { operation_id?: unknown; reference?: unknown; capabilities?: unknown; consent_version?: unknown };
     try { body = await request.json(); } catch { throw new PublicError(400, 'invalid_request'); }
     const reference = typeof body.reference === 'string' ? body.reference.replace(/\s+/g, ' ').trim() : '';
     if (typeof body.operation_id !== 'string' || !UUID.test(body.operation_id) || reference.length < 8 || [...reference].length > MAX_REFERENCE_CHARS) {
@@ -30,14 +32,28 @@ Deno.serve(async request => {
 
     const started = Date.now();
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(BUDGET_MS)]);
-    const finder = paperFinder(service, user, Deno.env.get('TAVILY_API_KEY'));
+    const operationID = body.operation_id.toLowerCase();
+    const rpc = async (name: string, params: Record<string, unknown>) => {
+      const { data, error } = await service.rpc(name, params);
+      if (error) throw error.code ? new RpcFailure(error.message) : new Error('transport');
+      return data;
+    };
+    // Old builds never consented to send citation text to Tavily. They retain
+    // the free catalog lookup. An explicit new consent is necessary, not a key.
+    const spending = await referenceLookupSpending({ accountID, operationID, rpc, sha256Hex: sha256 }, {
+      reference, web, consentVersion: body.consent_version, enabled: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
+      apiKey: Deno.env.get('TAVILY_API_KEY'), fetcher: fetch,
+    });
+    const finder = paperFinder(service, user, spending.search);
     const slot = async (slots: number) => {
       const { data, error } = await service.rpc('worker_pipeline_arxiv_slot', { p_slots: slots, p_max_wait_ms: 10_000 });
       if (error) throw new Error('search_busy');
       return data;
     };
-    const { result, route } = await resolveReference({ fetch, slot, findPaper: finder.findPaper }, reference, web, budget)
-      .catch(() => ({ result: { status: 'unavailable' as const }, route: 'none' as const }));
+    const { result, route } = await resolveReference({ fetch, slot,
+      findPaper: (wanted, signal, options) => finder.findPaper(wanted, signal, { ...options, tavily: !!spending.search }) }, reference, web, budget)
+      .catch(() => ({ result: { status: 'unavailable' as const }, route: 'none' as const }))
+      .finally(spending.finish);
     let status: string = result.status;
     const paper = 'paper' in result ? result.paper : null;
     if (result.status === 'found' && paper) status = budget.aborted ? 'unavailable' : await finder.importPaper(paper, budget).catch(() => 'failed' as const);
