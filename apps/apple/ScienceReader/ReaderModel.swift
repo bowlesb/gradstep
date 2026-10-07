@@ -372,7 +372,7 @@ final class ReaderModel {
         var fixtureFailed = false
         var resolvedTransport = chatTransport
         var resolvedConsentStore: any AuthenticationCredentialStore = chatConsentStore ?? KeychainAuthenticationCredentialStore()
-        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if ChatFixtureTransport.isEnabled {
             // Never a network transport: scripted answers and in-memory consent.
             resolvedTransport = ChatFixtureTransport.launchTransport()
@@ -458,7 +458,7 @@ final class ReaderModel {
             libraryMatchedIDs = []; libraryRows = []; completedLibrarySearchKey = nil
         }
         librarySearchPending = true; librarySearchIssue = nil
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         OfflineResourceProbe.shared.beginSearch(query: libraryQuery)
         #endif
         guard librarySearchPreparation == nil else { return }
@@ -491,7 +491,7 @@ final class ReaderModel {
     }
 
     private func prepareLibrarySearchSource() -> Bool {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         let start = DispatchTime.now().uptimeNanoseconds
         #endif
         var candidates: [LibrarySearchCandidate] = []
@@ -535,7 +535,7 @@ final class ReaderModel {
         librarySearchCandidatePositions = Dictionary(candidates.map { ($0.id, $0.position) }, uniquingKeysWith: { first, _ in first })
         librarySearchCandidateRevision = librarySearchSourceRevision
         librarySearchSourceDirty = false
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         OfflineResourceProbe.shared.searchSourceBuilt(rows: candidates.count,
             elapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
         #endif
@@ -546,7 +546,7 @@ final class ReaderModel {
         switch event {
         case .completed(let result):
             guard librarySearchTicket == result.ticket, currentLibrarySearchKey == result.ticket.key else { return }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             let start = DispatchTime.now().uptimeNanoseconds
             #endif
             let rows = result.rowIDs.compactMap { libraryRowLookup[$0] }
@@ -557,7 +557,7 @@ final class ReaderModel {
             libraryMatchedIDs = result.rowIDs; libraryRows = rows
             completedLibrarySearchKey = result.ticket.key
             librarySearchPending = false; librarySearchIssue = nil
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             OfflineResourceProbe.shared.searchCompleted(query: result.ticket.key.query,
                 workerElapsedMS: result.workerElapsedMilliseconds,
                 publicationElapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000,
@@ -780,10 +780,10 @@ final class ReaderModel {
     func start() async {
         guard !started else { return }; started = true
         startStoreUpdates()
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         resetLibraryPreferencesForFixtures()
         #endif
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
             do {
                 guard let mode = try OfflineResourceFixture.launchMode() else { throw OfflineResourceFixture.Failure.invalidArguments }
@@ -832,7 +832,7 @@ final class ReaderModel {
             return
         }
         #endif
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
             let variant: OfflineReaderFixture.Variant = ProcessInfo.processInfo.arguments.contains("--mathpix-reader-fixture") ? .mathpix : .authored
             do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture"), variant: variant) }
@@ -850,7 +850,7 @@ final class ReaderModel {
             return
         }
         #endif
-        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if AuthenticationWorkflowFixture.isEnabled {
             openSample(); tab = .library; wideMode = .library
         }
@@ -866,7 +866,7 @@ final class ReaderModel {
                 beginAccountPreparation(user, client: client, scope: scope)
                 await accountPreparationTask?.value
             }
-            #if DEBUG && targetEnvironment(simulator)
+            #if DEBUG && FIXTURE_HOST
             // Live staging journey tests sign in a synthetic @example.invalid
             // account supplied by the test runner. Never present in releases.
             let live = ProcessInfo.processInfo.environment
@@ -1272,7 +1272,7 @@ final class ReaderModel {
     /// Seconds until the next import status check, by seconds since polling began: fast at
     /// first so "Queued" moves on as soon as the worker starts (owner feedback 2026-10-05).
     @ObservationIgnored var importPollDelay: (TimeInterval) -> Double = { elapsed in elapsed < 20 ? 1 : elapsed > 120 ? 15 : 4 }
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG && FIXTURE_HOST
     /// Library metadata fixture only: synthetic offline availability for guest rows.
     @ObservationIgnored var fixtureOfflineStatus: [UUID: PaperOfflineStatus] = [:]
     #endif
@@ -1368,7 +1368,7 @@ final class ReaderModel {
             if case .failure = restored.installations {
                 offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
             }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if let mode = OfflineResourceProbe.shared.mode, mode != .seed {
                 let presentation = try restored.presentation.get(), list = try restored.installations.get()
                 guard mode == .empty || presentation?.committedCursor == Int64(OfflineResourceFixture.rowCount) else {
@@ -1383,7 +1383,7 @@ final class ReaderModel {
             #endif
         } catch {
             guard sessionID == scope, workOwnership.owns(activation) else { return }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if OfflineResourceProbe.shared.mode != nil { OfflineResourceProbe.shared.fail(.unexpectedState) }
             #endif
             offlineCacheIssue = "Offline reading couldn’t be restored. Your saved data has been preserved."
@@ -1587,7 +1587,7 @@ final class ReaderModel {
     }
 
     private func presentLibraryEntries(_ entries: [LibraryEntry]) {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         // Live publication still includes native metadata mapping. Offline
         // projection does that within its separate measured cache-read phase.
         OfflineResourceProbe.shared.begin(.publication)
@@ -1597,7 +1597,7 @@ final class ReaderModel {
     }
 
     private func presentLibraryProjection(_ rows: [LibraryPresentationRow], validatedEntryCount: Int) {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         // Format 4: final MainActor application only. Author joining and cache
         // validation are included in restoreProjectionElapsedMS and restore.
         OfflineResourceProbe.shared.begin(.publication)
@@ -1678,7 +1678,7 @@ final class ReaderModel {
     /// Availability belongs to the permitted encrypted installation, not to
     /// whether this row currently owns decoded bytes in memory.
     func offlineStatus(for paper: Paper) -> PaperOfflineStatus {
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         if let status = fixtureOfflineStatus[paper.id] { return status }
         #endif
         if paper.isSample { return paper.readerBundle == nil ? .none : .available }
@@ -1717,7 +1717,7 @@ final class ReaderModel {
         guard !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let attempt = UUID(), scope = sessionID
         do {
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             OfflineResourceProbe.shared.begin(.open)
             #endif
             let openStarted = ProcessInfo.processInfo.systemUptime
@@ -1738,7 +1738,7 @@ final class ReaderModel {
                     let displayed = current.displaying(result.bundle)
                     self.papers = self.papers.map { $0.id == displayed.id ? displayed : $0 }
                     self.selectedPaper = displayed
-                    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                     if OfflineResourceProbe.shared.mode != nil {
                         let bytes = result.bundle.manifest.members.reduce(0) { $0 + (result.bundle.data(for: $1.path)?.count ?? 0) }
                         let pixels = result.bundle.manifest.members.filter { $0.role == "image" }
@@ -2555,7 +2555,7 @@ final class ReaderModel {
         await localPersistence.waitForAcceptedWrites()
     }
 
-    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
     private func configureOfflineResourceFixture(mode: OfflineResourceFixture.Mode) async throws {
         let probe = OfflineResourceProbe.shared
         probe.configure(mode)
@@ -2589,7 +2589,7 @@ final class ReaderModel {
     }
     #endif
 
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG && FIXTURE_HOST
     /// The reset flag is explicit installation intent in this test-only
     /// account. Relaunch reads only encrypted rows; it never reloads the sample
     /// resource as a substitute for a missing or damaged installed copy.
@@ -2706,7 +2706,7 @@ struct ReaderWorkOwnership {
     func owns(_ attempt: SyncAttempt) -> Bool { owns(attempt.store) && latestSync == attempt && !isActivating }
 }
 
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG && FIXTURE_HOST
 /// Synthetic UI fixtures only (compiled out of device and release builds).
 extension ReaderModel {
     /// Fixture runs start from the default Library and Feed layouts unless an argument names one

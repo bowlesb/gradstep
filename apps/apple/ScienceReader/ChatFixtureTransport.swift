@@ -1,4 +1,4 @@
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG && FIXTURE_HOST
 import Foundation
 import ScienceReaderCore
 

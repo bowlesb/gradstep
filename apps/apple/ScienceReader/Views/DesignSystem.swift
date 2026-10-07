@@ -15,6 +15,10 @@ enum DesignMetrics {
     static let margin: CGFloat = 16
     /// Readable column for scrolling content on iPad (the reader's text column is its own).
     static let column: CGFloat = 720
+    /// App-drawn header controls (search field, circle buttons): 44 pt touch targets; on the Mac, pointer-sized
+    /// like the window's toolbar buttons.
+    static let headerControl: CGFloat = Platform.isMac ? 34 : 44
+    static let headerSymbol: CGFloat = Platform.isMac ? 15 : 17
 
     /// Side insets that center a `column`-wide region in `width`, never below the margin.
     static func columnInset(for width: CGFloat) -> CGFloat { max(margin, (width - column) / 2) }
@@ -24,8 +28,8 @@ enum DesignMetrics {
 struct HeaderButtonLabel: View {
     let systemImage: String
     var body: some View {
-        Image(systemName: systemImage).font(.system(size: 17, weight: .semibold)).foregroundStyle(.tint)
-            .frame(width: 44, height: 44).modifier(GlassCircle())
+        Image(systemName: systemImage).font(.system(size: DesignMetrics.headerSymbol, weight: .semibold)).foregroundStyle(.tint)
+            .frame(width: DesignMetrics.headerControl, height: DesignMetrics.headerControl).modifier(GlassCircle())
             .contentShape(Circle())
     }
 }
@@ -122,7 +126,7 @@ extension View {
     /// Side insets for a scroll view's content so its rows sit in the readable column (iPad only;
     /// iPhone keeps the system's own insets).
     @ViewBuilder func readableScrollColumn(width: CGFloat) -> some View {
-        if UIDevice.current.userInterfaceIdiom == .pad {
+        if Platform.isLargeScreen {
             contentMargins(.horizontal, max(0, (width - DesignMetrics.column) / 2), for: .scrollContent)
         } else { self }
     }
