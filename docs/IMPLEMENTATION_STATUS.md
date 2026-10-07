@@ -23,9 +23,9 @@ from delayed refresh/sign-out/verification; preserves request deadlines; stops d
 late reading saves from recreating forgotten device data. Device records must survive an IndexedDB roundtrip and
 remain usable before enrollment, including on retry/reload. Live tags now update through the reader bridge without
 replacing the document or losing the selection, reading place or citation return. Local validation: production build,
-**54 unit/interop tests**, **28 production-CSP browser checks** and **10 development Strict Mode journeys** pass.
+**71 unit/interop tests**, **42 production-CSP browser checks** and **17 development Strict Mode journeys** pass.
 Direct paper URLs now wait for encrypted reading activity to load before restoring the paper, and received scroll
-reports no longer lose the last update to a second throttle. **Eight WebKit key-dependent journeys remain
+reports no longer lose the last update to a second throttle. **Fifteen WebKit key-dependent journeys remain
 capability skips**, with safe refusal tested: WebKit cannot currently read back the non-extractable X25519 keys in
 this environment. Full Safari support requires further design/work; see
 [browser evidence and release gate](architecture/BROWSER_READER.md#evidence).
@@ -35,7 +35,16 @@ progresses. Empty catch-up and progress ticks no longer rerender the entire libr
 observations, progress-window script work fell from 825–1,097 ms to 9–18 ms; this still renders every row and does
 not increase supported capacity. See [measurement scope](architecture/BROWSER_READER.md#library-update-isolation--2026-10-07).
 
-Next: design large-library loading/sync evolution, implement accessible windowing, validate native/Mac workflows,
+Library commands now wait for a complete observation after their receipt, including the changed target, rather
+than publishing a single returned entry. Add captures the displayed cursor. Failed reads retain pending state;
+recovery completes the accepted form without a duplicate request, and stale actions show revision conflicts.
+See [command publication](architecture/BROWSER_READER.md#command-acknowledgements-and-complete-library-views).
+
+The [capacity proposal](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm
+caches, compact sync, consistent paged queries and reviewed record retirement. The existing retained-entry and
+backend lifetime limits stay unchanged; this is a proposed architecture, not a migration or capacity increase.
+
+Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
 and verify browser deployment separately. Existing staging
 evidence below does not assert that this integration branch is deployed.
 

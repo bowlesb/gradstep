@@ -5,7 +5,7 @@ import { type FormEvent, memo, useCallback, useEffect, useMemo, useState } from 
 import type { Activity } from '../lib/activity';
 import { parseArxiv } from '../lib/arxiv';
 import { BackendError } from '../lib/backend';
-import type { Entry, Import, Item } from '../lib/library';
+import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/library';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
 import { Dialog, formatDate } from './common';
@@ -21,6 +21,10 @@ const commandError = (error: unknown) => {
   if (code === 'library_account_import_limit' || code === 'library_account_receipt_limit') return 'Your library has reached its current limit.';
   if (code === 'request_rate_limit') return 'Too many changes in a short time. Try again in a minute.';
   if (code === 'import_not_retryable') return 'This paper can’t be retried. Remove it and add it again.';
+  if (code === 'library_refresh_pending') return 'Your request reached Gradstep, but the library couldn’t refresh. Refresh the page to check its status.';
+  if (code === 'library_command_pending') return 'This change is still updating. Wait for your library to refresh.';
+  if (code === 'library_revision_conflict') return 'This paper changed since you last saw it. Check its status and try again.';
+  if (code === 'library_not_ready') return 'Wait for your library to load, then add the paper.';
   if (code === 'connection') return 'Couldn’t reach Gradstep. Your change may not have been saved; check the list, then try again.';
   return 'Couldn’t update the library. Try again.';
 };
@@ -31,7 +35,12 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
   const [tag, setTag] = useState('');
   const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: 'added', descending: true });
   const [adding, setAdding] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; pendingKey?: string; onObserved?: string } | null>(null);
+  useEffect(() => {
+    if (notice?.pendingKey && !library.pending.has(notice.pendingKey)) {
+      setNotice(notice.onObserved ? { text: notice.onObserved } : null);
+    }
+  }, [notice, library.pending]);
 
   const [rowCache] = useState(() => new WeakMap<Entry, Row>());
   const all = useMemo(() => buildRows(library.entries, rowCache), [library.entries, rowCache]);
@@ -98,9 +107,13 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
     </button>
   );
 
-  const run = useCallback(async (promise: Promise<unknown>) => {
+  const run = useCallback(async (key: string, promise: Promise<unknown>) => {
     setNotice(null);
-    try { await promise; } catch (error) { setNotice(commandError(error)); }
+    try { await promise; } catch (error) {
+      setNotice({ text: commandError(error), pendingKey: error instanceof CommandRefreshError ? key : undefined,
+        onObserved: error instanceof CommandRefreshError && error.response.result.status === 'revision_conflict'
+          ? commandError(new BackendError('library_revision_conflict')) : undefined });
+    }
   }, []);
 
   return (
@@ -108,7 +121,7 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
       <div className="library-head">
         <h1 id="library-title">Library</h1>
         <div className="head-actions">
-          <button className="primary" onClick={() => setAdding(true)} data-testid="add-paper">Add paper</button>
+          <button className="primary" onClick={() => setAdding(true)} disabled={library.state !== 'ready'} data-testid="add-paper">Add paper</button>
         </div>
       </div>
       <div className="toolbar">
@@ -131,7 +144,7 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
           {counts.archived > 0 && chip('archived', 'Archived')}
         </div>
       )}
-      {notice && <p className="issue" role="alert">{notice}</p>}
+      {notice && <p className="issue" role="alert">{notice.text}</p>}
       {library.state === 'loading' && library.entries.length === 0 && <div className="empty"><div className="spinner" aria-label="Loading library" /></div>}
       {library.state === 'error' && library.entries.length === 0 && (
         <div className="empty"><p>Couldn’t load your library.</p><button className="secondary" onClick={() => library.refresh().catch(() => {})}>Try again</button></div>
@@ -174,14 +187,14 @@ function useImportProgress(entry: Entry, mark?: Mark) {
 
 const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, onOpen, retry, remove, run }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean;
-  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (p: Promise<unknown>) => void;
+  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void;
 }) {
   const entry = row.entry;
   const progress = useImportProgress(entry, mark);
   const open = () => { if (row.readable && entry.kind === 'item') onOpen(entry); };
   const action = entry.kind === 'import' && row.action && !busy ? (
-    row.action === 'retry' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(retry(entry as Import)); }}>Retry</button>
-      : row.action === 'remove' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(remove(entry as Import)); }}>Remove</button>
+    row.action === 'retry' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(entry.id, retry(entry as Import)); }}>Retry</button>
+      : row.action === 'remove' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(entry.id, remove(entry as Import)); }}>Remove</button>
         : <span className="fine" title="Credits can be added in the iPhone or iPad app">Needs credits</span>
   ) : null;
   return (
@@ -218,13 +231,20 @@ function AddPaper({ open, onClose, library }: { open: boolean; onClose: () => vo
   const [text, setText] = useState('');
   const [issue, setIssue] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [awaitingObservation, setAwaitingObservation] = useState(false);
+  useEffect(() => {
+    if (awaitingObservation && !library.pending.has('add')) {
+      setAwaitingObservation(false); setIssue(null); setText(''); onClose();
+    }
+  }, [awaitingObservation, library.pending, onClose]);
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (busy || awaitingObservation || library.pending.has('add')) return;
     const reference = parseArxiv(text);
     if (!reference) { setIssue('Enter an arXiv identifier or link, like 2305.18290 or https://arxiv.org/abs/2305.18290.'); return; }
     setBusy(true); setIssue(null);
     try { await library.addArxiv(reference.sourceID, reference.revision); setText(''); onClose(); }
-    catch (error) { setIssue(commandError(error)); }
+    catch (error) { setIssue(commandError(error)); if (error instanceof CommandRefreshError) setAwaitingObservation(true); }
     finally { setBusy(false); }
   }
   return (
@@ -232,13 +252,13 @@ function AddPaper({ open, onClose, library }: { open: boolean; onClose: () => vo
       <form onSubmit={submit} noValidate>
         <h2>Add paper</h2>
         <label>arXiv identifier or link
-          <input autoFocus value={text} onChange={e => setText(e.target.value)} placeholder="2305.18290" spellCheck={false} autoCapitalize="none" data-testid="arxiv-input" />
+          <input autoFocus value={text} readOnly={busy || awaitingObservation} onChange={e => setText(e.target.value)} placeholder="2305.18290" spellCheck={false} autoCapitalize="none" data-testid="arxiv-input" />
         </label>
         {issue && <p className="issue" role="alert">{issue}</p>}
         <p className="fine">Searching arXiv and adding papers from the web aren’t available in the browser yet.</p>
         <div className="dialog-actions">
           <button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="submit" className="primary" disabled={busy || !text.trim()} data-testid="arxiv-add">{busy ? 'Adding…' : 'Add'}</button>
+          <button type="submit" className="primary" disabled={busy || awaitingObservation || library.pending.has('add') || library.state !== 'ready' || !text.trim()} data-testid="arxiv-add">{busy || awaitingObservation || library.pending.has('add') ? 'Adding…' : 'Add'}</button>
         </div>
       </form>
     </Dialog>

@@ -216,6 +216,11 @@ function decodeChanges(raw: unknown): ChangesPage {
 }
 
 export interface CommandResponse { result: { status: 'applied' | 'revision_conflict'; kind: 'item' | 'import'; id?: string; seq?: number; revision: number }; replayed: boolean; entry?: Entry }
+/** An accepted receipt still awaiting a complete read, not a reason to submit another mutation. */
+export class CommandRefreshError extends BackendError {
+  constructor(readonly response: CommandResponse) { super('library_refresh_pending'); }
+}
+export const receiptFloor = (response: CommandResponse) => Math.max(response.result.seq ?? 0, response.entry?.state_seq ?? 0);
 function decodeCommand(raw: unknown): CommandResponse {
   const v = raw as Record<string, unknown>;
   const r = v?.result as Record<string, unknown>;
@@ -290,10 +295,13 @@ export class Reconciler {
   }
 
   /** Pulls until a complete observation (bounded). Throws BackendError('library_resync_required') for the caller to reset. */
-  async pull(signal?: AbortSignal): Promise<void> {
+  async pull(signal?: AbortSignal, minimumCursor = 0, requireFreshBoundary = false): Promise<void> {
+    let readFreshBoundary = false;
+    this.prepareCatchUp();
     for (let pages = 0; pages < 256; pages++) {
       if (this.phase === 'baseline') {
         const raw = await rpc<unknown>('v3_library_page', { p_cursor: this.continuation, p_limit: PAGE_LIMIT }, { maximum: MAX_PAGE_BYTES, account: this.accountID, signal });
+        signal?.throwIfAborted();
         const page = decodeBaseline(raw);
         if (page.account_id !== this.accountID) fail('account');
         if (this.boundary !== null && page.baseline_cursor !== this.boundary) fail('cursor');
@@ -306,6 +314,7 @@ export class Reconciler {
       }
       const after = this.committed!;
       const raw = await rpc<unknown>('v3_library_changes', { p_after: after, p_through: this.catchUpBoundary, p_limit: PAGE_LIMIT }, { maximum: MAX_PAGE_BYTES, account: this.accountID, signal });
+      signal?.throwIfAborted();
       const page = decodeChanges(raw);
       if (page.account_id !== this.accountID) fail('account');
       if (page.retained_after > after) throw new BackendError('library_resync_required');
@@ -313,23 +322,42 @@ export class Reconciler {
         || (page.changes[0] && page.changes[0].seq <= after) || page.next_cursor < after || (page.has_more && page.next_cursor <= after)) fail('cursor');
       const next = new Map(this.entries);
       for (const batch of page.changes) this.merge(next, batch.entries);
+      if (this.catchUpBoundary === null) readFreshBoundary = true;
       this.entries = next; this.committed = page.next_cursor;
       this.catchUpBoundary = page.has_more ? page.through : null;
-      if (!page.has_more) { this.phase = 'ready'; return; }
       this.phase = 'catching_up';
+      if (!page.has_more) {
+        // A resumed fixed boundary can predate a receipt. Finish it, then ask for one fresh
+        // boundary; a server still behind an acknowledged sequence must fail, never spin or jump.
+        if (!readFreshBoundary && (requireFreshBoundary || this.committed < minimumCursor)) continue;
+        if (this.committed < minimumCursor) fail('receipt_not_observed');
+        // Baselines fix creation order, but return current rows. Some can be ahead of the
+        // baseline cursor or refer to an item on a later page. Only catch-up establishes completeness.
+        for (const entry of this.entries.values()) {
+          if (entry.state_seq > this.committed) fail('incomplete_observation');
+          if (entry.kind === 'import' && entry.library_item_id) {
+            const item = this.entries.get('item:' + entry.library_item_id);
+            if (!item || item.kind !== 'item' || item.document_id !== entry.document_id) fail('incomplete_observation');
+          }
+        }
+        this.phase = 'ready'; return;
+      }
     }
     fail('page_budget');
   }
 
-  /** A command reply's current entry; it does not prove the intervening account changes were read. */
-  accept(response: CommandResponse): void {
-    if (!response.entry) return;
-    const next = new Map(this.entries);
-    this.merge(next, [response.entry]);
-    this.entries = next;
-  }
-
   prepareCatchUp(): void { if (this.phase === 'ready') this.phase = 'catching_up'; }
+
+  /** Confirm the target as well as the account cursor; this never merges response entries. */
+  requireReceipt(response: CommandResponse): void {
+    if (this.phase !== 'ready' || this.committed === null || this.committed < receiptFloor(response)) return fail('receipt_not_observed');
+    const target = response.entry, observed = target && this.entries.get(target.kind + ':' + target.id);
+    if (!target || !observed || observed.state_seq < target.state_seq) return fail('receipt_not_observed');
+    const revision = observed.kind === 'import' ? observed.intent_revision : observed.membership_revision;
+    if (revision < response.result.revision) return fail('receipt_not_observed');
+    validateIdentity(target, observed);
+    if (observed.state_seq === target.state_seq && !same(target, observed)) fail('conflicting_revision');
+  }
 }
 
 // ---------- Commands (operation-ID replay makes a resend exactly-once) ----------
@@ -344,7 +372,18 @@ export async function sendCommand(account: string, command: Command, operationID
   // One automatic resend of the identical request after a lost reply; the server replays its receipt.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal }));
+      const response = decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal }));
+      const id = command.endpoint === 'v2_begin_import' ? operationID : command.p_import_id;
+      const revision = command.endpoint === 'v2_begin_import' ? 1 : command.p_expected_revision + 1;
+      const entry = response.entry;
+      if (!entry || entry.kind !== 'import') return fail('command_binding');
+      if (response.result.kind !== 'import' || response.result.id !== id
+        || (response.result.status === 'applied' ? response.result.revision !== revision
+          : command.endpoint === 'v2_begin_import' || response.result.seq !== undefined || response.result.revision <= 0 || response.result.revision === command.p_expected_revision)
+        || entry.intent_revision < response.result.revision) fail('command_binding');
+      if (command.endpoint === 'v2_begin_import' && (entry.source !== 'arxiv' || entry.source_id !== command.p_source_id
+        || (entry.requested_revision ?? null) !== command.p_requested_revision)) fail('command_binding');
+      return response;
     } catch (error) {
       lastError = error;
       if (!(error instanceof BackendError) || error.code !== 'connection') throw error;

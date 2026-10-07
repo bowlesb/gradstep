@@ -199,6 +199,30 @@ not an Auth setting or schema change.
 
 No migration, RPC or format change is required for Phase 1.
 
+### Command acknowledgements and complete library views
+
+The browser follows the publication rules in [native library commands](NATIVE_LIBRARY_COMMANDS.md): a command
+response is a receipt, never a partial library update. Cancel can change both an import and its item while returning
+only the import. Add freezes the cursor from the last rendered complete snapshot; partial background pages cannot
+grant a newer observation. Before the first complete load, Add stays disabled.
+
+Each receipt stays pending until a read begun after that response completes a fresh boundary through
+`max(result.seq, entry.state_seq)`. A resumed older fixed boundary finishes first. The completed target must also
+match the receipt's identity and cover its state/intent revision; a high account cursor alone is insufficient.
+Baselines return current rows under a fixed creation boundary, so no view is complete while a row is ahead of its
+cursor or a mapped item is missing. Command replies never advance the account cursor.
+
+Concurrent commands retain separate pending owners. An older read may publish its own coherent complete view,
+but cannot resolve a receipt received after it began. A failed follow-up read retains the last complete view and
+pending receipt, displays a refresh message, and leaves the action disabled. A subsequent refresh resolves it
+without resending the mutation. Recovered Add closes and clears its accepted form; its source stays read-only
+while waiting. Revision conflicts show current state and an explanation, with no automatic new command.
+
+This is still the online Phase 1 client: requests/receipts live only in the current login's memory. It is **not** the
+native durable encrypted command queue, and reloading after two lost command replies cannot recover an exact
+pending request. A persistent command outbox needs the account/deployment and atomic-cache design described in
+[library capacity](LIBRARY_CAPACITY.md), before browser offline mutation support.
+
 ## Verification
 
 - **Interop (Vitest, `apps/web/tests/interop.test.ts`).** WebCrypto reproduces the frozen Swift-tested fixture
@@ -217,22 +241,28 @@ No migration, RPC or format change is required for Phase 1.
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
 2026-10-07. Local evidence is separate from deployment evidence:
 
-- Production build and **54 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
+- Production build and **71 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
   same-account/cross-tab lifetimes, abandoned verification, a stale key operation finishing crypto, bounded response
   bodies with caller cancellation, ordered encrypted reading-place persistence, and non-null unusable/extractable
   stored keys that remain refused on retry without losing pending enrollment material. Frame contents accept the
-  same maximum of 1,000 headings as the Mathpix bundle verifier; the boundary is regression-tested.
-- Production-CSP Playwright: **28 passed, 8 capability skips** (2026-10-07). All 24 desktop/narrow Chromium cases
+  same maximum of 1,000 headings as the Mathpix bundle verifier; the boundary is regression-tested. Reconciliation
+  tests cover interrupted fixed boundaries, incomplete baselines, receipt floors/targets, whole-page rejection,
+  exact command replay and late cancelled reads.
+- Production-CSP Playwright: **42 passed, 15 capability skips** (2026-10-07). All 38 desktop/narrow Chromium cases
   pass, including no-reload sign-out/recovery, reauthorization of a reopened reader, a late encrypted save after
   forgetting keys, a delayed sign-out after another tab logs in, live tag updates while reading/selected/at a
   citation, tags arriving during a fresh download with a persisted nonzero position, and reopening a direct paper
   URL while activity decryption is deliberately delayed. A 4,000-entry library also passes progress, search,
-  live tag changes, filters, sorting and keyboard link activation. WebKit passes sign-in cancellation,
-  unsupported-key guidance, invite-only messaging and CSP checks. Its eight key-dependent journeys are blocked
+  live tag changes, filters, sorting and keyboard link activation. Seven command journeys per Chromium viewport
+  verify stale in-flight reads, failed-refresh recovery, displayed-cursor capture, concurrent commands, Add form
+  recovery and revision conflicts. WebKit passes sign-in cancellation, unsupported-key guidance, invite-only
+  messaging and CSP checks. Its fifteen key-dependent journeys are blocked
   by the engine issue below; these are not Safari workflow passes.
-- Ten desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
+- Seventeen desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
   returning reader, new keys/reload, abandoned verification, late reading save, delayed sign-out and enrollment
-  persistence, live tags, tags arriving during download, delayed local activity loading and the 4,000-entry library. Reproduce with
+  persistence, live tags, tags arriving during download, delayed local activity loading, the 4,000-entry library and
+  all seven command journeys. The final Add input/submission guard also passes all 14 desktop/narrow production
+  command cases. Reproduce with
   `WEB_E2E_DEV=1 npm run e2e -- --project=desktop --grep-invert 'address without|security headers'`;
   the CSP-header test specifically requires the production preview server.
 - The React/Svelte experiment's successful WebKit table tests do not exercise crypto/key storage and therefore
@@ -307,3 +337,7 @@ Its [window-scrolling release](https://react-aria.adobe.com/releases/v1-17-0) su
 has not been built or verified. The design must also preserve library query/filter/sort and a row anchor through
 reader navigation, handle disappearing focused imports, and offer full results for browser Find/printing.
 No new dependency or server contract has been adopted for windowing yet.
+
+The [capacity proposal](LIBRARY_CAPACITY.md) separates these client rendering improvements from the durable cache,
+compact sync and paged query changes needed for larger libraries. The present 4,000 bound counts retained entries,
+including import intents and removed items; it is not a 4,000-visible-paper entitlement.

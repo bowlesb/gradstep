@@ -25,7 +25,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 const sessions = new Map(); // token -> account
 const state = new Map();
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [] });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], importItems: new Set() });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -83,15 +83,22 @@ function seedLargeLibrary(count) {
 
 // Imports advance on a clock, as the worker would.
 function scheduleImport(a, imp, metadata) {
+  const revision = imp.intent_revision;
+  const currentAttempt = () => {
+    const current = a.entries.get('import:' + imp.id);
+    return current?.intent_revision === revision && ['accepted', 'resolving', 'acquiring'].includes(current.phase);
+  };
   const stages = [
     [800, { phase: 'acquiring', progress: 'downloading', metadata_id: randomUUID(), version_id: randomUUID(), source_revision: 7, metadata, metadata_recorded_at: now(),
       source_url: `https://arxiv.org/abs/${imp.source_id}v7`, progress_detail: { step: 'downloading', percent: 18, eta_seconds: 40, bytes: 2_215_000 } }],
     [2200, { progress: 'converting', progress_detail: { step: 'reading_equations', percent: 46, eta_seconds: 25, pages: 15, pages_done: 6 } }],
     [3800, { progress: 'rendering', progress_detail: { step: 'preparing', percent: 88, eta_seconds: 4, pages: 15 } }],
   ];
-  for (const [delay, change] of stages) a.timers.push(setTimeout(() => { Object.assign(imp, change); emit(a, [imp]); }, delay));
+  for (const [delay, change] of stages) a.timers.push(setTimeout(() => { if (!currentAttempt()) return; Object.assign(imp, change); emit(a, [imp]); }, delay));
   a.timers.push(setTimeout(() => {
+    if (!currentAttempt()) return;
     const it = item(randomUUID(), imp.source_id, 7, metadata);
+    a.importItems.add(it.id);
     Object.assign(imp, { phase: 'ready', visible: false, document_id: it.document_id, library_item_id: it.id, progress: null, progress_detail: null });
     emit(a, [it, imp]);
   }, 5200));
@@ -104,9 +111,9 @@ function libraryPage(id, a, { p_cursor, p_limit = 100 }) {
   let list = ordered(a).filter(e => e.created_seq <= through);
   if (p_cursor) list = list.filter(e => e.created_seq > p_cursor.created_seq || (e.created_seq === p_cursor.created_seq && (e.id > p_cursor.id || (e.id === p_cursor.id && e.kind > p_cursor.kind))));
   const page = list.slice(0, p_limit), last = page[page.length - 1];
-  // A baseline row is the entity's state at or before the boundary (latest log entry ≤ through).
-  const asOf = e => { for (let i = a.log.length - 1; i >= 0; i--) { if (a.log[i].seq > through) continue; const hit = a.log[i].entries.find(x => x.kind === e.kind && x.id === e.id); if (hit) return hit; } return e; };
-  return { format: 2, account_id: id, baseline_cursor: through, retained_after: 0, entries: page.map(asOf), has_more: list.length > page.length,
+  // Like production v3: the creation boundary is fixed, but returned rows are current and may
+  // have state_seq above it. Only grouped catch-up makes the resulting observation complete.
+  return { format: 2, account_id: id, baseline_cursor: through, retained_after: 0, entries: page, has_more: list.length > page.length,
     next_cursor: last ? { format: 2, account_id: id, through, created_seq: last.created_seq, id: last.id, kind: last.kind } : null };
 }
 function libraryChanges(id, a, { p_after, p_through, p_limit = 100 }) {
@@ -185,8 +192,14 @@ const rpcs = {
     if (!imp) throw pg('import_unavailable');
     const digest = JSON.stringify(['cancel', p.p_import_id, p.p_expected_revision]);
     if (a.receipts.has(p.p_operation_id)) return receipt(a, p.p_operation_id, digest);
+    if (imp.intent_revision !== p.p_expected_revision) return receipt(a, p.p_operation_id, digest, { status: 'revision_conflict', kind: 'import', id: imp.id, revision: imp.intent_revision });
     Object.assign(imp, { phase: 'cancelled', visible: false, intent_revision: imp.intent_revision + 1, retryable: false, error_code: null });
-    const seq = emit(a, [imp]);
+    const changed = [imp], linked = a.entries.get('item:' + imp.library_item_id);
+    if (linked?.visible && a.importItems.has(linked.id)
+      && ![...a.entries.values()].some(e => e.kind === 'import' && e.id !== imp.id && e.library_item_id === linked.id && e.phase === 'ready')) {
+      changed.push({ ...linked, visible: false, membership_revision: linked.membership_revision + 1 });
+    }
+    const seq = emit(a, changed);
     return receipt(a, p.p_operation_id, digest, { status: 'applied', kind: 'import', id: imp.id, seq, revision: imp.intent_revision });
   },
 };
@@ -219,6 +232,21 @@ createServer(async (request, response) => {
     const body = await read(request);
     if (!Number.isInteger(body?.count) || body.count < 3 || body.count > 4000 || !seedLargeLibrary(body.count)) return send(response, 400, {});
     return send(response, 200, { ok: true, entries: body.count });
+  }
+  if (url.pathname === '/__removable-import' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
+    emit(a, [{ ...imp, retryable: false, error_code: 'pdf_invalid' }]);
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__cancel-stopped-import' && request.method === 'POST') {
+    const id = ACCOUNTS['returning@example.test'], a = account(id), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
+    rpcs.v2_cancel_import(id, a, { p_operation_id: randomUUID(), p_import_id: imp.id, p_expected_revision: imp.intent_revision });
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__another-paper' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    emit(a, [item('aaaaaaaa-0000-4000-8000-000000000003', '2501.01234', 1, { ...ATTENTION, title: 'Added on another device' })]);
+    return send(response, 200, { ok: true });
   }
   // A tag projection arriving from the worker or another device, through the real library journal shape.
   if (url.pathname === '/__paper-tags' && request.method === 'POST') {
