@@ -3,7 +3,8 @@
 # testing only) with the dedicated App Store Connect key in .env.appstore.
 # Signing: the team's Apple Distribution certificate in the login keychain and
 # the "Gradstep App Store" profile (the App Manager key cannot use cloud signing; it carries
-# Sign in with Apple, In-App Purchase and Associated Domains).
+# Sign in with Apple, In-App Purchase, Associated Domains and the App Group group.com.sciencereader.ios),
+# and "Gradstep Share App Store" for the Share extension com.sciencereader.ios.share (App Group only).
 set -eu
 cd "$(dirname "$0")/.."
 . ./.env.appstore
@@ -21,7 +22,8 @@ cat > .artifacts/ExportOptions.plist <<PLIST
   <key>method</key><string>app-store-connect</string><key>destination</key><string>upload</string>
   <key>teamID</key><string>3BJ33TT599</string><key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>Apple Distribution</string>
-  <key>provisioningProfiles</key><dict><key>com.sciencereader.ios</key><string>Gradstep App Store</string></dict>
+  <key>provisioningProfiles</key><dict><key>com.sciencereader.ios</key><string>Gradstep App Store</string>
+    <key>com.sciencereader.ios.share</key><string>Gradstep Share App Store</string></dict>
   <key>uploadSymbols</key><true/><key>manageAppVersionAndBuildNumber</key><false/>
   <key>testFlightInternalTestingOnly</key><true/>
 </dict></plist>
