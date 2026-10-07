@@ -19,19 +19,22 @@ an existing device, device list and revocation, offline reading, credits and pur
 | Surface | Origin | Host |
 |---|---|---|
 | Info site (`web/site/`) | `https://gradstep.ai` | Cloudflare Pages `gradstep-site` |
-| Browser reader (`apps/web/`) | `https://app.gradstep.ai` | Cloudflare Pages `gradstep-app` (custom domain, proxied CNAME to `gradstep-app.pages.dev`) |
+| Browser reader (`apps/web/`) | Intended: `https://app.gradstep.ai` | Pages project `gradstep-app` exists; no deployment or custom domain verified as of 2026-10-07 |
 
-`gradstep.ai/app` and `gradstep.ai/app/*` redirect (302) to `https://app.gradstep.ai/` (`web/site/_redirects`). A
+The intended `gradstep.ai/app` and `gradstep.ai/app/*` redirects have **not** been implemented:
+`web/site/_redirects` is absent. A
 separate origin isolates the reader's IndexedDB keys, session and storage quota from the info site, and lets the app
 have a strict CSP without constraining the marketing pages. Both projects are on Cloudflare's free tier (static assets,
 no Functions): $0/month.
 
-Builds are local (`npm run build` in `apps/web`), deployed with `npx wrangler@4 pages deploy apps/web/dist
---project-name gradstep-app --branch main` using the dedicated Cloudflare token in the main checkout's `.env.staging`
-(`scripts/deploy-web.mjs`). The build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned.
-The Supabase anon key is a public client identifier (as in the iOS binary and the admin site), embedded at build time;
-no service key, provider key or token ever enters the bundle (the build fails if `.env` values other than the
-URL/anon key are referenced).
+Builds are local (`npm run build` in `apps/web`). Deployment should use the repository's locked Wrangler version
+and the dedicated Cloudflare credential; `scripts/deploy-web.mjs` is not yet implemented. A read-only hosting check
+on 2026-10-07 found no `gradstep-app` deployment, Pages custom domain or `app.gradstep.ai` DNS record. The intended
+build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned. Before publishing, validate
+public build-variable values, deep links, CSP/cache headers and a synthetic-account live journey.
+The Supabase anon key is a public client identifier (as in the iOS binary and the admin site), embedded at build time.
+The build restricts exposed environment-variable names to the URL/anon key. It still needs value validation to
+reject a wrong project or a privileged key placed under an allowed public variable name; this is a deployment gate.
 
 ## Stack
 
@@ -179,10 +182,10 @@ configuration separate from native Apple sign-in (see [native authentication](NA
 
 ## Edge function origin
 
-Edge functions answer browsers only from the origins in the `ADMIN_ORIGINS` function secret (source of truth:
-`infra/staging.json` `admin_origins`). Phase 1 adds `https://app.gradstep.ai` there so `reader-artifact` can be
-called from the app; REST/Auth/Storage already allow any origin with the anon key. This is a function-secret change,
-not an Auth setting or schema change.
+Edge functions use the `ADMIN_ORIGINS` secret. A read-only 2026-10-07 preflight against `reader-artifact` already
+allowed `https://app.gradstep.ai`, while `infra/staging.json` still listed only local origins. Reconcile that drift
+before any deployment; do not overwrite the live allowlist from the stale manifest or run a broad backend deploy
+solely for CORS. Origin permission does not replace authentication or artifact authorization.
 
 ## Contracts reused unchanged
 
@@ -233,8 +236,9 @@ pending request. A persistent command outbox needs the account/deployment and at
   against the app's real DPO sample bundle, frame document sanitization.
 - **End to end (Playwright, local fixture backend).** Sign-in, new keys and recovery, library table, add paper with
   progress, reader contents/citations/figures, sign-out; 390 px phone and desktop widths, light and dark.
-- **Live (`scripts/web-live-journey.mjs`).** A synthetic invited account (created and deleted by the script, never
-  the owner's), code from the Auth admin API (no email sent), against the deployed app.gradstep.ai.
+- **Live, planned (not implemented).** A fresh synthetic invited account, a real Auth verification flow and a
+  pre-existing eligible shared paper, followed by verified account cleanup. `scripts/web-live-journey.mjs` does not
+  yet exist. Local browser fixtures do not establish hosted sign-in, reading or email delivery.
 
 ## Evidence
 

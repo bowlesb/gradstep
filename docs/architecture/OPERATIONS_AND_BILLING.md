@@ -1,16 +1,16 @@
 # Infrastructure, spending, and recovery
 
-> **2026-10-05:** Paid OCR and chat now run through migration 014 and the `paper-worker`/`chat` Edge functions with the `beta-credits-v1` rate (see [PAPER_PIPELINE.md](PAPER_PIPELINE.md) and [CHAT.md](CHAT.md)). Staging's platform budget row is the hard provider-spend cap. Statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
+> **2026-10-07 audit correction:** The platform budget bounds recorded reservations and settlements; it is **not yet a complete provider-spend cap**. The independent [credits, identity and cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) found unreserved Tavily lookup paths, hidden SDK retries, and uncertain Mathpix work whose liability can be released early. Storage and delivery also have coverage gaps. Findings remain open; no fixes or new monitoring were deployed by the audit. Paid processing now uses the Cloud Run pipeline and chat Edge function; statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
 
-Status: implementation underway; product decisions approved. The separate Science Reader organization is Pro, staging is healthy on Micro in US West (Oregon), and migrations 001–011 are applied and immutable. Private support storage, encrypted-history capacity limits, and library/import/acquisition SQL contracts are deployed and tested. Metadata, original acquisition, verification, and original reads remain disabled; no runtime acquisition is deployed. Production, provider processing, independent backups, and distribution remain in progress.
+Status: implementation underway; see [current implementation evidence](../IMPLEMENTATION_STATUS.md) for staging and client milestones. Applied migrations are immutable. The 011 acquisition checkpoint below is historical; it does not describe the currently running paid pipeline. Production and independent backup operations remain unfinished.
 
 ## Environments and deployment
 
 - Create dedicated Science Reader staging and production Supabase projects with separate auth configuration, buckets, secrets, jobs, entitlements, and budget counters. Prefer the same supported region for both, initially US West near the owner, subject to actual availability and audience/data requirements.
 - TestFlight initially uses staging with Apple sandbox purchases. Production preparation must not copy staging users or synthetic entitlements. The build identifies its environment visibly to testers.
 - Use Supabase Auth, Postgres, private Storage, bounded Edge Functions, durable Queues, and scheduled reconciliation. Separate API ingress from work execution. Queue payloads contain identifiers and approved work options, not private plaintext conversations.
-- A managed worker outside Edge Functions is a contingency for demonstrated CPU/memory/runtime needs. Select it using measured workloads and the approved budget. Do not put an infinite polling process inside one Edge invocation or use the NAS as a production dependency. [Supabase runtime limits](https://supabase.com/docs/guides/functions/limits)
-- Recommended admin hosting is a static React application on managed static hosting, backed by authenticated Supabase APIs. Cloudflare Pages is a candidate; account access, domain, and final cost are not yet verified. No server secrets belong in the bundle. [Cloudflare Pages limits](https://developers.cloudflare.com/pages/platform/limits/)
+- The pipeline now runs on Cloud Run; review its billing mode and scheduling together against the approved budget (see below). Do not use the NAS as a production dependency. [Pipeline reliability](PIPELINE_RELIABILITY.md).
+- Static React clients use Cloudflare hosting, backed by authenticated Supabase APIs. Reader deployment remains unfinished; distinguish a created Pages project from a deployed app and configured custom domain. No server secrets belong in the bundle. [Browser deployment status](BROWSER_READER.md#where-it-lives).
 - Backend schema, functions, roles/grants, buckets, cron/queue configuration, and environment-specific nonsecret settings are versioned. Use the same reviewed migrations in staging and production. No first-request schema creation or undocumented dashboard fixes.
 - Apply least-privilege service identities. Provider, Apple signing, database, and management credentials are distinct. Establish dedicated Science Reader provider keys/workspaces so monitoring or limits cannot interrupt TextBrain.
 
@@ -39,19 +39,25 @@ If a worker or backup arrangement cannot fit, change the proposed allocation or 
 
 ### Fixed commitments
 
-Recurring charges that do not depend on use, against the $100/month incremental budget. Metered provider spend
-(Anthropic, Mathpix, Anthropic backup search) is capped separately by `platform_budgets` (staging, October 2026: $9.80).
+Recorded commitments and usage-sensitive hosting forecasts against the $100/month incremental budget. The
+October staging ledger allowance is $9.80, but the open audit findings prevent treating it as a complete cap on
+Anthropic, Mathpix and search invoices. Invoice attribution and Tavily pay-as-you-go status still need verification.
 
 | Commitment | Since | Monthly | Notes |
 |---|---|---:|---|
-| Supabase Pro organization (staging; production when created) | 2026-10-02 | ≈ $35 | Pro $25 + Micro compute, less the $10 credit ([manifest](DEPLOYMENT_MANIFEST.md)); confirm against the invoice |
+| Supabase | 2026-10-02 | Incremental amount unverified | Public-price scenarios: $25 for Pro with one Micro; $35 with two. An additional Micro under an existing paid organization may be $10 incremental. Attribute the actual invoice; exclude existing TextBrain costs |
 | Tavily Project plan (4,000 search credits) | 2026-10-06 | $30 | Bought by the owner for chat web search; pay-as-you-go must stay **off** |
 | gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 | Bought by the owner; one-off $181.14, shown monthly |
-| Google Cloud project `gradstep`: Cloud Run pipeline worker | 2026-10-06 | ≈ $0–2 | Scale to zero, 2 GiB; expected within the free tier at beta volume. Confirm on the first bill |
-| **Total fixed** | | **≈ $73–75** | |
+| Google Cloud project `gradstep`: Cloud Run pipeline worker | 2026-10-06 | Usage-dependent; see scenario below | Live revision uses instance-based billing, 1 vCPU / 2 GiB, with a request every minute; max 3 instances. The previous $0–2 forecast was unsupported |
 
-Forecast at most ≈ $75 fixed + the metered cap; within the $100 only if metered spend stays ≤ $30 and leaves ≈ $5 of
-contingency, with nothing left for the backup destination and admin hosting the fixed allocation was meant to hold.
+One continuously warm Cloud Run instance for 30 days is approximately $57.02 before the free allowance, or $51.80
+if the full relevant allowance is available. This is a forecast, **not measured uptime or an invoice**. With Tavily
+and amortized domains, that scenario totals $89.40 before incremental Supabase, AI/OCR, backups and overages. Adding
+$25–35 of incremental Supabase would put it at $114.40–124.40 before those metered costs. Request-based billing may
+fit the awaited worker handler, but deployment and scheduling must be reviewed together before changing either.
+See the [audit's billing evidence and scenarios](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) and
+[Cloud Run pricing](https://cloud.google.com/run/pricing). The budget remains $100; this audit does not authorize an increase.
+
 Recommendation recorded in [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06):
 move Tavily to its free tier (1,000 credits/month) at renewal unless beta usage approaches that. The Apple
 Developer Program is not recorded here; confirm whether it counts as incremental.

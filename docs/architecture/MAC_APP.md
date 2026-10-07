@@ -12,6 +12,20 @@ The newer chat-title code/tests and TestFlight feedback records are preserved. L
 in the integration worktree under `.artifacts/merge-validation-20261007/` (`catalyst-build.log` and
 `CatalystBuildForTesting.xcresult`). This is compilation evidence; no native runtime tests ran in this merge check.
 
+## Spontaneous launch popup — 2026-10-07
+
+The owner reported “ScienceReader cannot be opened because of a problem” without deliberately launching an app.
+The newest matching crash at 14:13:39 was an **iOS Simulator** test app under `launchd_sim`, not the Catalyst build.
+DYLD could not resolve `ScienceReaderCore.TextAnchor.passage(artifactID:selection:quote:)`. Its debug image had an
+absolute runpath into another active test worktree's scratch build; that framework was replaced shortly after the
+crash. The replacement exports the missing symbol and matches the embedded framework. This supports mixed/stale
+Simulator build products as the cause; it is not evidence that macOS needs an update or the user app needs reinstalling.
+
+Other agents' test processes and files were left untouched. The current Catalyst compile artifact's embedded and
+external Core frameworks matched and its imports resolved for both architectures, but it remains an unsigned test
+artifact. This triage does not establish successful Mac launch, authentication, purchases or distribution. Future
+Simulator jobs should keep builds/installations and package products isolated for the full test lifetime.
+
 ## Shape
 
 The Mac app is the iOS target built with **Mac Catalyst** and the Mac idiom ("Optimize for Mac"): one code
