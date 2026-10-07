@@ -183,6 +183,18 @@ Decision (details in [chat](architecture/CHAT.md#web-search-on-in-staging)):
 - **Privacy:** Tavily may keep queries and use them to improve its service, and may pass them to third-party
   indexes (its privacy policy, checked 2026-10-06); no zero-retention claim. Consent becomes `cloud-ai-v2` naming
   Tavily; builds that send v1 never use Tavily, and newer builds ask once more.
+- **Measured on staging (2026-10-06, same requests, consent v1 → Anthropic, v2 → Tavily):**
+
+  | Request | Provider | Searches | Provider spend | Reader credits | Time |
+  |---|---|---:|---:|---:|---:|
+  | Related (DPO passage) | Anthropic | 3 | $0.111 | 23 | 14.0 s |
+  | Related (DPO passage) | Tavily | 3 | $0.047 (+3 prepaid credits) | 15 | 16.2 s |
+  | 2026 SWE-bench question | Anthropic | 1 | $0.056 | 12 | 11.8 s |
+  | 2026 SWE-bench question | Tavily | 2 | $0.041 (+2 prepaid credits) | 12 | 14.2 s |
+
+  Answer quality was comparable; the Tavily Related answer linked all 7 papers to arXiv (Anthropic's: 4 of 8).
+  Saving ≈ $0.015–0.02 of provider spend per search, so the $30 plan pays for itself only above ≈ 1,500–2,000
+  searches a month.
 - **Plan size (recommendation):** private-beta volume is far below 4,000 searches (four searched answers so far,
   each ≤ 5 searches). Tavily's free tier (1,000 credits/month, 100 requests/minute development keys) would likely
   cover the beta; if the counts by early November stay under ~800/month, downgrade before the next renewal. The code
