@@ -137,8 +137,8 @@ capability and six-digit email-code settings configured (real provider sign-in s
 Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
 Recorded 2026-10-05 23:10 PDT: $5.32 of provider spend for October (Mathpix for the real-paper conversions and
 smoke tests, Anthropic for answers, Ingest, diagram and web-search tests, the web-import check), nothing reserved;
-$4.48 left under the cap. Fixed commitments (Supabase Pro, Apple Developer) are recorded in
-[operations](architecture/OPERATIONS_AND_BILLING.md).
+$4.48 left under the cap. On 2026-10-06 at 17:20 PDT the cap showed $6.56 spent. Fixed commitments (Supabase ≈ $35,
+Tavily Project plan $30 from 2026-10-06) are recorded in [operations](architecture/OPERATIONS_AND_BILLING.md#fixed-commitments).
 Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
 
 ## Still required

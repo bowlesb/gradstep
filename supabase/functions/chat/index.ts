@@ -4,9 +4,17 @@ import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from '../_shared/discover.ts';
 import { publicHTTPS } from '../_shared/web-source.ts';
+import { type SearchFailure, tavilySearch } from '../_shared/tavily.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
+
+// Tavily searches allowed in any 31 days (the plan's monthly credits less a margin for
+// searches in flight); past it, answers use Anthropic's search until older ones age out.
+const tavilyAllowance = Number(Deno.env.get('TAVILY_SEARCH_ALLOWANCE') ?? '3900');
+// After a failure, this instance sends new answers to the backup for a while.
+let tavilyPausedUntil = 0;
+const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
 
 // Streams one metered answer as text/event-stream. Authentication, origin and
 // method failures are HTTP JSON errors; everything after authentication is an
@@ -27,7 +35,7 @@ Deno.serve(async request => {
   // An unreadable body is reported as invalid_request after rate limiting.
   try { body = await readChatBody(request); } catch { body = null; }
 
-  const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
+  const apiKey = Deno.env.get('ANTHROPIC_API_KEY'), tavilyKey = Deno.env.get('TAVILY_API_KEY');
   const client = apiKey ? createAnthropicClient({ apiKey }) : null;
   const deps: ChatDependencies = {
     accountID,
@@ -46,6 +54,18 @@ Deno.serve(async request => {
     generate: client ? (params, options) => streamChat(client, params, options) : null,
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
+    search: tavilyKey ? {
+      ready: async () => {
+        if (Date.now() < tavilyPausedUntil || !(tavilyAllowance > 0)) return false;
+        const { data, error } = await service.rpc('worker_provider_units_recent', { p_provider: 'tavily', p_unit: 'credits', p_days: 31 });
+        return !error && typeof data === 'number' && data < tavilyAllowance;
+      },
+      run: async (input, signal) => {
+        const outcome = await tavilySearch(fetch, tavilyKey, input, signal);
+        if (outcome.status === 'failed') tavilyPausedUntil = Math.max(tavilyPausedUntil, Date.now() + (outcome.retryAfterMs ?? PAUSE_MS[outcome.failure]));
+        return outcome;
+      },
+    } : undefined,
     availableCredits: async () => {
       const { data, error } = await user.rpc('v1_credit_balance');
       return error || typeof data?.available !== 'number' ? null : data.available;

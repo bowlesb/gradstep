@@ -63,20 +63,53 @@ source. This restores the legacy app's diagrams in a narrower form (Mermaid only
 
 ## Web search (on in staging)
 
-The legacy app searched the web (Tavily) for anything outside the paper. The chat function can offer Anthropic's
-server-side `web_search_20260209` (max 3 searches, no client loop: one provider call) when `CHAT_WEB_SEARCH=on`
-(`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`). It is **on** in staging (owner decision 2026-10-05).
-When on: instructions ask for searches only for information beyond the paper; the hold adds, per allowed search,
-the $0.01 fee, another pass over the whole prompt at the uncached write rate and two reads of ~30k result tokens
-(each search adds a server-side pass that re-reads everything before it); for DPO (27 pages, ~40k prompt tokens)
-the hold goes from 108 to 245 credits. Settlement adds $0.01 per search (`usage.server_tool_use.web_search_requests`, or searches seen in the
-stream when cut short, whose estimate also counts the extra pass and results); cited sources from
-the final message are appended as an inert "Sources" list. Verified live on 2026-10-05 with the switch briefly on:
-searches ran and were charged exactly (tokens + $0.01/search), but the answers carried no citation objects (the
-model named sources in prose). The instructions therefore ask for a final "Sources:" list (`N. Title — https://…`),
-which the app shows as tappable sources; a tap shows the full address and asks before opening Safari. The consent
-screen says that queries Claude writes may go to Anthropic's search provider. Since the hold cap (balance ≥ 50
-credits), the larger search hold no longer blocks small balances.
+Search is on when `CHAT_WEB_SEARCH=on` (`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`;
+on in staging since 2026-10-05). Two providers (owner decision 2026-10-06, [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06)):
+
+- **Tavily, primary** — `search_web`, a client tool the chat function runs (`_shared/tavily.ts`): a basic search
+  (1 Tavily credit), 5 results, each cut to 1,500 characters (≈2.5k tokens per search, against ~10k for Anthropic's
+  search), `academic: true` restricts to scholarly sites (arXiv, OpenReview, ACL Anthology, proceedings, journals).
+  Results return as `search_result` blocks with citations on, so Claude cites them like Anthropic's search results.
+  Used only when the request carries consent `cloud-ai-v2` (whose text names Tavily), `TAVILY_API_KEY` is set, this
+  instance has not paused Tavily after a failure, and the Tavily credits recorded in the last 31 days are under
+  `TAVILY_SEARCH_ALLOWANCE` (default 3,900 of the plan's 4,000; `worker_provider_units_recent`, migration 021).
+- **Anthropic's `web_search_20250305`, backup** — used when Tavily is not available for an answer, for consent-v1
+  builds (TestFlight ≤ 11), and mid-answer: if a Tavily search fails, its result tells Claude to use `web_search`,
+  which is added for the rest of the answer with the remaining allowance. (`web_search_20260209` is not used: its
+  dynamic filtering ran model-written code that failed in production on 2026-10-06.)
+
+Answers run in **rounds**: a round that ends in `search_web` calls is answered with their results (searches in one round
+run in parallel) and the answer continues, the next round starting a new paragraph. All rounds share one 8,000-token
+output allowance; each round's input ends with one cache breakpoint so the next round reads it from the cache. At most
+3 searches per answer (5 for Related), counting failed ones; extra calls get "No searches are left" and the answer
+ends after one more round. A `pause_turn` from a long Anthropic search turn is sent back to continue it. Calls from
+any completed round (a diagram drawn alongside a search) are delivered.
+
+Failures pause Tavily on that function instance: plan or pay-as-you-go limit (HTTP 432/433) 6 h, bad key 1 h,
+rate limit `Retry-After` or 60 s, outage or timeout (after one quick retry) 2 min; a rejected query does not pause.
+Every failure is logged as `chat_search_failed` (provider, failure code; never the query).
+
+**Pricing (rate card, `beta-credits-v1`):** a reader pays for what an answer would cost at list prices, whichever
+provider served it: tokens at 2×, Anthropic's $0.01 per search at 2×, and Tavily's pay-as-you-go $0.008 per credit at
+2× (1.6 credits per search). **Provider spend** (the `platform_budgets` cap) counts tokens and Anthropic's per-search
+fee; Tavily searches inside the prepaid plan add nothing (it is a fixed commitment, [operations](OPERATIONS_AND_BILLING.md#fixed-commitments)).
+Settlement passes the two amounts separately (credits from the priced amount, micro-USD from the spend). The hold
+is sized for Anthropic's search (per search: the fee, a pass over the whole prompt at the cache-write rate, two reads
+of 30k result tokens), which also bounds Tavily rounds and a mid-answer switch; for DPO (27 pages, ~40k prompt
+tokens) it goes from 108 to 245 credits, capped at the balance from 50 credits. Usage: the Anthropic event as before
+(`web_searches` = Anthropic searches) plus, when Tavily ran, a `tavily` event (`operation:<id>`, model `search-basic`,
+units `searches`, `credits`, `failed`, `list_microusd`; 0 micro-USD). `chat_answer` logs `search_provider`,
+`web_searches` (both providers), `tavily_searches`, `search_failures`, `failover` and `sources`.
+
+Measured on staging with Anthropic's search (2026-10-06, four answers): $0.06–$0.12 provider cost per searched
+answer (12–24 credits), mostly result tokens (15–35k input tokens). Tavily figures: see
+[decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
+
+Sources: answers end with a "Sources:" list (`N. Title — https://…`) that the app shows as tappable sources (a tap
+shows the full address and asks before opening Safari); when the model cites results but writes no list, the server
+appends one from the citations. Consent `cloud-ai-v2` (build 12+) says queries go to Tavily, or Anthropic's search
+provider as a backup, and that search services see only the searches; accepting v1 does not cover Tavily, so newer
+builds ask once more.
 
 ## Money
 
@@ -117,7 +150,5 @@ The reader's selection actions are shown as **Explain**, **Why it matters**, **R
 unchanged: define/relevance/similar/ingest). **Related** sends `action: "related"` (requires a selection; app
 builds from 2026-10-06): the server adds instructions to search the web on distinct angles (up to 5 searches; the
 hold is sized for 5) and list 4–8 related papers with arXiv/DOI links. Without web search it says so and never
-invents links. Web search uses the basic `web_search_20250305` tool: `web_search_20260209` (dynamic filtering by
-model-written code) failed in production on 2026-10-06 (code exit 1, 0 sources, filtering notes leaked into the
-answer). Each answer logs `chat_answer` with counts only (action, mode, web searches, sources) and records
-`web_searches` in its usage units.
+invents links. Searches go to Tavily, with Anthropic's basic `web_search_20250305` as the backup ([web search](#web-search-on-in-staging));
+Tavily's `academic` flag keeps paper searches on scholarly sites. Each answer logs `chat_answer` with counts only.

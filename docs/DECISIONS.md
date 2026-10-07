@@ -158,3 +158,34 @@ Library header: one row with the system search field, Add (+) and one options me
 "Library options" and "Sort and details" menus (layout, sort, show, then All chats, All diagrams, Refresh). While
 searching, Cancel replaces + and …, and the Library/arXiv switch appears under the field; Cancel returns to the
 library. The navigation bar is hidden on the Library root.
+
+## Web search providers and pricing (owner decided 2026-10-06)
+
+The owner bought Tavily's **Project plan ($30/month, 4,000 search credits; billing cycle from 2026-10-06)** and asked for
+a recommendation and a well-designed fit with credits; on follow-up: "I dont feel strongly about tavily, what ever is
+the best value" and "having two might be good, we can have a backup". The Science Reader Tavily key already in
+`.env.providers` (from the authorized NAS project file; not shared with TextBrain) reports the Project plan (Tavily
+`/usage`, no credits used), so it is the staging credential.
+
+Decision (details in [chat](architecture/CHAT.md#web-search-on-in-staging)):
+
+- **Tavily is the primary search; Anthropic's search is the automatic backup**, per answer and mid-answer. Value:
+  Anthropic's search measured $0.06–$0.12 provider cost per searched answer on staging, two thirds of it result
+  tokens (~10k per search); Tavily results are sized by us (5 × 1,500 characters ≈ 2.5k tokens) and a search inside
+  the prepaid plan costs nothing extra. Tavily also restricts paper searches to scholarly sites (`academic`).
+- **Readers pay the same rate card whichever provider ran** (`beta-credits-v1`, 2× list price): Tavily's
+  pay-as-you-go $0.008/credit → 1.6 credits per search; Anthropic $0.01 → 2 credits per search; tokens as before.
+  Searches are never free to readers, so the plan's allowance cannot be drained without spending credits.
+- **The $30 is a fixed commitment**, not metered spend: Tavily searches inside the plan add nothing to the
+  `platform_budgets` cap; Anthropic backup searches do. A server-side allowance (3,900 credits per 31 days) moves
+  answers to the backup before the plan runs out, and **pay-as-you-go must stay off** in Tavily's dashboard (it is the
+  provider-side hard limit; if it is ever turned on, overage would be unrecorded spend).
+- **Privacy:** Tavily may keep queries and use them to improve its service, and may pass them to third-party
+  indexes (its privacy policy, checked 2026-10-06); no zero-retention claim. Consent becomes `cloud-ai-v2` naming
+  Tavily; builds that send v1 never use Tavily, and newer builds ask once more.
+- **Plan size (recommendation):** private-beta volume is far below 4,000 searches (four searched answers so far,
+  each ≤ 5 searches). Tavily's free tier (1,000 credits/month, 100 requests/minute development keys) would likely
+  cover the beta; if the counts by early November stay under ~800/month, downgrade before the next renewal. The code
+  does not change with the plan: set `TAVILY_SEARCH_ALLOWANCE` to the new allowance less a margin. A paid plan is
+  needed for production keys (1,000 requests/minute) before public launch.
+

@@ -15,10 +15,10 @@ struct ChatConsentView: View {
                         Label("Your question and any passage you selected", systemImage: "text.bubble")
                         Label("Earlier messages in this conversation", systemImage: "bubble.left.and.bubble.right")
                         Label("For paper chats, the paper’s full text", systemImage: "doc.text")
-                        Label("When a question needs it, web searches Claude writes go to Anthropic’s search provider", systemImage: "magnifyingglass")
+                        Label("When a question needs it, web searches Claude writes go to Tavily, a search service (or Anthropic’s search provider as a backup)", systemImage: "magnifyingglass")
                     }
                     .labelStyle(ConsentLabelStyle())
-                    Text("Anthropic processes this to write the answer and may keep it for a limited time under its API terms. Science Reader’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
+                    Text("Anthropic processes this to write the answer and may keep it for a limited time under its API terms; search services see only the searches and may keep them under their own terms. Science Reader’s servers pass it through without saving it; your saved conversation stays encrypted with your device keys.")
                         .foregroundStyle(.secondary)
                     Text("Each answer uses credits from your balance.").foregroundStyle(.secondary)
                 }

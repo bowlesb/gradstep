@@ -867,7 +867,7 @@ struct PrivacyView: View {
                 Text("Private conversations and notes are encrypted with keys held on your devices. An approved device or your recovery code is needed to restore them.")
             } header: { Text("Your notes and conversations") }
             Section {
-                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Claude may search the web for some questions; those searches go to Anthropic’s search provider.")
+                Text("AI answers send your question, any selected passage, earlier messages in that conversation and, for paper chats, the paper’s text to Anthropic. Claude may search the web for some questions; those searches go to Tavily, a search service, or Anthropic’s search provider as a backup.")
             } header: { Text("AI answers") }
             Section {
                 Text("Private PDF uploads and reports you submit are accessible to the services that process them. Papers added from the web are fetched by our server and converted privately for your account.")

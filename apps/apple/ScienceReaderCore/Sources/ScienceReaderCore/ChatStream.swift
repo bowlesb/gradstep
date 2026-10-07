@@ -20,7 +20,7 @@ public enum ChatRequestError: Error, Equatable {
 public enum ChatAction: String, Equatable, Sendable { case ingest, related }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
-    public static let consentVersion = "cloud-ai-v1"
+    public static let consentVersion = "cloud-ai-v2"
     public static let maximumTurns = 60
     public static let maximumMessageBytes = 200_000
     public static let maximumSelectionScalars = 4_000

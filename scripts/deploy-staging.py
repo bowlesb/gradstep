@@ -94,7 +94,7 @@ if store:
                          {'name': 'APP_STORE_ENVIRONMENTS', 'value': ','.join(store['environments'])},
                          {'name': 'APP_STORE_ONLINE_CHECKS', 'value': 'true' if store.get('online_checks', True) else 'false'}]
     if store.get('app_apple_id'): function_secrets.append({'name': 'APP_STORE_APP_APPLE_ID', 'value': str(store['app_apple_id'])})
-for name in ['MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'ANTHROPIC_API_KEY']:
+for name in ['MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'ANTHROPIC_API_KEY', 'TAVILY_API_KEY']:
     if providers.get(name): function_secrets.append({'name': name, 'value': providers[name]})
 request(base + '/secrets', mgmt, function_secrets)
 print('Set function secrets:', ', '.join(s['name'] for s in function_secrets), f'(chat web search {web_search})')

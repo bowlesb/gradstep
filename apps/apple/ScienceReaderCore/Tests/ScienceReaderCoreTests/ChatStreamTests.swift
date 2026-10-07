@@ -17,7 +17,7 @@ import Testing
         #expect(Set(body.keys) == ["operation_id", "consent_version", "mode", "document_id", "messages", "selection"])
         #expect(body["operation_id"] as? String == operation.wire)
         #expect(body["document_id"] as? String == document.wire)
-        #expect(body["consent_version"] as? String == "cloud-ai-v1")
+        #expect(body["consent_version"] as? String == "cloud-ai-v2")
         #expect(body["mode"] as? String == "paper")
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages == [["role": "user", "text": "What is \\(d_k\\)?"], ["role": "assistant", "text": "The key width."],

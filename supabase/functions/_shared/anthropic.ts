@@ -133,8 +133,10 @@ export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
   },
 };
 
-/** Anthropic's server-side web search (the legacy app searched the web with
- * Tavily). Off unless the server enables it; at most three searches. */
+/** Web search in chat: Tavily (`search_web`, a client tool the server runs) when
+ * the reader's consent names it, Anthropic's server-side search as the backup
+ * (docs/architecture/CHAT.md). Off unless the server enables it; at most three
+ * searches per answer. */
 export const WEB_SEARCH_MAX_USES = 3;
 /** $10 per 1,000 searches. */
 export const WEB_SEARCH_MICROUSD = 10_000;
@@ -149,11 +151,40 @@ export const RELATED_SEARCH_MAX_USES = 5;
 export const RELATED_WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20250305 = {
   type: 'web_search_20250305', name: 'web_search', max_uses: RELATED_SEARCH_MAX_USES,
 };
+/** Tavily search: the reader is charged Tavily's pay-as-you-go price per credit
+ * ($0.008; a basic search is one credit) however the plan was paid for. Searches
+ * within the prepaid plan add nothing to provider spend (a fixed commitment). */
+export const TAVILY_CREDIT_MICROUSD = 8_000;
+export const SEARCH_WEB_TOOL: Anthropic.Beta.Messages.BetaTool = {
+  name: 'search_web',
+  description: 'Searches the web and returns the most relevant pages, each with its address and an extract. Use a focused query '
+    + '(a few words to a sentence). Set academic to true to search only scholarly sites (arXiv, OpenReview, ACL Anthology, '
+    + 'conference proceedings, journals), for example when looking for papers.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'The search query.' },
+      academic: { type: 'boolean', description: 'Only scholarly sites (for finding papers). Default false.' },
+    },
+    required: ['query'],
+  },
+};
+/** search_web results as citable search_result blocks (citations always on: a
+ * request's search results must all use the same setting). */
+export function searchResultContent(results: readonly { url: string; title: string; text: string; published: string | null }[])
+  : Anthropic.Beta.Messages.BetaToolResultBlockParam['content'] {
+  if (!results.length) return [{ type: 'text', text: 'No results.' }];
+  return results.map(result => ({ type: 'search_result' as const, source: result.url, title: result.title,
+    content: [{ type: 'text' as const, text: result.published ? `Published ${result.published}. ${result.text}` : result.text }],
+    citations: { enabled: true } }));
+}
 /** Tokens of search results assumed per search. */
 export const WEB_SEARCH_RESULT_TOKENS = 30_000;
-/** Extra hold when search is offered. Each search adds a server-side pass that
- * re-reads the whole prompt (held at the uncached write rate) and the results
- * gathered so far (on average two reads of each search's results). */
+/** Extra hold when search is offered. Each search adds a pass that re-reads the
+ * whole prompt (held at the uncached write rate) and the results gathered so far
+ * (on average two reads of each search's results). Sized for Anthropic's search;
+ * it also bounds Tavily searches (fewer result tokens, a lower fee), so one hold
+ * covers an answer that fails over from one provider to the other. */
 export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH_MAX_USES): number {
   return Math.ceil(maxUses * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
 }
@@ -216,7 +247,9 @@ export interface ProviderOutcome {
   /** False when any billed quantity had to be estimated. */
   exact: boolean;
   /** Client tool calls in the final message (unvalidated input). */
-  toolCalls?: { name: string; input: unknown }[];
+  toolCalls?: { id?: string; name: string; input: unknown }[];
+  /** The final message's content, sent back unchanged to continue after client tool calls. */
+  content?: unknown[];
   /** Web searches performed (reported, or seen in the stream when cut short). */
   webSearches?: number;
   /** Web sources cited by the answer (must be shown with it). */
@@ -286,21 +319,26 @@ export async function streamChat(client: Anthropic, params: Anthropic.Beta.Messa
     }
     const message = await stream.finalMessage();
     const attempts = attemptsFromUsage(message.model, message.usage);
-    const toolCalls: { name: string; input: unknown }[] = [];
+    const toolCalls: { id: string; name: string; input: unknown }[] = [];
     const sources = new Map<string, string | null>();
     for (const block of message.content as Anthropic.Beta.Messages.BetaContentBlock[]) {
       // Only the serving attempt's calls count: a fallback restarts the turn.
       if ((block as { type: string }).type === 'fallback') { toolCalls.length = 0; sources.clear(); }
-      else if (block.type === 'tool_use') toolCalls.push({ name: block.name, input: block.input });
+      else if (block.type === 'tool_use') toolCalls.push({ id: block.id, name: block.name, input: block.input });
       else if (block.type === 'text') {
         for (const citation of block.citations ?? []) {
           if (citation.type === 'web_search_result_location' && !sources.has(citation.url)) sources.set(citation.url, citation.title);
+          // search_web (Tavily) results: the source is the page address the server supplied.
+          else if (citation.type === 'search_result_location' && /^https:\/\//.test(citation.source) && !sources.has(citation.source)) {
+            sources.set(citation.source, citation.title ?? null);
+          }
         }
       }
     }
     const webSearches = Math.max(searchesSeen, count(message.usage.server_tool_use?.web_search_requests));
     return { status: 'complete', failure: null, messageID: message.id, model: message.model, stopReason: message.stop_reason,
       refusalCategory: message.stop_details?.category ?? null, attempts, exact: true, ...(toolCalls.length ? { toolCalls } : {}),
+      content: message.content as unknown[],
       ...(webSearches ? { webSearches } : {}), ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
   } catch (error) {
     stream?.abort();

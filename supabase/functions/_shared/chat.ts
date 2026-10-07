@@ -3,12 +3,17 @@
 // text; logs carry only operation IDs, codes and counts.
 import {
   ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
-  WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL, webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL,
-  type ChatTurn, type PaperContext, type ProviderOutcome, type StreamOptions,
+  SEARCH_WEB_TOOL, searchResultContent, TAVILY_CREDIT_MICROUSD, WEB_SEARCH_MAX_USES, WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL,
+  webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL,
+  type ChatTurn, type PaperContext, type ProviderAttempt, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
+import { searchInput, type SearchInput, type SearchOutcome } from './tavily.ts';
 import type Anthropic from '@anthropic-ai/sdk';
 
-export const CONSENT_VERSION = 'cloud-ai-v1';
+/** The consent text the reader accepted. v2 names Tavily as a search provider;
+ * v1 (builds up to TestFlight 11) names only Anthropic's, so v1 answers never use Tavily. */
+export const CONSENT_VERSION = 'cloud-ai-v2';
+export const CONSENT_VERSIONS: readonly string[] = ['cloud-ai-v1', CONSENT_VERSION];
 export const MAX_BODY_BYTES = 512 * 1024;
 export const MAX_TURNS = 60;
 export const MAX_MESSAGE_BYTES = 200_000;
@@ -31,6 +36,7 @@ export class RpcFailure extends Error {
 
 export interface ChatRequest {
   operationID: string;
+  consentVersion: string;
   mode: 'paper' | 'general';
   documentID: string | null;
   turns: ChatTurn[];
@@ -63,7 +69,8 @@ function id(value: unknown): string {
 export function validateChatRequest(input: unknown): ChatRequest {
   const body = record(input);
   onlyKeys(body, ['operation_id', 'consent_version', 'mode', 'document_id', 'messages', 'selection', 'action', 'capabilities']);
-  if (body.consent_version !== CONSENT_VERSION) invalid();
+  if (typeof body.consent_version !== 'string' || !CONSENT_VERSIONS.includes(body.consent_version)) invalid();
+  const consentVersion = body.consent_version;
   const mode = body.mode;
   if (mode !== 'paper' && mode !== 'general') invalid();
   const operationID = id(body.operation_id);
@@ -101,13 +108,13 @@ export function validateChatRequest(input: unknown): ChatRequest {
     capabilities = [...new Set(body.capabilities.map(value => typeof value === 'string' && value.length <= 32 ? value : invalid()))]
       .filter(value => (CLIENT_CAPABILITIES as readonly string[]).includes(value)).sort();
   }
-  return { operationID, mode, documentID, turns, selection, action, capabilities };
+  return { operationID, consentVersion, mode, documentID, turns, selection, action, capabilities };
 }
 
 /** Fixed key order: the reservation's request digest. */
 export function canonicalRequest(request: ChatRequest): string {
   return JSON.stringify({
-    consent_version: CONSENT_VERSION, document_id: request.documentID,
+    consent_version: request.consentVersion, document_id: request.documentID,
     messages: request.turns.map(turn => ({ role: turn.role, text: turn.text })),
     mode: request.mode, operation_id: request.operationID,
     selection: request.selection === null ? null : { quote: request.selection },
@@ -268,8 +275,12 @@ export interface ChatDependencies {
   ingestDeadlineMs?: number;
   /** The caller's available credits (for the hold cap); null if unknown. */
   availableCredits?: () => Promise<number | null>;
-  /** Offer Anthropic's web search (server setting; off by default). */
+  /** Offer web search (server setting; off by default). Anthropic's search serves it,
+   * or backs up `search` when that is configured. */
   webSearch?: boolean;
+  /** Tavily, the primary search provider (absent when not configured). `ready` is false
+   * while it is paused after a failure or its plan allowance is used up. */
+  search?: { ready(): Promise<boolean>; run(input: SearchInput, signal: AbortSignal): Promise<SearchOutcome> };
   /** Ingest: the paper that strictly matches the citation, if any: on arXiv, else (with `web`)
    * an open-access copy found through OpenAlex. */
   findPaper?: (request: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
@@ -302,6 +313,11 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   try { await deps.rpc('worker_consume_request', { p_account_id: deps.accountID, p_route: 'chat' }); }
   catch (error) { throw new ChatFailure(reason(error) === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable'); }
   const request = validateChatRequest(body);
+  const search = request.action !== 'ingest' && deps.webSearch === true;
+  // Tavily first when the reader's consent names it (checked while the paper loads);
+  // otherwise, and as its backup, Anthropic's search.
+  const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
+    ? deps.search.ready().catch(() => false) : Promise.resolve(false);
 
   let paper: PaperContext | null = null;
   if (request.mode === 'paper') {
@@ -316,13 +332,15 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
-  const search = request.action !== 'ingest' && deps.webSearch === true;
+  const tavily = await tavilyReady === true;
+  const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
   const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
     selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
-      : [CREATE_DIAGRAM_TOOL, ...(search ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
+      : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : search ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
   if (search) {
-    hold.microusd += webSearchHoldMicrousd(hold.inputTokens, request.action === 'related' ? RELATED_SEARCH_MAX_USES : undefined);
+    // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
+    hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap);
     hold.credits = creditsFor(hold.microusd);
   }
   const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
@@ -355,30 +373,36 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   signal.addEventListener('abort', stop, { once: true });
   let outcome: ProviderOutcome;
   let wroteText = false, answerTail = '';
+  const stats: SearchStats = { tavily: 0, credits: 0, failures: 0, failover: false };
   try {
-    outcome = await deps.generate(params, {
+    outcome = await generateAnswer(deps, deps.generate, request.operationID, params, {
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
-    });
-  } catch {
-    outcome = { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
-      attempts: [{ model: null, estimated: true, usage: { input: hold.inputTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }], exact: false };
+    }, { tavily, backup: search, cap: searchCap }, stats);
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', stop);
   }
 
-  const actual = Math.ceil(priceAttempts(outcome.attempts) + (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD);
+  const tokens = priceAttempts(outcome.attempts), anthropicFees = (outcome.webSearches ?? 0) * WEB_SEARCH_MICROUSD;
+  // Provider spend (the platform budget): tokens and Anthropic's per-search fee. Tavily
+  // searches within its prepaid plan add nothing (a fixed commitment). The reader's price
+  // adds Tavily's per-credit price, so a search costs the reader about the same either way.
+  const actual = Math.ceil(tokens + anthropicFees);
+  const priced = Math.ceil(tokens + anthropicFees + stats.credits * TAVILY_CREDIT_MICROUSD);
   // The customer is never charged above the hold, but the platform budget
   // records the true provider cost: an overrun freezes new paid work.
-  const credits = Math.min(creditsFor(actual), hold.credits);
-  if (actual > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: actual, hold_microusd: hold.microusd });
-  else if (creditsFor(actual) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(actual), hold_credits: hold.credits });
+  const credits = Math.min(creditsFor(priced), hold.credits);
+  if (priced > hold.microusd) deps.log({ event: 'chat_usage_exceeded_hold', operation_id: request.operationID, actual_microusd: priced, hold_microusd: hold.microusd });
+  else if (creditsFor(priced) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(priced), hold_credits: hold.credits });
   await settle(deps, request.operationID, credits, actual);
   await recordUsage(deps, request.operationID, outcome, actual);
+  if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
-    web_search_offered: search, web_searches: outcome.webSearches ?? 0, sources: outcome.sources?.length ?? 0 });
+    web_search_offered: search, search_provider: tavily ? 'tavily' : search ? 'anthropic' : 'none',
+    web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
+    failover: stats.failover, sources: outcome.sources?.length ?? 0 });
 
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
@@ -413,9 +437,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       const text = sourcesText(outcome.sources);
       if (text) { emit({ event: 'delta', data: { text } }); wroteText = true; }
     }
-    // Diagram: relayed once to the device, which stores it encrypted.
-    const drawing = request.action !== 'ingest' && outcome.stopReason === 'tool_use'
-      ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;
+    // Diagram: relayed once to the device, which stores it encrypted. Only calls from
+    // rounds that ended in tool use are reported (none cut off mid-call).
+    const drawing = request.action !== 'ingest' ? outcome.toolCalls?.find(c => c.name === 'create_diagram') : undefined;
     if (drawing) {
       const diagram = diagramRequest(drawing.input);
       deps.log({ event: diagram ? 'chat_diagram' : 'chat_diagram_invalid_input', operation_id: request.operationID });
@@ -432,6 +456,109 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     return;
   }
   emit({ event: 'error', data: { code: 'provider_unavailable' } });
+}
+
+export interface SearchStats { tavily: number; credits: number; failures: number; failover: boolean }
+/** Smallest output allowance worth another round after searches. */
+const MIN_ROUND_TOKENS = 1_024;
+type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
+type ToolResult = Anthropic.Beta.Messages.BetaToolResultBlockParam;
+
+/**
+ * The answer, in rounds: search_web (Tavily) is a client tool, so a round that ends
+ * in searches is answered with their results and the answer continues. At most one
+ * round per allowed search plus one to answer, sharing one output allowance. If Tavily
+ * fails, the rest of the answer uses Anthropic's search (when on). Never throws:
+ * a failed round ends the answer with what is known about billing.
+ */
+async function generateAnswer(deps: ChatDependencies, generate: NonNullable<ChatDependencies['generate']>, operationID: string,
+  params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions,
+  search: { tavily: boolean; backup: boolean; cap: number }, stats: SearchStats): Promise<ProviderOutcome> {
+  const attempts: ProviderAttempt[] = [], calls: NonNullable<ProviderOutcome['toolCalls']> = [];
+  const sources = new Map<string, string | null>();
+  const extra: MessageParam[] = [];
+  let tools = params.tools, tavily = search.tavily, searches = 0, anthropicSearches = 0, exact = true;
+  let firstID: string | null = null, wrote = false, separate = false;
+  for (let round = 0; ; round++) {
+    const used = attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    let opening = true, outcome: ProviderOutcome;
+    try {
+      outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)], ...(tools ? { tools } : {}),
+        max_tokens: CHAT_MAX_TOKENS - used }, { ...options, onText: text => {
+        // A round after searches starts a new paragraph.
+        if (opening && text) { if (separate && !/^\s/.test(text)) text = `\n\n${text}`; opening = false; }
+        if (text.trim()) wrote = true;
+        options.onText(text);
+      } });
+    } catch {
+      outcome = { status: 'failed', failure: 'provider_error', messageID: null, model: null, stopReason: null, refusalCategory: null,
+        attempts: [{ model: null, estimated: true, usage: { input: options.inputEstimateTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }], exact: false };
+    }
+    firstID ??= outcome.messageID;
+    attempts.push(...outcome.attempts); exact &&= outcome.exact; anthropicSearches += outcome.webSearches ?? 0;
+    for (const source of outcome.sources ?? []) if (!sources.has(source.url)) sources.set(source.url, source.title);
+    const finish = (): ProviderOutcome => {
+      const all = [...calls, ...(outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [])].filter(call => call.name !== SEARCH_WEB_TOOL.name);
+      const { toolCalls: _calls, webSearches: _searches, sources: _sources, ...last } = outcome;
+      return { ...last, messageID: firstID ?? outcome.messageID, attempts, exact, ...(all.length ? { toolCalls: all } : {}),
+        ...(anthropicSearches ? { webSearches: anthropicSearches } : {}),
+        ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
+    };
+    const left = CHAT_MAX_TOKENS - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round > search.cap || left < MIN_ROUND_TOKENS) return finish();
+    const previous = extra.at(-1);
+    const append = () => {
+      if (previous?.role === 'assistant') previous.content = [...previous.content as unknown[], ...outcome.content!] as typeof previous.content;
+      else extra.push({ role: 'assistant', content: outcome.content as MessageParam['content'] });
+    };
+    // A long server-side search turn paused: send it back to continue it.
+    if (outcome.stopReason === 'pause_turn') { append(); separate = false; continue; }
+    const roundCalls = outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [];
+    if (!roundCalls.some(call => call.name === SEARCH_WEB_TOOL.name) || roundCalls.some(call => !call.id)) return finish();
+    calls.push(...roundCalls);
+    let failed = false;
+    const canSwitch = () => search.backup && search.cap - searches - anthropicSearches > 0;
+    const results = await Promise.all(roundCalls.map(async (call): Promise<ToolResult> => {
+      const reply = (content: ToolResult['content'], error = false): ToolResult =>
+        ({ type: 'tool_result', tool_use_id: call.id!, content, ...(error ? { is_error: true } : {}) });
+      if (call.name !== SEARCH_WEB_TOOL.name) return reply(call.name === CREATE_DIAGRAM_TOOL.name ? 'The diagram is shown with your answer.' : 'Done.');
+      searches++;
+      const input = searchInput(call.input);
+      if (searches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
+      if (!input) return reply('Invalid search: give a short query.', true);
+      if (!tavily || !deps.search) return reply(unavailable(canSwitch()), true);
+      const result = await deps.search.run(input, options.signal).catch((): SearchOutcome => ({ status: 'failed', failure: 'unavailable', retryAfterMs: null }));
+      if (result.status === 'ok') { stats.tavily++; stats.credits += result.credits; return reply(searchResultContent(result.results)); }
+      stats.failures++; tavily = false; failed = true;
+      deps.log({ event: 'chat_search_failed', operation_id: operationID, provider: 'tavily', failure: result.failure });
+      return reply(unavailable(canSwitch()), true);
+    }));
+    append();
+    extra.push({ role: 'user', content: results });
+    separate = wrote;
+    const remaining = search.cap - searches - anthropicSearches;
+    if (failed && search.backup && remaining > 0) {
+      // The rest of this answer searches with Anthropic. search_web stays defined: the conversation uses it.
+      stats.failover = true;
+      tools = [...(params.tools ?? []), { ...WEB_SEARCH_TOOL, max_uses: remaining }];
+    }
+  }
+}
+
+function unavailable(backup: boolean): string {
+  return backup ? 'search_web is unavailable for the rest of this answer. Use the web_search tool instead.'
+    : 'Web search is unavailable right now. Answer without it and say briefly that you could not search.';
+}
+
+/** The conversation so far with one cache breakpoint, on its last block: each round
+ * reads everything before it from the cache (with the paper's, two of four breakpoints). */
+function marked(extra: MessageParam[]): MessageParam[] {
+  return extra.map((message, index) => {
+    if (index !== extra.length - 1 || message.role !== 'user' || !Array.isArray(message.content) || !message.content.length) return message;
+    const content = [...message.content];
+    content[content.length - 1] = { ...content[content.length - 1], cache_control: { type: 'ephemeral' } } as typeof content[number];
+    return { ...message, content };
+  });
 }
 
 async function settle(deps: ChatDependencies, operationID: string, credits: number, microusd: number) {
@@ -451,6 +578,18 @@ async function settle(deps: ChatDependencies, operationID: string, credits: numb
       await sleep(250 * attempt);
     }
   }
+}
+
+/** Tavily searches for this answer: counts only. No provider spend while they are within
+ * the prepaid plan; `list_microusd` is their pay-as-you-go value. Feeds the plan allowance. */
+async function recordSearchUsage(deps: ChatDependencies, operationID: string, stats: SearchStats) {
+  try {
+    await deps.rpc('worker_record_provider_usage', {
+      p_account_id: deps.accountID, p_operation_id: operationID, p_provider: 'tavily', p_provider_event_id: `operation:${operationID}`,
+      p_model: 'search-basic', p_microusd: 0,
+      p_units: { searches: stats.tavily, credits: stats.credits, failed: stats.failures, list_microusd: stats.credits * TAVILY_CREDIT_MICROUSD },
+    });
+  } catch { deps.log({ event: 'chat_usage_record_failed', operation_id: operationID, provider: 'tavily' }); }
 }
 
 async function recordUsage(deps: ChatDependencies, operationID: string, outcome: ProviderOutcome, microusd: number) {

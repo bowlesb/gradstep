@@ -37,6 +37,23 @@ Before provisioning, inspect current organization billing and compute costs, the
 
 If a worker or backup arrangement cannot fit, change the proposed allocation or service selection before purchase. Do not treat unused contingency as an automatic recurring upgrade. Alerts use incurred costs plus outstanding reservations and forecast fixed costs. Pause new discretionary provider work before exhausting its allocation. Apply provider-side hard limits where supported and reconcile delayed provider invoices. This is a controlled budget, not a guarantee that every vendor's delayed invoice can be stopped at precisely $100.
 
+### Fixed commitments
+
+Recurring charges that do not depend on use, against the $100/month incremental budget. Metered provider spend
+(Anthropic, Mathpix, Anthropic backup search) is capped separately by `platform_budgets` (staging, October 2026: $9.80).
+
+| Commitment | Since | Monthly | Notes |
+|---|---|---:|---|
+| Supabase Pro organization (staging; production when created) | 2026-10-02 | ≈ $35 | Pro $25 + Micro compute, less the $10 credit ([manifest](DEPLOYMENT_MANIFEST.md)); confirm against the invoice |
+| Tavily Project plan (4,000 search credits) | 2026-10-06 | $30 | Bought by the owner for chat web search; pay-as-you-go must stay **off** |
+| **Total fixed** | | **≈ $65** | |
+
+Forecast at most ≈ $65 fixed + the metered cap; within the $100 only if metered spend stays ≤ $30 and leaves ≈ $5 of
+contingency, with nothing left for the backup destination and admin hosting the fixed allocation was meant to hold.
+Recommendation recorded in [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06):
+move Tavily to its free tier (1,000 credits/month) at renewal unless beta usage approaches that. The Apple
+Developer Program is not recorded here; confirm whether it counts as incremental.
+
 ## Credit and cost accounting
 
 Maintain distinct units:

@@ -144,6 +144,11 @@ Public paper context can be retrieved by the server if access is authorized. Pri
 
 Do not place plaintext prompts/responses into queues, diagnostics, support attachments, provider-error logs, or tracing payloads. Store request IDs, counts, status, and costs independently. For initial streaming chat, disconnect/cancellation leaves an explicitly interrupted local turn and settles actual usage; it does not silently create an unencrypted server transcript for recovery. A future background private-content job needs a separately designed bounded job envelope.
 
+Web searches that Claude writes for an answer go to Tavily (primary) or Anthropic's search provider (backup); search
+services receive only the query text, which can echo the question or paper. Tavily's privacy policy (checked
+2026-10-06) says it may keep query data, use it to improve its service and share it with third-party search indexes;
+no zero-retention option is claimed. The consent text (`cloud-ai-v2`) names both.
+
 This protects stored history at Science Reader, not plaintext while it is being processed by AI. Provider retention must be checked for the exact model, account, and route. Anthropic's ordinary commercial API retention is generally up to 30 days with exceptions; some models have additional requirements. Do not promise zero retention based on application-side deletion alone. [Anthropic retention](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data)
 
 Mathpix processing has its own boundary. Set the documented privacy option, retrieve all needed artifacts, then request provider cleanup once durable verification succeeds. Retain enough provider IDs to reconcile cleanup. An `improve_mathpix` setting alone must not be advertised as immediate deletion of all PDF-derived output. [Mathpix privacy](https://docs.mathpix.com/concepts/privacy), [Mathpix retention](https://docs.mathpix.com/concepts/data-retention)

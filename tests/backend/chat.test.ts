@@ -6,6 +6,7 @@ import {
   ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
+import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructions, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
@@ -688,7 +689,8 @@ test('the SDK adapter returns client tool calls from the final message', async (
     { type: 'message_stop' }]));
   const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
   assert.equal(outcome.stopReason, 'tool_use');
-  assert.deepEqual(outcome.toolCalls, [{ name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
+  assert.deepEqual(outcome.toolCalls, [{ id: 'toolu_1', name: 'add_paper', input: { title: 'Direct Preference Optimization', year: 2023 } }]);
+  assert.equal((outcome.content as { type: string }[]).map(block => block.type).join(), 'text,tool_use', 'content kept for a continuation');
   assert.equal(JSON.stringify(ADD_PAPER_TOOL).includes('eager_input_streaming'), false);
 });
 
@@ -784,7 +786,213 @@ test('Related searches the web by instruction; every answer logs counts only', a
   h.deps.webSearch = true;
   await runChat(h.deps, quoted, h.emit, new AbortController().signal);
   assert.ok((tools as string[]).includes('web_search'));
-  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true, web_searches: 3, sources: 0 }]);
+  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
+    search_provider: 'anthropic', web_searches: 3, tavily_searches: 0, search_failures: 0, failover: false, sources: 0 }]);
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!;
   assert.equal((usage.params.p_units as { web_searches: number }).web_searches, 3);
+});
+
+// ---- Web search with Tavily (primary) and Anthropic (backup) ----
+
+const v2 = (body: Record<string, unknown>) => ({ ...body, consent_version: 'cloud-ai-v2' });
+type Sent = { messages: { role: string; content: unknown }[]; tools?: { name?: string; type?: string; max_uses?: number }[]; max_tokens: number };
+function searchRound(calls: { id: string; input: unknown; name?: string }[], output = 120): ProviderOutcome {
+  const toolCalls = calls.map(call => ({ id: call.id, name: call.name ?? 'search_web', input: call.input }));
+  return completeOutcome({ messageID: 'msg_round', stopReason: 'tool_use', toolCalls,
+    attempts: [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 900, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output } }],
+    content: [{ type: 'text', text: 'Let me look.' }, ...toolCalls.map(call => ({ type: 'tool_use', ...call }))] });
+}
+const found: SearchOutcome = { status: 'ok', credits: 1, results: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO', text: 'A general paradigm.', published: '2023-10-18' }] };
+function searching(h: ReturnType<typeof harness>, outcomes: SearchOutcome[], ready = true) {
+  const runs: unknown[] = [];
+  h.deps.webSearch = true;
+  h.deps.search = { ready: async () => ready, run: async input => { runs.push(input); return outcomes.shift() ?? found; } };
+  return runs;
+}
+
+test('consent v2 is accepted alongside v1 and keeps its own request digest', () => {
+  assert.equal(validateChatRequest(v2(paperBody())).consentVersion, 'cloud-ai-v2');
+  assert.equal(validateChatRequest(paperBody()).consentVersion, 'cloud-ai-v1');
+  assert.notEqual(canonicalRequest(validateChatRequest(paperBody())), canonicalRequest(validateChatRequest(v2(paperBody()))));
+  assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })), { code: 'invalid_request' });
+});
+
+test('Tavily searches run between rounds, are cited, and are priced for the reader but not as provider spend', async () => {
+  const sent: Sent[] = [];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(structuredClone(params) as unknown as Sent);
+    if (sent.length === 1) { stream.onText('Let me look.'); return searchRound([{ id: 'toolu_s1', input: { query: 'IPO preference optimization', academic: true } }]); }
+    stream.onText('IPO generalizes DPO.');
+    return completeOutcome({ messageID: 'msg_final', sources: [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }] });
+  } });
+  const runs = searching(h, [found]);
+  await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
+  assert.deepEqual(runs, [{ query: 'IPO preference optimization', academic: true }]);
+  assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'search_web'], 'Tavily, not Anthropic search');
+  // Round two: the first round's content, then the results as citable search results with a cache breakpoint.
+  const [assistant, results] = sent[1].messages.slice(-2) as { role: string; content: Record<string, unknown>[] }[];
+  assert.equal(assistant.role, 'assistant'); assert.equal(assistant.content[1].id, 'toolu_s1');
+  assert.equal(results.role, 'user');
+  const result = results.content[0] as { type: string; tool_use_id: string; content: { type: string; source: string; citations: unknown; content: { text: string }[] }[]; cache_control?: unknown };
+  assert.equal(result.type, 'tool_result'); assert.equal(result.tool_use_id, 'toolu_s1');
+  assert.deepEqual(result.cache_control, { type: 'ephemeral' });
+  assert.equal(result.content[0].type, 'search_result'); assert.equal(result.content[0].source, 'https://arxiv.org/abs/2310.12036');
+  assert.deepEqual(result.content[0].citations, { enabled: true });
+  assert.match(result.content[0].content[0].text, /^Published 2023-10-18\. A general paradigm\./);
+  assert.equal(sent[1].max_tokens, CHAT_MAX_TOKENS - 120, 'one output allowance across rounds');
+  // The continuation starts a new paragraph.
+  const text = h.events.filter(e => e.event === 'delta').map(e => (e.data as { text: string }).text).join('');
+  assert.match(text, /^Let me look\.\n\nIPO generalizes DPO\./);
+  // Tokens: 2 × (900 × 2 + …) — reader pays tokens + one Tavily credit; provider spend is tokens only.
+  const tokens = 900 * 2 + 120 * 10 + 900 * 2 + 300 * 10;
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(settle.p_actual_microusd, tokens);
+  assert.equal(settle.p_actual_credits, creditsFor(tokens + 8_000));
+  const usage = h.calls.filter(c => c.name === 'worker_record_provider_usage').map(c => c.params);
+  assert.deepEqual(usage.map(u => u.p_provider), ['anthropic', 'tavily']);
+  assert.equal(usage[0].p_provider_event_id, 'msg_round'); assert.equal(usage[0].p_microusd, tokens);
+  assert.deepEqual(usage[1], { p_account_id: account, p_operation_id: operation, p_provider: 'tavily', p_provider_event_id: `operation:${operation}`,
+    p_model: 'search-basic', p_microusd: 0, p_units: { searches: 1, credits: 1, failed: 0, list_microusd: 8_000 } });
+  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
+    search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, failover: false, sources: 1 }]);
+  assert.match(text, /Sources:\n1\. IPO — https:\/\/arxiv\.org\/abs\/2310\.12036/);
+  noPlaintext(h.logs);
+});
+
+test('readers who consented to v1 (Anthropic only), and a paused or exhausted Tavily, use Anthropic search', async () => {
+  for (const [body, ready] of [[paperBody(), true], [v2(paperBody()), false]] as const) {
+    let tools: string[] = [];
+    const h = harness({ generate: async (params, stream) => { tools = ((params as unknown as Sent).tools ?? []).map(t => t.name!); stream.onText('a'); return completeOutcome(); } });
+    const runs = searching(h, [], ready);
+    await runChat(h.deps, body, h.emit, new AbortController().signal);
+    assert.deepEqual(tools, ['create_diagram', 'web_search']); assert.equal(runs.length, 0);
+    assert.equal(h.answers[0].search_provider, 'anthropic');
+  }
+  // Ingest never searches.
+  let tools: string[] = [];
+  const h = harness({ generate: async (params, stream) => { tools = ((params as unknown as Sent).tools ?? []).map(t => t.name!); stream.onText('a'); return completeOutcome(); } });
+  searching(h, []);
+  await runChat(h.deps, v2(paperBody({ selection: { quote: 'Rafailov et al. 2023' }, action: 'ingest' })), h.emit, new AbortController().signal);
+  assert.deepEqual(tools, ['add_paper']);
+});
+
+test('a Tavily failure switches the rest of the answer to Anthropic search; failed searches cost nothing', async () => {
+  const sent: Sent[] = [];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(structuredClone(params) as unknown as Sent);
+    if (sent.length === 1) return searchRound([{ id: 'toolu_s1', input: { query: 'follow-up work' } }]);
+    stream.onText('Found via the backup.'); return completeOutcome({ webSearches: 1 });
+  } });
+  searching(h, [{ status: 'failed', failure: 'limit', retryAfterMs: null }]);
+  await runChat(h.deps, v2(paperBody()), h.emit, new AbortController().signal);
+  const result = (sent[1].messages.at(-1)!.content as { is_error?: boolean; content: string }[])[0];
+  assert.equal(result.is_error, true); assert.match(result.content, /Use the web_search tool instead/);
+  const backup = sent[1].tools!.find(t => t.name === 'web_search')!;
+  assert.equal(backup.type, 'web_search_20250305'); assert.equal(backup.max_uses, 2, 'the search allowance is shared');
+  assert.ok(sent[1].tools!.some(t => t.name === 'search_web'), 'search_web stays defined: the conversation uses it');
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  const tokens = 900 * 2 + 120 * 10 + 900 * 2 + 300 * 10;
+  assert.equal(settle.p_actual_microusd, tokens + 10_000, 'the backup search is provider spend');
+  assert.equal(settle.p_actual_credits, creditsFor(tokens + 10_000));
+  assert.deepEqual(h.logs.filter(l => l.event === 'chat_search_failed'), [{ event: 'chat_search_failed', operation_id: operation, provider: 'tavily', failure: 'limit' }]);
+  assert.equal(h.answers[0].failover, true); assert.equal(h.answers[0].search_failures, 1); assert.equal(h.answers[0].web_searches, 1);
+  const tavily = h.calls.filter(c => c.name === 'worker_record_provider_usage').find(c => c.params.p_provider === 'tavily')!;
+  assert.deepEqual(tavily.params.p_units, { searches: 0, credits: 0, failed: 1, list_microusd: 0 });
+});
+
+test('searches beyond the allowance, invalid input and parallel calls are answered without running', async () => {
+  const sent: Sent[] = [];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(structuredClone(params) as unknown as Sent);
+    if (sent.length === 1) return searchRound([{ id: 'a', input: { query: 'one' } }, { id: 'b', input: { query: 'two' } },
+      { id: 'c', input: { query: 'x', extra: 1 } }, { id: 'd', input: { query: 'four' } }, { id: 'e', name: 'create_diagram', input: { title: 'T', mermaid: 'flowchart TD\nA-->B' } }]);
+    stream.onText('Done.'); return completeOutcome();
+  } });
+  const runs = searching(h, []);
+  await runChat(h.deps, v2(paperBody()), h.emit, new AbortController().signal);
+  assert.equal(runs.length, 2, 'two valid searches within three uses');
+  const results = sent[1].messages.at(-1)!.content as { tool_use_id: string; is_error?: boolean; content: unknown }[];
+  assert.deepEqual(results.map(r => [r.tool_use_id, r.is_error === true]), [['a', false], ['b', false], ['c', true], ['d', true], ['e', false]]);
+  assert.match(String(results[3].content), /No searches are left/);
+  // The diagram from the search round is still delivered.
+  assert.equal(h.events.filter(e => e.event === 'diagram').length, 1);
+  assert.equal(h.answers[0].tavily_searches, 2);
+});
+
+test('rounds stop at the search allowance; a failed round ends the answer and keeps earlier usage', async () => {
+  let rounds = 0;
+  const greedy = harness({ generate: async () => { rounds++; return searchRound([{ id: `s${rounds}`, input: { query: `q${rounds}` } }]); } });
+  searching(greedy, []);
+  await runChat(greedy.deps, v2(paperBody()), greedy.emit, new AbortController().signal);
+  assert.equal(rounds, 5, 'three searches, one refused, then the answer ends');
+  assert.equal(greedy.events.at(-1)!.event, 'done');
+  let calls = 0;
+  const failing = harness({ generate: async () => {
+    if (++calls === 1) return searchRound([{ id: 's1', input: { query: 'q' } }]);
+    throw new Error('lost');
+  } });
+  searching(failing, []);
+  await runChat(failing.deps, v2(paperBody()), failing.emit, new AbortController().signal);
+  const settle = failing.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.ok(Number(settle.p_actual_microusd) > 900 * 2 + 120 * 10, 'the first round and an estimate for the lost one');
+  assert.equal(failing.events.at(-1)!.event, 'error');
+});
+
+test('the SDK adapter collects search_result citations as sources', async () => {
+  const cited = [
+    { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '', citations: [] } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'citations_delta', citation: { type: 'search_result_location', source: 'https://arxiv.org/abs/2310.12036',
+      title: 'IPO', cited_text: 'x', search_result_index: 0, start_block_index: 0, end_block_index: 1 } } },
+    { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'IPO generalizes DPO.' } },
+    { type: 'content_block_stop', index: 1 },
+  ];
+  const client = fakeClient(sseResponse([start, ...text(0, 'Answer: '), ...cited,
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { ...usage0, output_tokens: 20 } }, { type: 'message_stop' }]));
+  const outcome = await streamChat(client, params(), { signal: new AbortController().signal, onText: () => {}, inputEstimateTokens: 2000 });
+  assert.deepEqual(outcome.sources, [{ url: 'https://arxiv.org/abs/2310.12036', title: 'IPO' }]);
+  assert.equal(outcome.webSearches, undefined, 'client searches are not Anthropic searches');
+});
+
+test('Tavily input, results and HTTP failures are bounded and typed', async () => {
+  assert.deepEqual(searchInput({ query: '  sparse\nattention ' }), { query: 'sparse attention', academic: false });
+  assert.deepEqual(searchInput({ query: 'x'.repeat(900), academic: true })?.query.length, 400);
+  for (const bad of [null, 'q', {}, { query: 'a' }, { query: 'ok query', academic: 'yes' }, { query: 'ok query', url: 'https://evil' }]) assert.equal(searchInput(bad), null);
+  const parsed = parseResults({ results: [
+    { url: 'https://a.example/x', title: '', content: 'y'.repeat(5000) },
+    { url: 'javascript:alert(1)', title: 'bad', content: 'z' },
+    { url: 'https://b.example', title: 'No text', content: '' },
+    ...Array.from({ length: 8 }, (_, i) => ({ url: `https://c.example/${i}`, title: `T${i}`, content: 'text', published_date: '2024-01-02' })),
+  ], usage: { credits: 1 } })!;
+  assert.equal(parsed.results.length, 5); assert.equal(parsed.results[0].title, 'a.example'); assert.equal(parsed.results[0].text.length, TAVILY_RESULT_CHARS);
+  assert.equal(parsed.results[1].published, '2024-01-02'); assert.equal(parsed.credits, 1);
+  assert.equal(parseResults({ results: [] })!.credits, 1, 'a search is one credit when usage is missing');
+  assert.equal(parseResults({ nope: true }), null);
+
+  const requests: { url: string; init: RequestInit }[] = [];
+  const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), init: init! }); return new Response(JSON.stringify(body), { status, headers });
+  };
+  const ok = await tavilySearch(reply(200, { results: [{ url: 'https://arxiv.org/abs/1', title: 'A', content: 'B' }], usage: { credits: 1 } }) as typeof fetch,
+    'tvly-test', { query: 'q', academic: true }, new AbortController().signal);
+  assert.equal(ok.status, 'ok');
+  const sentBody = JSON.parse(String(requests[0].init.body));
+  assert.equal((requests[0].init.headers as Record<string, string>).authorization, 'Bearer tvly-test');
+  assert.equal(sentBody.search_depth, 'basic'); assert.equal(sentBody.max_results, 5); assert.equal(sentBody.include_raw_content, false);
+  assert.deepEqual(sentBody.include_domains, [...ACADEMIC_DOMAINS]);
+  assert.equal(JSON.parse(String((await (async () => { requests.length = 0; await tavilySearch(reply(200, { results: [] }) as typeof fetch, 'k', { query: 'q', academic: false }, new AbortController().signal); return requests[0].init.body; })()))).include_domains, undefined);
+  const statuses: [number, string][] = [[432, 'limit'], [433, 'limit'], [401, 'unauthorized'], [400, 'rejected']];
+  for (const [status, failure] of statuses) {
+    const outcome = await tavilySearch(reply(status, {}) as typeof fetch, 'k', { query: 'q', academic: false }, new AbortController().signal);
+    assert.deepEqual(outcome, { status: 'failed', failure, retryAfterMs: null });
+  }
+  assert.deepEqual(await tavilySearch(reply(429, {}, { 'retry-after': '7' }) as typeof fetch, 'k', { query: 'q', academic: false }, new AbortController().signal),
+    { status: 'failed', failure: 'rate_limited', retryAfterMs: 7_000 });
+  let tries = 0;
+  const flaky = (async () => { tries++; if (tries === 1) throw new TypeError('reset'); return new Response(JSON.stringify({ results: [] }), { status: 200 }); }) as typeof fetch;
+  assert.equal((await tavilySearch(flaky, 'k', { query: 'q', academic: false }, new AbortController().signal, { sleep: async () => {} })).status, 'ok');
+  tries = 0;
+  const down = (async () => { tries++; return new Response('{}', { status: 503 }); }) as typeof fetch;
+  assert.deepEqual(await tavilySearch(down, 'k', { query: 'q', academic: false }, new AbortController().signal, { sleep: async () => {} }),
+    { status: 'failed', failure: 'unavailable', retryAfterMs: null });
+  assert.equal(tries, 2, 'one retry on a server error');
 });
