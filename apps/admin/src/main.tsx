@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { Session } from '@supabase/supabase-js';
-import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type Report, type Thread } from './backend';
+import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
+import { Reliability } from './reliability';
+import { Brand, Shell } from './shell';
 import './style.css';
+
+const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
 
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);
 const date = (value: string) => new Date(value).toLocaleString();
@@ -19,6 +23,7 @@ function App() {
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
+  const [reloads, setReloads] = useState(0);
   const currentUser = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
 
@@ -66,18 +71,10 @@ function App() {
     return <div className="auth-shell"><div className="auth-card"><Brand /><h1>Operator access required</h1><p>This account can use the reader, but it has not been granted administration access.</p><button onClick={() => void backend?.auth.signOut()}>Sign out</button></div></div>;
   }
   if (account && !account.operator_verified) return <TwoFactor onVerified={refresh} />;
-  return <div className="app-shell">
-    <aside>
-      <Brand />
-      <span className="environment">{environment}</span>
-      <nav aria-label="Administration">
-        {(account?.roles.includes('owner') ? ['Overview', 'Usage', 'Processing', 'Support'] : ['Support']).map(item =>
-          <button key={item} aria-current={tab === item ? 'page' : undefined} className={tab === item ? 'selected' : ''} onClick={() => setTab(item)}>{item}{item === 'Support' && overview?.open_reports ? <span className="count">{overview.open_reports}</span> : null}</button>)}
-      </nav>
-      <div className="sidebar-bottom"><span>{session.user.email}</span><button className="quiet" onClick={() => void backend?.auth.signOut()}>Sign out</button></div>
-    </aside>
-    <main>
-      <header><div><p className="eyebrow">SCIENCE READER / ADMINISTRATION</p><h1>{tab}</h1></div><button className="secondary" disabled={loading} onClick={() => void refresh()}>{loading ? 'Refreshing…' : 'Refresh'}</button></header>
+  const owner = account.roles.includes('owner');
+  return <Shell tabs={owner ? ['Overview', 'Usage', 'Processing', 'Reliability', 'Support'] : ['Support']} tab={tab} onTab={setTab}
+    counts={{ Support: overview?.open_reports }} email={session.user.email ?? ''} onSignOut={() => void backend?.auth.signOut()}
+    loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
       {loading && !account ? <p role="status">Checking operator access…</p> : null}
       {tab === 'Overview' && overview && <>
@@ -91,9 +88,9 @@ function App() {
         <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
         {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
+      {tab === 'Reliability' && owner && <Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} />}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
-    </main>
-  </div>;
+  </Shell>;
 }
 
 function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
@@ -121,7 +118,6 @@ function PipelinePanel({ pipeline }: { pipeline: Pipeline | null }) {
   </>;
 }
 
-function Brand() { return <div className="brand"><span className="brand-symbol" aria-hidden="true">▤</span><span>Gradstep</span></div>; }
 function Empty({ text }: { text: string }) { return <p className="empty">{text}</p>; }
 function Metric({ label, value }: { label: string; value: number }) { return <section className="metric"><p>{label}</p><strong>{value.toLocaleString()}</strong></section>; }
 function Counts({ values, empty }: { values: Record<string, number>; empty: string }) {
@@ -243,4 +239,10 @@ function PrivateAttachment({ id }: { id: string }) {
   return <figure>{source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt="Screenshot shared by the reporter" /></a> : <p role="status">{error || 'Loading private screenshot…'}</p>}{error && <button className="secondary" onClick={() => setAttempt(n => n + 1)}>Retry image</button>}</figure>;
 }
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
+const root = createRoot(document.getElementById('root')!);
+// Development-only screenshot fixture (`?fixture=reliability`); production builds drop this branch and its module.
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'reliability') {
+  void import('./fixtures').then(({ ReliabilityFixture }) => root.render(<React.StrictMode><ReliabilityFixture /></React.StrictMode>));
+} else {
+  root.render(<React.StrictMode><App /></React.StrictMode>);
+}
