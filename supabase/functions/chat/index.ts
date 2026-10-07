@@ -5,6 +5,7 @@ import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type Chat
 import { arxivTitleURLs, matchPaper, searchArxiv, type DiscoveryResult, openAlexCandidates, openAlexFindURL } from '../_shared/discover.ts';
 import { publicHTTPS } from '../_shared/web-source.ts';
 import { type SearchFailure, tavilySearch } from '../_shared/tavily.ts';
+import type { FindResult } from '../_shared/chat.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
@@ -79,7 +80,7 @@ Deno.serve(async request => {
         return data;
       };
       const seen: DiscoveryResult[] = [];
-      let answered = false;
+      let answered = false, closed: FindResult | null = null;
       for (const url of arxivTitleURLs(wanted.title, wanted.arxivID)) {
         if (signal.aborted) break;
         try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { continue; }
@@ -110,11 +111,28 @@ Deno.serve(async request => {
               const open = openPDF(match.pdfURL);
               const paper = { source_id: `openalex:${match.openalexID}`, title: match.title, year: match.year, kind: 'web' as const,
                 host: open?.hostname ?? null, link: match.landingURL };
-              return { status: open ? web ? 'found' : 'needs_update' : 'closed', paper };
+              if (open) return { status: web ? 'found' : 'needs_update', paper };
+              closed = { status: 'closed', paper };
             }
           } else void response.body?.cancel().catch(() => {});
         } catch { /* unavailable */ }
       }
+      // Last resort: a scholarly web search (Tavily) for an arXiv copy under another title
+      // or one arXiv's search missed, accepted only under the same strict match.
+      if (tavilyKey && !signal.aborted) {
+        const query = `${wanted.title}${wanted.firstAuthor ? ` ${wanted.firstAuthor}` : ''} arXiv`;
+        const searched = await tavilySearch(fetch, tavilyKey, { query, academic: true }, signal).catch(() => null);
+        const ids = searched?.status === 'ok'
+          ? [...new Set(searched.results.flatMap(r => /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(r.url)?.[1] ?? []))].slice(0, 5) : [];
+        if (ids.length) {
+          const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
+          try {
+            const match = matchPaper(wanted, await searchArxiv([url], fetch, slot, signal));
+            if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } };
+          } catch { /* fall through */ }
+        }
+      }
+      if (closed) return closed;
       return { status: answered && !signal.aborted ? 'not_found' : 'unavailable' };
     },
     importPaper: async (paper, signal) => {
@@ -133,7 +151,7 @@ Deno.serve(async request => {
       }
       if (signal.aborted) return 'failed';
       const { data, error } = await user.rpc(paper.kind === 'web' ? 'v2_begin_web_import' : 'v2_begin_import',
-        { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: head });
+        { p_operation_id: crypto.randomUUID(), p_source_id: sourceID, p_observed_cursor: head }).abortSignal(signal);
       return !error && data?.result?.status === 'applied' ? 'added' : 'failed';
     },
     log: entry => console.warn(JSON.stringify({ function: 'chat', ...entry })),

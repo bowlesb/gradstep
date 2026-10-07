@@ -416,13 +416,20 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
       const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
       const web = request.capabilities.includes('web_import');
+      const clock = deps.now ?? Date.now, started = clock();
       const search = await deps.findPaper(wanted, budget, { web }).catch((): FindResult => ({ status: 'unavailable' }));
+      const findMs = clock() - started;
       const found = 'paper' in search ? search.paper : null;
       let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
       if (signal.aborted) result = 'stopped';
       else if (search.status === 'found' && search.paper.kind === 'web' && !web) result = 'needs_update';
       else if (search.status === 'found') result = budget.aborted ? 'unavailable' : await deps.importPaper(search.paper, budget).catch(() => 'failed' as const);
       deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
+      // Durable outcome (counts and timings only), so failures are visible without the log service.
+      await deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID, p_operation_id: request.operationID, p_provider: 'ingest',
+        p_provider_event_id: `operation:${request.operationID}`, p_model: 'find-paper', p_microusd: 0,
+        p_units: { result, kind: found?.kind ?? null, find_ms: findMs, total_ms: clock() - started, web, budget_expired: budget.aborted } })
+        .catch(() => deps.log({ event: 'chat_usage_record_failed', operation_id: request.operationID, provider: 'ingest' }));
       if (!signal.aborted) emit({ event: 'delta', data: { text: ingestReport(wanted, found, result) } });
     }
     const usage = outcome.attempts.reduce((sum, attempt) => ({
