@@ -187,6 +187,27 @@ Publication line: native passes `year · venue · source` (`Paper.publicationLin
 authors (or the title) as a `data-sr-chrome` element before the first layout. It is `user-select: none`, outside every
 block, and skipped by selections, so anchors, quotes and positions are unaffected. The bundled sample shows none.
 
+## Contents outline, find and Show in paper
+
+Reader navigation pass (2026-10-07, [decision](../DECISIONS.md#reader-navigation-find-contents-levels-figures-ipad-chat-column-owner-asked-2026-10-07-agent-decisions-reversible));
+same bridge, no re-render.
+
+- **Contents outline** is a pure section of `reader-bridge.js` (`ContentsOutline`, between `BEGIN/END CONTENTS
+  OUTLINE`): headings in, `{id, title, level, depth}` out for the app's Contents sheet. Title, "Abstract" and a printed
+  "Contents" heading are dropped; depth is the level's distance from the shallowest shown, or — when one level holds a
+  section and its own subsection ("A" and "A. 1"; with Roman sections, a numeral and a letter) — the depth the section
+  number gives. DPO: 39 entries, "5.1"/"6.1" one step in (h3), "A. 1"–"D. 3" one step in by number (flattened to h2).
+- **Find** is WebKit's own (`isFindInteractionEnabled` on the paper's web view only). It highlights without a DOM
+  selection, so the bridge's selection handling and block text are untouched.
+- **Show in paper** (`window.__scienceReaderShowFigure(id)`, its own section after the figure handlers) reuses the
+  citation jump: the figure is centered (from the top when taller than the page) and flashed, and Back returns to the
+  place left; positions are not reported while Back is offered.
+
+Tests (`PaperWebViewTests`): `testContentsIndentByLevelAndSkipAbstractAndPrintedContents`,
+`testContentsInferDepthFromNumberingWhereLevelsWereFlattened`, `testContentsOfARealConversionNestAppendixSections`,
+`testGalleryFiguresReadTheirNumberAndCaption`, `testShowFigureCentersItHighlightsItAndBackReturns`; UI tests in
+`PaperToolsTests`.
+
 ## Sanitization
 
 Provider HTML is rebuilt from an allowlist, never passed through. Scripts, styles, SVG, forms, embeds and Mathpix sidecars are dropped with their content; other unknown elements are unwrapped; all provider attributes except table spans are discarded. Links survive only as normalized `https:` URLs with `rel="noopener noreferrer"` or fragments resolved to generated IDs; everything else keeps only its text. `PaperView` already opens activated `https:` links in Safari and allows only same-document fragment navigation. The validator then requires an exact skeleton (CSP, no scripts), a parse/serialize fixed point, HTML5-stable content models, allowlisted tags/attributes/classes, member-backed images and full DOM/index agreement.

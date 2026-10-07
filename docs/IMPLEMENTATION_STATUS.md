@@ -142,6 +142,33 @@ renders. Verified with Core/unit/backend tests and Simulator UI journeys on the 
 iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
 progress and live DOI adds from an answer are unverified against staging.
 
+### Reader navigation pass — in progress
+
+Owner request 2026-10-07 (legacy gaps 7, 10, 6, 5; [decision](DECISIONS.md#reader-navigation-find-contents-levels-figures-ipad-chat-column-owner-asked-2026-10-07-agent-decisions-reversible)).
+Paused for the session usage limit; branch `worktree-agent-af10ebd45a257ac47`, main merged in (`4bf24ec`).
+
+- **Done (committed):** Find in paper (`c428084`), Contents levels (`4d0c817`), figure gallery with Show in paper
+  (`f00bb08`), iPad hide/resize chat column (`68127e7`). Docs: decision section, gap audit status, DESIGN panes,
+  READER_RENDERER section.
+- **Verified (iOS 26.4 iPhone 17 Pro Simulator `GS-Nav-iPhone`, after the merge):** `PaperWebViewTests` 26 run,
+  24 passed, 2 skipped (screenshot tests), with the new levels/numbering/DPO/caption/Show-figure tests;
+  `WorkflowSafetyTests` and `LibraryModelTests` pass; `ReaderNavigationTests` 3 passed (1 iPad-only skipped);
+  `PaperToolsTests.testFigureGalleryOpensAFigureAndShowsItInThePaperWithBack` passes (screenshots looked at: grid,
+  figure view, Show in paper with Back).
+- **Known issues / next:**
+  - `testContentsShowSectionLevels`: the indent is visible (screenshot checked) but XCUITest reports every List row
+    button at the row's x; assert on the row's text element (or the separator inset) instead of the button frame.
+  - `testFindInPaperGoesToAMatchAndKeepsThatReadingPlace`: find works ("1 of 1", match highlighted, checked by
+    screenshot), but resolving the WebKit list item after the bar closes fails with "Interrupted by waiter" under the
+    current machine load (~700); query a cheaper element (a heading `staticTexts[...]`) or measure via the bar's
+    result and a screenshot only.
+  - `WorkflowJourneyTests.testFigureSheetUsesOfflineImageAndReturnsToItsReadingPosition` failed once: the Contents
+    row "2. Read the equations in context" not found within 5 s (it passed in `ReaderNavigationTests` in the same run)
+    — rerun; if it repeats, check the new Contents row label (`ContentsRow` inside the Button).
+  - Not yet run: the other reader `WorkflowJourneyTests` (equation, selection, two installed-paper journeys), dark
+    iPhone screenshots, the iPad Simulator (`testTabletReaderHidesAndResizesTheChatColumn`, tablet journeys, both
+    orientations), a Mac Catalyst build, then delete both Simulators.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified

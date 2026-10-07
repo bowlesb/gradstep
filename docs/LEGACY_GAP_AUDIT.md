@@ -109,6 +109,8 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 - **Approach:**
   - **S:** a Hide/Show chat control in the Paper "…" menu and toolbar.
   - **M:** a draggable divider, with the chosen width remembered.
+- **Built 2026-10-07:** both — Hide/Show chat (Paper "…" menu; a chat button in the paper's bar while hidden) and a
+  draggable divider, kept per device ([decision](DECISIONS.md#reader-navigation-find-contents-levels-figures-ipad-chat-column-owner-asked-2026-10-07-agent-decisions-reversible)).
 
 ### 6. Figure gallery
 
@@ -122,6 +124,8 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 - **Approach:** the bundle index already lists every figure with its block ID, caption and alt text. Add **Figures**
   to the Paper "…" menu: a grid of verified images with captions. Its detail view pages through figures and has
   **Show in paper**, which jumps by block ID using the citation Back control.
+- **Built 2026-10-07:** Paper "…" › Figures: the grid, the figure view with previous/next, and Show in paper with Back.
+  Not ported: the legacy viewer's own pinch and double-tap zoom.
 
 ### 7. Find in paper
 
@@ -129,6 +133,8 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 - **Gradstep today:** `PaperWebView` doesn't enable WebKit's find interaction (`PaperView.swift:432-462`).
 - **Approach:** set `isFindInteractionEnabled`, add **Find in paper** to the Paper "…" menu, and bind ⌘F. Check that
   find highlighting doesn't disturb the saved reading position.
+- **Built 2026-10-07:** WebKit's find bar from Paper "…" › Find in paper and ⌘F on iPhone and iPad. A highlighted
+  match is not a selection, and the found place is where reading resumes (UI test).
 
 ### 8. Library search: relevance order and word forms
 
@@ -165,6 +171,7 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
   and the Contents sheet is a flat list of titles (`PaperView.swift:221-231`).
 - **Approach:** pass `level` through, indent by its distance from the shallowest level, skip the title and Abstract,
   and port `inferDepthFromNumbering` for flat outputs.
+- **Built 2026-10-07:** levels, and depth from numbering where levels were flattened (bridge `CONTENTS OUTLINE`).
 
 ### Next tier (11–20)
 
