@@ -60,14 +60,17 @@ function importRow(entry: Import): Row {
   };
 }
 
-/** Visible items, and imports not yet resolved into a visible item. */
-export function rows(entries: Iterable<Entry>): Row[] {
+/** Visible items, and imports not yet resolved into a visible item. Reconciled entries are immutable;
+ * a view-owned weak cache keeps unchanged row facts stable without retaining retired accounts/entries. */
+export function rows(entries: Iterable<Entry>, cache?: WeakMap<Entry, Row>): Row[] {
   const all = [...entries], visibleItems = new Set(all.filter(e => e.kind === 'item' && e.visible).map(e => e.id));
   const out: Row[] = [];
   for (const e of all) {
     if (!e.visible) continue;
-    if (e.kind === 'item') out.push(itemRow(e));
-    else if (!(e.library_item_id && visibleItems.has(e.library_item_id))) out.push(importRow(e));
+    if (e.kind === 'import' && e.library_item_id && visibleItems.has(e.library_item_id)) continue;
+    let row = cache?.get(e);
+    if (!row) { row = e.kind === 'item' ? itemRow(e) : importRow(e); cache?.set(e, row); }
+    out.push(row);
   }
   return out;
 }

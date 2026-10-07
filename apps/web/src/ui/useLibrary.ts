@@ -15,13 +15,17 @@ export function useLibrary(account: string) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [marks, setMarks] = useState<Map<string, Mark>>(new Map());
-  const [now, setNow] = useState(() => Date.now());
   const [pending, setPending] = useState<Set<string>>(new Set());
 
   const publish = useCallback(() => {
     const list = [...reconciler.current.entries.values()];
-    setEntries(list);
-    setMarks(previous => observe(previous, list.filter((e): e is Import => e.kind === 'import'), Date.now()));
+    // Reconciliation preserves unchanged entry objects. Empty catch-up responses must not rebuild
+    // the table, its search index and every row while an unrelated import is being polled.
+    setEntries(previous => previous.length === list.length && previous.every((entry, i) => entry === list[i]) ? previous : list);
+    setMarks(previous => {
+      const next = observe(previous, list.filter((e): e is Import => e.kind === 'import'), Date.now());
+      return next.size === previous.size && [...next].every(([id, mark]) => previous.get(id) === mark) ? previous : next;
+    });
   }, []);
 
   const refresh = useCallback((): Promise<void> => {
@@ -60,7 +64,8 @@ export function useLibrary(account: string) {
     return () => { owner.abort(); document.removeEventListener('visibilitychange', focus); window.removeEventListener('focus', focus); clearInterval(slow); };
   }, [refresh]);
 
-  // Imports under way: poll fast at first, then slower (native importPollDelay); tick the bars every second.
+  // Imports under way: poll fast at first, then slower (native importPollDelay).
+  // Visible import rows own their clocks; ticking a progress bar must not render the whole library.
   const active = useMemo(() => entries.some(e => e.kind === 'import' && e.visible && (importStep(e) || retryingAutomatically(e))), [entries]);
   useEffect(() => {
     if (!active) return;
@@ -75,8 +80,7 @@ export function useLibrary(account: string) {
       }, pollDelay((Date.now() - started) / 1000) * 1000);
     };
     tick();
-    const clock = setInterval(() => setNow(Date.now()), 1000);
-    return () => { disposed = true; clearTimeout(timer); clearInterval(clock); };
+    return () => { disposed = true; clearTimeout(timer); };
   }, [active, refresh]);
 
   const command = useCallback(async (key: string, make: () => Command) => {
@@ -103,5 +107,5 @@ export function useLibrary(account: string) {
   const retry = useCallback((i: Import) => command(i.id, () => ({ endpoint: 'v2_retry_import', p_import_id: i.id, p_expected_revision: i.intent_revision })), [command]);
   const remove = useCallback((i: Import) => command(i.id, () => ({ endpoint: 'v2_cancel_import', p_import_id: i.id, p_expected_revision: i.intent_revision })), [command]);
 
-  return { entries, state, marks, now, pending, refresh, addArxiv, retry, remove };
+  return { entries, state, marks, pending, refresh, addArxiv, retry, remove };
 }

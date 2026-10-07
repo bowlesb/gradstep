@@ -23,12 +23,17 @@ from delayed refresh/sign-out/verification; preserves request deadlines; stops d
 late reading saves from recreating forgotten device data. Device records must survive an IndexedDB roundtrip and
 remain usable before enrollment, including on retry/reload. Live tags now update through the reader bridge without
 replacing the document or losing the selection, reading place or citation return. Local validation: production build,
-**54 unit/interop tests**, **26 production-CSP browser checks** and **9 development Strict Mode journeys** pass.
+**54 unit/interop tests**, **28 production-CSP browser checks** and **10 development Strict Mode journeys** pass.
 Direct paper URLs now wait for encrypted reading activity to load before restoring the paper, and received scroll
-reports no longer lose the last update to a second throttle. **Seven WebKit key-dependent journeys remain
+reports no longer lose the last update to a second throttle. **Eight WebKit key-dependent journeys remain
 capability skips**, with safe refusal tested: WebKit cannot currently read back the non-extractable X25519 keys in
 this environment. Full Safari support requires further design/work; see
 [browser evidence and release gate](architecture/BROWSER_READER.md#evidence).
+
+The 4,000-entry browser fixture now verifies search, live tags, filters, sorting and reading while an import
+progresses. Empty catch-up and progress ticks no longer rerender the entire library. In short local production
+observations, progress-window script work fell from 825–1,097 ms to 9–18 ms; this still renders every row and does
+not increase supported capacity. See [measurement scope](architecture/BROWSER_READER.md#library-update-isolation--2026-10-07).
 
 Next: design large-library loading/sync evolution, implement accessible windowing, validate native/Mac workflows,
 and verify browser deployment separately. Existing staging

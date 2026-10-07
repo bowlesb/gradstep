@@ -61,6 +61,26 @@ function seedReturning() {
     requested_revision: null, source_url: 'https://arxiv.org/abs/2401.00001', error_code: 'download_failed', retryable: true }]);
 }
 
+// Capacity fixture uses the production page/change shapes, including one active import.
+// The total includes the archived item and import; it never raises the 4,000-entry client limit.
+function seedLargeLibrary(count) {
+  const a = account(ACCOUNTS['returning@example.test']);
+  if (a.entries.size !== 3) return false;
+  for (let i = 1; i <= count - 3; i++) {
+    const number = String(i).padStart(4, '0');
+    emit(a, [item(`cccccccc-0000-4000-8000-${String(i).padStart(12, '0')}`, `2501.${String(i).padStart(5, '0')}`, 1, {
+      title: `Research paper ${number}: ${i % 3 === 0 ? 'Understanding efficient learning and reliable evaluation across long sequences' : 'Learning with structured representations'}`,
+      authors: [`Researcher ${i % 30}`, 'Coauthor Example'], published_at: `${2020 + i % 6}-01-01`,
+      categories: i % 2 === 0 ? ['cs.LG'] : ['cs.CL'],
+    }, { added_at: `2026-09-${String(1 + i % 28).padStart(2, '0')}T12:00:00Z`,
+      tags: i % 2 === 0 ? ['Representation learning', 'Self-supervised learning'] : ['Language modeling', 'Transformers'] })]);
+  }
+  const imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
+  emit(a, [{ ...imp, phase: 'acquiring', error_code: null, retryable: false, progress: 'converting',
+    progress_detail: { step: 'reading_equations', percent: 40, eta_seconds: 60, pages: 15, pages_done: 6 } }]);
+  return true;
+}
+
 // Imports advance on a clock, as the worker would.
 function scheduleImport(a, imp, metadata) {
   const stages = [
@@ -195,6 +215,11 @@ createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
   if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__large-library' && request.method === 'POST') {
+    const body = await read(request);
+    if (!Number.isInteger(body?.count) || body.count < 3 || body.count > 4000 || !seedLargeLibrary(body.count)) return send(response, 400, {});
+    return send(response, 200, { ok: true, entries: body.count });
+  }
   // A tag projection arriving from the worker or another device, through the real library journal shape.
   if (url.pathname === '/__paper-tags' && request.method === 'POST') {
     const body = await read(request), a = account(ACCOUNTS['returning@example.test']);

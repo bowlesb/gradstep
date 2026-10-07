@@ -127,13 +127,17 @@ establish live deployment or complete browser workflow correctness.
 
 ## Large-library architecture findings
 
-Code review, separate from the performance measurements, found:
+The initial code review, separate from the performance measurements, found:
 
 - Both the browser and native library protocols enforce a **4,000 retained-entry limit**, including import entries.
 - The browser reconciler fetches the bounded baseline and catch-up before publishing the initial library. Each
   baseline page copies the accumulated Map and validates cross-entry identities.
 - The current browser table filters/sorts synchronously and renders every matching row.
 - Import progress advances a timer in parent state; the complete library object flows through the rows.
+
+Follow-up on 2026-10-07: the parent timer and changing row inputs are now fixed, with a real 4,000-entry browser
+journey and before/after measurements. Unchanged refreshes preserve row/entry identity and only active import rows
+tick. [Evidence and remaining rendering work](BROWSER_READER.md#library-update-isolation--2026-10-07).
 
 These are the current scaling constraints whichever framework is chosen. Before increasing supported capacity,
 design a paged query/read model and durable local cache with explicit snapshot/cursor, deletion, account isolation

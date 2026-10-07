@@ -65,6 +65,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [readerCache] = useState<ReaderCache>(() => new Map());
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openPaper = useCallback((paper: Item) => navigate(`/paper/${paper.id}`), [navigate]);
 
   useEffect(() => {
     let live = true;
@@ -143,7 +144,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
             : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>
       ) : (
-        <LibraryView library={library} activity={activity} onOpen={paper => navigate(`/paper/${paper.id}`)} />
+        <LibraryView library={library} activity={activity} onOpen={openPaper} />
       )}
       <Dialog open={chats} onClose={() => setChats(false)} title="Chats">
         <h2>Chats</h2>

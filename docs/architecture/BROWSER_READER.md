@@ -222,16 +222,17 @@ The integration worktree recovered the browser implementation and hardened sessi
   bodies with caller cancellation, ordered encrypted reading-place persistence, and non-null unusable/extractable
   stored keys that remain refused on retry without losing pending enrollment material. Frame contents accept the
   same maximum of 1,000 headings as the Mathpix bundle verifier; the boundary is regression-tested.
-- Production-CSP Playwright: **26 passed, 7 capability skips** (2026-10-07). All 22 desktop/narrow Chromium cases
+- Production-CSP Playwright: **28 passed, 8 capability skips** (2026-10-07). All 24 desktop/narrow Chromium cases
   pass, including no-reload sign-out/recovery, reauthorization of a reopened reader, a late encrypted save after
   forgetting keys, a delayed sign-out after another tab logs in, live tag updates while reading/selected/at a
   citation, tags arriving during a fresh download with a persisted nonzero position, and reopening a direct paper
-  URL while activity decryption is deliberately delayed. WebKit passes sign-in cancellation,
-  unsupported-key guidance, invite-only messaging and CSP checks. Its seven key-dependent journeys are blocked
+  URL while activity decryption is deliberately delayed. A 4,000-entry library also passes progress, search,
+  live tag changes, filters, sorting and keyboard link activation. WebKit passes sign-in cancellation,
+  unsupported-key guidance, invite-only messaging and CSP checks. Its eight key-dependent journeys are blocked
   by the engine issue below; these are not Safari workflow passes.
-- Nine desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
+- Ten desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
   returning reader, new keys/reload, abandoned verification, late reading save, delayed sign-out and enrollment
-  persistence, live tags, tags arriving during download and delayed local activity loading. Reproduce with
+  persistence, live tags, tags arriving during download, delayed local activity loading and the 4,000-entry library. Reproduce with
   `WEB_E2E_DEV=1 npm run e2e -- --project=desktop --grep-invert 'address without|security headers'`;
   the CSP-header test specifically requires the production preview server.
 - The React/Svelte experiment's successful WebKit table tests do not exercise crypto/key storage and therefore
@@ -270,3 +271,39 @@ Immediate departure remains a separate reading-position edge: leaving before the
 scroll report reaches the parent retains the last received position. Removing the extra two-second throttle fixes
 dropped reports, but a guarantee for the final movement needs a bounded capture/ack before app-owned navigation,
 with citation-return semantics preserved. Abrupt process termination cannot guarantee a final encrypted write.
+
+### Library update isolation — 2026-10-07
+
+Unchanged catch-up pages now retain the published entries and progress marks. Each Library view owns a weak
+row-facts cache keyed by immutable reconciler entries; a changed entry invalidates its facts even when its ID is
+unchanged. Memoized rows receive stable callbacks and primitive activity/pending values. The one-second display
+clock belongs to active import rows, with cleanup on filtering, navigation and sign-out; ready papers and the
+table's filters/sorts no longer run on every progress tick. Hidden documents do not advance the display clock.
+
+`e2e/library.spec.ts` exercises the real client against 4,000 retained entries through the existing paged fixture
+protocol, including an archived item and active import (3,999 displayed rows). It verifies that progress advances,
+search keeps focus, a live same-ID tag update changes search membership, tag filters and Year sort work, and Enter
+on a result opens the verified reader. Production and Strict Mode pass at the existing bound. Screenshots at
+1,280 px and 390 px preserve the existing layout.
+
+Local production observations on this Mac, each over approximately 3.4 seconds of progress and empty catch-up:
+
+| Viewport | Before: script time | After: script time | Later production observations |
+|---|---:|---:|---:|
+| 1,280 px | 825 ms | 18 ms | 9–13 ms |
+| 390 px | 1,097 ms | 9 ms | 10–11 ms |
+
+These are a small set of local Chromium CDP measurements, not throughput guarantees. The test's
+`recoveryToLibraryMs` includes recovery crypto, fixture pagination and rendering; `searchMs` includes Playwright
+input/assertion overhead. Raw reports and before/after screenshots are under `.artifacts/web-library/` (the first
+baseline reports call the recovery interval `loadMs`). Reproduce with
+`WEB_LIBRARY_LABEL=<label> npm run e2e -- e2e/library.spec.ts --project=desktop --project=phone`.
+
+The DOM still contains all 3,999 displayed rows; windowing, larger capacity and browser offline storage are not
+implemented by this change. A separate review recommends evaluating React Aria's
+[Table](https://react-aria.adobe.com/Table) with its measured-height
+[Virtualizer](https://react-aria.adobe.com/Virtualizer), preserving page scrolling and managed keyboard focus.
+Its [window-scrolling release](https://react-aria.adobe.com/releases/v1-17-0) supports this layout, but that adapter
+has not been built or verified. The design must also preserve library query/filter/sort and a row anchor through
+reader navigation, handle disappearing focused imports, and offer full results for browser Find/printing.
+No new dependency or server contract has been adopted for windowing yet.

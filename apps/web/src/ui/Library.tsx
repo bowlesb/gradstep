@@ -1,13 +1,13 @@
 // The library as a table (owner decision 2026-10-07): Title with first author, Year, Tags, Added,
 // Opened, Progress; sortable headers, search, tag and state filters, live import progress with
 // inline Retry/Remove. Chats and tag editing are Phase 2.
-import { type FormEvent, useMemo, useState } from 'react';
+import { type FormEvent, memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Activity } from '../lib/activity';
 import { parseArxiv } from '../lib/arxiv';
 import { BackendError } from '../lib/backend';
-import type { Import, Item } from '../lib/library';
+import type { Entry, Import, Item } from '../lib/library';
 import { type Row, rows as buildRows } from '../lib/paper';
-import { progressView } from '../lib/progress';
+import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
 import { Dialog, formatDate } from './common';
 import type { useLibrary } from './useLibrary';
 
@@ -33,7 +33,8 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const all = useMemo(() => buildRows(library.entries), [library.entries]);
+  const [rowCache] = useState(() => new WeakMap<Entry, Row>());
+  const all = useMemo(() => buildRows(library.entries, rowCache), [library.entries, rowCache]);
   const facts = (row: Row) => {
     const a = row.entry.kind === 'item' ? activity.get(row.entry.id) : undefined;
     return { opened: a?.opened ?? null, progress: a ? a.progress : null };
@@ -97,10 +98,10 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
     </button>
   );
 
-  async function run(promise: Promise<unknown>) {
+  const run = useCallback(async (promise: Promise<unknown>) => {
     setNotice(null);
     try { await promise; } catch (error) { setNotice(commandError(error)); }
-  }
+  }, []);
 
   return (
     <main className="library" aria-labelledby="library-title">
@@ -145,7 +146,8 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
             {header('added', 'Added', 'col-added')}{header('opened', 'Opened', 'col-opened')}{header('progress', 'Progress', 'col-progress')}
           </tr></thead>
           <tbody>
-            {shown.map(row => <PaperRow key={row.key} row={row} facts={facts(row)} library={library} onOpen={onOpen} run={run} />)}
+            {shown.map(row => <PaperRow key={row.key} row={row} {...facts(row)} mark={library.marks.get(row.entry.id)} busy={library.pending.has(row.entry.id)}
+              onOpen={onOpen} retry={library.retry} remove={library.remove} run={run} />)}
             {shown.length === 0 && <tr><td colSpan={6} className="no-match">No papers match.</td></tr>}
           </tbody>
         </table>
@@ -155,15 +157,31 @@ export function LibraryView({ library, activity, onOpen }: { library: Library; a
   );
 }
 
-function PaperRow({ row, facts, library, onOpen, run }: { row: Row; facts: { opened: number | null; progress: number | null }; library: Library;
-  onOpen: (item: Item) => void; run: (p: Promise<unknown>) => void }) {
+/** Only an active import row ticks. Ready papers and the table's query/sort state stay idle. */
+function useImportProgress(entry: Entry, mark?: Mark) {
+  const active = entry.kind === 'import' && !!(importStep(entry) || retryingAutomatically(entry));
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const tick = () => { if (document.visibilityState === 'visible') setNow(Date.now()); };
+    tick();
+    const clock = setInterval(tick, 1000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(clock); document.removeEventListener('visibilitychange', tick); };
+  }, [active]);
+  return entry.kind === 'import' ? progressView(entry, mark, now) : null;
+}
+
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, onOpen, retry, remove, run }: {
+  row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean;
+  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (p: Promise<unknown>) => void;
+}) {
   const entry = row.entry;
-  const progress = entry.kind === 'import' ? progressView(entry, library.marks.get(entry.id), library.now) : null;
-  const busy = library.pending.has(entry.id);
+  const progress = useImportProgress(entry, mark);
   const open = () => { if (row.readable && entry.kind === 'item') onOpen(entry); };
   const action = entry.kind === 'import' && row.action && !busy ? (
-    row.action === 'retry' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(library.retry(entry as Import)); }}>Retry</button>
-      : row.action === 'remove' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(library.remove(entry as Import)); }}>Remove</button>
+    row.action === 'retry' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(retry(entry as Import)); }}>Retry</button>
+      : row.action === 'remove' ? <button className="secondary small" onClick={e => { e.stopPropagation(); run(remove(entry as Import)); }}>Remove</button>
         : <span className="fine" title="Credits can be added in the iPhone or iPad app">Needs credits</span>
   ) : null;
   return (
@@ -180,7 +198,7 @@ function PaperRow({ row, facts, library, onOpen, run }: { row: Row; facts: { ope
       <td className="col-year">{row.year ?? '—'}</td>
       <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => <span className="tag" key={t}>{t}</span>)}</span> : <span className="muted">—</span>}</td>
       <td className="col-added">{formatDate(row.added)}</td>
-      <td className="col-opened">{formatDate(facts.opened)}</td>
+      <td className="col-opened">{formatDate(opened)}</td>
       <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">
@@ -188,13 +206,13 @@ function PaperRow({ row, facts, library, onOpen, run }: { row: Row; facts: { ope
             <span className="fine">{[progress.percent !== null ? `${progress.percent}%` : null, progress.compactTime].filter(Boolean).join(' · ')}</span>
           </span>
         ) : row.readable ? (
-          facts.progress !== null ? <span className="reading-progress"><progress className="accent" max={1} value={facts.progress} aria-label={`${Math.round(facts.progress * 100)}% read`} />
-            <span className="fine">{Math.round(facts.progress * 100)}%</span></span> : <span className="muted">—</span>
+          readingProgress !== null ? <span className="reading-progress"><progress className="accent" max={1} value={readingProgress} aria-label={`${Math.round(readingProgress * 100)}% read`} />
+            <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : <span className="muted">—</span>
         ) : <span className="muted">—</span>}
       </td>
     </tr>
   );
-}
+});
 
 function AddPaper({ open, onClose, library }: { open: boolean; onClose: () => void; library: Library }) {
   const [text, setText] = useState('');
