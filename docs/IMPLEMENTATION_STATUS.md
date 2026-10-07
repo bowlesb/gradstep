@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-05 (overnight build, then the owner's morning decisions). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-06 (citations, archive, Tavily search; earlier: the 2026-10-05 overnight build). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
 ## Works end to end on staging
@@ -36,6 +36,18 @@ while searching); and an independent design audit of every screen against the ow
 style per screen, one status banner, type scale and margins, 720 pt columns on iPad, quieter chat and settings.
 Checked with before/after screenshots on iPhone and iPad, light and dark, and a second independent verification
 pass ([audit 2](design-audits/2026-10-06-audit2.md)). Shipped in TestFlight build 11 (2026-10-06).
+
+**Reader citations and archive** (owner requests 2026-10-06): numeric, keyed and unambiguous author–year citations
+link to their bibliography entry with a native Back control; tapping a reference offers Open, Add to library and
+Copy; a year · venue · arXiv line follows the authors ([reader](architecture/READER_RENDERER.md)). Library items can
+be archived (synced, migration 020) from the row menu or a swipe. Selection actions read Explain, Why it matters,
+Related and Add paper; Related searches the web for related papers.
+
+**Web search: Tavily first, Anthropic's search as the backup** (owner decision 2026-10-06, migration 021): one rate
+card whichever provider serves; Tavily's prepaid searches are a fixed commitment, not metered spend; a 31-day
+allowance keeps within the plan. Live on staging: the same Related request cost $0.047 with Tavily against $0.111
+with Anthropic's search (15 vs 23 credits). Consent v2 names Tavily (build 12). See [chat](architecture/CHAT.md#web-search-on-in-staging)
+and [decisions](DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
 
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
