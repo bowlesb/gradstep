@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arxivIDs, citationText, crossrefCandidates, dois, resolveReference, titleInReference, type ReferenceDeps } from '../../supabase/functions/_shared/reference.ts';
+import { arxivIDs, candidateTitles, citationText, crossrefCandidates, dois, referenceYear, resolveReference, titleInReference, type ReferenceDeps } from '../../supabase/functions/_shared/reference.ts';
 import type { FindResult } from '../../supabase/functions/_shared/chat.ts';
 
 const palm = '[11] A. Chowdhery, S. Narang, J. Devlin, et al. Palm: Scaling language modeling with pathways. arXiv preprint arXiv:2204.02311, 2022.';
@@ -23,6 +23,20 @@ test('reference parsing: arXiv ids, DOIs, citation text and the title check', ()
     { title: ['no doi'] }] } });
   assert.deepEqual(items, [{ doi: '10.1/x', title: 'Curves and surfaces for CAGD', year: 2002, firstAuthor: 'Gerald Farin', score: 88 }]);
   assert.deepEqual(crossrefCandidates(null), []);
+});
+
+test('the title is read from common citation styles (authors, then title, then venue)', () => {
+  const cases: [string, string][] = [
+    ['[24] D. P. Kingma and J. Ba. Adam: A method for stochastic optimization. In ICLR, 2015.', 'Adam: A method for stochastic optimization'],
+    ['N. Srivastava, G. Hinton, A. Krizhevsky, I. Sutskever, and R. Salakhutdinov. Dropout: a simple way to prevent neural networks from overfitting. JMLR, 15(1):1929–1958, 2014.', 'Dropout: a simple way to prevent neural networks from overfitting'],
+    [eusipco, 'Restoration of atmospheric turbulent video containing real motion using rank filtering and elastic image registration'],
+    ['Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. In NeurIPS, 2017.', 'Attention is all you need'],
+    ['He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. In CVPR (pp. 770-778).', 'Deep residual learning for image recognition'],
+    ['Silver D, Huang A, Maddison CJ, et al. Mastering the game of Go with deep neural networks and tree search. Nature. 2016;529(7587):484-489.', 'Mastering the game of Go with deep neural networks and tree search'],
+    [book, 'Curves and surfaces for CAGD: a practical guide'],
+  ];
+  for (const [reference, title] of cases) assert.equal(candidateTitles(reference)[0], title, reference);
+  assert.equal(referenceYear(eusipco), 2004);
 });
 
 const atom = (id: string, title: string) => `<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom"><entry><id>http://arxiv.org/abs/${id}v1</id><title>${title}</title>
@@ -85,14 +99,20 @@ test('without a citation match, OpenAlex search is accepted only for a title the
   const fallback = deps({
     'api.crossref.org/works': () => json({ message: { items: [{ DOI: '10.1/other', title: ['A completely different study'], score: 30 }] } }),
     'api.openalex.org/works': () => json({ results: [openAlexWork({ title: 'Palm: Scaling Language Modeling With Pathways', locations: [{ landing_page_url: 'https://arxiv.org/abs/2204.02311' }] })] }),
-  }, async wanted => { seen.push(wanted.title); return { status: 'found', paper: { source_id: '2204.02311', title: wanted.title, year: 2022, kind: 'arxiv' } }; });
+  }, async wanted => {
+    seen.push(wanted.title);
+    // Only OpenAlex's exact title is known to the (fake) finder: the entry's own title misses first.
+    return wanted.title === 'Palm: Scaling Language Modeling With Pathways'
+      ? { status: 'found', paper: { source_id: '2204.02311', title: wanted.title, year: 2022, kind: 'arxiv' } } : { status: 'not_found' };
+  });
   const reference = 'A. Chowdhery et al. Palm: Scaling language modeling with pathways. JMLR 2023.';
   const found = await resolveReference(fallback, reference, true, new AbortController().signal);
   assert.equal(found.route, 'openalex'); assert.equal(found.result.status, 'found');
-  assert.deepEqual(seen, ['Palm: Scaling Language Modeling With Pathways']);
+  assert.deepEqual(seen, ['Palm: Scaling language modeling with pathways', 'Palm: Scaling Language Modeling With Pathways'], 'the entry title first, then OpenAlex');
   const nothing = deps({ 'api.crossref.org/works': () => json({ message: { items: [] } }), 'api.openalex.org/works': () => json({ results: [] }) });
   assert.deepEqual(await resolveReference(nothing, 'Some Author. A paper nobody wrote about anything. 2031.', true, new AbortController().signal),
     { route: 'none', result: { status: 'not_found' } });
-  const offline = deps({ 'api.crossref.org/works': () => new Response('down', { status: 503 }), 'api.openalex.org/works': () => new Response('down', { status: 503 }) });
+  const offline = deps({ 'api.crossref.org/works': () => new Response('down', { status: 503 }), 'api.openalex.org/works': () => new Response('down', { status: 503 }) },
+    async () => ({ status: 'unavailable' }));
   assert.equal((await resolveReference(offline, 'Some Author. A paper nobody wrote. 2031.', true, new AbortController().signal)).result.status, 'unavailable');
 });

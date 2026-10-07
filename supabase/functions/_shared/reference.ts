@@ -35,6 +35,45 @@ export function citationText(reference: string): string {
     .replace(/\s+/g, ' ').trim().slice(0, 600);
 }
 
+const VENUE = /^(?:in\b|proc(?:eedings)?\b|arxiv\b|journal\b|advances in\b|conference\b|international\b|ieee\b|acm\b|springer\b|vol(?:ume)?\b|pp?\.|pages\b|technical report\b|preprint\b|morgan kaufmann\b|mit press\b|cambridge\b|oxford\b|openreview\b)/i;
+/** Looks like an author list: initials, "and", "et al.", or a short run of capitalised names. */
+function authorLike(segment: string): boolean {
+  // APA style: "He, K., Zhang, X., & Sun, J. (2016)".
+  if (/,.*\(\d{4}[a-z]?\)$/.test(segment) || /&/.test(segment) && /,/.test(segment)) return true;
+  if (/\bet al\b/i.test(segment) || /(?:^|\s)\p{Lu}\.\s?(?:\p{Lu}\.\s?)?\p{Lu}\p{Ll}/u.test(segment)) return true;
+  const words = segment.split(/\s+/);
+  if (/(?:,|\band\b)/.test(segment) && words.every(w => /^(?:and|\p{Lu}[\p{L}'-]*,?|\p{Lu}\.,?)$/u.test(w))) return true;
+  return words.length <= 4 && words.every(w => /^\p{Lu}[\p{L}'-]*\.?,?$/u.test(w)) && !/:/.test(segment);
+}
+
+/** Likely titles in a bibliography entry, most likely first: a quoted title, else the first
+ * sentence-like segment after the authors that isn't a venue, year or page range. */
+export function candidateTitles(reference: string): string[] {
+  const text = citationText(reference);
+  const titles: string[] = [];
+  for (const m of text.matchAll(/[“"]([^”"]{8,300})[”"]/g)) titles.push(m[1].replace(/[,.\s]+$/, ''));
+  const segments = text.split(/\.\s+(?=[A-Z0-9“"])/).map(t => t.replace(/^[,;\s]+|[,;.\s]+$/g, '')).filter(Boolean);
+  for (const [index, segment] of segments.entries()) {
+    const words = segment.split(/\s+/);
+    if (words.length < 2 || words.length > 40) continue;
+    if (index === 0 && authorLike(segment)) continue;
+    if (VENUE.test(segment) || /^\(?\d{4}\)?$/.test(segment) || /^\d/.test(segment)) continue;
+    // Volume/page lines ("JMLR, 15(1):1929–1958, 2014") and a segment that already holds a quoted title.
+    if (/\d+\s*\(\d+\)|\d+\s*[–-]\s*\d+/.test(segment) || /[“"]/.test(segment)) continue;
+    // A short venue-and-year line ("JMLR 2023", "NeurIPS, 2017").
+    if (words.length <= 4 && /\b(?:19|20)\d{2}\b/.test(segment)) continue;
+    if (authorLike(segment) && !/:/.test(segment)) continue;
+    titles.push(segment);
+  }
+  return [...new Set(titles.map(t => t.replace(/\s+/g, ' ').trim()))].filter(t => t.length >= 8).slice(0, 3);
+}
+
+/** The latest plausible year written in the entry. */
+export function referenceYear(reference: string): number | null {
+  const years = [...reference.matchAll(/\b(19[5-9]\d|20\d{2})\b/g)].map(m => Number(m[1]));
+  return years.length ? years[years.length - 1] : null;
+}
+
 export function crossrefURL(reference: string): string {
   const url = new URL('https://api.crossref.org/works');
   url.search = new URLSearchParams({ 'query.bibliographic': citationText(reference), rows: '3',
@@ -60,7 +99,7 @@ export function crossrefCandidates(json: unknown): CrossrefCandidate[] {
   return out;
 }
 
-export type ReferenceRoute = 'arxiv_id' | 'doi' | 'crossref' | 'openalex' | 'none';
+export type ReferenceRoute = 'arxiv_id' | 'doi' | 'title' | 'crossref' | 'openalex' | 'none';
 export interface ReferenceDeps {
   fetch: typeof fetch;
   /** Reserves paced arXiv API slots (shared with the pipeline). */
@@ -116,7 +155,17 @@ export async function resolveReference(deps: ReferenceDeps, reference: string, w
     const found = await byDOI(deps, doi, reference, web, signal);
     if (found) { consulted = true; if (found.status !== 'closed') return { route: 'doi', result: found }; closed ??= found; }
   }
-  // 3. Crossref's citation matcher, accepted only if the matched title appears in the entry; then its DOI,
+  // 3. The entry's own title (quoted, or between the authors and the venue) through the shared strict
+  //    search: OpenAlex (arXiv copies, open-access PDFs) and arXiv. Fast, and what a reader would do.
+  for (const title of candidateTitles(reference).slice(0, 2)) {
+    if (signal.aborted) break;
+    const viaTitle = await deps.findPaper({ title, year: referenceYear(reference), firstAuthor: null, arxivID: null }, signal, { web })
+      .catch((): FindResult => ({ status: 'unavailable' }));
+    if (viaTitle.status !== 'unavailable') consulted = true;
+    if (viaTitle.status === 'found' || viaTitle.status === 'needs_update') return { route: 'title', result: viaTitle };
+    if (viaTitle.status === 'closed') closed ??= viaTitle;
+  }
+  // 4. Crossref's citation matcher, accepted only if the matched title appears in the entry; then its DOI,
   //    then the shared title search (arXiv preprints of journal papers often have no DOI link).
   const crossref = await getJSON(deps.fetch, crossrefURL(reference), signal);
   if (crossref) consulted = true;
@@ -130,7 +179,7 @@ export async function resolveReference(deps: ReferenceDeps, reference: string, w
     return { route: 'crossref', result: viaDOI ?? (viaTitle.status === 'closed' ? viaTitle : closed ?? { status: 'closed', paper: { source_id: `doi:${match.doi}`, title: match.title, year: match.year, link: `https://doi.org/${match.doi}` } }) };
   }
   if (closed) return { route: 'doi', result: closed };
-  // 4. No citation match (many ML papers exist only on arXiv or at venues Crossref doesn't index):
+  // 5. No citation match (many ML papers exist only on arXiv or at venues Crossref doesn't index):
   //    OpenAlex's search on the entry, accepting a work whose title appears in it.
   const search = new URL('https://api.openalex.org/works');
   search.search = new URLSearchParams({ search: citationText(reference).slice(0, 300), 'per-page': '10',
