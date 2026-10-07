@@ -462,6 +462,33 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(transport.requests.filter { $0.action == .diagramFix }.count, 1)
     }
 
+    func testAnUnconfirmedDiagramCorrectionKeepsTheOriginal() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.diagramCheck = { $0.contains("broken") ? .invalid("Parse error") : .valid }
+        let original = "flowchart TD\n broken"
+        for ending in ["failure", "eof", "max_tokens"] {
+            let firstRequest = transport.requests.count
+            model.chatInput = "Draw it with \(ending)"
+            await model.sendMessage()
+            try await waitUntil("answer request issued") { transport.requests.count == firstRequest + 1 }
+            transport.send(.delta("The complete answer."), .diagram(title: "Flow", source: original),
+                           .done(stopReason: "end_turn", credits: 1))
+            try await waitUntil("repair request issued") { transport.requests.count == firstRequest + 2 }
+            transport.send(.diagram(title: "Flow", source: "flowchart TD\n A --> B"))
+            switch ending {
+            case "failure": transport.send(.failure(code: "provider_unavailable"))
+            case "eof": transport.end()
+            default: transport.send(.done(stopReason: "max_tokens", credits: 1))
+            }
+            try await waitUntil("original answer saved") { !model.isAnswering }
+            let answer = try XCTUnwrap(model.chatMessages.last)
+            let link = try XCTUnwrap(model.chatDiagrams[answer.payload.entityID])
+            XCTAssertEqual(model.diagram(link.id)?.source, original, ending)
+            XCTAssertEqual(answer.payload.status, .complete, "The original answer was already complete")
+            XCTAssertEqual(transport.requests.count, firstRequest + 2, "No second repair on an uncertain result")
+        }
+    }
+
     /// The real check: the bundled Mermaid's parser in an off-screen web view.
     func testTheBundledMermaidParserChecksDiagrams() async throws {
         let valid = await MermaidCheck.check("flowchart TD\n A[\"Input (x)\"] --> B[Encoder]\n B --> C[Loss]")

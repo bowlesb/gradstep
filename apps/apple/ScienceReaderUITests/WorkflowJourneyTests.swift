@@ -396,8 +396,10 @@ final class WorkflowJourneyTests: XCTestCase {
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText("Draw the attention computation")
-        app.buttons["chat.send"].tap()
+        // Dismiss before sending: the keyboard animation must not consume the
+        // fixture's short repair state before the test starts observing it.
         if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
+        app.buttons["chat.send"].tap()
         let fixing = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label == %@",
             "chat.message.progress", "Fixing the diagram…")).firstMatch
         XCTAssertTrue(fixing.waitForExistence(timeout: 15), "The answer waits while its diagram is redrawn")
@@ -405,6 +407,9 @@ final class WorkflowJourneyTests: XCTestCase {
         let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
         XCTAssertTrue(open.waitForExistence(timeout: 15))
         XCTAssertFalse(fixing.exists)
+        let title = app.buttons["chat.context"]
+        XCTAssertGreaterThanOrEqual(title.frame.minX, app.buttons["Chat history"].frame.maxX, "Long titles leave room for history")
+        XCTAssertLessThanOrEqual(title.frame.maxX, app.buttons["New chat"].frame.minX, "Long titles leave room for New chat")
         open.tap()
         XCTAssertTrue(app.staticTexts["Couldn’t draw this diagram"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Queries (Q)")).firstMatch.exists,

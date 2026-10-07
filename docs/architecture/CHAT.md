@@ -67,13 +67,42 @@ device parses it with the bundled Mermaid (`mermaid.parse`, in an off-screen web
 `MermaidCheck`). One that fails is sent back **once** as a separate request, `action: "diagram_fix"`: general mode, one
 user turn (`Title: …`, `Mermaid error: …` ≤ 600 characters, the source), no conversation, paper, selection or search;
 instructions to call `create_diagram` with the same content made valid; **2,000 output tokens** (`DIAGRAM_FIX_MAX_TOKENS`).
-It is metered like any answer — its own operation, held (`holdFor(prompt, 2000)`, about 14–20 credits) and settled
-at actual cost (typically 2–3 credits), logged as `chat_answer` with `action: "diagram_fix"`. The answer shows "Fixing
+It is metered like any answer — its own operation, held for the request and its 2,000-token output allowance, then
+settled at actual usage, logged as `chat_answer` with `action: "diagram_fix"`. The deterministic test’s
+1,400-input/600-output-token example costs 2 credits ($0.0088 provider spend); live repair cost has not been
+measured. The answer shows "Fixing
 the diagram…" meanwhile and is saved with the corrected source if that parses, else with the original (the answer's
-title is kept). A request that fails (no credits, an older server) keeps the original. A diagram that still cannot be
+title is kept). A correction is used only after a successful final event: a lost stream, failure or truncated
+response keeps the original and does not start a second repair. A request that fails (no credits, an older server)
+also keeps the original. A diagram that still cannot be
 drawn says "Couldn't draw this diagram", with its source collapsed. Server-side parsing was ruled out: Mermaid
 12.1's parser bundles to 5.25 MB minified (over the 5 MB server-side bundling limit before the function's own code)
 and its flowchart parser needs a DOM (DOMPurify).
+
+### Chat-quality validation — 2026-10-07, local only
+
+The recovered chat branch includes main through `7327ff3` (reader navigation and offline recovery). Verified:
+224 backend tests, the chat Edge function's Deno type check, 213 Core tests, 48 selected app regressions (chat
+ownership, outcomes, drafts, titles and history), six chat-history UI journeys, the broken-diagram journey and
+opening/reopening a valid diagram. The real bundled Mermaid parser is exercised in Simulator. The formerly
+reported broken-diagram failure did not reproduce on the first clean run; its test now dismisses the keyboard
+before sending so the brief "Fixing the diagram…" state cannot finish during keyboard dismissal. A separate
+regression rejects a valid correction frame followed by failure, EOF or `max_tokens`, keeping the completed
+answer and original source without another repair.
+
+The conversation title now fits the actual space between History and New chat. Toolbar items have separate
+SwiftUI hosting roots; a small UIKit background measures their shared window coordinates after layout, including
+pane resizing. The visible label truncates to that space because a toolbar Menu otherwise keeps its intrinsic
+label width. The saved title and VoiceOver label remain complete. iPhone geometry assertions pass. The iPad resize journey also passes with title bounds checked at the default,
+minimum (300 pt), widened and relaunched widths, including hide/show and rotation; its screenshots were inspected
+under `.artifacts/chat-ipad-header-attachments/`. Dark screenshots of diagram failure, the paper-chat menu and This paper history were captured and inspected under
+`.artifacts/visual/chat-quality-20261007/iphone-dark/`. A universal Mac Catalyst build passes; this is compile
+coverage, not a signed-in Mac runtime check.
+
+No provider requests were made for this review; repair pricing and real-model success rates are unmeasured.
+The app's new `relevance` and `diagram_fix` actions require deploying the matching chat function before shipping.
+When combined with the pending spending controls, preserve the 2,000-token repair ceiling and both actions'
+search exclusion; its conservative per-attempt admission replaces the earlier character-based hold.
 
 ## Web search (on in staging)
 

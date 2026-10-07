@@ -2477,17 +2477,24 @@ final class ReaderModel {
         else { return drawn }
         chatStreamProgress[generation.id] = ChatProgress(kind: .fixingDiagram)
         var fixed: String?
+        var completed = false
         do {
             stream: for try await event in try await transport.chatStream(request, accountID: generation.turn.accountID) {
                 guard ownsGeneration(generation) else { return drawn }
                 switch event {
                 case .diagram(_, let source): fixed = source
-                case .done, .failure: break stream
+                case .done(let stopReason, _):
+                    completed = stopReason == "end_turn" || stopReason == "stop_sequence"
+                    break stream
+                case .failure: break stream
                 default: continue
                 }
             }
         } catch { return drawn }
-        guard let fixed, ownsGeneration(generation), !Task.isCancelled, case .valid = await diagramCheck(fixed) else { return drawn }
+        // A diagram frame alone is not a successful correction: the stream can
+        // fail, be truncated, or end before its final acknowledgement.
+        guard completed, let fixed, ownsGeneration(generation), !Task.isCancelled,
+              case .valid = await diagramCheck(fixed) else { return drawn }
         // The answer named its diagram; the correction only changes the source.
         return (drawn.title, fixed)
     }

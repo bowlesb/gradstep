@@ -34,7 +34,7 @@ struct DiagramDetail: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("Couldn’t draw this diagram", systemImage: "exclamationmark.triangle").font(.headline)
                             .accessibilityIdentifier("diagram.failed")
-                        Text("Its Mermaid source has a mistake. Ask in the chat to draw it again.")
+                        Text("View the source below, or ask the chat to draw it again.")
                             .font(.subheadline).foregroundStyle(.secondary)
                         DisclosureGroup("Source") {
                             Text(diagram.source).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
