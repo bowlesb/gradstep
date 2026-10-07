@@ -27,6 +27,8 @@ struct OfflineCacheStorage {
                 try database.update("INSERT INTO local_library_cache_entries(id,sealed) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET sealed=excluded.sealed", values: [.text(id.wire), .blob(data)])
             case .deletePresentationRow(let id):
                 try database.update("DELETE FROM local_library_cache_entries WHERE id=?", values: [.text(id.wire)])
+            case .clearPresentationRows:
+                try database.update("DELETE FROM local_library_cache_entries", values: [])
             case .bundleIndex(let data):
                 try database.update("INSERT INTO local_reader_bundle_index(id,sealed) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET sealed=excluded.sealed", values: [.blob(data)])
             case .header(let id, let data):
@@ -71,7 +73,7 @@ struct OfflineCacheStorage {
         let sealed = try blob("SELECT sealed FROM local_library_cache_checkpoint WHERE id=1", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         let value = try decode(CachePresentationCheckpoint.self, sealed: sealed, digest: digest,
                                domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
-        guard [1, CachePresentationCheckpoint.currentFormat].contains(value.format), value.scope == scope, value.cursor >= 0,
+        guard (1...CachePresentationCheckpoint.currentFormat).contains(value.format), value.scope == scope, value.cursor >= 0,
               value.capturedAt.timeIntervalSinceReferenceDate.isFinite,
               value.rows.count <= LibraryWire.maximumRetainedEntries else { throw OfflineCacheError.corruptCache }
         var ids = Set<UUID>(), total = sealed.count
@@ -279,15 +281,22 @@ struct OfflineCacheStorage {
         roots.scope = scope; roots.bundles = OfflineCacheCodec.digest(sealed); writes.append(.bundleIndex(sealed))
     }
 
+    /// `rebuild` replaces the saved list instead of comparing with it, for a list a newer observation
+    /// can't be applied over (it conflicts, lost entries, or can't be read). Every saved row is cleared and
+    /// written again from this observation; rows that can still be read keep their reader policy (a
+    /// quarantine stays sticky). An older cursor than a readable checkpoint is still refused, and
+    /// downloaded papers keep their own policies in the bundle index, updated exactly as before.
     func preparePresentation(_ observation: LibraryCompleteObservation, roots: OfflineCacheRoots, capturedAt: Date,
-                             format: Int = CachePresentationCheckpoint.currentFormat) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
+                             format: Int = CachePresentationCheckpoint.currentFormat,
+                             rebuild: Bool = false) throws -> (OfflineCacheMutation?, CachedLibraryPresentation) {
         guard observation.accountID == scope.accountID, capturedAt.timeIntervalSinceReferenceDate.isFinite else { throw OfflineCacheError.invalidObservation }
         try validateEntries(observation.entries, cursor: observation.committedCursor)
-        let old = try presentation(roots), previous = try checkpoint(roots)
-        if let old {
-            guard observation.committedCursor >= old.committedCursor else { throw OfflineCacheError.staleObservation }
+        let old = rebuild ? nil : try presentation(roots)
+        let previous = rebuild ? try? checkpoint(roots) : try checkpoint(roots)
+        if let cursor = old?.committedCursor ?? previous?.cursor {
+            guard observation.committedCursor >= cursor else { throw OfflineCacheError.staleObservation }
         }
-        // A v2-era snapshot may lack web papers at the same cursor: replace it, don't compare.
+        // An earlier format's snapshot (fewer decoded fields, or no web papers) is replaced, not compared.
         if let old, previous?.format == CachePresentationCheckpoint.currentFormat {
             if observation.committedCursor == old.committedCursor {
                 guard observation.entries == old.entries else { throw OfflineCacheError.conflictingObservation }
@@ -302,18 +311,24 @@ struct OfflineCacheStorage {
                 }
             }
         }
-        var writes: [CacheWrite] = [], next = roots, refs: [String: CacheEntryReference] = [:]
+        var writes: [CacheWrite] = rebuild ? [.clearPresentationRows] : [], next = roots, refs: [String: CacheEntryReference] = [:]
         for (id, entry) in observation.entries {
             let name = OfflineCacheCodec.entryKey(id)
             if old?.entries[id] == entry, let existing = previous?.rows[name] { refs[name] = existing; continue }
-            let rowID = previous?.rows[name]?.rowID ?? UUID()
+            let rowID = (rebuild ? nil : previous?.rows[name]?.rowID) ?? UUID()
             var prior: CacheItemPolicy?
-            if let previous, let ref = previous.rows[name] { prior = try storedRow(ref, entryID: id, cursor: previous.cursor).readerPolicy }
+            if let previous, let ref = previous.rows[name] {
+                prior = rebuild ? (try? storedRow(ref, entryID: id, cursor: previous.cursor))?.readerPolicy
+                    : try storedRow(ref, entryID: id, cursor: previous.cursor).readerPolicy
+            }
             var policy: CacheItemPolicy?
             if case .item(let item) = entry, let artifact = item.artifactID ?? prior?.artifactID {
                 let base = prior?.artifactID == artifact ? prior?.eligibility ?? .init() : .init()
-                policy = .init(artifactID: artifact, eligibility: try base.applying(cursor: observation.committedCursor,
-                    item: item, documentID: item.documentID, artifactID: artifact))
+                let applied = { (base: ReaderBundleEligibility) in
+                    try base.applying(cursor: observation.committedCursor, item: item, documentID: item.documentID, artifactID: artifact)
+                }
+                // A rebuilt row whose saved policy no longer applies (it conflicts) starts from this observation.
+                policy = .init(artifactID: artifact, eligibility: rebuild ? ((try? applied(base)) ?? (try applied(.init()))) : try applied(base))
             }
             let row = CacheLibraryRow(format: 1, rowID: rowID, entry: entry, readerPolicy: policy)
             let sealed = try seal(row, domain: "presentation-row", identity: [rowID.wire], maximum: OfflineCacheLimits.presentationRowBytes)
@@ -321,7 +336,7 @@ struct OfflineCacheStorage {
                                documentID: OfflineCacheCodec.documentID(entry))
             writes.append(.presentationRow(rowID, sealed))
         }
-        for (id, value) in previous?.rows ?? [:] where refs[id] == nil { writes.append(.deletePresentationRow(value.rowID)) }
+        if !rebuild { for (id, value) in previous?.rows ?? [:] where refs[id] == nil { writes.append(.deletePresentationRow(value.rowID)) } }
         let checkpoint = CachePresentationCheckpoint(format: format, scope: scope, cursor: observation.committedCursor, capturedAt: capturedAt, rows: refs)
         let sealed = try seal(checkpoint, domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         guard refs.values.reduce(sealed.count, { $0 + $1.bytes }) <= OfflineCacheLimits.presentationBytes else { throw OfflineCacheError.capacityExceeded }

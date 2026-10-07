@@ -543,6 +543,109 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         }
     }
 
+    /// A staging library as build 15 received it (2026-10-07, anonymized): 56 entries at cursor 281, items with
+    /// catalog `tags` (migration 030), an archived item, removed items, ready/cancelled/failed imports.
+    private func build15Library() throws -> (cursor: Int64, entries: [[String: Any]]) {
+        let url = try #require(Bundle.module.url(forResource: "library-build15-shapes", withExtension: "json"))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        let entries = try #require(object["entries"] as? [[String: Any]])
+        return ((object["cursor"] as! NSNumber).int64Value, entries.map { entry in
+            entry.mapValues { ($0 as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() ? $0 : $0.int64Value as Any } ?? $0 }
+        })
+    }
+
+    /// What build 14 kept of each entry: it didn't decode the fields migrations 029/030 added.
+    private func asBuild14Decoded(_ entries: [[String: Any]]) -> [[String: Any]] {
+        entries.map { $0.filter { !["tags", "user_tags", "hidden_tags", "progress_detail"].contains($0.key) } }
+    }
+
+    /// Owner, build 15: "Your latest library update wasn't saved for offline use. Reopen the app to try again" on
+    /// every launch. Build 14 had cached items without their `tags`; build 15 decodes them, so the same
+    /// `state_seq` compared unequal (conflictingObservation) and the cache never saved again.
+    @Test func build14SnapshotTakesBuild15TagsInsteadOfConflicting() async throws {
+        try await withFixture { f in
+            let library = try build15Library()
+            #expect(library.entries.count == 56)
+            let old = asBuild14Decoded(library.entries)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 2)
+            // The strict rule still holds between snapshots of the same format: this is exactly what build 15 hit.
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 3)
+            await #expect(throws: OfflineCacheError.conflictingObservation) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
+            }
+            // Start again from build 14's format: the first build-15 observation replaces it.
+            let fresh = try f.reopen()
+            try await fresh.rebuildLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope)
+            try await fresh.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 2)
+            let saved = try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
+            let restored = try #require(try await f.reopen().cachedLibraryPresentation(scope: f.scope))
+            #expect(restored == saved)
+            let tagged = restored.entries.values.compactMap { entry -> LibraryItemRecord? in
+                if case .item(let item) = entry, item.tags != nil { return item }; return nil
+            }
+            #expect(tagged.count == 17)
+            #expect(tagged.contains { $0.tags == ["AI for science", "Evaluation", "Computer vision"] })
+            // From then on it is compared as before, and a later cursor applies normally.
+            try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
+            try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor + 1), scope: f.scope)
+        }
+    }
+
+    /// The self-healing path: a saved list that a newer observation can't be applied over (conflicting, or
+    /// unreadable) is rebuilt from it; downloaded papers stay installed and openable.
+    @Test func conflictingOrDamagedSavedLibraryIsRebuiltKeepingDownloads() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), binding = try f.binding(bundle), row = item(binding: binding)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope)
+            let installed = try await install(bundle, binding: binding, store: f.store)
+            var changed = row; changed["tags"] = ["Transformers"]
+            let error = await #expect(throws: OfflineCacheError.self) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [changed], cursor: 3), scope: f.scope)
+            }
+            #expect(error?.replacesSavedLibrary == true)
+            let rebuilt = try await f.store.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 3), scope: f.scope)
+            #expect(try await f.store.cachedLibraryPresentation(scope: f.scope) == rebuilt)
+            #expect(try await f.store.listInstalledReaderBundles(scope: f.scope).installations == [installed])
+            #expect(try await f.store.readReaderBundle(id: installed.id, scope: f.scope).manifestData == bundle.manifestData)
+            // An older cursor is still refused, rebuild or not.
+            await #expect(throws: OfflineCacheError.staleObservation) {
+                try await f.store.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 2), scope: f.scope)
+            }
+            // A damaged saved row: reading fails, the rebuild replaces every row.
+            let db = try SQLiteConnection(url: f.url)
+            try db.update("UPDATE local_library_cache_entries SET sealed=zeroblob(64)", values: [])
+            let damaged = try f.reopen()
+            await #expect(throws: (any Error).self) { try await damaged.cachedLibraryPresentation(scope: f.scope) }
+            let repaired = try await damaged.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 4), scope: f.scope)
+            #expect(try await f.reopen().cachedLibraryPresentation(scope: f.scope) == repaired)
+            #expect(try await damaged.listInstalledReaderBundles(scope: f.scope).installations.count == 1)
+        }
+    }
+
+    /// Adding a decoded entry field must bump `CachePresentationCheckpoint.currentFormat` (see its comment), or
+    /// snapshots saved before the field existed conflict with the server forever.
+    @Test func snapshotFormatCoversEveryDecodedEntryField() throws {
+        let library = try build15Library()
+        var item = try #require(library.entries.first { $0["kind"] as? String == "item" && $0["tags"] != nil && $0["visible"] as? Bool == true })
+        item["user_tags"] = ["Mine"]; item["hidden_tags"] = ["Computer vision"]; item["archived"] = true
+        var active = try #require(library.entries.first { $0["kind"] as? String == "import" && $0["phase"] as? String == "failed" })
+        active["phase"] = "acquiring"; active["retryable"] = false; active["error_code"] = NSNull()
+        active["progress"] = "downloading"; active["progress_detail"] = ["step": "downloading", "percent": 12]
+        func keys(_ row: [String: Any]) throws -> Set<String> {
+            let entry = try JSONDecoder().decode(LibraryEntry.self, from: json(row))
+            return Set(try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any]).keys)
+        }
+        #expect(CachePresentationCheckpoint.currentFormat == 3)
+        #expect(try keys(item) == ["kind", "id", "document_id", "created_seq", "state_seq", "membership_revision", "visible", "added_at",
+            "last_remove_seq", "approval_id", "version_id", "metadata_id", "source", "source_id", "source_revision", "metadata",
+            "metadata_recorded_at", "source_url", "scope", "page_count", "original_object_id", "artifact_id", "readiness",
+            "original_availability", "render_availability", "original_availability_revision", "render_availability_revision",
+            "archived", "tags", "user_tags", "hidden_tags"])
+        #expect(try keys(active) == ["kind", "id", "created_seq", "state_seq", "intent_revision", "visible", "phase", "source", "source_id",
+            "requested_revision", "source_revision", "metadata_id", "version_id", "metadata", "metadata_recorded_at", "source_url",
+            "document_id", "library_item_id", "error_code", "retryable", "progress", "progress_detail"])
+    }
+
     @Test func exactBindingScopeAndEmptyLibraryCannotAuthorizeDifferentInstall() async throws {
         try await withFixture { f in
             let first = try bundle(), binding = try f.binding(first)

@@ -331,7 +331,11 @@ struct LibraryView: View {
                     }
                 }
                 if let offline {
-                    StatusBanner(tone: .problem, systemImage: "arrow.down.circle", message: offline).accessibilityIdentifier("library.offlineIssue")
+                    StatusBanner(tone: .problem, systemImage: "arrow.down.circle", message: offline, actionsBelow: model.offlineSaveRetryable) {
+                        if model.offlineSaveRetryable {
+                            Button("Try again") { model.retryOfflineSave() }.accessibilityIdentifier("library.offlineRetry")
+                        }
+                    }.accessibilityIdentifier("library.offlineIssue")
                 }
             }
             .modifier(BannerInset(inset: inset, fullWidth: tableShown)).padding(.vertical, inset ? 8 : 0)

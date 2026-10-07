@@ -1744,10 +1744,20 @@ final class ReaderModel {
                     deferredLibraryObservation = snapshot.observation
                 } else { try readerBundles?.observe(snapshot.observation) }
             }
-            catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
             presentLibraryEntries(snapshot.entries)
             libraryPublicationGeneration = snapshot.generation
         }
+    }
+
+    /// The offline banner's Try again: saves the latest library again on this device (rebuilding the
+    /// saved list from it if needed); the banner clears when that save lands.
+    var offlineSaveRetryable: Bool { offlineCacheIssue == ReaderBundleCoordinator.cacheFailureMessage && readerBundles != nil }
+
+    func retryOfflineSave() {
+        guard let readerBundles, readerBundles.cacheHalted, !libraryPublicationDeferred else { return }
+        do { try readerBundles.retryCachePersistence() }
+        catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
     }
 
     /// Synchronous registration preserves accepted observation order before
@@ -1758,7 +1768,7 @@ final class ReaderModel {
             do {
                 guard let readerBundles else { throw ReaderError.storageUnavailable }
                 try readerBundles.observe(observation)
-            } catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            } catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
         }
         deferredLibraryObservation = nil
         libraryPublicationDeferred = false

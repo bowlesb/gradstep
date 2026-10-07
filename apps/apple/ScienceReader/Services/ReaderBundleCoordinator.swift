@@ -73,7 +73,9 @@ final class ReaderBundleCoordinator {
     private var eligibility: [UUID: ReaderBundleEligibility] = [:]
     @ObservationIgnored private var latestObservation: LibraryCompleteObservation?
     @ObservationIgnored private var cacheSave: Task<Void, Error>?
-    @ObservationIgnored private var cacheHalted = false
+    @ObservationIgnored private(set) var cacheHalted = false
+    /// Advanced by each retry, so a save that failed before it can't halt the retried chain.
+    @ObservationIgnored private var cacheChain = 0
     private var policyFailed = false
     private var removals: [UUID: Task<Void, Error>] = [:]
 
@@ -190,14 +192,34 @@ final class ReaderBundleCoordinator {
         // later ordinary outage cannot clear. Preserve live guards and stop
         // new installs for this activation if the ordered disk chain fails.
         guard !cacheHalted else { throw ReaderError.storageUnavailable }
-        let previous = cacheSave, scope = scope, readDirectory = readDirectory
+        return try save(observation, afterFailure: false)
+    }
+
+    /// "Try again" on the offline banner: restarts the ordered save chain with the latest accepted
+    /// observation (rebuilding the saved list if it must). Live guards were never relaxed meanwhile.
+    func retryCachePersistence() throws {
+        guard !closed, cacheHalted, let observation = latestObservation else { return }
+        guard !paused, !persistence.isActivating else { throw ReaderError.storageUnavailable }
+        cacheHalted = false; cacheChain += 1
+        try save(observation, afterFailure: true)
+    }
+
+    @discardableResult
+    private func save(_ observation: LibraryCompleteObservation, afterFailure: Bool) throws -> Task<Void, Error> {
+        let previous = cacheSave, scope = scope, readDirectory = readDirectory, chain = cacheChain
         let saved: Task<Void, Error>
         do {
             let accepted = try persistence.acceptWrite { store in
-                if let previous { _ = try await previous.value }
+                // A retry keeps the order but not the failure it follows.
+                if let previous { if afterFailure { _ = try? await previous.value } else { _ = try await previous.value } }
                 // The retained task is an ordering/error barrier, not another
                 // owner of the full decoded catalog returned by the store.
-                _ = try await store.saveLibraryPresentation(observation, scope: scope)
+                do { _ = try await store.saveLibraryPresentation(observation, scope: scope) }
+                catch let error as OfflineCacheError where error.replacesSavedLibrary {
+                    // The server's complete list wins over a saved list it can't be applied to (one an
+                    // older build saved with fewer fields, say). It holds no private data.
+                    _ = try await store.rebuildLibraryPresentation(observation, scope: scope)
+                }
                 return try await readDirectory(store, scope)
             }
             saved = Task {
@@ -207,8 +229,14 @@ final class ReaderBundleCoordinator {
         } catch { cacheHalted = true; reportCacheFailure(); throw error }
         cacheSave = saved
         Task {
-            do { _ = try await saved.value }
-            catch { self.cacheHalted = true; if !self.closed { self.reportCacheFailure() } }
+            do {
+                _ = try await saved.value
+                if afterFailure, !self.closed, self.cacheChain == chain, !self.cacheHalted { self.report(nil) }
+            } catch {
+                // A failure from before a retry doesn't halt the retried chain.
+                guard self.cacheChain == chain else { return }
+                self.cacheHalted = true; if !self.closed { self.reportCacheFailure() }
+            }
         }
         return saved
     }
@@ -409,9 +437,11 @@ final class ReaderBundleCoordinator {
         eligibility[value.binding.artifactID] = try latestObservation.map { try old.applying(observation: $0, binding: value.binding) } ?? old
     }
 
-    private func reportCacheFailure() {
-        report("Your latest library update wasn’t saved for offline use. Reopen the app to try again.")
-    }
+    /// Shown with Try again (`ReaderModel.retryOfflineSave`). The library itself is the server's and
+    /// stays current; only this device's offline copy is behind.
+    static let cacheFailureMessage = "Your library is up to date, but this device couldn’t save it for offline reading."
+
+    private func reportCacheFailure() { report(Self.cacheFailureMessage) }
 
     private func release(_ operation: Install) {
         guard operation.cleanup == nil else { return }
