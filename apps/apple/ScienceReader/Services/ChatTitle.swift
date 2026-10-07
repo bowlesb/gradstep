@@ -19,7 +19,37 @@ extension SelectionAction {
         }
     }
 
-    func prompt(_ quote: String) -> String { promptPrefix + quote }
+    /// Explain on one equation (owner request 2026-10-07): the legacy app's equation prompt, shortened so the history
+    /// stays readable. The formula comes first so the title still reads "Explain · ‹formula›"; the instructions follow.
+    static let equationPromptPrefix = "Explain this equation: "
+    static let equationPromptSuffix = "\n\nBriefly cover the background needed to read it, its overall message, what each symbol means, and how its notation compares with common ML conventions."
+
+    /// What the server does beyond answering: Add paper adds it, Related searches, Why it matters reads only the paper.
+    var chatAction: ChatAction? {
+        switch self { case .ingest: .ingest; case .similar: .related; case .relevance: .relevance; case .define: nil }
+    }
+
+    func prompt(_ quote: String) -> String {
+        if self == .define, Self.isSingleEquation(quote) { return Self.equationPromptPrefix + quote + Self.equationPromptSuffix }
+        return promptPrefix + quote
+    }
+
+    /// One formula and nothing else (punctuation aside) that is an equation: displayed (`\[…\]`, `$$…$$`, an
+    /// environment), or inline with a relation (`\(a = b\)`). A lone symbol or expression keeps the plain Explain prompt.
+    static func isSingleEquation(_ quote: String) -> Bool {
+        var formula: (body: String, display: Bool)?
+        for segment in ChatTitle.segments(quote) {
+            switch segment {
+            case .text(let text):
+                guard text.allSatisfy({ $0.isWhitespace || ".,;:".contains($0) }) else { return false }
+            case .math(let body, let display, let closed):
+                guard closed, formula == nil, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+                formula = (body, display)
+            }
+        }
+        guard let formula else { return false }
+        return formula.display || formula.body.contains(/[=<>≤≥≈]|\\(?:leq?|geq?|approx|propto|equiv|neq|ne|simeq|cong)(?![A-Za-z])/)
+    }
 }
 
 enum ChatTitle {
@@ -28,6 +58,7 @@ enum ChatTitle {
 
     /// Selection-action prompts and their short labels: the current wordings, then earlier ones still in history.
     static let prompts: [(prefix: String, label: String)] = SelectionAction.allCases.map { ($0.promptPrefix, $0.title) } + [
+        (SelectionAction.equationPromptPrefix, SelectionAction.define.title),
         ("Explain this in plain terms, in the context of this paper (for notation or an equation, say what each symbol means): ", "Explain"),
         ("Define this in the context of the paper: ", "Define"),
         ("What role does this passage play in the paper's argument? Connect it to the method and the results: ", "Why it matters"),
@@ -40,11 +71,16 @@ enum ChatTitle {
     /// question itself; math in either as readable symbols, on one line, "…" where the saved title was cut.
     static func display(_ saved: String) -> String {
         // Exactly the saved length: the question was (almost certainly) longer. A cut at a space ended a whole word.
-        let truncated = saved.count == savedLimit, wholeWord = saved.last?.isWhitespace == true
+        var truncated = saved.count == savedLimit
+        let wholeWord = saved.last?.isWhitespace == true
         let text = saved.trimmingCharacters(in: .whitespacesAndNewlines)
         for (prefix, label) in prompts {
             if text.hasPrefix(prefix) {
-                let rest = String(text.dropFirst(prefix.count))
+                var rest = String(text.dropFirst(prefix.count))
+                // Instructions after the passage (the equation prompt's), whole or cut: the passage before them is complete.
+                if let passage = withoutPromptSuffix(String(saved.drop(while: \.isWhitespace).dropFirst(prefix.count))) {
+                    rest = passage.trimmingCharacters(in: .whitespacesAndNewlines); truncated = false
+                }
                 var quote = readable(rest, truncated: truncated, wholeWord: wholeWord)
                 if quote.isEmpty {
                     // One formula longer than the saved title (or with no complete part): show what was saved of it
@@ -63,6 +99,22 @@ enum ChatTitle {
             if text == prefix.trimmingCharacters(in: .whitespaces) || (truncated && !text.isEmpty && prefix.hasPrefix(text)) { return label }
         }
         return readable(text, truncated: truncated, wholeWord: wholeWord)
+    }
+
+    /// Text that prompts put after the passage.
+    static let promptSuffixes = [SelectionAction.equationPromptSuffix]
+
+    /// The passage without a prompt's trailing instructions, also when the saved title was cut inside them (they start
+    /// with a blank line); nil when there are none.
+    static func withoutPromptSuffix(_ text: String) -> String? {
+        for suffix in promptSuffixes {
+            var index = text.startIndex
+            while let newline = text[index...].firstIndex(of: "\n") {
+                if suffix.hasPrefix(text[newline...]) { return String(text[..<newline]) }
+                index = text.index(after: newline)
+            }
+        }
+        return nil
     }
 
     /// Text with LaTeX (`\(…\)`, `\[…\]`, `$…$`, `$$…$$`, environments) as readable symbols, on one line. A formula left

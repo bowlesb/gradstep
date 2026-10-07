@@ -2170,8 +2170,8 @@ final class ReaderModel {
             chatInput = "About “\(quote)”: " + draft
             chatComposerFocusRequest = UUID()
         case .explain, .define:
-            let prompt = action == .explain ? "Explain in plain terms, including any symbols: \(quote)"
-                : "Define the terms and symbols in: \(quote)"
+            // Explain is the reader's (an equation gets the equation prompt); Define is chat-only.
+            let prompt = action == .explain ? SelectionAction.define.prompt(quote) : "Define the terms and symbols in: \(quote)"
             // Never overwrite a draft: with one, the question waits in the composer instead.
             guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; chatComposerFocusRequest = UUID(); return }
             chatInput = prompt
@@ -2190,7 +2190,7 @@ final class ReaderModel {
         newChat(general: false); chatInput = action.prompt(quote)
         tab = .chat; wideMode = .reader
         // The quote travels with this exact prompt and composer only.
-        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action.chatAction) }
         if !isSignedIn { openSignIn() }
         // The question is saved first; first-use cloud consent then binds the
         // answer request to that captured, saved turn.
@@ -2289,6 +2289,8 @@ final class ReaderModel {
     // MARK: - Cloud answers
 
     var chatTransport: (any ChatTransport)? { chatTransportOverride ?? backend }
+    /// Checks a diagram's Mermaid source before it is kept (tests substitute their own).
+    @ObservationIgnored var diagramCheck: @MainActor (String) async -> MermaidCheck.Result = { await MermaidCheck.check($0) }
     /// An answer is streaming for the visible composer's question.
     var isAnswering: Bool { chatComposerID.map { chatGenerations[$0] != nil } ?? false }
     var isStoppingAnswer: Bool { chatComposerID.flatMap { chatGenerations[$0]?.stopping } ?? false }
@@ -2434,7 +2436,37 @@ final class ReaderModel {
         // A stream that ends without done/error is interrupted, never complete.
         let resolved = outcome ?? (Task.isCancelled || chatGenerations[generation.turn.composerID]?.stopping == true
             ? .cancelled : .failed(code: "transport"))
+        // Only a diagram that will be kept (with a complete answer) is checked.
+        if resolved.resolution(text: text).status == .complete, let drawn = diagram {
+            diagram = await checkedDiagram(drawn, generation: generation, transport: transport)
+            guard ownsGeneration(generation) else { return }
+        }
         await finishGeneration(generation, text: text, outcome: resolved, choice: choice, diagram: diagram)
+    }
+
+    /// Diagrams are checked with the bundled Mermaid before they are kept (2026-10-07). One that doesn't parse is sent
+    /// back once for a corrected version: a separate, small metered request (`diagram_fix`, held and charged like any
+    /// answer). A correction that is missing or still fails keeps the original, whose view then says it couldn't be drawn.
+    private func checkedDiagram(_ drawn: (title: String, source: String), generation: ChatGeneration,
+                                transport: any ChatTransport) async -> (title: String, source: String) {
+        guard case .invalid(let error) = await diagramCheck(drawn.source), !Task.isCancelled, ownsGeneration(generation),
+              let request = ChatGenerationRequest.diagramRepair(operationID: UUID(), title: drawn.title, source: drawn.source, error: error)
+        else { return drawn }
+        chatStreamProgress[generation.id] = ChatProgress(kind: .fixingDiagram)
+        var fixed: String?
+        do {
+            stream: for try await event in try await transport.chatStream(request, accountID: generation.turn.accountID) {
+                guard ownsGeneration(generation) else { return drawn }
+                switch event {
+                case .diagram(_, let source): fixed = source
+                case .done, .failure: break stream
+                default: continue
+                }
+            }
+        } catch { return drawn }
+        guard let fixed, ownsGeneration(generation), !Task.isCancelled, case .valid = await diagramCheck(fixed) else { return drawn }
+        // The answer named its diagram; the correction only changes the source.
+        return (drawn.title, fixed)
     }
 
     private func bufferAnswer(_ generation: ChatGeneration, text: String) {

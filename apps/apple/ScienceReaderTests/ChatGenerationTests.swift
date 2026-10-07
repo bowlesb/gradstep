@@ -387,6 +387,92 @@ final class ChatGenerationTests: XCTestCase {
         try await waitUntil("finished") { !model.isAnswering }
     }
 
+    func testWhyItMattersAsksForThePaperOnly() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.selectionAction(.relevance, quote: "We use label smoothing of 0.1.")
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        let request = try XCTUnwrap(transport.requests.first)
+        XCTAssertEqual(request.action, .relevance, "The server leaves web search out")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request.encoded()) as? [String: Any])
+        XCTAssertEqual(body["action"] as? String, "relevance")
+        XCTAssertNil(body["capabilities"])
+        transport.send(.done(stopReason: "end_turn", credits: 0))
+        try await waitUntil("finished") { !model.isAnswering }
+        XCTAssertEqual(SelectionAction.define.chatAction, nil)
+        XCTAssertEqual(SelectionAction.ingest.chatAction, .ingest)
+    }
+
+    /// Diagrams are checked before they are kept; one that doesn't parse is sent back once (its own metered request).
+    func testABrokenDiagramIsSentBackOnceAndTheCorrectionKept() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        var checked: [String] = []
+        model.diagramCheck = { source in
+            checked.append(source)
+            return source.contains("(x)") ? .invalid("Parse error on line 2: Expecting 'SQE', got 'PS'") : .valid
+        }
+        model.chatInput = "Draw the encoder"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("Here it is."), .diagram(title: "Encoder", source: "flowchart TD\n A[Input (x)] --> B[Encoder]"),
+                       .done(stopReason: "end_turn", credits: 3))
+        try await waitUntil("repair requested") { transport.requests.count == 2 }
+        let repair = transport.requests[1]
+        XCTAssertEqual(repair.action, .diagramFix)
+        XCTAssertNil(repair.documentID); XCTAssertNil(repair.selection)
+        XCTAssertNotEqual(repair.operationID, transport.requests[0].operationID, "Its own operation: held and charged on its own")
+        XCTAssertEqual(repair.turns.map(\.role), [.user])
+        XCTAssertEqual(repair.turns.first?.text,
+                       "Title: Encoder\nMermaid error: Parse error on line 2: Expecting 'SQE', got 'PS'\n\nflowchart TD\n A[Input (x)] --> B[Encoder]")
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: repair.encoded()) as? [String: Any])
+        XCTAssertEqual(body["mode"] as? String, "general"); XCTAssertEqual(body["action"] as? String, "diagram_fix")
+        XCTAssertTrue(model.isAnswering, "The answer waits for its diagram")
+        XCTAssertEqual(model.chatStreamingProgress?.text, "Fixing the diagram…")
+        transport.send(.diagram(title: "Encoder v2", source: "flowchart TD\n A[\"Input x\"] --> B[Encoder]"), .done(stopReason: "end_turn", credits: 2))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        let answer = try XCTUnwrap(model.chatMessages.last)
+        XCTAssertEqual(answer.payload.text, "Here it is.", "The repair adds no text")
+        let link = try XCTUnwrap(model.chatDiagrams[answer.payload.entityID])
+        XCTAssertEqual(link.title, "Encoder", "The answer's title stays")
+        XCTAssertEqual(model.diagram(link.id)?.source, "flowchart TD\n A[\"Input x\"] --> B[Encoder]")
+        XCTAssertEqual(checked.count, 2, "The correction is checked too")
+        XCTAssertNil(model.chatStreamingProgress)
+    }
+
+    func testAFailedCorrectionKeepsTheOriginalAndAValidDiagramIsNotSentBack() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.diagramCheck = { $0.contains("broken") ? .invalid("Parse error") : .valid }
+        model.chatInput = "Draw it"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("Flow."), .diagram(title: "Flow", source: "flowchart TD\n broken"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("repair requested") { transport.requests.count == 2 }
+        transport.send(.failure(code: "insufficient_credits"))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        let answer = try XCTUnwrap(model.chatMessages.last)
+        let link = try XCTUnwrap(model.chatDiagrams[answer.payload.entityID])
+        XCTAssertEqual(model.diagram(link.id)?.source, "flowchart TD\n broken", "Kept; its view says it couldn't be drawn")
+        XCTAssertNil(model.chatAnswerIssue, "The answer itself is fine")
+
+        model.chatInput = "And another"
+        await model.sendMessage()
+        try await waitUntil("second question") { transport.requests.count == 3 }
+        transport.send(.delta("Flow."), .diagram(title: "Flow", source: "flowchart TD\n a --> b"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering && model.chatMessages.count == 4 }
+        XCTAssertEqual(transport.requests.count, 3, "A diagram that parses is never sent back")
+        XCTAssertEqual(transport.requests.filter { $0.action == .diagramFix }.count, 1)
+    }
+
+    /// The real check: the bundled Mermaid's parser in an off-screen web view.
+    func testTheBundledMermaidParserChecksDiagrams() async throws {
+        let valid = await MermaidCheck.check("flowchart TD\n A[\"Input (x)\"] --> B[Encoder]\n B --> C[Loss]")
+        XCTAssertEqual(valid, .valid)
+        let broken = await MermaidCheck.check("flowchart TD\n A[Input (x)] --> B[Encoder]")
+        guard case .invalid(let message) = broken else { return XCTFail("\(broken)") }
+        XCTAssertTrue(message.contains("Parse error"), message)
+        let sequence = await MermaidCheck.check("sequenceDiagram\n Alice->>Bob: hi")
+        XCTAssertEqual(sequence, .valid)
+    }
+
     /// Hosts the real chat screen and records screenshots of each answer phase.
     func testChatScreenPresentsThinkingStreamingStopAndIssues() async throws {
         let (model, transport) = try await makeModel(consented: false)
