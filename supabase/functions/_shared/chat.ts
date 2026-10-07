@@ -35,8 +35,9 @@ export interface ChatRequest {
   documentID: string | null;
   turns: ChatTurn[];
   selection: string | null;
-  /** Selection action needing server work beyond an answer (Ingest). */
-  action: 'ingest' | null;
+  /** Selection action needing server work beyond an answer: Ingest (add the cited paper) or
+   * Related (find related papers; always searches the web when search is on). */
+  action: 'ingest' | 'related' | null;
   /** Client features: 'web_import' = the app shows web (non-arXiv) library entries. */
   capabilities: string[];
 }
@@ -88,10 +89,10 @@ export function validateChatRequest(input: unknown): ChatRequest {
     if (typeof value.quote !== 'string' || !value.quote.trim() || [...value.quote].length > MAX_SELECTION_SCALARS) invalid();
     selection = value.quote;
   }
-  let action: 'ingest' | null = null;
+  let action: 'ingest' | 'related' | null = null;
   if (body.action !== undefined && body.action !== null) {
-    if (body.action !== 'ingest' || selection === null) invalid();
-    action = 'ingest';
+    if ((body.action !== 'ingest' && body.action !== 'related') || selection === null) invalid();
+    action = body.action;
   }
   let capabilities: string[] = [];
   if (body.capabilities !== undefined && body.capabilities !== null) {
@@ -155,14 +156,19 @@ Identify that paper, using the paper's bibliography when the passage is an in-te
 The paper need not be on arXiv: the app also finds open-access copies elsewhere.
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
+// The legacy app's "Similar" searched the web (Tavily) for related work; this is its successor.
+const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering — several targeted searches (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
+const RELATED_OFFLINE_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. List 4–8 papers you are confident exist (title, first author, year, one sentence on the relation), most relevant first. Say plainly that you could not search the web, and never invent papers or links.`;
+
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
 Never write Mermaid, SVG or HTML diagram markup in the answer text.
 Diagrams are read on a phone: prefer top-to-bottom layouts (flowchart TD), short node labels, and at most about 12 nodes.`;
 
 const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on. If you used web search, end your answer with a line "Sources:" followed by one line per page you relied on (at most 8), each exactly in the form "1. Page title — https://…".`;
 
-export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | null = null, webSearch = false): string {
-  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS : `${DIAGRAM_INSTRUCTIONS}${webSearch ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
+export function chatInstructions(mode: 'paper' | 'general', action: 'ingest' | 'related' | null = null, webSearch = false): string {
+  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
+    : `${DIAGRAM_INSTRUCTIONS}${webSearch ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}${action === 'related' ? `\n\n${webSearch ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS}` : ''}`;
   return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`;
 }
 
@@ -366,6 +372,9 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   else if (creditsFor(actual) > hold.credits) deps.log({ event: 'chat_credits_capped_at_balance', operation_id: request.operationID, credits: creditsFor(actual), hold_credits: hold.credits });
   await settle(deps, request.operationID, credits, actual);
   await recordUsage(deps, request.operationID, outcome, actual);
+  // Counts only (never text): whether answers search the web, per selection action.
+  deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
+    web_search_offered: search, web_searches: outcome.webSearches ?? 0, sources: outcome.sources?.length ?? 0 });
 
   if (signal.aborted) return;
   if (outcome.status === 'complete') {
@@ -444,6 +453,7 @@ async function recordUsage(deps: ChatDependencies, operationID: string, outcome:
   if (!outcome.attempts.length) return;
   const units = {
     estimated: !outcome.exact, stop_reason: outcome.stopReason, refusal_category: outcome.refusalCategory, failure: outcome.failure,
+    web_searches: outcome.webSearches ?? 0,
     attempts: outcome.attempts.map(attempt => ({ model: attempt.model, estimated: attempt.estimated, input_tokens: attempt.usage.input,
       cache_write_5m_tokens: attempt.usage.cacheWrite5m, cache_write_1h_tokens: attempt.usage.cacheWrite1h,
       cache_read_tokens: attempt.usage.cacheRead, output_tokens: attempt.usage.output })),

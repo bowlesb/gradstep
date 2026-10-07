@@ -349,6 +349,10 @@ struct LibraryRowActions: View {
         switch entry {
         case .paper(let paper):
             if !paper.isSample {
+                let archived = model.isArchived(paper)
+                Button(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
+                    Task { await model.setArchived(paper, archived: !archived) }
+                }.disabled(!model.canChangeLibrary)
                 Button("Remove from library", systemImage: "minus.circle", role: .destructive) { Task { await model.removePaper(paper) } }
                     .disabled(!model.canChangeLibrary)
             }

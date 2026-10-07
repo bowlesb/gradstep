@@ -213,6 +213,34 @@ import Testing
         #expect(conflicted.commands.first { $0.handle == blocked }?.request == nil)
     }
 
+    /// Migration 020: archive is an item command on the membership revision; its undo freezes at the applied revision.
+    @Test func archiveEncodesValidatesReceiptsAndReversesLikeMembership() async throws {
+        let f = try Fixture(); defer { try? FileManager.default.removeItem(at: f.directory) }
+        let doc = UUID(), itemID = UUID()
+        let request = try LibraryMutation.setArchived(documentID: doc, archived: true, expectedRevision: 4).request(operationID: UUID(), scope: f.scope)
+        #expect(request.endpoint == "v2_set_item_archived")
+        let body = try #require(JSONSerialization.jsonObject(with: request.body) as? [String: Any])
+        #expect(body["p_document_id"] as? String == doc.wire && body["p_archived"] as? Bool == true && body["p_expected_revision"] as? Int == 4)
+        #expect(throws: LibraryCommandError.invalidMutation) {
+            _ = try LibraryMutation.setArchived(documentID: doc, archived: true, expectedRevision: 0).request(operationID: UUID(), scope: f.scope)
+        }
+        let h = try await f.store.enqueueLibraryCommand(scope: f.scope, mutation: .setArchived(documentID: doc, archived: true, expectedRevision: 4))
+        // One lane per paper: a Remove of the same paper waits behind the archive.
+        await #expect(throws: LibraryCommandError.targetBusy) {
+            _ = try await f.store.enqueueLibraryCommand(scope: f.scope, mutation: .setMembership(documentID: doc, present: false, expectedRevision: 4, approvalID: nil))
+        }
+        let attempt = try await f.store.beginLibraryAttempt(h, scope: f.scope)
+        let undo = try await f.store.holdLibrarySuccessor(.setArchived(archived: false), after: h, scope: f.scope)
+        var archived = item(itemID, document: doc, state: 9, revision: 5); archived["archived"] = true
+        await #expect(throws: (any Error).self) {
+            try await f.store.recordLibraryReceipt(response(imported(UUID()), sequence: 9, revision: 5), for: attempt)
+        }
+        let saved = try await f.store.recordLibraryReceipt(response(archived, sequence: 9, revision: 5), for: attempt)
+        let next = try #require(saved.commands.first { $0.handle == undo })
+        guard case .setArchived(let target, let value, let revision) = next.mutation else { Issue.record("Expected a frozen unarchive"); return }
+        #expect(target == doc && !value && revision == 5)
+    }
+
     @Test func mismatchedTargetsRevisionsAndReceiptsCannotAcknowledgeCommands() async throws {
         let f = try Fixture(); defer { try? FileManager.default.removeItem(at: f.directory) }
         let h = try await f.store.enqueueLibraryCommand(scope: f.scope, mutation: begin())

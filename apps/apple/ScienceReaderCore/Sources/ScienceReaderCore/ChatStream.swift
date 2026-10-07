@@ -15,7 +15,9 @@ public enum ChatRequestError: Error, Equatable {
 /// The bounded `functions/v1/chat` request body (contract: docs/architecture/CHAT.md).
 /// A selection action the server completes beyond answering (Ingest adds the
 /// referenced paper to the library).
-public enum ChatAction: String, Equatable, Sendable { case ingest }
+/// `related` (server: always searches the web for related papers) needs a server that accepts it
+/// (chat.ts, 2026-10-06); `ingest` adds the cited paper.
+public enum ChatAction: String, Equatable, Sendable { case ingest, related }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     public static let consentVersion = "cloud-ai-v1"

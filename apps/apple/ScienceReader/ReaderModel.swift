@@ -10,7 +10,14 @@ enum ReaderTab: String, CaseIterable, Identifiable {
     var symbol: String { switch self { case .feed: "dot.radiowaves.up.forward"; case .library: "books.vertical"; case .paper: "doc.text"; case .chat: "bubble.left.and.bubble.right"; case .settings: "gearshape" } }
 }
 enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat" }
-enum SelectionAction: String, CaseIterable { case define = "Define", relevance = "Relevance", similar = "Similar", ingest = "Ingest" }
+/// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
+/// `title` is what the reader sees (owner feedback 2026-10-06: "what do those even do?").
+enum SelectionAction: String, CaseIterable {
+    case define = "Define", relevance = "Relevance", similar = "Similar", ingest = "Ingest"
+    var title: String {
+        switch self { case .define: "Explain"; case .relevance: "Why it matters"; case .similar: "Related"; case .ingest: "Add paper" }
+    }
+}
 enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 
 struct Paper: Identifiable, Sendable {
@@ -33,6 +40,8 @@ struct Paper: Identifiable, Sendable {
     var pageCount: Int? = nil
     /// False for a library item whose structured reader isn't available (not converted).
     var canReadStructured = true
+    /// Archived (migration 020): in the library, hidden from the default list.
+    var archived = false
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {
@@ -103,6 +112,15 @@ final class ReaderModel {
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
     private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { librarySearchSourceChanged() } } }
+    /// Show archived papers in the Library (Show › Archived papers).
+    var showArchivedPapers = false { didSet { if showArchivedPapers != oldValue { librarySearchSourceChanged() } } }
+    /// Papers marked archived, including changes still syncing (for row labels and actions).
+    func isArchived(_ paper: Paper) -> Bool {
+        for command in libraryCommands.reversed() where command.isUnfinished {
+            if case .setArchived(let document, let archived, _) = command.mutation, document == paper.id { return archived }
+        }
+        return paper.archived
+    }
     private(set) var libraryCommandIssue: String?
     var showLibraryChanges = false
     var librarySignInRequired: Bool { accountID == nil }
@@ -457,7 +475,13 @@ final class ReaderModel {
                 fields: fields, recentSequence: sequence, position: candidates.count, keys: keys))
             lookup[row.id] = row
         }
+        // Archive changes waiting to sync already apply here, so a swipe hides the row at once.
+        var pendingArchive: [UUID: Bool] = [:]
+        for command in libraryCommands where command.isUnfinished {
+            if case .setArchived(let document, let archived, _) = command.mutation { pendingArchive[document] = archived }
+        }
         for paper in papers {
+            if (pendingArchive[paper.id] ?? paper.archived) && !showArchivedPapers { continue }
             let activity = readingActivity[paper.id]
             let keys = LibrarySortKeys(authors: (paper.authorNames.first.map(LibraryFormat.familyName)) ?? (paper.authors.isEmpty ? nil : paper.authors),
                                        year: paper.year, opened: activity?.openedAt, progress: activity?.progress,
@@ -1363,10 +1387,15 @@ final class ReaderModel {
     private var feedGeneration = 0
     private var feedTask: Task<Void, Never>?
 
+    /// Feed topics from the library's arXiv categories (owner feedback 2026-10-06: a single
+    /// cross-listed paper put "hep-ph" first). A topic needs two papers unless it is core ML;
+    /// the most frequent come first; at most six.
     var feedCategories: [String] {
         var counts: [String: Int] = [:]
         for paper in papers where !paper.isSample { for keyword in paper.keywords where keyword.contains(".") || keyword.contains("-") { counts[keyword, default: 0] += 1 } }
-        let top = counts.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(6).map(\.key)
+        let core: Set<String> = ["cs.LG", "cs.CL", "cs.AI", "cs.CV", "stat.ML", "cs.NE", "cs.RO", "cs.IR"]
+        let top = counts.filter { $0.value >= 2 || core.contains($0.key) }
+            .sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.prefix(6).map(\.key)
         return top.isEmpty ? ["cs.LG", "cs.CL", "cs.AI", "stat.ML"] : top
     }
 
@@ -1419,6 +1448,18 @@ final class ReaderModel {
         do {
             _ = try await commands.enqueue(.setMembership(documentID: item.documentID, present: false,
                                                          expectedRevision: item.membershipRevision, approvalID: item.approvalID),
+                                           display: String(paper.title.unicodeScalars.prefix(200)))
+        } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
+    }
+
+    /// Archive or unarchive (migration 020): the item stays in the library and syncs across devices.
+    func setArchived(_ paper: Paper, archived: Bool) async {
+        guard !paper.isSample, canChangeLibrary, let snapshot = completeLibrary,
+              let item = snapshot.items.first(where: { $0.documentID == paper.id && $0.visible }),
+              let commands = libraryCommandCoordinator else { return }
+        let scope = sessionID
+        do {
+            _ = try await commands.enqueue(.setArchived(documentID: item.documentID, archived: archived, expectedRevision: item.membershipRevision),
                                            display: String(paper.title.unicodeScalars.prefix(200)))
         } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
@@ -1834,15 +1875,15 @@ final class ReaderModel {
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
         let prompts: [SelectionAction: String] = [
-            .define: "Define this in the context of the paper: \(quote)",
-            .relevance: "Explain why this passage matters to the paper: \(quote)",
-            .similar: "Find related research and explain the connections: \(quote)",
+            .define: "Explain this in plain terms, in the context of this paper (for notation or an equation, say what each symbol means): \(quote)",
+            .relevance: "What role does this passage play in the paper's argument? Connect it to the method and the results: \(quote)",
+            .similar: "Find papers related to this passage — earlier work it builds on and recent follow-ups — with links: \(quote)",
             .ingest: "Find and add the paper referenced in this passage: \(quote)"
         ]
         newChat(general: false); chatInput = prompts[action] ?? quote
         tab = .chat; wideMode = .reader
         // The quote travels with this exact prompt and composer only.
-        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : nil) }
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
         if !isSignedIn { openSignIn() }
         // The question is saved first; first-use cloud consent then binds the
         // answer request to that captured, saved turn.
@@ -2577,6 +2618,18 @@ extension ReaderModel {
 
     /// Installs a varied synthetic library: papers with added dates, imports, offline states,
     /// and this device's reading activity. Chats come from the fixture's private state.
+    /// Feed results without a network (visual checks).
+    func installFeedFixture() {
+        let json = """
+        [{"source_id":"2610.01234","revision":1,"title":"Sparse Mixture-of-Experts Scaling Without Load-Balancing Losses","authors":["Mei Lin","Jonas Weber","Ana Costa","Rahul Iyer"],"year":2026,"abstract":"We show that expert routing with a learned temperature removes the need for auxiliary load-balancing losses while matching quality at three model scales.","categories":["cs.LG","cs.CL"]},
+         {"source_id":"2610.02287","revision":2,"title":"Test-Time Training for Long-Context Language Models","authors":["Sara Okafor","Peter Lindqvist"],"year":2026,"abstract":"A lightweight inner loop adapts attention projections on the prompt itself, improving retrieval over 1M-token contexts.","categories":["cs.CL"]},
+         {"source_id":"2610.03011","revision":1,"title":"Diffusion Policies with Consistency Distillation for Real-Robot Manipulation","authors":["Hiro Tanaka","Lena Fischer","Omar Haddad","Yuki Sato","Dana Cohen","Ivan Petrov","Maria Rossi","Tom Walsh","Ama Mensah"],"year":2026,"abstract":"Distilling a diffusion policy into a one-step consistency model keeps success rates while running at 50 Hz on hardware.","categories":["cs.RO","cs.LG"]},
+         {"source_id":"2609.11890","revision":1,"title":"Calibrated Uncertainty for Reward Models","authors":["Priya Nair"],"year":2026,"abstract":null,"categories":["cs.LG","stat.ML"]}]
+        """
+        feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
+        feedCategory = feedCategories.first; feedState = .loaded
+    }
+
     func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],
                                        activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus]) {
         fixtureOfflineStatus = offline

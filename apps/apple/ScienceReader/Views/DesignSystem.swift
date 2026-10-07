@@ -140,3 +140,22 @@ struct MenuRow: View {
         Button(action: action) { Label { Text(title) } icon: { menuIcon(systemImage) } }
     }
 }
+
+/// A filter chip (Feed topics): the selected one looks like the selected tab — accent text on a
+/// light accent capsule; others are body text on a quiet fill. 36 pt tall, 44 pt to tap.
+struct ChipButton: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(selected ? .semibold : .regular)).lineLimit(1)
+                .padding(.horizontal, 14).frame(height: 36)
+                .foregroundStyle(selected ? Color.accentColor : Color.primary)
+                .background(selected ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}

@@ -218,7 +218,7 @@ struct PaperView: View {
             model.selectionAction(action, selection: selection, scope: scope)
             self.selection = nil; selectionClearID = UUID()
         } label: {
-            Text(action.rawValue).font(.subheadline.weight(.semibold)).fixedSize()
+            Text(action.title).font(.subheadline.weight(.semibold)).fixedSize()
                 .frame(minWidth: 44, maxWidth: expanded ? .infinity : nil, minHeight: 44, alignment: expanded ? .leading : .center)
                 .contentShape(Rectangle())
         }.accessibilityIdentifier("reader.selection." + action.rawValue.lowercased())

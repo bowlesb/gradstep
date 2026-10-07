@@ -21,10 +21,12 @@ extension LocalLibraryCommand {
         case .setMembership(_, let present, _, _): present ? "Add to library" : "Remove from library"
         case .cancelImport: "Cancel import"
         case .retryImport: "Retry import"
+        case .setArchived(_, let archived, _): archived ? "Archive" : "Unarchive"
         case nil:
             switch successor {
             case .cancelImport: "Cancel import"
             case .setMembership(let present, _): present ? "Undo removal" : "Undo addition"
+            case .setArchived(let archived): archived ? "Undo unarchive" : "Undo archive"
             case nil: "Library change"
             }
         }
@@ -35,6 +37,7 @@ extension LocalLibraryCommand {
         switch mutation {
         case .beginImport, .retryImport: return "Cancel import"
         case .setMembership(_, let present, _, _): return present ? "Undo addition" : "Undo removal"
+        case .setArchived(_, let archived, _): return archived ? "Undo archive" : "Undo unarchive"
         default: return nil
         }
     }

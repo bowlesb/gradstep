@@ -244,6 +244,9 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
     public let renderAvailability: LibraryAssetAvailability?
     public let originalAvailabilityRevision: Int64?
     public let renderAvailabilityRevision: Int64?
+    /// Migration 020: present (true) only while archived — hidden from the default list, still in the library.
+    public let archived: Bool?
+    public var isArchived: Bool { archived == true && visible }
 
     /// A descriptor/download still needs current server authorization. These
     /// are presentation capabilities from the last committed row projection.
@@ -278,6 +281,7 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
         case sourceURL = "source_url", pageCount = "page_count", originalObjectID = "original_object_id", artifactID = "artifact_id"
         case originalAvailability = "original_availability", renderAvailability = "render_availability"
         case originalAvailabilityRevision = "original_availability_revision", renderAvailabilityRevision = "render_availability_revision"
+        case archived
     }
 
     func validate() throws {

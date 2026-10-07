@@ -361,7 +361,10 @@ struct LibraryView: View {
                     Menu {
                         if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
                         Toggle("Topics", isOn: $model.showTopics)
+                        Toggle("Archived papers", isOn: $model.showArchivedPapers)
                     } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
+                } else {
+                    Menu { Toggle("Archived papers", isOn: $model.showArchivedPapers) } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
                 }
             }
             Section {
@@ -423,6 +426,17 @@ struct LibraryView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
+                        // Owner feedback (2026-10-06): remove and archive by swiping, as in Mail.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if !paper.isSample {
+                                Button(role: .destructive) { Task { await model.removePaper(paper) } } label: { Label("Remove", systemImage: "trash") }
+                                    .disabled(!model.canChangeLibrary)
+                                let archived = model.isArchived(paper)
+                                Button { Task { await model.setArchived(paper, archived: !archived) } } label: {
+                                    Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox")
+                                }.tint(.indigo).disabled(!model.canChangeLibrary)
+                            }
+                        }
                 case .pending(let item):
                     Group {
                         if detailed {
@@ -514,7 +528,7 @@ struct PaperRow: View {
             if !paper.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { Text(paper.authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1) }
             if showAbstract && !paper.abstract.isEmpty { Text(paper.abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
             let source = LibrarySource.badge(sourceID: paper.sourceID, revision: paper.sourceRevision).map { [$0] } ?? []
-            let metadata = (paper.year.map { [String($0)] } ?? []) + source
+            let metadata = (paper.archived ? ["Archived"] : []) + (paper.year.map { [String($0)] } ?? []) + source
             let topics = showTopics ? ArxivTopics.names(for: paper.keywords, limit: 3) : []
             if !(metadata + topics).isEmpty { Text((metadata + topics).joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
@@ -524,24 +538,11 @@ struct PaperRow: View {
 struct FeedView: View {
     @Bindable var model: ReaderModel
     @State private var issue: String?
+    @State private var width: CGFloat = 0
     private var isFailed: Bool { if case .failed = model.feedState { true } else { false } }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Design audit F15: topics only when there is a feed to filter.
-                if !isFailed {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(model.feedCategories, id: \.self) { category in
-                                let selected = (model.feedCategory ?? model.feedCategories.first) == category
-                                Button(ArxivTopics.feedNames[category] ?? category) { model.selectFeedCategory(category) }
-                                    .buttonStyle(.bordered).tint(selected ? Color.accentColor : Color.primary)
-                                    .accessibilityAddTraits(selected ? .isSelected : [])
-                                    .accessibilityIdentifier("feed.topic.\(category)")
-                            }
-                        }.padding(.horizontal, DesignMetrics.margin).padding(.vertical, 8)
-                    }
-                }
                 switch model.feedState {
                 case .idle, .loading:
                     Spacer(); ProgressView("Finding new papers…"); Spacer()
@@ -549,23 +550,66 @@ struct FeedView: View {
                     ContentUnavailableView { Label("Feed unavailable", systemImage: "dot.radiowaves.up.forward") }
                         description: { Text(message) }
                         actions: {
-                            if model.librarySignInRequired { Button { model.openSignIn() } label: { ProminentLabel(title: "Sign in") }.buttonStyle(.borderedProminent) }
-                            else { Button("Try again") { model.loadFeed() } }
+                            if model.librarySignInRequired {
+                                Button { model.openSignIn() } label: { ProminentLabel(title: "Sign in") }.buttonStyle(.borderedProminent)
+                            } else { Button("Try again") { model.loadFeed() } }
                         }
                 case .loaded:
                     if model.feedResults.isEmpty {
                         ContentUnavailableView("No new papers", systemImage: "dot.radiowaves.up.forward", description: Text("Check back later or pick another topic."))
                     } else {
                         List {
-                            if let issue { StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden) }
-                            ForEach(model.feedResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
-                        }.listStyle(.plain).refreshable { model.loadFeed() }
+                            if let issue {
+                                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
+                            }
+                            ForEach(model.feedResults) { result in
+                                DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false)
+                                    .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
+                            }
+                        }
+                        .listStyle(.plain).refreshable { model.loadFeed() }
+                        .readableScrollColumn(width: width)
                     }
                 }
             }
-            .navigationTitle("Feed").navigationBarTitleDisplayMode(.inline)
+            // Owner feedback (2026-10-06): the Feed's top used space like the Library's used to. Same
+            // header as the Library: one row — the topics (the feed's filter) and the "…" menu.
+            .safeAreaInset(edge: .top, spacing: 0) { header }
+            .toolbar(.hidden, for: .navigationBar)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            if isFailed {
+                Text("Feed").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(model.feedCategories, id: \.self) { category in
+                            ChipButton(title: ArxivTopics.name(for: category),
+                                       selected: (model.feedCategory ?? model.feedCategories.first) == category) {
+                                model.selectFeedCategory(category)
+                            }.accessibilityIdentifier("feed.topic.\(category)")
+                        }
+                    }
+                }
+                // Chips that scroll past the edge fade out instead of sliding under the menu button.
+                .mask(HStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 24)
+                })
+            }
+            Menu {
+                MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
+                Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
+            } label: { HeaderButtonLabel(systemImage: "ellipsis") }
+            .buttonStyle(.plain).accessibilityLabel("Feed options")
+        }
+        .readableColumn().padding(.top, 2).padding(.bottom, 8)
+        .background(Color(uiColor: .systemBackground))
     }
 }
 
@@ -1031,19 +1075,22 @@ struct DiscoveryRow: View {
     @Bindable var model: ReaderModel
     let result: DiscoveryResult
     @Binding var issue: String?
+    /// Search results show the arXiv number (people search by it); the Feed doesn't need it.
+    var showsIdentifier = true
     @State private var adding = false
     var body: some View {
         let inLibrary = model.librarySourceIDs.contains(result.sourceID)
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
+            // The Library rows' type scale (design audit F6): title, authors, then details.
+            VStack(alignment: .leading, spacing: 4) {
                 Text(result.title).font(.headline).fixedSize(horizontal: false, vertical: true)
-                if !result.authors.isEmpty {
-                    Text(result.authors.prefix(8).joined(separator: ", ") + (result.authors.count > 8 ? " et al." : ""))
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if let authors = LibraryFormat.shortAuthors(result.authors) {
+                    Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let abstract = result.abstract { Text(abstract).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-                Text(([result.year.map(String.init)].compactMap { $0 } + ["arXiv \(result.sourceID)v\(result.revision)"] + result.categories.prefix(3))
-                    .joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                if let abstract = result.abstract { Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+                Text(([result.year.map(String.init)].compactMap { $0 } + ArxivTopics.names(for: result.categories, limit: 2)
+                       + (showsIdentifier ? ["arXiv \(result.sourceID)"] : []))
+                    .joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 4)
             if inLibrary {
@@ -1059,11 +1106,11 @@ struct DiscoveryRow: View {
                         adding = false
                     }
                 }
-                .buttonStyle(.bordered).disabled(!model.canBeginImport)
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).disabled(!model.canBeginImport)
+                .frame(minHeight: 44)
                 .accessibilityIdentifier("discover.add.\(result.sourceID)")
             }
         }
-        .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("discover.result.\(result.sourceID)")
     }

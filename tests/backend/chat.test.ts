@@ -436,7 +436,7 @@ function completeOutcome(changes: Partial<ProviderOutcome> = {}): ProviderOutcom
     exact: true, ...changes };
 }
 function harness(options: { script?: Script; generate?: ChatDependencies['generate']; paper?: Uint8Array | null } = {}) {
-  const calls: Call[] = [], events: ChatEvent[] = [], logs: LogEntry[] = [];
+  const calls: Call[] = [], events: ChatEvent[] = [], logs: LogEntry[] = [], answers: LogEntry[] = [];
   let generations = 0;
   const script: Script = {
     worker_consume_request: () => null,
@@ -466,10 +466,11 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
     loadPaper: async () => options.paper === undefined ? new TextEncoder().encode(paperText) : options.paper,
     generate: generate ? async (params, stream) => { generations++; return generate(params, stream); } : null,
     sha256Hex: async bytes => createHash('sha256').update(bytes).digest('hex'),
-    log: entry => logs.push(entry),
+    // Per-answer count lines go to `answers`; `logs` keeps the event-specific lines tests assert on.
+    log: entry => { (entry.event === 'chat_answer' ? answers : logs).push(entry); },
     sleep: async () => {},
   };
-  return { deps, calls, events, logs, emit: (event: ChatEvent) => events.push(event), generations: () => generations };
+  return { deps, calls, events, logs, answers, emit: (event: ChatEvent) => events.push(event), generations: () => generations };
 }
 const names = (calls: Call[]) => calls.map(call => call.name);
 function noPlaintext(logs: LogEntry[]) {
@@ -765,4 +766,25 @@ test('non-ASCII prompt text is weighted as one token per UTF-8 byte', async () =
   assert.equal(promptCharacters(params('abc')), 3);
   assert.equal(promptCharacters(params('漢字')), 18);   // 2 chars × 3 bytes × 3
   assert.equal(promptCharacters(params('é')), 6);      // 2 bytes × 3
+});
+
+test('Related searches the web by instruction; every answer logs counts only', async () => {
+  const quoted = paperBody({ selection: { quote: 'multi-head attention' }, action: 'related' });
+  assert.equal(validateChatRequest(quoted).action, 'related');
+  assert.throws(() => validateChatRequest(paperBody({ action: 'related' })), { code: 'invalid_request' }, 'Related needs a selection');
+  assert.throws(() => validateChatRequest({ ...quoted, action: 'similar' }), { code: 'invalid_request' });
+  assert.match(chatInstructions('paper', 'related', true), /You must search the web before answering/);
+  assert.match(chatInstructions('paper', 'related', false), /could not search the web/);
+  assert.doesNotMatch(chatInstructions('paper', null, true), /"Related"/);
+  let tools: unknown;
+  const h = harness({ generate: async (params, stream) => {
+    tools = (params as { tools?: { name?: string }[] }).tools?.map(t => t.name);
+    stream.onText('1. **A paper**'); return completeOutcome({ webSearches: 3 });
+  } });
+  h.deps.webSearch = true;
+  await runChat(h.deps, quoted, h.emit, new AbortController().signal);
+  assert.ok((tools as string[]).includes('web_search'));
+  assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true, web_searches: 3, sources: 0 }]);
+  const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!;
+  assert.equal((usage.params.p_units as { web_searches: number }).web_searches, 3);
 });

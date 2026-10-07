@@ -34,6 +34,7 @@ extension ReaderModel {
         if ProcessInfo.processInfo.arguments.contains("--library-metadata-fixture") {
             try configureLibraryMetadataFixture(sample: sample)
         }
+        if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
         tab = .library; wideMode = .library
     }
 
