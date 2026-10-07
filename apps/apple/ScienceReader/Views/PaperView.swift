@@ -115,6 +115,8 @@ struct PaperView: View {
     @State private var citationBack = false
     @State private var citationReturnID: UUID?
     @State private var reference: ReaderReference?
+    /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
+    @State private var findRequestID: UUID?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -173,7 +175,7 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { reference = value }
                                      }, selectionAction: selection == nil ? nil : { action in
                                          runSelectionAction(action, scope: readerScope)
-                                     })
+                                     }, findRequestID: findRequestID)
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
                     }
@@ -184,6 +186,7 @@ struct PaperView: View {
                             .background(Color(uiColor: .systemBackground))
                     } }
                     .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
+                    .background { findShortcut }
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
@@ -224,6 +227,8 @@ struct PaperView: View {
                                 .disabled(model.paperFontSize >= 26)
                         }
                         .controlGroupStyle(.compactMenu)
+                        MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
+                            .disabled(!canFind)
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
@@ -264,6 +269,26 @@ struct PaperView: View {
             selection = nil; figure = nil; showContents = false; readerFailed = false
             citationBack = false; reference = nil; model.referenceNotice = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
+        }
+    }
+
+    // MARK: - Find in paper
+
+    /// WebKit's find bar searches the open paper (docs/LEGACY_GAP_AUDIT.md #7). It only highlights and scrolls;
+    /// the page's text and blocks are unchanged, so selections and reading positions keep working.
+    private var canFind: Bool { model.selectedPaper?.readerBundle != nil && !readerFailed && !loadingPaper }
+
+    private func showFind() {
+        guard canFind else { return }
+        selection = nil; selectionClearID = UUID()
+        findRequestID = UUID()
+    }
+
+    /// ⌘F with a hardware keyboard on iPad (the Mac's Edit menu has its own Find in Paper).
+    @ViewBuilder private var findShortcut: some View {
+        if !Platform.isMac {
+            Button("Find in paper") { showFind() }.keyboardShortcut("f").disabled(!canFind)
+                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
         }
     }
 
@@ -449,6 +474,8 @@ struct PaperWebView: UIViewRepresentable {
     var onReference: (ReaderReference) -> Void = { _ in }
     /// While text is selected: runs a selection action (the Mac's context menu for the selection).
     var selectionAction: ((SelectionAction) -> Void)? = nil
+    /// A new value shows the find bar (the paper only; a figure's view has none).
+    var findRequestID: UUID? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -498,6 +525,7 @@ struct PaperWebView: UIViewRepresentable {
         let web = ReaderWebView(frame: .zero, configuration: configuration)
         if figureID == nil { ReaderWebView.paper = web }
         web.isOpaque = false; web.backgroundColor = .systemBackground
+        web.isFindInteractionEnabled = figureID == nil
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
         web.navigationDelegate = context.coordinator
         #if DEBUG
@@ -519,6 +547,7 @@ struct PaperWebView: UIViewRepresentable {
         }
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
+        context.coordinator.showFindIfNeeded(in: web)
         context.coordinator.returnFromCitationIfNeeded(in: web)
         context.coordinator.applyPaperLine(in: web)
         context.coordinator.applyPaperTags(in: web)
@@ -553,12 +582,14 @@ struct PaperWebView: UIViewRepresentable {
         private var sampledOffsetY = 0.0
         private var lastSelectionClearID: UUID?
         private var lastCitationReturnID: UUID?
+        private var lastFindRequestID: UUID?
         /// After a citation jump the saved place stays where reading left off.
         private var citationActive = false
         var appliedPaperLine: String?
         var appliedPaperTags: [String] = []
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
+            lastFindRequestID = parent.findRequestID
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -652,6 +683,13 @@ struct PaperWebView: UIViewRepresentable {
             guard let id = parent.selectionClearID, id != lastSelectionClearID else { return }
             lastSelectionClearID = id
             web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
+        func showFindIfNeeded(in web: WKWebView) {
+            guard let id = parent.findRequestID, id != lastFindRequestID else { return }
+            lastFindRequestID = id
+            // After the menu that asked has closed, so the page can take the keyboard focus.
+            DispatchQueue.main.async { [weak web] in (web as? ReaderWebView)?.showFind() }
         }
 
         func returnFromCitationIfNeeded(in web: WKWebView) {
