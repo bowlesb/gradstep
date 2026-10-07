@@ -3,9 +3,13 @@ import SwiftUI
 @main
 struct ScienceReaderApp: App {
     @State private var model = ReaderModel()
+    #if targetEnvironment(macCatalyst)
+    @UIApplicationDelegateAdaptor(MacAppDelegate.self) private var macDelegate
+    #endif
     var body: some Scene {
         WindowGroup {
             RootView(model: model)
+                .macPlatformStyle()
                 .tint(Color.accentColor)
                 // System menus and alerts (UIKit) follow the window's tint (design audit F3).
                 .background(WindowTint())
@@ -17,6 +21,9 @@ struct ScienceReaderApp: App {
                     PaperWebView.prewarm()
                 }
         }
+        #if targetEnvironment(macCatalyst)
+        .commands { GradstepCommands(model: model) }
+        #endif
     }
 }
 

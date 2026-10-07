@@ -174,7 +174,8 @@ enum GradstepSymbol {
     static let chat = "gradstep.chat"
     static let settings = "gradstep.settings"
     static let newChat = "gradstep.chat.new"
-    static let chatHistory = "gradstep.chat.history"
+    /// All chats: a list (owner feedback, build 14: not a clock-arrow, which reads as refresh).
+    static let chats = "gradstep.chats"
     static let contents = "gradstep.contents"
     static let mark = "gradstep.mark"
 }

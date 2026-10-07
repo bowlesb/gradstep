@@ -194,6 +194,14 @@ def chat_history():
     return [('line', union([ring, hands])), ('point', disc(0, 0, 0.001))]
 
 
+def chats():
+    """All chats: a list (owner feedback, build 14: the clock-arrow "looks like a refresh icon, it probably needs to
+    have lines in it"). Round bullets and lines; the newest conversation's bullet is the amber point."""
+    lines = union([poly([(32, 20), (92, 20)]), poly([(32, 50), (92, 50)]), poly([(32, 80), (80, 80)])])
+    bullets = union([disc(12, 50, 7), disc(12, 80, 7)])
+    return [('line', union([lines, bullets])), ('point', disc(12, 20, 7))]
+
+
 def contents():
     """Table of contents: three lines, indented like headings; the point marks the current section."""
     lines = union([poly([(34, 22), (92, 22)]), poly([(48, 50), (92, 50)]), poly([(34, 78), (92, 78)])])
@@ -227,5 +235,5 @@ GLYPHS = {
     'library_valley': library_valley, 'library_amber_spine': library_amber_spine, 'library_stack': library_stack,
     'feed': feed, 'feed_cards': feed_cards, 'library': library, 'paper': paper, 'chat': chat, 'chat_two': chat_two,
     'settings': settings, 'gear': gear, 'nabla': nabla, 'chat_new': chat_new, 'chat_history': chat_history,
-    'contents': contents,
+    'contents': contents, 'chats': chats,
 }

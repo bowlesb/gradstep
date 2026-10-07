@@ -156,7 +156,7 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { model.headings = $0 }
                                      }, onFigure: {
                                          if model.readerDocumentScope == readerScope {
-                                             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                             #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                              OfflineResourceProbe.shared.begin(.figure)
                                              #endif
                                              figure = $0
@@ -166,13 +166,15 @@ struct PaperView: View {
                                              readerFailed = true; selection = nil; model.headings = []; citationBack = false; reference = nil
                                          }
                                      }, onReady: {
-                                         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
                                      }, paperLine: paper.publicationLine, citationReturnID: citationReturnID, onCitation: { active in
                                          if model.readerDocumentScope == readerScope { citationBack = active }
                                      }, onReference: { value in
                                          if model.readerDocumentScope == readerScope { reference = value }
+                                     }, selectionAction: selection == nil ? nil : { action in
+                                         runSelectionAction(action, scope: readerScope)
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
@@ -190,6 +192,10 @@ struct PaperView: View {
                     }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
+                    .macPaperMenu(PaperMenuActions(
+                        contents: { showContents = true },
+                        back: citationBack && !readerFailed ? { citationBack = false; citationReturnID = UUID() } : nil,
+                        selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
                 } else if model.selectedPaper != nil {
                     if model.openingPaperID == model.selectedPaper?.id {
                         ProgressView("Opening paper…").accessibilityIdentifier("paper.openingLocalCopy")
@@ -235,14 +241,14 @@ struct PaperView: View {
                         }
                     }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
-                }.presentationDetents([.medium, .large])
+                }.presentationDetents([.medium, .large]).macSheetKeys()
             }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
                     Group {
                         if let figure, let bundle = model.selectedPaper?.readerBundle, let scope = model.readerDocumentScope {
                             FigureWebView(bundle: bundle, figureID: figure, baseFontSize: model.paperFontSize, onReady: {
-                                #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                                #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                                 if model.readerDocumentScope == scope, self.figure == figure { OfflineResourceProbe.shared.finish(.figure) }
                                 #endif
                             })
@@ -251,7 +257,7 @@ struct PaperView: View {
                     }
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { figure = nil } } }
-                }
+                }.macSheetKeys()
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
@@ -389,6 +395,13 @@ struct PaperView: View {
         .modifier(ReaderControlMaterial()).padding(.horizontal, 12).transition(.opacity)
     }
 
+    /// The selection bar, the Mac's context menu and its Paper menu run the same action.
+    private func runSelectionAction(_ action: SelectionAction, scope: ReaderDocumentScope) {
+        guard let selection else { return }
+        model.selectionAction(action, selection: selection, scope: scope)
+        self.selection = nil; selectionClearID = UUID()
+    }
+
     private func selectionButton(_ action: SelectionAction, selection: ReaderSelection, scope: ReaderDocumentScope, expanded: Bool = false) -> some View {
         Button {
             model.selectionAction(action, selection: selection, scope: scope)
@@ -434,6 +447,8 @@ struct PaperWebView: UIViewRepresentable {
     /// True while the reader can go back from a citation jump.
     var onCitation: (Bool) -> Void = { _ in }
     var onReference: (ReaderReference) -> Void = { _ in }
+    /// While text is selected: runs a selection action (the Mac's context menu for the selection).
+    var selectionAction: ((SelectionAction) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -477,7 +492,8 @@ struct PaperWebView: UIViewRepresentable {
         configuration.userContentController.addUserScript(WKUserScript(source: prelude + script,
             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
-        let web = WKWebView(frame: .zero, configuration: configuration)
+        let web = ReaderWebView(frame: .zero, configuration: configuration)
+        if figureID == nil { ReaderWebView.paper = web }
         web.isOpaque = false; web.backgroundColor = .systemBackground
         // The page's view starts below the title bar and runs to the screen's bottom edge, under the
         // floating chrome, whose depth is the bottom inset (figures keep the system's insets).
@@ -499,6 +515,7 @@ struct PaperWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
         applyBottomInset(to: web)
+        (web as? ReaderWebView)?.selectionAction = selectionAction
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url

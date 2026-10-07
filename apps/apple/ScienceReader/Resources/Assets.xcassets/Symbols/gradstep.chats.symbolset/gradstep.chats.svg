@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="3300" height="2200">
+ <!--glyph: "gradstep.chats", point size: 100.0, template writer version: "Gradstep icon script 1"-->
+ <style>.monochrome-0 {-sfsymbols-motion-group:0}
+.monochrome-1 {-sfsymbols-motion-group:1}
+.hierarchical-0:primary {-sfsymbols-motion-group:0}
+.hierarchical-1:secondary {-sfsymbols-motion-group:1}
+</style>
+ <g id="Notes">
+  <rect height="2200" id="artboard" style="fill:white;opacity:1" width="3300" x="0" y="0"/>
+  <text id="template-version" style="stroke:none;fill:black;font-family:sans-serif;font-size:13;text-anchor:end;" transform="matrix(1 0 0 1 3036 1933)">Template v.3.0</text>
+  <text id="descriptive-name" style="stroke:none;fill:black;font-family:sans-serif;font-size:13;text-anchor:end;" transform="matrix(1 0 0 1 3036 1953)">gradstep.chats</text>
+ </g>
+ <g id="Guides">
+  <line id="Baseline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="696" y2="696"/>
+  <line id="Capline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="625.541" y2="625.541"/>
+  <line id="Baseline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1126" y2="1126"/>
+  <line id="Capline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1055.54" y2="1055.54"/>
+  <line id="Baseline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1556" y2="1556"/>
+  <line id="Capline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1485.54" y2="1485.54"/>
+  <line id="left-margin-Regular-S" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="600" y2="720"/>
+  <line id="right-margin-Regular-S" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1467.800" x2="1467.800" y1="600" y2="720"/>
+  <line id="left-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="1030" y2="1150"/>
+  <line id="right-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1486.000" x2="1486.000" y1="1030" y2="1150"/>
+  <line id="left-margin-Regular-L" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="1460" y2="1580"/>
+  <line id="right-margin-Regular-L" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1508.750" x2="1508.750" y1="1460" y2="1580"/>
+ </g>
+ <g id="Symbols">
+  <g id="Regular-S" transform="matrix(1 0 0 1 1391.000 696)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M23.600 -38.430 L71.600 -38.430 Q74.800 -38.430 74.800 -35.230 Q74.800 -32.029 71.600 -32.029 L23.600 -32.029 Q20.400 -32.029 20.400 -35.230 Q20.400 -38.430 23.600 -38.430 Z M23.600 -62.430 L71.600 -62.430 Q74.800 -62.430 74.800 -59.230 Q74.800 -56.029 71.600 -56.029 L23.600 -56.029 Q20.400 -56.029 20.400 -59.230 Q20.400 -62.430 23.600 -62.430 Z M23.600 -14.430 L62.000 -14.430 Q65.200 -14.430 65.200 -11.230 Q65.200 -8.029 62.000 -8.029 L23.600 -8.029 Q20.400 -8.029 20.400 -11.230 Q20.400 -14.430 23.600 -14.430 Z M13.200 -35.230 C13.200 -32.137 10.693 -29.630 7.600 -29.630 C4.507 -29.630 2.000 -32.137 2.000 -35.230 C2.000 -38.322 4.507 -40.830 7.600 -40.830 C10.693 -40.830 13.200 -38.322 13.200 -35.230 Z M13.200 -11.230 C13.200 -8.137 10.693 -5.630 7.600 -5.630 C4.507 -5.630 2.000 -8.137 2.000 -11.230 C2.000 -14.322 4.507 -16.829 7.600 -16.829 C10.693 -16.829 13.200 -14.322 13.200 -11.230 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M13.200 -59.230 C13.200 -56.137 10.693 -53.630 7.600 -53.630 C4.507 -53.630 2.000 -56.137 2.000 -59.230 C2.000 -62.322 4.507 -64.829 7.600 -64.829 C10.693 -64.829 13.200 -62.322 13.200 -59.230 Z"/>
+  </g>
+  <g id="Regular-M" transform="matrix(1 0 0 1 1391.000 1126)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M29.000 -39.230 L89.000 -39.230 Q93.000 -39.230 93.000 -35.230 Q93.000 -31.230 89.000 -31.230 L29.000 -31.230 Q25.000 -31.230 25.000 -35.230 Q25.000 -39.230 29.000 -39.230 Z M29.000 -69.230 L89.000 -69.230 Q93.000 -69.230 93.000 -65.230 Q93.000 -61.230 89.000 -61.230 L29.000 -61.230 Q25.000 -61.230 25.000 -65.230 Q25.000 -69.230 29.000 -69.230 Z M29.000 -9.230 L77.000 -9.230 Q81.000 -9.230 81.000 -5.230 Q81.000 -1.230 77.000 -1.230 L29.000 -1.230 Q25.000 -1.230 25.000 -5.230 Q25.000 -9.230 29.000 -9.230 Z M16.000 -35.230 C16.000 -31.364 12.866 -28.230 9.000 -28.230 C5.134 -28.230 2.000 -31.364 2.000 -35.230 C2.000 -39.095 5.134 -42.230 9.000 -42.230 C12.866 -42.230 16.000 -39.095 16.000 -35.230 Z M16.000 -5.230 C16.000 -1.364 12.866 1.770 9.000 1.770 C5.134 1.770 2.000 -1.364 2.000 -5.230 C2.000 -9.095 5.134 -12.230 9.000 -12.230 C12.866 -12.230 16.000 -9.095 16.000 -5.230 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M16.000 -65.230 C16.000 -61.364 12.866 -58.230 9.000 -58.230 C5.134 -58.230 2.000 -61.364 2.000 -65.230 C2.000 -69.095 5.134 -72.230 9.000 -72.230 C12.866 -72.230 16.000 -69.095 16.000 -65.230 Z"/>
+  </g>
+  <g id="Regular-L" transform="matrix(1 0 0 1 1391.000 1556)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M35.750 -40.230 L110.750 -40.230 Q115.750 -40.230 115.750 -35.230 Q115.750 -30.230 110.750 -30.230 L35.750 -30.230 Q30.750 -30.230 30.750 -35.230 Q30.750 -40.230 35.750 -40.230 Z M35.750 -77.730 L110.750 -77.730 Q115.750 -77.730 115.750 -72.730 Q115.750 -67.730 110.750 -67.730 L35.750 -67.730 Q30.750 -67.730 30.750 -72.730 Q30.750 -77.730 35.750 -77.730 Z M35.750 -2.730 L95.750 -2.730 Q100.750 -2.730 100.750 2.270 Q100.750 7.270 95.750 7.270 L35.750 7.270 Q30.750 7.270 30.750 2.270 Q30.750 -2.730 35.750 -2.730 Z M19.500 -35.230 C19.500 -30.397 15.582 -26.480 10.750 -26.480 C5.918 -26.480 2.000 -30.397 2.000 -35.230 C2.000 -40.062 5.918 -43.980 10.750 -43.980 C15.582 -43.980 19.500 -40.062 19.500 -35.230 Z M19.500 2.270 C19.500 7.103 15.582 11.020 10.750 11.020 C5.918 11.020 2.000 7.103 2.000 2.270 C2.000 -2.562 5.918 -6.480 10.750 -6.480 C15.582 -6.480 19.500 -2.562 19.500 2.270 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M19.500 -72.730 C19.500 -67.897 15.582 -63.980 10.750 -63.980 C5.918 -63.980 2.000 -67.897 2.000 -72.730 C2.000 -77.562 5.918 -81.480 10.750 -81.480 C15.582 -81.480 19.500 -77.562 19.500 -72.730 Z"/>
+  </g>
+ </g>
+</svg>

@@ -20,6 +20,34 @@ export async function attachmentImage(id: string, signal: AbortSignal): Promise<
   return blob;
 }
 
+// The admin-accounts Edge function (owner with MFA). Error codes map to plain messages;
+// anything unexpected means the change was not confirmed.
+const accountErrors: Record<string, string> = {
+  owner_mfa_required: 'An owner account with two-factor authentication is required.',
+  rate_limited: 'Too many account changes this hour. Try again later.',
+  invalid_email: 'Enter a valid email address.',
+  invalid_credits: 'Credits must be a whole number up to 2,000.',
+  invalid_reason: 'Enter a reason of 3 to 500 characters on one line.',
+  account_unavailable: 'This account no longer exists.',
+  account_closed: 'This account is being deleted or has been deleted.',
+  owner_cannot_be_disabled: 'Owner accounts cannot be disabled here.',
+  request_id_conflict: 'This change conflicts with an earlier one. Reload and try again.',
+  sign_in_change_unconfirmed: 'The change was recorded but sign-in could not be updated. Try again.',
+};
+export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T> {
+  if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');
+  const { data } = await backend.auth.getSession();
+  if (!data.session) throw new Error('Sign in again to continue.');
+  let response: Response;
+  try {
+    response = await fetch(new URL('/functions/v1/admin-accounts', url), { method: 'POST', cache: 'no-store', signal: AbortSignal.timeout(30_000),
+      headers: { apikey: key, Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch { throw new Error('The request could not be completed. Your change was not confirmed.'); }
+  const json = await response.json().catch(() => null) as { code?: string } | null;
+  if (!response.ok) throw new Error(accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.');
+  return json as T;
+}
+
 export async function rpc<T>(name: string, parameters: Record<string, unknown> = {}): Promise<T> {
   if (!backend) throw new Error('The backend has not been configured for this build.');
   const { data, error } = await backend.rpc(name, parameters);

@@ -319,12 +319,19 @@ public enum LibraryImportPhase: String, Codable, Sendable {
 public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
     case metadataUnavailable, downloadFailed, pdfInvalid, rateLimited, licenseUnverified, membershipConflict
     case insufficientCredits, conversionFailed, tooLarge
+    /// Migration 027: the download failed and is retried automatically (failed, still retryable now).
+    case downloadRetrying
+    /// Migration 027 download causes: a sign-in or paywall, a website refusing automated downloads,
+    /// a website not responding, a link that leads to no PDF.
+    case pdfRestricted, sourceBlocked, sourceUnavailable, notPDF
     case other(String)
 
     static let known: [String: LibraryImportErrorCode] = [
         "metadata_unavailable": .metadataUnavailable, "download_failed": .downloadFailed, "pdf_invalid": .pdfInvalid,
         "rate_limited": .rateLimited, "license_unverified": .licenseUnverified, "membership_conflict": .membershipConflict,
         "insufficient_credits": .insufficientCredits, "conversion_failed": .conversionFailed, "too_large": .tooLarge,
+        "download_retrying": .downloadRetrying, "pdf_restricted": .pdfRestricted, "source_blocked": .sourceBlocked,
+        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF,
     ]
     public var rawValue: String {
         if case .other(let raw) = self { return raw }
@@ -365,6 +372,81 @@ public enum LibraryImportProgress: Equatable, Codable, Sendable {
     }
 }
 
+/// How far an active import has got (migration 029, `progress_detail`): the step in the reader's words, the
+/// percent done and, when the server trusts its estimate, the seconds left. Presentation only, and never a reason
+/// to reject an entry: decoding keeps unknown steps and drops values out of range, so a newer or malformed detail
+/// can't stop library sync.
+public struct LibraryImportProgressDetail: Codable, Equatable, Sendable {
+    public enum Step: Equatable, Sendable {
+        case finding, downloading, readingEquations, preparing, waiting
+        case other(String)
+
+        public init(rawValue: String) {
+            switch rawValue {
+            case "finding": self = .finding; case "downloading": self = .downloading
+            case "reading_equations": self = .readingEquations; case "preparing": self = .preparing
+            case "waiting": self = .waiting; default: self = .other(rawValue)
+            }
+        }
+        public var rawValue: String {
+            switch self {
+            case .finding: "finding"; case .downloading: "downloading"; case .readingEquations: "reading_equations"
+            case .preparing: "preparing"; case .waiting: "waiting"; case .other(let raw): raw
+            }
+        }
+    }
+
+    public let step: Step
+    /// 0–99 while the import is in progress; never lower than an earlier detail of the same attempt.
+    public let percent: Int
+    /// Seconds left when the server trusts its estimate; without `pages` it is the estimate for a typical paper.
+    public let etaSeconds: Int?
+    /// Backing off after an error, or paused: there is no estimate to give.
+    public let delayed: Bool
+    /// Pages being read (the paper's pages, up to the conversion limit), once known.
+    public let pages: Int?
+    /// Pages the provider has read so far, while equations and figures are being read.
+    public let pagesDone: Int?
+    /// The PDF's size, while it is being downloaded.
+    public let bytes: Int64?
+
+    public init(step: Step, percent: Int, etaSeconds: Int? = nil, delayed: Bool = false, pages: Int? = nil,
+                pagesDone: Int? = nil, bytes: Int64? = nil) {
+        self.step = step; self.percent = min(100, max(0, percent)); self.etaSeconds = etaSeconds; self.delayed = delayed
+        self.pages = pages; self.pagesDone = pagesDone; self.bytes = bytes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case step, percent, delayed, pages, bytes
+        case etaSeconds = "eta_seconds", pagesDone = "pages_done"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { self.init(step: .other(""), percent: 0); return }
+        func number<N: FixedWidthInteger & Decodable>(_ key: CodingKeys, _ range: ClosedRange<N>) -> N? {
+            guard let value = try? c.decodeIfPresent(N.self, forKey: key), range.contains(value) else { return nil }
+            return value
+        }
+        let step = (try? c.decodeIfPresent(String.self, forKey: .step)).flatMap { $0.utf8.count <= 64 ? $0 : nil }
+        let pages = number(.pages, 1...250)
+        let done = number(.pagesDone, 0...250).flatMap { done in pages.map { done <= $0 ? done : nil } ?? done }
+        self.init(step: Step(rawValue: step ?? ""), percent: number(.percent, 0...100) ?? 0, etaSeconds: number(.etaSeconds, 0...86_400),
+                  delayed: (try? c.decodeIfPresent(Bool.self, forKey: .delayed)) == true, pages: pages, pagesDone: done,
+                  bytes: number(.bytes, 1...67_108_864))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(step.rawValue, forKey: .step)
+        try c.encode(percent, forKey: .percent)
+        try c.encodeIfPresent(etaSeconds, forKey: .etaSeconds)
+        if delayed { try c.encode(true, forKey: .delayed) }
+        try c.encodeIfPresent(pages, forKey: .pages)
+        try c.encodeIfPresent(pagesDone, forKey: .pagesDone)
+        try c.encodeIfPresent(bytes, forKey: .bytes)
+    }
+}
+
 public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let id: UUID
     public let createdSequence: Int64
@@ -386,6 +468,8 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let errorCode: LibraryImportErrorCode?
     public let retryable: Bool
     public let progress: LibraryImportProgress?
+    /// Percent, time left and the step in the reader's words (servers from migration 029; nil before).
+    public let progressDetail: LibraryImportProgressDetail?
 
     private enum CodingKeys: String, CodingKey {
         case id, visible, phase, source, metadata, retryable, progress
@@ -393,6 +477,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         case sourceID = "source_id", requestedRevision = "requested_revision", sourceRevision = "source_revision"
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"
         case sourceURL = "source_url", documentID = "document_id", libraryItemID = "library_item_id", errorCode = "error_code"
+        case progressDetail = "progress_detail"
     }
 
     func validate() throws {

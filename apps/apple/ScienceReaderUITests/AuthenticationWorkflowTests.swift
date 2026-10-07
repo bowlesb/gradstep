@@ -124,6 +124,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Restore your private library"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["auth.close"].exists, "Recovery follows accepted sheet dismissal")
         XCTAssertFalse(app.staticTexts["Save your recovery code"].exists, "Existing key state must not create fresh keys")
+        XCTAssertTrue(app.buttons["recovery.fromPasswords"].exists, "A code saved in Passwords can fill the recovery field")
         _ = recoverySignOut(app)
         capture("Accepted nil-email account requires recovery")
     }
@@ -193,7 +194,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         XCTAssertFalse(app.buttons["auth.verify"].isEnabled)
         app.buttons["auth.close"].tap()
         wait("Closing sign-in returns to the paper draft") { input.exists && input.value as? String == draft }
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(app.buttons["chat.context"].value as? String, "Paper chat")
         capture("Closing preserves the paper question")
         app.buttons["chat.send"].tap()
         XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5))

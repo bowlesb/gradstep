@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import WebKit
 import XCTest
@@ -348,7 +349,7 @@ final class PaperWebViewTests: XCTestCase {
 
     func testAuthorYearCitationsLinkOnlyOnAnUnambiguousMatch() async throws {
         let paragraph = "Transformers (Vaswani et al., 2017; Kingma &amp; Ba, 2015), as Vaswani et al. (2017) showed, "
-            + "the interval [0, 1], and RNNs (Graves, 2013)."
+            + "the interval [0, 1], RNNs (Graves, 2013), speech (Graves et al., 2013) and attention (Luong et al., 2015)."
         let document = """
         <h1 data-reader-block="b-1">A paper</h1>
         <p data-reader-block="b-2" id="b-2">\(paragraph)</p>
@@ -356,7 +357,9 @@ final class PaperWebViewTests: XCTestCase {
         <p data-reader-block="b-4" id="b-4">Ashish Vaswani, Noam Shazeer, and Niki Parmar. Attention is all you need. In NeurIPS, 2017.
         Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization. In ICLR, 2015.
         Alex Graves. Generating sequences with recurrent neural networks. arXiv:1308.0850, 2013.
-        Alex Graves, Abdel-rahman Mohamed, and Geoffrey Hinton. Speech recognition with deep recurrent networks. In ICASSP, 2013.</p>
+        Alex Graves, Abdel-rahman Mohamed, and Geoffrey Hinton. Speech recognition with deep recurrent networks. In ICASSP, 2013.
+        Minh-Thang Luong, Quoc V. Le, Ilya Sutskever, Oriol Vinyals, and Lukasz Kaiser. Multi-task sequence to sequence learning. arXiv, 2015.
+        Minh-Thang Luong, Hieu Pham, and Christopher D. Manning. Effective approaches to attention-based neural machine translation. In EMNLP, 2015.</p>
         """
         let harness = try Harness(document: document)
         defer { harness.close() }
@@ -365,14 +368,133 @@ final class PaperWebViewTests: XCTestCase {
         let links = try await script(web, """
             return [...document.querySelectorAll('.sr-cite')].map(cite => cite.textContent + '>' + cite.getAttribute('data-sr-cite'));
             """) as? [String]
-        XCTAssertEqual(links, ["Vaswani et al., 2017>ref-1", "Kingma & Ba, 2015>ref-2", "Vaswani et al. (2017)>ref-1"],
-                       "Two Graves 2013 entries make (Graves, 2013) ambiguous; [0, 1] has no numbered bibliography")
+        XCTAssertEqual(links, ["Vaswani et al., 2017>ref-1", "Kingma & Ba, 2015>ref-2", "Vaswani et al. (2017)>ref-1",
+                               "Graves, 2013>ref-3", "Graves et al., 2013>ref-4"],
+                       "One cited name is the one-author entry and \"et al.\" the three-author one; two three-author "
+                       + "Luong 2015 entries leave (Luong et al., 2015) unlinked; [0, 1] has no numbered bibliography")
         let text = try await script(web, "return document.getElementById('b-2').textContent;") as? String
         XCTAssertEqual(text, paragraph.replacingOccurrences(of: "&amp;", with: "&"))
         _ = try await web.callAsyncJavaScript("document.querySelector('.sr-cite[data-sr-cite=\"ref-2\"]').click();",
                                               arguments: [:], in: nil, contentWorld: .page)
         let jumped = try await eventually { harness.citationStates == [true] }
         XCTAssertTrue(jumped)
+    }
+
+    /// Owner feedback (2026-10-07): "Stadter et al, 2021" should link like a number does.
+    func testAuthorYearFormsLinkEachNameAndYear() async throws {
+        let forms = "Stiff solvers (Stadter et al, 2021) fail, as Stadter et al. (2021) showed. Embeddings "
+            + "(van der Maaten &amp; Hinton, 2008), as van der Maaten and Hinton (2008) did, and (de Freitas et al., 2019). "
+            + "NER (Tjong Kim Sang and De Meulder, 2003). ELMo (Peters et al., 2017, 2018a). HCI (Wu et al., 2022a,b). "
+            + "BIG-bench (BIG-bench collaboration, 2021). SSMs (Kalman, 1960; Gu, Goel, and Ré 2022; Gu, Johnson, Goel, et al. 2021)."
+        let split = "Split by markup (Vaswani <em>et al.</em>, 2017) and by a line (Vaswani et al.,<br>2017)."
+        let document = """
+        <h1 data-reader-block="b-1">A paper</h1>
+        <p data-reader-block="b-2" id="b-2">\(forms)</p>
+        <p data-reader-block="b-3" id="b-3">\(split)</p>
+        <figure data-reader-block="b-4" id="b-4"><figcaption>Figure 1: The filter (Kalman, 1960).</figcaption></figure>
+        <h2 data-reader-block="b-5">References</h2>
+        <p data-reader-block="b-6" id="b-6">Albert Gu, Karan Goel, and Christopher Ré. 2022. Efficiently modeling long sequences with structured state spaces. In ICLR.
+        Albert Gu, Isys Johnson, Karan Goel, Khaled Saab, Tri Dao, Atri Rudra, and Christopher Ré. 2021. Combining recurrent, convolutional, and continuous-time models. In NeurIPS.
+        Rudolph Emil Kalman. 1960. A new approach to linear filtering and prediction problems.
+        Matthew Peters, Waleed Ammar, Chandra Bhagavatula, and Russell Power. 2017. Semi-supervised sequence tagging. In ACL.
+        Matthew Peters, Mark Neumann, Mohit Iyyer, Matt Gardner, and Luke Zettlemoyer. 2018a. Deep contextualized word representations. In NAACL.
+        Matthew Peters, Mark Neumann, Luke Zettlemoyer, and Wen-tau Yih. 2018b. Dissecting contextual word embeddings. In EMNLP.
+        P.Städter, Y. Schälte, L. Schmiester, J. Hasenauer, and P. L. Stapor. Benchmarking of numerical integration methods for ODE models. Scientific Reports, 2021.
+        Erik F. Tjong Kim Sang and Fien De Meulder. 2003. Introduction to the CoNLL-2003 shared task. In CoNLL.
+        de Freitas, N., Smith, A., and Jones, B. (2019). A title for particles. Journal.
+        van der Maaten, L. and Hinton, G. (2008). Visualizing data using t-SNE. JMLR.
+        Ashish Vaswani, Noam Shazeer, and Niki Parmar. 2017. Attention is all you need. In NeurIPS.
+        Tongshuang Wu, Ellen Jiang, Aaron Donsbach, and Carrie J. Cai. 2022a. PromptChainer. In CHI.
+        Tongshuang Wu, Michael Terry, and Carrie Jun Cai. 2022b. AI chains. In CHI.
+        BIG-bench collaboration. 2021. Beyond the imitation game. arXiv.</p>
+        """
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            const links = id => [...document.getElementById(id).querySelectorAll('.sr-cite')]
+              .map(cite => cite.textContent + '>' + cite.getAttribute('data-sr-cite'));
+            const cite = document.querySelector('#b-2 .sr-cite'), style = getComputedStyle(cite);
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--sr-link)'; document.body.append(probe);
+            const linkColor = getComputedStyle(probe).color; probe.remove();
+            return {forms: links('b-2'), split: links('b-3'), caption: links('b-4'),
+              focus: [...document.querySelectorAll('#b-3 .sr-cite')].map(span => span.tabIndex),
+              labels: [...document.querySelectorAll('#b-2 .sr-cite[aria-label]')].map(span => span.getAttribute('aria-label')),
+              text: ['b-2', 'b-3', 'b-4'].map(id => document.getElementById(id).textContent),
+              linkColor: style.color === linkColor, underline: style.textDecorationLine || style.webkitTextDecorationLine};
+            """) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertEqual(state["forms"] as? [String], [
+            "Stadter et al, 2021>ref-7", "Stadter et al. (2021)>ref-7",
+            "van der Maaten & Hinton, 2008>ref-10", "van der Maaten and Hinton (2008)>ref-10", "de Freitas et al., 2019>ref-9",
+            "Tjong Kim Sang and De Meulder, 2003>ref-8", "Peters et al., 2017>ref-4", "2018a>ref-5", "Wu et al., 2022a>ref-12", "b>ref-13",
+            "BIG-bench collaboration, 2021>ref-14", "Kalman, 1960>ref-3", "Gu, Goel, and Ré 2022>ref-1", "Gu, Johnson, Goel, et al. 2021>ref-2",
+        ], "Diacritics fold, particles and multi-word surnames match, each name–year pair links on its own")
+        XCTAssertEqual(state["labels"] as? [String], ["Peters et al., 2018a", "Wu et al., 2022b"], "A lone year or letter is named in full")
+        XCTAssertEqual(state["split"] as? [String], ["Vaswani >ref-11", "et al.>ref-11", ", 2017>ref-11", "Vaswani et al.,>ref-11", "2017>ref-11"],
+                       "A citation split by markup or a line break links in pieces")
+        XCTAssertEqual(state["focus"] as? [Int], [0, -1, -1, 0, -1], "Each split citation is one focus stop")
+        XCTAssertEqual(state["caption"] as? [String], ["Kalman, 1960>ref-3"], "Figure captions link too")
+        XCTAssertEqual(state["text"] as? [String], [forms.replacingOccurrences(of: "&amp;", with: "&"),
+                                                    split.replacingOccurrences(of: "<em>", with: "").replacingOccurrences(of: "</em>", with: "")
+                                                        .replacingOccurrences(of: "<br>", with: ""),
+                                                    "Figure 1: The filter (Kalman, 1960)."], "Only inline wrappers are added")
+        XCTAssertEqual(state["underline"] as? String, "underline", "Touch devices underline citations subtly")
+        XCTAssertEqual(state["linkColor"] as? Bool, true, "Author–year links use the numbered links' color")
+
+        _ = try await web.callAsyncJavaScript("document.querySelector('.sr-cite[data-sr-cite=\"ref-13\"]').click();",
+                                              arguments: [:], in: nil, contentWorld: .page)
+        let jumped = try await eventually { harness.citationStates == [true] }
+        XCTAssertTrue(jumped, "Tapping \"b\" in (Wu et al., 2022a,b) jumps to Wu 2022b and offers Back")
+        let wentBack = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
+        XCTAssertEqual(wentBack, true)
+    }
+
+    /// Evidence screenshots, not part of the regular suite: a real author–year bundle's links and a jump,
+    /// light and dark. Runs with TEST_RUNNER_SCIENCE_READER_CITATION_BUNDLE=<bundle directory> (and optionally
+    /// TEST_RUNNER_SCIENCE_READER_CITATION_TEXT=<text of the citation to follow>).
+    func testAuthorYearCitationScreenshots() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["SCIENCE_READER_CITATION_BUNDLE"], !path.isEmpty else {
+            throw XCTSkip("Set SCIENCE_READER_CITATION_BUNDLE to an author–year reader bundle directory")
+        }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        let manifest = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+        let digest = SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined()
+        let bundle = try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)
+        let needle = environment["SCIENCE_READER_CITATION_TEXT"] ?? "et al"
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let name = style == .dark ? "dark" : "light"
+            let harness = try Harness(bundle: bundle, style: style)
+            await fulfillment(of: [harness.loaded], timeout: 20)
+            let web = try XCTUnwrap(harness.web)
+            let found = try await script(web, """
+                const cite = [...document.querySelectorAll('.sr-cite')].find(cite => cite.textContent.includes(needle));
+                if (!cite) return false;
+                window.scrollTo({top: window.scrollY + cite.getBoundingClientRect().top - window.innerHeight / 3, behavior: 'instant'});
+                await new Promise(resolve => setTimeout(resolve, 600));
+                return true;
+                """, ["needle": needle]) as? Bool
+            XCTAssertEqual(found, true, "A citation containing \(needle)")
+            add(try await harness.screenshot("Author–year links (\(name))"))
+            _ = try await web.callAsyncJavaScript("[...document.querySelectorAll('.sr-cite')].find(cite => cite.textContent.includes(needle)).click();",
+                                                  arguments: ["needle": needle], in: nil, contentWorld: .page)
+            let jumped = try await eventually { harness.citationStates == [true] }
+            XCTAssertTrue(jumped)
+            // The highlight is drawn over the entry once the scroll settles; it must be on screen.
+            let target = """
+                const flash = document.querySelector('.sr-flash');
+                if (!flash) return false;
+                const rect = flash.getBoundingClientRect();
+                return rect.bottom > 0 && rect.top < window.innerHeight;
+                """
+            let landed = try await eventually { try await self.script(web, target) as? Bool == true }
+            XCTAssertTrue(landed, "The cited entry is on screen and highlighted")
+            add(try await harness.screenshot("After following it (\(name))"))
+            harness.close()
+        }
     }
 
     func testReferenceLinksPreferArXivThenDOIThenTheWeb() {
@@ -436,12 +558,12 @@ final class PaperWebViewTests: XCTestCase {
         private var controller: UIHostingController<PaperWebView>?
 
         init(document: String = "", bundle: VerifiedReaderBundle? = nil, figureID: String? = nil, jump: PaperJumpRequest? = nil,
-             paperLine: String? = nil) throws {
+             paperLine: String? = nil, style: UIUserInterfaceStyle = .unspecified) throws {
             directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent("paper.html")
             let html = """
-            <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+            <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
             <style>body{margin:0;font-family:system-ui}h1,h2{margin:0;padding:16px 0}</style>
             </head><body>\(document)</body></html>
@@ -451,6 +573,7 @@ final class PaperWebViewTests: XCTestCase {
             previousKeyWindow = scene.keyWindow
             window = UIWindow(windowScene: scene)
             window.frame = scene.coordinateSpace.bounds
+            window.overrideUserInterfaceStyle = style
             let view = PaperWebView(url: bundle?.entryURL ?? file, bundle: bundle, figureID: figureID, locationKey: "fixture-artifact", location: nil, fontSize: 17,
                                     jump: jump, reduceMotion: true, onLoading: { [weak self] loading in
                 guard let self, !loading, !didLoad else { return }
@@ -483,6 +606,14 @@ final class PaperWebViewTests: XCTestCase {
                 return view.subviews.lazy.compactMap(find).first
             }
             return controller.flatMap { find($0.view) }
+        }
+
+        /// The page as shown, kept with the test results.
+        func screenshot(_ name: String) async throws -> XCTAttachment {
+            let image = try await XCTUnwrap(web).takeSnapshot(configuration: nil)
+            let attachment = XCTAttachment(image: image)
+            attachment.name = name; attachment.lifetime = .keepAlways
+            return attachment
         }
 
         func close() {

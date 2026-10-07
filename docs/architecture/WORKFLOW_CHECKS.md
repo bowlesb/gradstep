@@ -26,11 +26,13 @@ one-line reason a person can act on.
 | `config.function-secrets` | required secret **names** exist; web-search switch = infra | missing key after a project change | all | 0 |
 | `config.pipeline-budget` | pipeline enabled; this month's platform budget exists, is enabled, has headroom (fail < $0.50, warn < 25%) | paid work silently paused | all | 0 |
 | `pipeline.stuck` | no paper in a working stage > 15 min, no crash loop, no uncertain OCR, no import unresolved > 1 h; warns on crashes or ≥ 5 failures of one cause in 24 h | the silent infinite loops | all | 0 |
+| `downloads.corpus` | 12 real open-access locations (Zenodo record/DOI, EPrints, HAL, DSpace 7, PubMed Central, PMLR, JMLR, ACL Anthology, CVF; OpenReview → `source_blocked`; arXiv refused on the web path) download through the pipeline's `fetchFirstWebPDF` (DNS checks on; nothing stored), plus one arXiv-path PDF; a deterministic change fails, a busy host warns (2026-10-07: 13/13, 28 s) | landing-page and host-pattern regressions (the Zenodo 406, http/unquoted `citation_pdf_url`) | all | 0 |
 | `auth.providers` / `auth.google` / `auth.email-delivery` | Apple and email on; Google on (the app shows "Continue with Google"); sender domain verified in Resend, signups state | Google never enabled; test sender; invite-only codes | daily, weekly | 0 |
 | `store.app-price` / `store.products` | app price schedule and availability; the three products at READY_TO_SUBMIT or later | Get credits empty (no price; MISSING_METADATA) | daily, weekly | 0 |
 | `import.arxiv` | add DPO (shared conversion) → ready; reader bundle downloaded and every member's SHA-256 verified; time to ready | worker/trigger/sync broken | all | 0 |
 | `library.sync` | archive, unarchive, remove, re-add each applied once (replays identical) and visible in `v3_library_changes`; stale revision → `revision_conflict` | sync regressions | all | 0 |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
+| `admin.accounts-gate` | `admin-accounts` refuses an anonymous caller (401) and a customer (403 `owner_mfa_required`); the refused grant changes nothing | admin function missing or its owner gate broken | all | 0 |
 | `chat.smoke` | general answer streams, ends with `done`, settles | chat down | daily, weekly (+deploy when `chat` is deployed) | ≈ $0.005 |
 | `chat.paper` | paper answer (Mistral 7B, 9 pages, shared; `--paper=<arXiv id>` to change) streams and ends with `done`; first-text and total time | paper context broken | daily, weekly | ≈ $0.04 |
 | `chat.related` | Related answer has ≥ 2 links (Sources) | web search returning 0 sources | daily, weekly | ≤ $0.18 (35 credits; Tavily is prepaid) |

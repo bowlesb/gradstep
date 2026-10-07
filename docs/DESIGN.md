@@ -52,6 +52,8 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   never scrolling sideways; values are `.subheadline` secondary, statuses an icon and one word. Rows: 16 pt sides,
   10 pt vertical; tap = the screen's primary action, long-press = actions, swipe = delete-type actions; each row is
   one VoiceOver element reading every column. At accessibility text sizes the screen's rows replace the table.
+  All chats (`Views/ChatHistoryView.swift`) is the same pattern for conversations: one-line question with a muted
+  second line, ~52 pt rows (7 pt vertical padding), Last used rightmost, a search field and filter chips above.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.
