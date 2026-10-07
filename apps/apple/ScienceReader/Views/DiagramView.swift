@@ -28,10 +28,19 @@ struct DiagramDetail: View {
     var body: some View {
         Group {
             if failed {
+                // Checked (and sent back once) before it was kept, so this is rare: say so plainly; the source is there
+                // for the curious, collapsed.
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("This diagram couldn’t be drawn.", systemImage: "exclamationmark.triangle").font(.headline)
-                        Text(diagram.source).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                        Label("Couldn’t draw this diagram", systemImage: "exclamationmark.triangle").font(.headline)
+                            .accessibilityIdentifier("diagram.failed")
+                        Text("View the source below, or ask the chat to draw it again.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        DisclosureGroup("Source") {
+                            Text(diagram.source).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.top, 6)
+                        }
+                        .accessibilityIdentifier("diagram.source")
                     }.padding().frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
@@ -49,9 +58,9 @@ private struct MermaidWebView: UIViewRepresentable {
     let dark: Bool
     let onFailure: () -> Void
 
-    private static let library: String? = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")
+    fileprivate static let library: String? = Bundle.main.url(forResource: "mermaid.min", withExtension: "js")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-    private static let page = """
+    fileprivate static let page = """
         <!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=6">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">
@@ -152,5 +161,82 @@ private struct MermaidWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail() }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail() }
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { fail() }
+    }
+}
+
+/// Checks Mermaid source with the bundled Mermaid's parser (nothing is drawn) before a diagram is kept (2026-10-07):
+/// in an off-screen web view set up like the one that draws diagrams (no page scripts, network or navigation; strict).
+@MainActor enum MermaidCheck {
+    enum Result: Equatable, Sendable {
+        case valid
+        /// Mermaid's error message (bounded), for the one request that asks for a corrected diagram.
+        case invalid(String)
+        /// The check couldn't run (no bundled Mermaid, a timeout): the diagram is kept as it is.
+        case unavailable
+    }
+
+    static func check(_ source: String, timeout: Duration = .seconds(10)) async -> Result {
+        guard let library = MermaidWebView.library else { return .unavailable }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        let input = (try? JSONSerialization.data(withJSONObject: ["source": source])).map { String(decoding: $0, as: UTF8.self) } ?? "null"
+        let script = """
+            ;(async () => {
+              const input = \(input), post = value => window.webkit.messageHandlers.check.postMessage(value);
+              try {
+                if (!input || typeof globalThis.mermaid?.parse !== 'function') { post({ unavailable: true }); return; }
+                globalThis.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict',
+                  secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'maxEdges', 'suppressErrorRendering',
+                    'dompurifyConfig', 'themeCSS', 'themeVariables', 'theme', 'fontFamily', 'htmlLabels'] });
+                await globalThis.mermaid.parse(input.source);
+                post({ ok: true });
+              } catch (error) { post({ ok: false, message: String(error?.message ?? error).slice(0, 600) }); }
+            })();
+            """
+        configuration.userContentController.addUserScript(WKUserScript(source: library + "\n" + script,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
+        let checker = Checker()
+        configuration.userContentController.add(checker, contentWorld: .defaultClient, name: "check")
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 320), configuration: configuration)
+        web.navigationDelegate = checker
+        let result = await withCheckedContinuation { continuation in
+            checker.continuation = continuation
+            web.loadHTMLString(MermaidWebView.page, baseURL: nil)
+            Task { [weak checker] in
+                try? await Task.sleep(for: timeout)
+                checker?.finish(.unavailable)
+            }
+        }
+        configuration.userContentController.removeScriptMessageHandler(forName: "check", contentWorld: .defaultClient)
+        web.navigationDelegate = nil
+        return result
+    }
+
+    @MainActor private final class Checker: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+        var continuation: CheckedContinuation<Result, Never>?
+        private var loaded = false
+
+        func finish(_ result: Result) {
+            continuation?.resume(returning: result); continuation = nil
+        }
+
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            let body = message.body as? [String: Any]
+            switch body?["ok"] as? Bool {
+            case true?: finish(.valid)
+            case false?: finish(.invalid(String((body?["message"] as? String ?? "").prefix(600))))
+            case nil: finish(.unavailable)
+            }
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+            guard !loaded, navigationAction.request.url?.absoluteString == "about:blank" else { return .cancel }
+            loaded = true
+            return .allow
+        }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(.unavailable) }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(.unavailable) }
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { finish(.unavailable) }
     }
 }

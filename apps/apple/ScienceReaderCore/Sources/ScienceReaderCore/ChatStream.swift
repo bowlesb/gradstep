@@ -16,8 +16,9 @@ public enum ChatRequestError: Error, Equatable {
 /// A selection action the server completes beyond answering (Ingest adds the
 /// referenced paper to the library).
 /// `related` (server: always searches the web for related papers) needs a server that accepts it
-/// (chat.ts, 2026-10-06); `ingest` adds the cited paper.
-public enum ChatAction: String, Equatable, Sendable { case ingest, related }
+/// (chat.ts, 2026-10-06); `ingest` adds the cited paper. `relevance` (Why it matters: the paper only, never the web)
+/// and `diagramFix` (one corrected diagram for one the device could not parse) need the chat function of 2026-10-07.
+public enum ChatAction: String, Equatable, Sendable { case ingest, related, relevance, diagramFix = "diagram_fix" }
 
 public struct ChatGenerationRequest: Equatable, Sendable {
     public static let consentVersion = "cloud-ai-v2"
@@ -52,6 +53,18 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
                                      action: quote == nil ? nil : action)
+    }
+
+    /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
+    /// (title, Mermaid's error and the source, within the server's 24 KB), no conversation, no paper. The server
+    /// meters it like any answer, with a small output allowance.
+    public static let maximumRepairBytes = 24_000
+    public static func diagramRepair(operationID: UUID, title: String, source: String, error: String) -> ChatGenerationRequest? {
+        let message = bounded(error.trimmingCharacters(in: .whitespacesAndNewlines), scalars: 600)
+        let text = "Title: \(bounded(title, scalars: 200))\nMermaid error: \(message.isEmpty ? "unknown" : message)\n\n\(source)"
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf8.count <= maximumRepairBytes else { return nil }
+        return ChatGenerationRequest(operationID: operationID, documentID: nil, turns: [ChatTurnInput(role: .user, text: text)],
+                                     selection: nil, action: .diagramFix)
     }
 
     private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?) {
@@ -102,6 +115,8 @@ public enum ChatStreamEvent: Equatable, Sendable {
 public struct ChatProgress: Equatable, Sendable {
     public enum Kind: String, Equatable, Sendable {
         case searching, reading, findingPaper = "finding_paper", addingPaper = "adding_paper"
+        /// The device's own: a diagram that didn't parse is being redrawn (never sent by the server).
+        case fixingDiagram = "fixing_diagram"
     }
     public static let maximumQueryCharacters = 200
     public let kind: Kind
@@ -124,6 +139,7 @@ public struct ChatProgress: Equatable, Sendable {
         case .reading: "Reading results…"
         case .findingPaper: "Finding the paper…"
         case .addingPaper: "Adding to your library…"
+        case .fixingDiagram: "Fixing the diagram…"
         }
     }
 }

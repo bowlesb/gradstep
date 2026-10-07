@@ -137,6 +137,13 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(open.waitForExistence(timeout: 10)); open.tap()
                 XCTAssertTrue(app.webViews.firstMatch.staticTexts["Softmax"].waitForExistence(timeout: 10))
             },
+            "chat-diagram-failure": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=broken_diagram"]) { app in
+                self.ask(app, "Draw the attention computation")
+                self.dismissKeyboard(app)
+                let open = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.diagram.")).firstMatch
+                XCTAssertTrue(open.waitForExistence(timeout: 25)); open.tap()
+                XCTAssertTrue(app.descendants(matching: .any)["diagram.failed"].firstMatch.waitForExistence(timeout: 20))
+            },
             "chat-sources": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=sources"]) { app in
                 self.ask(app, "What do recent sources say?")
                 XCTAssertTrue(app.buttons["chat.source.1"].waitForExistence(timeout: 10))
@@ -234,6 +241,18 @@ final class VisualScenarioTests: XCTestCase {
                 let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000004"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.press(forDuration: 1.2)
                 sleep(1)
+            },
+            "chat-paper-menu": Scenario(arguments: Self.historyFixture) { app in
+                self.openAttentionChat(app)
+                app.buttons["chat.context"].tap()
+                XCTAssertTrue(app.buttons["chat.paperChats.all"].waitForExistence(timeout: 5))
+            },
+            "chat-paper-history": Scenario(arguments: Self.historyFixture) { app in
+                self.openAttentionChat(app)
+                app.buttons["Chat history"].tap()
+                XCTAssertTrue(app.buttons["chat.history.filter.thisPaper"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.buttons["chat.history.filter.thisPaper"].isSelected)
+                XCTAssertEqual(app.staticTexts["chat.history.count"].label, "3 of 30 chats")
             },
             "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
                 // The wide iPad layout has no tab bar; Settings is its gear button.
@@ -373,7 +392,17 @@ final class VisualScenarioTests: XCTestCase {
         let history = app.buttons["Chat history"]
         XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        // These existing scenarios inspect all thirty conversations. A paper
+        // chat now opens on its own paper first; keep their original scope.
+        if app.buttons["chat.history.filter.thisPaper"].exists { app.buttons["chat.history.filter.all"].tap() }
         sleep(1)
+    }
+
+    private func openAttentionChat(_ app: XCUIApplication) {
+        openHistory(app)
+        let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000001"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+        XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5))
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {

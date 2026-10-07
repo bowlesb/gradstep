@@ -33,7 +33,10 @@ complete iPhone Simulator passage/offline journeys. The offline candidate also p
 Reader navigation is now merged (`b7a7c31` → `6bd877b`) for the next build: Find in paper, Contents hierarchy,
 figure gallery and the resizable/hideable iPad/Mac chat column. Its independent review passed 68 app tests (2 skips),
 11 iPhone and 5 iPad journeys, and a fresh universal Catalyst build. Main `bf01894` adds decoded thumbnail cache
-accounting. The chat branch is verifying the combined layout and a title-overlap correction.
+accounting. Chat quality `80724a5` is reviewed and merged as `2b5d7d4`: narrow titles fit, paper-specific history is
+available, equation prompts are clearer and diagram repairs require a complete validated response. Combined checks
+pass 224 backend, 213 Core, 48 app regressions, eight iPhone journeys, iPad resize/rotation/relaunch and a universal
+Catalyst build. Matching backend deployment is required before shipping these actions in build 17.
 See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
 
 ## Browser/Mac integration checkpoint — local, not deployed
@@ -199,6 +202,18 @@ See [pipeline](architecture/PAPER_PIPELINE.md#web-papers).
 the answer and an entry in All diagrams; the source is stored encrypted on device and drawn with a bundled,
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
 the chat fixture.
+
+**Chat quality (2026-10-07, built and tested locally; the `chat` function is not yet deployed):** the legacy Mermaid
+label rules in the diagram instructions; each diagram parsed on device before it is kept, with one metered
+`diagram_fix` retry and "Couldn't draw this diagram" (source collapsed) when that fails too; "Why it matters" without
+web search (`action: "relevance"`); a dedicated prompt for Explain on a single equation; a "This paper" filter in All
+chats and the paper's other chats in the chat title menu. A repair needs its successful final event before replacing
+the original diagram. The chat title now fits between History and New chat, including the minimum iPad column,
+while keeping the full saved and accessibility title. Local verification: 224 backend, 213 Core, 48 selected app
+regressions (including the bundled Mermaid parser), eight iPhone UI journeys, the iPad resize/hide/rotation/relaunch
+journey, three inspected dark screens and a universal Mac Catalyst build. No live model or Mac runtime check was
+made. Evidence and deployment ordering: [chat validation](architecture/CHAT.md#chat-quality-validation--2026-10-07-local-only). See
+[decisions](DECISIONS.md#chat-quality-equations-diagrams-why-it-matters-a-papers-chats-owner-asked-2026-10-07-agent-decisions-reversible).
 
 **Web search in chat** is on in staging (owner decision 2026-10-05): up to three Anthropic searches per answer,
 a consent line naming it, and tappable Sources under the answer that show the full address before opening Safari.

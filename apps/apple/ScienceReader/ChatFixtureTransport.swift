@@ -4,11 +4,14 @@ import ScienceReaderCore
 
 /// Synthetic answers for UI journeys (`--chat-fixture`). Compiled out of
 /// physical-device and release builds; it never opens a network connection.
-/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|sources|research`.
+/// Modes: `--chat-fixture-mode=answer|slow|interrupt|insufficient_credits|refusal|diagram|broken_diagram|sources|research`.
+/// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
 struct ChatFixtureTransport: ChatTransport {
-    enum Mode: String, Sendable { case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, sources, research }
+    enum Mode: String, Sendable {
+        case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
+    }
     let mode: Mode
 
     static var isEnabled: Bool { ProcessInfo.processInfo.arguments.contains("--chat-fixture") }
@@ -39,6 +42,12 @@ struct ChatFixtureTransport: ChatTransport {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    if request.action == .diagramFix {
+                        try await Task.sleep(for: .milliseconds(1500))
+                        continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 1))
+                        continuation.finish(); return
+                    }
                     switch mode {
                     case .insufficientCredits:
                         try await Task.sleep(for: .milliseconds(150))
@@ -47,7 +56,7 @@ struct ChatFixtureTransport: ChatTransport {
                         continuation.yield(.delta("I can’t"))
                         try await Task.sleep(for: .milliseconds(150))
                         continuation.yield(.failure(code: "refused"))
-                    case .answer, .slow, .interrupt, .diagram, .sources, .research:
+                    case .answer, .slow, .interrupt, .diagram, .brokenDiagram, .sources, .research:
                         try await Task.sleep(for: .milliseconds(300))
                         let text = mode == .research ? Self.research : mode == .sources ? Self.answer + Self.sources : Self.answer
                         let pieces = Self.pieces(of: text, size: 14)
@@ -65,6 +74,7 @@ struct ChatFixtureTransport: ChatTransport {
                             try await Task.sleep(for: delay)
                         }
                         if mode == .diagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.diagram)) }
+                        if mode == .brokenDiagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram)) }
                         if mode != .interrupt { continuation.yield(.done(stopReason: "end_turn", credits: 2)) }
                     }
                     continuation.finish()
@@ -114,6 +124,13 @@ struct ChatFixtureTransport: ChatTransport {
       S --> M[Softmax]
       M --> O[Weighted values]
       V[Values] --> O
+    """
+
+    /// Unquoted parentheses and Unicode in labels: the mistakes the Mermaid label rules prevent.
+    static let brokenDiagram = """
+    flowchart TD
+      Q[Queries (Q)] --> S[Q × Kᵀ / √d_k]
+      S --> M[Softmax]
     """
 
     /// A server-side search as the stream reports it: searching (with the query), then reading.
