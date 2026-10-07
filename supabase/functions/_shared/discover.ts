@@ -303,7 +303,7 @@ export function arxivTitleURLs(title: string, arxivID: string | null): string[] 
   return urls;
 }
 
-function titleWords(title: string): string[] {
+export function titleWords(title: string): string[] {
   return title.normalize('NFKC').toLowerCase().replace(/\$[^$]*\$/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
 }
 

@@ -34,7 +34,8 @@
     "discover",
     "account-delete",
     "store-sync",
-    "app-store-notifications"
+    "app-store-notifications",
+    "add-reference"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,
