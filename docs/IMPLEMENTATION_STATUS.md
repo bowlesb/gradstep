@@ -23,6 +23,15 @@ The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_202610
 paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
 rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
 
+## Native takeover checkpoint — 2026-10-07
+
+Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple processing is awaiting read-back. It includes the
+floating chrome and feedback #4–#6, reviewed offline-save compatibility repair (`cf67138` → `274366b`) and
+passage-linked conversations (`e0dc706` → `1aeaea2`). The fresh combined build passes 20 app regressions and three
+complete iPhone Simulator passage/offline journeys. The offline candidate also passed 207 Core + 4 OAuth tests,
+321 iPhone tests (5 skips), 298 Catalyst tests (4 skips) and a universal signed Mac build. No physical phone work.
+See [handoff](HANDOFF_20261007.md) for still-isolated uploads, purchase diagnostics, navigation and chat branches.
+
 ## Browser/Mac integration checkpoint — local, not deployed
 
 The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
