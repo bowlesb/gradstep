@@ -205,8 +205,8 @@ export interface PaperRequest { title: string; year: number | null; firstAuthor:
 /** Validates the model's add_paper input (untrusted: paper text can steer it). */
 export function paperRequest(input: unknown): PaperRequest | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  // Extra keys (a model sometimes adds "venue" or "authors") are ignored, not fatal.
   const value = input as Record<string, unknown>;
-  if (Object.keys(value).some(key => !['title', 'year', 'first_author', 'arxiv_id'].includes(key))) return null;
   const title = typeof value.title === 'string' ? value.title.replace(/\s+/g, ' ').trim() : '';
   if (title.length < 3 || title.length > 400) return null;
   const year = Number.isInteger(value.year) && (value.year as number) >= 1900 && (value.year as number) <= 2100 ? value.year as number : null;
@@ -412,7 +412,16 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
     const call = request.action === 'ingest' && outcome.stopReason === 'tool_use'
       ? outcome.toolCalls?.find(c => c.name === 'add_paper') : undefined;
     const wanted = call ? paperRequest(call.input) : null;
-    if (call && !wanted) deps.log({ event: 'chat_ingest_invalid_input', operation_id: request.operationID });
+    if (request.action === 'ingest' && !wanted) {
+      // Never end silently: say why nothing was added, and record it.
+      const result = call ? 'invalid_input' : 'no_call';
+      deps.log({ event: 'chat_ingest', operation_id: request.operationID, result });
+      if (call && !signal.aborted) emit({ event: 'delta', data: { text: '\n\nI couldn’t read the paper’s details, so it wasn’t added. Try Add paper again.' } });
+      await deps.rpc('worker_record_provider_usage', { p_account_id: deps.accountID, p_operation_id: request.operationID, p_provider: 'ingest',
+        p_provider_event_id: `operation:${request.operationID}`, p_model: 'find-paper', p_microusd: 0,
+        p_units: { result, stop_reason: outcome.stopReason, keys: call && call.input && typeof call.input === 'object' ? Object.keys(call.input).slice(0, 8).join(',') : null } })
+        .catch(() => deps.log({ event: 'chat_usage_record_failed', operation_id: request.operationID, provider: 'ingest' }));
+    }
     if (wanted && deps.findPaper && deps.importPaper && !signal.aborted) {
       const budget = AbortSignal.any([signal, AbortSignal.timeout(deps.ingestDeadlineMs ?? INGEST_DEADLINE_MS)]);
       const web = request.capabilities.includes('web_import');

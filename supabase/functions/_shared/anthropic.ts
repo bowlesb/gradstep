@@ -113,6 +113,7 @@ export const ADD_PAPER_TOOL: Anthropic.Beta.Messages.BetaTool = {
       arxiv_id: { type: 'string', description: 'The arXiv identifier, only if it appears in the paper text.' },
     },
     required: ['title'],
+    additionalProperties: false,
   },
 };
 

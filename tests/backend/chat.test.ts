@@ -187,9 +187,12 @@ test('add_paper input is validated strictly and reports are inert text', () => {
   assert.deepEqual(paperRequest({ title: '  Direct  Preference Optimization ', year: 2023, first_author: ' R.  Rafailov', arxiv_id: '2305.18290' }),
     { title: 'Direct Preference Optimization', year: 2023, firstAuthor: 'R. Rafailov', arxivID: '2305.18290' });
   assert.deepEqual(paperRequest({ title: 'Attention Is All You Need', year: 17 }), { title: 'Attention Is All You Need', year: null, firstAuthor: null, arxivID: null });
-  for (const bad of [null, [], 'title', {}, { title: 'ab' }, { title: 'x'.repeat(401) }, { title: 'Valid title', extra: 1 }, { title: 7 }]) {
+  for (const bad of [null, [], 'title', {}, { title: 'ab' }, { title: 'x'.repeat(401) }, { title: 7 }]) {
     assert.equal(paperRequest(bad), null);
   }
+  // Extra keys a model adds (venue, authors) are ignored, never fatal.
+  assert.deepEqual(paperRequest({ title: 'Valid title', venue: 'EUSIPCO 2004', authors: ['S. Gepshtein'], year: 2004 }),
+    { title: 'Valid title', year: 2004, firstAuthor: null, arxivID: null });
   const request = { title: 'A [link](https://evil.example) `x` <b>', year: null, firstAuthor: null, arxivID: null };
   const report = ingestReport(request, null, 'not_found');
   assert.ok(!/[[\]`<>]/.test(report)); assert.match(report, /couldn't find/);
@@ -252,11 +255,15 @@ test('ingest reports a missing paper, ignores invalid tool input and never adds 
   assert.match((missing.events[1].data as { text: string }).text, /couldn't find “A Paper Not On arXiv” on arXiv or as an open-access paper/);
   assert.equal(imports, 0);
 
-  const invalid = harness({ generate: toolGenerate({ title: 'Valid title', url: 'https://evil.example' }) });
+  const invalid = harness({ generate: toolGenerate({ title: 'ab' }) });
   invalid.deps.findPaper = async () => { throw new Error('must not search'); }; invalid.deps.importPaper = async () => { imports++; return 'added'; };
   await runChat(invalid.deps, ingestBody(), invalid.emit, new AbortController().signal);
-  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'done']);
-  assert.deepEqual(invalid.logs, [{ event: 'chat_ingest_invalid_input', operation_id: operation }]);
+  // Never silent: the reader is told nothing was added, and the outcome is recorded.
+  assert.deepEqual(invalid.events.map(e => e.event), ['delta', 'delta', 'done']);
+  assert.match((invalid.events[1].data as { text: string }).text, /couldn’t read the paper’s details/);
+  assert.deepEqual(invalid.logs, [{ event: 'chat_ingest', operation_id: operation, result: 'invalid_input' }]);
+  const recorded = invalid.calls.find(c => c.name === 'worker_record_provider_usage' && c.params.p_provider === 'ingest')!;
+  assert.equal((recorded.params.p_units as { result: string }).result, 'invalid_input');
 
   // A tool call on an ordinary question (no tools were offered) is ignored.
   const ordinary = harness({ generate: toolGenerate({ title: 'Direct Preference Optimization' }) });
