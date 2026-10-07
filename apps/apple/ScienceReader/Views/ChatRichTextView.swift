@@ -362,3 +362,186 @@ struct ChatSourcesView: View {
         } message: { source in Text(verbatim: source.url.absoluteString) }
     }
 }
+
+/// The reader's model and the add state behind every answer's paper list.
+struct ChatPaperContext {
+    let model: ReaderModel
+    let actions: ChatPaperActions
+}
+
+/// Add-to-library state for "Papers in this answer", shared by all answers in the
+/// transcript (adding a paper under one answer marks it under the others) and
+/// fenced to the reader session that started each add.
+@MainActor @Observable final class ChatPaperActions {
+    private var notices: [String: ReaderModel.ReferenceNotice] = [:]
+    /// The library source the server matched for a DOI (the library knows papers by source ID only).
+    private var matched: [String: String] = [:]
+
+    private func key(_ mention: ChatPaperMention, _ model: ReaderModel) -> String { "\(model.readerSessionID.uuidString)|\(mention.id)" }
+
+    func notice(for mention: ChatPaperMention, model: ReaderModel) -> ReaderModel.ReferenceNotice? { notices[key(mention, model)] }
+
+    func inLibrary(_ mention: ChatPaperMention, model: ReaderModel) -> Bool {
+        let library = model.librarySourceIDs
+        switch mention.identity {
+        case .arxiv(let reference):
+            #if DEBUG && targetEnvironment(simulator)
+            // The research chat fixture shows one named paper as already in the library.
+            if ChatFixtureTransport.isEnabled, reference.sourceID == "2310.12036" { return true }
+            #endif
+            return library.contains(reference.sourceID)
+        case .doi:
+            return matched[key(mention, model)].map(library.contains) ?? false
+        }
+    }
+
+    /// The library's title for a paper the answer names only by ID.
+    func libraryTitle(_ mention: ChatPaperMention, model: ReaderModel) -> String? {
+        guard case .arxiv(let reference) = mention.identity else { return nil }
+        return model.papers.first { $0.sourceID == reference.sourceID }?.title
+    }
+
+    /// arXiv papers are queued like the Library's Add; a DOI goes to `add-reference`,
+    /// with the reader's outcome wording.
+    func add(_ mention: ChatPaperMention, model: ReaderModel) async {
+        guard model.isSignedIn else { model.openSignIn(); return }
+        let key = key(mention, model), session = model.readerSessionID
+        guard notices[key]?.kind != .working else { return }
+        let text: String
+        switch mention.identity {
+        case .arxiv(let reference): text = reference.sourceID
+        case .doi(let doi): text = doi
+        }
+        notices[key] = ReaderModel.ReferenceNotice(kind: .working, message: "Adding to your library…", reference: text)
+        var outcome: ReaderModel.ReferenceNotice?
+        switch mention.identity {
+        case .arxiv(let reference):
+            do {
+                try await model.importPaper(reference.sourceID, stayInSearch: true)
+                outcome = .init(kind: .added, message: "Added. It’s being prepared to read.", reference: text, sourceID: reference.sourceID)
+            } catch is CancellationError {
+                outcome = nil
+            } catch LibraryCommandError.targetBusy {
+                outcome = .init(kind: .present, message: "This paper already has a pending change.", reference: text)
+            } catch {
+                outcome = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            }
+        case .doi:
+            outcome = await model.referenceOutcome(text)
+        }
+        guard model.readerSessionID == session else { return }
+        notices[key] = outcome
+        if let source = outcome?.sourceID { matched[key] = source }
+    }
+}
+
+/// "Papers in this answer": the arXiv IDs and DOIs an answer names, found on the
+/// device (no model call), styled like Sources. Each opens only after the reader
+/// sees its address, and can be added to the library.
+struct ChatAnswerPapersView: View {
+    let mentions: [ChatPaperMention]
+    let fontSize: Double
+    let context: ChatPaperContext
+    @Environment(\.openURL) private var openURL
+    @State private var pending: ChatPaperMention?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Papers in this answer").font(.system(size: fontSize * 0.82, weight: .semibold)).foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(Array(mentions.enumerated()), id: \.element.id) { index, mention in
+                row(mention, number: index + 1)
+            }
+        }
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.papers")
+        .confirmationDialog("Open this paper in Safari?", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                            titleVisibility: .visible, presenting: pending) { mention in
+            Button("Open in Safari") { openURL(mention.url) }
+            Button("Cancel", role: .cancel) {}
+        } message: { mention in Text(verbatim: mention.url.absoluteString) }
+    }
+
+    private func row(_ mention: ChatPaperMention, number: Int) -> some View {
+        let actions = context.actions, model = context.model
+        let inLibrary = actions.inLibrary(mention, model: model)
+        let notice = actions.notice(for: mention, model: model)
+        let title = mention.title ?? actions.libraryTitle(mention, model: model)
+        let small = Font.system(size: fontSize * 0.74)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(number).").monospacedDigit().foregroundStyle(.secondary).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: title ?? mention.label).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(Text(verbatim: "Paper \(number): \(title.map { "\($0), \(mention.label)" } ?? mention.label)"))
+                    .accessibilityIdentifier("chat.paper.\(number)")
+                // One line when everything fits untruncated, else details above the actions.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        details(mention, number: number, title: title, inLibrary: inLibrary, font: small)
+                        buttons(mention, number: number, inLibrary: inLibrary, notice: notice)
+                    }
+                    .fixedSize()
+                    VStack(alignment: .leading, spacing: 6) {
+                        details(mention, number: number, title: title, inLibrary: inLibrary, font: small)
+                        HStack(spacing: 18) { buttons(mention, number: number, inLibrary: inLibrary, notice: notice) }
+                    }
+                }
+                if let notice { noticeLine(notice, mention: mention, number: number, font: small) }
+            }
+        }
+        .font(.system(size: fontSize * 0.86))
+    }
+
+    private func details(_ mention: ChatPaperMention, number: Int, title: String?, inLibrary: Bool, font: Font) -> some View {
+        HStack(spacing: 8) {
+            if title != nil { Text(verbatim: mention.label).foregroundStyle(.secondary).lineLimit(1).accessibilityHidden(true) }
+            if inLibrary {
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityHidden(true)
+                    Text("In your library").foregroundStyle(.secondary)
+                }
+                .lineLimit(1)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("chat.paper.\(number).inLibrary")
+            }
+        }
+        .font(font)
+    }
+
+    @ViewBuilder private func buttons(_ mention: ChatPaperMention, number: Int, inLibrary: Bool, notice: ReaderModel.ReferenceNotice?) -> some View {
+        let font = Font.system(size: fontSize * 0.78, weight: .medium)
+        Button { pending = mention } label: { HStack(spacing: 3) { Image(systemName: "arrow.up.right.square"); Text("Open") }.lineLimit(1) }
+            .font(font).buttonStyle(.borderless)
+            .accessibilityLabel(Text(verbatim: "Open \(mention.label)"))
+            .accessibilityHint("Shows the address before opening it in Safari")
+            .accessibilityIdentifier("chat.paper.\(number).open")
+        if !inLibrary, notice?.kind != .working, notice?.kind != .added, notice?.kind != .present {
+            Button { Task { await context.actions.add(mention, model: context.model) } } label: {
+                HStack(spacing: 3) { Image(systemName: "plus.circle"); Text("Add to library") }.lineLimit(1)
+            }
+            .font(font).buttonStyle(.borderless)
+            .accessibilityLabel(Text(verbatim: "Add \(mention.label) to library"))
+            .accessibilityIdentifier("chat.paper.\(number).add")
+        }
+    }
+
+    private func noticeLine(_ notice: ReaderModel.ReferenceNotice, mention: ChatPaperMention, number: Int, font: Font) -> some View {
+        let problem = notice.kind == .notFound || notice.kind == .unavailable || notice.kind == .closed
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if notice.kind == .working { ProgressView().controlSize(.mini) }
+            else {
+                Image(systemName: problem ? "exclamationmark.circle" : "checkmark.circle").foregroundStyle(problem ? Color.orange : Color.green)
+                    .accessibilityHidden(true)
+            }
+            Text(verbatim: notice.message).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("chat.paper.\(number).notice")
+            if notice.kind == .unavailable {
+                Button("Try again") { Task { await context.actions.add(mention, model: context.model) } }.buttonStyle(.borderless)
+                    .accessibilityIdentifier("chat.paper.\(number).retry")
+            }
+        }
+        .font(font)
+    }
+}

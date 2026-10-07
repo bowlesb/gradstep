@@ -8,6 +8,7 @@ struct ChatTranscript: View {
     @State private var followsLatest = true
     @State private var hasNewMessages = false
     @State private var jump = TranscriptJump()
+    @State private var paperActions = ChatPaperActions()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -15,7 +16,7 @@ struct ChatTranscript: View {
         let messages = model.chatTranscriptMessages
         ZStack(alignment: .bottomTrailing) {
             TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, diagrams: model.chatDiagrams,
-                openDiagram: { model.openDiagram($0) }, jump: jump,
+                openDiagram: { model.openDiagram($0) }, papers: ChatPaperContext(model: model, actions: paperActions), jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
                 didFollow: { following in
@@ -76,6 +77,7 @@ private struct TranscriptMessage: View {
     let fontSize: Double
     let diagram: ChatDiagramLink?
     let openDiagram: (UUID) -> Void
+    let papers: ChatPaperContext?
     let first: Bool
     let last: Bool
 
@@ -97,6 +99,11 @@ private struct TranscriptMessage: View {
                     ChatMessageText(source: message.payload.text ?? "", fontSize: fontSize, streaming: streaming,
                                     speaker: message.payload.role == .user ? "You" : "Assistant", identifier: "chat.message.text.\(message.id.wire)")
                     if let sources { ChatSourcesView(sources: sources.sources, fontSize: fontSize) }
+                    // Papers the finished answer names (arXiv IDs, DOIs), found on the device.
+                    if !streaming, message.payload.role == .assistant, message.payload.status == .complete, let papers {
+                        let mentions = ChatPaperMentions.extract(from: message.payload.text ?? "")
+                        if !mentions.isEmpty { ChatAnswerPapersView(mentions: mentions, fontSize: fontSize, context: papers) }
+                    }
                 }
                 if message.payload.status == .interrupted {
                     Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
@@ -126,6 +133,7 @@ private struct TranscriptTable: UIViewRepresentable {
     let fontSize: Double
     let diagrams: [UUID: ChatDiagramLink]
     let openDiagram: (UUID) -> Void
+    let papers: ChatPaperContext
     let jump: TranscriptJump
     let localRequest: UUID?
     let isCurrent: () -> Bool
@@ -214,6 +222,7 @@ private struct TranscriptTable: UIViewRepresentable {
                 cell.contentConfiguration = UIHostingConfiguration {
                     TranscriptMessage(message: self.displayed[index], streaming: id == self.displayedStreamingID, fontSize: self.displayedFont,
                         diagram: self.displayedDiagrams[self.displayed[index].payload.entityID], openDiagram: { [weak self] id in self?.owner?.openDiagram(id) },
+                        papers: self.owner?.papers,
                         first: index == 0, last: index == self.displayed.count - 1)
                 }.margins(.all, 0).minSize(width: 0, height: 0)
                 return cell

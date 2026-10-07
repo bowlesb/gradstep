@@ -494,6 +494,43 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer table")
     }
 
+    /// Audit gap 2: papers an answer names are listed under it, to open (after
+    /// seeing the address) or add; one only in Sources is not repeated.
+    func testAnswerPapersCanBeOpenedOrAdded() throws {
+        let app = askChatFixture("research", "Which papers should I read next?")
+        let papers = app.descendants(matching: .any)["chat.papers"]
+        XCTAssertTrue(papers.waitForExistence(timeout: 20))
+        let any = app.descendants(matching: .any)
+        XCTAssertTrue(any["chat.paper.1"].label.contains("Direct Preference Optimization: Your Language Model"), any["chat.paper.1"].label)
+        XCTAssertTrue(any["chat.paper.1"].label.contains("arXiv 2305.18290"))
+        XCTAssertTrue(any["chat.paper.2"].label.contains("A General Theoretical Paradigm"))
+        XCTAssertTrue(any["chat.paper.3"].label.contains("Rank Analysis of Incomplete Block Designs, DOI 10.2307/2334029"), any["chat.paper.3"].label)
+        XCTAssertFalse(any["chat.paper.4"].exists, "A paper only in Sources is not listed again")
+        for number in 1...3 { XCTAssertTrue(app.buttons["chat.paper.\(number).open"].exists) }
+        XCTAssertTrue(app.buttons["chat.paper.1.add"].exists)
+        XCTAssertTrue(app.buttons["chat.paper.3.add"].exists, "A DOI can be added too")
+        XCTAssertTrue(any["chat.paper.2.inLibrary"].exists)
+        XCTAssertFalse(app.buttons["chat.paper.2.add"].exists, "A paper already in the library has no Add")
+        if app.keyboards.count > 0, app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(papers, in: app, up: false)
+        capture(app, "Papers in this answer")
+
+        app.buttons["chat.paper.3.open"].tap()
+        XCTAssertTrue(app.staticTexts["Open this paper in Safari?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["https://doi.org/10.2307/2334029"].exists)
+        capture(app, "Paper address confirmation")
+        if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+        else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap() }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+            object: app.staticTexts["Open this paper in Safari?"])], timeout: 5), .completed)
+        XCTAssertEqual(app.state, .runningForeground)
+
+        // The fixture has no server library: the add reports its outcome on the row.
+        app.buttons["chat.paper.1.add"].tap()
+        XCTAssertTrue(app.staticTexts["chat.paper.1.notice"].waitForExistence(timeout: 5))
+        capture(app, "Add outcome on the row")
+    }
+
     /// Discovery audit (records every issue, fails on none): Library, reader,
     /// chat with an answer and diagram, the diagram itself, and Settings.
     /// Run with `TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1 xcodebuild test …`; read the `AXAUDIT` lines.

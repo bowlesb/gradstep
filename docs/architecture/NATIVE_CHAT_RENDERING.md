@@ -27,6 +27,22 @@ stays one combined element per run, and the table is an element ("Table, 4 rows,
 "Columns: …" and "Row n: header, value; …" (identifiers `chat.table.N`, `.header`, `.row.M`). Messages without a
 table keep the single combined element.
 
+**Papers in this answer (2026-10-07, legacy gap 2).** Under a complete assistant answer, `ChatPaperMentions` (Core)
+lists the papers its text names: arXiv links (`arxiv.org/abs|pdf/…`), `arXiv:ID`/`arXiv ID` (validated by
+`ArxivReference`), and DOIs (Crossref's pattern, trailing punctuation and unbalanced `)` trimmed; `10.48550/arXiv.*`
+counts as the arXiv paper). Bare numbers are ignored. On the device, no model call; at most 8, deduplicated, in
+order of first mention; a paper that appears only in the trailing Sources list is left out (Sources already shows
+it). A row's title is the Markdown link text around the ID, or the list item's leading bold/quoted title when the
+line names only that paper, else the library's title for an arXiv paper already in it, else the ID. Each row
+(`ChatAnswerPapersView`, styled like Sources) has **Open** (the same "Open … in Safari?" confirmation with the full
+address: arXiv abstract page or `https://doi.org/…`) and **Add to library**: arXiv through `importPaper` (the Add
+sheet's library command, library search left as it is); a DOI through `add-reference` with the DOI as the reference
+text, showing the reader's `ReferenceNotice` wording on the row (working, added, already present, not openly
+available, not identified, couldn't add with Try again; "Ask in chat" is not offered from chat). "In your library"
+comes from `librarySourceIDs` (arXiv) or, for a DOI, the source the server matched in this session. Add state is
+shared by all answers in the transcript and fenced to the reader session. Interrupted and streaming answers show no
+list. Identifiers: `chat.papers`, `chat.paper.N` (title), `.open`, `.add`, `.inLibrary`, `.notice`.
+
 The plan below (WebKit typesetter) is superseded and kept for history.
 
 ## First proof and decision boundary
