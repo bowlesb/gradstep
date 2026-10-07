@@ -357,7 +357,7 @@ test('web search is offered only when the server enables it, and never on Ingest
   // Every request completed (a fractional bigint amount once failed the reservation).
   for (const run of [off, on, ingest]) assert.equal(run.events.at(-1)?.event, 'done', JSON.stringify(run.events.at(-1)));
   assert.ok(Number.isSafeInteger(webSearchHoldMicrousd(39_657)));
-  assert.deepEqual(WEB_SEARCH_TOOL, { type: 'web_search_20260209', name: 'web_search', max_uses: 3 });
+  assert.deepEqual(WEB_SEARCH_TOOL, { type: 'web_search_20250305', name: 'web_search', max_uses: 3 });
   assert.match(chatInstructions('paper', null, true), /You can search the web/);
   assert.doesNotMatch(chatInstructions('paper', null, false), /search the web/);
   // The hold grows by the search allowance.

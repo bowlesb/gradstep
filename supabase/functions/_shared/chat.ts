@@ -3,7 +3,7 @@
 // text; logs carry only operation IDs, codes and counts.
 import {
   ADD_PAPER_TOOL, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, creditsFor, holdFor, priceAttempts, promptCharacters, RATE_VERSION,
-  WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL, webSearchHoldMicrousd,
+  WEB_SEARCH_MICROUSD, WEB_SEARCH_TOOL, webSearchHoldMicrousd, RELATED_SEARCH_MAX_USES, RELATED_WEB_SEARCH_TOOL,
   type ChatTurn, type PaperContext, type ProviderOutcome, type StreamOptions,
 } from './anthropic.ts';
 import type Anthropic from '@anthropic-ai/sdk';
@@ -157,7 +157,7 @@ The paper need not be on arXiv: the app also finds open-access copies elsewhere.
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
 // The legacy app's "Similar" searched the web (Tavily) for related work; this is its successor.
-const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering — several targeted searches (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
+const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering. You have up to ${RELATED_SEARCH_MAX_USES} searches: spend them on distinct angles (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
 const RELATED_OFFLINE_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. List 4–8 papers you are confident exist (title, first author, year, one sentence on the relation), most relevant first. Say plainly that you could not search the web, and never invent papers or links.`;
 
 const DIAGRAM_INSTRUCTIONS = `Only when the reader explicitly asks for a diagram, flowchart or other visual: write your explanation first, then call create_diagram once with Mermaid source.
@@ -318,9 +318,13 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   const search = request.action !== 'ingest' && deps.webSearch === true;
   const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
-    selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL] : [CREATE_DIAGRAM_TOOL, ...(search ? [WEB_SEARCH_TOOL] : [])] });
+    selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
+      : [CREATE_DIAGRAM_TOOL, ...(search ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
-  if (search) { hold.microusd += webSearchHoldMicrousd(hold.inputTokens); hold.credits = creditsFor(hold.microusd); }
+  if (search) {
+    hold.microusd += webSearchHoldMicrousd(hold.inputTokens, request.action === 'related' ? RELATED_SEARCH_MAX_USES : undefined);
+    hold.credits = creditsFor(hold.microusd);
+  }
   const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;

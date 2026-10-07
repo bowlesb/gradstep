@@ -138,16 +138,24 @@ export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
 export const WEB_SEARCH_MAX_USES = 3;
 /** $10 per 1,000 searches. */
 export const WEB_SEARCH_MICROUSD = 10_000;
-export const WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20260209 = {
-  type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES,
+// The basic search tool, not web_search_20260209: that version filters results by running
+// model-written code, which failed in production (2026-10-06: code exit 1 on most searches, the
+// model then reported search as failed and leaked its filtering notes into the answer).
+export const WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20250305 = {
+  type: 'web_search_20250305', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES,
+};
+/** Related (finding related papers) plans several targeted searches. */
+export const RELATED_SEARCH_MAX_USES = 5;
+export const RELATED_WEB_SEARCH_TOOL: Anthropic.Beta.Messages.BetaWebSearchTool20250305 = {
+  type: 'web_search_20250305', name: 'web_search', max_uses: RELATED_SEARCH_MAX_USES,
 };
 /** Tokens of search results assumed per search. */
 export const WEB_SEARCH_RESULT_TOKENS = 30_000;
 /** Extra hold when search is offered. Each search adds a server-side pass that
  * re-reads the whole prompt (held at the uncached write rate) and the results
  * gathered so far (on average two reads of each search's results). */
-export function webSearchHoldMicrousd(promptTokens: number): number {
-  return Math.ceil(WEB_SEARCH_MAX_USES * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
+export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH_MAX_USES): number {
+  return Math.ceil(maxUses * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
 }
 
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
