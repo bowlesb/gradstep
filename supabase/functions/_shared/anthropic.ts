@@ -127,8 +127,8 @@ export const CREATE_DIAGRAM_TOOL: Anthropic.Beta.Messages.BetaTool = {
     type: 'object',
     properties: {
       title: { type: 'string', description: 'A short title (under 80 characters).' },
-      mermaid: { type: 'string', description: 'Mermaid source starting with the diagram type (e.g. "flowchart LR"). Under about 40 nodes, '
-        + 'short labels, math as plain Unicode text (no LaTeX), no click or link directives.' },
+      mermaid: { type: 'string', description: 'Mermaid source starting with the diagram type (e.g. "flowchart TD"). Under about 40 nodes, '
+        + 'short ASCII labels (math as plain text, no LaTeX or Unicode symbols), labels with punctuation in double quotes, no click or link directives.' },
     },
     required: ['title', 'mermaid'],
   },
@@ -191,7 +191,7 @@ export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH
 }
 
 export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
-  tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[] })
+  tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
   const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text', text: input.instructions }];
   if (input.paper) {
@@ -209,7 +209,7 @@ export function chatRequestParams(input: { instructions: string; paper: PaperCon
     return { role: turn.role, content: turn.text };
   });
   return {
-    model: CHAT_MODEL, max_tokens: CHAT_MAX_TOKENS,
+    model: CHAT_MODEL, max_tokens: input.maxTokens ?? CHAT_MAX_TOKENS,
     thinking: { type: 'adaptive' }, output_config: { effort: CHAT_EFFORT },
     betas: [FALLBACK_BETA], fallbacks: 'default',
     system, messages,
