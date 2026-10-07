@@ -1,5 +1,11 @@
 # Paper import reliability
 
+> **Status 2026-10-06 20:10 PDT:** migrations 022/023 applied to staging; worker deployed to Cloud Run
+> (`gradstep-pipeline`, project `gradstep`, us-west1, image built locally and pushed to Artifact Registry, runtime
+> identity `gradstep-pipeline@gradstep.iam.gserviceaccount.com` with access to its five secrets only); staging's
+> `science_reader_pipeline_url` points at it. The 49-page paper that looped since 2026-10-05 rendered and published
+> on Cloud Run within a minute. Deploy: `python3 scripts/deploy-pipeline-worker.py deploy --project gradstep`.
+
 Owner, 2026-10-06: "adding a pdf is a thing that needs to be absolutely bullet proof, and should even have analytics on
 how long it takes generally and failure rates." Approved: move the heavy work to Google Cloud Run (owner sets up the
 Google Cloud project).

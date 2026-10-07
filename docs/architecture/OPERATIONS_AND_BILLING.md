@@ -46,9 +46,11 @@ Recurring charges that do not depend on use, against the $100/month incremental 
 |---|---|---:|---|
 | Supabase Pro organization (staging; production when created) | 2026-10-02 | ≈ $35 | Pro $25 + Micro compute, less the $10 credit ([manifest](DEPLOYMENT_MANIFEST.md)); confirm against the invoice |
 | Tavily Project plan (4,000 search credits) | 2026-10-06 | $30 | Bought by the owner for chat web search; pay-as-you-go must stay **off** |
-| **Total fixed** | | **≈ $65** | |
+| gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 | Bought by the owner; one-off $181.14, shown monthly |
+| Google Cloud project `gradstep`: Cloud Run pipeline worker | 2026-10-06 | ≈ $0–2 | Scale to zero, 2 GiB; expected within the free tier at beta volume. Confirm on the first bill |
+| **Total fixed** | | **≈ $73–75** | |
 
-Forecast at most ≈ $65 fixed + the metered cap; within the $100 only if metered spend stays ≤ $30 and leaves ≈ $5 of
+Forecast at most ≈ $75 fixed + the metered cap; within the $100 only if metered spend stays ≤ $30 and leaves ≈ $5 of
 contingency, with nothing left for the backup destination and admin hosting the fixed allocation was meant to hold.
 Recommendation recorded in [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06):
 move Tavily to its free tier (1,000 credits/month) at renewal unless beta usage approaches that. The Apple
