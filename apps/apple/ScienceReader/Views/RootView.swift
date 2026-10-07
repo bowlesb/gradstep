@@ -831,23 +831,32 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Owner feedback, build 14 #8: one Account row (who, how, synced?) opening the Account page, which
+                // holds sync, Sign out and Delete account (`SettingsPages.swift`).
                 Section {
                     if model.isSignedIn {
-                        Label(model.email.flatMap { $0.isEmpty ? nil : $0 } ?? "Signed in", systemImage: "person.crop.circle")
-                        LabeledContent("Sync", value: model.syncStatus)
-                        if let issue = model.syncIssue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
+                        NavigationLink {
+                            AccountView(model: model) { showDeleteAccount = true }
+                        } label: {
+                            let sync = SyncSummary.from(status: model.syncStatus, issue: model.syncIssue, pending: model.publishedPendingCount)
+                            let methods = model.email?.isEmpty == false ? AccountFormat.methods(model.signInProviders) : nil
+                            AccountRow(name: AccountFormat.name(email: model.email, providers: model.signInProviders),
+                                       detail: [methods.map { "Signed in with \($0)" }, sync.short].compactMap { $0 }.joined(separator: " · "))
+                        }
+                        .accessibilityIdentifier("account.row")
                         if let issue = model.accountPreparationIssue {
                             Text(issue).font(.footnote).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("account.preparationIssue")
                             Button("Try again") { Task { await model.retryAccountPreparation() } }
                                 .disabled(model.isBusy).accessibilityIdentifier("account.retryPreparation")
                         }
-                        Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
-                        Button("Delete account…", role: .destructive) { showDeleteAccount = true }.accessibilityIdentifier("account.delete")
                     }
-                    else { Button("Sign in or create an account") { model.openSignIn() }.accessibilityIdentifier("account.signIn") }
-                } header: { Text("Account") } footer: {
-                    if model.isSignedIn { Text("Encrypted pending work stays on this device for your next sign-in.") }
+                    else {
+                        Button { model.openSignIn() } label: { Label("Sign in or create an account", systemImage: "person.crop.circle") }
+                            .accessibilityIdentifier("account.signIn")
+                    }
+                } footer: {
+                    if !model.isSignedIn { Text("Sign in to sync your library and chats between your devices.") }
                 }
                 if model.isSignedIn && model.chatTransport != nil {
                     Section {
@@ -870,15 +879,15 @@ struct SettingsView: View {
                     }
                 }
                 Section("Reading") {
-                    Picker("Appearance", selection: $model.appearance) { Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark") }
+                    ThemePicker(selection: $model.appearance)
                     sizeSlider("Paper text size", value: $model.paperFontSize, range: 14...26)
                     sizeSlider("Chat text size", value: $model.chatFontSize, range: 14...24)
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
+                // (Sync now moved to the Account page, beside the sync state it acts on.)
                 Section("Your research") {
                     openRow("All chats") { model.showAllChats = true }
                     openRow("All diagrams") { model.showDiagrams = true }
-                    Button("Sync now") { Task { await model.synchronize(reportErrors: true) } }.disabled(!model.isSignedIn)
                 }
                 Section("Testing") {
                     #if INTERNAL
@@ -888,11 +897,9 @@ struct SettingsView: View {
                     openRow("My reports") { model.showReports = true }.disabled(model.support == nil)
                     Button("Open reader sample") { model.openSample() }
                 }
-                Section("About") {
-                    NavigationLink("Privacy & data") { PrivacyView() }
-                    NavigationLink("Acknowledgements") { AcknowledgementsView() }
-                    LabeledContent("Version", value: Self.version)
-                    LabeledContent("Environment", value: "Private beta · staging")
+                // Owner feedback, build 14 #9: version, privacy and acknowledgements behind one row at the bottom.
+                Section {
+                    NavigationLink("About Gradstep") { AboutView(version: Self.version) }.accessibilityIdentifier("settings.about")
                 }
             }
             .readableScrollColumn(width: width)
@@ -1187,7 +1194,7 @@ struct AcknowledgementsView: View {
         ("SwiftMath", "Native math typesetting in chat answers.", "MIT License · © 2023 Computer Inspirations"),
         ("Latin Modern Math", "Math font used for chat formulas (bundled by SwiftMath).", "GUST Font License"),
         ("Mermaid", "Draws diagrams from answers on this device (includes DOMPurify, d3 and other bundled libraries).", "MIT License · DOMPurify: Apache 2.0 / MPL 2.0"),
-        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to build equation-aware readers; each reader includes its NOTICE.", "MIT / Apache 2.0"),
+        ("Mathpix Markdown, MathJax, markdown-it", "Used on the server to make readable versions of papers, equations included. Each readable version carries these notices.", "MIT / Apache 2.0"),
         ("arXiv", "Paper metadata and PDFs. Papers keep their authors' licenses; shared conversions are limited to CC BY and CC0.", "arXiv API terms"),
         ("OpenAlex", "Search ranking, and finding open-access copies of papers that aren't on arXiv (converted privately for you).", "CC0 data"),
     ]

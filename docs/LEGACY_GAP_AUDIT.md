@@ -262,7 +262,7 @@ Status: **Have** (equal or better) · **Partial** · **Missing** · **Dropped** 
 | Reader | Go to passage from a chat | `ChatPanel.tsx:605-714` | None | Missing (#1) |
 | Reader | Contents overlay with levels | `TableOfContents.tsx`, `mathpix-cleanup.ts:290-367` | Flat list | Partial (#10) |
 | Reader | Paper and chat text size, remembered | `app/page.tsx:166-193` | Paper "…" and Settings, 14–26 pt | Have |
-| Reader | Dark mode toggle in the reader bar | `app/page.tsx:1758-1781` | Settings › Appearance (System/Light/Dark) | Have (moved) |
+| Reader | Dark mode toggle in the reader bar | `app/page.tsx:1758-1781` | Settings › Theme (Light / Dark / Match device) | Have (moved) |
 | Reader | Remembered reading position | None (reopened at the top) | Per artifact, restored after relaunch (device-local) | Have (better) |
 | Reader | Find in page | Browser ⌘F | None | Missing (#7) |
 | Reader | Native Copy / Look Up | Suppressed (`MarkdownReader.tsx:52-59`) | Kept | Have (better) |

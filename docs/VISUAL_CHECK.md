@@ -15,7 +15,9 @@ List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstrac
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
 `chat-history`, `signin`; All chats over ~30 fixture conversations (`--chat-history-fixture`): `chat-history-table` (with
-an unsent draft), `chat-history-search` ("DPO"), `chat-history-actions` (a row's long-press menu); and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
+an unsent draft), `chat-history-search` ("DPO"), `chat-history-actions` (a row's long-press menu), `chat-title` (a selection action's
+conversation opened: its short title); signed in (`--chat-fixture`) `settings-account`, `settings-account-end` and
+`account` (the Account page), and signed out `about` and `acknowledgements`; and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
 `paper-citation`, `paper-reference` (after a citation, Back shown) and `paper-reference-actions`. Add a scenario
 when feedback concerns a screen that isn't covered; reproduce the state from the session timeline (tab, sheet,
 keyboard, orientation, device). Screens that need real data use the staging journey (`scripts/live-journey.mjs`).

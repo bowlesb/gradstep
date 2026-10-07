@@ -224,7 +224,7 @@ final class ReaderModel {
     }
     var canUsePaperChat: Bool { chatPaperID != nil || selectedPaper != nil }
     var chatPaper: Paper? { (chatPaperID ?? selectedPaper?.id).flatMap { id in papers.first { $0.id == id } ?? (selectedPaper?.id == id ? selectedPaper : nil) } }
-    var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text } ?? "New chat") }
+    var chatTitle: String { chatWasDeleted ? "Deleted conversation" : (activeConversation.flatMap { privateState.revisions(for: $0).first?.payload.text }.map(ChatTitle.display) ?? "New chat") }
     var chatWasDeleted: Bool { activeConversation.map { privateState.isDeleted($0) } ?? false }
     var privateState = PrivateState() {
         didSet {
@@ -301,6 +301,8 @@ final class ReaderModel {
     var recoveryCode: String?
     var needsRecovery = false
     var email: String?
+    /// How this account signs in ("apple", "google", "email") when Auth said; the Account page shows it.
+    private(set) var signInProviders: [String] = []
     var isBusy = false
     var headings: [PaperHeading] = []
     @ObservationIgnored var paperLocations: [String: PaperReadingLocation] = [:]
@@ -338,7 +340,8 @@ final class ReaderModel {
     private var sessionID: UUID { workOwnership.accountSessionID }
     private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged() } } }
     private var publishedGeneration: Int64 = -1
-    private var publishedPendingCount = 0
+    /// Encrypted changes on this device not yet synced (the Account page says how many).
+    private(set) var publishedPendingCount = 0
     var readerSessionID: UUID { sessionID }
     var readerDocumentScope: ReaderDocumentScope? {
         selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL, manifestSHA256: $0.readerBundle?.manifestSHA256) }
@@ -862,7 +865,7 @@ final class ReaderModel {
             let client = try backend ?? BackendClient(configuration: configuration); backend = client
             let existing = await client.currentUser()
             if let user = existing, sessionID == scope {
-                email = user.email; accountID = user.id
+                email = user.email; signInProviders = user.providers; accountID = user.id
                 beginAccountPreparation(user, client: client, scope: scope)
                 await accountPreparationTask?.value
             }
@@ -926,7 +929,7 @@ final class ReaderModel {
               authentication?.presentation?.id == acceptance.presentationID,
               authentication?.phase == .accepted(accountID: acceptance.user.id),
               acceptance.readerSessionID == sessionID, accountID == nil, let backend else { return false }
-        accountID = acceptance.user.id; email = acceptance.user.email
+        accountID = acceptance.user.id; email = acceptance.user.email; signInProviders = acceptance.user.providers
         // Register account work before requesting dismissal; no await occurs
         // between coordinator validation, model acceptance and this handoff.
         beginAccountPreparation(acceptance.user, client: backend, scope: acceptance.readerSessionID)
@@ -1010,7 +1013,7 @@ final class ReaderModel {
             let user = try await backend.signIn(email: email, password: password)
             guard sessionID == scope else { return }
             accountID = user.id
-            self.email = user.email; showSignIn = false
+            self.email = user.email; self.signInProviders = user.providers; showSignIn = false
             try await signedIn(user, client: backend, scope: scope)
         } catch { if sessionID == scope { show(error) } }
     }
@@ -1260,7 +1263,7 @@ final class ReaderModel {
         discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
         feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
         generalChat = true
-        email = nil; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
+        email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
         showReportsAfterComposer = false; error = nil; tab = .library; wideMode = .library; syncStatus = "On this device"
         syncIssue = nil
@@ -1969,13 +1972,8 @@ final class ReaderModel {
 
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
-        let prompts: [SelectionAction: String] = [
-            .define: "Explain in plain terms, including any symbols: \(quote)",
-            .relevance: "Why does this matter to the paper's method and results? \(quote)",
-            .similar: "Find related papers, earlier and recent, with links: \(quote)",
-            .ingest: "Find and add the paper referenced in this passage: \(quote)"
-        ]
-        newChat(general: false); chatInput = prompts[action] ?? quote
+        // The prompts live with `ChatTitle`, which turns them back into short titles.
+        newChat(general: false); chatInput = action.prompt(quote)
         tab = .chat; wideMode = .reader
         // The quote travels with this exact prompt and composer only.
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
@@ -2639,7 +2637,7 @@ final class ReaderModel {
         let bundle = try JSONDecoder().decode(KeyBundle.self, from: encoded)
         var fixtureDevice = LocalDevice.create(accountID: fixtureAccount, localStoreKey: Data(repeating: 31, count: 32))
         fixtureDevice.bundle = bundle
-        accountID = fixtureAccount; email = "draft-fixture@example.invalid"; device = fixtureDevice
+        accountID = fixtureAccount; email = "draft-fixture@example.invalid"; signInProviders = ["apple"]; device = fixtureDevice
         let activation = workOwnership.beginActivation()
         defer { workOwnership.finishActivation(activation) }
         let local = try await localPersistence.activate(url: directory.appendingPathComponent("state.sqlite"),

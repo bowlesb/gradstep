@@ -124,7 +124,10 @@ final class AuthenticationWorkflowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Restore your private library"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["auth.close"].exists, "Recovery follows accepted sheet dismissal")
         XCTAssertFalse(app.staticTexts["Save your recovery code"].exists, "Existing key state must not create fresh keys")
-        XCTAssertTrue(app.buttons["recovery.fromPasswords"].exists, "A code saved in Passwords can fill the recovery field")
+        // At accessibility sizes the row starts below the fold, where the Form hasn't built it yet.
+        let fromPasswords = app.buttons["recovery.fromPasswords"]
+        for _ in 0..<4 where !fromPasswords.exists { app.swipeUp() }
+        XCTAssertTrue(fromPasswords.exists, "A code saved in Passwords can fill the recovery field")
         _ = recoverySignOut(app)
         capture("Accepted nil-email account requires recovery")
     }
@@ -150,6 +153,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         wait("Recovery closes after local account retirement") { !app.navigationBars["Private library"].exists }
         settings(app)
         XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["account.row"].exists, "No Account row (with Sign out behind it) once signed out")
         XCTAssertFalse(app.buttons["account.signOut"].exists)
     }
 

@@ -460,3 +460,36 @@ Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [M
   upload waits for the owner: a Mac Installer Distribution identity in the keychain and a Mac Catalyst App
   Store profile ("Gradstep Mac App Store"). Not created by the agent: the existing installer certificate's
   key is held outside this project, and new signing certificates are the owner's to hold.
+
+## Settings and chat titles (owner feedback, build 14 #7–#9; agent decisions 2026-10-07, all reversible)
+
+Owner: "The account option tells me nothing, sync? Sign out and delete feel like they should be hidden away? What does
+appearance mean to the user?", of Acknowledgements in Settings "This doesn't look like it should be there", and chat
+titles that showed prompt text and raw LaTeX ("Explain in plain terms, including any symbols: \[\begin{equation*}…").
+
+- **One Account row** tops Settings: the email (or "Signed in with Apple" when the account has none) over "Signed in
+  with Apple · Synced". It opens **Account**: Email, Signed in with, **Sync** in plain words ("Your chats and notes are
+  synced · They're encrypted with keys held on your devices", "Waiting to sync 3 changes", "Syncing…", "Sync is
+  paused" with the reason, "Not synced yet" before this session's first sync finishes) and **Sync now** (moved there from Your research, beside the state it acts on), then **Sign
+  out** (with the pending-work note) and **Delete account…** (same sheet, flow and accessibility identifiers). Signing
+  out closes the page. Signed out, Settings keeps "Sign in or create an account". Credits, Reading, Your research and
+  Testing stay where they were.
+- **Sync says "chats and notes", not "library"**: the encrypted sync carries conversations, notes, reading places and
+  diagrams; the library list is the server's per account (its own pending changes show in the Library). "Encrypted
+  with keys held on your devices" repeats the Privacy page's existing claim; no new claim is made.
+- **Sign-in methods** are read from Auth's `app_metadata.providers` in the session Auth already returns (decoded
+  tolerantly and bounded, kept with the cached session; no server change). A session cached by an older build shows
+  none until the next sign-in.
+- **Theme**: "Appearance: System" became **Theme** — Light / Dark / Match device as a segmented control (a menu at
+  accessibility text sizes), the same stored setting.
+- **About Gradstep** is the last row: name, Version, Edition (private beta · staging), Privacy & data,
+  Acknowledgements. The Mathpix acknowledgement says "readable versions of papers" instead of "equation-aware readers".
+- **Chat titles are shortened at display time only** (the saved title stays the first question's first 100
+  characters; nothing saved or sent changes). In All chats (rows, search, the delete confirmation) and the chat's
+  title, a selection action's conversation reads "‹action› · ‹passage›": Explain, Why it matters, Related, Add paper,
+  and Define for the earlier "Define this in the context of the paper" wording. Every earlier prompt wording is
+  recognized; the prompts now live in one place (`SelectionAction.promptPrefix`, `Services/ChatTitle.swift`) so a new
+  wording keeps its short title. LaTeX in any title reads as symbols, building on the answer previews'
+  `ChatPreview.readableMath` (environments dropped, a/b, √x, x̂, numeric scripts and ᵀ as Unicode, letter subscripts as
+  `d_k` like the previews); a formula cut by the 100-character limit shows up to its last complete part, prose up to
+  its last whole word, then "…". Search matches the saved question and the short title.

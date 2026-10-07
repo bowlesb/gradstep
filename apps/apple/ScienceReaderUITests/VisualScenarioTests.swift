@@ -200,6 +200,33 @@ final class VisualScenarioTests: XCTestCase {
                 for _ in 0..<6 { app.swipeUp() }
                 sleep(1)
             },
+            // Settings signed in (owner feedback, build 14 #8/#9): the Account row and its page, About and its
+            // Acknowledgements; `chat-title` opens a selection-action conversation to show its short title.
+            "settings-account": Scenario(arguments: Self.chatFixture) { app in self.go(app, "settings"); sleep(1) },
+            "settings-account-end": Scenario(arguments: Self.chatFixture) { app in
+                self.go(app, "settings")
+                for _ in 0..<6 { app.swipeUp() }
+                sleep(1)
+            },
+            "account": Scenario(arguments: Self.chatFixture) { app in
+                self.go(app, "settings")
+                let row = app.buttons["account.row"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "about": Scenario(arguments: ["--workflow-fixture"]) { app in self.openAbout(app) },
+            "acknowledgements": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.openAbout(app)
+                let row = app.buttons["about.acknowledgements"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "chat-title": Scenario(arguments: Self.historyFixture) { app in
+                self.openHistory(app)
+                let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000005"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+                XCTAssertTrue(app.navigationBars["All chats"].waitForNonExistence(timeout: 5)); sleep(1)
+            },
         ]
     }
 
@@ -230,6 +257,15 @@ final class VisualScenarioTests: XCTestCase {
         if XCUIDevice.shared.orientation.isLandscape { if tab.exists { drag() } }
         else { for _ in 0..<8 where !status.isHittable || (tab.exists && status.frame.maxY > tab.frame.minY - 24) { drag() } }
         sleep(1)
+    }
+
+    /// Settings › About Gradstep (the last row; scrolled to on short screens and at large text).
+    private func openAbout(_ app: XCUIApplication) {
+        go(app, "settings")
+        let about = app.buttons["settings.about"]
+        for _ in 0..<8 where !(about.exists && about.isHittable) { app.swipeUp() }
+        XCTAssertTrue(about.waitForExistence(timeout: 5)); about.tap()
+        XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5)); sleep(1)
     }
 
     private func tapMenu(_ app: XCUIApplication, _ label: String) {
