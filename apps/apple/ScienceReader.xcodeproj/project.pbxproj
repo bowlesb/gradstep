@@ -45,6 +45,7 @@
 		3692BE0D89EB6EAAFBFDE4EE /* SessionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6590F046CE4A1D77BE2343C /* SessionCapture.swift */; };
 		3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */; };
 		3CDEE394FE5D8123D2224D19 /* NativeSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1C5D854726C96463BAB59F /* NativeSafetyTests.swift */; };
+		3DEE5223C0B99C7B1A5CE572 /* ImportProgressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */; };
 		3EF7C7A2015CCD1E3B5A4B19 /* ChatHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40956B60129F7C2C369B441F /* ChatHistoryTests.swift */; };
 		419D2CB618EB1E251BB07582 /* LibraryTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */; };
 		4227B858FEF35F678A195784 /* LibraryCommandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */; };
@@ -69,6 +70,7 @@
 		5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */; };
 		5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
 		636E276907B007836AA6EE4A /* ChatHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */; };
+		644622E1D3FD4B5CA5445C1F /* ImportProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3D1F438A38856740453FBC /* ImportProgress.swift */; };
 		66F54F280A5A30A81AEEF232 /* ReaderDraftQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */; };
 		69FFC6AB0D50BFE7E7090F61 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
 		6A9FB40EA22828F4E4F61F58 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
@@ -84,6 +86,7 @@
 		7B6ECC0C4064EDE1348737C6 /* BranchPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */; };
 		7BA08C99DEC5FAD99A669F80 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
 		7BC3644F9BF56309E3F859CB /* GoogleSignIn-PROVENANCE.md in Resources */ = {isa = PBXBuildFile; fileRef = 3A63CD1065CB243B5863035D /* GoogleSignIn-PROVENANCE.md */; };
+		7F28F7CC08D6253FDFDA9B8D /* ImportProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E3D1F438A38856740453FBC /* ImportProgress.swift */; };
 		81C88DBE0463F19584B38655 /* AuthenticationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ED5C0AC6E18061F191F30F7 /* AuthenticationCoordinatorTests.swift */; };
 		81F4B31C1ED5D7F66D4686E4 /* OfflineResourceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */; };
 		82938CA5AC3674043DA6620B /* AuthenticationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298181C077A52AD1412AD0BD /* AuthenticationCoordinator.swift */; };
@@ -150,6 +153,7 @@
 		D825F1E7D5F8E17E9784A3A8 /* ChatFixtureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D4BEDE817F71094F5708F59 /* ChatFixtureTransport.swift */; };
 		D90FA618E733A6DA84FF9297 /* ReaderSamples in Resources */ = {isa = PBXBuildFile; fileRef = 7B70D15BE449FE77F2DCF2AE /* ReaderSamples */; };
 		DB725B375938298DF1ABFABD /* ReaderBundleCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86DE318B8974074F6F1BDC6F /* ReaderBundleCoordinatorTests.swift */; };
+		DE68ADA4AF263020D08BD3A3 /* ImportProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59CC84EF0734AAAD333D116D /* ImportProgressView.swift */; };
 		DF2B8A487D1BD5BA8D99BC4C /* LibraryLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6ABCE7C29BC217A615B98397 /* LibraryLayoutTests.swift */; };
 		E0A0D39744BFF8C0101A3936 /* LibrarySearchModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCB86C221E1C6004E7485C6E /* LibrarySearchModelTests.swift */; };
 		E27E9B16B6CE0F90C644A845 /* SessionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6590F046CE4A1D77BE2343C /* SessionCapture.swift */; };
@@ -160,6 +164,7 @@
 		E8E96C24DDC199A076E788DF /* ChatHistoryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54956F7DE7838B0E820D3145 /* ChatHistoryFixture.swift */; };
 		E922ADCA741286C9EF031C9C /* LiveJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */; };
 		E922EB54A249F843FA1ADD98 /* AuthenticationWorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6269CAE29584F72291E72D /* AuthenticationWorkflowFixture.swift */; };
+		E98136122C1A1C624B2FC731 /* ImportProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59CC84EF0734AAAD333D116D /* ImportProgressView.swift */; };
 		E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */; };
 		EA930FCDCF72BF13197365C9 /* OfflineResourceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C429A310AF6D79E72F8BA13 /* OfflineResourceFixture.swift */; };
 		EC0430AA3538CEB8C949502C /* LibraryModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4322D94A725E781DDD6CE62A /* LibraryModelTests.swift */; };
@@ -238,6 +243,7 @@
 		4E95203AFDE6CC762825DA86 /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
 		50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryTableView.swift; sourceTree = "<group>"; };
 		54956F7DE7838B0E820D3145 /* ChatHistoryFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistoryFixture.swift; sourceTree = "<group>"; };
+		59CC84EF0734AAAD333D116D /* ImportProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressView.swift; sourceTree = "<group>"; };
 		5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportService.swift; sourceTree = "<group>"; };
 		5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandTransport.swift; sourceTree = "<group>"; };
 		60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperWebViewTests.swift; sourceTree = "<group>"; };
@@ -258,6 +264,7 @@
 		7B70D15BE449FE77F2DCF2AE /* ReaderSamples */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReaderSamples; path = ScienceReader/Resources/ReaderSamples; sourceTree = SOURCE_ROOT; };
 		7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCaptureTests.swift; sourceTree = "<group>"; };
 		7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurableWorkspaceTests.swift; sourceTree = "<group>"; };
+		7E3D1F438A38856740453FBC /* ImportProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgress.swift; sourceTree = "<group>"; };
 		7F7A0A6B096E56AED84CEFEF /* StorePurchases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorePurchases.swift; sourceTree = "<group>"; };
 		80D8495E8DC938EEAB87F4E1 /* ScienceReaderCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ScienceReaderCore; path = ScienceReaderCore; sourceTree = SOURCE_ROOT; };
 		81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineReaderFixture.swift; sourceTree = "<group>"; };
@@ -297,6 +304,7 @@
 		DF02626D4F096F31D7D85E82 /* ChatGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGenerationTests.swift; sourceTree = "<group>"; };
 		E072DDE973F6D2C53EE77686 /* NativeAuthenticationPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAuthenticationPresenter.swift; sourceTree = "<group>"; };
 		E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderBundleLoader.swift; sourceTree = "<group>"; };
+		E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportProgressTests.swift; sourceTree = "<group>"; };
 		EA34B68EA4D3AC87FFC2CC6D /* GoogleSans-OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GoogleSans-OFL.txt"; sourceTree = "<group>"; };
 		EBA5A7FE1780246822D83E36 /* PaperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperView.swift; sourceTree = "<group>"; };
 		EE1EE828CB7FE38FB7CE66E3 /* ChatHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHistory.swift; sourceTree = "<group>"; };
@@ -352,6 +360,7 @@
 				BD219A12430C6D440465F911 /* ChatWorkspace.swift */,
 				F2D007555EFC3298556E72D3 /* ConversationBranchSelections.swift */,
 				0A7005386659A627AA9009A5 /* DeviceKeys.swift */,
+				7E3D1F438A38856740453FBC /* ImportProgress.swift */,
 				7AE39314F13A59D175222F59 /* KeychainVault.swift */,
 				FD04E2B21B4E1AD50C3EF22F /* LibraryCommandCoordinator.swift */,
 				5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */,
@@ -459,6 +468,7 @@
 				93B8F1B47F8271E60FC2ADBE /* DurableDraftIntegrationTests.swift */,
 				7C0FD78191E4D06B21ED067D /* DurableWorkspaceTests.swift */,
 				F15CECF5E28F723846BFFD1E /* EnrollmentSafetyTests.swift */,
+				E617F5CD2460736D3FF9755B /* ImportProgressTests.swift */,
 				3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */,
 				D45D7E1A04F6A6E136DADAA3 /* LibraryMetadataTests.swift */,
 				4322D94A725E781DDD6CE62A /* LibraryModelTests.swift */,
@@ -494,6 +504,7 @@
 				16BB0761CB97647F552ADC5A /* DesignSystem.swift */,
 				09F00A3E50BBA6CA58D4062C /* DiagramView.swift */,
 				3CB1587BDBC05A7A1CB6AA48 /* FeedTableView.swift */,
+				59CC84EF0734AAAD333D116D /* ImportProgressView.swift */,
 				26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */,
 				50343EBE5939EADCC0BC1DA3 /* LibraryTableView.swift */,
 				C78074324405596C300892BD /* NativeAuthenticationControls.swift */,
@@ -754,6 +765,8 @@
 				FDA6B434D6DAE4BE48C03B06 /* DeviceKeys.swift in Sources */,
 				FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */,
 				D7454B3BF7F9D5B8F05C53BE /* FeedTableView.swift in Sources */,
+				7F28F7CC08D6253FDFDA9B8D /* ImportProgress.swift in Sources */,
+				E98136122C1A1C624B2FC731 /* ImportProgressView.swift in Sources */,
 				968F8B47D3CBE68D9AFA7C97 /* KeychainVault.swift in Sources */,
 				0C73CA7BC6EBEA6ADFA6948B /* LibraryChangesView.swift in Sources */,
 				3BDC3D01CE09D0FDBD1725E8 /* LibraryCommandCoordinator.swift in Sources */,
@@ -813,6 +826,7 @@
 				5E34F54C8D91D6A0EACB9286 /* DurableDraftIntegrationTests.swift in Sources */,
 				C6F0F36164B3962D90F26435 /* DurableWorkspaceTests.swift in Sources */,
 				75E904FF52D43C762C5FD2AF /* EnrollmentSafetyTests.swift in Sources */,
+				3DEE5223C0B99C7B1A5CE572 /* ImportProgressTests.swift in Sources */,
 				A97CC2B0617F36ACBD086534 /* LibraryCommandCoordinatorTests.swift in Sources */,
 				1CC01E14E31A8146C5536D3E /* LibraryMetadataTests.swift in Sources */,
 				EC0430AA3538CEB8C949502C /* LibraryModelTests.swift in Sources */,
@@ -874,6 +888,8 @@
 				D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */,
 				53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */,
 				CAA65E94C9DFB4DC65E59BEE /* FeedTableView.swift in Sources */,
+				644622E1D3FD4B5CA5445C1F /* ImportProgress.swift in Sources */,
+				DE68ADA4AF263020D08BD3A3 /* ImportProgressView.swift in Sources */,
 				23B5FCFE02BDEF37DE27E94E /* KeychainVault.swift in Sources */,
 				E9E92198C022480EAA270FB1 /* LibraryChangesView.swift in Sources */,
 				16FED8D8994DFA9F0D621F87 /* LibraryCommandCoordinator.swift in Sources */,

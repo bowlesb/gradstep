@@ -95,7 +95,8 @@ extension ReaderModel {
         sparse.addedAt = now - 6 * day; sparse.canReadStructured = false
         papers.insert(sparse, at: 3); sequences[sparse.id] = 6
         func importRecord(_ n: Int, sequence: Int, phase: String, progress: String?, error: String?, title: String,
-                          authors: [String], published: String, categories: [String], source: String) throws -> LibraryImportRecord {
+                          authors: [String], published: String, categories: [String], source: String,
+                          detail: [String: Any]? = nil) throws -> LibraryImportRecord {
             var value: [String: Any] = ["id": id(n).wire, "created_seq": sequence, "state_seq": sequence, "intent_revision": 1,
                 "visible": true, "phase": phase, "source": "arxiv", "source_id": source, "source_revision": 1,
                 "metadata_id": id(n + 50).wire, "version_id": id(n + 60).wire,
@@ -104,7 +105,48 @@ extension ReaderModel {
                 "retryable": phase == "failed"]
             if let progress { value["progress"] = progress }
             if let error { value["error_code"] = error }
+            if let detail { value["progress_detail"] = detail }
             return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        // `--import-progress-fixture` (import progress, 2026-10-07): imports at every step with the server's percent and
+        // time left (migration 029): just added, downloading a large PDF, reading page 12 of 27, nearly ready, one
+        // backing off after an error, and one from an older server (no detail: spinner and step time, as before).
+        if ProcessInfo.processInfo.arguments.contains("--import-progress-fixture") {
+            let progressImports = [
+                try importRecord(30, sequence: 16, phase: "accepted", progress: "finding", error: nil,
+                    title: "Mamba: Linear-Time Sequence Modeling with Selective State Spaces", authors: ["Albert Gu", "Tri Dao"],
+                    published: "2023-12-01", categories: ["cs.LG", "cs.AI"], source: "2312.00752",
+                    detail: ["step": "finding", "percent": 2, "eta_seconds": 47]),
+                try importRecord(31, sequence: 15, phase: "acquiring", progress: "downloading", error: nil,
+                    title: "High-Resolution Image Synthesis with Latent Diffusion Models", authors: ["Robin Rombach", "Andreas Blattmann",
+                    "Dominik Lorenz", "Patrick Esser", "Björn Ommer"], published: "2021-12-20", categories: ["cs.CV"], source: "2112.10752",
+                    detail: ["step": "downloading", "percent": 14, "eta_seconds": 52, "pages": 45, "bytes": 40_817_183]),
+                try importRecord(20, sequence: 14, phase: "acquiring", progress: "converting", error: nil,
+                    title: "Scaling Laws for Neural Language Models", authors: ["Jared Kaplan", "Sam McCandlish", "Tom Henighan",
+                    "Tom B. Brown", "Benjamin Chess", "Rewon Child", "Scott Gray", "Alec Radford", "Jeffrey Wu", "Dario Amodei"],
+                    published: "2020-01-23", categories: ["cs.LG", "stat.ML"], source: "2001.08361",
+                    detail: ["step": "reading_equations", "percent": 62, "eta_seconds": 40, "pages": 27, "pages_done": 12]),
+                try importRecord(32, sequence: 13, phase: "acquiring", progress: "rendering", error: nil,
+                    title: "Proximal Policy Optimization Algorithms", authors: ["John Schulman", "Filip Wolski", "Prafulla Dhariwal",
+                    "Alec Radford", "Oleg Klimov"], published: "2017-07-20", categories: ["cs.LG"], source: "1707.06347",
+                    detail: ["step": "preparing", "percent": 91, "eta_seconds": 6, "pages": 12]),
+                try importRecord(33, sequence: 12, phase: "acquiring", progress: "converting", error: nil,
+                    title: "Denoising Diffusion Probabilistic Models", authors: ["Jonathan Ho", "Ajay Jain", "Pieter Abbeel"],
+                    published: "2020-06-19", categories: ["cs.LG", "stat.ML"], source: "2006.11239",
+                    detail: ["step": "reading_equations", "percent": 41, "delayed": true, "pages": 25, "pages_done": 9]),
+                try importRecord(34, sequence: 11, phase: "acquiring", progress: "downloading", error: nil,
+                    title: "Language Models are Few-Shot Learners", authors: ["Tom B. Brown", "Benjamin Mann", "Nick Ryder"],
+                    published: "2020-05-28", categories: ["cs.CL"], source: "2005.14165"),
+                try importRecord(35, sequence: 10, phase: "failed", progress: nil, error: "download_retrying",
+                    title: "Adam: A Method for Stochastic Optimization", authors: ["Diederik P. Kingma", "Jimmy Ba"],
+                    published: "2014-12-22", categories: ["cs.LG"], source: "1412.6980"),
+                try importRecord(21, sequence: 3, phase: "failed", progress: nil, error: "insufficient_credits",
+                    title: "Constitutional AI: Harmlessness from AI Feedback", authors: ["Yuntao Bai", "Saurav Kadavath", "Sandipan Kundu"],
+                    published: "2022-12-15", categories: ["cs.CL", "cs.AI"], source: "2212.08073"),
+            ]
+            installLibraryMetadataFixture(papers: papers, imports: progressImports, sequences: sequences, activity: activity, offline: offline,
+                importStepStarts: [id(34): now - 70], importDetailsReceived: Dictionary(uniqueKeysWithValues: progressImports.map { ($0.id, now) }))
+            return
         }
         // `--slow-import-fixture`: the converting import has been in its step for minutes (taking longer than usual),
         // another has been downloading for a minute, and a third failed to download (retryable).

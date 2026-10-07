@@ -163,32 +163,41 @@ enum LibraryFormat {
     }
 }
 
-/// The step an import in progress is on, as its row names it.
+/// The step an import in progress is on, in the reader's words (owner, 2026-10-07: "What does 'Converting...'
+/// mean? What is a reader to the user?"). `converting` is the server's OCR (reading equations and figures) and
+/// `building` its rendering (preparing it for reading); `preparing` is an import whose step an older server
+/// didn't say.
 enum LibraryImportStep: Equatable, Sendable {
     case queued, finding, preparing, downloading, converting, building
+    /// Paused on the server's side (e.g. the conversion budget); it carries on by itself.
+    case waiting
 
     /// The list's name for the step.
     var title: String {
         switch self {
-        case .queued: "Queued"; case .finding: "Finding paper"; case .preparing: "Preparing PDF"
-        case .downloading: "Downloading PDF"; case .converting: "Converting equations and figures"; case .building: "Building reader"
+        case .queued: "Waiting to start"; case .finding: "Finding the paper"; case .preparing: "Getting the PDF"
+        case .downloading: "Downloading the PDF"; case .converting: "Reading equations and figures"
+        case .building: "Preparing it for reading"; case .waiting: "Waiting to continue"
         }
     }
     /// Short enough for a table column.
     var shortTitle: String {
-        switch self { case .downloading: "Downloading"; case .converting: "Converting"; default: title }
+        switch self {
+        case .downloading: "Downloading"; case .converting: "Reading equations"; case .building: "Preparing"
+        case .queued, .waiting: "Waiting"; default: title
+        }
     }
     /// One word, beside a spinner in the table's Progress column.
     var tableTitle: String {
         switch self {
-        case .queued: "Queued"; case .finding: "Finding"; case .preparing: "Preparing"
-        case .downloading: "Downloading"; case .converting: "Converting"; case .building: "Building"
+        case .queued, .waiting: "Waiting"; case .finding: "Finding"; case .preparing: "Getting"
+        case .downloading: "Downloading"; case .converting: "Reading"; case .building: "Preparing"
         }
     }
-    /// "Downloading PDF…"; waiting in the queue has no ellipsis.
+    /// "Downloading the PDF…"; waiting has no ellipsis.
     func label(short: Bool) -> String {
         let name = short ? shortTitle : title
-        return self == .queued ? name : name + "…"
+        return self == .queued || self == .waiting ? name : name + "…"
     }
     /// The status line with how long the step has run: "Downloading PDF · 1 min", then past three minutes
     /// "Downloading PDF · Taking longer than usual". In the first minute, the plain label.
@@ -265,25 +274,33 @@ struct ImportStepTiming: Equatable {
 }
 
 extension LibraryImportRecord {
-    /// The step while the import is in progress, from the server's progress when known (an import can still
-    /// read "accepted" while its paper is already converting), else from its phase.
+    /// The step while the import is in progress: the server's detailed step (migration 029), else its coarse
+    /// progress (an import can still read "accepted" while its paper is already converting), else its phase.
     var step: LibraryImportStep? {
         switch phase {
         case .accepted, .resolving, .acquiring:
-            switch progress {
+            switch progressDetail?.step {
+            case .finding: return .finding
+            case .downloading: return .downloading
+            case .readingEquations: return .converting
+            case .preparing: return .building
+            case .waiting: return .waiting
+            case .other, nil: break
+            }
+            return switch progress {
             case .finding: .finding
             case .downloading: .downloading
             case .converting: .converting
             case .rendering, .finishing: .building
             default: phase == .accepted ? .queued : phase == .resolving ? .finding : .preparing
             }
-        default: nil
+        default: return nil
         }
     }
     /// The list's full status line. Failures say what failed in plain words.
     var libraryStatus: String {
         switch phase {
-        case .accepted, .resolving, .acquiring: return step?.label(short: false) ?? "Queued"
+        case .accepted, .resolving, .acquiring: return step?.label(short: false) ?? "Waiting to start"
         case .sourceOnly: return "Available at source"
         case .failed:
             switch errorCode {
@@ -309,7 +326,7 @@ extension LibraryImportRecord {
     /// The same status, short enough for a table column.
     var libraryShortStatus: String {
         switch phase {
-        case .accepted, .resolving, .acquiring: return step?.label(short: true) ?? "Queued"
+        case .accepted, .resolving, .acquiring: return step?.label(short: true) ?? "Waiting"
         case .failed:
             switch errorCode {
             case .insufficientCredits: return "Needs credits"
@@ -355,6 +372,8 @@ struct LibraryRowFacts {
     let needsCredits: Bool
     /// An import in progress: its step and when this device first saw it there.
     var stepTiming: ImportStepTiming? = nil
+    /// An import in progress: its percent, time left and step words (`ImportProgressView` draws it).
+    var importProgress: ImportProgress? = nil
 
     var statusText: String? {
         switch status { case .none: nil; case .active(let text), .info(let text), .problem(let text): text }

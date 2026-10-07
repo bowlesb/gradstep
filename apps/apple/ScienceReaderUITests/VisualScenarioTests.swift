@@ -58,6 +58,19 @@ final class VisualScenarioTests: XCTestCase {
             "library-slow-import-table": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table"]) { app in
                 self.showSlowImport(app)
             },
+            // Import progress (2026-10-07): imports at every step with percent and time left, one taking longer than
+            // usual and one from an older server; `-help` opens "Why does this take a minute?" from a row.
+            "library-import-progress": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture"]) { app in
+                XCTAssertTrue(app.descendants(matching: .any)["importProgress"].firstMatch.waitForExistence(timeout: 5)); sleep(1)
+            },
+            "library-import-progress-help": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture"]) { app in
+                let help = app.buttons["importProgress.help"].firstMatch
+                XCTAssertTrue(help.waitForExistence(timeout: 5)); help.tap()
+                XCTAssertTrue(app.navigationBars["Getting a paper ready"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "library-import-progress-table": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { _ in
+                sleep(2)
+            },
             "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
                 let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.swipeLeft(); sleep(1)
@@ -202,7 +215,7 @@ final class VisualScenarioTests: XCTestCase {
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
-    /// the time: "Converting equations and figures, 4 minutes, taking longer than usual".
+    /// the time: "Reading equations and figures, 4 minutes, taking longer than usual".
     private func showSlowImport(_ app: XCUIApplication) {
         let status = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "minutes, taking longer than usual")).firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 5))

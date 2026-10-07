@@ -80,6 +80,7 @@ struct RootView: View {
             Text("Your account and its data were deleted from our servers and this device.")
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model) }
+        .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer() }
         .sheet(item: $model.presentedDiagram) { presented in
             if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram) }
         }
@@ -413,7 +414,8 @@ struct LibraryView: View {
                                               getCredits: { model.showStore = true })
                         } else {
                             ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
-                                      stepSince: model.importSteps.timing(of: item)?.since, getCredits: { model.showStore = true })
+                                      stepSince: model.importSteps.timing(of: item)?.since, progress: model.importProgress(for: item),
+                                      getCredits: { model.showStore = true }, explain: { model.showImportHelp = true })
                         }
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
@@ -444,8 +446,12 @@ struct ImportRow: View {
     var showTopics = true
     /// When this device first saw the import on its current step (shown as how long the step has run).
     var stepSince: Date? = nil
+    /// While in progress: the step in the reader's words, a bar and the time left (`ImportProgressView`).
+    var progress: ImportProgress? = nil
     /// Offered when the conversion failed for lack of credits.
     var getCredits: (() -> Void)? = nil
+    /// "Why does this take a minute?" beside the progress.
+    var explain: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var active: Bool { item.isActive }
     var body: some View {
@@ -464,25 +470,31 @@ struct ImportRow: View {
             let revision = LibrarySource.badge(sourceID: item.sourceID, revision: item.sourceRevision ?? item.requestedRevision).map { [$0] } ?? []
             let metadata = (year.map { [$0] } ?? []) + revision + topics
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
-            HStack(spacing: 6) {
-                if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
-                if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
-                    Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
-                        .accessibilityIdentifier("import.getCredits")
-                }
-                if !active, let url = URL(string: item.sourceURL) {
-                    Spacer(minLength: 8)
-                    Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
-                }
-            }.padding(.top, 2)
+            if let progress {
+                // In progress: the step in the reader's words, a bar and the time left (pipeline progress, 2026-10-07).
+                ImportProgressView(progress: progress, style: .row, explain: explain).padding(.top, 2)
+            } else {
+                HStack(spacing: 6) {
+                    if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                    ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
+                    if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
+                        Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                            .accessibilityIdentifier("import.getCredits")
+                    }
+                    if !active, let url = URL(string: item.sourceURL) {
+                        Spacer(minLength: 8)
+                        Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
+                    }
+                }.padding(.top, 2)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 /// An import's status line. While it is in progress, how long the current step has run follows quietly
-/// ("Downloading PDF · 1 min"), and past three minutes "Taking longer than usual". It changes once a minute,
-/// without animation; VoiceOver reads the step and the time.
+/// ("Downloading the PDF · 1 min"), and past three minutes "Taking longer than usual". It changes once a minute,
+/// without animation; VoiceOver reads the step and the time. (Rows with an `ImportProgress` show
+/// `ImportProgressView` instead.)
 struct ImportStatusText: View {
     let item: LibraryImportRecord
     let since: Date?

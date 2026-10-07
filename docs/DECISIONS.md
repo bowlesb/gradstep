@@ -413,3 +413,29 @@ hyperlinks, like if they are numbers (which seems to work)". Decided without wak
   (12 retained, 10 downloaded read-only from staging storage): unambiguous author–year citations linked 89.5% → 99.8%
   (1,393 → 1,568 of 1,571), no wrong link against the oracle, 30/30 random links correct by hand, numbered papers
   unchanged, no block text changed. The owner's "Städter et al., 2021" paper went from 44.9% to 100%.
+
+## Import progress (owner asked 2026-10-07)
+
+Owner: "when items are processing, we should have a better UX, ideally, we have an estimate of the total time, and
+have a percent done, with stages that make more sense to the user (What does 'Converting...' mean?) What is a reader
+to the user?" Agent decisions overnight (owner asleep; all reversible); design in
+[import progress](architecture/IMPORT_PROGRESS.md).
+
+- **Steps in the reader's words:** Finding the paper → Downloading the PDF (40.8 MB) → Reading equations and figures
+  (page 12 of 27) → Preparing it for reading; also "Waiting to start", "Waiting to continue" (budget pause) and
+  "Couldn't download yet · Trying again automatically" (027's automatic retry, shown as under way, not as a failure).
+  No user-facing "converting", "rendering", "reader" or "bundle" on import rows.
+- **The readable result is "a readable version"** where a noun is needed (the explainer); rows avoid naming it.
+  "Reader" stays an internal word. Failure messages ("Conversion failed", "…to convert this paper") were left for a
+  separate pass.
+- **Percent and time left are computed by the server** from measured stage times (30-day medians, defaults from the
+  staging canary), scaled by pages, using Mathpix's page progress during OCR, and sent as `progress_detail` on the
+  import entry (migration 029). The percent never goes backwards within an attempt; the time is shown only when
+  trustworthy, rounded ("About 40 s left"), said loosely before the page count is known ("Usually under a minute"),
+  and replaced by "Taking longer than usual" when the paper is backing off or well past its estimate.
+- **Updates are throttled:** at most one progress entry per import per 5 s, only when the reader would see something
+  new, within a per-account progress rate (720/hour) separate from library writes; the app moves the bar and counts
+  down between updates.
+- **Explained once:** an info button beside the progress opens "Getting a paper ready" (four steps, about a minute,
+  carries on if you leave the app).
+- **Look:** a slim neutral bar (the accent bar remains reading progress), "62% · About 40 s left" beside it.
