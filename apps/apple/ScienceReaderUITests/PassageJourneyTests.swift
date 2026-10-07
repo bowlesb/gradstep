@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// Passage-linked conversations (docs/DECISIONS.md, "Passage-linked conversations"), over the encrypted local chat
 /// fixture and the offline sample paper: select → Explain → back to the paper → the passage is underlined → a tap on
@@ -18,8 +19,17 @@ final class PassageJourneyTests: XCTestCase {
         XCTAssertEqual(result, .completed, message, file: file, line: line)
     }
 
-    func testSelectionChatIsLinkedToItsPassage() throws {
+    func testSelectionChatIsLinkedToItsPassage() throws { try journey(.portrait) }
+
+    /// The iPad split: the chat is beside the paper.
+    func testTabletSplitLinksChatAndPassage() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Tablet split layout")
+        try journey(.landscapeLeft)
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    private func journey(_ orientation: UIDeviceOrientation) throws {
+        XCUIDevice.shared.orientation = orientation
         let app = XCUIApplication()
         app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"]
         app.launch()
