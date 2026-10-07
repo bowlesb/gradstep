@@ -1,0 +1,4649 @@
+{
+  "started": "2026-10-07T17:24:00.864Z",
+  "finished": "2026-10-07T17:30:56.658Z",
+  "host": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1 Max",
+    "node": "v24.18.0"
+  },
+  "browser": "153.0.8010.12",
+  "webkit_version": "26.6",
+  "versions": {
+    "name": "gradstep-framework-comparison",
+    "private": true,
+    "type": "module",
+    "scripts": {
+      "build": "node build.mjs",
+      "bench": "node bench.mjs"
+    },
+    "dependencies": {
+      "react": "19.3.0",
+      "react-dom": "19.3.0",
+      "svelte": "5.57.2"
+    },
+    "devDependencies": {
+      "vite": "8.3.2",
+      "@sveltejs/vite-plugin-svelte": "7.3.1",
+      "@playwright/test": "1.63.0",
+      "@babel/core": "7.28.4",
+      "babel-plugin-react-compiler": "1.0.0"
+    }
+  },
+  "bundle": {
+    "react": {
+      "js_bytes": 223472,
+      "gzip_bytes": 69362,
+      "brotli_bytes": 59588
+    },
+    "react-compiler": {
+      "js_bytes": 225932,
+      "gzip_bytes": 70421,
+      "brotli_bytes": 60511
+    },
+    "svelte": {
+      "js_bytes": 40483,
+      "gzip_bytes": 15881,
+      "brotli_bytes": 14322
+    }
+  },
+  "total_samples": 168,
+  "repetitions": 7,
+  "groups": [
+    {
+      "rate": 1,
+      "count": 1000,
+      "virtual": false,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 3.8522300720214844,
+        "min": 3.8513870239257812,
+        "max": 3.8529739379882812
+      },
+      "dom_nodes": {
+        "median": 13050,
+        "min": 13050,
+        "max": 13050
+      },
+      "startup_ms": {
+        "median": 36,
+        "min": 33,
+        "max": 68
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 54.269999999999996,
+            "min": 52.719,
+            "max": 65.45
+          },
+          "script_ms": {
+            "median": 12.366000000000001,
+            "min": 12.040000000000001,
+            "max": 14.707999999999998
+          },
+          "layout_ms": {
+            "median": 22.905,
+            "min": 22.217000000000002,
+            "max": 27.158
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 7.224999999999995,
+            "min": 6.931000000000006,
+            "max": 7.807000000000008
+          },
+          "script_ms": {
+            "median": 1.868999999999999,
+            "min": 1.7810000000000012,
+            "max": 2.0160000000000005
+          },
+          "layout_ms": {
+            "median": 2.863000000000001,
+            "min": 2.7120000000000024,
+            "max": 3.404000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 64.224,
+            "min": 63.09300000000001,
+            "max": 71.871
+          },
+          "script_ms": {
+            "median": 13.537,
+            "min": 13.136000000000001,
+            "max": 16.953999999999997
+          },
+          "layout_ms": {
+            "median": 27.515999999999995,
+            "min": 26.441999999999997,
+            "max": 29.434999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 11.13900000000001,
+            "min": 10.643000000000013,
+            "max": 11.842999999999993
+          },
+          "script_ms": {
+            "median": 7.4809999999999945,
+            "min": 7.206000000000004,
+            "max": 7.875
+          },
+          "layout_ms": {
+            "median": 0.5469999999999988,
+            "min": 0.5320000000000047,
+            "max": 0.6650000000000058
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 42.890000000000015,
+            "min": 41.34400000000002,
+            "max": 44.93599999999998
+          },
+          "script_ms": {
+            "median": 8.773999999999997,
+            "min": 8.325000000000006,
+            "max": 9.225000000000003
+          },
+          "layout_ms": {
+            "median": 17.832,
+            "min": 16.85699999999999,
+            "max": 19.091000000000005
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 46.31799999999997,
+            "min": 45.30699999999999,
+            "max": 52.208000000000034
+          },
+          "script_ms": {
+            "median": 3.0979999999999968,
+            "min": 2.9649999999999954,
+            "max": 3.3470000000000026
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 185.62700000000004,
+            "min": 166.83699999999996,
+            "max": 199.29799999999997
+          },
+          "script_ms": {
+            "median": 7.896,
+            "min": 6.994,
+            "max": 8.537000000000003
+          },
+          "layout_ms": {
+            "median": 10.763000000000009,
+            "min": 9.61999999999999,
+            "max": 12.383999999999991
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000068,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 1000,
+      "virtual": false,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 4.1253814697265625,
+        "min": 4.124446868896484,
+        "max": 4.125606536865234
+      },
+      "dom_nodes": {
+        "median": 13050,
+        "min": 13050,
+        "max": 13050
+      },
+      "startup_ms": {
+        "median": 37,
+        "min": 35,
+        "max": 38
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 56.001999999999995,
+            "min": 55.245999999999995,
+            "max": 65.963
+          },
+          "script_ms": {
+            "median": 12.858999999999998,
+            "min": 12.337,
+            "max": 14.178
+          },
+          "layout_ms": {
+            "median": 23.587999999999997,
+            "min": 22.764,
+            "max": 26.025
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 7.647000000000001,
+            "min": 6.813,
+            "max": 8.349000000000009
+          },
+          "script_ms": {
+            "median": 1.8480000000000025,
+            "min": 1.783,
+            "max": 2.193999999999998
+          },
+          "layout_ms": {
+            "median": 3.119,
+            "min": 2.6219999999999994,
+            "max": 3.4199999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 63.96199999999999,
+            "min": 62.913,
+            "max": 69.26299999999999
+          },
+          "script_ms": {
+            "median": 14.088,
+            "min": 13.336999999999998,
+            "max": 14.249
+          },
+          "layout_ms": {
+            "median": 28.043,
+            "min": 26.776000000000003,
+            "max": 28.823
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 11.712,
+            "min": 10.660000000000004,
+            "max": 13.097000000000026
+          },
+          "script_ms": {
+            "median": 7.958,
+            "min": 7.036999999999995,
+            "max": 8.724000000000002
+          },
+          "layout_ms": {
+            "median": 0.556999999999995,
+            "min": 0.5349999999999938,
+            "max": 0.6199999999999956
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 45.660000000000004,
+            "min": 43.55000000000003,
+            "max": 46.46699999999998
+          },
+          "script_ms": {
+            "median": 9.716000000000003,
+            "min": 9.343000000000004,
+            "max": 10.041000000000002
+          },
+          "layout_ms": {
+            "median": 18.833999999999996,
+            "min": 17.589000000000002,
+            "max": 19.589000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 42.23700000000002,
+            "min": 40.02700000000004,
+            "max": 44.06300000000002
+          },
+          "script_ms": {
+            "median": 0.9510000000000005,
+            "min": 0.906999999999998,
+            "max": 1.1079999999999979
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 184.942,
+            "min": 168.215,
+            "max": 190.574
+          },
+          "script_ms": {
+            "median": 7.931000000000007,
+            "min": 6.937000000000006,
+            "max": 8.715
+          },
+          "layout_ms": {
+            "median": 10.985000000000008,
+            "min": 10.294000000000011,
+            "max": 11.451000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000068,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 1000,
+      "virtual": false,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.8454360961914062,
+        "min": 2.8453369140625,
+        "max": 2.8454818725585938
+      },
+      "dom_nodes": {
+        "median": 12110,
+        "min": 12110,
+        "max": 12110
+      },
+      "startup_ms": {
+        "median": 27,
+        "min": 26,
+        "max": 28
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 49.21300000000001,
+            "min": 48.178,
+            "max": 54.376999999999995
+          },
+          "script_ms": {
+            "median": 7.8919999999999995,
+            "min": 7.622,
+            "max": 8.792
+          },
+          "layout_ms": {
+            "median": 22.642000000000003,
+            "min": 21.927000000000003,
+            "max": 26.29
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 6.0969999999999915,
+            "min": 5.602999999999997,
+            "max": 6.404999999999994
+          },
+          "script_ms": {
+            "median": 0.8240000000000001,
+            "min": 0.7430000000000005,
+            "max": 0.8999999999999998
+          },
+          "layout_ms": {
+            "median": 2.598000000000003,
+            "min": 2.364999999999999,
+            "max": 2.924999999999997
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 62.373,
+            "min": 58.81,
+            "max": 64.207
+          },
+          "script_ms": {
+            "median": 11.274999999999999,
+            "min": 10.823,
+            "max": 12.709999999999999
+          },
+          "layout_ms": {
+            "median": 26.947,
+            "min": 25.688999999999997,
+            "max": 27.901000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 8.773000000000003,
+            "min": 8.31599999999999,
+            "max": 9.468000000000004
+          },
+          "script_ms": {
+            "median": 5.256999999999998,
+            "min": 4.848000000000002,
+            "max": 5.745999999999998
+          },
+          "layout_ms": {
+            "median": 0.6029999999999993,
+            "min": 0.5730000000000041,
+            "max": 0.6889999999999952
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 40.023,
+            "min": 37.61500000000001,
+            "max": 42.078
+          },
+          "script_ms": {
+            "median": 4.666999999999997,
+            "min": 4.499,
+            "max": 5.001000000000002
+          },
+          "layout_ms": {
+            "median": 17.942,
+            "min": 16.79,
+            "max": 19.112
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 43.50199999999999,
+            "min": 42.35100000000003,
+            "max": 45.70099999999999
+          },
+          "script_ms": {
+            "median": 1.6030000000000002,
+            "min": 1.4569999999999999,
+            "max": 1.783
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 184.189,
+            "min": 148.51199999999997,
+            "max": 193.58100000000002
+          },
+          "script_ms": {
+            "median": 6.672999999999998,
+            "min": 3.8569999999999993,
+            "max": 6.925999999999995
+          },
+          "layout_ms": {
+            "median": 10.121000000000006,
+            "min": 8.360999999999994,
+            "max": 11.076000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000068,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": false,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 9.632827758789062,
+        "min": 9.6324462890625,
+        "max": 9.63360595703125
+      },
+      "dom_nodes": {
+        "median": 52050,
+        "min": 52050,
+        "max": 52050
+      },
+      "startup_ms": {
+        "median": 34,
+        "min": 34,
+        "max": 36
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 237.26099999999997,
+            "min": 232.10300000000004,
+            "max": 244.76299999999998
+          },
+          "script_ms": {
+            "median": 57.76100000000001,
+            "min": 55.961,
+            "max": 59.55100000000001
+          },
+          "layout_ms": {
+            "median": 104.05099999999999,
+            "min": 103.197,
+            "max": 109.453
+          },
+          "long_tasks": {
+            "median": 2,
+            "min": 2,
+            "max": 2
+          },
+          "max_long_task_ms": 185
+        },
+        "update": {
+          "task_ms": {
+            "median": 26.302999999999965,
+            "min": 23.444999999999993,
+            "max": 27.496999999999993
+          },
+          "script_ms": {
+            "median": 5.340999999999998,
+            "min": 5.002999999999994,
+            "max": 5.504999999999996
+          },
+          "layout_ms": {
+            "median": 12.076000000000004,
+            "min": 10.815999999999992,
+            "max": 13.166000000000011
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 242.25399999999996,
+            "min": 232.172,
+            "max": 247.645
+          },
+          "script_ms": {
+            "median": 78.141,
+            "min": 76.35400000000001,
+            "max": 79.42099999999999
+          },
+          "layout_ms": {
+            "median": 85.98499999999999,
+            "min": 82.39,
+            "max": 91.46900000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 79
+        },
+        "filter": {
+          "task_ms": {
+            "median": 36.93899999999994,
+            "min": 34.26999999999991,
+            "max": 42.25000000000001
+          },
+          "script_ms": {
+            "median": 28.449,
+            "min": 26.35700000000002,
+            "max": 32.621999999999986
+          },
+          "layout_ms": {
+            "median": 1.7260000000000053,
+            "min": 1.6580000000000206,
+            "max": 2.121000000000012
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 214.69700000000003,
+            "min": 207.34300000000005,
+            "max": 221.08400000000006
+          },
+          "script_ms": {
+            "median": 63.702000000000005,
+            "min": 53.96599999999999,
+            "max": 67.53600000000004
+          },
+          "layout_ms": {
+            "median": 78.30499999999999,
+            "min": 73.64599999999999,
+            "max": 83.92500000000003
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 67
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 139.64399999999998,
+            "min": 116.06800000000005,
+            "max": 169.57100000000003
+          },
+          "script_ms": {
+            "median": 8.599999999999996,
+            "min": 7.979999999999987,
+            "max": 9.355999999999975
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 361.6520000000001,
+            "min": 343.56999999999994,
+            "max": 398.6860000000001
+          },
+          "script_ms": {
+            "median": 6.818999999999992,
+            "min": 6.550000000000001,
+            "max": 7.32900000000003
+          },
+          "layout_ms": {
+            "median": 8.093000000000018,
+            "min": 7.830000000000004,
+            "max": 8.647999999999989
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.700000000000273,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": false,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 10.701309204101562,
+        "min": 10.70101547241211,
+        "max": 10.701309204101562
+      },
+      "dom_nodes": {
+        "median": 52050,
+        "min": 52050,
+        "max": 52050
+      },
+      "startup_ms": {
+        "median": 36,
+        "min": 34,
+        "max": 40
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 236.06400000000002,
+            "min": 233.12800000000001,
+            "max": 248.88400000000001
+          },
+          "script_ms": {
+            "median": 58.050999999999995,
+            "min": 56.83400000000001,
+            "max": 60.266
+          },
+          "layout_ms": {
+            "median": 105.42500000000001,
+            "min": 102.617,
+            "max": 114.82100000000001
+          },
+          "long_tasks": {
+            "median": 2,
+            "min": 2,
+            "max": 2
+          },
+          "max_long_task_ms": 189
+        },
+        "update": {
+          "task_ms": {
+            "median": 24.79300000000001,
+            "min": 24.139999999999993,
+            "max": 25.341
+          },
+          "script_ms": {
+            "median": 5.115999999999995,
+            "min": 5.037,
+            "max": 5.293999999999993
+          },
+          "layout_ms": {
+            "median": 11.592000000000006,
+            "min": 11.339000000000002,
+            "max": 12.399999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 239.97400000000002,
+            "min": 231.325,
+            "max": 246.49900000000002
+          },
+          "script_ms": {
+            "median": 76.82900000000001,
+            "min": 73.44099999999999,
+            "max": 81.671
+          },
+          "layout_ms": {
+            "median": 86,
+            "min": 82.65499999999999,
+            "max": 94.232
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 81
+        },
+        "filter": {
+          "task_ms": {
+            "median": 38.184,
+            "min": 34.657000000000046,
+            "max": 40.28200000000004
+          },
+          "script_ms": {
+            "median": 29.059,
+            "min": 25.81,
+            "max": 31.252000000000002
+          },
+          "layout_ms": {
+            "median": 1.7440000000000233,
+            "min": 1.6609999999999958,
+            "max": 1.7749999999999988
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 218.59500000000008,
+            "min": 198.909,
+            "max": 224.45700000000002
+          },
+          "script_ms": {
+            "median": 59.163,
+            "min": 54.96000000000001,
+            "max": 63.069999999999986
+          },
+          "layout_ms": {
+            "median": 78.795,
+            "min": 73.71099999999997,
+            "max": 82.36700000000002
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 63
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 112.46000000000001,
+            "min": 111.16599999999988,
+            "max": 119.89999999999989
+          },
+          "script_ms": {
+            "median": 1.0300000000000031,
+            "min": 0.9849999999999859,
+            "max": 1.0629999999999806
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 353.6600000000001,
+            "min": 341.499,
+            "max": 371.61599999999993
+          },
+          "script_ms": {
+            "median": 7.015999999999995,
+            "min": 6.802000000000002,
+            "max": 7.402999999999993
+          },
+          "layout_ms": {
+            "median": 8.197999999999983,
+            "min": 7.855999999999974,
+            "max": 8.550999999999975
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": false,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 6.516868591308594,
+        "min": 6.516380310058594,
+        "max": 6.518379211425781
+      },
+      "dom_nodes": {
+        "median": 48110,
+        "min": 48110,
+        "max": 48110
+      },
+      "startup_ms": {
+        "median": 27,
+        "min": 26,
+        "max": 28
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 191.89000000000001,
+            "min": 187.802,
+            "max": 196.817
+          },
+          "script_ms": {
+            "median": 23.197,
+            "min": 22.461,
+            "max": 24.518
+          },
+          "layout_ms": {
+            "median": 99.22500000000001,
+            "min": 96.72,
+            "max": 103.384
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 20.979000000000024,
+            "min": 20.59500000000003,
+            "max": 21.596000000000004
+          },
+          "script_ms": {
+            "median": 2.630999999999998,
+            "min": 2.5099999999999985,
+            "max": 2.790000000000001
+          },
+          "layout_ms": {
+            "median": 11.172,
+            "min": 10.773999999999992,
+            "max": 11.436000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 192.291,
+            "min": 187.543,
+            "max": 227.61599999999999
+          },
+          "script_ms": {
+            "median": 30.436000000000003,
+            "min": 29.871,
+            "max": 36.762
+          },
+          "layout_ms": {
+            "median": 85.144,
+            "min": 84.35999999999999,
+            "max": 100.37400000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 26.94400000000008,
+            "min": 25.745999999999935,
+            "max": 29.14399999999995
+          },
+          "script_ms": {
+            "median": 18.916000000000004,
+            "min": 18.386,
+            "max": 20.816000000000003
+          },
+          "layout_ms": {
+            "median": 1.7409999999999926,
+            "min": 1.583000000000001,
+            "max": 1.8469999999999875
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 180.18699999999998,
+            "min": 164.34000000000003,
+            "max": 194.14900000000003
+          },
+          "script_ms": {
+            "median": 19.365999999999993,
+            "min": 18.759999999999998,
+            "max": 20.439
+          },
+          "layout_ms": {
+            "median": 83.499,
+            "min": 78.931,
+            "max": 86.826
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 118.68100000000004,
+            "min": 111.94599999999998,
+            "max": 123.537
+          },
+          "script_ms": {
+            "median": 5.024000000000001,
+            "min": 4.636000000000001,
+            "max": 5.803000000000003
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 358.0150000000001,
+            "min": 348.2510000000001,
+            "max": 384.48899999999986
+          },
+          "script_ms": {
+            "median": 19.242999999999995,
+            "min": 15.821000000000002,
+            "max": 26.551999999999992
+          },
+          "layout_ms": {
+            "median": 8.313999999999988,
+            "min": 7.842000000000016,
+            "max": 8.907999999999971
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": true,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.645282745361328,
+        "min": 2.6452674865722656,
+        "max": 2.645282745361328
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 34,
+        "min": 33,
+        "max": 43
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.108000000000002,
+            "min": 5.886000000000003,
+            "max": 7.2049999999999965
+          },
+          "script_ms": {
+            "median": 1.6290000000000002,
+            "min": 1.5389999999999988,
+            "max": 2.262
+          },
+          "layout_ms": {
+            "median": 1.691,
+            "min": 1.6099999999999999,
+            "max": 1.976
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 1.5629999999999948,
+            "min": 1.45,
+            "max": 1.8239999999999992
+          },
+          "script_ms": {
+            "median": 0.5170000000000001,
+            "min": 0.4949999999999989,
+            "max": 0.5489999999999992
+          },
+          "layout_ms": {
+            "median": 0.19499999999999987,
+            "min": 0.18199999999999988,
+            "max": 0.21600000000000005
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 11.381999999999996,
+            "min": 10.806000000000003,
+            "max": 12.263000000000003
+          },
+          "script_ms": {
+            "median": 8.619,
+            "min": 8.292,
+            "max": 8.981000000000002
+          },
+          "layout_ms": {
+            "median": 0.7819999999999997,
+            "min": 0.7080000000000003,
+            "max": 1.0409999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 4.969000000000001,
+            "min": 4.567999999999996,
+            "max": 5.603999999999997
+          },
+          "script_ms": {
+            "median": 1.8199999999999987,
+            "min": 1.747000000000002,
+            "max": 2.1880000000000024
+          },
+          "layout_ms": {
+            "median": 0.8979999999999995,
+            "min": 0.83,
+            "max": 0.9960000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 4.824000000000009,
+            "min": 4.282000000000008,
+            "max": 5.172999999999997
+          },
+          "script_ms": {
+            "median": 2.284999999999999,
+            "min": 1.9959999999999978,
+            "max": 2.496999999999999
+          },
+          "layout_ms": {
+            "median": 0.8709999999999993,
+            "min": 0.784,
+            "max": 0.9730000000000008
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 28.493000000000006,
+            "min": 26.950000000000003,
+            "max": 29.432
+          },
+          "script_ms": {
+            "median": 4.083,
+            "min": 3.877000000000002,
+            "max": 4.3539999999999965
+          },
+          "layout_ms": {
+            "median": 4.305,
+            "min": 4.005,
+            "max": 4.617999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 75.12299999999999,
+            "min": 70.59400000000001,
+            "max": 89.46499999999999
+          },
+          "script_ms": {
+            "median": 10.585000000000004,
+            "min": 9.777000000000001,
+            "max": 12.616999999999999
+          },
+          "layout_ms": {
+            "median": 13.479999999999999,
+            "min": 13.148,
+            "max": 17.322999999999997
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": true,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.6360092163085938,
+        "min": 2.635997772216797,
+        "max": 2.6360092163085938
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 35,
+        "min": 33,
+        "max": 37
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.234,
+            "min": 5.7209999999999965,
+            "max": 6.468000000000005
+          },
+          "script_ms": {
+            "median": 1.6439999999999997,
+            "min": 1.5049999999999994,
+            "max": 1.717999999999999
+          },
+          "layout_ms": {
+            "median": 1.7029999999999998,
+            "min": 1.6229999999999998,
+            "max": 1.752
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 1.5229999999999966,
+            "min": 1.461999999999998,
+            "max": 1.687999999999995
+          },
+          "script_ms": {
+            "median": 0.5249999999999995,
+            "min": 0.5120000000000003,
+            "max": 0.5580000000000012
+          },
+          "layout_ms": {
+            "median": 0.18699999999999967,
+            "min": 0.17499999999999982,
+            "max": 0.22300000000000011
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 11.469,
+            "min": 11.161999999999999,
+            "max": 12.041000000000004
+          },
+          "script_ms": {
+            "median": 8.739999999999998,
+            "min": 8.507999999999997,
+            "max": 8.931999999999999
+          },
+          "layout_ms": {
+            "median": 0.8099999999999999,
+            "min": 0.7179999999999999,
+            "max": 0.947
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 5.137000000000002,
+            "min": 4.812000000000004,
+            "max": 5.627000000000007
+          },
+          "script_ms": {
+            "median": 2.012,
+            "min": 1.8369999999999984,
+            "max": 2.1550000000000007
+          },
+          "layout_ms": {
+            "median": 0.9509999999999996,
+            "min": 0.8960000000000001,
+            "max": 0.9970000000000004
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 4.862000000000005,
+            "min": 4.559999999999994,
+            "max": 5.0560000000000045
+          },
+          "script_ms": {
+            "median": 2.350999999999999,
+            "min": 2.1639999999999993,
+            "max": 2.4990000000000014
+          },
+          "layout_ms": {
+            "median": 0.8630000000000001,
+            "min": 0.7920000000000001,
+            "max": 0.895
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 28.226000000000003,
+            "min": 26.323,
+            "max": 29.605999999999995
+          },
+          "script_ms": {
+            "median": 4.1209999999999996,
+            "min": 3.862000000000001,
+            "max": 4.276000000000002
+          },
+          "layout_ms": {
+            "median": 4.185,
+            "min": 3.8040000000000003,
+            "max": 4.510000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 75.45000000000002,
+            "min": 68.779,
+            "max": 86.91699999999999
+          },
+          "script_ms": {
+            "median": 11.243000000000002,
+            "min": 10.149999999999999,
+            "max": 13.526999999999997
+          },
+          "layout_ms": {
+            "median": 14.036000000000001,
+            "min": 12.897,
+            "max": 15.959999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.700000000000045,
+        "max": 16.800000000000068
+      }
+    },
+    {
+      "rate": 1,
+      "count": 4000,
+      "virtual": true,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.283924102783203,
+        "min": 2.283924102783203,
+        "max": 2.283924102783203
+      },
+      "dom_nodes": {
+        "median": 428,
+        "min": 428,
+        "max": 428
+      },
+      "startup_ms": {
+        "median": 27,
+        "min": 25,
+        "max": 28
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.113,
+            "min": 5.502,
+            "max": 6.255
+          },
+          "script_ms": {
+            "median": 1.2440000000000002,
+            "min": 1.143,
+            "max": 1.288
+          },
+          "layout_ms": {
+            "median": 1.758,
+            "min": 1.616,
+            "max": 1.8650000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 1.4339999999999977,
+            "min": 1.3050000000000006,
+            "max": 1.5340000000000007
+          },
+          "script_ms": {
+            "median": 0.1979999999999994,
+            "min": 0.18099999999999974,
+            "max": 0.2149999999999999
+          },
+          "layout_ms": {
+            "median": 0.1789999999999999,
+            "min": 0.1529999999999999,
+            "max": 0.19899999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 10.417999999999997,
+            "min": 10.077000000000002,
+            "max": 11.122
+          },
+          "script_ms": {
+            "median": 7.849,
+            "min": 7.484999999999999,
+            "max": 8.173
+          },
+          "layout_ms": {
+            "median": 0.7809999999999996,
+            "min": 0.7279999999999995,
+            "max": 0.8909999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 3.7809999999999997,
+            "min": 3.6479999999999984,
+            "max": 4.098999999999998
+          },
+          "script_ms": {
+            "median": 1.229000000000001,
+            "min": 1.1640000000000001,
+            "max": 1.2710000000000012
+          },
+          "layout_ms": {
+            "median": 0.9339999999999999,
+            "min": 0.8830000000000001,
+            "max": 0.9449999999999996
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 4.991999999999996,
+            "min": 4.881999999999998,
+            "max": 5.085999999999993
+          },
+          "script_ms": {
+            "median": 2.1059999999999985,
+            "min": 2.084000000000001,
+            "max": 2.196000000000002
+          },
+          "layout_ms": {
+            "median": 0.811,
+            "min": 0.7949999999999997,
+            "max": 0.8519999999999994
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 24.992999999999995,
+            "min": 24.351000000000006,
+            "max": 26.71099999999999
+          },
+          "script_ms": {
+            "median": 3.1079999999999997,
+            "min": 3.0059999999999985,
+            "max": 3.9949999999999983
+          },
+          "layout_ms": {
+            "median": 4.007999999999999,
+            "min": 3.6899999999999995,
+            "max": 4.2940000000000005
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 63.96300000000001,
+            "min": 58.763999999999996,
+            "max": 77.697
+          },
+          "script_ms": {
+            "median": 4.339000000000002,
+            "min": 3.4619999999999997,
+            "max": 5.518999999999999
+          },
+          "layout_ms": {
+            "median": 13.316,
+            "min": 11.910000000000002,
+            "max": 16.417
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.80000000000001,
+        "min": 16.700000000000045,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 50000,
+      "virtual": true,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.592288970947266,
+        "min": 11.592063903808594,
+        "max": 11.592292785644531
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 36,
+        "min": 33,
+        "max": 37
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.3290000000000015,
+            "min": 6.177999999999996,
+            "max": 6.584
+          },
+          "script_ms": {
+            "median": 1.712,
+            "min": 1.6439999999999997,
+            "max": 1.8590000000000013
+          },
+          "layout_ms": {
+            "median": 1.7030000000000003,
+            "min": 1.6059999999999999,
+            "max": 1.7419999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 2.231000000000004,
+            "min": 2.2050000000000054,
+            "max": 2.6279999999999912
+          },
+          "script_ms": {
+            "median": 1.2969999999999995,
+            "min": 1.209,
+            "max": 1.5219999999999991
+          },
+          "layout_ms": {
+            "median": 0.17500000000000024,
+            "min": 0.1650000000000002,
+            "max": 0.2009999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 30.00699999999999,
+            "min": 29.191999999999997,
+            "max": 31.819
+          },
+          "script_ms": {
+            "median": 27.276000000000003,
+            "min": 26.615000000000002,
+            "max": 28.569999999999997
+          },
+          "layout_ms": {
+            "median": 0.7759999999999998,
+            "min": 0.7460000000000006,
+            "max": 0.9919999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 12.217000000000006,
+            "min": 11.760999999999994,
+            "max": 14.127
+          },
+          "script_ms": {
+            "median": 5.188999999999999,
+            "min": 4.934000000000001,
+            "max": 5.581000000000003
+          },
+          "layout_ms": {
+            "median": 0.8920000000000005,
+            "min": 0.849,
+            "max": 1.1250000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 20.407000000000007,
+            "min": 19.706000000000003,
+            "max": 20.863000000000007
+          },
+          "script_ms": {
+            "median": 17.917,
+            "min": 17.2,
+            "max": 18.213
+          },
+          "layout_ms": {
+            "median": 0.804,
+            "min": 0.7629999999999998,
+            "max": 0.8440000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 24.628999999999984,
+            "min": 22.989999999999984,
+            "max": 25.170000000000027
+          },
+          "script_ms": {
+            "median": 3.9860000000000033,
+            "min": 3.7379999999999916,
+            "max": 4.115999999999994
+          },
+          "layout_ms": {
+            "median": 3.945,
+            "min": 3.720000000000001,
+            "max": 4.303999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 74.935,
+            "min": 63.887,
+            "max": 86.362
+          },
+          "script_ms": {
+            "median": 10.722999999999997,
+            "min": 8.237000000000009,
+            "max": 11.694999999999997
+          },
+          "layout_ms": {
+            "median": 14.501999999999999,
+            "min": 11.945999999999998,
+            "max": 16.473
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.700000000000045,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 50000,
+      "virtual": true,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.583015441894531,
+        "min": 11.58279037475586,
+        "max": 11.583019256591797
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 35,
+        "min": 34,
+        "max": 39
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.149000000000002,
+            "min": 5.860999999999998,
+            "max": 6.332000000000004
+          },
+          "script_ms": {
+            "median": 1.6160000000000012,
+            "min": 1.5519999999999996,
+            "max": 1.795999999999999
+          },
+          "layout_ms": {
+            "median": 1.658,
+            "min": 1.633,
+            "max": 1.734
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 2.3040000000000003,
+            "min": 2.161000000000003,
+            "max": 2.5369999999999977
+          },
+          "script_ms": {
+            "median": 1.2790000000000006,
+            "min": 1.2060000000000004,
+            "max": 1.4560000000000006
+          },
+          "layout_ms": {
+            "median": 0.18599999999999997,
+            "min": 0.16899999999999987,
+            "max": 0.20700000000000016
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 29.86,
+            "min": 29.699,
+            "max": 30.915
+          },
+          "script_ms": {
+            "median": 27.186000000000003,
+            "min": 26.872,
+            "max": 28.033
+          },
+          "layout_ms": {
+            "median": 0.8060000000000003,
+            "min": 0.788,
+            "max": 0.8609999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 12.531,
+            "min": 12.124999999999996,
+            "max": 12.781
+          },
+          "script_ms": {
+            "median": 5.4190000000000005,
+            "min": 5.0219999999999985,
+            "max": 5.520999999999998
+          },
+          "layout_ms": {
+            "median": 0.8869999999999998,
+            "min": 0.804,
+            "max": 0.9430000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 20.247999999999987,
+            "min": 19.57400000000001,
+            "max": 20.393999999999995
+          },
+          "script_ms": {
+            "median": 17.687999999999995,
+            "min": 17.094000000000005,
+            "max": 17.900999999999993
+          },
+          "layout_ms": {
+            "median": 0.8209999999999997,
+            "min": 0.8009999999999996,
+            "max": 0.8380000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 24.819000000000006,
+            "min": 23.79299999999998,
+            "max": 25.88399999999999
+          },
+          "script_ms": {
+            "median": 3.9740000000000055,
+            "min": 3.8620000000000045,
+            "max": 4.098999999999991
+          },
+          "layout_ms": {
+            "median": 4.122,
+            "min": 3.683,
+            "max": 4.309
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 71.664,
+            "min": 59.650000000000006,
+            "max": 94.39200000000002
+          },
+          "script_ms": {
+            "median": 10.747000000000007,
+            "min": 8.455000000000004,
+            "max": 14.109999999999998
+          },
+          "layout_ms": {
+            "median": 13.754,
+            "min": 11.27,
+            "max": 17.439
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000068,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 1,
+      "count": 50000,
+      "virtual": true,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.230995178222656,
+        "min": 11.230766296386719,
+        "max": 11.230995178222656
+      },
+      "dom_nodes": {
+        "median": 428,
+        "min": 428,
+        "max": 428
+      },
+      "startup_ms": {
+        "median": 26,
+        "min": 25,
+        "max": 29
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 6.0249999999999995,
+            "min": 5.664000000000002,
+            "max": 6.297999999999998
+          },
+          "script_ms": {
+            "median": 1.2709999999999995,
+            "min": 1.2189999999999996,
+            "max": 1.4569999999999999
+          },
+          "layout_ms": {
+            "median": 1.6430000000000002,
+            "min": 1.568,
+            "max": 1.7759999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 2.256000000000001,
+            "min": 1.9930000000000017,
+            "max": 2.5130000000000012
+          },
+          "script_ms": {
+            "median": 0.21899999999999958,
+            "min": 0.19300000000000045,
+            "max": 0.28200000000000014
+          },
+          "layout_ms": {
+            "median": 0.16800000000000018,
+            "min": 0.14800000000000013,
+            "max": 0.18899999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 28.744,
+            "min": 28.403,
+            "max": 29.824999999999996
+          },
+          "script_ms": {
+            "median": 26.078999999999997,
+            "min": 25.739,
+            "max": 27.096
+          },
+          "layout_ms": {
+            "median": 0.7989999999999998,
+            "min": 0.7409999999999999,
+            "max": 0.8370000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 11.292999999999997,
+            "min": 10.977999999999987,
+            "max": 11.608999999999995
+          },
+          "script_ms": {
+            "median": 4.556999999999999,
+            "min": 4.416999999999997,
+            "max": 4.751999999999999
+          },
+          "layout_ms": {
+            "median": 0.8259999999999995,
+            "min": 0.7850000000000001,
+            "max": 0.8830000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 20.020999999999997,
+            "min": 19.602999999999994,
+            "max": 20.35000000000001
+          },
+          "script_ms": {
+            "median": 17.630999999999993,
+            "min": 17.201999999999995,
+            "max": 17.827999999999996
+          },
+          "layout_ms": {
+            "median": 0.8049999999999993,
+            "min": 0.758,
+            "max": 0.889
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 21.710000000000008,
+            "min": 20.427,
+            "max": 23.584999999999994
+          },
+          "script_ms": {
+            "median": 2.929000000000001,
+            "min": 2.7629999999999946,
+            "max": 3.273000000000005
+          },
+          "layout_ms": {
+            "median": 3.8129999999999997,
+            "min": 3.5850000000000004,
+            "max": 4.138999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 71.374,
+            "min": 53.787,
+            "max": 79.63399999999999
+          },
+          "script_ms": {
+            "median": 4.7029999999999985,
+            "min": 3.136,
+            "max": 5.385000000000001
+          },
+          "layout_ms": {
+            "median": 14.838000000000001,
+            "min": 11.354,
+            "max": 16.925
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.700000000000045,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 1000,
+      "virtual": false,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 3.856090545654297,
+        "min": 3.8556671142578125,
+        "max": 3.8566970825195312
+      },
+      "dom_nodes": {
+        "median": 13050,
+        "min": 13050,
+        "max": 13050
+      },
+      "startup_ms": {
+        "median": 122,
+        "min": 120,
+        "max": 124
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 232.343,
+            "min": 212.956,
+            "max": 237.173
+          },
+          "script_ms": {
+            "median": 49.416000000000004,
+            "min": 46.635999999999996,
+            "max": 51.968999999999994
+          },
+          "layout_ms": {
+            "median": 101.007,
+            "min": 88.675,
+            "max": 103.57
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 2
+          },
+          "max_long_task_ms": 182
+        },
+        "update": {
+          "task_ms": {
+            "median": 30.110000000000024,
+            "min": 28.791999999999984,
+            "max": 34.506000000000036
+          },
+          "script_ms": {
+            "median": 7.605,
+            "min": 6.867999999999999,
+            "max": 7.884000000000002
+          },
+          "layout_ms": {
+            "median": 11.99,
+            "min": 10.850999999999999,
+            "max": 15.016000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 270.64500000000004,
+            "min": 261.061,
+            "max": 275.90000000000003
+          },
+          "script_ms": {
+            "median": 61.85899999999998,
+            "min": 57.016999999999996,
+            "max": 64.54599999999999
+          },
+          "layout_ms": {
+            "median": 117.75899999999999,
+            "min": 114.72200000000001,
+            "max": 122.74600000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 61
+        },
+        "filter": {
+          "task_ms": {
+            "median": 48.55399999999999,
+            "min": 45.58899999999999,
+            "max": 50.93700000000001
+          },
+          "script_ms": {
+            "median": 33.11800000000001,
+            "min": 31.975999999999978,
+            "max": 35.06899999999999
+          },
+          "layout_ms": {
+            "median": 2.355999999999997,
+            "min": 1.9830000000000125,
+            "max": 2.9430000000000014
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 190.15799999999993,
+            "min": 186.2750000000001,
+            "max": 191.651
+          },
+          "script_ms": {
+            "median": 35.415,
+            "min": 34.525,
+            "max": 36.54600000000002
+          },
+          "layout_ms": {
+            "median": 79.33200000000001,
+            "min": 76.985,
+            "max": 80.04499999999997
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 181.38600000000005,
+            "min": 177.84900000000016,
+            "max": 183.9219999999999
+          },
+          "script_ms": {
+            "median": 12.550000000000006,
+            "min": 12.229999999999992,
+            "max": 13.253999999999987
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 524.138,
+            "min": 500.772,
+            "max": 558.9709999999999
+          },
+          "script_ms": {
+            "median": 16.944999999999986,
+            "min": 15.112999999999987,
+            "max": 20.448999999999995
+          },
+          "layout_ms": {
+            "median": 21.546999999999983,
+            "min": 19.892999999999994,
+            "max": 23.814999999999976
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.700000000000273,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 1000,
+      "virtual": false,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 4.129398345947266,
+        "min": 4.128913879394531,
+        "max": 4.129848480224609
+      },
+      "dom_nodes": {
+        "median": 13050,
+        "min": 13050,
+        "max": 13050
+      },
+      "startup_ms": {
+        "median": 124,
+        "min": 121,
+        "max": 127
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 235.91,
+            "min": 221.937,
+            "max": 248.54500000000002
+          },
+          "script_ms": {
+            "median": 51.49700000000001,
+            "min": 48.661,
+            "max": 54.217
+          },
+          "layout_ms": {
+            "median": 102.74699999999999,
+            "min": 95.72,
+            "max": 108.736
+          },
+          "long_tasks": {
+            "median": 2,
+            "min": 1,
+            "max": 2
+          },
+          "max_long_task_ms": 191
+        },
+        "update": {
+          "task_ms": {
+            "median": 30.628000000000043,
+            "min": 26.907000000000014,
+            "max": 32.69800000000006
+          },
+          "script_ms": {
+            "median": 7.2600000000000025,
+            "min": 6.9199999999999955,
+            "max": 8.068999999999992
+          },
+          "layout_ms": {
+            "median": 12.052000000000007,
+            "min": 10.730000000000004,
+            "max": 12.719999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 265.32,
+            "min": 256.4949999999999,
+            "max": 282.4559999999999
+          },
+          "script_ms": {
+            "median": 61.94,
+            "min": 59.668,
+            "max": 65.139
+          },
+          "layout_ms": {
+            "median": 113.76700000000001,
+            "min": 106.691,
+            "max": 121.523
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 60
+        },
+        "filter": {
+          "task_ms": {
+            "median": 48.640000000000015,
+            "min": 46.377,
+            "max": 50.669999999999995
+          },
+          "script_ms": {
+            "median": 33.73699999999999,
+            "min": 30.991000000000017,
+            "max": 34.489999999999995
+          },
+          "layout_ms": {
+            "median": 2.5540000000000007,
+            "min": 2.1440000000000072,
+            "max": 3.1790000000000154
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 187.2180000000001,
+            "min": 184.50900000000004,
+            "max": 199.8460000000001
+          },
+          "script_ms": {
+            "median": 38.611000000000004,
+            "min": 35.23599999999999,
+            "max": 39.83400000000001
+          },
+          "layout_ms": {
+            "median": 78.62700000000002,
+            "min": 75.21300000000004,
+            "max": 83.66500000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 159.3140000000002,
+            "min": 156.75700000000003,
+            "max": 169.33699999999985
+          },
+          "script_ms": {
+            "median": 3.782999999999981,
+            "min": 2.3400000000000087,
+            "max": 4.538999999999987
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 528.702,
+            "min": 506.90900000000005,
+            "max": 597.5600000000001
+          },
+          "script_ms": {
+            "median": 19.70700000000003,
+            "min": 16.157999999999976,
+            "max": 23.863999999999997
+          },
+          "layout_ms": {
+            "median": 21.945999999999966,
+            "min": 21.764000000000006,
+            "max": 26.193999999999996
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999727,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 1000,
+      "virtual": false,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.8453636169433594,
+        "min": 2.8443069458007812,
+        "max": 2.8496437072753906
+      },
+      "dom_nodes": {
+        "median": 12110,
+        "min": 12110,
+        "max": 12110
+      },
+      "startup_ms": {
+        "median": 84,
+        "min": 82,
+        "max": 95
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 209.18800000000002,
+            "min": 205.38199999999998,
+            "max": 227.161
+          },
+          "script_ms": {
+            "median": 29.724,
+            "min": 28.720000000000002,
+            "max": 33.715
+          },
+          "layout_ms": {
+            "median": 99.946,
+            "min": 96.41900000000001,
+            "max": 105.169
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 1
+          },
+          "max_long_task_ms": 191
+        },
+        "update": {
+          "task_ms": {
+            "median": 25.995000000000047,
+            "min": 24.73700000000001,
+            "max": 27.415000000000024
+          },
+          "script_ms": {
+            "median": 3.9659999999999975,
+            "min": 3.368000000000003,
+            "max": 4.721999999999997
+          },
+          "layout_ms": {
+            "median": 11.037999999999993,
+            "min": 10.593999999999992,
+            "max": 11.715000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 255.01099999999994,
+            "min": 245.783,
+            "max": 273.647
+          },
+          "script_ms": {
+            "median": 54.535999999999994,
+            "min": 51.541000000000004,
+            "max": 56.632999999999996
+          },
+          "layout_ms": {
+            "median": 115.19600000000001,
+            "min": 107.501,
+            "max": 120.51100000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 0,
+            "max": 1
+          },
+          "max_long_task_ms": 50
+        },
+        "filter": {
+          "task_ms": {
+            "median": 36.63000000000005,
+            "min": 35.40999999999994,
+            "max": 40.72900000000001
+          },
+          "script_ms": {
+            "median": 21.192000000000004,
+            "min": 20.391000000000005,
+            "max": 25.119000000000003
+          },
+          "layout_ms": {
+            "median": 2.9740000000000046,
+            "min": 2.244999999999997,
+            "max": 3.464999999999996
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 174.55399999999997,
+            "min": 164.85100000000008,
+            "max": 189.06900000000005
+          },
+          "script_ms": {
+            "median": 19.852000000000007,
+            "min": 18.089999999999996,
+            "max": 20.507999999999985
+          },
+          "layout_ms": {
+            "median": 78.239,
+            "min": 75.94800000000002,
+            "max": 82.98700000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 174.24300000000002,
+            "min": 167.48300000000006,
+            "max": 187.77400000000011
+          },
+          "script_ms": {
+            "median": 6.319000000000019,
+            "min": 5.259000000000014,
+            "max": 7.884000000000002
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 538.403,
+            "min": 521.7399999999999,
+            "max": 589.0659999999999
+          },
+          "script_ms": {
+            "median": 14.555999999999985,
+            "min": 10.781000000000013,
+            "max": 19.868999999999996
+          },
+          "layout_ms": {
+            "median": 22.865000000000023,
+            "min": 19.148,
+            "max": 23.882000000000016
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000182,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": false,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 9.632904052734375,
+        "min": 9.632518768310547,
+        "max": 9.633075714111328
+      },
+      "dom_nodes": {
+        "median": 52050,
+        "min": 52050,
+        "max": 52050
+      },
+      "startup_ms": {
+        "median": 124,
+        "min": 121,
+        "max": 131
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 1007.565,
+            "min": 990.6949999999999,
+            "max": 1037.536
+          },
+          "script_ms": {
+            "median": 231.53199999999998,
+            "min": 225.45100000000002,
+            "max": 233.22199999999998
+          },
+          "layout_ms": {
+            "median": 457.9200000000001,
+            "min": 444.593,
+            "max": 468.312
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 233
+        },
+        "update": {
+          "task_ms": {
+            "median": 107.67700000000002,
+            "min": 106.371,
+            "max": 109.89700000000013
+          },
+          "script_ms": {
+            "median": 19.01200000000003,
+            "min": 18.10800000000001,
+            "max": 19.940000000000012
+          },
+          "layout_ms": {
+            "median": 52.67099999999997,
+            "min": 50.55300000000007,
+            "max": 53.793999999999954
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 1033.372,
+            "min": 1017.0439999999999,
+            "max": 1081.1259999999997
+          },
+          "script_ms": {
+            "median": 320.99399999999997,
+            "min": 313.812,
+            "max": 336.202
+          },
+          "layout_ms": {
+            "median": 381.104,
+            "min": 369.123,
+            "max": 386.757
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 336
+        },
+        "filter": {
+          "task_ms": {
+            "median": 161.5040000000003,
+            "min": 152.61099999999982,
+            "max": 182.0560000000002
+          },
+          "script_ms": {
+            "median": 120.93299999999996,
+            "min": 114.44100000000002,
+            "max": 141.44899999999993
+          },
+          "layout_ms": {
+            "median": 7.536000000000098,
+            "min": 7.152000000000047,
+            "max": 8.703999999999933
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 142
+        },
+        "clear": {
+          "task_ms": {
+            "median": 866.4879999999999,
+            "min": 863.5099999999998,
+            "max": 881.5300000000002
+          },
+          "script_ms": {
+            "median": 248.96799999999996,
+            "min": 234.83599999999993,
+            "max": 263.938
+          },
+          "layout_ms": {
+            "median": 329.0059999999999,
+            "min": 322.75100000000015,
+            "max": 341.2010000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 263
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 560.1469999999997,
+            "min": 538.2500000000001,
+            "max": 646.7169999999998
+          },
+          "script_ms": {
+            "median": 35.328000000000024,
+            "min": 33.19900000000009,
+            "max": 59.92600000000004
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 1
+          },
+          "max_long_task_ms": 53
+        },
+        "stream": {
+          "task_ms": {
+            "median": 1508.134,
+            "min": 1469.5360000000005,
+            "max": 1583.0259999999994
+          },
+          "script_ms": {
+            "median": 29.555,
+            "min": 27.180999999999898,
+            "max": 33.810000000000116
+          },
+          "layout_ms": {
+            "median": 24.877000000000038,
+            "min": 22.851000000000177,
+            "max": 28.48099999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000182,
+        "min": 16.800000000000182,
+        "max": 33.30000000000018
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": false,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 10.701000213623047,
+        "min": 10.701000213623047,
+        "max": 10.701545715332031
+      },
+      "dom_nodes": {
+        "median": 52050,
+        "min": 52050,
+        "max": 52050
+      },
+      "startup_ms": {
+        "median": 124,
+        "min": 118,
+        "max": 129
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 1008.2260000000001,
+            "min": 997.941,
+            "max": 1016.7460000000001
+          },
+          "script_ms": {
+            "median": 231.39600000000002,
+            "min": 229.1,
+            "max": 237.66199999999998
+          },
+          "layout_ms": {
+            "median": 450.154,
+            "min": 439.775,
+            "max": 462.26
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 236
+        },
+        "update": {
+          "task_ms": {
+            "median": 107.49300000000007,
+            "min": 104.2409999999998,
+            "max": 116.65799999999993
+          },
+          "script_ms": {
+            "median": 19.262,
+            "min": 18.08499999999996,
+            "max": 20.262999999999977
+          },
+          "layout_ms": {
+            "median": 52.44600000000005,
+            "min": 49.62,
+            "max": 54.307999999999964
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 1023.779,
+            "min": 1008.413,
+            "max": 1049.5459999999998
+          },
+          "script_ms": {
+            "median": 321.231,
+            "min": 312.67100000000005,
+            "max": 324.009
+          },
+          "layout_ms": {
+            "median": 367.92100000000005,
+            "min": 358.657,
+            "max": 394.5599999999999
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 324
+        },
+        "filter": {
+          "task_ms": {
+            "median": 159.39199999999997,
+            "min": 154.66000000000025,
+            "max": 163.57700000000008
+          },
+          "script_ms": {
+            "median": 120.33900000000008,
+            "min": 117.40300000000003,
+            "max": 124.99800000000005
+          },
+          "layout_ms": {
+            "median": 7.589000000000068,
+            "min": 7.480000000000042,
+            "max": 7.938000000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 125
+        },
+        "clear": {
+          "task_ms": {
+            "median": 864.5989999999997,
+            "min": 847.1350000000002,
+            "max": 909.0380000000002
+          },
+          "script_ms": {
+            "median": 240.63899999999992,
+            "min": 234.83999999999995,
+            "max": 245.20599999999993
+          },
+          "layout_ms": {
+            "median": 330.16100000000006,
+            "min": 325.8730000000001,
+            "max": 350.048
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 246
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 499.9660000000001,
+            "min": 469.60000000000025,
+            "max": 575.4140000000003
+          },
+          "script_ms": {
+            "median": 4.56600000000007,
+            "min": 3.326000000000051,
+            "max": 4.835000000000034
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 1493.7040000000002,
+            "min": 1447.4619999999998,
+            "max": 1510.4220000000003
+          },
+          "script_ms": {
+            "median": 27.314999999999976,
+            "min": 22.653999999999954,
+            "max": 31.903000000000013
+          },
+          "layout_ms": {
+            "median": 22.908999999999846,
+            "min": 21.126999999999896,
+            "max": 27.50600000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000182,
+        "min": 16.800000000000182,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": false,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 6.520809173583984,
+        "min": 6.5193939208984375,
+        "max": 6.521724700927734
+      },
+      "dom_nodes": {
+        "median": 48110,
+        "min": 48110,
+        "max": 48110
+      },
+      "startup_ms": {
+        "median": 84,
+        "min": 81,
+        "max": 87
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 848.098,
+            "min": 798.5889999999999,
+            "max": 905.652
+          },
+          "script_ms": {
+            "median": 101.088,
+            "min": 91.641,
+            "max": 103.186
+          },
+          "layout_ms": {
+            "median": 416.916,
+            "min": 408.091,
+            "max": 455.08799999999997
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 96
+        },
+        "update": {
+          "task_ms": {
+            "median": 100.88300000000005,
+            "min": 96.26599999999996,
+            "max": 107.2470000000001
+          },
+          "script_ms": {
+            "median": 11.800000000000004,
+            "min": 10.764999999999997,
+            "max": 12.113999999999999
+          },
+          "layout_ms": {
+            "median": 49.565000000000026,
+            "min": 48.48399999999997,
+            "max": 53.84800000000006
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 901.4830000000001,
+            "min": 889.283,
+            "max": 940.7009999999998
+          },
+          "script_ms": {
+            "median": 147.09199999999998,
+            "min": 144.53400000000002,
+            "max": 150.07899999999998
+          },
+          "layout_ms": {
+            "median": 395.285,
+            "min": 389.545,
+            "max": 410.552
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 161
+        },
+        "filter": {
+          "task_ms": {
+            "median": 114.43100000000017,
+            "min": 110.75400000000002,
+            "max": 115.24100000000016
+          },
+          "script_ms": {
+            "median": 81.77500000000005,
+            "min": 79.17699999999999,
+            "max": 82.94500000000005
+          },
+          "layout_ms": {
+            "median": 6.812999999999958,
+            "min": 5.515999999999965,
+            "max": 7.403000000000048
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 84
+        },
+        "clear": {
+          "task_ms": {
+            "median": 696.7810000000001,
+            "min": 670.4599999999998,
+            "max": 705.9829999999998
+          },
+          "script_ms": {
+            "median": 87.47300000000003,
+            "min": 82.57599999999998,
+            "max": 90.34500000000001
+          },
+          "layout_ms": {
+            "median": 328.97299999999996,
+            "min": 313.693,
+            "max": 334.364
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 90
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 488.13700000000006,
+            "min": 478.7670000000004,
+            "max": 498.05600000000004
+          },
+          "script_ms": {
+            "median": 20.368,
+            "min": 17.670999999999992,
+            "max": 23.014000000000035
+          },
+          "layout_ms": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 1513.8910000000005,
+            "min": 1433.925,
+            "max": 1615.3470000000002
+          },
+          "script_ms": {
+            "median": 60.57200000000002,
+            "min": 51.53199999999997,
+            "max": 64.09899999999996
+          },
+          "layout_ms": {
+            "median": 29.83899999999995,
+            "min": 24.83000000000013,
+            "max": 31.11100000000011
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 33.400000000000546,
+        "min": 33.399999999999636,
+        "max": 33.5
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": true,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.645282745361328,
+        "min": 2.6452713012695312,
+        "max": 2.645282745361328
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 121,
+        "min": 120,
+        "max": 126
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 24.912000000000003,
+            "min": 22.791999999999994,
+            "max": 26.69999999999999
+          },
+          "script_ms": {
+            "median": 6.912000000000002,
+            "min": 6.539000000000003,
+            "max": 7.249999999999999
+          },
+          "layout_ms": {
+            "median": 6.88,
+            "min": 6.453999999999999,
+            "max": 7.728
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 5.750000000000005,
+            "min": 5.233000000000016,
+            "max": 7.233000000000017
+          },
+          "script_ms": {
+            "median": 2.3470000000000018,
+            "min": 1.8729999999999998,
+            "max": 3.2239999999999975
+          },
+          "layout_ms": {
+            "median": 0.9610000000000001,
+            "min": 0.7360000000000005,
+            "max": 1.039
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 45.637999999999984,
+            "min": 45.126,
+            "max": 50.01499999999998
+          },
+          "script_ms": {
+            "median": 35.572,
+            "min": 34.903000000000006,
+            "max": 38.038000000000004
+          },
+          "layout_ms": {
+            "median": 3.136,
+            "min": 2.5930000000000017,
+            "max": 4.133999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 17.30300000000001,
+            "min": 16.445999999999987,
+            "max": 17.82399999999998
+          },
+          "script_ms": {
+            "median": 6.6569999999999965,
+            "min": 6.139999999999993,
+            "max": 7.789000000000004
+          },
+          "layout_ms": {
+            "median": 3.5250000000000004,
+            "min": 2.8249999999999975,
+            "max": 4.535000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 18.376000000000005,
+            "min": 17.029000000000018,
+            "max": 18.79799999999998
+          },
+          "script_ms": {
+            "median": 8.760000000000003,
+            "min": 8.151000000000005,
+            "max": 9.787000000000004
+          },
+          "layout_ms": {
+            "median": 3.7390000000000025,
+            "min": 3.0139999999999993,
+            "max": 4.450000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 89.04500000000004,
+            "min": 86.97600000000006,
+            "max": 93.68599999999999
+          },
+          "script_ms": {
+            "median": 15.045000000000003,
+            "min": 13.587000000000016,
+            "max": 15.721000000000013
+          },
+          "layout_ms": {
+            "median": 14.997999999999998,
+            "min": 14.061,
+            "max": 16.924000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 136.409,
+            "min": 125.09400000000004,
+            "max": 138.29399999999998
+          },
+          "script_ms": {
+            "median": 17.306999999999988,
+            "min": 14.72799999999999,
+            "max": 21.118
+          },
+          "layout_ms": {
+            "median": 21.416000000000004,
+            "min": 16.45,
+            "max": 23.712000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000068,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": true,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.6360092163085938,
+        "min": 2.6358413696289062,
+        "max": 2.636016845703125
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 125,
+        "min": 120,
+        "max": 126
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 24.87499999999998,
+            "min": 22.057000000000006,
+            "max": 25.692999999999994
+          },
+          "script_ms": {
+            "median": 6.508,
+            "min": 5.846999999999998,
+            "max": 7.116999999999998
+          },
+          "layout_ms": {
+            "median": 6.801999999999999,
+            "min": 6.127000000000001,
+            "max": 7.313999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 5.347000000000018,
+            "min": 5.169000000000007,
+            "max": 5.904999999999994
+          },
+          "script_ms": {
+            "median": 2.2280000000000006,
+            "min": 1.8540000000000014,
+            "max": 2.774999999999993
+          },
+          "layout_ms": {
+            "median": 0.8660000000000004,
+            "min": 0.5759999999999984,
+            "max": 1.2560000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 46.815999999999995,
+            "min": 44.671000000000014,
+            "max": 48.24399999999998
+          },
+          "script_ms": {
+            "median": 35.40399999999999,
+            "min": 34.038000000000004,
+            "max": 36.913999999999994
+          },
+          "layout_ms": {
+            "median": 3.484000000000001,
+            "min": 2.6039999999999988,
+            "max": 3.8779999999999997
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 17.89899999999997,
+            "min": 17.103000000000034,
+            "max": 20.766000000000005
+          },
+          "script_ms": {
+            "median": 7.339999999999999,
+            "min": 5.9920000000000115,
+            "max": 7.931000000000007
+          },
+          "layout_ms": {
+            "median": 3.49,
+            "min": 3.2200000000000006,
+            "max": 3.9240000000000004
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 18.118999999999996,
+            "min": 17.076000000000036,
+            "max": 19.127000000000006
+          },
+          "script_ms": {
+            "median": 8.691000000000004,
+            "min": 8.522999999999989,
+            "max": 9.951000000000002
+          },
+          "layout_ms": {
+            "median": 3.588000000000001,
+            "min": 2.9369999999999985,
+            "max": 4.153999999999998
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 90.43300000000004,
+            "min": 88.05399999999996,
+            "max": 92.33000000000003
+          },
+          "script_ms": {
+            "median": 15.05200000000001,
+            "min": 14.464000000000004,
+            "max": 17.990999999999993
+          },
+          "layout_ms": {
+            "median": 15.673000000000004,
+            "min": 15.432999999999998,
+            "max": 16.312000000000005
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 138.27199999999996,
+            "min": 131.191,
+            "max": 151.44799999999998
+          },
+          "script_ms": {
+            "median": 16.182000000000002,
+            "min": 14.52600000000001,
+            "max": 19.094
+          },
+          "layout_ms": {
+            "median": 21.756999999999998,
+            "min": 20.399,
+            "max": 23.954000000000004
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 4000,
+      "virtual": true,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 2.283924102783203,
+        "min": 2.283924102783203,
+        "max": 2.283924102783203
+      },
+      "dom_nodes": {
+        "median": 428,
+        "min": 428,
+        "max": 428
+      },
+      "startup_ms": {
+        "median": 86,
+        "min": 79,
+        "max": 97
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 22.451,
+            "min": 20.188,
+            "max": 24.66399999999999
+          },
+          "script_ms": {
+            "median": 5.053,
+            "min": 4.708999999999998,
+            "max": 5.6129999999999995
+          },
+          "layout_ms": {
+            "median": 6.513,
+            "min": 5.967999999999999,
+            "max": 7.242
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 5.444999999999991,
+            "min": 5.073999999999995,
+            "max": 6.085000000000007
+          },
+          "script_ms": {
+            "median": 0.8020000000000006,
+            "min": 0.5279999999999972,
+            "max": 1.1339999999999997
+          },
+          "layout_ms": {
+            "median": 0.7989999999999994,
+            "min": 0.4880000000000006,
+            "max": 0.9699999999999986
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 42.60599999999998,
+            "min": 41.107000000000006,
+            "max": 45.69600000000001
+          },
+          "script_ms": {
+            "median": 31.81200000000001,
+            "min": 31.300999999999995,
+            "max": 33.20000000000001
+          },
+          "layout_ms": {
+            "median": 3.438,
+            "min": 2.2800000000000007,
+            "max": 3.974
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "filter": {
+          "task_ms": {
+            "median": 13.974000000000014,
+            "min": 13.051000000000007,
+            "max": 14.477000000000018
+          },
+          "script_ms": {
+            "median": 4.669,
+            "min": 4.165000000000002,
+            "max": 5.165000000000003
+          },
+          "layout_ms": {
+            "median": 3.3240000000000007,
+            "min": 3.067999999999998,
+            "max": 3.7470000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 17.26999999999998,
+            "min": 15.540999999999999,
+            "max": 18.448999999999995
+          },
+          "script_ms": {
+            "median": 7.819999999999993,
+            "min": 7.573000000000003,
+            "max": 8.474999999999996
+          },
+          "layout_ms": {
+            "median": 3.0929999999999986,
+            "min": 2.7439999999999998,
+            "max": 3.6130000000000018
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 80.74000000000001,
+            "min": 73.858,
+            "max": 86.19300000000003
+          },
+          "script_ms": {
+            "median": 10.663999999999993,
+            "min": 9.221999999999994,
+            "max": 11.741000000000001
+          },
+          "layout_ms": {
+            "median": 14.973,
+            "min": 13.629999999999999,
+            "max": 16.023000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 116.42099999999999,
+            "min": 107.842,
+            "max": 123.11699999999998
+          },
+          "script_ms": {
+            "median": 5.881999999999998,
+            "min": 4.102999999999995,
+            "max": 6.401000000000004
+          },
+          "layout_ms": {
+            "median": 19.652999999999995,
+            "min": 14.546000000000003,
+            "max": 23.161999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.800000000000182,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 50000,
+      "virtual": true,
+      "variant": "react",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.592288970947266,
+        "min": 11.59225082397461,
+        "max": 11.592292785644531
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 122,
+        "min": 116,
+        "max": 126
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 23.915999999999993,
+            "min": 23.635000000000016,
+            "max": 26.990000000000013
+          },
+          "script_ms": {
+            "median": 6.685999999999997,
+            "min": 6.2509999999999994,
+            "max": 7.588999999999999
+          },
+          "layout_ms": {
+            "median": 6.598,
+            "min": 6.405,
+            "max": 7.5939999999999985
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 9.173999999999987,
+            "min": 8.499000000000006,
+            "max": 10.200000000000015
+          },
+          "script_ms": {
+            "median": 5.680999999999998,
+            "min": 5.299999999999999,
+            "max": 6.309999999999996
+          },
+          "layout_ms": {
+            "median": 0.876,
+            "min": 0.17400000000000054,
+            "max": 1.174999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 124.67300000000003,
+            "min": 120.306,
+            "max": 126.53200000000004
+          },
+          "script_ms": {
+            "median": 112.33599999999998,
+            "min": 108.779,
+            "max": 116.14599999999999
+          },
+          "layout_ms": {
+            "median": 3.2679999999999985,
+            "min": 2.6710000000000016,
+            "max": 3.818000000000002
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 116
+        },
+        "filter": {
+          "task_ms": {
+            "median": 41.33700000000001,
+            "min": 40.294,
+            "max": 44.24600000000001
+          },
+          "script_ms": {
+            "median": 22.60100000000001,
+            "min": 20.689000000000014,
+            "max": 23.698999999999998
+          },
+          "layout_ms": {
+            "median": 3.9939999999999976,
+            "min": 3.3219999999999987,
+            "max": 4.395
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 82.35199999999998,
+            "min": 80.41799999999999,
+            "max": 84.95399999999998
+          },
+          "script_ms": {
+            "median": 72.454,
+            "min": 70.22199999999998,
+            "max": 75.12300000000002
+          },
+          "layout_ms": {
+            "median": 3.5309999999999993,
+            "min": 2.9250000000000007,
+            "max": 4.413
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 75
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 85.48899999999992,
+            "min": 81.96999999999998,
+            "max": 88.87600000000006
+          },
+          "script_ms": {
+            "median": 14.884999999999982,
+            "min": 13.535999999999992,
+            "max": 16.398999999999997
+          },
+          "layout_ms": {
+            "median": 14.716999999999997,
+            "min": 14.21,
+            "max": 15.084
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 137.694,
+            "min": 128.55700000000004,
+            "max": 152.636
+          },
+          "script_ms": {
+            "median": 18.547999999999952,
+            "min": 13.620999999999995,
+            "max": 21.637000000000018
+          },
+          "layout_ms": {
+            "median": 22.823999999999998,
+            "min": 21.136000000000003,
+            "max": 27.548999999999996
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 50000,
+      "virtual": true,
+      "variant": "react-compiler",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.583019256591797,
+        "min": 11.58298110961914,
+        "max": 11.583019256591797
+      },
+      "dom_nodes": {
+        "median": 390,
+        "min": 390,
+        "max": 390
+      },
+      "startup_ms": {
+        "median": 123,
+        "min": 121,
+        "max": 133
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 24.874000000000006,
+            "min": 23.702,
+            "max": 25.987999999999982
+          },
+          "script_ms": {
+            "median": 6.586000000000008,
+            "min": 6.148000000000001,
+            "max": 7.893999999999998
+          },
+          "layout_ms": {
+            "median": 7.534999999999999,
+            "min": 6.228,
+            "max": 7.9719999999999995
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 9.16800000000001,
+            "min": 7.644000000000012,
+            "max": 11.145000000000016
+          },
+          "script_ms": {
+            "median": 5.652000000000005,
+            "min": 4.625000000000004,
+            "max": 6.968999999999996
+          },
+          "layout_ms": {
+            "median": 0.7780000000000009,
+            "min": 0.1849999999999994,
+            "max": 0.9139999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 123.353,
+            "min": 121.56299999999997,
+            "max": 143.375
+          },
+          "script_ms": {
+            "median": 111.846,
+            "min": 110.112,
+            "max": 129.03400000000002
+          },
+          "layout_ms": {
+            "median": 3.3480000000000003,
+            "min": 3.056999999999999,
+            "max": 4.9350000000000005
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 129
+        },
+        "filter": {
+          "task_ms": {
+            "median": 42.42400000000002,
+            "min": 40.15000000000002,
+            "max": 45.192999999999984
+          },
+          "script_ms": {
+            "median": 22.823999999999984,
+            "min": 21.107999999999986,
+            "max": 23.609999999999992
+          },
+          "layout_ms": {
+            "median": 3.962999999999998,
+            "min": 3.5120000000000013,
+            "max": 4.566000000000001
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 82.99000000000001,
+            "min": 81.519,
+            "max": 86.46100000000001
+          },
+          "script_ms": {
+            "median": 74.17199999999998,
+            "min": 71.70700000000002,
+            "max": 75.42299999999999
+          },
+          "layout_ms": {
+            "median": 3.459,
+            "min": 2.5930000000000017,
+            "max": 4.138000000000003
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 76
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 86.47099999999996,
+            "min": 80.56999999999998,
+            "max": 92.36800000000001
+          },
+          "script_ms": {
+            "median": 15.243000000000006,
+            "min": 11.689999999999978,
+            "max": 17.452999999999996
+          },
+          "layout_ms": {
+            "median": 15.784999999999997,
+            "min": 14.347999999999999,
+            "max": 16.671000000000003
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 142.12899999999996,
+            "min": 132.33300000000003,
+            "max": 155.93
+          },
+          "script_ms": {
+            "median": 16.67000000000002,
+            "min": 14.243000000000006,
+            "max": 18.415000000000013
+          },
+          "layout_ms": {
+            "median": 21.439999999999994,
+            "min": 19.870000000000005,
+            "max": 26.218000000000004
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    },
+    {
+      "rate": 4,
+      "count": 50000,
+      "virtual": true,
+      "variant": "svelte",
+      "samples": 7,
+      "heap_mb": {
+        "median": 11.230995178222656,
+        "min": 11.230995178222656,
+        "max": 11.230995178222656
+      },
+      "dom_nodes": {
+        "median": 428,
+        "min": 428,
+        "max": 428
+      },
+      "startup_ms": {
+        "median": 86,
+        "min": 82,
+        "max": 89
+      },
+      "operations": {
+        "mount": {
+          "task_ms": {
+            "median": 22.357000000000003,
+            "min": 20.90099999999999,
+            "max": 25.595999999999993
+          },
+          "script_ms": {
+            "median": 4.809999999999999,
+            "min": 4.2780000000000005,
+            "max": 5.376
+          },
+          "layout_ms": {
+            "median": 6.571,
+            "min": 6.39,
+            "max": 6.808999999999999
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "update": {
+          "task_ms": {
+            "median": 8.146999999999988,
+            "min": 7.487999999999994,
+            "max": 9.215000000000002
+          },
+          "script_ms": {
+            "median": 0.7869999999999995,
+            "min": 0.5109999999999976,
+            "max": 1.063999999999999
+          },
+          "layout_ms": {
+            "median": 0.7290000000000005,
+            "min": 0.4540000000000013,
+            "max": 0.9780000000000014
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "sort": {
+          "task_ms": {
+            "median": 117.833,
+            "min": 115.28500000000003,
+            "max": 119.89299999999997
+          },
+          "script_ms": {
+            "median": 106.96,
+            "min": 104.33299999999998,
+            "max": 108.50300000000001
+          },
+          "layout_ms": {
+            "median": 3.226999999999999,
+            "min": 2.763999999999999,
+            "max": 3.798000000000001
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 108
+        },
+        "filter": {
+          "task_ms": {
+            "median": 39.464,
+            "min": 37.19299999999998,
+            "max": 40.997999999999976
+          },
+          "script_ms": {
+            "median": 19.898,
+            "min": 18.564999999999998,
+            "max": 21.07299999999998
+          },
+          "layout_ms": {
+            "median": 3.6039999999999996,
+            "min": 3.1979999999999995,
+            "max": 3.742000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "clear": {
+          "task_ms": {
+            "median": 81.08700000000002,
+            "min": 80.24400000000004,
+            "max": 82.511
+          },
+          "script_ms": {
+            "median": 71.77,
+            "min": 70.022,
+            "max": 72.6
+          },
+          "layout_ms": {
+            "median": 3.492000000000002,
+            "min": 3.1789999999999976,
+            "max": 3.7939999999999987
+          },
+          "long_tasks": {
+            "median": 1,
+            "min": 1,
+            "max": 1
+          },
+          "max_long_task_ms": 73
+        },
+        "scroll": {
+          "task_ms": {
+            "median": 72.79599999999998,
+            "min": 66.08599999999998,
+            "max": 75.66700000000004
+          },
+          "script_ms": {
+            "median": 10.634000000000004,
+            "min": 9.548000000000002,
+            "max": 11.463000000000001
+          },
+          "layout_ms": {
+            "median": 13.805000000000001,
+            "min": 12.858,
+            "max": 15.381000000000002
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        },
+        "stream": {
+          "task_ms": {
+            "median": 122.04899999999996,
+            "min": 110.57499999999997,
+            "max": 131.41599999999997
+          },
+          "script_ms": {
+            "median": 7.030999999999982,
+            "min": 4.4940000000000255,
+            "max": 8.879999999999999
+          },
+          "layout_ms": {
+            "median": 21.086000000000002,
+            "min": 18.208999999999996,
+            "max": 23.576
+          },
+          "long_tasks": {
+            "median": 0,
+            "min": 0,
+            "max": 0
+          },
+          "max_long_task_ms": 0
+        }
+      },
+      "stream_max_frame_ms": {
+        "median": 16.799999999999955,
+        "min": 16.799999999999955,
+        "max": 16.800000000000182
+      }
+    }
+  ],
+  "webkit": [
+    {
+      "variant": "react",
+      "passed": true,
+      "checks": [
+        "50k windowed",
+        "filter",
+        "typing focus and Enter activation",
+        "scroll",
+        "library title selection retained during adjacent plain-text stream"
+      ]
+    },
+    {
+      "variant": "react-compiler",
+      "passed": true,
+      "checks": [
+        "50k windowed",
+        "filter",
+        "typing focus and Enter activation",
+        "scroll",
+        "library title selection retained during adjacent plain-text stream"
+      ]
+    },
+    {
+      "variant": "svelte",
+      "passed": true,
+      "checks": [
+        "50k windowed",
+        "filter",
+        "typing focus and Enter activation",
+        "scroll",
+        "library title selection retained during adjacent plain-text stream"
+      ]
+    }
+  ]
+}

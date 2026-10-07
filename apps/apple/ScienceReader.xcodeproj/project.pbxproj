@@ -11,6 +11,7 @@
 		00D0D6AB8F283DBB542056F2 /* WorkflowSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9EB19E7A51033177B6309A6 /* WorkflowSafetyTests.swift */; };
 		00E25EDF3C88707B707DFEA3 /* CreditsStoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B7234D9A179E48ACEB0C02 /* CreditsStoreView.swift */; };
 		0388B27352FBB7F072C9DCAE /* ChatRichTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18AFED85CC085152AD2629AC /* ChatRichTextView.swift */; };
+		043FF13ACE81D5850398D086 /* MacKeyboardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26EDD5FD4DA19EC6B4A493DD /* MacKeyboardTests.swift */; };
 		086EAA3B2420BFC1EEC6E444 /* WorkflowJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFF06459C158D4A571E6BDFA /* WorkflowJourneyTests.swift */; };
 		089080735756416C307BE2EB /* ChatHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4551E5342A018E7288BEA10 /* ChatHistoryView.swift */; };
 		09A87E139F241BE09E1C6F24 /* SwiftMath in Frameworks */ = {isa = PBXBuildFile; productRef = 73C48F72EBEC7F248AD25F9F /* SwiftMath */; };
@@ -242,6 +243,7 @@
 		217F3A9C7AD8E72195BBD32B /* SettingsPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPages.swift; sourceTree = "<group>"; };
 		2673CB0144CC1585AD755137 /* ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportsView.swift; sourceTree = "<group>"; };
 		26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryChangesView.swift; sourceTree = "<group>"; };
+		26EDD5FD4DA19EC6B4A493DD /* MacKeyboardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacKeyboardTests.swift; sourceTree = "<group>"; };
 		27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		298181C077A52AD1412AD0BD /* AuthenticationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationCoordinator.swift; sourceTree = "<group>"; };
 		2B491333EEA1B9C04089469C /* RecoveryPasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryPasswords.swift; sourceTree = "<group>"; };
@@ -587,6 +589,7 @@
 				348B17DD68A3B6460A7DF28D /* ChatHistoryTableTests.swift */,
 				6ABCE7C29BC217A615B98397 /* LibraryLayoutTests.swift */,
 				615E3C9E9D39D5691D583C2E /* LiveJourneyTests.swift */,
+				26EDD5FD4DA19EC6B4A493DD /* MacKeyboardTests.swift */,
 				65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */,
 				AB50594F18333FAC43C49A3E /* PaperToolsTests.swift */,
 				927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */,
@@ -919,6 +922,7 @@
 				227ABDBD8223031A00FC6382 /* ChatHistoryTableTests.swift in Sources */,
 				DF2B8A487D1BD5BA8D99BC4C /* LibraryLayoutTests.swift in Sources */,
 				E922ADCA741286C9EF031C9C /* LiveJourneyTests.swift in Sources */,
+				043FF13ACE81D5850398D086 /* MacKeyboardTests.swift in Sources */,
 				8A6532BE7FD6319E612CA4A2 /* PaperToolsTests.swift in Sources */,
 				F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */,
 				F3A9F9A825586ABD0390AADD /* SessionCaptureTests.swift in Sources */,
@@ -1287,6 +1291,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
 			};
 			name = Release;
 		};
@@ -1348,6 +1353,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
 			};
 			name = Debug;
 		};
@@ -1475,6 +1481,7 @@
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
+				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
 			};
 			name = Internal;
 		};
