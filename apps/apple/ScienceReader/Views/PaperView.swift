@@ -173,10 +173,15 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { reference = value }
                                      }, selectionAction: selection == nil ? nil : { action in
                                          runSelectionAction(action, scope: readerScope)
+                                     }, marks: model.paperMarks(for: paper), onMarks: { ids in
+                                         if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
+                                     }, passage: model.passageJump(for: paper), onPassage: { id, found in
+                                         if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .topLeading) { referenceActions }
                     }
+                    .modifier(PassageChooser(model: model))
                     .overlay { if readerFailed {
                         ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
                             description: { Text("The reading bundle couldn’t be loaded completely.") }
@@ -457,6 +462,12 @@ struct PaperWebView: UIViewRepresentable {
     var onReference: (ReaderReference) -> Void = { _ in }
     /// While text is selected: runs a selection action (the Mac's context menu for the selection).
     var selectionAction: ((SelectionAction) -> Void)? = nil
+    /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
+    var marks: [PaperMark] = []
+    var onMarks: ([UUID]) -> Void = { _ in }
+    /// Go to passage, applied once the reader is ready; reports whether the passage was found.
+    var passage: PaperPassageRequest? = nil
+    var onPassage: (UUID, Bool) -> Void = { _, _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -538,6 +549,7 @@ struct PaperWebView: UIViewRepresentable {
                                     arguments: ["size": fontSize], in: nil, in: .defaultClient, completionHandler: nil)
         }
         context.coordinator.applyJump(in: web)
+        context.coordinator.applyPassageWork(in: web)
     }
 
     static func dismantleUIView(_ web: WKWebView, coordinator: Coordinator) {
@@ -565,6 +577,7 @@ struct PaperWebView: UIViewRepresentable {
         private var citationActive = false
         var appliedPaperLine: String?
         var appliedPaperTags: [String] = []
+        var passages = PaperPassageState()
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
         }
@@ -604,6 +617,7 @@ struct PaperWebView: UIViewRepresentable {
                 guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
                       let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }
                 parent.onReference(reference)
+            case "marks": receiveMarks(body)
             default: break
             }
         }
@@ -635,6 +649,7 @@ struct PaperWebView: UIViewRepresentable {
                     self.parent.onLoading(false)
                     self.parent.onReady()
                     self.applyJump(in: webView)
+                    self.applyPassageWork(in: webView)
                 }
         }
 
@@ -708,6 +723,7 @@ struct PaperWebView: UIViewRepresentable {
 
         func invalidateLoad() {
             loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil; citationActive = false
+            passages.reset()
         }
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard active, navigation === self.navigation else { return }

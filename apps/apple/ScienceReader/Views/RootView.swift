@@ -918,7 +918,12 @@ struct ChatView: View {
     /// conversation is about (tap to return to it), or "General chat".
     private var titleView: some View {
         VStack(spacing: 1) {
-            Menu { contextPicker; paperChatsSection } label: {
+            Menu {
+                // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
+                Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
+                contextPicker
+                paperChatsSection
+            } label: {
                 HStack(spacing: 3) {
                     Text(model.chatTitle).font(.headline).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
@@ -952,6 +957,7 @@ struct ChatView: View {
                 MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
             }.controlGroupStyle(.compactMenu)
             Section {
+                GoToPassageMenuRow(model: model) { composerFocused = false }
                 MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
             }
@@ -1025,6 +1031,8 @@ struct SettingsView: View {
                     ThemePicker(selection: $model.appearance)
                     sizeSlider("Paper text size", value: $model.paperFontSize, range: 14...26)
                     sizeSlider("Chat text size", value: $model.chatFontSize, range: 14...24)
+                    Toggle("Underline passages with chats", isOn: $model.showsPassageMarks)
+                        .accessibilityIdentifier("settings.passageMarks")
                 }
                 // Design audit F11: rows that open something look alike (title + chevron); actions are tinted.
                 // (Sync now moved to the Account page, beside the sync state it acts on.)

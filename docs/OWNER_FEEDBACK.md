@@ -22,3 +22,13 @@ fixes it.
 
 Also seen in the screenshots: `**$n = 0$:**` shows literal asterisks (bold around math isn't parsed) — chat
 renderer fix, with #3/#10.
+
+## Build 15, 2026-10-07 (handoff follow-up)
+
+| Owner feedback | Plan | Status |
+|---|---|---|
+| Offline library save fails on every launch, and downloads stop until relaunch | Version the decoded cache fields; repair only display metadata while preserving availability history | Verified locally, not shipped: format 3 and retained quarantine/identity checks; 211 Core tests, 321 iOS unit tests (5 opt-in skips), both encrypted relaunch journeys, and 298 Catalyst unit tests (4 opt-in skips) pass. See [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review) |
+| Topic tags feel generic | Review feed-chip priority and tag vocabulary/prompt; estimate any re-tagging cost before running it | Pending; no paid re-tagging in this fix |
+| Chat top is too cluttered | Recheck main's chat title-menu change on the current build before proposing another layout change | Pending owner-current-build comparison |
+| More All chats columns / horizontal scrolling | Coordinate with the chat-quality workstream and its existing table changes | Pending integration review |
+| Model / effort selection | Prepare UX and cost proposal before changing provider routing or prices | Proposal only; owner approval still needed |

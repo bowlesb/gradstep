@@ -12,7 +12,7 @@ Cipher is AES-256-GCM. Combined bytes are 12-byte nonce, ciphertext, then 16-byt
 science-reader/event/v1\n{account}\n{event}\n{author-device}\n{epoch}\n{format}\n
 ```
 
-The payload is a validated `PrivateEvent` JSON object. Since 2026-10-07 it may include `createdAt` (integer Unix milliseconds by the author device's clock, 0 ≤ value < year 10000; display only), so readers must ignore keys they don't know; the frozen fixture predates it and still decodes. The envelope binds ID, author device, epoch, and format through authenticated data. The server stores a SHA-256 digest of the combined ciphertext for transport/retry checks; that digest does not replace AEAD authentication. Upload retries preserve ID and bytes. Unknown formats fail without advancing the cursor.
+The payload is a validated `PrivateEvent` JSON object. Since 2026-10-07 it may include `createdAt` (integer Unix milliseconds by the author device's clock, 0 ≤ value < year 10000; display only), so readers must ignore keys they don't know; the frozen fixture predates it and still decodes. Since 2026-10-07 a conversation event started from a paper selection carries `anchor` (`artifactID`, `quote`, `prefix`, `suffix`, `elementID`; passage-linked conversations): that field has been part of `PrivateEvent` since the first build and the frozen fixture already includes one, so it needs no format change. The envelope binds ID, author device, epoch, and format through authenticated data. The server stores a SHA-256 digest of the combined ciphertext for transport/retry checks; that digest does not replace AEAD authentication. Upload retries preserve ID and bytes. Unknown formats fail without advancing the cursor.
 
 ## Recovery
 

@@ -1,16 +1,23 @@
 # Mac app
 
-Status (2026-10-07): the recovered implementation and current keyboard fixes pass a fresh, unsigned Catalyst
-`build-for-testing` for arm64 and x86_64 using public local fixtures. The keyboard runtime attempt reached no
-assertions and was interrupted; behavior remains unverified. Earlier work recorded a development-signed
-archive, build 15, and local Debug-fixture exercise; that historical result does not validate the current
-changes. Mac sign-in, sync, purchases and distribution remain unverified. See the validation checkpoint below.
+Status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
+and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
+keyboard/UI runtime attempt reached no assertions and was interrupted, so those interaction checks remain open.
+Mac sign-in, sync, purchases and distribution remain unverified. See the validation checkpoints below.
 
 **Merge validation, 2026-10-07:** integration with `main` through `5f95c97` passed a fresh unsigned Catalyst
 `build-for-testing` in 60.1 seconds. The app, unit-test bundle and UI-test bundle each contain arm64 and x86_64.
 The newer chat-title code/tests and TestFlight feedback records are preserved. Logs and the result bundle remain
 in the integration worktree under `.artifacts/merge-validation-20261007/` (`catalyst-build.log` and
 `CatalystBuildForTesting.xcresult`). This is compilation evidence; no native runtime tests ran in this merge check.
+
+**Offline-save review, 2026-10-07:** a development-signed Catalyst fixture build now launches on this Mac
+(macOS 26.3.1) and passes all 298 applicable unit tests, with 4 opt-in skips and no failures. The test targets
+explicitly support Catalyst and macOS 14; without those settings Xcode preflight required its macOS 26.4 SDK
+version despite the app's macOS 14 floor. A citation test's touch-only underline expectation now follows actual
+hover capability. Evidence: `.artifacts/offline-save-review/mac-verified.xcresult` in the offline-save worktree.
+No Developer Mode or security setting changed. This verifies native model/reader unit behavior and launch,
+not the keyboard/UI workflows or live services listed below.
 
 ## Spontaneous launch popup — 2026-10-07
 
