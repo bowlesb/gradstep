@@ -67,6 +67,8 @@ struct ReportComposer: View {
                     if let screenshot { ScreenshotEditor(image: screenshot) { result in self.screenshot = result.image; attachment = result.attachment; consent = false } }
                 }
         }
+        .interactiveDismissDisabled(busy)
+        .macSheetKeys(enabled: !busy && !editingImage)
     }
     private func prepare(_ image: UIImage) {
         do { let result = try ScreenshotCapture.prepare(image); screenshot = result.image; attachment = result.attachment; consent = false; error = nil }
@@ -130,6 +132,7 @@ struct ScreenshotEditor: View {
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { do { save(try ScreenshotCapture.prepare(image, redactions: redactions, crop: crop)); dismiss() } catch { self.error = "Select a larger crop and try again." } } }
                 }
         }
+        .macSheetKeys()
     }
     private func overlay(_ rectangle: CGRect, size: CGSize, crop: Bool) -> some View {
         Rectangle().fill(crop ? Color.clear : .black).overlay { if crop { Rectangle().stroke(.yellow, lineWidth: 2) } }

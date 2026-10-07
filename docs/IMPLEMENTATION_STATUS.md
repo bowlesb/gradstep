@@ -1,7 +1,54 @@
 # Implementation status
 
-Updated 2026-10-06 (citations, archive, Tavily search; earlier: the 2026-10-05 overnight build). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-07 (local browser integration and framework decision; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
+
+## Browser/Mac integration checkpoint — local, not deployed
+
+The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
+`/Users/benbowlwes/science-reader-web-mac`, recovering the browser and floating-control branches. Integration
+includes `main` through `5f95c97`, preserving its newer chat-title fixes and TestFlight build 15 feedback records.
+The combined source passes a fresh universal Mac Catalyst Debug test build using public local fixtures, plus
+71 web unit/interop tests, the production build and 42 browser checks (15 known WebKit capability skips).
+Signed-in Mac journeys and distribution remain unverified; merge validation does not deploy a build.
+Mac sheet shortcuts now guard unsaved tags (including text still being typed) and busy report submission; Browse
+offers Find in Paper on ⌘F. The app and test targets compile for arm64 and x86_64. The keyboard runtime attempt
+started no assertions and was interrupted; developer-tool and Computer Use permissions still need resolution.
+See the [Mac checkpoint](architecture/MAC_APP.md#validation-checkpoint--2026-10-07).
+
+The owner selected **React + TypeScript + Vite for both browser reader and admin** after the
+[framework evaluation](architecture/WEB_FRAMEWORK_EVALUATION.md). The 168-sample comparison supports windowing
+and better data handling as the main large-library work; it does not establish 50,000-paper product capacity.
+
+Browser work now retires keys, pending requests and reader caches with their login lifetime; protects newer logins
+from delayed refresh/sign-out/verification; preserves request deadlines; stops disposed import polling; and prevents
+late reading saves from recreating forgotten device data. Device records must survive an IndexedDB roundtrip and
+remain usable before enrollment, including on retry/reload. Live tags now update through the reader bridge without
+replacing the document or losing the selection, reading place or citation return. Local validation: production build,
+**71 unit/interop tests**, **42 production-CSP browser checks** and **17 development Strict Mode journeys** pass.
+Direct paper URLs now wait for encrypted reading activity to load before restoring the paper, and received scroll
+reports no longer lose the last update to a second throttle. **Fifteen WebKit key-dependent journeys remain
+capability skips**, with safe refusal tested: WebKit cannot currently read back the non-extractable X25519 keys in
+this environment. Full Safari support requires further design/work; see
+[browser evidence and release gate](architecture/BROWSER_READER.md#evidence).
+
+The 4,000-entry browser fixture now verifies search, live tags, filters, sorting and reading while an import
+progresses. Empty catch-up and progress ticks no longer rerender the entire library. In short local production
+observations, progress-window script work fell from 825–1,097 ms to 9–18 ms; this still renders every row and does
+not increase supported capacity. See [measurement scope](architecture/BROWSER_READER.md#library-update-isolation--2026-10-07).
+
+Library commands now wait for a complete observation after their receipt, including the changed target, rather
+than publishing a single returned entry. Add captures the displayed cursor. Failed reads retain pending state;
+recovery completes the accepted form without a duplicate request, and stale actions show revision conflicts.
+See [command publication](architecture/BROWSER_READER.md#command-acknowledgements-and-complete-library-views).
+
+The [capacity proposal](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm
+caches, compact sync, consistent paged queries and reviewed record retirement. The existing retained-entry and
+backend lifetime limits stay unchanged; this is a proposed architecture, not a migration or capacity increase.
+
+Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
+and verify browser deployment separately. Existing staging
+evidence below does not assert that this integration branch is deployed.
 
 ## Works end to end on staging
 

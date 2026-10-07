@@ -21,6 +21,7 @@ struct TagEditorView: View {
     }
 
     private var changed: Bool { tags != paper.tags }
+    private var preventsDismissal: Bool { saving || changed || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var ownCount: Int { tags.filter { !PaperTags.contains(paper.catalogTags, $0) }.count }
     private var typed: String? { PaperTags.normalized(draft) }
 
@@ -127,9 +128,10 @@ struct TagEditorView: View {
                     }
                 }
             }
-            .interactiveDismissDisabled(saving || changed)
+            .interactiveDismissDisabled(preventsDismissal)
         }
         .presentationDetents([.medium, .large])
+        .macSheetKeys(enabled: !preventsDismissal)
     }
 
     private func suggestionRow(name: String, detail: String?, title: String) -> some View {
