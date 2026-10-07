@@ -13,7 +13,8 @@ import { createHash, createPrivateKey, randomBytes, randomUUID, sign } from 'nod
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolve4, resolve6 } from 'node:dns/promises';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT_REF = 'coxhjvqpflgxkleydati';
@@ -363,10 +364,17 @@ check('config.pipeline-url', { title: 'Pipeline URL is the Cloud Run worker', su
 
 check('config.worker-endpoint', { title: 'Worker answers /health and refuses calls without the secret', suites: ALL, timeout: 90 }, async () => {
   const base = infra.pipeline_worker_url.replace(/\/$/, '');
-  const health = await http(`${base}/health`, { timeoutMs: 60_000 });
+  // Cloud Run answers 429 while every instance is busy with a paper (concurrency 1): wait and ask again.
+  let health = await http(`${base}/health`, { timeoutMs: 60_000 });
+  for (let i = 0; i < 3 && health.status === 429; i++) {
+    await new Promise(resolve => setTimeout(resolve, 15_000));
+    health = await http(`${base}/health`, { timeoutMs: 20_000 });
+  }
+  if (health.status === 429) return warn('every worker instance is busy (HTTP 429 for 45 s); the scheduler retries each minute');
   if (health.status !== 200 || health.json?.ok !== true) return fail(`/health answered HTTP ${health.status}`);
   const none = await http(base, { method: 'POST', body: { reason: 'workflow-check' } });
   const wrong = await http(base, { method: 'POST', body: { reason: 'workflow-check' }, headers: { 'x-pipeline-secret': randomBytes(48).toString('base64url') } });
+  if (none.status === 429 || wrong.status === 429) return warn('health ok, but the secret checks met busy instances (HTTP 429)');
   if (none.status !== 401 || wrong.status !== 401) return fail(`calls without/with a wrong secret answered HTTP ${none.status}/${wrong.status}, expected 401/401`);
   return pass('health ok; missing and wrong secrets refused (401)');
 });
@@ -512,6 +520,59 @@ check('store.products', { title: 'Credit products are ready for sandbox purchase
   return PRODUCTS.every(id => usable.includes(states[id])) ? pass(text) : fail(`Get credits shows no products for: ${PRODUCTS.filter(id => !usable.includes(states[id])).map(id => id.split('.').slice(-2).join('.')).join(', ')} — ${text}`);
 });
 
+// Real open-access locations on different hosts, downloaded through the pipeline's own code
+// (fetchFirstWebPDF, with its DNS checks; nothing stored, no OCR). Each found by the 2026-10-07 survey
+// (PIPELINE_RELIABILITY.md "Self-healing downloads"). Expected: 'pdf', or the reason readers would see.
+const DOWNLOAD_CORPUS = [
+  ['zenodo record', 'https://zenodo.org/record/38240', 'pdf'], // the 2026-10-07 incident (406, then landing page)
+  ['zenodo DOI', 'https://doi.org/10.5281/zenodo.38240', 'pdf'],
+  ['EPrints repository', 'https://research.gold.ac.uk/id/eprint/29758/', 'pdf'],
+  ['HAL', 'https://hal.science/hal-04848132', 'pdf'],
+  ['DSpace 7 (localhost link)', 'https://aura.abdn.ac.uk/items/669c2d31-a1b5-4561-a9a6-8d0bda892553', 'pdf'],
+  ['PubMed Central (open data)', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC4103590/', 'pdf'],
+  ['PMLR (http link)', 'https://proceedings.mlr.press/v37/ioffe15.html', 'pdf'],
+  ['JMLR', 'https://jmlr.org/papers/v15/srivastava14a.html', 'pdf'],
+  ['ACL Anthology (unquoted)', 'https://aclanthology.org/N19-1423/', 'pdf'],
+  ['CVF', 'https://openaccess.thecvf.com/content_cvpr_2016/html/He_Deep_Residual_Learning_CVPR_2016_paper.html', 'pdf'],
+  ['OpenReview (Turnstile)', 'https://openreview.net/pdf?id=YicbFdNTTy', 'source_blocked'],
+  ['arXiv via the web path', 'https://arxiv.org/pdf/1706.03762v7', 'download_failed'], // refused without a request: arXiv has its own path
+];
+check('downloads.corpus', { title: 'Open-access PDFs download from each kind of host (pipeline code, no OCR)', suites: ALL, timeout: 240 }, async ({ signal }) => {
+  const web = await import(pathToFileURL(join(ROOT, 'supabase/functions/_shared/web-source.ts')).href);
+  const resolveHost = async name => {
+    const answers = await Promise.allSettled([resolve4(name), resolve6(name)]);
+    const addresses = answers.flatMap(a => a.status === 'fulfilled' ? a.value : []);
+    if (!addresses.length) throw new Error('dns_unresolved');
+    return addresses;
+  };
+  const attempt = async url => {
+    const budget = AbortSignal.any([signal, AbortSignal.timeout(60_000)]);
+    try { const r = await web.fetchFirstWebPDF(fetch, [url], 64 * 1024 * 1024, resolveHost, budget); return { outcome: 'pdf', bytes: r.bytes.length }; }
+    catch (error) { if (error instanceof web.WebSourceError) return { outcome: error.code, transient: !error.permanent }; throw error; }
+  };
+  const results = [];
+  for (let i = 0; i < DOWNLOAD_CORPUS.length; i += 4) {
+    results.push(...await Promise.all(DOWNLOAD_CORPUS.slice(i, i + 4).map(async ([name, url, expected]) => {
+      let r = await attempt(url);
+      if (r.outcome !== expected && r.transient) { await sleep(5000, signal); r = await attempt(url); } // one more try for a busy host
+      return { name, expected, ...r };
+    })));
+  }
+  // The arXiv path itself (one polite request): arXiv-hosted papers download through it.
+  const arxiv = await fetch('https://arxiv.org/pdf/1706.03762v7', { headers: { 'user-agent': web.WEB_USER_AGENT }, signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]) })
+    .then(async r => { const b = Buffer.from(await r.arrayBuffer()); return r.ok && b.subarray(0, 5).toString() === '%PDF-' ? { outcome: 'pdf', bytes: b.length } : { outcome: `http_${r.status}`, transient: r.status === 429 || r.status >= 500 }; })
+    .catch(() => ({ outcome: 'unreachable', transient: true }));
+  results.push({ name: 'arXiv (arXiv path)', expected: 'pdf', ...arxiv });
+  const wrong = results.filter(r => r.outcome !== r.expected && !r.transient), flaky = results.filter(r => r.outcome !== r.expected && r.transient);
+  const opened = results.filter(r => r.expected !== 'pdf' && r.outcome === 'pdf');
+  const text = r => `${r.name}: ${r.outcome}${r.outcome === r.expected ? '' : ` (expected ${r.expected})`}`;
+  const metrics = { downloads_ok: results.filter(r => r.outcome === 'pdf').length, download_mb: +(results.reduce((n, r) => n + (r.bytes ?? 0), 0) / 1e6).toFixed(1) };
+  const summary = `${results.length - wrong.length - flaky.length}/${results.length} as expected`;
+  if (wrong.filter(r => !opened.includes(r)).length) return fail(`${summary} — ${wrong.filter(r => !opened.includes(r)).map(text).join('; ')} (a reader adding these papers would hit it)`, metrics);
+  if (flaky.length || opened.length) return warn(`${summary} — ${[...flaky.map(r => `${text(r)}, host busy or unreachable`), ...opened.map(r => `${r.name} now downloads: update the corpus`)].join('; ')}`, metrics);
+  return pass(`${summary}: ${results.filter(r => r.outcome === 'pdf').length} PDFs (${metrics.download_mb} MB), refusals classified (${results.filter(r => r.expected !== 'pdf').map(r => `${r.name} → ${r.outcome}`).join(', ')})`, metrics);
+});
+
 check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle verified', suites: ALL, timeout: 300 }, async ({ signal }) => {
   const acct = await account('library', 60), source = '2305.18290';
   const started = Date.now();
@@ -581,6 +642,18 @@ check('credits.store', { title: 'Credits readable; purchase endpoints refuse for
   if (hook.status !== 400) throw new Error(`app-store-notifications accepted an unsigned payload: HTTP ${hook.status}`);
   if ((await acct.balance()).available !== balance.available) throw new Error('a forged purchase changed the balance');
   return pass(`balance ${balance.available} available / ${balance.held} held; store-sync reachable and refuses forged/Xcode data; real purchases need a sandbox Apple Account on a device (not automated)`);
+});
+
+check('admin.accounts-gate', { title: 'Admin accounts refuses callers who are not an owner with MFA', suites: ALL, timeout: 60 }, async ({ signal }) => {
+  const acct = await account('library', 60);
+  const before = await acct.balance();
+  const body = { action: 'grant_credits', request_id: randomUUID(), account_id: acct.id, credits: 1, reason: 'Workflow check: must be refused' };
+  const anonymous = await http(`${env.SUPABASE_URL}/functions/v1/admin-accounts`, { method: 'POST', headers: { apikey: env.SUPABASE_ANON_KEY }, body, signal });
+  if (anonymous.status !== 401) return fail(`without sign-in: HTTP ${anonymous.status}`);
+  const customer = await acct.fn('admin-accounts', { method: 'POST', body, signal });
+  if (customer.status !== 403 || customer.json?.code !== 'owner_mfa_required') return fail(`a customer: HTTP ${customer.status} ${customer.json?.code ?? ''}`);
+  if ((await acct.balance()).available !== before.available) return fail('a refused grant changed the balance');
+  return pass('anonymous 401, customer 403 owner_mfa_required, balance unchanged');
 });
 
 check('chat.smoke', { title: 'General chat streams an answer and settles', suites: SCHEDULED, timeout: 120, costUSD: 0.005 }, async ({ signal }) => {

@@ -105,21 +105,292 @@
   // selections, quotes and reading positions — is exactly the bundle's.
   // Elements the app adds outside blocks carry CHROME and are never selected.
   const CHROME = 'data-sr-chrome';
-  const references = {entries: [], byID: new Map(), numbers: new Map(), labels: new Map(), members: new Set()};
+  const references = {entries: [], byID: new Map(), members: new Set(), index: null};
   let citationBack = null; // {origin:{location,cite}, entry, landing}
-  const BIBLIOGRAPHY = /^\s*(?:(?:[0-9]+|[ivx]+|[A-Z])(?:\.[0-9]+)*\.?\s+)?(?:references|bibliography|works\s+cited|literature\s+cited|references\s+cited)\s*:?\s*$/i;
-  const folded = value => value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019]/g, "'").toLowerCase();
-  // Years in an entry, not parts of arXiv IDs, DOIs, page ranges or volumes.
-  const ENTRY_YEAR = /(?<![\d.:/\-–])((?:19|20)\d{2})([a-z])?(?![a-z\d\-–]|\.\d)/g;
-  // The first author's surname: the last word of the text before the first
-  // comma, "and", sentence stop or year ("Y. Bai, …", "Amari, Shun-Ichi.", "Samira Abnar and …").
-  const firstSurname = text => {
-    const match = /^(.*?)(?:,|\s(?:and|&)\s|(?<=\p{L}{2})\.(?:\s|$)|\s\(?(?:19|20)\d{2})/u.exec(text);
-    const words = (match ? match[1] : text.slice(0, 80)).trim().split(/\s+/).filter(word => /\p{L}{2}/u.test(word));
-    return words.length && words.length <= 5 ? folded(words[words.length - 1].replace(/[.,;:]+$/, '')) : null;
-  };
+
+  // BEGIN CITATION MATCHER
+  // Pure text logic, no DOM: parses bibliography entries and finds in-text
+  // citations with their offsets. scripts/citation-harness.mjs evaluates this
+  // section unchanged in Node to measure it on real bundles.
+  const CitationMatcher = (() => {
+    const fold = value => value.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[‘’]/g, "'").toLowerCase();
+    const BIBLIOGRAPHY = /^\s*(?:(?:[0-9]+|[ivx]+|[A-Z])(?:\.[0-9]+)*\.?\s+)?(?:references|bibliography|works\s+cited|literature\s+cited|references\s+cited)\s*:?\s*$/i;
+    // A paragraph that starts an appendix ("Appendix", "B Experiment details") ends the bibliography.
+    const APPENDIX = /^\s*(?:(?:[Aa]ppendi(?:x|ces)|APPENDI(?:X|CES)|[Ss]upplement(?:ary|al))\b[^.]{0,80}|[A-Z](?:\.\d+)*\.?\s+\p{Lu}[\p{L}\s\-:,]{2,60})$/u;
+    const endsBibliography = text => APPENDIX.test(text) && !/(?:19|20)\d{2}/.test(text);
+    // Years in an entry, not parts of arXiv IDs, DOIs, page ranges or volumes.
+    const ENTRY_YEAR = /(?<![\d.:/\-–])((?:19|20)\d{2})([a-z])?(?![a-z\d\-–]|\.\d)/g;
+
+    // Bibliography entries: each author's surname words (folded: lower case, no
+    // diacritics) and key (the last surname word), the years and the author count.
+    const PARTICLES = new Set(['van', 'von', 'de', 'der', 'den', 'del', 'della', 'di', 'da', 'du', 'dos', 'das', 'do', 'la', 'le', 'lo',
+      'ten', 'ter', 'zu', 'bin', 'ibn', 'al', 'el', 'y', 'vander', 'vanden']);
+    const GROUP_WORDS = new Set(['collaboration', 'team', 'consortium', 'group', 'project', 'authors', 'contributors', 'community', 'committee']);
+    const INITIAL = /^(?:\p{Lu}\.?(?:-?\p{Lu}\.?){0,2}|\p{Lu}\p{Ll}\.)$/u; // "A.", "F", "J.-P.", "JA", "Ch."
+    const NAME_WORD = /^(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}$/u;
+    const SUFFIX = /^(?:jr|sr|ii|iii|iv)\.?$/i;
+    const kind = word => INITIAL.test(word) ? 'initial' : NAME_WORD.test(word) ? 'name'
+      : PARTICLES.has(word.toLowerCase()) ? 'particle' : GROUP_WORDS.has(word.toLowerCase()) ? 'group' : SUFFIX.test(word) ? 'suffix' : null;
+    const words = text => text.split(/\s+/).filter(Boolean);
+    // One author from its words; null once the words aren't a name (the title has begun).
+    const person = (parts, given) => {
+      if (!parts.length || parts.length > 7 || parts.some(word => !kind(word))) return null;
+      // An organisation in capitals is a name too ("XLA").
+      if (parts.length === 1 && /^\p{Lu}{2,}$/u.test(parts[0])) return {words: [fold(parts[0])], key: fold(parts[0]), initials: ''};
+      if (!parts.some(word => kind(word) === 'name')) return null;
+      const surname = parts.filter(word => kind(word) !== 'initial' && kind(word) !== 'suffix').map(fold);
+      return surname.length ? {words: surname, key: surname[surname.length - 1], initials: given.map(word => fold(word)[0]).join('')} : null;
+    };
+    const SEPARATOR = /\s*,\s*(?:and\s+|&\s*)?|\s*;\s*|\s+and\s+|\s*&\s*/;
+    const ENTRY_ET_AL = /(?:^|\s+)(?:et\.?\s*al\.?|others)$/i;
+    const parseAuthors = body => {
+      // "P.Städter" → "P. Städter", "L.van der Maaten" → "L. van der Maaten". The list ends at a stop
+      // after a word (not an initial), a quote, a year or "In:".
+      const text = body.slice(0, 700).replace(/(?<![\p{L}.])(\p{Lu})\.(?=\p{L}\p{Ll})/gu, '$1. ');
+      const stop = text.search(/(?<=\p{L}\p{L})\.(?=\s|$)|["“”]|\(\s*(?:19|20)\d{2}|\s(?:19|20)\d{2}[a-z]?(?=[.,:;)]|\s|$)|:\s/u);
+      const pieces = text.slice(0, stop >= 0 ? stop : 300).split(SEPARATOR).map(piece => piece.trim()).filter(Boolean);
+      const authors = [];
+      let etal = false;
+      if (pieces.length && ENTRY_ET_AL.test(pieces[pieces.length - 1])) {
+        etal = true;
+        pieces[pieces.length - 1] = pieces[pieces.length - 1].replace(ENTRY_ET_AL, '');
+        if (!pieces[pieces.length - 1]) pieces.pop();
+      }
+      if (!pieces.length) return {authors, etal};
+      const first = words(pieces[0]), second = pieces.length > 1 ? words(pieces[1]) : [];
+      const initialsOnly = list => list.length > 0 && list.every(word => INITIAL.test(word));
+      // "Smith JA, Doe B" (Vancouver).
+      const vancouver = first.length >= 2 && /^\p{Lu}{1,3}$/u.test(first[first.length - 1]) && NAME_WORD.test(first[0]);
+      // "Vaswani, A., Shazeer, N., and Polosukhin, I." or "Duchi, John, Hazan, Elad, and Singer, Yoram".
+      const surnameFirst = !vancouver && second.length > 0 && first.length <= 4 && first.every(word => ['name', 'particle'].includes(kind(word)))
+        && (initialsOnly(second) || (first.length === 1 && second.length <= 2 && second.every(word => kind(word) === 'name' || INITIAL.test(word))
+          && pieces.length % 2 === 0 && pieces.filter(piece => words(piece).length === 1).length * 2 >= pieces.length));
+      if (surnameFirst) {
+        const initialsGiven = initialsOnly(second);
+        for (let at = 0; at < pieces.length && authors.length < 60; at += 2) {
+          const given = at + 1 < pieces.length ? words(pieces[at + 1]) : [];
+          const leading = [];
+          for (const word of given) {
+            if (INITIAL.test(word) || (!initialsGiven && kind(word) === 'name')) leading.push(word); else break;
+          }
+          const author = person(words(pieces[at]), leading);
+          if (!author) break;
+          authors.push(author);
+          if (leading.length < given.length) break; // The title begins after the last initials.
+        }
+      } else {
+        for (const piece of pieces) {
+          let parts = words(piece);
+          if (vancouver && parts.length > 1 && /^\p{Lu}{1,3}$/u.test(parts[parts.length - 1])) parts = parts.slice(0, -1);
+          const author = person(parts, vancouver ? [] : parts.slice(0, -1).filter(word => ['initial', 'name'].includes(kind(word))));
+          if (!author || authors.length >= 60) break;
+          authors.push(author);
+        }
+      }
+      return {authors, etal};
+    };
+    const parseEntry = (raw, implicit = null) => {
+      const text = raw.replace(/\s+/g, ' ').trim();
+      if (text.length < 8 || text.length > 4000) return null;
+      const marker = /^(?:\[([^[\]\s]{1,24})\]|(\d{1,4})\.(?=\s))\s*/.exec(text);
+      let number = null, label = null;
+      if (marker?.[2]) number = Number(marker[2]);
+      else if (marker && /^\d{1,4}$/.test(marker[1])) number = Number(marker[1]);
+      else if (marker && /\p{L}/u.test(marker[1])) label = marker[1];
+      else if (implicit !== null) number = implicit;
+      const body = marker ? text.slice(marker[0].length) : text;
+      let years = [...body.matchAll(ENTRY_YEAR)].map(match => ({year: match[1], suffix: match[2] || ''}));
+      const arxiv = !years.length && /arXiv:?\s?(\d{2})(\d{2})\.\d{4,5}/i.exec(body);
+      if (arxiv) years = [{year: '20' + arxiv[1], suffix: ''}];
+      // Something else under the heading (a note, a footnote): no key, no year.
+      if (number === null && label === null && !years.length) return null;
+      return {text: body, number, label, years, ...parseAuthors(body)};
+    };
+    const index = entries => {
+      const result = {numbers: new Map(), labels: new Map(), byKey: new Map()};
+      for (const entry of entries) {
+        if (entry.number !== null) result.numbers.set(entry.number, result.numbers.has(entry.number) ? null : entry);
+        if (entry.label !== null) result.labels.set(entry.label, result.labels.has(entry.label) ? null : entry);
+        const key = entry.authors[0]?.key;
+        if (key && entry.years.length) result.byKey.set(key, [...(result.byKey.get(key) || []), entry]);
+      }
+      result.numbered = [...result.numbers.values()].filter(Boolean).length >= 2;
+      result.labelled = [...result.labels.values()].some(Boolean);
+      result.authorYear = result.byKey.size > 0;
+      return result;
+    };
+
+    // In-text citations. Numbered "[16]", "[3, 5]", "[1–4]" and labelled "[Bel+15]"
+    // link only when every key is in the bibliography.
+    const NUMBERED = /\[\s*\d{1,4}(?:\s*[-–—]\s*\d{1,4})?(?:\s*[,;]\s*\d{1,4}(?:\s*[-–—]\s*\d{1,4})?)*\s*\]/g;
+    const LABELLED = /\[([^[\]\n]{2,200})\]/g;
+    // Author–year: names that end just before a year — "Vaswani et al., 2017", "Stadter et al, 2021",
+    // "Kingma & Ba, 2015", "Gu, Goel, and Ré 2022", "van der Maaten and Hinton (2008)", "Tjong Kim Sang
+    // and De Meulder, 2003", "Y. Li et al. 2023", "BIG-bench collaboration, 2021" — and further years
+    // of the same names: "(Peters et al., 2017, 2018a)", "(Wu et al., 2022a,b)".
+    const PARTICLE = String.raw`(?:[Vv]an|[Vv]on|[Dd]e|[Dd]er|[Dd]en|[Dd]el|[Dd]ella|[Dd]i|[Dd]a|[Dd]u|[Dd]os|[Dd]as|[Ll]a|[Ll]e|[Tt]en|[Tt]er|zu|bin|al|el)`;
+    const CAPITAL = String.raw`(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}`;
+    const GROUP = String.raw`(?:collaboration|team|consortium|group|project|authors|contributors|community)`;
+    const NAME = String.raw`(?:\p{Lu}\.\s?){0,3}(?:${PARTICLE}\s+){0,3}${CAPITAL}(?:\s+(?:${PARTICLE}\s+){0,3}(?:${CAPITAL}|\p{Lu}\.?(?=\s+\p{Lu})))*(?:\s+${GROUP})?`;
+    const ET_AL = String.raw`\s*,?\s*(?:(?:and|&)\s*)?e[tl]\.?\s*al\b\.?(?:['’]s)?`;
+    const LIST = String.raw`${NAME}(?:\s*,\s*${NAME})*(?:\s*,?\s*(?:and|&)\s+${NAME})?(?:${ET_AL})?`;
+    const BEFORE_YEAR = new RegExp(String.raw`(?<![\p{L}\p{N}'’\-])(${LIST})(\s*,?\s*(?:[(\[]\s*)?)$`, 'u');
+    const LIST_ET_AL = new RegExp(ET_AL + '$', 'u');
+    const NAME_IN_LIST = new RegExp(NAME, 'gu');
+    const YEAR = /(?<![\p{L}\p{N}.\/:\-–])((?:19|20)\d{2})([a-z])?(?![\p{L}\p{N}]|[-–]\d|\.\d)/gu;
+    const MORE_SUFFIX = /^\s*,\s*([a-z])(?![\p{L}\p{N}])/u;
+    const endsWith = (list, tail) => tail.length <= list.length && tail.every((word, i) => list[list.length - tail.length + i] === word);
+    // The names of a cited list, each with its folded surname words and their offsets.
+    const names = (list, offset) => [...list.replace(LIST_ET_AL, '').matchAll(NAME_IN_LIST)].map(match => {
+      const name = {words: [], starts: [], initials: ''};
+      for (const word of match[0].matchAll(/\S+/g)) {
+        if (/^(?:\p{Lu}\.?){1,2}$/u.test(word[0]) || /^(?:Jr|Sr|II|III|IV)\.?$/.test(word[0])) {
+          if (!name.words.length) name.initials += fold(word[0])[0];
+          continue;
+        }
+        name.words.push(fold(word[0])); name.starts.push(offset + match.index + word.index);
+      }
+      return name;
+    }).filter(name => name.words.length);
+    // The entry a name–year pair cites: first author (the longest matching end of
+    // the cited name, so "Following Vaswani" is "Vaswani"), year, later names in
+    // order, author count ("et al." or not), initials, suffix letter, entry order.
+    const resolve = (index, cited, etal, year, suffix) => {
+      const first = cited[0];
+      const keyed = index.byKey.get(first.words[first.words.length - 1]) || [];
+      let pool = [], used = first.words.length;
+      for (let n = first.words.length; n >= 1 && !pool.length; n -= 1) {
+        pool = keyed.filter(entry => endsWith(entry.authors[0].words, first.words.slice(-n)));
+        used = n;
+      }
+      pool = pool.filter(entry => entry.years.some(value => value.year === year) && (() => {
+        let at = 0;
+        return cited.slice(1).every(name => {
+          const found = entry.authors.findIndex((author, i) => i > at && author.key === name.words[name.words.length - 1]);
+          at = found;
+          return found > 0;
+        });
+      })());
+      const narrow = test => { const kept = pool.filter(test); if (kept.length) pool = kept; };
+      // "Qin, W. Sun, et al.": the names cited are the first authors, in their places.
+      if (pool.length > 1) narrow(entry => cited.every((name, i) => entry.authors[i]?.key === name.words[name.words.length - 1]));
+      if (pool.length > 1) narrow(entry => etal ? entry.etal || entry.authors.length > cited.length : !entry.etal && entry.authors.length === cited.length);
+      if (pool.length > 1 && etal && cited.length === 1) narrow(entry => entry.etal || entry.authors.length >= 3);
+      // "J. Ba et al." is Jimmy Ba, not Jimmy Lei Ba (cited "J. L. Ba").
+      if (pool.length > 1 && first.initials) narrow(entry => entry.authors[0].initials.startsWith(first.initials[0]));
+      if (pool.length > 1 && first.initials) narrow(entry => entry.authors[0].initials === first.initials);
+      const suffixed = entry => entry.years.some(value => value.year === year && value.suffix);
+      if (suffix) {
+        const exact = pool.filter(entry => entry.years.some(value => value.year === year && value.suffix === suffix));
+        const position = suffix.charCodeAt(0) - 97;
+        if (exact.length) pool = exact;
+        else if (pool.some(suffixed)) pool = [];
+        // The bibliography prints "2020" where the text cites "2020a", "2020b": the letters follow entry order.
+        else if (pool.length > 1) pool = position < pool.length ? [pool[position]] : [];
+      } else if (pool.length > 1) narrow(entry => !suffixed(entry));
+      // The same entry printed twice.
+      if (pool.length > 1 && pool.every(entry => fold(entry.text).slice(0, 120) === fold(pool[0].text).slice(0, 120))) pool = [pool[0]];
+      return {entry: pool.length === 1 ? pool[0] : null, status: pool.length === 1 ? 'linked' : pool.length ? 'ambiguous' : 'unmatched',
+        start: first.starts[first.words.length - used]};
+    };
+    const authorYear = (text, index) => {
+      const out = [], tokens = [];
+      for (const match of text.matchAll(YEAR)) {
+        if (match[2] === 's' && match[1].endsWith('0')) continue; // "the 1990s"
+        tokens.push({start: match.index, end: match.index + match[0].length, year: match[1], suffix: match[2] || ''});
+        for (let rest = match.index + match[0].length, more; match[2] && (more = MORE_SUFFIX.exec(text.slice(rest)));) {
+          const at = rest + more[0].length - 1;
+          tokens.push({start: at, end: at + 1, year: match[1], suffix: more[1]});
+          rest = at + 1;
+        }
+      }
+      let group = null, boundary = 0;
+      const finish = () => {
+        // "Vaswani et al. (2017)": a narrative citation with one year includes its closing parenthesis.
+        if (group?.narrative && group.links.length === 1 && /^[)\]]/.test(text.slice(group.links[0].end))) group.links[0].end += 1;
+        group = null;
+      };
+      for (const token of tokens) {
+        if (group && /^\s*[,;]?\s*$/.test(text.slice(boundary, token.start))) {
+          const result = resolve(index, group.cited, group.etal, token.year, token.suffix);
+          const link = {start: token.start, end: token.end, entry: result.entry, status: result.status, label: `${group.label}, ${token.year}${token.suffix}`};
+          out.push(link); group.links.push(link);
+          boundary = token.end;
+          continue;
+        }
+        finish();
+        const from = Math.max(boundary, token.start - 200);
+        boundary = token.end;
+        const match = BEFORE_YEAR.exec(text.slice(from, token.start));
+        if (!match) continue;
+        const listStart = from + match.index, all = names(match[1], listStart);
+        const etal = LIST_ET_AL.test(match[1]), narrative = /[(\[]/.test(match[2]);
+        const before = text.slice(0, listStart);
+        const inside = Math.max(before.lastIndexOf('('), before.lastIndexOf('[')) > Math.max(before.lastIndexOf(')'), before.lastIndexOf(']'));
+        if (!all.length || !(narrative || inside || etal)) continue;
+        // A leading word that is no author ("BiRNN, Schuster and Paliwal", "ELMo and Radford et al.") is dropped.
+        let cited = all, result = resolve(index, all, etal, token.year, token.suffix);
+        for (let drop = 1; result.status === 'unmatched' && drop < all.length; drop += 1) {
+          const dropped = all[drop - 1];
+          if (index.byKey.has(dropped.words[dropped.words.length - 1])) break;
+          const retry = resolve(index, all.slice(drop), etal, token.year, token.suffix);
+          if (retry.status !== 'unmatched') { result = retry; cited = all.slice(drop); }
+        }
+        const link = {start: result.start, end: token.end, entry: result.entry, status: result.status};
+        group = {cited, etal, narrative, links: [link], label: text.slice(result.start, token.start).replace(/[\s,(\[]+$/, '')};
+        out.push(link);
+      }
+      finish();
+      return out;
+    };
+    // Every citation in a text, in order and not overlapping; status is
+    // 'linked' (entry set), or for author–year 'ambiguous' / 'unmatched'.
+    const scan = (text, index) => {
+      const links = [];
+      const keyed = (inner, offset, pattern) => [...inner.matchAll(pattern)].map(token =>
+        ({start: offset + token.index, end: offset + token.index + token[0].length, value: token[0]}));
+      if (index.numbered) for (const match of text.matchAll(NUMBERED)) {
+        const tokens = keyed(match[0], match.index, /\d{1,4}/g);
+        if (!tokens.every(token => index.numbers.get(Number(token.value)))) continue;
+        // "[1–4]": both ends exist and form a short increasing range.
+        let at = 0, valid = true;
+        for (const piece of match[0].slice(1, -1).split(/[,;]/)) {
+          const count = (piece.match(/\d{1,4}/g) || []).length;
+          if (count === 2) {
+            const from = Number(tokens[at].value), to = Number(tokens[at + 1].value);
+            if (!(from < to && to - from <= 200)) valid = false;
+          }
+          at += count;
+        }
+        if (!valid) continue;
+        tokens.forEach((token, i) => links.push({
+          start: i === 0 ? match.index : token.start, end: i === tokens.length - 1 ? match.index + match[0].length : token.end,
+          entry: index.numbers.get(Number(token.value)), status: 'linked', label: 'Reference ' + token.value,
+        }));
+      }
+      if (index.labelled) for (const match of text.matchAll(LABELLED)) {
+        const tokens = keyed(match[1], match.index + 1, /[^,;\s][^,;]*?(?=\s*(?:[,;]|$))/g);
+        if (!tokens.length || !tokens.every(token => index.labels.get(token.value))) continue;
+        tokens.forEach((token, i) => links.push({
+          start: i === 0 ? match.index : token.start, end: i === tokens.length - 1 ? match.index + match[0].length : token.end,
+          entry: index.labels.get(token.value), status: 'linked', label: 'Reference ' + token.value,
+        }));
+      }
+      if (index.authorYear) links.push(...authorYear(text, index));
+      // Links first; an unresolved author–year citation is reported only where nothing is linked.
+      const ordered = [...links.filter(link => link.entry), ...links.filter(link => !link.entry)];
+      const kept = [];
+      for (const link of ordered) if (!kept.some(other => link.start < other.end && other.start < link.end)) kept.push(link);
+      return kept.sort((a, b) => a.start - b.start);
+    };
+    return {BIBLIOGRAPHY, endsBibliography, parseEntry, index, scan};
+  })();
+  // END CITATION MATCHER
+
   // A paragraph of references holds one entry per line; a line starting in
-  // lower case continues the previous entry.
+  // lower case continues the previous entry, unless it starts with a surname
+  // ("van der Maaten, L. and …", "de Freitas, N., …").
+  const PARTICLE_SURNAME = /^(?:(?:van|von|de|der|den|del|della|di|da|du|dos|das|la|le|ten|ter)\s+){1,3}\p{Lu}[\p{L}'’\-]+,\s/u;
   const lineRanges = element => {
     const ranges = [], walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
       acceptNode: node => node.nodeType === Node.ELEMENT_NODE && node.matches('math,.reader-equation') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
@@ -141,39 +412,28 @@
     for (const value of ranges) {
       const text = value.toString().trim();
       if (!text) continue;
-      if (lines.length && /^[a-z(]/.test(text)) lines[lines.length - 1].setEnd(value.endContainer, value.endOffset);
+      if (lines.length && /^[a-z(]/.test(text) && !PARTICLE_SURNAME.test(text)) lines[lines.length - 1].setEnd(value.endContainer, value.endOffset);
       else lines.push(value);
     }
     return lines;
   };
   const addReference = (element, range, implicit) => {
-    const text = range.toString().replace(/\s+/g, ' ').trim();
-    if (text.length < 8 || text.length > 4000) return;
-    const marker = /^(?:\[([^[\]\s]{1,24})\]|(\d{1,4})\.(?=\s))\s*/.exec(text);
-    let number = null, label = null;
-    if (marker?.[2]) number = Number(marker[2]);
-    else if (marker && /^\d{1,4}$/.test(marker[1])) number = Number(marker[1]);
-    else if (marker && /\p{L}/u.test(marker[1])) label = marker[1];
-    else if (implicit !== null) number = implicit;
-    const body = marker ? text.slice(marker[0].length) : text;
-    const years = [...body.matchAll(ENTRY_YEAR)].map(match => ({year: match[1], suffix: match[2] || ''}));
-    // Something else under the heading (a note, a footnote): no key, no year.
-    if (number === null && label === null && !years.length) return;
-    const id = 'ref-' + (number ?? label ?? references.entries.length + 1);
-    const entry = {id, element, range, text: body, number, label, years, surname: firstSurname(body), authors: folded(body.slice(0, 400))};
+    const parsed = CitationMatcher.parseEntry(range.toString(), implicit);
+    if (!parsed) return;
+    const id = 'ref-' + (parsed.number ?? parsed.label ?? references.entries.length + 1);
+    const entry = {...parsed, id, element, range};
     if (references.byID.has(id)) entry.id = id + '-' + (references.entries.length + 1);
     references.entries.push(entry); references.byID.set(entry.id, entry);
-    if (number !== null) references.numbers.set(number, references.numbers.has(number) ? null : entry);
-    if (label !== null) references.labels.set(label, references.labels.has(label) ? null : entry);
     element.setAttribute('data-sr-reference', entry.id);
   };
   const collectReferences = () => {
-    const heading = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].find(element => BIBLIOGRAPHY.test(element.textContent));
+    const heading = [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')].find(element => CitationMatcher.BIBLIOGRAPHY.test(element.textContent));
     if (!heading) return;
     const level = Number(heading.tagName[1]);
     for (let node = heading.nextElementSibling; node; node = node.nextElementSibling) {
       if (/^H[1-6]$/.test(node.tagName)) { if (Number(node.tagName[1]) <= level) break; continue; }
       if (node.matches(`[${CHROME}],.reader-footnotes,figure,.reader-table,pre,hr`)) continue;
+      if (node.matches('p') && CitationMatcher.endsBibliography(node.textContent)) break;
       references.members.add(node);
       if (node.matches('ul,ol')) {
         let number = node.tagName === 'OL' ? Number(node.getAttribute('start') || 1) : null;
@@ -187,127 +447,69 @@
     }
   };
 
-  // In-text citations. Numbered "[16]", "[3, 5]", "[1–4]" and labelled
-  // "[Bel+15]" link only when every key is in the bibliography; author–year
-  // "(Vaswani et al., 2017)" / "Vaswani et al. (2017)" only on a single match.
-  const NUMBERED = /\[\s*\d{1,4}(?:\s*[-–—]\s*\d{1,4})?(?:\s*[,;]\s*\d{1,4}(?:\s*[-–—]\s*\d{1,4})?)*\s*\]/g;
-  const LABELLED = /\[([^[\]\n]{2,200})\]/g;
-  // A surname, optionally after initials ("Y. Sun") or a particle ("van den Oord").
-  const NAME = String.raw`(?:\p{Lu}\.\s*){0,3}(?:(?:van|von|de|der|den|del|della|di|da|du|dos|la|le|ten|ter)\s+)*\p{Lu}[\p{L}'’\-]*\p{L}`;
-  // "Vaswani et al.", "Hinton & Salakhutdinov", "Gu, Dao, et al.", "Bahdanau, Cho, and Bengio".
-  const AUTHOR_LIST = String.raw`(${NAME}(?:,\s+${NAME})*(?:,?\s+(?:and|&)\s+${NAME})?(?:,?\s+et\s+al\.?)?)`;
-  const CITED_YEAR = String.raw`((?:19|20)\d{2})([a-z])?`;
-  const SEGMENT = new RegExp(String.raw`^((?:e\.g\.|i\.e\.|see(?:\s+also)?|cf\.)\s*,?\s*)?${AUTHOR_LIST},?\s+${CITED_YEAR}$`, 'ud');
-  const SURNAME = String.raw`(?<![\p{L}\p{N}.])(?:(?:van|von|de|der|den|del|della|di|da|du|dos|la|le|ten|ter)\s+)*\p{Lu}[\p{L}'’\-]*\p{L}`;
-  const NARRATIVE = new RegExp(String.raw`(${SURNAME}(?:\s+et\s+al\.?|\s+(?:and|&)\s+${SURNAME})?)\s+\(${CITED_YEAR}\)`, 'gud');
-  const PARENTHESES = /\(([^()]{6,600})\)/g;
-  const surnameOf = name => folded(name.replace(/^(?:\p{Lu}\.\s*)+/u, '').trim().split(/\s+/).pop());
-  const authorYear = (authors, year, suffix) => {
-    const names = authors.replace(/,?\s+et\s+al\.?$/, '').split(/,\s+|\s+(?:and|&)\s+/).map(surnameOf);
-    const found = references.entries.filter(entry => entry.surname === names[0] && entry.years.some(value => value.year === year)
-      && names.slice(1).every(name => entry.authors.includes(name)));
-    const exact = found.filter(entry => entry.years.some(value => value.year === year && value.suffix === suffix));
-    if (exact.length === 1) return exact[0];
-    if (exact.length > 1) return null;
-    // The bibliography may print "2020" where the text cites "2020a".
-    return found.length === 1 && (!suffix || !found[0].years.some(value => value.year === year && value.suffix)) ? found[0] : null;
-  };
-  // "(A et al., 2019; B and C, 2020)" and "(A et al., 2019, B et al., 2018)" → one piece per citation.
-  const pieces = (text, offset) => {
-    const out = [];
-    for (const match of text.matchAll(/[^;]+/g)) {
-      let start = 0;
-      const part = match[0];
-      for (const end of [...part.matchAll(/(?<=(?:19|20)\d{2}[a-z]?),\s+/g)].map(value => value.index).concat(part.length)) {
-        const piece = part.slice(start, end), lead = piece.length - piece.trimStart().length;
-        out.push({text: piece.trim(), start: offset + match.index + start + lead});
-        start = end + (part.slice(end).match(/^,\s+/)?.[0].length || 0);
-      }
-    }
-    return out;
-  };
-  const styles = {numbered: false, labelled: false, authorYear: false};
-  const citationsIn = text => {
-    const links = [];
-    const keyed = (inner, offset, pattern) => [...inner.matchAll(pattern)].map(token =>
-      ({start: offset + token.index, end: offset + token.index + token[0].length, value: token[0]}));
-    if (styles.numbered) for (const match of text.matchAll(NUMBERED)) {
-      const tokens = keyed(match[0], match.index, /\d{1,4}/g);
-      if (!tokens.every(token => references.numbers.get(Number(token.value)))) continue;
-      // "[1–4]": both ends exist and form a short increasing range.
-      let index = 0, valid = true;
-      for (const piece of match[0].slice(1, -1).split(/[,;]/)) {
-        const count = (piece.match(/\d{1,4}/g) || []).length;
-        if (count === 2) {
-          const from = Number(tokens[index].value), to = Number(tokens[index + 1].value);
-          if (!(from < to && to - from <= 200)) valid = false;
-        }
-        index += count;
-      }
-      if (!valid) continue;
-      tokens.forEach((token, index) => links.push({
-        start: index === 0 ? match.index : token.start, end: index === tokens.length - 1 ? match.index + match[0].length : token.end,
-        entry: references.numbers.get(Number(token.value)), label: 'Reference ' + token.value,
-      }));
-    }
-    if (styles.labelled) for (const match of text.matchAll(LABELLED)) {
-      const tokens = keyed(match[1], match.index + 1, /[^,;\s][^,;]*?(?=\s*(?:[,;]|$))/g);
-      if (!tokens.length || !tokens.every(token => references.labels.get(token.value))) continue;
-      tokens.forEach((token, index) => links.push({
-        start: index === 0 ? match.index : token.start, end: index === tokens.length - 1 ? match.index + match[0].length : token.end,
-        entry: references.labels.get(token.value), label: 'Reference ' + token.value,
-      }));
-    }
-    if (styles.authorYear) {
-      for (const match of text.matchAll(PARENTHESES)) {
-        for (const piece of pieces(match[1], match.index + 1)) {
-          const segment = SEGMENT.exec(piece.text);
-          const entry = segment && authorYear(segment[2], segment[3], segment[4] || '');
-          if (entry) links.push({start: piece.start + segment.indices[2][0], end: piece.start + (segment.indices[4] || segment.indices[3])[1], entry});
-        }
-      }
-      for (const match of text.matchAll(NARRATIVE)) {
-        const entry = authorYear(match[1], match[2], match[3] || '');
-        if (entry) links.push({start: match.index, end: match.index + match[0].length, entry});
-      }
-    }
-    links.sort((a, b) => a.start - b.start);
-    return links.filter((link, index) => index === 0 || link.start >= links[index - 1].end);
-  };
+  // In-text citations are found in each block's text as a whole, so one may
+  // span inline elements or a line break; each piece of it is wrapped in place.
   const SKIPPED = `math,.reader-equation,pre,code,a,h1,h2,h3,h4,h5,h6,.sr-cite,[${CHROME}]`;
+  const BREAKS = /^(?:TD|TH|TR|TABLE|THEAD|TBODY|LI|UL|OL|P|DIV|FIGCAPTION|FIGURE|BLOCKQUOTE|IMG)$/;
   const inBibliography = node => {
     for (let element = node.parentElement; element && element !== document.body; element = element.parentElement) {
       if (references.members.has(element)) return true;
     }
     return false;
   };
-  const linkCitations = () => {
-    if (!references.entries.length) return;
-    styles.numbered = [...references.numbers.values()].filter(Boolean).length >= 2;
-    styles.labelled = [...references.labels.values()].some(Boolean);
-    styles.authorYear = references.entries.some(entry => entry.surname && entry.years.length);
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-      acceptNode: node => /[[(]/.test(node.data) && node.parentElement?.closest('[data-reader-block]') && !node.parentElement.closest(SKIPPED)
-        && !inBibliography(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-    });
-    const nodes = [];
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node);
-    for (const node of nodes) {
-      const links = citationsIn(node.data);
-      if (!links.length) continue;
+  // A block's text with the text node at each offset; skipped elements and
+  // cell or item boundaries become U+2063, which no citation spans.
+  const blockText = block => {
+    let text = '';
+    const parts = [];
+    const walk = element => {
+      for (let node = element.firstChild; node; node = node.nextSibling) {
+        if (node.nodeType === Node.TEXT_NODE) { parts.push({node, start: text.length}); text += node.data; continue; }
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (node.matches(SKIPPED) || node.hasAttribute('data-reader-block') || references.members.has(node)) { text += '⁣'; continue; }
+        if (node.tagName === 'BR') { text += '\n'; continue; }
+        const breaks = BREAKS.test(node.tagName);
+        if (breaks) text += '⁣';
+        walk(node);
+        if (breaks) text += '⁣';
+      }
+    };
+    walk(block);
+    return {text, parts};
+  };
+  const wrapCitations = (parts, links) => {
+    const first = new Set();
+    for (const {node, start} of parts) {
+      const end = start + node.data.length;
+      const pieces = links.filter(link => link.start < end && link.end > start)
+        .map(link => ({from: Math.max(link.start, start) - start, to: Math.min(link.end, end) - start, link}))
+        .filter(piece => node.data.slice(piece.from, piece.to).trim());
+      if (!pieces.length) continue;
       const fragment = document.createDocumentFragment();
       let cursor = 0;
-      for (const link of links) {
-        if (link.start > cursor) fragment.append(node.data.slice(cursor, link.start));
+      for (const {from, to, link} of pieces) {
+        if (from > cursor) fragment.append(node.data.slice(cursor, from));
         const span = document.createElement('span');
-        span.className = 'sr-cite'; span.setAttribute('role', 'link'); span.tabIndex = 0;
+        // A citation split by an inline element is one link: only its first piece takes focus.
+        span.className = 'sr-cite'; span.setAttribute('role', 'link'); span.tabIndex = first.has(link) ? -1 : 0;
         span.setAttribute('data-sr-cite', link.entry.id);
         if (link.label) span.setAttribute('aria-label', link.label);
-        span.textContent = node.data.slice(link.start, link.end);
-        fragment.append(span); cursor = link.end;
+        span.textContent = node.data.slice(from, to);
+        fragment.append(span); cursor = to; first.add(link);
       }
       if (cursor < node.data.length) fragment.append(node.data.slice(cursor));
       node.replaceWith(fragment);
+    }
+  };
+  const linkCitations = () => {
+    if (!references.entries.length) return;
+    references.index = CitationMatcher.index(references.entries);
+    for (const block of document.querySelectorAll('[data-reader-block]')) {
+      if (block.closest(SKIPPED) || references.members.has(block) || inBibliography(block)) continue;
+      const {text, parts} = blockText(block);
+      if (!/[\d[]/.test(text)) continue;
+      const links = CitationMatcher.scan(text, references.index).filter(link => link.entry);
+      if (links.length) wrapCitations(parts, links);
     }
   };
   const installCitationStyle = () => {
@@ -316,6 +518,9 @@
       ':root{--sr-link:#5659d6;--sr-flash:rgba(99,102,241,.2)}@media(prefers-color-scheme:dark){:root{--sr-link:#a5a7ff;--sr-flash:rgba(165,180,252,.3)}}',
       // A larger tap target than the digits, without moving any text.
       '.sr-cite{color:var(--sr-link);text-decoration:none;cursor:pointer;border-radius:4px;padding:.45em .2em;margin:-.45em -.2em;-webkit-tap-highlight-color:var(--sr-flash)}',
+      // Touch has no hover: a faint underline shows every citation (numbered or author–year) is a link.
+      '@media(hover:none){.sr-cite{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.2em;text-decoration-skip-ink:auto;'
+        + 'text-decoration-color:color-mix(in srgb,var(--sr-link) 40%,transparent)}}',
       '.sr-cite:focus-visible{outline:2px solid var(--sr-link);outline-offset:1px}[data-sr-reference]{cursor:pointer}',
       '.sr-flash{position:absolute;z-index:-1;pointer-events:none;border-radius:8px;background:var(--sr-flash);transition:opacity .9s ease}.sr-flash.sr-flash-done{opacity:0}',
       '.sr-paper-line{font-size:.82rem;line-height:1.4;color:#666;margin:-.3em 0 1.2em;-webkit-user-select:none;user-select:none}',

@@ -121,6 +121,7 @@ Retained device keys allow offline reading before the server is reachable. Netwo
 - Generate content keys with the operating-system secure random source. Use a reviewed, versioned envelope format built on CryptoKit AES-GCM and standard key-agreement/key-derivation primitives. Use fresh nonces and bind account, object/event identity, format, and key version into authenticated data.
 - Keep device private keys and the active key bundle in the non-synchronizing Data Protection Keychain. Use key accessibility appropriate to explicitly supported foreground/background behavior; never permit plaintext fallback when the device is locked or a key is unavailable.
 - The server stores device public keys, recipient-bound encrypted envelopes, and a recovery-code-wrapped package. It never receives the library key or recovery code.
+- The person may save the recovery code in Apple Passwords (`gradstep.ai`, through system UI) and fill it from there on a new device. That copy is held and synced by Apple, not by Gradstep; saving it is optional.
 - Add a device through an authenticated request approved by a retained device, with a compared phrase/QR binding the exact recipient key. An account login must not be sufficient to substitute a new decryption key.
 - Bootstrap is atomic: two first devices cannot independently create competing account keyrings. A losing device must join/recover the existing keyring.
 - Device revocation rotates the future-write encryption epoch and write-management authority. Reject stale epochs even if an old account session remains valid. Retain historical keys only for authorized historical reads.
@@ -173,6 +174,14 @@ On launch, foreground, login, reconnect, or a realtime notification, fetch every
 - **Notes/highlights:** explicit revisions; retain concurrent text changes rather than silently choose one. Changes to independent records commute. Stable anchors include document/artifact version and text context.
 - **Reading position:** store per-device positions plus a causally versioned shared resume position. An old offline reading session must not automatically replace a later intentional position on reconnect. Preserve alternatives when intent is ambiguous; do not use maximum page number as the definition of progress.
 - **Deletion:** durable tombstones dominate stale edits. An offline device cannot resurrect deleted content. Keep tombstones until the acknowledged-device/retention policy makes compaction safe; expired devices re-bootstrap from a verified snapshot.
+- **Deleting a conversation (All chats, 2026-10-07):** appends the conversation's tombstone through the same
+  encrypted outbox. Every device hides it (and its diagrams) once synced and refuses to continue it; an unsent
+  follow-up stays a recoverable draft. Tombstones retain the encrypted history, so the UI promises removal from
+  the user's chats, not erasure from the server; account deletion erases it.
+- **Event times (2026-10-07):** new conversation, message, diagram and tombstone events carry `createdAt` (author
+  device clock, Unix milliseconds) inside the encrypted payload, for display only (All chats' Started and Last
+  used). It never orders branches, conflicts or sync; older events have none and older decoders ignore it. History
+  without times is ordered by its arrival in this device's journal, an unsynced in-memory hint.
 - **Corruption/unknown versions:** do not advance the cursor past unprocessable content or overwrite a valid encrypted store with an empty one. Show recovery/update state and preserve recoverable data.
 - **Sign-out/account changes:** partition all state by account. Retain or discard pending local work only through an explicit user action; never upload it under the next account. Wipe scoped local keys/caches according to the chosen sign-out policy.
 

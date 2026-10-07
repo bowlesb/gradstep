@@ -48,7 +48,7 @@ struct ReportComposer: View {
                 }
             }.navigationTitle("Report an issue").navigationBarTitleDisplayMode(.inline)
                 .disabled(busy)
-                .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.disabled(busy) } }
+                .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.disabled(busy).macBarButton() } }
                 .onAppear { if screenshot == nil, let captured = model.reportScreenshot { prepare(captured) } }
                 .onChange(of: photo) { _, item in
                     consent = false; loadingImage = true
@@ -126,7 +126,7 @@ struct ScreenshotEditor: View {
                 Button("Reset edits") { redactions = []; crop = CGRect(x: 0, y: 0, width: 1, height: 1) }
             }.padding().navigationTitle("Edit screenshot").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.macBarButton() }
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { do { save(try ScreenshotCapture.prepare(image, redactions: redactions, crop: crop)); dismiss() } catch { self.error = "Select a larger crop and try again." } } }
                 }
         }

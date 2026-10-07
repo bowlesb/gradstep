@@ -6,6 +6,10 @@ do $$ begin
 end $$;
 create schema auth;
 create table auth.users(id uuid primary key);
+-- Columns the admin accounts list reads (GoTrue's names and types); id stays first so
+-- fixtures can keep inserting bare IDs.
+alter table auth.users add column email varchar(255), add column created_at timestamptz default now(),
+ add column last_sign_in_at timestamptz, add column banned_until timestamptz, add column raw_app_meta_data jsonb;
 create function auth.uid() returns uuid language sql stable as $$
  select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
 $$;

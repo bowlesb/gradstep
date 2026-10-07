@@ -13,17 +13,29 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
     public var role: Role?
     public var status: TurnStatus?
     public var anchor: TextAnchor?
+    /// When the author device wrote the event: Unix time in milliseconds by that device's clock. Inside the
+    /// encrypted payload, so the service learns nothing new; shown as "Last used"/"Started" in All chats, never
+    /// used for ordering decisions. Absent on events written before 2026-10-07 (older decoders ignore the key).
+    public var createdAt: Int64?
 
     public init(kind: Kind, entityID: UUID = UUID(), parents: [UUID] = [], conversationID: UUID? = nil,
                 documentID: UUID? = nil, text: String? = nil, role: Role? = nil,
-                status: TurnStatus? = nil, anchor: TextAnchor? = nil) {
+                status: TurnStatus? = nil, anchor: TextAnchor? = nil, createdAt: Int64? = nil) {
         self.kind = kind; self.entityID = entityID; self.parents = parents
         self.conversationID = conversationID; self.documentID = documentID; self.text = text
-        self.role = role; self.status = status; self.anchor = anchor
+        self.role = role; self.status = status; self.anchor = anchor; self.createdAt = createdAt
     }
+
+    /// `createdAt` for a date (whole milliseconds).
+    public static func timestamp(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded(.down)) }
+
+    /// The author's creation time, when recorded.
+    public var createdDate: Date? { createdAt.map { Date(timeIntervalSince1970: Double($0) / 1000) } }
 
     public func validate() throws {
         guard parents.count <= 100, Set(parents).count == parents.count, (text?.utf8.count ?? 0) <= 200_000 else { throw ReaderError.invalidEvent }
+        // Any device clock is accepted (display only); the bound keeps the value a representable date.
+        if let createdAt { guard createdAt >= 0, createdAt < 253_402_300_800_000 else { throw ReaderError.invalidEvent } }
         if kind == .message { guard conversationID != nil, role != nil, status != nil, text != nil else { throw ReaderError.invalidEvent } }
         if kind == .note || kind == .diagram || kind == .conversation { guard text != nil else { throw ReaderError.invalidEvent } }
         if kind == .position { guard documentID != nil, anchor != nil else { throw ReaderError.invalidEvent } }
@@ -67,8 +79,22 @@ public struct ConversationBranch: Equatable, Sendable {
 public struct PrivateState: Codable, Equatable, Sendable {
     public private(set) var events: [UUID: AppliedEvent] = [:]
     private var localReplacements: [UUID: UUID] = [:]
+    /// The order this state applied its events: on this device, the local journal's order (records at load, then
+    /// appends and pulls). Only a presentation hint for history written before events carried `createdAt`; it is
+    /// not encoded or compared, so states with the same events are equal whatever their arrival order.
+    private var arrival: [UUID: Int] = [:]
+    private var nextArrival = 0
+
+    private enum CodingKeys: String, CodingKey { case events, localReplacements }
+
+    public static func == (lhs: PrivateState, rhs: PrivateState) -> Bool {
+        lhs.events == rhs.events && lhs.localReplacements == rhs.localReplacements
+    }
 
     public init() {}
+
+    /// Position of an event in this state's arrival order (larger is later); nil for unknown events.
+    public func arrivalIndex(_ eventID: UUID) -> Int? { arrival[eventID] }
 
     public func resolvedEventID(_ id: UUID) -> UUID {
         var current = id, visited = Set<UUID>()
@@ -90,7 +116,11 @@ public struct PrivateState: Codable, Equatable, Sendable {
         }
         let retired = Set(mapping.keys)
         guard events.values.filter({ !retired.contains($0.id) }).allSatisfy({ Set($0.payload.parents).isDisjoint(with: retired) }) else { throw ReaderError.corruptData }
-        for (oldID, newID) in mapping { events.removeValue(forKey: oldID); localReplacements[oldID] = newID }
+        for (oldID, newID) in mapping {
+            events.removeValue(forKey: oldID); localReplacements[oldID] = newID
+            // A re-sealed event keeps its original place in the arrival order.
+            if let original = arrival.removeValue(forKey: oldID) { arrival[newID] = min(original, arrival[newID] ?? original) }
+        }
     }
 
     public mutating func apply(_ event: AppliedEvent) throws {
@@ -108,6 +138,7 @@ public struct PrivateState: Codable, Equatable, Sendable {
             events.removeValue(forKey: event.id)
             throw ReaderError.invalidEvent
         }
+        arrival[event.id] = nextArrival; nextArrival += 1
     }
 
     private func containsCycle(from id: UUID) -> Bool {

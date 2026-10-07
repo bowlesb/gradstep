@@ -128,20 +128,23 @@ test('web PDF download: every hop checked, landing pages and blocks refused, bou
   const resolve: ResolveHost = async host => host === 'internal.example.net' ? ['10.1.2.3'] : ['93.184.215.14'];
   const base = 'https://repository.example.org';
   assert.deepEqual(await fetchWebPDF(fetcher, `${base}/hop`, 1024 * 1024, resolve), body);
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/to-http`, 1024 * 1024, resolve), permanent('download_failed'));
+  // A redirect to http is followed over https (never in the clear).
+  assert.deepEqual(await fetchWebPDF(fetcher, `${base}/to-http`, 1024 * 1024, resolve), body);
   await assert.rejects(fetchWebPDF(fetcher, `${base}/to-ip`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/to-internal`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/loop`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/html`, 1024 * 1024, resolve), permanent('download_failed'));
+  // A page that declares no PDF (a "Sign in" link alone is not a paywall).
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/html`, 1024 * 1024, resolve), permanent('not_pdf'));
   // Landing pages: the declared PDF is followed once, with the same checks; never a second page.
   assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/38240`, 1024 * 1024, resolve), body);
   assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/relative`, 1024 * 1024, resolve), body);
   assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/alternate`, 1024 * 1024, resolve), body);
   await assert.rejects(fetchWebPDF(fetcher, `${base}/record/internal`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/to-page`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/none`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/challenge`, 1024 * 1024, resolve), permanent('download_failed'));
-  await assert.rejects(fetchWebPDF(fetcher, `${base}/forbidden`, 1024 * 1024, resolve), permanent('download_failed'));
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/to-page`, 1024 * 1024, resolve), permanent('not_pdf'));
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/none`, 1024 * 1024, resolve), permanent('not_pdf'));
+  // A bot check is told apart from a missing PDF, whatever type it claims.
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/challenge`, 1024 * 1024, resolve), permanent('source_blocked'));
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/forbidden`, 1024 * 1024, resolve), permanent('source_blocked'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/busy`, 1024 * 1024, resolve), transient('rate_limited'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/big`, 1024 * 1024, resolve), permanent('too_large'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/ok.pdf`, 100, resolve), permanent('too_large'));
@@ -149,7 +152,9 @@ test('web PDF download: every hop checked, landing pages and blocks refused, bou
   // Locations are tried in order; a transient failure anywhere keeps the import retrying.
   assert.equal((await fetchFirstWebPDF(fetcher, [`${base}/forbidden`, `${base}/ok.pdf`], 1024 * 1024, resolve)).url, `${base}/ok.pdf`);
   await assert.rejects(fetchFirstWebPDF(fetcher, [`${base}/forbidden`, `${base}/busy`], 1024 * 1024, resolve), transient('rate_limited'));
-  await assert.rejects(fetchFirstWebPDF(fetcher, [`${base}/forbidden`, `${base}/html`], 1024 * 1024, resolve), permanent('download_failed'));
+  // Every location failed for good: the most telling reason wins (blocked over no PDF over gone).
+  await assert.rejects(fetchFirstWebPDF(fetcher, [`${base}/html`, `${base}/forbidden`], 1024 * 1024, resolve), permanent('source_blocked'));
+  await assert.rejects(fetchFirstWebPDF(fetcher, [`${base}/to-ip`, `${base}/html`], 1024 * 1024, resolve), permanent('not_pdf'));
 });
 
 const policy: PipelinePolicy = { enabled: true, max_pdf_bytes: 64 * 1024 * 1024, max_ocr_pages: 80, renderer_version: 'timestep-mathpix-mathml-v1' };
@@ -221,7 +226,7 @@ test('web download failures: blocked everywhere is permanent and retryable by th
   const blocked = harness({ worker_pipeline_admit_download: () => ({ admitted: true }) }, async () => new Response('denied', { status: 403 }));
   await processPaper(blocked.deps, entry('download', { revision: 1, owner_id: owner, pdf_urls: ['https://repository.example.org/a.pdf'] }), policy, deadline);
   const defer = blocked.calls.find(c => c.name === 'worker_pipeline_defer')!;
-  assert.deepEqual([defer.params.p_fail, defer.params.p_error_code, defer.params.p_resume_stage], [true, 'download_failed', 'download']);
+  assert.deepEqual([defer.params.p_fail, defer.params.p_error_code, defer.params.p_resume_stage], [true, 'source_blocked', 'download']);
   const busy = harness({ worker_pipeline_admit_download: () => ({ admitted: true }) }, async () => new Response('later', { status: 503 }));
   await processPaper(busy.deps, entry('download', { revision: 1, owner_id: owner, pdf_urls: ['https://repository.example.org/a.pdf'] }), policy, deadline);
   assert.equal(busy.calls.find(c => c.name === 'worker_pipeline_defer')!.params.p_fail, false);

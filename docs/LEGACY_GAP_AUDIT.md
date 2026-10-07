@@ -179,7 +179,7 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 | A paper's own conversations aren't shown when you open it | Opening a paper showed that paper's History tab: chats, passage, date, message count (`app/page.tsx:516`; `ChatPanel.tsx:1126-1231`) | Only the global All chats list (`RootView.swift:716`) | S once the All chats table exists: filter it to "This paper" |
 | Assistant can't see your library | `search_library` tool; general chat could answer "what do I have on X" (`route.ts:207-222`) | None | M. Library membership is server-visible, but sending it to Anthropic needs consent copy |
 | Hardware keyboard on iPad | Enter sends, Shift-Enter adds a line, Esc closes overlays (`ChatPanel.tsx:364-374`, `app/page.tsx:224-236`) | Only Esc to dismiss the keyboard (`RootView.swift:699`) | S: ⌘↩ to send, Esc on sheets, ⌘F (see #7) |
-| No way to invite or manage accounts | AdminPanel created and deleted users (`components/AdminPanel.tsx`) | Admin tabs: Overview, Usage, Processing, Reliability, Support (`apps/admin/src/main.tsx:77`). Sign-up is invite-only and testers need accounts made for them | S–M: an owner-only Accounts tab (invite, credit grant, disable) |
+| No way to invite or manage accounts | AdminPanel created and deleted users (`components/AdminPanel.tsx`) | Admin tabs: Overview, Usage, Processing, Reliability, Support (`apps/admin/src/main.tsx:77`). Sign-up is invite-only and testers need accounts made for them | S–M: an owner-only Accounts tab (invite, credit grant, disable). **Built 2026-10-07** (migration 028, `admin-accounts`; not yet deployed) |
 
 ## Notes for tonight's work
 

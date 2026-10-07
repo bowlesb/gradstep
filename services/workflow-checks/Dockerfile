@@ -4,6 +4,8 @@
 FROM node:24-slim
 WORKDIR /app
 COPY scripts/workflow-checks.mjs scripts/workflow-checks.mjs
+# downloads.corpus runs the pipeline's own download code (dependency-free TypeScript; Node 24 strips types).
+COPY supabase/functions/_shared/web-source.ts supabase/functions/_shared/web-source.ts
 COPY infra/ infra/
 ENV WORKFLOW_REPORT_DIR=/tmp/workflow-checks NODE_ENV=production
 USER node

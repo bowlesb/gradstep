@@ -66,7 +66,9 @@ differences:
   `dns_unresolved` are logged), every redirect re-checked (at most 5; never to arXiv), `text/html` or a body not
   starting `%PDF-` refused (landing pages, bot challenges), 64 MiB cap, 60 s per request. 401/403/404 and the like
   are permanent `download_failed` (retryable by the reader); 429/5xx, resets and running out of budget are
-  transient. Admission, page limits, `countPages`, the private path and `worker_pipeline_original` are the arXiv
+  transient. Since migration 027 (2026-10-07) bodies are sniffed, refusals are told apart (`pdf_restricted`, `source_blocked`,
+  `not_pdf`), PubMed Central is fetched from NLM open data, and download failures that can change are retried automatically;
+  see [self-healing downloads](PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027). Admission, page limits, `countPages`, the private path and `worker_pipeline_original` are the arXiv
   ones. Metadata text has control characters removed (the reader's attribution refuses them).
 - **Provenance.** `approve_private_asset` records the landing page and PDF locations in the owner-private
   approval; the reader attribution names the paper and links the landing page ("Converted for the personal use of
@@ -81,7 +83,8 @@ differences:
 - **Stored progress** (all imports, from 019). `import_requests.progress` is written by
   `worker_pipeline_sync_imports` together with a new `state_seq`, instead of being computed from the paper's live
   stage, so an import entry's JSON at a given `state_seq` never changes (clients and the offline cache require
-  that). New imports start at `finding`.
+  that). New imports start at `finding`. From migration 029 active imports also carry `progress_detail` (step,
+  percent, time left), likewise stored and changed only with a new `state_seq`; see [import progress](IMPORT_PROGRESS.md).
 
 ## Delivery and chat context
 
