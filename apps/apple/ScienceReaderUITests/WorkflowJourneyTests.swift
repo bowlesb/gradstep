@@ -495,7 +495,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["https://arxiv.org/abs/1706.03762"].exists)
         capture(app, "Source address confirmation")
         // iPhone shows it as a popover without a Cancel button; tapping outside dismisses it.
+        // A popover's own dismiss region is the reliable "outside" (the full-height chat moved the old tap point).
         if app.buttons["Cancel"].exists { app.buttons["Cancel"].tap() }
+        else if app.otherElements["PopoverDismissRegion"].exists { app.otherElements["PopoverDismissRegion"].tap() }
         else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap() }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
             object: app.staticTexts["Open this source in Safari?"])], timeout: 5), .completed)
