@@ -27,6 +27,9 @@ struct PaperJumpRequest: Equatable, Identifiable {
 struct PaperHeading: Equatable, Identifiable {
     let id: String
     let title: String
+    /// Steps below the shallowest heading shown in Contents (0…3), from its level or, where Mathpix flattened the
+    /// levels, its section number (reader-bridge.js, CONTENTS OUTLINE).
+    var depth: Int = 0
 }
 
 private struct PaperLoadIdentity: Hashable {
@@ -118,6 +121,8 @@ struct PaperView: View {
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    /// One step of a Contents entry's indent.
+    @ScaledMetric(relativeTo: .body) private var contentsIndent = 18.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
@@ -239,11 +244,17 @@ struct PaperView: View {
             }
             .sheet(isPresented: $showContents) {
                 NavigationStack {
+                    let nested = model.headings.contains { $0.depth > 0 }
                     List(model.headings) { heading in
-                        Button(heading.title) {
+                        Button {
                             if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: heading.id) }
                             showContents = false
+                        } label: {
+                            ContentsRow(heading: heading, nested: nested)
                         }
+                        .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
+                        // Outside the button, so its row (and the separator under it) starts at the text.
+                        .padding(.leading, CGFloat(heading.depth) * contentsIndent)
                     }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
                 }.presentationDetents([.medium, .large]).macSheetKeys()
@@ -602,11 +613,12 @@ struct PaperWebView: UIViewRepresentable {
                       let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { parent.onSelection(nil); return }
                 parent.onSelection(selection)
             case "headings":
-                if let items = body["items"] as? [[String: String]], items.count <= 500 {
+                if let items = body["items"] as? [[String: Any]], items.count <= 1_000 {
                     let headings = items.compactMap { item -> PaperHeading? in
-                        guard let id = item["id"], !id.isEmpty, id.utf8.count <= 2_048,
-                              let title = item["title"], !title.isEmpty, title.utf8.count <= 8_000 else { return nil }
-                        return PaperHeading(id: id, title: title)
+                        guard let id = item["id"] as? String, !id.isEmpty, id.utf8.count <= 2_048,
+                              let title = item["title"] as? String, !title.isEmpty, title.utf8.count <= 8_000,
+                              let depth = item["depth"] as? Int, (0...3).contains(depth) else { return nil }
+                        return PaperHeading(id: id, title: title, depth: depth)
                     }
                     guard headings.count == items.count, Set(headings.map(\.id)).count == headings.count else { return }
                     parent.onHeadings(headings)
@@ -766,6 +778,21 @@ struct PaperWebView: UIViewRepresentable {
             if navigationAction.navigationType == .linkActivated, destination.scheme == "https" { await UIApplication.shared.open(destination) }
             return .cancel
         }
+    }
+}
+
+/// One Contents entry (docs/LEGACY_GAP_AUDIT.md #10; the row is indented by its depth). In a nested outline the
+/// top-level sections are semibold, as in the paper's own printed contents.
+private struct ContentsRow: View {
+    let heading: PaperHeading
+    let nested: Bool
+
+    var body: some View {
+        Text(heading.title)
+            .font(nested && heading.depth == 0 ? .body.weight(.semibold) : .body)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
     }
 }
 
