@@ -92,12 +92,50 @@ async function readCapped(body: ReadableStream<Uint8Array>, maximum: number, isP
   return bytes;
 }
 
+/** Landing pages read for their PDF link are capped (Zenodo's record page is ~200 KB). */
+const LANDING_PAGE_BYTES = 1_500_000;
+
+/** The PDF a repository landing page declares: `citation_pdf_url` (Highwire tags, used by
+ * Zenodo, OpenReview, PMLR, institutional repositories), else a PDF alternate link. */
+export function landingPagePDF(html: string, base: URL): URL | null {
+  const decode = (value: string) => value.replace(/&amp;/g, '&').replace(/&#x2F;|&#47;/gi, '/').trim();
+  const tags = html.match(/<(?:meta|link)\b[^>]*>/gi) ?? [];
+  const attribute = (tag: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(tag)?.slice(1).find(v => v !== undefined) ?? null;
+  const candidates: string[] = [];
+  for (const tag of tags) {
+    if (/^<meta/i.test(tag) && attribute(tag, 'name')?.toLowerCase() === 'citation_pdf_url') candidates.unshift(attribute(tag, 'content') ?? '');
+    else if (/^<link/i.test(tag) && /\balternate\b/i.test(attribute(tag, 'rel') ?? '') && /application\/pdf/i.test(attribute(tag, 'type') ?? '')) candidates.push(attribute(tag, 'href') ?? '');
+  }
+  for (const value of candidates) {
+    if (!value) continue;
+    try { const next = publicHTTPS(new URL(decode(value), base)); if (next) return next; } catch { /* next candidate */ }
+  }
+  return null;
+}
+
+async function readText(body: ReadableStream<Uint8Array>, maximum: number): Promise<string> {
+  const reader = body.getReader(); const parts: Uint8Array[] = []; let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximum) throw new WebSourceError('download_failed', true);
+      parts.push(value);
+    }
+  } catch (error) { void reader.cancel().catch(() => {}); throw error; }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
+  return new TextDecoder().decode(bytes);
+}
+
 /** One download, every redirect hop re-checked (URL and resolved addresses).
- * `budget` bounds the whole download (all hops and the body). */
+ * `budget` bounds the whole download (all hops and the body). A repository landing
+ * page in place of the PDF is followed once to the PDF it declares. */
 export async function fetchWebPDF(fetcher: typeof fetch, start: string, maximum: number, resolve?: ResolveHost,
   budget: AbortSignal = AbortSignal.timeout(120_000)): Promise<Uint8Array> {
-  let current = publicHTTPS(start);
-  for (let hop = 0; hop < 6; hop++) {
+  let current = publicHTTPS(start), followedPage = false;
+  for (let hop = 0; hop < 7; hop++) {
     // arXiv copies go through the arXiv path (and its pacing), never a web redirect.
     if (!current || ARXIV_HOSTS.test(current.hostname)) throw new WebSourceError('download_failed', true);
     if (budget.aborted) throw new WebSourceError('download_failed', false);
@@ -116,7 +154,15 @@ export async function fetchWebPDF(fetcher: typeof fetch, start: string, maximum:
     }
     if (response.status === 429 || response.status >= 500) { drop(); throw new WebSourceError('rate_limited', false); }
     if (response.status !== 200 || !response.body) { drop(); throw new WebSourceError('download_failed', true); }
-    if (/^\s*text\/html/i.test(response.headers.get('content-type') ?? '')) { drop(); throw new WebSourceError('download_failed', true); }
+    if (/^\s*text\/html/i.test(response.headers.get('content-type') ?? '')) {
+      if (followedPage) { drop(); throw new WebSourceError('download_failed', true); }
+      let html: string;
+      try { html = await readText(response.body, LANDING_PAGE_BYTES); }
+      catch (error) { throw error instanceof WebSourceError ? error : new WebSourceError('download_failed', false); }
+      const next = landingPagePDF(html, current);
+      if (!next) throw new WebSourceError('download_failed', true);
+      followedPage = true; current = next; continue;
+    }
     const declared = response.headers.get('content-length');
     if (declared && Number(declared) > maximum) { drop(); throw new WebSourceError('too_large', true); }
     // A reset or timeout mid-body is transient: the next location (or a later attempt) may work.

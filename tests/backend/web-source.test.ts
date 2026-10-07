@@ -110,6 +110,17 @@ test('web PDF download: every hop checked, landing pages and blocks refused, bou
     if (path === '/forbidden') return new Response('no', { status: 403 });
     if (path === '/busy') return new Response('later', { status: 503 });
     if (path === '/big') return new Response(body, { headers: { 'content-length': String(10 * 1024 * 1024) } });
+    // A repository record page (Zenodo's pattern) that declares its PDF.
+    const page = (meta: string) => new Response(`<!doctype html><html><head><title>Record</title>${meta}</head><body>Files</body></html>`,
+      { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (path === '/record/38240') return page('<meta name="citation_pdf_url" content="https://repository.example.org/records/38240/files/cr1175.pdf"/>');
+    if (path === '/records/38240/files/cr1175.pdf') return new Response(body, { headers: { 'content-type': 'application/pdf' } });
+    if (path === '/record/relative') return page(`<meta content='/ok.pdf' name='CITATION_PDF_URL'>`);
+    if (path === '/record/alternate') return page('<link rel="alternate" type="application/pdf" href="/ok.pdf?download=1&amp;v=2">');
+    if (path === '/ok.pdf' && new URL(url).search) return new Response(body, { headers: { 'content-type': 'application/pdf' } });
+    if (path === '/record/internal') return page('<meta name="citation_pdf_url" content="https://internal.example.net/ok.pdf">');
+    if (path === '/record/to-page') return page('<meta name="citation_pdf_url" content="https://repository.example.org/record/38240">');
+    if (path === '/record/none') return page('<meta name="citation_title" content="A paper">');
     throw new Error('unexpected ' + url);
   }) as unknown as typeof fetch;
   const resolve: ResolveHost = async host => host === 'internal.example.net' ? ['10.1.2.3'] : ['93.184.215.14'];
@@ -120,6 +131,13 @@ test('web PDF download: every hop checked, landing pages and blocks refused, bou
   await assert.rejects(fetchWebPDF(fetcher, `${base}/to-internal`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/loop`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/html`, 1024 * 1024, resolve), permanent('download_failed'));
+  // Landing pages: the declared PDF is followed once, with the same checks; never a second page.
+  assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/38240`, 1024 * 1024, resolve), body);
+  assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/relative`, 1024 * 1024, resolve), body);
+  assert.deepEqual(await fetchWebPDF(fetcher, `${base}/record/alternate`, 1024 * 1024, resolve), body);
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/internal`, 1024 * 1024, resolve), permanent('download_failed'));
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/to-page`, 1024 * 1024, resolve), permanent('download_failed'));
+  await assert.rejects(fetchWebPDF(fetcher, `${base}/record/none`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/challenge`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/forbidden`, 1024 * 1024, resolve), permanent('download_failed'));
   await assert.rejects(fetchWebPDF(fetcher, `${base}/busy`, 1024 * 1024, resolve), transient('rate_limited'));
