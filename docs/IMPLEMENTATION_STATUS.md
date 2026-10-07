@@ -30,7 +30,11 @@ floating chrome and feedback #4–#6, reviewed offline-save compatibility repair
 passage-linked conversations (`e0dc706` → `1aeaea2`). The fresh combined build passes 20 app regressions and three
 complete iPhone Simulator passage/offline journeys. The offline candidate also passed 207 Core + 4 OAuth tests,
 321 iPhone tests (5 skips), 298 Catalyst tests (4 skips) and a universal signed Mac build. No physical phone work.
-See [handoff](HANDOFF_20261007.md) for still-isolated uploads, purchase diagnostics, navigation and chat branches.
+Reader navigation is now merged (`b7a7c31` → `6bd877b`) for the next build: Find in paper, Contents hierarchy,
+figure gallery and the resizable/hideable iPad/Mac chat column. Its independent review passed 68 app tests (2 skips),
+11 iPhone and 5 iPad journeys, and a fresh universal Catalyst build. Main `bf01894` adds decoded thumbnail cache
+accounting. The chat branch is verifying the combined layout and a title-overlap correction.
+See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
 
 ## Browser/Mac integration checkpoint — local, not deployed
 
