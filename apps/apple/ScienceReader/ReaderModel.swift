@@ -42,6 +42,8 @@ struct Paper: Identifiable, Sendable {
     var canReadStructured = true
     /// Archived (migration 020): in the library, hidden from the default list.
     var archived = false
+    /// Where it was published ("NeurIPS"), from the library metadata (`publicationLine`).
+    var venue: String? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {

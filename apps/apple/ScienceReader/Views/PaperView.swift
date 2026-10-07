@@ -34,6 +34,74 @@ private struct PaperLoadIdentity: Hashable {
     let revision: UUID
 }
 
+/// A bibliography entry the reader tapped (reader-bridge.js): its text as shown, the best
+/// link it names, and where it is on screen (to anchor the actions).
+struct ReaderReference: Identifiable, Equatable {
+    struct Link: Equatable {
+        let url: URL
+        let title: String
+    }
+
+    let id = UUID()
+    let title: String
+    let text: String
+    let link: Link?
+    let anchor: CGRect
+
+    /// Accepts only a well-formed message for a block of this verified bundle.
+    init?(message body: [String: Any], bundle: VerifiedReaderBundle, viewport: CGSize) {
+        guard body["manifest_sha256"] as? String == bundle.manifestSHA256, let block = body["block_id"] as? String,
+              bundle.index.blocks.contains(where: { $0.id == block }),
+              let raw = body["text"] as? String, raw.utf8.count <= 16_000 else { return nil }
+        let text = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !text.isEmpty else { return nil }
+        if let number = body["number"] as? Int, (0...99_999).contains(number) { title = "Reference \(number)" }
+        else if let label = body["label"] as? String, (1...24).contains(label.count) { title = "Reference \(label)" }
+        else { title = "Reference" }
+        self.text = text
+        let hrefs = (body["links"] as? [String] ?? []).prefix(8)
+        link = Self.link(in: text, hrefs: Array(hrefs))
+        let rect = body["rect"] as? [String: Double] ?? [:]
+        let values = ["x", "y", "width", "height"].map { rect[$0] ?? 0 }
+        let bounds = CGRect(origin: .zero, size: viewport)
+        anchor = values.allSatisfy(\.isFinite)
+            ? CGRect(x: values[0], y: values[1], width: max(1, values[2]), height: max(1, values[3])).intersection(bounds) : .null
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+
+    /// The entry's best destination: its arXiv paper, then its DOI, then a web address.
+    static func link(in text: String, hrefs: [String]) -> Link? {
+        let lowered = text.lowercased()
+        if lowered.contains("arxiv") || lowered.contains("corr") {
+            for match in text.matches(of: #/(\d{2})(\d{2})\.(\d{4,5})(v\d{1,3})?(?!\d)/#) {
+                let before = match.range.lowerBound == text.startIndex ? nil : text[text.index(before: match.range.lowerBound)]
+                guard before.map({ !$0.isNumber && $0 != "." }) ?? true,
+                      let year = Int(match.output.1), let month = Int(match.output.2), year >= 7, (1...12).contains(month) else { continue }
+                let id = "\(match.output.1)\(match.output.2).\(match.output.3)\(match.output.4 ?? "")"
+                if let url = URL(string: "https://arxiv.org/abs/" + id) { return Link(url: url, title: "Open on arXiv") }
+            }
+        }
+        if let match = text.firstMatch(of: #/\b(10\.\d{4,9}/[^\s"<>]+)/#) {
+            var doi = String(match.output.1)
+            while let last = doi.last, ".,;:]".contains(last) || (last == ")" && doi.filter({ $0 == "(" }).count < doi.filter({ $0 == ")" }).count) {
+                doi.removeLast()
+            }
+            if let path = doi.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed), let url = URL(string: "https://doi.org/" + path) {
+                return Link(url: url, title: "Open DOI")
+            }
+        }
+        let candidates = hrefs + text.matches(of: #/https://[^\s<>"]+/#).map { String($0.output) }
+        for candidate in candidates {
+            var value = candidate
+            while let last = value.last, ".,;:)]".contains(last) { value.removeLast() }
+            guard let url = URL(string: value), url.scheme == "https", url.host?.isEmpty == false, url.user == nil else { continue }
+            return Link(url: url, title: "Open link")
+        }
+        return nil
+    }
+}
+
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
@@ -43,9 +111,14 @@ struct PaperView: View {
     @State private var selectionClearID = UUID()
     @State private var figure: String?
     @State private var loadingPaper = true
+    /// After following a citation: offer "Back" to the place left.
+    @State private var citationBack = false
+    @State private var citationReturnID: UUID?
+    @State private var reference: ReaderReference?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.openURL) private var openURL
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -82,13 +155,22 @@ struct PaperView: View {
                                              figure = $0
                                          }
                                      }, onFailure: {
-                                         if model.readerDocumentScope == readerScope { readerFailed = true; selection = nil; model.headings = [] }
+                                         if model.readerDocumentScope == readerScope {
+                                             readerFailed = true; selection = nil; model.headings = []; citationBack = false; reference = nil
+                                         }
                                      }, onReady: {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
+                                     }, paperLine: paper.publicationLine, citationReturnID: citationReturnID, onCitation: { active in
+                                         if model.readerDocumentScope == readerScope { citationBack = active }
+                                     }, onReference: { value in
+                                         if model.readerDocumentScope == readerScope { reference = value }
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
+                            .overlay(alignment: .bottom) { if citationBack && !readerFailed { citationBackButton } }
+                            .overlay(alignment: .topLeading) { referenceActions }
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                             .overlay { if readerFailed {
                                 ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
                                     description: { Text("The reading bundle couldn’t be loaded completely.") }
@@ -165,8 +247,51 @@ struct PaperView: View {
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false
+            citationBack = false; reference = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
         }
+    }
+
+    // MARK: - Citations and references
+
+    /// Floats over the bottom of the paper after a citation jump; returns to the exact place.
+    private var citationBackButton: some View {
+        Button {
+            citationBack = false; citationReturnID = UUID()
+        } label: {
+            Label("Back", systemImage: "arrow.uturn.backward")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 18).frame(minHeight: 44)
+                .contentShape(Capsule())
+        }
+        .modifier(ReaderControlMaterial())
+        .accessibilityIdentifier("reader.citation.back")
+        .accessibilityHint("Returns to where you were reading")
+        .padding(.bottom, 16)
+        .transition(.opacity)
+    }
+
+    /// The actions for a tapped reference, anchored to the entry (a popover on iPad).
+    private var referenceActions: some View {
+        GeometryReader { proxy in
+            let anchor = reference?.anchor ?? .null
+            let rect = anchor.isNull || anchor.isEmpty ? CGRect(x: proxy.size.width / 2, y: proxy.size.height / 2, width: 1, height: 1) : anchor
+            Color.clear
+                .frame(width: rect.width, height: rect.height)
+                .confirmationDialog(reference?.title ?? "Reference", isPresented: Binding(
+                    get: { reference != nil }, set: { if !$0 { reference = nil } }), titleVisibility: .visible, presenting: reference) { value in
+                    if let link = value.link {
+                        Button(link.title) { openURL(link.url) }
+                    }
+                    Button("Add to library") { model.selectionAction(.ingest, quote: value.text) }
+                    Button("Copy") { UIPasteboard.general.string = value.text }
+                    Button("Cancel", role: .cancel) {}
+                } message: { value in
+                    Text(value.text)
+                }
+                .position(x: rect.midX, y: rect.midY)
+        }
+        .allowsHitTesting(false)
     }
 
     /// The paper's title, with "Offline sample" as a small second line rather than a separate band.
@@ -248,6 +373,13 @@ struct PaperWebView: UIViewRepresentable {
     let onFigure: (String) -> Void
     var onFailure: () -> Void = {}
     var onReady: () -> Void = {}
+    /// One secondary line under the authors (year · venue · source); nil shows none.
+    var paperLine: String? = nil
+    /// A new value returns from a citation jump to the reading position.
+    var citationReturnID: UUID? = nil
+    /// True while the reader can go back from a citation jump.
+    var onCitation: (Bool) -> Void = { _ in }
+    var onReference: (ReaderReference) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     /// One ephemeral (never persisted) store for every reader page: a new store per
@@ -283,7 +415,11 @@ struct PaperWebView: UIViewRepresentable {
             if let figureID { info["figure_id"] = figureID }
         }
         let json = (try? JSONSerialization.data(withJSONObject: info)) ?? Data("{}".utf8)
+        // The line is placed before the first layout, so restoring a position never shifts.
+        let line = figureID == nil ? paperLine.flatMap { try? JSONEncoder().encode($0) } : nil
+        context.coordinator.appliedPaperLine = line == nil ? nil : paperLine
         let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
+            + "window.__readerPaperLine = " + (line.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
         configuration.userContentController.addUserScript(WKUserScript(source: prelude + script,
             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
@@ -309,6 +445,8 @@ struct PaperWebView: UIViewRepresentable {
         }
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
+        context.coordinator.returnFromCitationIfNeeded(in: web)
+        context.coordinator.applyPaperLine(in: web)
         // Math fit depends on the text size, so refit only when it changes
         // (compared here: WebKit rounds the size it stores).
         if context.coordinator.appliedFontSize != fontSize {
@@ -339,7 +477,13 @@ struct PaperWebView: UIViewRepresentable {
         private var latestLocation: PaperReadingLocation?
         private var sampledOffsetY = 0.0
         private var lastSelectionClearID: UUID?
-        init(_ parent: PaperWebView) { self.parent = parent; lastSelectionClearID = parent.selectionClearID }
+        private var lastCitationReturnID: UUID?
+        /// After a citation jump the saved place stays where reading left off.
+        private var citationActive = false
+        var appliedPaperLine: String?
+        init(_ parent: PaperWebView) {
+            self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
+        }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard active, message.frameInfo.isMainFrame, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
@@ -365,6 +509,14 @@ struct PaperWebView: UIViewRepresentable {
                    let id = body["id"] as? String, bundle.index.figures.contains(where: { $0.id == id }) { parent.onFigure(id) }
             case "invalid": invalidateLoad(); navigation = nil; parent.onLoading(false); parent.onFailure()
             case "position": if ready, let web = message.webView { remember(body, in: web) }
+            case "citation":
+                guard ready, let state = body["state"] as? String, state == "jumped" || state == "ended" else { return }
+                citationActive = state == "jumped"
+                parent.onCitation(citationActive)
+            case "reference":
+                guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
+                      let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }
+                parent.onReference(reference)
             default: break
             }
         }
@@ -423,6 +575,21 @@ struct PaperWebView: UIViewRepresentable {
             web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
         }
 
+        func returnFromCitationIfNeeded(in web: WKWebView) {
+            guard let id = parent.citationReturnID, id != lastCitationReturnID else { return }
+            lastCitationReturnID = id
+            citationActive = false
+            web.callAsyncJavaScript("return window.__scienceReaderCitationBack();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
+        /// Library metadata can arrive or change while the paper is open.
+        func applyPaperLine(in web: WKWebView) {
+            guard parent.figureID == nil, appliedPaperLine != parent.paperLine else { return }
+            appliedPaperLine = parent.paperLine
+            web.callAsyncJavaScript("window.__scienceReaderSetPaperLine(line);", arguments: ["line": parent.paperLine ?? NSNull()],
+                                    in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
         private func remember(_ body: [String: Any], in web: WKWebView) {
             guard let block = body["block"] as? Int, (-1...1_000_000).contains(block),
                   let fraction = body["fraction"] as? Double, fraction.isFinite, abs(fraction) < 1_000_000,
@@ -438,13 +605,14 @@ struct PaperWebView: UIViewRepresentable {
 
         func saveFinalLocation(in web: WKWebView) {
             guard ready, let latestLocation else { return }
-            // Include the final scroll movement even if the throttled DOM report is still queued.
-            let delta = (web.scrollView.contentOffset.y - sampledOffsetY) / max(1, web.scrollView.zoomScale)
+            // Include the final scroll movement even if the throttled DOM report is still queued
+            // (but not a citation jump: the place to come back to is where reading left off).
+            let delta = citationActive ? 0 : (web.scrollView.contentOffset.y - sampledOffsetY) / max(1, web.scrollView.zoomScale)
             parent.onLocation(parent.locationKey, latestLocation.adjusted(by: delta))
         }
 
         func invalidateLoad() {
-            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil
+            loadingID = UUID(); ready = false; inFlightJumpID = nil; latestLocation = nil; appliedFontSize = nil; citationActive = false
         }
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard active, navigation === self.navigation else { return }

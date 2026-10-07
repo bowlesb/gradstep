@@ -235,7 +235,7 @@ final class WorkflowJourneyTests: XCTestCase {
             latex: #"\begin{equation}"#, figure: "Open figure: Queries and keys")
         // Real DPO paper rendered by timestep-mathpix-mathml-v1 (CC BY 4.0).
         static let mathpix = ReaderJourney(mathpix: true, heading: "5.2 Instability of Actor-Critic Algorithms",
-            before: "We can also use our framework to diagnose", after: "This is the same objective optimized in prior works",
+            before: "With some algebra this leads to the optimization objective", after: "This is the same objective optimized in prior works",
             latex: #"\begin{equation*}"#, figure: "Open figure: Figure 2: Left.")
     }
 
@@ -279,7 +279,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(heading.exists)
         if !heading.isHittable { app.swipeUp() }
         heading.tap()
-        let before = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.before)).firstMatch
+        let before = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", journey.before)).firstMatch
         let after = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", journey.after)).firstMatch
         let positioned = NSPredicate { _, _ in before.isHittable && after.isHittable && after.frame.minY > before.frame.maxY + 20 }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: positioned, object: nil)], timeout: 5), .completed)

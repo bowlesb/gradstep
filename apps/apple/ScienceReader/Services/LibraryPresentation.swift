@@ -29,10 +29,29 @@ enum LibraryPresentationRow: Sendable {
                 fileURL: nil, artifactID: item.artifactID,
                 sourceID: item.sourceID, sourceRevision: item.sourceRevision,
                 authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt.date, pageCount: item.pageCount,
-                canReadStructured: item.canReadStructured, archived: item.isArchived),
+                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue),
                 createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))
         case .import(let value):
             return .imported(id: value.id, visible: value.visible ? value : nil)
         }
+    }
+}
+
+extension Paper {
+    /// The secondary line the reader shows under the authors: "2017 · NeurIPS · arXiv 1706.03762v7",
+    /// or "2015 · Nature · Open access" for a web paper. Unknown parts are left out; nil when nothing
+    /// is known. The bundled sample prints its own year, so it has none.
+    var publicationLine: String? {
+        guard !isSample else { return nil }
+        var parts: [String] = []
+        if let year, (1000...9999).contains(year) { parts.append(String(year)) }
+        if let venue = venue?.split(whereSeparator: \.isWhitespace).joined(separator: " "), !venue.isEmpty {
+            parts.append(venue.count > 80 ? String(venue.prefix(79)) + "…" : venue)
+        }
+        if let sourceID, let badge = LibrarySource.badge(sourceID: sourceID, revision: sourceRevision) {
+            // arXiv papers show their identifier (readers cite it); web papers the badge alone.
+            parts.append(LibrarySource.isWebSourceID(sourceID) ? badge : "arXiv " + (sourceReference ?? sourceID))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

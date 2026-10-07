@@ -10,7 +10,8 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 (no network, no account): `library`, `library-search`, `library-table`, `library-detailed`, `library-metadata-list`, `feed`, `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
-`chat-history`, `signin`. Add a scenario
+`chat-history`, `signin`; and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
+`paper-citation`, `paper-reference` (after a citation, Back shown) and `paper-reference-actions`. Add a scenario
 when feedback concerns a screen that isn't covered; reproduce the state from the session timeline (tab, sheet,
 keyboard, orientation, device). Screens that need real data use the staging journey (`scripts/live-journey.mjs`).
 

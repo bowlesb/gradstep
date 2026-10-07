@@ -59,7 +59,9 @@ enum OfflineReaderFixture {
             "metadata_id": "dddddddd-0000-4000-8000-000000000007", "source": "arxiv", "source_id": variant.sourceID, "source_revision": variant == .authored ? 1 : 3,
             "metadata": ["title": variant.title, "authors": [variant == .authored ? "Synthetic library · authored sample" : "Rafailov et al. · Mathpix MathML renderer"],
                 "abstract": "A local fixture for testing encrypted downloads, equations and chat after restarting the app.",
-                "published_at": "2024-04-03", "updated_at": "2024-04-03", "categories": ["cs.LG"], "venue": NSNull()],
+                // The rendered paper's real dates and venue (the reader's publication line shows them).
+                "published_at": variant == .authored ? "2024-04-03" : "2023-05-29", "updated_at": "2024-04-03", "categories": ["cs.LG"],
+                "venue": variant == .authored ? NSNull() as Any : "NeurIPS" as Any],
             "metadata_recorded_at": "2026-10-03T10:00:00Z", "source_url": "https://arxiv.org/abs/\(variant.sourceID)v\(variant == .authored ? 1 : 3)",
             "scope": "shared_catalog", "page_count": variant == .authored ? 1 : 27, "original_object_id": "dddddddd-0000-4000-8000-000000000008",
             "artifact_id": artifact.wire, "readiness": "converted_ready", "original_availability": "available",
