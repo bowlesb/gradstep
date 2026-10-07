@@ -77,6 +77,7 @@ select test.assert((:'m'::jsonb->'crashes'->>'metadata')::int=3 and (:'m'::jsonb
 select test.assert(exists(select 1 from jsonb_array_elements(:'m'::jsonb->'stages') s where s->>'stage'='metadata' and (s->>'failed')::int=1),'stage failures');
 select test.assert((select (d->>'started')::int from jsonb_array_elements(:'m'::jsonb->'daily') d order by d->>'day' desc limit 1)>=1,'daily starts');
 select test.assert(jsonb_array_length(:'m'::jsonb->'recent_failures')>=4,'recent failures listed');
+select test.assert((:'m'::jsonb->'summary'->>'started')::int>=1 and :'m'::jsonb->'summary' ? 'ready_p50_s','window summary');
 select test.reject('select public.v1_admin_pipeline_metrics(0)','invalid_metrics_window');
 select set_config('request.jwt.claim.aal','aal1',false);
 select test.reject('select public.v1_admin_pipeline_metrics(7)','owner_mfa_required');

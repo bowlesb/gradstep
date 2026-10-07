@@ -58,7 +58,7 @@ function fillDays(metrics: PipelineMetrics, count: number): Day[] {
 }
 const failureRate = (d: { ready: number; failed: number }) => d.ready + d.failed ? d.failed / (d.ready + d.failed) : null;
 
-// The RPC has no window-wide percentile, so the headline is the median of daily medians weighted by imports.
+// Older servers have no window summary: the headline then falls back to daily medians weighted by imports.
 function weightedMedian(points: [number, number][]): number | null {
   const sorted = points.filter(([, w]) => w > 0).sort((a, b) => a[0] - b[0]);
   const total = sorted.reduce((sum, [, w]) => sum + w, 0);
@@ -87,8 +87,9 @@ export function Reliability({ load, reloadKey }: { load: (days: number) => Promi
     if (!data) return null;
     const series = fillDays(data.metrics, data.days);
     const totals = series.reduce((t, d) => ({ started: t.started + d.started, ready: t.ready + d.ready, failed: t.failed + d.failed, cancelled: t.cancelled + d.cancelled }), { started: 0, ready: 0, failed: 0, cancelled: 0 });
-    const median = weightedMedian(series.filter(d => d.p50 != null).map(d => [d.p50!, d.ready]));
-    return { series, totals, median, rate: failureRate(totals), metrics: data.metrics, days: data.days };
+    const exact = data.metrics.summary;
+    const median = exact ? exact.ready_p50_s : weightedMedian(series.filter(d => d.p50 != null).map(d => [d.p50!, d.ready]));
+    return { series, totals, median, exact: exact != null, p90: exact?.ready_p90_s ?? null, rate: failureRate(totals), metrics: data.metrics, days: data.days };
   }, [data]);
 
   return <div className="reliability">
@@ -105,7 +106,7 @@ export function Reliability({ load, reloadKey }: { load: (days: number) => Promi
         <Stat label="Ready" value={view.totals.ready.toLocaleString()} note={`${view.totals.cancelled.toLocaleString()} cancelled`} />
         <Stat label="Failed" value={view.totals.failed.toLocaleString()} note={view.metrics.stuck.length ? `${view.metrics.stuck.length} stuck now` : 'Nothing stuck now'} />
         <Stat label="Failure rate" value={percent(view.rate)} note={view.rate == null ? 'No imports finished' : `${view.totals.failed} of ${(view.totals.ready + view.totals.failed).toLocaleString()} finished`} />
-        <Stat label="Median time to ready" value={duration(view.median)} note="Approx., from daily medians" />
+        <Stat label="Median time to ready" value={duration(view.median)} note={view.exact ? (view.p90 != null ? `90th percentile ${duration(view.p90)}` : 'Over this window') : 'Approx., from daily medians'} />
       </div>
       {view.metrics.stuck.length > 0 && <p className="notice" role="note"><span aria-hidden="true">!</span><span>{plural(view.metrics.stuck.length, 'paper has', 'papers have')} been in one step for more than 15 minutes. <a href="#stuck-now">Review stuck papers</a></span></p>}
 

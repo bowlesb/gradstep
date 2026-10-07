@@ -58,6 +58,8 @@ export type Pipeline = {
 // v1_admin_pipeline_metrics (migration 022). Days without events are absent from `daily`.
 export interface PipelineMetrics {
   since: string; generated_at: string;
+  /** Exact over the window (migration 023); absent from older servers. */
+  summary?: { started: number; ready: number; failed: number; cancelled: number; ready_p50_s: number | null; ready_p90_s: number | null };
   daily: { day: string; started: number; ready: number; failed: number; cancelled: number; ready_p50_s: number | null; ready_p90_s: number | null }[];
   stages: { stage: string; count: number; p50_s: number | null; p90_s: number | null; failed: number }[];
   crashes: Record<string, number>;
