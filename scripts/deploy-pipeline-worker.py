@@ -80,7 +80,7 @@ def deploy(project, region):
     mapping = ','.join(f'{name}=gradstep-{name.lower().replace("_", "-")}:latest' for name in env)
     gcloud('run', 'deploy', SERVICE, '--project', project, '--region', region, '--image', image,
            '--memory', '2Gi', '--cpu', '1', '--concurrency', '1', '--max-instances', '3', '--min-instances', '0',
-           '--timeout', '900', '--no-cpu-throttling', '--allow-unauthenticated', '--service-account', account,
+           '--timeout', '900', '--cpu-throttling', '--allow-unauthenticated', '--service-account', account,
            '--set-secrets', mapping, '--quiet')
     url = gcloud('run', 'services', 'describe', SERVICE, '--project', project, '--region', region,
                  '--format', 'value(status.url)', capture=True).stdout.strip()
