@@ -15,45 +15,100 @@ struct LibraryTableItem: Identifiable {
         case .queued: nil
         }
     }
-    /// An import in progress: the step it is on.
-    var step: LibraryImportStep? { if case .pending(let item) = entry { item.step } else { nil } }
-    /// The full status, for VoiceOver ("Not enough credits to convert this paper").
-    var statusDescription: String? { if case .pending(let item) = entry { item.libraryStatus } else { facts.statusText } }
+    /// An import in progress (or being retried): the step it is on.
+    var step: LibraryImportStep? { facts.step }
+    /// The full status, for VoiceOver ("Couldn’t download this paper").
+    var statusDescription: String? {
+        if let step { return step.title }
+        if case .pending(let item) = entry { return item.libraryStatus }
+        return facts.statusText
+    }
+    /// An import or an Add waiting to sync (not a paper yet).
+    var isImport: Bool { if case .paper = entry { false } else { true } }
 }
 
-/// The Library's columns. Phone portrait has room for the title, Progress and Year; landscape and iPad add the
-/// dates and chats; wide iPads add topics.
-enum LibraryTableColumn: String {
-    case year, topics, added, opened, chats, progress
+/// The Library's columns beside Title (owner request 2026-10-07: "columns that can be turned on or off"). Cases are
+/// in row order; Progress is last: it carries an import's status and its Retry, the cell with the most to say.
+enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
+    case year, tags, source, pages, added, opened, chats, progress
 
     typealias Column = PaperTableColumn<LibrarySearchSort.Field>
     static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
 
-    /// In row order. Progress is last: it carries an import's status, the column with the most to say.
-    static func all(showTopics: Bool) -> [Column] {
-        [Column(id: year.rawValue, title: "Year", priority: 1, width: 40, sortKey: .year),
-         showTopics ? Column(id: topics.rawValue, title: "Topics", priority: 5, width: 150) : nil,
-         Column(id: added.rawValue, title: "Added", priority: 2, width: 76, sortKey: .recent),
-         Column(id: opened.rawValue, title: "Opened", priority: 3, width: 76, sortKey: .opened),
-         Column(id: chats.rawValue, title: "Chats", priority: 4, width: 46, sortKey: .chats),
-         Column(id: progress.rawValue, title: "Progress", priority: 0, width: 100, sortKey: .progress)].compactMap { $0 }
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .year: "Year"; case .tags: "Tags"; case .source: "Source"; case .pages: "Pages"; case .added: "Added"
+        case .opened: "Opened"; case .chats: "Chats"; case .progress: "Progress"
+        }
     }
+
+    /// What the column chooser says about it.
+    var explanation: String {
+        switch self {
+        case .year: "Year published"
+        case .tags: "Topics, as chips"
+        case .source: "arXiv identifier or website"
+        case .pages: "Length of the paper"
+        case .added: "When it joined your library"
+        case .opened: "Last opened on this device"
+        case .chats: "Saved chats about it"
+        case .progress: "How far you’ve read; import status and Retry"
+        }
+    }
+
+    /// 0 is kept longest when the width runs out: progress (and import status), then year, the dates, chats; tags,
+    /// pages and source go first.
+    var priority: Int {
+        switch self {
+        case .progress: 0; case .year: 1; case .added: 2; case .opened: 3; case .chats: 4; case .tags: 5; case .pages: 6; case .source: 7
+        }
+    }
+
+    /// At the default text size; grows with Dynamic Type.
+    var width: CGFloat {
+        switch self {
+        case .year: 40; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
+        case .progress: 100
+        }
+    }
+
+    var sortField: LibrarySearchSort.Field {
+        switch self {
+        case .year: .year; case .tags: .tags; case .source: .source; case .pages: .pages; case .added: .recent
+        case .opened: .opened; case .chats: .chats; case .progress: .progress
+        }
+    }
+
+    var column: Column {
+        Column(id: rawValue, title: title, priority: priority, width: width,
+               alignment: self == .pages || self == .chats ? .trailing : .leading,
+               sortKey: sortField, ascendingFirst: sortField.defaultAscending)
+    }
+
+    /// The columns turned on, in row order. Which of them show is up to the width (`PaperTableLayout`).
+    static func columns(_ enabled: Set<Self>) -> [Column] { allCases.filter(enabled.contains).map(\.column) }
 
     /// What VoiceOver reads for this column of a row.
     func spoken(_ item: LibraryTableItem, now: Date = Date()) -> String? {
         let facts = item.facts
         switch self {
         case .year: return facts.year.map(String.init)
-        case .topics: return facts.topics.isEmpty ? nil : facts.topics.joined(separator: ", ")
+        case .tags: return facts.tags.isEmpty ? nil : "Tags: " + facts.tags.joined(separator: ", ")
+        case .source: return facts.spokenSource
+        case .pages: return facts.pages.map { $0 == 1 ? "1 page" : "\($0) pages" }
         case .added: return facts.added.map { "Added " + LibraryFormat.relativeDayInSentence($0, now: now) }
         case .opened:
             guard facts.paper != nil else { return nil }
             return facts.opened.map { "Opened " + LibraryFormat.relativeDayInSentence($0, now: now) } ?? "Not opened"
         case .chats: return facts.chats > 0 ? LibraryFormat.chats(facts.chats) : nil
         case .progress:
-            if let timing = facts.stepTiming {
+            if let progress = facts.importProgress { return progress.presentation(at: now).accessibilityLabel }
+            if let timing = facts.stepTiming, timing.step == facts.step {
                 return timing.step.spokenStatus(elapsed: ImportStepElapsed(since: timing.since, now: now))
             }
+            if let step = facts.step { return step.title }
             switch facts.status {
             case .active, .problem: return item.statusDescription
             case .info where facts.paper == nil: return item.statusDescription
@@ -65,26 +120,43 @@ enum LibraryTableColumn: String {
     }
 }
 
-/// The Table layout of the Library: `PaperTable` over the library's rows. Tapping a paper opens it as in the list;
-/// tapping an import that needs credits opens the store; long-press and swipe keep the list's row actions.
+extension LibraryColumnSettings.WidthClass {
+    /// iPhone keeps its own columns; iPad and Mac share theirs (the table's width still decides what fits).
+    @MainActor static var current: Self { Platform.isLargeScreen ? .regular : .compact }
+}
+
+/// The Library as a table: `PaperTable` over the library's rows, with the reader's columns. Tapping a paper opens it
+/// as in the list; tapping an import that needs credits opens the store; a stopped import shows its action (Retry,
+/// Get credits, Remove) in its Progress cell, or under its title when Progress isn't shown. Long-press and swipe keep
+/// the list's row actions.
 struct LibraryPaperTable<Top: View>: View {
     @Bindable var model: ReaderModel
     @ViewBuilder var top: Top
 
     var body: some View {
         let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
-        PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.all(showTopics: model.showTopics),
+        let enabled = model.libraryColumns[LibraryColumnSettings.WidthClass.current]
+        PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.columns(enabled),
                    sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry))
                    },
-                   cell: { item, column in LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column)) },
+                   cell: { item, column in
+                       LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column), highlightedTag: model.libraryTagFilter,
+                                        act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
+                   },
+                   cellIsControl: { item, column in column == LibraryTableColumn.progress.rawValue && (item.facts.importAction != nil || item.facts.importProgress != nil) },
                    spoken: { item, column in LibraryTableColumn(rawValue: column)?.spoken(item) },
                    primaryAction: { action(for: $0) },
                    menu: { LibraryRowActions(model: model, entry: $0.entry, inTable: true) },
                    swipe: { LibrarySwipeActions(model: model, entry: $0.entry) },
-                   detail: { _ in EmptyView() },
+                   detail: { item, shown in
+                       // Without the Progress column an import still shows what it is doing, and its action.
+                       if item.isImport, !shown.contains(LibraryTableColumn.progress.rawValue) {
+                           LibraryImportStatusLine(item: item, act: { perform($0, on: item) }, enabled: model.canChangeImports, explain: { model.showImportHelp = true })
+                       }
+                   },
                    top: { top })
     }
 
@@ -95,7 +167,7 @@ struct LibraryPaperTable<Top: View>: View {
 
     /// The open paper is highlighted only where it is shown beside the table (iPad Browse).
     private func isSelected(_ entry: LibraryListEntry) -> Bool {
-        guard model.wideMode == .browse, UIDevice.current.userInterfaceIdiom == .pad, case .paper(let paper) = entry else { return false }
+        guard model.wideMode == .browse, Platform.isLargeScreen, case .paper(let paper) = entry else { return false }
         return model.selectedPaper?.id == paper.id
     }
 
@@ -106,75 +178,184 @@ struct LibraryPaperTable<Top: View>: View {
         default: return nil
         }
     }
+
+    private func perform(_ action: LibraryImportAction, on item: LibraryTableItem) {
+        guard case .pending(let record) = item.entry else { return }
+        LibraryImportAction.perform(action, on: record, model: model)
+    }
+}
+
+extension LibraryImportAction {
+    /// Retry and Remove go through the library's change queue (Retry shows the import running again at once).
+    @MainActor static func perform(_ action: Self, on item: LibraryImportRecord, model: ReaderModel) {
+        switch action {
+        case .retry: Task { await model.changeImport(item, retry: true) }
+        case .remove: Task { await model.changeImport(item, retry: false) }
+        case .getCredits: model.showStore = true
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .retry: "Tries the download again"
+        case .getCredits: "Opens Get credits"
+        case .remove: "Removes this import from your library"
+        }
+    }
 }
 
 /// One cell of the Library table.
 struct LibraryTableCell: View {
     let item: LibraryTableItem
     let column: LibraryTableColumn?
+    var highlightedTag: String? = nil
+    var act: (LibraryImportAction) -> Void = { _ in }
+    var enabled = true
+    var explain: (() -> Void)? = nil
 
     var body: some View {
         let facts = item.facts
         switch column {
         case .year: PaperTableText(text: facts.year.map(String.init))
-        case .topics:
-            Text(facts.topics.joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag)
+        case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+            .lineLimit(1).truncationMode(.middle)
+        case .pages: PaperTableText(text: facts.pages.map(String.init))
         case .added: PaperTableText(text: facts.added.map { LibraryFormat.relativeDay($0) })
         // "—" for a paper never opened on this device; imports have no reading activity.
         case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.relativeDay($0) } ?? (facts.paper == nil ? nil : "—"))
         // No chats is the usual case: left blank, so the counts stand out.
         case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
-        case .progress: LibraryProgressCell(item: item)
+        case .progress: LibraryProgressCell(item: item, act: act, enabled: enabled, explain: explain)
         case nil: EmptyView()
         }
     }
 }
 
 /// Progress: how far this device has read a paper, or what an import is doing or needs. Compact (an icon and a short
-/// word that never breaks mid-word); VoiceOver reads the full status through the row.
+/// status); a stopped import adds its one action as a button (owner feedback 2026-10-07: "it should be a retry button
+/// at the very least"). VoiceOver reads the full status through the row; the button is its own element.
 struct LibraryProgressCell: View {
     let item: LibraryTableItem
+    var act: (LibraryImportAction) -> Void = { _ in }
+    var enabled = true
+    /// "Why does this take a minute?" beside an import's progress.
+    var explain: (() -> Void)? = nil
 
     var body: some View {
         let facts = item.facts
-        switch facts.status {
-        case .active(let text):
+        if let progress = facts.importProgress {
+            // An import under way: "Reading 62%", a slim bar, "40 s left" (pipeline progress, 2026-10-07).
+            ImportProgressView(progress: progress, style: .compact, explain: explain)
+                // Its first line sits on the row's first baseline, like the other cells.
+                .alignmentGuide(.firstTextBaseline) { $0[.top] + 13 }
+        // Waiting in the queue isn't work yet: no spinner (below, with its time).
+        } else if let step = facts.step, step != .queued {
             VStack(alignment: .leading, spacing: 2) {
-                Label { Text(item.step?.tableTitle ?? text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) } icon: {
+                Label { Text(step.tableTitle) } icon: {
                     // Centred on the text rather than sitting on its baseline.
                     ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 }
                 .labelStyle(LibraryStatusLabelStyle())
                 .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                if let timing = facts.stepTiming { StepTimeText(timing: timing) }
+                if let timing = facts.stepTiming, timing.step == step { StepTimeText(timing: timing) }
             }
-        case .problem(let text):
-            VStack(alignment: .leading, spacing: 2) {
-                Label { Text(text).lineLimit(2) } icon: {
-                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).imageScale(.small)
+        } else {
+            switch facts.status {
+            case .active(let text):
+                Label { Text(text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) } icon: {
+                    ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
                 }
-                .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary)
-                // The row's tap opens the store; this says so.
-                if facts.needsCredits {
-                    Text("Get credits").font(.footnote.weight(.semibold)).foregroundStyle(.tint).lineLimit(1)
+                .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+            case .problem(let text):
+                VStack(alignment: .leading, spacing: 6) {
+                    LibraryProblemLabel(text: text).accessibilityHidden(facts.importAction != nil)
+                    if let action = facts.importAction {
+                        LibraryImportActionButton(action: action, enabled: enabled || action == .getCredits, sourceID: item.id) { act(action) }
+                    }
                 }
-            }
-        case .info(let text) where facts.paper == nil:
-            VStack(alignment: .leading, spacing: 2) {
-                Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
-                if let timing = facts.stepTiming { StepTimeText(timing: timing) }
-            }
-        default:
-            // A paper ready to read (or simply not downloaded yet, which the list doesn't flag either).
-            if let progress = facts.progress {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    LibraryProgressBar(value: progress).frame(width: 28).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
-                    Text("\(LibraryFormat.percent(progress))%").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+            case .info(let text) where facts.paper == nil:
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                    if let timing = facts.stepTiming { StepTimeText(timing: timing) }
                 }
-            } else {
-                PaperTableText(text: facts.paper == nil ? nil : "—")
+            default:
+                // A paper ready to read (or simply not downloaded yet, which the list doesn't flag either).
+                if let progress = facts.progress {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        LibraryProgressBar(value: progress).frame(width: 28).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
+                        Text("\(LibraryFormat.percent(progress))%").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+                    }
+                } else {
+                    PaperTableText(text: facts.paper == nil ? nil : "—")
+                }
             }
         }
+    }
+}
+
+/// "⚠︎ Download failed": an orange symbol and the status in plain words, never broken mid-word.
+struct LibraryProblemLabel: View {
+    let text: String
+    var body: some View {
+        Label { Text(text).lineLimit(2).fixedSize(horizontal: false, vertical: true) } icon: {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).imageScale(.small)
+        }
+        .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary)
+    }
+}
+
+/// A stopped import's action: a small bordered capsule ("Retry"), easy to see and to tap.
+struct LibraryImportActionButton: View {
+    let action: LibraryImportAction
+    var enabled = true
+    /// The row's identifier, so tests and VoiceOver can tell rows' buttons apart.
+    let sourceID: String
+    let perform: () -> Void
+    var body: some View {
+        Button(action: perform) {
+            Text(action.title).font(.footnote.weight(.semibold)).lineLimit(1)
+        }
+        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+        .tint(action == .remove ? Color.secondary : Color.accentColor)
+        .disabled(!enabled)
+        .accessibilityHint(action.hint)
+        .accessibilityIdentifier("library.import.\(action.title.lowercased().replacingOccurrences(of: " ", with: "-")).\(sourceID)")
+    }
+}
+
+/// An import's status under its title when the Progress column isn't shown: what it is doing, or what failed and its
+/// action, on one line.
+struct LibraryImportStatusLine: View {
+    let item: LibraryTableItem
+    var act: (LibraryImportAction) -> Void = { _ in }
+    var enabled = true
+    var explain: (() -> Void)? = nil
+    var body: some View {
+        let facts = item.facts
+        if let progress = facts.importProgress {
+            ImportProgressView(progress: progress, style: .row, explain: explain).font(.footnote).foregroundStyle(.secondary)
+        } else {
+            line(facts)
+        }
+    }
+
+    private func line(_ facts: LibraryRowFacts) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            if let step = facts.step, step != .queued {
+                ProgressView().controlSize(.mini).accessibilityHidden(true)
+                Text(step.label(short: false)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+            } else if case .problem = facts.status {
+                LibraryProblemLabel(text: item.statusDescription ?? facts.statusText ?? "")
+            } else if let text = facts.statusText {
+                Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if let action = facts.importAction {
+                LibraryImportActionButton(action: action, enabled: enabled || action == .getCredits, sourceID: item.id) { act(action) }
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -212,7 +393,8 @@ struct LibraryProgressBar: View {
     }
 }
 
-/// The long-press actions of a Library row, shared by the list, detailed rows and the table.
+/// The long-press actions of a Library row, shared by the list and the table. A stopped import offers Retry (when
+/// the server can run it again) and Remove; one still running offers Cancel.
 struct LibraryRowActions: View {
     @Bindable var model: ReaderModel
     let entry: LibraryListEntry
@@ -231,18 +413,21 @@ struct LibraryRowActions: View {
                     .disabled(!model.canChangeLibrary)
             }
         case .pending(let item):
-            if item.phase == .failed && item.retryable {
-                Button("Retry import", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
-                    .disabled(!model.canChangeLibrary)
+            let stopped = item.phase == .failed || item.phase == .membershipConflict
+            if item.phase == .failed && item.retryable && !model.isRetrying(item) {
+                Button("Retry", systemImage: "arrow.clockwise") { Task { await model.changeImport(item, retry: true) } }
+                    .disabled(!model.canChangeImports)
             }
-            if inTable, item.phase == .failed, item.errorCode == .insufficientCredits {
+            if item.phase == .failed, item.errorCode == .insufficientCredits {
                 Button("Get credits", systemImage: "creditcard") { model.showStore = true }
             }
             if inTable, item.phase != .resolving, item.phase != .acquiring, let url = URL(string: item.sourceURL) {
                 Link(destination: url) { Label("View source", systemImage: "safari") }
             }
-            Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.changeImport(item, retry: false) } }
-                .disabled(!model.canChangeLibrary)
+            Button(stopped ? "Remove" : "Cancel import", systemImage: stopped ? "minus.circle" : "xmark.circle", role: .destructive) {
+                Task { await model.changeImport(item, retry: false) }
+            }
+            .disabled(!model.canChangeImports)
         case .queued(let command):
             Button("Cancel import", systemImage: "xmark.circle", role: .destructive) { Task { await model.cancelLibraryChange(command) } }
                 .disabled(!model.canChangeLibrary)
@@ -267,13 +452,14 @@ struct LibrarySwipeActions: View {
                 }.tint(.indigo).disabled(!model.canChangeLibrary)
             }
         case .pending(let item):
+            let stopped = item.phase == .failed || item.phase == .membershipConflict
             Button(role: .destructive) { Task { await model.changeImport(item, retry: false) } } label: {
-                Label("Cancel import", systemImage: "xmark.circle")
-            }.tint(.red).disabled(!model.canChangeLibrary)
-            if item.phase == .failed && item.retryable {
+                Label(stopped ? "Remove" : "Cancel import", systemImage: stopped ? "trash" : "xmark.circle")
+            }.tint(.red).disabled(!model.canChangeImports)
+            if item.phase == .failed && item.retryable && !model.isRetrying(item) {
                 Button { Task { await model.changeImport(item, retry: true) } } label: {
-                    Label("Retry import", systemImage: "arrow.clockwise")
-                }.tint(.accentColor).disabled(!model.canChangeLibrary)
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }.tint(.accentColor).disabled(!model.canChangeImports)
             }
         case .queued:
             EmptyView()
@@ -281,63 +467,130 @@ struct LibrarySwipeActions: View {
     }
 }
 
-/// "Detailed rows": title, then authors · year · topics, then this device's activity; unknown facts are left out
-/// rather than printed blank. Also what the Table layout shows at accessibility text sizes.
-struct DetailedPaperRow: View {
-    let facts: LibraryRowFacts
-    var selected = false
-    var offlineStatus: PaperOfflineStatus = .none
-    var showTopics = true
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+// MARK: Filters
+
+/// The Library's quick filters, above the table (and the List): the Tags menu, All, then the filters that would show
+/// something different (Unread, Reading, Failed with its count, Archived). It scrolls away with the rows, so
+/// browsing keeps the open space; it is hidden while there is nothing to narrow down.
+struct LibraryFilterBar: View {
+    @Bindable var model: ReaderModel
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .top) {
-                Text(facts.title).font(.headline).foregroundStyle(selected ? Color.accentColor : .primary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 5 : 2)
-                Spacer(minLength: 8)
-                if offlineStatus == .available { Image(systemName: "arrow.down.circle.fill").foregroundStyle(.secondary).accessibilityLabel("Available offline") }
-                else if offlineStatus == .unavailable { Image(systemName: "exclamationmark.circle").foregroundStyle(.secondary).accessibilityLabel("Downloaded copy unavailable") }
+        let summary = model.libraryFilterSummary()
+        let chips = summary.chips(selected: model.libraryFilter, tagSelected: model.libraryTagFilter != nil)
+        if !chips.isEmpty {
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // Tags first: it combines with the others, and on a phone the row runs past the edge.
+                        if summary.showsTags(tagSelected: model.libraryTagFilter != nil) { tagMenu(summary) }
+                        ForEach(chips, id: \.self) { filter in
+                            ChipButton(title: filter.title, selected: model.libraryFilter == filter,
+                                       count: filter == .failed ? summary.count(.failed) : nil, countIsProblem: true) {
+                                model.libraryFilter = filter
+                            }
+                            .accessibilityIdentifier("library.filter.\(filter.rawValue)")
+                            .accessibilityValue(filter == .all ? "" : "\(summary.count(filter))")
+                        }
+                    }
+                }
+                .contentMargins(.horizontal, DesignMetrics.margin, for: .scrollContent)
+                // The chosen filter stays in view (one chosen elsewhere, or past the edge on a phone).
+                .onAppear { if model.libraryFilter != .all { proxy.scrollTo(model.libraryFilter, anchor: .center) } }
             }
-            let summary = facts.summaryLine(showTopics: showTopics)
-            if !summary.isEmpty {
-                Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
-            }
-            let activity = facts.activityLine()
-            if !activity.isEmpty {
-                Text(activity).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
+            .listRowInsets(EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0))
+            .listRowSeparator(.hidden)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Filters")
+            .accessibilityIdentifier("library.filters")
         }
-        .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }
+
+    /// One chip for tags: "Tags ⌄", or the chosen tag. Most used first.
+    private func tagMenu(_ summary: LibraryFilterSummary) -> some View {
+        Menu {
+            Button { model.libraryTagFilter = nil } label: {
+                if model.libraryTagFilter == nil { Label("All tags", systemImage: "checkmark") } else { Text("All tags") }
+            }
+            Section {
+                ForEach(summary.tags, id: \.tag) { entry in
+                    Button { model.libraryTagFilter = entry.tag } label: {
+                        if model.libraryTagFilter == entry.tag { Label(entry.tag, systemImage: "checkmark") } else { Text(entry.tag) }
+                        Text(entry.count == 1 ? "1 paper" : "\(entry.count) papers")
+                    }
+                }
+            }
+        } label: {
+            ChipLabel(title: model.libraryTagFilter ?? "Tags", selected: model.libraryTagFilter != nil, systemImage: "chevron.down")
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.libraryTagFilter.map { "Tag: \($0)" } ?? "Tags")
+        .accessibilityIdentifier("library.filter.tags")
     }
 }
 
-/// An import in detailed rows: the same facts plus its status and actions, as in the list.
-struct DetailedImportRow: View {
-    let item: LibraryImportRecord
-    let facts: LibraryRowFacts
-    var showTopics = true
-    var getCredits: (() -> Void)? = nil
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+// MARK: Columns
+
+/// Library options › Columns: a toggle per column (Title always shows), for this kind of device. Changes apply at
+/// once, so the table behind the half-height sheet shows them; columns turned on that don't fit say so.
+struct LibraryColumnsSheet: View {
+    @Bindable var model: ReaderModel
+    /// The table's row width (inside the margins), to say which chosen columns need more room.
+    let tableWidth: CGFloat
+    @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
+    private let widthClass = LibraryColumnSettings.WidthClass.current
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(facts.title).font(.headline).lineLimit(dynamicTypeSize.isAccessibilitySize ? 5 : 2)
-            let summary = facts.summaryLine(showTopics: showTopics)
-            if !summary.isEmpty {
-                Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(dynamicTypeSize.isAccessibilitySize ? 4 : 2)
+        let enabled = model.libraryColumns[widthClass]
+        let fitting = Set(PaperTableLayout.visibleColumns(LibraryTableColumn.columns(enabled), width: tableWidth, scale: scale).map(\.id))
+        NavigationStack {
+            List {
+                Section {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Title")
+                            Text("With the first author").font(.footnote).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("Always shown").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    ForEach(LibraryTableColumn.allCases) { column in
+                        Toggle(isOn: binding(column)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(column.title)
+                                Text(enabled.contains(column) && !fitting.contains(column.id) ? "Shown when there’s room" : column.explanation)
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }
+                        .accessibilityIdentifier("library.columns.\(column.rawValue)")
+                    }
+                } footer: {
+                    Text(widthClass == .compact
+                         ? "For iPhone; iPad keeps its own columns. Columns that don’t fit the width are left out until there’s room, as in landscape."
+                         : "For iPad and Mac; iPhone keeps its own columns. Columns that don’t fit the width are left out until there’s room.")
+                }
+                Section {
+                    Button("Restore defaults") { model.libraryColumns[widthClass] = LibraryColumnSettings.defaultColumns(widthClass) }
+                        .disabled(enabled == LibraryColumnSettings.defaultColumns(widthClass))
+                        .accessibilityIdentifier("library.columns.restore")
+                }
             }
-            HStack(spacing: 6) {
-                if item.isActive { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                ImportStatusText(item: item, since: facts.stepTiming?.since, short: true).font(.caption).foregroundStyle(.secondary)
-                if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
-                    Button("Get credits", action: getCredits).font(.caption.weight(.semibold)).buttonStyle(.borderless)
-                        .accessibilityIdentifier("import.getCredits")
-                }
-                if !item.isActive, let url = URL(string: item.sourceURL) {
-                    Spacer(minLength: 8)
-                    Link("View source", destination: url).font(.caption.weight(.semibold)).foregroundStyle(.tint)
-                }
+            .navigationTitle("Columns").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.accessibilityIdentifier("library.columns.done") }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .presentationDetents([.medium, .large])
+    }
+
+    private func binding(_ column: LibraryTableColumn) -> Binding<Bool> {
+        Binding(get: { model.libraryColumns[widthClass].contains(column) },
+                set: { on in
+                    var columns = model.libraryColumns[widthClass]
+                    if on { columns.insert(column) } else { columns.remove(column) }
+                    model.libraryColumns[widthClass] = columns
+                })
     }
 }

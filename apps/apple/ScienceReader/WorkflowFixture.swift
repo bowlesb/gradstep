@@ -46,7 +46,8 @@ extension ReaderModel {
         func id(_ n: Int) -> UUID { UUID(uuidString: String(format: "eeeeeeee-0000-0000-0000-%012ld", n))! }
         struct Row { let n: Int; let title: String; let authors: [String]; let year: Int?; let topics: [String]
             let addedDaysAgo: Double; let sequence: Int64; let pages: Int?; let opened: Double?; let progress: Double?
-            let chats: Int; let offline: PaperOfflineStatus; var converted = true; var abstract = "" }
+            let chats: Int; let offline: PaperOfflineStatus; var converted = true; var abstract = ""
+            var tags: [String] = []; var archived = false }
         let rows = [
             Row(n: 1, title: "Attention Is All You Need", authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar", "Jakob Uszkoreit",
                 "Llion Jones", "Aidan N. Gomez", "Łukasz Kaiser", "Illia Polosukhin"], year: 2017, topics: ["cs.CL", "cs.LG"],
@@ -56,7 +57,8 @@ extension ReaderModel {
                 authors: ["Rafael Rafailov", "Archit Sharma", "Eric Mitchell", "Stefano Ermon", "Christopher D. Manning", "Chelsea Finn"],
                 year: 2023, topics: ["cs.LG", "cs.AI", "cs.CL"], addedDaysAgo: 1, sequence: 8, pages: 27, opened: 3, progress: 0.25,
                 chats: 1, offline: .available,
-                abstract: "We introduce a new parameterization of the reward model in RLHF that enables extraction of the corresponding optimal policy in closed form."),
+                abstract: "We introduce a new parameterization of the reward model in RLHF that enables extraction of the corresponding optimal policy in closed form.",
+                tags: ["Alignment", "RLHF"]),   // first-class tags; the others show topics from their categories
             Row(n: 3, title: "LoRA: Low-Rank Adaptation of Large Language Models", authors: ["Edward J. Hu", "Yelong Shen", "Phillip Wallis",
                 "Zeyuan Allen-Zhu", "Yuanzhi Li", "Shean Wang", "Lu Wang", "Weizhu Chen"], year: 2021, topics: ["cs.CL", "cs.AI", "cs.LG"],
                 addedDaysAgo: 4, sequence: 7, pages: 26, opened: nil, progress: nil, chats: 0, offline: .none,
@@ -70,6 +72,10 @@ extension ReaderModel {
             Row(n: 7, title: "A Method for Unconstrained Convex Minimization Problem with the Rate of Convergence O(1/k²)",
                 authors: ["Yurii Nesterov"], year: 1983, topics: ["math.OC"], addedDaysAgo: 400, sequence: 2, pages: 5, opened: nil,
                 progress: nil, chats: 0, offline: .available),
+            // Archived: only under the Archived filter.
+            Row(n: 8, title: "Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift",
+                authors: ["Sergey Ioffe", "Christian Szegedy"], year: 2015, topics: ["cs.LG"], addedDaysAgo: 60, sequence: 1, pages: 11,
+                opened: 50, progress: 1, chats: 0, offline: .available, archived: true),
         ]
         var papers: [Paper] = [], sequences: [UUID: Int64] = [:], offline: [UUID: PaperOfflineStatus] = [:]
         var activity: [UUID: PaperActivity] = [sample.id: PaperActivity(openedAt: now, progress: 0.35)]
@@ -79,7 +85,7 @@ extension ReaderModel {
             var paper = Paper(id: documentID, title: row.title, authors: row.authors.joined(separator: ", "), year: row.year,
                               abstract: row.abstract, keywords: row.topics, fileURL: nil, artifactID: id(100 + row.n))
             paper.authorNames = row.authors; paper.addedAt = now - row.addedDaysAgo * day; paper.pageCount = row.pages
-            paper.canReadStructured = row.converted
+            paper.canReadStructured = row.converted; paper.tags = row.tags; paper.archived = row.archived
             papers.append(paper); sequences[documentID] = row.sequence; offline[documentID] = row.offline
             if row.opened != nil || row.progress != nil {
                 activity[documentID] = PaperActivity(openedAt: row.opened.map { now - $0 * day }, progress: row.progress)
@@ -102,7 +108,8 @@ extension ReaderModel {
                 "metadata_id": id(n + 50).wire, "version_id": id(n + 60).wire,
                 "metadata": ["title": title, "authors": authors, "published_at": published, "categories": categories] as [String: Any],
                 "metadata_recorded_at": "2026-10-01T09:00:00Z", "source_url": "https://arxiv.org/abs/\(source)v1",
-                "retryable": phase == "failed"]
+                // As the server: only download, details and rate-limit failures can be retried.
+                "retryable": phase == "failed" && ["download_failed", "metadata_unavailable", "rate_limited"].contains(error ?? "")]
             if let progress { value["progress"] = progress }
             if let error { value["error_code"] = error }
             if let detail { value["progress_detail"] = detail }

@@ -87,10 +87,12 @@ struct GradstepCommands: Commands {
                                                              set: { model.librarySort = LibrarySearchSort(field: $0) })) {
                     ForEach(LibrarySearchSort.Field.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
+                Picker("Filter Library", selection: $model.libraryFilter) {
+                    ForEach(LibraryFilter.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 Menu("Show in Library") {
                     Toggle("Abstracts", isOn: $model.showAbstracts).disabled(model.libraryLayout != .list)
-                    Toggle("Topics", isOn: $model.showTopics)
-                    Toggle("Archived Papers", isOn: $model.showArchivedPapers)
+                    Toggle("Topics", isOn: $model.showTopics).disabled(model.libraryLayout != .list)
                 }
                 Picker("Feed As", selection: $model.feedLayout) {
                     ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }

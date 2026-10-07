@@ -45,11 +45,14 @@ if (command === 'capture') {
   const label = args.label ?? 'current', scenarios = args.scenarios ?? 'all';
   const devices = (args.devices ?? 'iphone,ipad').split(','), variants = (args.variants ?? 'light,dark').split(',');
   const derived = args.derived ? resolve(args.derived) : join(root, '.artifacts/visual-derived');
-  execFileSync('xcodegen', ['generate'], { cwd: join(root, 'apps/apple'), stdio: 'ignore' });
-  console.log('Building for testing…');
-  run('xcodebuild', ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug',
-    '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derived, 'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'build-for-testing'],
-    { cwd: join(root, 'apps/apple'), maxBuffer: 1 << 28 });
+  if (args['skip-build']) console.log(`Reusing the build in ${derived}`); // --skip-build: a later variant of the same build
+  else {
+    execFileSync('xcodegen', ['generate'], { cwd: join(root, 'apps/apple'), stdio: 'ignore' });
+    console.log('Building for testing…');
+    run('xcodebuild', ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug',
+      '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derived, 'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'build-for-testing'],
+      { cwd: join(root, 'apps/apple'), maxBuffer: 1 << 28 });
+  }
   for (const device of devices) {
     const id = DEVICES[device]; if (!id) throw new Error(`unknown device ${device}`);
     quiet('xcrun', ['simctl', 'boot', id]);

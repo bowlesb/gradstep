@@ -1,30 +1,39 @@
 import XCTest
 
-/// Library layouts (owner decisions 2026-10-05/06): the List stays the default; "Detailed rows" adds this device's
-/// activity; "Table" is the shared paper table on every size, showing the columns that fit. Synthetic fixture,
-/// no network.
+/// Library layouts (owner decisions 2026-10-05/06/07): the Table is the Library's main view (the shared paper table
+/// on every size, showing the reader's columns that fit); the List is the alternative. Columns are chosen in Library
+/// options › Columns; quick filters and tags sit above the table; a failed import shows Retry. Synthetic fixture, no
+/// network. Fixture runs start in the List unless `--library-layout=` names one.
 @MainActor
 final class LibraryLayoutTests: XCTestCase {
     private let sample = "aaaaaaaa-0000-0000-0000-000000000001"
     private let attention = "eeeeeeee-0000-0000-0000-000000000001"
     private let dpo = "eeeeeeee-0000-0000-0000-000000000002"
+    private let lora = "eeeeeeee-0000-0000-0000-000000000003"
     private let resnet = "eeeeeeee-0000-0000-0000-000000000005"
     private let adam = "eeeeeeee-0000-0000-0000-000000000006"
+    private let archived = "eeeeeeee-0000-0000-0000-000000000008"
     /// The import that failed for lack of credits.
     private let needsCredits = "import/eeeeeeee-0000-0000-0000-000000000021"
+    /// The import whose download failed (`--slow-import-fixture`).
+    private let downloadFailed = "import/eeeeeeee-0000-0000-0000-000000000023"
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture"]
+        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture"] + extra
         app.launch()
-        XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15), "The List is the default layout")
+        if extra.contains("--library-layout=table") {
+            XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 15), "The table")
+        } else {
+            XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15), "Fixture runs start in the List")
+        }
         return app
     }
 
     /// Layout and sort choices live in the options menu's "View as" and "Sort by" submenus.
     private func choose(_ item: String, in app: XCUIApplication, screenshot: String? = nil) {
         app.buttons["Library options"].tap()
-        let submenu = ["List", "Table", "Detailed rows"].contains(item) ? "View as" : "Sort by"
+        let submenu = ["List", "Table"].contains(item) ? "View as" : "Sort by"
         let opener = app.buttons[submenu].firstMatch
         XCTAssertTrue(opener.waitForExistence(timeout: 5), "Submenu \(submenu)"); opener.tap()
         let button = app.buttons[item].firstMatch
@@ -50,6 +59,10 @@ final class LibraryLayoutTests: XCTestCase {
         element.tap()
     }
 
+    private func filter(_ name: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["library.filter.\(name)"].firstMatch
+    }
+
     private func assertAbove(_ upper: XCUIElement, _ lower: XCUIElement, _ message: String, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(upper.waitForExistence(timeout: 5) && lower.exists, message, file: file, line: line)
         XCTAssertLessThan(upper.frame.minY, lower.frame.minY, message, file: file, line: line)
@@ -68,10 +81,13 @@ final class LibraryLayoutTests: XCTestCase {
         choose("Table", in: app, screenshot: "Library options menu (iPad)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
         XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
-        for title in ["Title", "Year", "Topics", "Added", "Opened", "Chats", "Progress"] {
+        for title in ["Title", "Year", "Tags", "Added", "Opened", "Chats", "Progress"] {
             XCTAssertTrue(header(title, in: app).exists, "Wide iPad shows \(title)")
         }
+        for title in ["Pages", "Source"] { XCTAssertFalse(header(title, in: app).exists, "\(title) is off by default") }
         XCTAssertEqual(header("Added", in: app).value as? String, "Sorted descending", "Recent order is the Added column, newest first")
+        XCTAssertTrue(cell(dpo, in: app).label.contains("Tags: Alignment, RLHF"), "A paper's own tags: \(cell(dpo, in: app).label)")
+        XCTAssertTrue(cell(attention, in: app).label.contains("Tags: Language, Machine learning"), "Topics from categories")
         attach(app, "Library table")
 
         // Recent first (as the List): Attention was added after DPO.
@@ -84,59 +100,168 @@ final class LibraryLayoutTests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
         XCTAssertTrue(app.buttons["Remove from library"].waitForNonExistence(timeout: 5))
         cell(needsCredits, in: app).press(forDuration: 1.2)
-        XCTAssertTrue(app.buttons["Cancel import"].waitForExistence(timeout: 5), "Import row actions")
-        XCTAssertTrue(app.buttons["Retry import"].exists, "A failed import offers Retry")
+        XCTAssertTrue(app.buttons["Remove"].waitForExistence(timeout: 5), "A stopped import can be removed")
+        XCTAssertTrue(app.buttons["Get credits"].exists, "A credit-blocked import offers Get credits")
+        XCTAssertFalse(app.buttons["Retry"].exists, "Nothing to retry until there are credits")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
-        XCTAssertTrue(app.buttons["Cancel import"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Remove"].waitForNonExistence(timeout: 5))
         tapHeader("Year", in: app)
         assertAbove(cell(dpo, in: app), cell(attention, in: app), "Year: newest first (2023 before 2017)")
         assertAbove(cell(attention, in: app), cell(resnet, in: app), "Year: 2017 before 2015")
         tapHeader("Year", in: app)
         XCTAssertEqual(header("Year", in: app).value as? String, "Sorted ascending")
         assertAbove(cell(resnet, in: app), cell(attention, in: app), "Year reversed: oldest first")
+        tapHeader("Tags", in: app)
+        XCTAssertEqual(header("Tags", in: app).value as? String, "Sorted ascending", "Tags A to Z")
+        assertAbove(cell(dpo, in: app), cell(attention, in: app), "Alignment before Language")
         tapHeader("Progress", in: app)
         assertAbove(cell(resnet, in: app), cell(attention, in: app), "Progress: 100% before 60%")
         assertAbove(cell(attention, in: app), cell(dpo, in: app), "Progress: 60% before 25%")
         attach(app, "Library table sorted by Progress")
 
+        tapHeader("Opened", in: app)
+        assertAbove(cell(sample, in: app), cell(attention, in: app), "Opened: most recent first")
+        // Arrow keys and Return (hardware keyboard) aren't checked here: XCUITest's typeKey didn't reach the table's
+        // key commands in the Simulator (2026-10-07); they need a real keyboard on a device or the Mac.
+
         // Tapping a row opens it exactly like the list.
+        XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
         cell(sample, in: app).tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
         app.segmentedControls.buttons["Library"].tap()
         XCTAssertTrue(cell(sample, in: app).waitForExistence(timeout: 5), "The table layout is kept")
 
-        // Portrait (11": 834 pt) keeps the table, without the Topics column (it used to fall back to rows).
+        // Portrait (11": 834 pt) keeps the table, without the Tags column.
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(header("Opened", in: app).waitForExistence(timeout: 5), "Portrait iPad keeps the table")
-        XCTAssertFalse(header("Topics", in: app).exists, "Topics needs a wider screen")
+        XCTAssertFalse(header("Tags", in: app).exists, "Tags needs a wider screen")
         attach(app, "Library table (iPad portrait)")
         choose("List", in: app)
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 5))
     }
 
-    func testDetailedRowsOnPhoneSortAndOpenAPaper() throws {
-        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "Phone")
+    /// Library options › Columns: turning columns on and off changes the table at once; one that doesn't fit says so.
+    func testColumnChooserTurnsColumnsOnAndOff() throws {
         XCUIDevice.shared.orientation = .portrait
-        let app = launch()
-        choose("Detailed rows", in: app, screenshot: "Library options menu (iPhone)")
-        let row = app.buttons["paper.\(attention)"]
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        XCTAssertTrue(row.label.contains("Vaswani, Shazeer +6"), row.label)
-        XCTAssertTrue(row.label.contains("60% read"), row.label)
-        XCTAssertTrue(row.label.contains("2 chats"), row.label)
-        XCTAssertFalse(app.descendants(matching: .any)["library.table"].exists, "Detailed rows aren't the table")
+        let app = launch(["--library-layout=table"])
+        XCTAssertTrue(header("Year", in: app).waitForExistence(timeout: 5))
+        app.buttons["Library options"].tap()
+        let columns = app.buttons["Columns"].firstMatch
+        XCTAssertTrue(columns.waitForExistence(timeout: 5)); columns.tap()
+        XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5))
+        attach(app, "Column chooser")
+        let phone = UIDevice.current.userInterfaceIdiom == .phone
+        // By identifier, else by the label's first word (iPadOS sheets don't always carry the identifier).
+        func columnSwitch(_ id: String, _ title: String) -> XCUIElement {
+            let byID = app.switches["library.columns.\(id)"].firstMatch
+            return byID.waitForExistence(timeout: 2) ? byID
+                : app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+        }
+        let year = columnSwitch("year", "Year"), pages = columnSwitch("pages", "Pages"), added = columnSwitch("added", "Added")
+        XCTAssertTrue(year.waitForExistence(timeout: 5))
+        XCTAssertEqual(year.value as? String, "1")
+        if phone { XCTAssertTrue(added.label.contains("Shown when there’s room"), "Phone portrait: Added waits for room: \(added.label)") }
+        toggle(year)
+        XCTAssertEqual(year.value as? String, "0")
+        // The half-height sheet may end above Pages (iPad): scroll to it.
+        for _ in 0..<3 where !(pages.exists && pages.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        XCTAssertEqual(pages.value as? String, "0")
+        toggle(pages)
+        XCTAssertEqual(pages.value as? String, "1")
+        if phone {
+            XCTAssertFalse(added.label.contains("Shown when there’s room"), "Year off makes room for Added")
+            XCTAssertTrue(pages.label.contains("Shown when there’s room"), "Pages is on but needs more room: \(pages.label)")
+        }
+        app.buttons["library.columns.done"].tap()
+        XCTAssertTrue(app.navigationBars["Columns"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(header("Added", in: app).waitForExistence(timeout: 5), "Added in Year's place")
+        XCTAssertFalse(header("Year", in: app).exists, "Year turned off never shows")
+        // Pages waits behind Tags for room (11" portrait), as the chooser says; it never shows on a phone in portrait.
+        if phone { XCTAssertFalse(header("Pages", in: app).exists, "Pages needs more room") }
+        attach(app, "Table after choosing columns")
 
-        choose("Year", in: app)
-        assertAbove(app.buttons["paper.\(dpo)"], row, "Year: newest first")
-        choose("Progress", in: app)
-        assertAbove(app.buttons["paper.\(resnet)"], row, "Progress: most read first")
-        app.buttons["paper.\(sample)"].tap()
-        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10))
-        app.buttons["tab.library"].tap()
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
-        choose("List", in: app)
-        XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 5))
+        // Restore defaults brings Year back.
+        app.buttons["Library options"].tap()
+        app.buttons["Columns"].firstMatch.tap()
+        let restore = app.buttons["library.columns.restore"]
+        XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5))
+        // At half height the sheet ends above Restore defaults.
+        for _ in 0..<3 where !(restore.exists && restore.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        XCTAssertTrue(restore.waitForExistence(timeout: 5)); restore.tap()
+        app.buttons["library.columns.done"].tap()
+        XCTAssertTrue(header("Year", in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(header("Pages", in: app).exists)
+    }
+
+    /// A toggle row's switch sits at its trailing end.
+    private func toggle(_ row: XCUIElement) {
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+    }
+
+    /// Filter chips scroll sideways on a phone: bring the chip into view, then tap it.
+    private func tapChip(_ name: String, in app: XCUIApplication) {
+        let chip = filter(name, in: app), bar = app.descendants(matching: .any)["library.filters"].firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "Chip \(name)")
+        let window = app.windows.firstMatch.frame
+        let visible = { window.contains(CGPoint(x: chip.frame.midX, y: chip.frame.midY)) && chip.frame.maxX <= window.maxX }
+        for _ in 0..<2 where !visible() { bar.swipeLeft() }
+        for _ in 0..<2 where !visible() { bar.swipeRight() }
+        chip.tap()
+    }
+
+    /// Quick filters and the tag menu narrow the table; a failed download shows Retry, and Retry shows it running again.
+    func testFiltersTagsAndRetryOnAFailedImport() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = launch(["--library-layout=table", "--slow-import-fixture"])
+        let failed = filter("failed", in: app)
+        XCTAssertTrue(failed.waitForExistence(timeout: 5), "Failed chip")
+        XCTAssertEqual(failed.value as? String, "2", "Two failed imports")
+        XCTAssertFalse(cell(archived, in: app).exists, "Archived papers are left out of All")
+        tapChip("failed", in: app)
+        XCTAssertTrue(cell(downloadFailed, in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(cell(needsCredits, in: app).exists)
+        XCTAssertFalse(cell(attention, in: app).exists, "Only failed imports")
+        XCTAssertTrue(cell(downloadFailed, in: app).label.contains("Couldn’t download this paper"), cell(downloadFailed, in: app).label)
+        let retry = app.buttons["library.import.retry.\(downloadFailed)"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5), "A visible Retry, not only in the menu")
+        XCTAssertTrue(retry.isHittable)
+        XCTAssertTrue(app.buttons["library.import.get-credits.\(needsCredits)"].exists, "Get credits beside a credit-blocked import")
+        attach(app, "Failed filter with Retry")
+        retry.tap()
+        XCTAssertTrue(retry.waitForNonExistence(timeout: 5), "Retry gives way to the running import")
+        let running = NSPredicate(format: "label CONTAINS %@", "Downloading")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: running, object: cell(downloadFailed, in: app))], timeout: 5),
+                       .completed, "Downloading again at once: \(cell(downloadFailed, in: app).label)")
+        attach(app, "Retried import downloading")
+
+        tapChip("archived", in: app)
+        XCTAssertTrue(cell(archived, in: app).waitForExistence(timeout: 5), "Archived papers under Archived")
+        XCTAssertFalse(cell(downloadFailed, in: app).exists)
+        tapChip("unread", in: app)
+        XCTAssertTrue(cell(lora, in: app).waitForExistence(timeout: 5), "LoRA was never opened")
+        XCTAssertFalse(cell(attention, in: app).exists, "Attention has been opened")
+        tapChip("all", in: app)
+        XCTAssertTrue(cell(attention, in: app).waitForExistence(timeout: 5))
+
+        // Tags: the menu lists them, most used first; choosing one narrows the table.
+        tapChip("tags", in: app)
+        let alignment = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Alignment")).firstMatch
+        XCTAssertTrue(alignment.waitForExistence(timeout: 5), "A paper's own tag is listed")
+        attach(app, "Tag menu")
+        alignment.tap()
+        XCTAssertTrue(cell(dpo, in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(cell(attention, in: app).exists, "Only papers tagged Alignment")
+        XCTAssertEqual(filter("tags", in: app).label, "Tag: Alignment")
+        attach(app, "Tag filter")
+
+        // Search filters the table live, within the filter.
+        tapChip("tags", in: app)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "All tags")).firstMatch.tap()
+        let search = app.searchFields.firstMatch.exists ? app.searchFields.firstMatch : app.textFields.firstMatch
+        search.tap(); search.typeText("residual")
+        XCTAssertTrue(cell(resnet, in: app).waitForExistence(timeout: 5))
+        XCTAssertFalse(cell(attention, in: app).exists, "Search narrows the table as you type")
     }
 
     func testPhoneTableFitsPortraitAndAddsColumnsInLandscape() throws {
@@ -144,7 +269,7 @@ final class LibraryLayoutTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = launch()
-        choose("Table", in: app)
+        choose("Table", in: app, screenshot: "Library options menu (iPhone)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5), "A real table in portrait")
         for title in ["Title", "Year", "Progress"] { XCTAssertTrue(header(title, in: app).exists, "Portrait shows \(title)") }
         for title in ["Added", "Opened", "Chats"] { XCTAssertFalse(header(title, in: app).exists, "\(title) needs landscape") }
@@ -152,7 +277,7 @@ final class LibraryLayoutTests: XCTestCase {
         let indicator = app.descendants(matching: .any)["library.table.sortIndicator"].firstMatch
         XCTAssertEqual(indicator.label, "Sorted by Added")
         XCTAssertEqual(indicator.value as? String, "Descending")
-        // One element per row, reading every column, including those too wide to show.
+        // One element per row, reading every chosen column, including those too wide to show.
         let row = cell(attention, in: app)
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         for part in ["Attention Is All You Need", "Vaswani et al.", "2017", "Added today", "2 chats", "60 percent read"] {
@@ -164,6 +289,7 @@ final class LibraryLayoutTests: XCTestCase {
         XCTAssertEqual(header("Progress", in: app).value as? String, "Sorted descending")
         assertAbove(cell(resnet, in: app), cell(attention, in: app), "Progress: 100% before 60%")
         tapHeader("Progress", in: app)
+        XCTAssertEqual(header("Progress", in: app).value as? String, "Sorted ascending", "The second tap reverses")
         assertAbove(cell(adam, in: app), cell(dpo, in: app), "Progress reversed: 8% before 25%")
 
         // An import that needs credits opens the store from its row.

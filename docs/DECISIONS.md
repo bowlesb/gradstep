@@ -116,6 +116,9 @@ column customization went with `Table`). Feed: "View as" List (default) / Table 
 (and first author), Topic, Published (month from the arXiv identifier — the server sends only the year) and Add;
 newest first; tapping a row shows its abstract under it; long-press offers Add to library and View on arXiv.
 
+**Superseded again (owner request 2026-10-07):** the Table is the default, Detailed rows are gone, and columns are
+chosen again (per device kind); see [Library as a proper table](#library-as-a-proper-table-owner-asked-2026-10-07).
+
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.
@@ -270,6 +273,47 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+
+## Library as a proper table (owner asked 2026-10-07)
+
+Owner: "I do not like the detailed rows right now, it should be a proper table, we need to have columns that can be
+turned on or off, it needs to be something where people can navigate and find papers easily … I see some in my list
+that say 'Download Failed'. They should never sit there like that, it should be a retry button at the very least."
+Made overnight without check-ins (owner asleep); each choice below is easy to change.
+
+- **The Table is the Library's main view** at every size; **List** stays the alternative ("View as"). **Detailed rows
+  are removed**: a saved "Detailed rows" (and no saved choice) opens the Table; an explicit List choice is kept. At
+  accessibility text sizes the Table shows the List's rows (as the Feed does) instead of detailed rows.
+- **Columns** (Library options › Columns, a half-height sheet of toggles; changes show at once): Title with the first
+  author (always), Year, Tags, Source (arXiv identifier or the web paper's host), Pages, Added, Opened, Chats,
+  Progress, in that row order. Choices are kept on the device, separately for iPhone and for iPad/Mac (by device kind
+  rather than size class, so rotating an iPhone never swaps sets). Defaults: iPhone Year, Added, Opened, Chats,
+  Progress (portrait shows Title, Year, Progress; landscape adds the rest); iPad/Mac add Tags; Source and Pages start
+  off. The width then decides which chosen columns fit (Progress, Year, Added, Opened, Chats, Tags, Pages, Source, in
+  that priority); a chosen column that doesn't fit says "Shown when there's room", and a column turned off never
+  shows. The title keeps at least 155 pt or 40 % of the row, so any one short column fits beside Progress on the
+  smallest iPhone and a Pro Max in portrait keeps two columns. Every column sorts from its header (Tags A→Z by first
+  tag, Pages longest first, Source A→Z); Tags, Pages and Source join Authors as table-only orders in Sort by.
+- **Tags**: `Paper.tags` (first-class tags, filled by the tags work) as display names, else topic names derived from
+  the arXiv categories (the Feed chips' names); imports use their categories. Shown as small chips (≤ 2 lines),
+  searchable, and filterable. No tag storage or editing here.
+- **Finding papers**: one row of chips above the table (and the List) that scrolls away with the rows: **Tags ⌄**
+  (a menu, most used first, with counts), **All · Unread · Reading · Failed n · Archived**. "In progress" is named
+  **Reading** so it isn't mistaken for imports in progress. Unread = never opened on this device; Reading = opened
+  (or with progress) and under 100 %; Failed = stopped imports; Archived replaces Show › Archived papers (removed).
+  Only filters that would change the list appear, and the row is hidden for a library with nothing to narrow. Filters
+  aren't kept across launches (like the sort). Search still filters live, within the filter, and now matches tags.
+- **Keyboard and pointer** (iPad, Mac): ↑/↓ choose a row and Return opens it (key commands, so no focus is needed; a click opens a row as a tap does); hovered rows get a quiet
+  fill; the header stays pinned.
+- **Stopped imports never just sit**: the status reads in plain words ("Download failed") and the row shows one action
+  as a small button — **Retry** when the server can run it again (download, details, rate limit), **Get credits** when
+  conversion waits for credits, otherwise **Remove** (too large, unreadable PDF…; nothing to retry). It sits in the
+  Progress cell, or under the title when Progress isn't shown; the List shows the same button. The long-press menu
+  and swipe say Retry / Remove (Cancel import while an import still runs). Tapping Retry shows the row
+  **downloading again at once** (finding, if its details were never found), from the queued retry command, until the
+  server's own state arrives. An import the server is retrying by itself (`download_retrying`, migration 027)
+  counts as under way: no Retry, not under Failed. Imports in progress show `ImportProgressView` (compact) in the
+  Progress cell. The Mac's View menu gets Filter Library in place of Show › Archived Papers.
 
 ## Recovery code in Apple Passwords (owner asked 2026-10-06)
 

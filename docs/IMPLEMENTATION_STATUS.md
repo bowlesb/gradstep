@@ -130,6 +130,16 @@ Design and failure handling: [paper pipeline](architecture/PAPER_PIPELINE.md), [
 are applied to staging (hash in the ledger; immutable from now on). Two independent adversarial reviews of the money and
 concurrency design were completed and their findings fixed before it was applied.
 
+**Library as a proper table** (owner request 2026-10-07, [decision](DECISIONS.md#library-as-a-proper-table-owner-asked-2026-10-07)):
+the Table is the Library's default (List the alternative; Detailed rows removed), with a column chooser (Library
+options › Columns, per iPhone / iPad-Mac), Tags (own tags else topics) and Source/Pages columns, every column
+sortable, quick filters (Tags ⌄, All, Unread, Reading, Failed n, Archived), arrow keys/Return/hover on iPad and Mac,
+and an inline Retry / Get credits / Remove on stopped imports (Retry shows the row downloading at once). Verified in
+the Simulator only (iPhone 17 Pro, iPad Pro 11"): `PaperTableTests`, `LibraryModelTests` (Retry through the real
+command queue against the fake server), `LibraryLayoutTests`, and visual scenarios `library-table`,
+`library-columns`, `library-filter-failed`, `library-retry`, `library-filter-tag` in light and dark. Not yet seen with
+a real signed-in library, a hardware keyboard on a device, or on the Mac build.
+
 **Library metadata view** (owner decision 2026-10-05, [decision](DECISIONS.md#library-metadata-view-owner-decided-2026-10-05)):
 Since 2026-10-06 the Table is one app-drawn `PaperTable` on every size (iPhone portrait: Title, Year, Progress;
 more columns as they fit), shared with the Feed's Table layout; see the decision's update. Verified in the Simulator

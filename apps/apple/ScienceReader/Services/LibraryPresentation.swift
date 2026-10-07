@@ -29,7 +29,8 @@ enum LibraryPresentationRow: Sendable {
                 fileURL: nil, artifactID: item.artifactID,
                 sourceID: item.sourceID, sourceRevision: item.sourceRevision,
                 authorNames: item.metadata?.authors ?? [], addedAt: item.addedAt.date, pageCount: item.pageCount,
-                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue)
+                canReadStructured: item.canReadStructured, archived: item.isArchived, venue: item.metadata?.venue,
+                sourceURL: item.sourceURL)
             paper.catalogTags = item.tags ?? []; paper.ownTags = item.userTags ?? []; paper.hiddenTags = item.hiddenTags ?? []
             paper.tags = item.effectiveTags
             return .item(.init(paper: paper, createdSequence: item.createdSequence, canReadStructured: item.canReadStructured))

@@ -17,27 +17,83 @@ final class PaperTableTests: XCTestCase {
         static let padLandscape: CGFloat = 1210 - 32
     }
 
-    private func libraryColumns(_ width: CGFloat, scale: CGFloat = 1, topics: Bool = true) -> [String] {
-        PaperTableLayout.visibleColumns(LibraryTableColumn.all(showTopics: topics), width: width, scale: scale).map(\.id)
+    private func libraryColumns(_ width: CGFloat, scale: CGFloat = 1, _ enabled: Set<LibraryTableColumn>) -> [String] {
+        PaperTableLayout.visibleColumns(LibraryTableColumn.columns(enabled), width: width, scale: scale).map(\.id)
     }
 
     private func feedColumns(_ width: CGFloat, scale: CGFloat = 1) -> [String] {
         PaperTableLayout.visibleColumns(FeedTableColumn.all, width: width, scale: scale).map(\.id)
     }
 
-    func testLibraryColumnsFollowTheWidth() {
-        let phone = ["year", "progress"]
-        XCTAssertEqual(libraryColumns(Width.phoneSmall), phone, "Phone portrait: title, year and progress")
-        XCTAssertEqual(libraryColumns(Width.phone), phone)
-        XCTAssertEqual(libraryColumns(Width.phoneMax), phone)
+    func testLibraryDefaultColumnsFollowTheWidth() {
+        let phone = LibraryColumnSettings.compactDefault, pad = LibraryColumnSettings.regularDefault
+        XCTAssertEqual(libraryColumns(Width.phoneSmall, phone), ["year", "progress"], "Phone portrait: title and two columns")
+        XCTAssertEqual(libraryColumns(Width.phone, phone), ["year", "progress"])
+        XCTAssertEqual(libraryColumns(Width.phoneMax, phone), ["year", "progress"])
         let wide = ["year", "added", "opened", "chats", "progress"]
-        XCTAssertEqual(libraryColumns(Width.phoneLandscape), wide, "Phone landscape adds the dates and chats")
-        XCTAssertEqual(libraryColumns(Width.padPortrait), wide, "iPad portrait shows the table too (no fallback to rows)")
-        XCTAssertEqual(libraryColumns(Width.padLandscape), ["year", "topics", "added", "opened", "chats", "progress"])
-        XCTAssertEqual(libraryColumns(Width.padLandscape, topics: false), wide, "Show › Topics off hides the column")
-        XCTAssertEqual(libraryColumns(Width.browseColumn), ["progress"], "The iPad Browse column keeps progress before year")
-        XCTAssertEqual(libraryColumns(Width.phone, scale: 1.35), ["progress"], "Larger text needs more room per column")
-        XCTAssertEqual(libraryColumns(0), [], "Before the first measurement, the title alone")
+        XCTAssertEqual(libraryColumns(Width.phoneLandscape, phone), wide, "Phone landscape adds the dates and chats")
+        XCTAssertEqual(libraryColumns(Width.padPortrait, pad), wide, "iPad portrait: Tags needs more room")
+        XCTAssertEqual(libraryColumns(Width.padLandscape, pad), ["year", "tags", "added", "opened", "chats", "progress"])
+        XCTAssertEqual(libraryColumns(Width.browseColumn, pad), ["progress"], "The iPad Browse column keeps progress before year")
+        XCTAssertEqual(libraryColumns(Width.phone, scale: 1.35, phone), ["progress"], "Larger text needs more room per column")
+        XCTAssertEqual(libraryColumns(0, pad), [], "Before the first measurement, the title alone")
+        XCTAssertEqual(LibraryTableColumn.allCases.last, .progress, "Progress (with an import's Retry) is the trailing column")
+    }
+
+    /// The reader's choice is a ceiling: the width only ever leaves chosen columns out, never adds others.
+    func testTurnedOffColumnsNeverShowAndAnyOneColumnFitsBesideProgressOnPhones() {
+        var subsets: [Set<LibraryTableColumn>] = [[], Set(LibraryTableColumn.allCases)]
+        for column in LibraryTableColumn.allCases {
+            subsets.append([column]); subsets.append(Set(LibraryTableColumn.allCases).subtracting([column]))
+        }
+        for enabled in subsets {
+            for width in [Width.browseColumn, Width.phoneSmall, Width.phone, Width.phoneLandscape, Width.padPortrait, Width.padLandscape, 2000] {
+                let shown = Set(libraryColumns(width, enabled))
+                XCTAssertTrue(shown.isSubset(of: Set(enabled.map(\.rawValue))), "\(shown) beyond \(enabled) at \(width)")
+            }
+        }
+        XCTAssertEqual(libraryColumns(Width.padLandscape, [.pages, .source, .progress]), ["source", "pages", "progress"], "Row order")
+        XCTAssertEqual(libraryColumns(Width.padLandscape, []), [], "Title alone")
+        // A phone shows whatever short column the reader picks next to Progress (Year off, Added on, say).
+        for column in LibraryTableColumn.allCases where ![.progress, .tags].contains(column) {
+            XCTAssertEqual(libraryColumns(Width.phone, [column, .progress]), [column.rawValue, "progress"], column.rawValue)
+            if column != .source {
+                XCTAssertEqual(libraryColumns(Width.phoneSmall, [column, .progress]), [column.rawValue, "progress"], "17e: \(column)")
+            }
+        }
+        XCTAssertEqual(libraryColumns(Width.phone, [.tags]), ["tags"], "Tags fits a phone without Progress")
+    }
+
+    func testColumnChoicesPersistPerWidthClass() throws {
+        let suite = "PaperTableTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(LibraryColumnSettings.load(from: defaults), LibraryColumnSettings(), "Defaults before any choice")
+        XCTAssertEqual(LibraryColumnSettings()[.compact], [.year, .added, .opened, .chats, .progress])
+        XCTAssertEqual(LibraryColumnSettings()[.regular], [.year, .tags, .added, .opened, .chats, .progress])
+
+        var settings = LibraryColumnSettings()
+        settings[.compact] = [.added, .progress]
+        settings[.regular].insert(.source); settings[.regular].remove(.chats)
+        settings.save(to: defaults)
+        XCTAssertEqual(defaults.string(forKey: "library.columns.compact"), "added,progress", "Saved in row order")
+        let loaded = LibraryColumnSettings.load(from: defaults)
+        XCTAssertEqual(loaded, settings)
+        XCTAssertEqual(loaded[.regular], [.year, .tags, .source, .added, .opened, .progress], "iPad keeps its own choice")
+
+        settings[.compact] = []
+        settings.save(to: defaults)
+        XCTAssertEqual(LibraryColumnSettings.load(from: defaults)[.compact], [], "All off is a choice (the title alone), not the defaults")
+        defaults.set("year,topics,progress,", forKey: "library.columns.regular")
+        XCTAssertEqual(LibraryColumnSettings.load(from: defaults)[.regular], [.year, .progress], "Unknown names are ignored")
+    }
+
+    func testDetailedRowsBecomeTheTableAndTheTableIsTheDefault() {
+        XCTAssertEqual(LibraryLayout(saved: nil), .table, "The table is the Library's main view")
+        XCTAssertEqual(LibraryLayout(saved: "detailed"), .table, "Detailed rows (removed) open the table")
+        XCTAssertEqual(LibraryLayout(saved: "table"), .table)
+        XCTAssertEqual(LibraryLayout(saved: "list"), .list, "An explicit List stays")
+        XCTAssertEqual(LibraryLayout.allCases.map(\.title), ["Table", "List"])
     }
 
     func testFeedColumnsFollowTheWidth() {
@@ -48,7 +104,8 @@ final class PaperTableTests: XCTestCase {
     }
 
     func testTitleKeepsItsShareAndWideningOnlyAddsColumns() {
-        checkFitAndGrowth(LibraryTableColumn.all(showTopics: true))
+        checkFitAndGrowth(LibraryTableColumn.columns(Set(LibraryTableColumn.allCases)))
+        checkFitAndGrowth(LibraryTableColumn.columns(LibraryColumnSettings.compactDefault))
         checkFitAndGrowth(FeedTableColumn.all)
     }
 
@@ -69,7 +126,8 @@ final class PaperTableTests: XCTestCase {
     }
 
     func testHeaderTapsSortThenReverse() {
-        let columns = Dictionary(uniqueKeysWithValues: (LibraryTableColumn.all(showTopics: true) + [LibraryTableColumn.title]).map { ($0.id, $0) })
+        let columns = Dictionary(uniqueKeysWithValues: (LibraryTableColumn.columns(Set(LibraryTableColumn.allCases)) + [LibraryTableColumn.title])
+            .map { ($0.id, $0) })
         var sort = PaperTableSort(key: LibrarySearchSort.Field.recent, ascending: false)
         sort = sort.tapping(columns["year"]!)
         XCTAssertEqual(sort, PaperTableSort(key: .year, ascending: false), "Year starts newest first")
@@ -79,7 +137,10 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(sort, PaperTableSort(key: .title, ascending: true), "Title starts A to Z")
         sort = sort.tapping(columns["progress"]!)
         XCTAssertEqual(sort, PaperTableSort(key: .progress, ascending: false), "Most read first")
-        XCTAssertEqual(sort.tapping(columns["topics"]!), sort, "A column without a sort leaves the order alone")
+        XCTAssertEqual(sort.tapping(columns["tags"]!), PaperTableSort(key: .tags, ascending: true), "Tags A to Z")
+        XCTAssertEqual(sort.tapping(columns["pages"]!), PaperTableSort(key: .pages, ascending: false), "Longest first")
+        XCTAssertEqual(sort.tapping(columns["source"]!), PaperTableSort(key: .source, ascending: true))
+        XCTAssertEqual(sort.tapping(PaperTableColumn(id: "x", title: "")), sort, "A column without a sort leaves the order alone")
         // Each sortable header starts in the direction the Sort menu uses for that field.
         for column in columns.values {
             guard let field = column.sortKey else { continue }
@@ -97,8 +158,8 @@ final class PaperTableTests: XCTestCase {
                           fileURL: nil, artifactID: nil)
         paper.authorNames = ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar"]
         let facts = LibraryRowFacts(id: "paper/x", title: paper.title, paper: paper, authors: "Vaswani, Shazeer +1", year: 2017,
-            topics: ["Language"], added: now, opened: nil, progress: 0.6, chats: 2, pages: 15, status: .info("Not downloaded"),
-            needsCredits: false)
+            tags: ["Language", "Machine learning"], added: now, opened: nil, progress: 0.6, chats: 2, pages: 15, status: .info("Not downloaded"),
+            needsCredits: false, source: "1706.03762", spokenSource: "arXiv 1706.03762")
         let item = LibraryTableItem(entry: .paper(paper), facts: facts)
         XCTAssertEqual(item.firstAuthor, "Vaswani et al.")
         XCTAssertEqual(LibraryTableColumn.progress.spoken(item, now: now), "60 percent read", "A ready paper shows how far it is read")
@@ -106,8 +167,11 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(LibraryTableColumn.added.spoken(item, now: now), "Added today")
         XCTAssertEqual(LibraryTableColumn.chats.spoken(item, now: now), "2 chats")
         XCTAssertEqual(LibraryTableColumn.year.spoken(item, now: now), "2017")
+        XCTAssertEqual(LibraryTableColumn.tags.spoken(item, now: now), "Tags: Language, Machine learning")
+        XCTAssertEqual(LibraryTableColumn.pages.spoken(item, now: now), "15 pages")
+        XCTAssertEqual(LibraryTableColumn.source.spoken(item, now: now), "arXiv 1706.03762")
 
-        let problem = LibraryRowFacts(id: "paper/y", title: "Note", paper: paper, authors: nil, year: nil, topics: [], added: nil,
+        let problem = LibraryRowFacts(id: "paper/y", title: "Note", paper: paper, authors: nil, year: nil, tags: [], added: nil,
             opened: nil, progress: 0.3, chats: 0, pages: nil, status: .problem("Not converted"), needsCredits: false)
         XCTAssertEqual(LibraryTableColumn.progress.spoken(LibraryTableItem(entry: .paper(paper), facts: problem), now: now), "Not converted",
                        "A problem takes the place of progress")
@@ -120,6 +184,196 @@ final class PaperTableTests: XCTestCase {
                            fileURL: nil, artifactID: nil)
         XCTAssertEqual(LibraryFormat.firstAuthor(for: sample), "Gradstep · offline sample", "Joined byline when names are unknown")
         XCTAssertEqual(LibraryImportStep.downloading.tableTitle, "Downloading", "One word beside the spinner")
+    }
+
+    // MARK: Tags, source
+
+    private func paper(_ title: String, keywords: [String] = [], tags: [String] = [], archived: Bool = false,
+                       sourceID: String? = nil, url: String? = nil, pages: Int? = nil) -> Paper {
+        var paper = Paper(id: UUID(), title: title, authors: "", year: nil, abstract: "", keywords: keywords, fileURL: nil, artifactID: nil)
+        paper.tags = tags; paper.archived = archived; paper.sourceID = sourceID; paper.sourceURL = url; paper.pageCount = pages
+        return paper
+    }
+
+    func testTagsAreThePapersOwnElseTopicsFromItsCategories() {
+        XCTAssertEqual(LibraryTags.tags(for: paper("A", keywords: ["cs.LG", "cs.CL", "stat.ML", "cs.LG"])),
+                       ["Machine learning", "Natural language processing"], "Topic names from the tag vocabulary, every distinct one, in the paper's order (cs.LG and stat.ML are both Machine learning)")
+        XCTAssertEqual(LibraryTags.tags(for: paper("B", keywords: ["cs.LG"], tags: ["Alignment", " alignment ", "", "RLHF"])),
+                       ["Alignment", "RLHF"], "Own tags win; trimmed, blank and repeated ones dropped")
+        XCTAssertEqual(LibraryTags.tags(for: paper("C")), [])
+        XCTAssertEqual(LibraryTags.counts([["Language", "Machine learning"], ["Machine learning"], ["Vision", "Language"], ["Machine learning"]])
+            .map { "\($0.tag) \($0.count)" }, ["Machine learning 3", "Language 2", "Vision 1"], "Most used first, then A to Z")
+    }
+
+    func testSourceIsTheArxivIdentifierOrTheWebsite() {
+        XCTAssertEqual(LibrarySourceLabel.label(sourceID: "1706.03762", url: "https://arxiv.org/abs/1706.03762v7"), "1706.03762")
+        XCTAssertEqual(LibrarySourceLabel.spoken(sourceID: "1706.03762", url: nil), "arXiv 1706.03762")
+        XCTAssertEqual(LibrarySourceLabel.label(sourceID: "openalex:W2741809807", url: "https://www.nature.com/articles/x.pdf"), "nature.com")
+        XCTAssertEqual(LibrarySourceLabel.spoken(sourceID: "openalex:W2741809807", url: "https://www.nature.com/articles/x.pdf"), "From nature.com")
+        XCTAssertEqual(LibrarySourceLabel.label(sourceID: "openalex:W2741809807", url: "https://openalex.org/works/W2741809807"), "Open access")
+        XCTAssertNil(LibrarySourceLabel.label(sourceID: nil, url: nil), "The sample has no source")
+    }
+
+    // MARK: Filters
+
+    func testQuickFiltersByReadingStateArchiveAndImportPhase() {
+        let now = Date()
+        func paper(_ filter: LibraryFilter, archived: Bool = false, opened: Date? = nil, progress: Double? = nil) -> Bool {
+            filter.includesPaper(archived: archived, opened: opened, progress: progress)
+        }
+        XCTAssertTrue(paper(.all)); XCTAssertFalse(paper(.all, archived: true), "All leaves archived papers out")
+        XCTAssertTrue(paper(.archived, archived: true)); XCTAssertFalse(paper(.archived))
+        XCTAssertTrue(paper(.unread)); XCTAssertFalse(paper(.unread, opened: now)); XCTAssertFalse(paper(.unread, progress: 0.1))
+        XCTAssertFalse(paper(.unread, archived: true), "Archived papers stay under Archived")
+        XCTAssertTrue(paper(.reading, opened: now)); XCTAssertTrue(paper(.reading, progress: 0.4))
+        XCTAssertFalse(paper(.reading, opened: now, progress: 1), "Finished isn't in progress")
+        XCTAssertTrue(paper(.reading, opened: now, progress: 0.996), "99% is still being read")
+        XCTAssertFalse(paper(.reading)); XCTAssertFalse(paper(.failed, opened: now))
+        XCTAssertTrue(LibraryFilter.all.includesImport(.acquiring))
+        XCTAssertTrue(LibraryFilter.failed.includesImport(.failed)); XCTAssertTrue(LibraryFilter.failed.includesImport(.membershipConflict))
+        XCTAssertFalse(LibraryFilter.failed.includesImport(.acquiring)); XCTAssertFalse(LibraryFilter.unread.includesImport(.failed))
+        XCTAssertTrue(LibraryFilter.all.includesQueued); XCTAssertFalse(LibraryFilter.failed.includesQueued)
+    }
+
+    func testFilterRowOffersOnlyFiltersThatNarrowTheList() {
+        var summary = LibraryFilterSummary(counts: [.all: 1, .unread: 1])
+        XCTAssertEqual(summary.chips(selected: .all, tagSelected: false), [], "A new library (one unread paper): no filter row")
+        summary = LibraryFilterSummary(counts: [.all: 8, .unread: 3, .reading: 4, .failed: 1], tags: [("Language", 4), ("Vision", 1)])
+        XCTAssertEqual(summary.chips(selected: .all, tagSelected: false), [.all, .unread, .reading, .failed])
+        XCTAssertTrue(summary.showsTags(tagSelected: false))
+        summary = LibraryFilterSummary(counts: [.all: 5, .unread: 5, .archived: 2], tags: [("Language", 5)])
+        XCTAssertEqual(summary.chips(selected: .all, tagSelected: false), [.all, .archived], "Unread equals All here; Archived is apart")
+        XCTAssertFalse(summary.showsTags(tagSelected: false), "One tag is nothing to choose between")
+        summary = LibraryFilterSummary(counts: [.all: 5, .unread: 5])
+        XCTAssertEqual(summary.chips(selected: .failed, tagSelected: false), [.all, .failed], "The chosen filter stays, even when empty")
+        XCTAssertEqual(summary.chips(selected: .all, tagSelected: true), [.all], "A chosen tag keeps the row")
+    }
+
+    func testFiltersAndTagsNarrowTheLibraryAndItsSearch() async throws {
+        let model = ReaderModel(configuration: nil)
+        let now = Date()
+        var unread = paper("Unread attention", keywords: ["cs.CL"]), reading = paper("Half-read vision", keywords: ["cs.CV"])
+        unread.isSample = true   // opens without an account (below)
+        let finished = paper("Finished optimisation", keywords: ["math.OC"]), archived = paper("Old archived", keywords: ["cs.CL"], archived: true)
+        let tagged = paper("Own tags", keywords: ["cs.LG"], tags: ["Alignment"])
+        let failed = try importRecord(phase: "failed", error: "download_failed", categories: ["cs.CL"])
+        let running = try importRecord(phase: "acquiring", progress: "converting")
+        model.installLibraryMetadataFixture(papers: [unread, reading, finished, archived, tagged], imports: [failed, running], sequences: [:],
+            activity: [reading.id: .init(openedAt: now, progress: 0.4), finished.id: .init(openedAt: now, progress: 1)], offline: [:])
+        func rows() async -> Set<String> {
+            await model.waitForLibrarySearch()
+            return Set(model.libraryRows.map { $0.title })
+        }
+        let importTitle = "Imported language paper", runningTitle = "arXiv 2006.11239"
+        let all: Set<String> = [unread.title, reading.title, finished.title, tagged.title, importTitle, runningTitle]
+        var shown = await rows()
+        XCTAssertEqual(shown, all, "All: everything but archived papers")
+        model.libraryFilter = .unread
+        shown = await rows(); XCTAssertEqual(shown, [unread.title, tagged.title])
+        model.libraryFilter = .reading
+        shown = await rows(); XCTAssertEqual(shown, [reading.title])
+        model.libraryFilter = .failed
+        shown = await rows(); XCTAssertEqual(shown, [importTitle])
+        model.libraryFilter = .archived
+        shown = await rows(); XCTAssertEqual(shown, [archived.title])
+
+        model.libraryFilter = .all; model.libraryTagFilter = "Natural language processing"
+        shown = await rows(); XCTAssertEqual(shown, [unread.title, importTitle], "Tags derived from categories; archived stays out")
+        model.libraryTagFilter = "Alignment"
+        shown = await rows(); XCTAssertEqual(shown, [tagged.title], "The paper's own tags")
+        model.libraryTagFilter = nil; model.libraryQuery = "language"
+        shown = await rows(); XCTAssertEqual(shown, [unread.title, importTitle], "Search matches tag names too")
+        model.libraryQuery = ""
+
+        let summary = model.libraryFilterSummary()
+        XCTAssertEqual(summary.count(.failed), 1); XCTAssertEqual(summary.count(.archived), 1); XCTAssertEqual(summary.count(.reading), 1)
+        XCTAssertEqual(summary.tags.first?.tag, "Natural language processing", "Natural language processing is the most used tag in All")
+        XCTAssertFalse(summary.tags.contains { $0.tag == "Computer vision" && $0.count != 1 })
+
+        // Reading a paper moves it out of Unread at once.
+        model.libraryFilter = .unread
+        _ = await rows()
+        model.select(unread)
+        let afterOpening = await rows()
+        XCTAssertFalse(afterOpening.contains(unread.title), "Opened papers leave Unread")
+    }
+
+    func testNewOrdersSortByTagPagesAndSource() throws {
+        func candidate(_ id: String, sequence: Int64, tag: String?, pages: Int?, source: String?) -> LibrarySearchCandidate {
+            LibrarySearchCandidate(id: id, title: id, fields: [id], recentSequence: sequence, position: Int(sequence),
+                                   keys: LibrarySortKeys(tag: tag, pages: pages, source: source))
+        }
+        let rows = [candidate("a", sequence: 4, tag: "Vision", pages: 12, source: "2106.09685"),
+                    candidate("b", sequence: 3, tag: "Language", pages: 27, source: "openalex.org"),
+                    candidate("c", sequence: 2, tag: nil, pages: nil, source: nil),
+                    candidate("d", sequence: 1, tag: "Language", pages: 12, source: "1706.03762")]
+        func order(_ field: LibrarySearchSort.Field, ascending: Bool? = nil) throws -> [String] {
+            let key = LibrarySearchKey(sessionID: UUID(), accountID: nil, sourceRevision: 1, query: "", sort: .init(field: field, ascending: ascending))
+            return try LibrarySearchEngine.search(.init(ticket: .init(key: key), candidates: rows))
+        }
+        XCTAssertEqual(try order(.tags), ["b", "d", "a", "c"], "A to Z by first tag, ties in recent order, untagged last")
+        XCTAssertEqual(try order(.tags, ascending: false), ["a", "b", "d", "c"])
+        XCTAssertEqual(try order(.pages), ["b", "a", "d", "c"], "Longest first; unknown last")
+        XCTAssertEqual(try order(.source), ["d", "a", "b", "c"], "Identifiers in order, websites after")
+        XCTAssertEqual(LibrarySearchSort.Field.allCases.filter(\.isTableOnly), [.authors, .tags, .pages, .source])
+    }
+
+    // MARK: Stopped imports
+
+    private func importRecord(phase: String, progress: String? = nil, error: String? = nil, retryable: Bool? = nil,
+                              categories: [String] = []) throws -> LibraryImportRecord {
+        var value: [String: Any] = ["id": UUID().wire, "created_seq": 1, "state_seq": 1, "intent_revision": 1, "visible": true,
+            "phase": phase, "source": "arxiv", "source_id": "2006.11239", "source_url": "https://arxiv.org/abs/2006.11239",
+            "retryable": retryable ?? (phase == "failed")]
+        if !categories.isEmpty {
+            value.merge(["source_url": "https://arxiv.org/abs/2006.11239v1", "source_revision": 1, "metadata_id": UUID().wire,
+                         "version_id": UUID().wire, "metadata_recorded_at": "2026-10-01T09:00:00Z",
+                         "metadata": ["title": "Imported language paper", "authors": ["A B"], "categories": categories] as [String: Any]]) { $1 }
+        }
+        if let progress { value["progress"] = progress }
+        if let error { value["error_code"] = error }
+        return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    func testEveryStoppedImportOffersAnAction() throws {
+        func action(_ phase: String, _ error: String?, retryable: Bool? = nil) throws -> LibraryImportAction? {
+            LibraryImportAction.available(for: try importRecord(phase: phase, error: error, retryable: retryable), retrying: false)
+        }
+        XCTAssertEqual(try action("failed", "download_failed"), .retry)
+        XCTAssertEqual(try action("failed", "rate_limited"), .retry)
+        XCTAssertEqual(try action("failed", "insufficient_credits", retryable: false), .getCredits)
+        XCTAssertEqual(try action("failed", "too_large", retryable: false), .remove, "Nothing to retry: it can at least be removed")
+        XCTAssertEqual(try action("failed", "pdf_invalid", retryable: false), .remove)
+        XCTAssertNil(try action("acquiring", nil), "Running imports have Cancel in their menu, nothing inline")
+        XCTAssertNil(LibraryImportAction.available(for: try importRecord(phase: "failed", error: "download_failed"), retrying: true),
+                     "No Retry while one is on its way")
+        XCTAssertEqual(try importRecord(phase: "failed", error: "download_failed").libraryShortStatus, "Download failed", "Plain words")
+        XCTAssertEqual(try importRecord(phase: "failed", error: "metadata_unavailable").retryStep, .finding, "Details unknown: find it again")
+        XCTAssertEqual(try importRecord(phase: "failed", error: "download_failed", categories: ["cs.LG"]).retryStep, .downloading)
+    }
+
+    func testRetryInTheFixtureShowsDownloadingAtOnceAndRemoveTakesTheRowAway() async throws {
+        let model = ReaderModel(configuration: nil)
+        let failed = try importRecord(phase: "failed", error: "download_failed", categories: ["cs.CL"])
+        let tooLarge = try importRecord(phase: "failed", error: "too_large", retryable: false)
+        model.installLibraryMetadataFixture(papers: [], imports: [failed, tooLarge], sequences: [:], activity: [:], offline: [:])
+        XCTAssertTrue(model.canChangeImports, "Fixture runs act locally")
+        let item = LibraryTableItem(entry: .pending(failed), facts: model.libraryFacts(for: .pending(failed)))
+        XCTAssertEqual(item.facts.importAction, .retry)
+        XCTAssertEqual(LibraryTableColumn.progress.spoken(item), "Couldn’t download this paper", "VoiceOver reads the full status")
+
+        await model.changeImport(failed, retry: true)
+        let retried = LibraryTableItem(entry: .pending(failed), facts: model.libraryFacts(for: .pending(failed)))
+        XCTAssertEqual(model.libraryStatus(for: .pending(failed)), .active("Downloading…"))
+        XCTAssertEqual(retried.facts.step, .downloading)
+        XCTAssertNil(retried.facts.importAction)
+        XCTAssertEqual(LibraryTableColumn.progress.spoken(retried), LibraryImportStep.downloading.title)
+
+        await model.changeImport(tooLarge, retry: true)
+        XCTAssertFalse(model.isRetrying(tooLarge), "Not retryable: Retry does nothing")
+        await model.changeImport(tooLarge, retry: false)
+        await model.waitForLibrarySearch()
+        XCTAssertFalse(model.libraryRows.contains { $0.id == "import/\(tooLarge.id.wire)" }, "Removed")
     }
 
     // MARK: Feed

@@ -4,7 +4,8 @@ import SwiftUI
 // re-use for the feed"). It is the same table on every size: a header of column titles (tap to sort, tap again to
 // reverse), one aligned row per paper, and as many columns beside the title as fit the width — never a horizontal
 // scroll. SwiftUI's `Table` collapses to one column in compact width, so this is built from a plain List, which
-// also gives the rows long-press menus, swipe actions, pull to refresh and a header that stays pinned.
+// also gives the rows long-press menus, swipe actions, pull to refresh and a header that stays pinned. The caller
+// passes the columns the reader chose (owner request 2026-10-07); rows get a hover fill and arrow-key navigation.
 
 /// One column beside the title. Which columns show depends on the width (see `PaperTableLayout`).
 struct PaperTableColumn<Key: Hashable>: Identifiable {
@@ -41,10 +42,12 @@ extension PaperTableSort: Sendable where Key: Sendable {}
 enum PaperTableLayout {
     /// Between columns (the design's 12 pt step).
     static let spacing: CGFloat = 12
-    /// The title column never gets narrower than this (scaled with text size)…
-    static let titleMinimum: CGFloat = 160
-    /// …nor, on wide screens, than this share of the row, so extra columns don't squeeze titles to a few words.
-    static let titleShare: CGFloat = 0.34
+    /// The title column never gets narrower than this (scaled with text size): room for Progress and any one short
+    /// column on the smallest phone, and for Progress alone in the iPad's Browse column…
+    static let titleMinimum: CGFloat = 155
+    /// …nor than this share of the row, so extra columns don't squeeze titles to a few words (a Pro Max in portrait
+    /// keeps two columns, like the other phones).
+    static let titleShare: CGFloat = 0.4
 
     static func titleWidth(in width: CGFloat, scale: CGFloat) -> CGFloat { max(titleMinimum * scale, width * titleShare) }
 
@@ -81,6 +84,7 @@ struct PaperTableAction {
 struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, Swipe: View, Detail: View, Top: View>: View {
     let rows: [Row]
     let titleColumn: PaperTableColumn<Key>
+    /// The columns that may show (the reader's choice); those that fit the width are shown.
     let columns: [PaperTableColumn<Key>]
     @Binding var sort: PaperTableSort<Key>
     /// Accessibility identifier of the table; rows use `rowIdentifier`.
@@ -95,25 +99,30 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// Long-press actions.
     let menu: (Row) -> Actions
     let swipe: (Row) -> Swipe
-    /// Shown under a row (the Feed's abstract when a row is opened).
-    let detail: (Row) -> Detail
-    /// Scrolls above the header (status banners).
+    /// Shown under a row (the Feed's abstract when a row is opened); given the IDs of the columns shown.
+    let detail: (Row, Set<String>) -> Detail
+    /// Scrolls above the header (status banners, filters).
     let top: () -> Top
     var pinnedHeader = true
     /// Names of orders that have no column (the Library's Authors), for the header's sort indicator.
     var extraSortTitles: [Key: String] = [:]
+    /// A cell that holds a control for this row (a failed import's Retry): it sits outside the row's tap area and
+    /// isn't read as part of the row, like a column marked `isControl`. Only trailing cells should be controls.
+    var cellIsControl: (Row, String) -> Bool = { _, _ in false }
 
     init(rows: [Row], titleColumn: PaperTableColumn<Key>, columns: [PaperTableColumn<Key>], sort: Binding<PaperTableSort<Key>>,
          extraSortTitles: [Key: String] = [:],
          identifier: String, pinnedHeader: Bool = true, rowIdentifier: @escaping (Row) -> String,
          title: @escaping (Row) -> PaperTableTitle, @ViewBuilder cell: @escaping (Row, String) -> Cell,
+         cellIsControl: @escaping (Row, String) -> Bool = { _, _ in false },
          spoken: @escaping (Row, String) -> String?, primaryAction: @escaping (Row) -> PaperTableAction?,
          @ViewBuilder menu: @escaping (Row) -> Actions, @ViewBuilder swipe: @escaping (Row) -> Swipe,
-         @ViewBuilder detail: @escaping (Row) -> Detail, @ViewBuilder top: @escaping () -> Top) {
+         @ViewBuilder detail: @escaping (Row, Set<String>) -> Detail, @ViewBuilder top: @escaping () -> Top) {
         self.rows = rows; self.titleColumn = titleColumn; self.columns = columns; self._sort = sort
         self.extraSortTitles = extraSortTitles
         self.identifier = identifier; self.pinnedHeader = pinnedHeader; self.rowIdentifier = rowIdentifier
-        self.title = title; self.cell = cell; self.spoken = spoken; self.primaryAction = primaryAction
+        self.title = title; self.cell = cell; self.cellIsControl = cellIsControl; self.spoken = spoken
+        self.primaryAction = primaryAction
         self.menu = menu; self.swipe = swipe; self.detail = detail; self.top = top
     }
 
@@ -121,6 +130,10 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The row width inside the margins, measured on the header (rows share its insets).
     @State private var width: CGFloat = 0
+    /// The row under the pointer (iPad, Mac).
+    @State private var hovered: Row.ID?
+    /// The row chosen with the arrow keys (hardware keyboard); Return opens it.
+    @State private var keyboardRow: Row.ID?
 
     private static var rowInsets: EdgeInsets {
         EdgeInsets(top: 10, leading: DesignMetrics.margin, bottom: 10, trailing: DesignMetrics.margin)
@@ -128,30 +141,73 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 
     var body: some View {
         let visible = PaperTableLayout.visibleColumns(columns, width: width, scale: scale)
-        List {
-            Section {
-                top()
-                // An empty first section leaves the plain list's header padding (22 pt) above the column header.
-                Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden).accessibilityHidden(true)
-            }
-            Section {
-                if !pinnedHeader { header(visible) }
-                ForEach(rows) { row in
-                    rowView(row, visible: visible)
+        let visibleIDs = Set(visible.map(\.id))
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    top()
+                    // An empty first section leaves the plain list's header padding (22 pt) above the column header.
+                    Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden).accessibilityHidden(true)
+                }
+                Section {
+                    if !pinnedHeader { header(visible) }
+                    ForEach(rows) { row in
+                        VStack(alignment: .leading, spacing: 8) {
+                            rowView(row, visible: visible)
+                            detail(row, visibleIDs)
+                        }
                         .frame(minHeight: 44)
                         .listRowInsets(Self.rowInsets)
+                        .listRowBackground(rowBackground(row))
+                        .onHover { inside in
+                            if inside { hovered = row.id } else if hovered == row.id { hovered = nil }
+                        }
                         .contextMenu { menu(row) }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) { swipe(row) }
+                    }
+                } header: {
+                    if pinnedHeader { header(visible) }
                 }
-            } header: {
-                if pinnedHeader { header(visible) }
             }
+            .listStyle(.plain)
+            .listSectionSpacing(0)
+            .environment(\.defaultMinListHeaderHeight, 0)
+            .environment(\.defaultMinListRowHeight, 0)
+            // Hardware keyboard (iPad, Mac): ↑/↓ choose a row, Return opens it. Key commands rather than focus, so
+            // they work as soon as the table shows; a focused text field (search) keeps its own keys.
+            .background { keyCommands(proxy) }
+            .onChange(of: rows.map(\.id)) { _, ids in if let id = keyboardRow, !ids.contains(id) { keyboardRow = nil } }
         }
-        .listStyle(.plain)
-        .listSectionSpacing(0)
-        .environment(\.defaultMinListHeaderHeight, 0)
-        .environment(\.defaultMinListRowHeight, 0)
         .accessibilityIdentifier(identifier)
+    }
+
+    private func keyCommands(_ proxy: ScrollViewProxy) -> some View {
+        Group {
+            Button("Next paper") { moveKeyboardRow(by: 1, proxy: proxy) }.keyboardShortcut(.downArrow, modifiers: [])
+            Button("Previous paper") { moveKeyboardRow(by: -1, proxy: proxy) }.keyboardShortcut(.upArrow, modifiers: [])
+            Button("Open") {
+                guard let id = keyboardRow, let row = rows.first(where: { $0.id == id }) else { return }
+                primaryAction(row)?.perform()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(keyboardRow == nil)
+        }
+        .opacity(0).frame(width: 0, height: 0).allowsHitTesting(false).accessibilityHidden(true)
+    }
+
+    /// The keyboard's row, else the hovered one, gets a quiet fill (the selection color for the keyboard).
+    private func rowBackground(_ row: Row) -> Color? {
+        if keyboardRow == row.id { return Color.accentColor.opacity(0.14) }
+        if hovered == row.id { return Color.primary.opacity(0.05) }   // as `macRowHover()`, on iPad too
+        return nil
+    }
+
+    private func moveKeyboardRow(by step: Int, proxy: ScrollViewProxy) {
+        guard !rows.isEmpty else { return }
+        let index = keyboardRow.flatMap { id in rows.firstIndex { $0.id == id } }
+        let next = index.map { min(rows.count - 1, max(0, $0 + step)) } ?? (step > 0 ? 0 : rows.count - 1)
+        keyboardRow = rows[next].id
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { proxy.scrollTo(rows[next].id) }
     }
 
     // MARK: Header
@@ -233,24 +289,23 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     // MARK: Rows
 
     private func rowView(_ row: Row, visible: [PaperTableColumn<Key>]) -> some View {
-        let values = visible.filter { !$0.isControl }
-        let controls = visible.filter(\.isControl)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
-                tappable(row) {
-                    HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
-                        PaperTableTitleCell(title: title(row)).frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(values) { column in
-                            cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
-                        }
+        // Values are part of the row's tap; from the first control on, cells sit outside it (at the trailing end).
+        let firstControl = visible.firstIndex { $0.isControl || cellIsControl(row, $0.id) } ?? visible.endIndex
+        let values = Array(visible[..<firstControl])
+        let controls = Array(visible[firstControl...])
+        return HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+            tappable(row) {
+                HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+                    PaperTableTitleCell(title: title(row)).frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(values) { column in
+                        cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
-                ForEach(controls) { column in
-                    cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
-            detail(row)
+            ForEach(controls) { column in
+                cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
+            }
         }
     }
 
@@ -289,5 +344,85 @@ struct PaperTableText: View {
     let text: String?
     var body: some View {
         Text(text ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+    }
+}
+
+/// Tags as small chips that wrap within the cell, at most two lines (the owner's web library showed keyword chips).
+/// A chip matching the active tag filter is drawn in the accent color.
+struct PaperTableChips: View {
+    let tags: [String]
+    var highlighted: String? = nil
+    var body: some View {
+        PaperTableChipFlow(spacing: 4, lineSpacing: 4, maxLines: 2) {
+            ForEach(tags, id: \.self) { tag in
+                let on = tag == highlighted
+                Text(tag).font(.caption.weight(on ? .semibold : .regular)).lineLimit(1).truncationMode(.tail)
+                    .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(on ? Color.accentColor.opacity(0.15) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+            }
+        }
+        .clipped()
+        .accessibilityHidden(true)   // the row reads its tags
+    }
+}
+
+/// Lays chips out left to right, wrapping, up to `maxLines`; chips beyond that are left out of view.
+struct PaperTableChipFlow: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+    var maxLines: Int
+
+    private func lines(_ subviews: Subviews, width: CGFloat) -> [[(index: Int, size: CGSize)]] {
+        var lines: [[(index: Int, size: CGSize)]] = [], line: [(index: Int, size: CGSize)] = [], used: CGFloat = 0
+        for (index, subview) in subviews.enumerated() {
+            var size = subview.sizeThatFits(.unspecified)
+            size.width = min(size.width, width)
+            if !line.isEmpty, used + spacing + size.width > width {
+                lines.append(line); line = []; used = 0
+            }
+            used += (line.isEmpty ? 0 : spacing) + size.width
+            line.append((index, size))
+        }
+        if !line.isEmpty { lines.append(line) }
+        return Array(lines.prefix(maxLines))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let shown = lines(subviews, width: proposal.width ?? .infinity)
+        var height: CGFloat = 0, widest: CGFloat = 0
+        for (number, line) in shown.enumerated() {
+            var lineHeight: CGFloat = 0, lineWidth: CGFloat = 0
+            for (position, item) in line.enumerated() {
+                lineHeight = max(lineHeight, item.size.height)
+                lineWidth += (position == 0 ? 0 : spacing) + item.size.width
+            }
+            height += (number == 0 ? 0 : lineSpacing) + lineHeight
+            widest = max(widest, lineWidth)
+        }
+        return CGSize(width: proposal.width ?? widest, height: height)
+    }
+
+    /// The first chip's baseline, so the cell lines up with the row's first line of text.
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                           cache: inout ()) -> CGFloat? {
+        guard guide == .firstTextBaseline, let first = lines(subviews, width: bounds.width).first?.first else { return nil }
+        return bounds.minY + subviews[first.index].dimensions(in: ProposedViewSize(first.size))[VerticalAlignment.firstTextBaseline]
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var placed = Set<Int>(), y = bounds.minY
+        for line in lines(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for item in line {
+                subviews[item.index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                placed.insert(item.index); x += item.size.width + spacing
+            }
+            y += (line.map(\.size.height).max() ?? 0) + lineSpacing
+        }
+        // Chips past the last line go outside the (clipped) cell.
+        for index in subviews.indices where !placed.contains(index) {
+            subviews[index].place(at: CGPoint(x: bounds.minX, y: bounds.maxY + 10_000), proposal: .zero)
+        }
     }
 }
