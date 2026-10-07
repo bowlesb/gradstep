@@ -219,6 +219,10 @@ Update 22:45 PDT: Google sign-in is configured: OAuth web client in Google Cloud
 Platform, External audience in testing mode, test users only; branding gradstep.ai and its privacy page), redirect
 `https://coxhjvqpflgxkleydati.supabase.co/auth/v1/callback`; Supabase's Google provider enabled with it
 (credentials kept in `.env.providers`). Authorize now redirects to Google; an on-device sign-in is still to be tried.
+Update 2026-10-07: the owner signed in on device with Google and with Apple; both land in the same account as the
+email code (Supabase links identities that share a provider-verified email: email code, Apple and Google on one
+account). This also confirms that pre-created testers can use Apple or Google with the same address. Apple's "Hide My
+Email" relay address would create a separate account (no linking); testers should share their real email.
 
 ## Still required
 
