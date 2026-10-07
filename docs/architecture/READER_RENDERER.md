@@ -121,6 +121,68 @@ light/dark before and after a jump when `TEST_RUNNER_SCIENCE_READER_CITATION_BUN
 older tests (`testContentsPreserveArtifactAnchorsAndUseThemForNavigation`, 38 pt off;
 `testInvalidDOMAndUnlistedImagesFailThenFreshVerifiedBundleLoads`, load timeout) fail the same way without this change.
 
+Bracketed citations without a comma (owner feedback on build 14, 2026-10-07: `[Gelfond and Lifschitz 1991]`,
+`[Lobo et al. 1992; Eiter et al. 1997b]` in "The DLV System for Knowledge Representation and Reasoning" did not link).
+Build 14 was archived at 22:45 on 2026-10-06 with the numbered-only bridge (`d7e8040`); the author–year matcher above
+already handles ACM's form, so the fix reaches the owner with the next build. Measured on that paper (staging bundle
+`c270ada8`, downloaded read-only, manifest hash verified, now in the harness's default set — 23 papers): unambiguous
+author–year citations linked 3 of 209 (1.4%) with build 14's bridge → 210 of 210 (100%), no wrong link; every one of
+the 258 unambiguous bracketed citations in the set links (`[Name 1991a; 1991b]`, `[Name, Name, and Name 1991]`,
+`Name and Name [1991]`). Not linked, correctly: `[Cadoli et al. 1997]` (two three-author Cadoli 1997 entries) and
+`[… Baral 2002]` (the bibliography has Baral 2003). Added for small capitals as OCR prints them: "AND"/"And" between
+names and "ET AL." in citations, "And"/"AND" between authors in entries ("Leone, N., And Pfeifer, G.", two DLV
+entries) and two-letter capital surnames (`[LI AND WU 2020]`). Every link span is identical to the previous bridge's
+on all 39 distinct local papers (none of them prints capitals). Harness totals: 23 papers, 1,778 of 1,781
+unambiguous (99.8%), 0 wrong, no block text changed; build 14's bridge on the same set: 1,396 (79.0%), 1 wrong.
+
+## The paper's own contents
+
+Owner feedback on build 14 (2026-10-07): a paper's printed table of contents ("Contents 1 Introduction ..... 1 2 Core
+Language ..... 3 2.1 Syntax ..... 3 …") rendered as one run-on paragraph — Mathpix keeps it as one `<p>` whose lines
+are newlines, which HTML collapses. Same bridge, no re-render: existing bundles are fixed.
+
+- **Detection** is a pure section of `reader-bridge.js` (`ContentsParser`, between `BEGIN/END CONTENTS PARSER`) over
+  a paragraph block's own children (text, `<br>`, whole inline elements such as an equation). A block becomes a list
+  only when all of its text is entries, after an optional caption line ("Contents", "Table of Contents", "List of
+  Figures/Tables/…"): with dot leaders (".....", ". . .", "…", "·····") and a page (arabic or lower-case roman), at
+  least three entries, one per line (a wrapped title may take two lines) or run together, pages mostly running
+  forwards; without leaders ("1 Introduction 1"), only after a contents caption (in the block or the heading just
+  before it), at least four entries, section numbers in reading order (next sibling, first child, next of an
+  ancestor, letters for appendices) and pages never going back. Bibliography, author and abstract blocks, figures,
+  tables and list items are never considered.
+- **Presentation** wraps the block's own text in spans: one entry per line (flex), indented by depth (`2.1` one
+  step, `3.1.1` two), top-level entries semibold when the list is nested, the dot leader drawn as a faint dotted
+  rule (its dots stay in the text at font size 0, hidden from VoiceOver), the page right-aligned, muted and tabular.
+  The block's text, IDs, equations and selections are unchanged (a selection still quotes the dots); the app's
+  Contents sheet is unchanged; citation linking skips these blocks.
+- **Links**: an entry whose number and title match a heading ("1 Introduction" ↔ "1. INTRODUCTION"; same number and
+  most words; an unnumbered entry by title alone) — or, for a numbered subsection with no heading, the one line in the
+  paper starting with that number and title and a stop (ACM run-in heads, "3.3.1 Exams Scheduling. Let us…") —
+  becomes `role=link` in the citation color with an `aria-label` ("2.1 Syntax, page 3"). A tap or Return goes there
+  (heading at the top, as a Contents jump; smooth unless Reduce Motion), highlights it briefly and offers the citation
+  Back, which returns to the list. Lists of figures and tables are formatted but never linked. No match → plain row.
+
+Measurement (`node scripts/citation-harness.mjs`, which now reports every formatted block, its links and any link
+whose target disagrees with the entry): the 23 default papers plus the other 25 staging conversions (downloaded
+read-only into `.artifacts/toc-bundles/`, `--all-titles`, 48 in all) — 5 lists formatted in 3 papers, exactly the
+real ones: DLV contents (40 entries, 35 linked: 22 headings, 13 run-in heads; the rest have no heading in the
+conversion or a title with an equation), PaLM contents (44, 39 linked; the conversion has no G.3/H headings), Scaling
+Laws contents (13/13) and its lists of figures (24) and tables (6). No other block changed, no block text changed, no
+disagreeing link; bridge ready times unchanged within noise (DLV median 93 → 122 ms).
+
+Tests (`PaperWebViewTests`): `testPaperContentsBecomeAListThatJumpsToItsSections` (leader, plain-line and run-together
+lists; prose with leaders, a numbered list without caption, out-of-order numbers and mixed prose left alone; depth,
+alignment, muted pages, labels, a tap to a heading with Back, Return to a run-in head),
+`testPaperContentsInABundleKeepSelectionsAndContents` (the sample bundle with a contents block: links, the app's
+Contents, a selection quoting the exact text) and `testBracketedAuthorYearCitationsWithoutACommaLink`;
+`testPaperContentsScreenshots` captures a real bundle light/dark when `TEST_RUNNER_SCIENCE_READER_CONTENTS_BUNDLE`
+is set (skipped otherwise; `TEST_RUNNER_SCIENCE_READER_SHOTS` also writes the PNGs to a folder). 2026-10-07, iOS 26.4
+iPhone 17 Pro Simulator: `PaperWebViewTests` 21 run, 20 passed, 1 skipped (`testAuthorYearCitationScreenshots`, no
+bundle set), with `testPaperContentsScreenshots` run on the DLV bundle — the list light and dark, a run-in head reached
+from it, and `[… Gelfond and Lifschitz 1991; …]` linked — checked by eye; `ReaderNavigationTests` (UI) 3 passed,
+1 skipped (iPad only). A first run on the freshly booted Simulator timed out loading three older tests' pages; all
+passed on the next two runs.
+
 Publication line: native passes `year · venue · source` (`Paper.publicationLine`) and the bridge inserts it after the
 authors (or the title) as a `data-sr-chrome` element before the first layout. It is `user-select: none`, outside every
 block, and skipped by selections, so anchors, quotes and positions are unaffected. The bundled sample shows none.
