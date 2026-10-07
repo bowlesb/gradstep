@@ -31,34 +31,48 @@ struct ImportProgressView: View {
     }
 
     private func row(_ shown: ImportProgressPresentation) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            Group {
-                if let fraction = shown.fraction {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(shown.line).fixedSize(horizontal: false, vertical: true)
-                        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-                            : AnyLayout(HStackLayout(spacing: 8))
-                        layout {
-                            ImportProgressBar(fraction: fraction)
-                                .frame(minWidth: 60, maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 180)
-                            if let status = shown.status { Text(status).monospacedDigit().fixedSize(horizontal: false, vertical: true) }
+        Group {
+            if let fraction = shown.fraction {
+                VStack(alignment: .leading, spacing: 5) {
+                    // VoiceOver: this line carries the whole sentence; the bar and status are its picture.
+                    Text(shown.line).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(shown.accessibilityLabel)
+                        .accessibilityIdentifier("importProgress")
+                    // The bar and "62% · About 40 s left" on one line when it fits, else the status under the bar.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            ImportProgressBar(fraction: fraction).frame(width: 96)
+                            if let status = shown.status { Text(status).monospacedDigit().lineLimit(1).fixedSize().accessibilityHidden(true) }
+                            if let explain { ImportProgressInfoButton(action: explain) }
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            ImportProgressBar(fraction: fraction).frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 200)
+                            HStack(spacing: 6) {
+                                if let status = shown.status {
+                                    Text(status).monospacedDigit().fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
+                                }
+                                if let explain { ImportProgressInfoButton(action: explain) }
+                            }
                         }
                     }
-                } else {
-                    // Older servers: the spinner and "Downloading the PDF · 2 min", as before.
+                }
+                .accessibilityElement(children: .contain)
+            } else {
+                // Older servers: the spinner and "Downloading the PDF · 2 min", as before.
+                HStack(spacing: 6) {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
                         Text(shown.timeText.map { "\(shown.title) · \($0)" } ?? shown.step.label(short: false))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(shown.accessibilityLabel)
+                    .accessibilityIdentifier("importProgress")
+                    if let explain { ImportProgressInfoButton(action: explain) }
                 }
             }
-            .font(.footnote).foregroundStyle(.secondary)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(shown.accessibilityLabel)
-            .accessibilityIdentifier("importProgress")
-            if let explain { ImportProgressInfoButton(action: explain) }
         }
+        .font(.footnote).foregroundStyle(.secondary)
     }
 
     private func compact(_ shown: ImportProgressPresentation) -> some View {
