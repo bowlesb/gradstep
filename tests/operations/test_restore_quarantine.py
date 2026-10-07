@@ -162,6 +162,29 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
         self.assert_quarantined()
         self.assertEqual(set(self.rows()), {'platform_budgets'})
 
+    def test_library_dataset_epoch_rotates_on_every_restore(self):
+        self.sql("""create table app_private.library_v4_config (
+            singleton boolean primary key, dataset_epoch uuid not null, search_version text not null);
+          insert into app_private.library_v4_config values
+            (true,'11111111-1111-1111-1111-111111111111','fixture-normalization');
+        """)
+        before = self.rows()['library_v4_config'][0]
+        RESTORE.quarantine(self.sql)
+        first = self.rows()['library_v4_config'][0]
+        RESTORE.quarantine(self.sql)
+        second = self.rows()['library_v4_config'][0]
+        self.assertEqual(first['search_version'], before['search_version'])
+        self.assertEqual(second['search_version'], before['search_version'])
+        self.assertEqual(len({before['dataset_epoch'], first['dataset_epoch'], second['dataset_epoch']}), 3)
+        self.assertTrue(all(not row['work_enabled'] for row in self.rows()['platform_budgets']))
+
+    def test_incompatible_library_config_rolls_back_quarantine(self):
+        self.sql('create table app_private.library_v4_config (singleton boolean primary key);')
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'dataset_epoch'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
     def test_enabled_011_gates_close_without_changing_recovery_evidence(self):
         self.policies()
         self.recovery_evidence()
@@ -250,222 +273,61 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
         self.assertEqual(self.rows(), before)
 
 
-class ExecutorSchemaQuarantineTests(QuarantineDatabaseCase):
-    """Run the same restore hook against actual 001--012 relations and RPCs.
+class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
+    """Exercise current library cursors against the real application schema.
 
-    Policy hashes and child identities are deliberately synthetic. These tests
-    exercise database fencing, not admission of any real network executor.
+    Retired 012/013 executor migrations were never applied and their sources were
+    removed from the repository. Minimal legacy-policy fixtures above preserve
+    the compatibility contract; current schema integration replaces those stale
+    references instead of fetching historical migrations at test runtime.
     """
-    POLICY_ID = 'c1200000-0000-0000-0000-000000000099'
-    JOB_ID = 'c1200000-0000-0000-0000-000000000098'
-    CLAIM_ID = 'c1200000-0000-0000-0000-000000000097'
+    ACCOUNT = '39000000-0000-0000-0000-000000000001'
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        migration_dir = ROOT / 'supabase/migrations'
-        applied_candidate = migration_dir / '202610030012_metadata_execution.sql'
-        candidate = applied_candidate if applied_candidate.is_file() else migration_dir / '202610030012_metadata_execution.sql.pending'
         sources = [ROOT / 'tests/database/bootstrap.sql',
-                   *sorted(p for p in migration_dir.glob('*.sql') if p.name < '202610030012'), candidate]
+                   *sorted((ROOT / 'supabase/migrations').glob('*.sql'))]
         for source in sources:
             cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database, '-f', str(source)])
 
-    def setUp(self):
-        template = type(self).database
-        self.database = 'science_reader_test_' + uuid.uuid4().hex[:12]
-        self.run_pg('createdb', ['-T', template, self.database])
-        self.addCleanup(self.run_pg, 'dropdb', [self.database])
-        self.sql(f"""
-          set role science_reader_executor_admitter;
-          select public.worker_install_metadata_executor_policy('{self.POLICY_ID}',
-            jsonb_build_object('version',1,'kind','metadata-owned-child-v1',
-              'connection_model','direct-owned-socket-v1','max_executors',1,
-              'runner_sha256',repeat('a',64),'transport_sha256',repeat('b',64),
-              'observer_sha256',repeat('c',64),'admission_sha256',repeat('d',64),
-              'max_useful_seconds',120,'max_report_seconds',120)::text);
-          select public.worker_activate_metadata_executor(1,'abcdefghijklmnopqrst',
-            '{self.POLICY_ID}',decode(repeat('e',64),'hex'));
-          reset role;
-          insert into auth.users values('c1200000-0000-0000-0000-000000000096');
-          select set_config('request.jwt.claim.sub','c1200000-0000-0000-0000-000000000096',false);
-          select public.v2_begin_import('c1200000-0000-0000-0000-000000000095','2403.50001',0,1);
-          set role science_reader_metadata_executor;
-          select public.worker_prepare_acquisition('{self.JOB_ID}','2403.50001',1);
-          select public.worker_link_import_acquisition('c1200000-0000-0000-0000-000000000096',
-            'c1200000-0000-0000-0000-000000000095',1,1,'{self.JOB_ID}');
-        """)
+    def actor_sql(self, source):
+        return self.sql(f"set role authenticated; set request.jwt.claim.sub='{self.ACCOUNT}'; " + source)
 
-    def role_json(self, role, statement):
-        return json.loads(self.sql(f'set role {role}; {statement}'))
-
-    def authority(self):
-        return self.role_json('science_reader_executor_admitter', 'select public.worker_metadata_authority_state();')
-
-    def assert_activation_rejected(self, revision, category):
-        with self.assertRaisesRegex(RuntimeError, category):
-            self.role_json('science_reader_executor_admitter', f"""
-              select public.worker_activate_metadata_executor({revision},'abcdefghijklmnopqrst',
-                '{self.POLICY_ID}',decode(repeat('f',64),'hex'));
-            """)
-
-    def assert_no_new_grant(self):
-        result = self.role_json('science_reader_metadata_executor', f"""
-          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}',gen_random_uuid(),'staging','{{}}');
-        """)
-        self.assertFalse(result['granted'])
-        self.assertEqual(result['action'], 'disabled')
-
-    def test_empty_actual_schema_still_blocks_restored_admission(self):
-        before = self.authority()
-        self.assertEqual(before['outstanding_executors'], 0)
-        self.assertTrue(before['enabled'])
-        self.assert_quarantined()
-        after = self.authority()
-        self.assertEqual(after['epoch'], before['epoch'])
-        self.assertEqual(after['revision'], before['revision'] + 2)
-        self.assertTrue(after['recovery_required'])
-        self.assertFalse(after['enabled'])
-        self.assert_activation_rejected(before['revision'], 'stale_executor_authority')
-        self.assert_no_new_grant()
-        self.assertEqual(self.authority(), after)
-
-    def test_actual_unsettled_connection_survives_and_prevents_activation(self):
-        binding = json.loads(self.sql("""
-          select jsonb_build_object('version',1,'project_ref',a.project_ref,
-            'environment',a.environment,'epoch',a.epoch,'policy_id',p.id,
-            'runner_sha256',encode(p.runner_sha256,'hex'),
-            'transport_sha256',encode(p.transport_sha256,'hex'),
-            'observer_sha256',encode(p.observer_sha256,'hex'),
-            'deployment_id','local-restore-fixture',
-            'host_id','c1200000-0000-0000-0000-000000000001',
-            'boot_id','c1200000-0000-0000-0000-000000000002',
-            'process_id',123,'process_start_id','123456',
-            'child_id','c1200000-0000-0000-0000-000000000003')
-          from app_private.executor_authority a join app_private.executor_policies p on p.id=a.active_policy_id;
-        """))
-        result = self.role_json('science_reader_metadata_executor', f"""
-          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}','{self.CLAIM_ID}',
-            'staging','{json.dumps(binding)}');
-        """)
-        self.assertTrue(result['granted'])
-        execution = result['execution']
-        facts = json.dumps({'binding_sha256': execution['binding_sha256'], 'disposition': 'exited'})
-        self.role_json('science_reader_execution_observer', f"""
-          select public.worker_record_metadata_quiescence('{execution['id']}',gen_random_uuid(),
-            'executor','owned_child_joined','{facts}');
-        """)
-        before = self.authority()
-        self.assertEqual(before['outstanding_executors'], 0)
-        self.assertEqual(before['outstanding_connections'], 1)
-        self.assert_quarantined()
-        after = self.authority()
-        self.assertEqual(after['epoch'], before['epoch'])
-        self.assertEqual(after['outstanding_connections'], 1)
-        self.assert_activation_rejected(before['revision'], 'stale_executor_authority')
-        self.assert_activation_rejected(after['revision'], 'executor_recovery_required')
-        self.assert_no_new_grant()
-        replay = self.role_json('science_reader_metadata_executor', f"""
-          select public.worker_claim_metadata_stage_v2('{self.JOB_ID}','{self.CLAIM_ID}',
-            'staging','{json.dumps(binding)}');
-        """)
-        self.assertFalse(replay['granted'])
-        self.assertEqual(replay['action'], 'reconcile')
-        self.assertEqual(replay['execution']['pending_resources'], ['arxiv_connection'])
-        self.assertEqual(self.authority(), after)
-
-
-class OriginalSchemaQuarantineTests(QuarantineDatabaseCase):
-    """Restore the actual additive 013 schema, with synthetic SQL evidence only."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        migration_dir = ROOT / 'supabase/migrations'
-        sources = [ROOT / 'tests/database/bootstrap.sql',
-                   *sorted(p for p in migration_dir.glob('*.sql') if p.name < '202610030012')]
-        for name in ['202610030012_metadata_execution.sql', '202610040013_original_execution.sql']:
-            applied = migration_dir / name
-            sources.append(applied if applied.is_file() else migration_dir / (name + '.pending'))
-        sources.append(ROOT / 'tests/database/original_execution_helpers.sql')
-        cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database],
-                   f'alter database {cls.database} set timezone to \'UTC\';')
-        for source in sources:
-            cls.run_pg('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', cls.database, '-f', str(source)])
-
-    def setUp(self):
-        template = type(self).database
-        self.database = 'science_reader_test_' + uuid.uuid4().hex[:12]
-        self.run_pg('createdb', ['-T', template, self.database])
-        self.addCleanup(self.run_pg, 'dropdb', [self.database])
-        # Database settings are not copied by CREATE DATABASE ... TEMPLATE.
-        self.sql(f'alter database {self.database} set timezone to \'UTC\';')
-        self.sql('select test.original_enable();')
-
-    @staticmethod
-    def json_sql(value):
-        return "'" + json.dumps(value).replace("'", "''") + "'::jsonb"
-
-    def authority(self):
-        return json.loads(self.sql('set role science_reader_executor_admitter; '
-                                   'select public.worker_original_authority_state();'))
-
-    def assert_activation_rejected(self, authority, revision, category):
-        with self.assertRaisesRegex(RuntimeError, category):
-            self.sql(f"""set role science_reader_executor_admitter;
-              select public.worker_activate_original_executor_v1(
-                {revision},'{authority['project_ref']}',
-                '{authority['metadata_policy_id']}','{authority['original_policy_id']}',
-                '{authority['host_id']}','{authority['boot_id']}',
-                '{authority['metadata_deployment_id']}','{authority['original_deployment_id']}',
-                decode(repeat('e',64),'hex'));
-            """)
-
-    def test_actual_original_quarantine_retains_scope_hold_and_all_pins(self):
-        fixture = json.loads(self.sql("select test.original_job('2403.50002');"))
-        arguments = json.loads(self.sql(
-            f"select test.original_claim_args({self.json_sql(fixture)},'original_download');"))
-        granted = json.loads(self.sql(f'select test.original_grant({self.json_sql(arguments)});'))
-        self.assertTrue(granted['granted'])
-        execution = granted['execution']
-        closed = json.loads(self.sql(
-            f"select test.original_close({self.json_sql(execution)},'executor');"))
-        self.assertEqual(closed['execution']['pending_resources'], ['arxiv_connection'])
-        self.assertEqual(len(closed['execution']['receipts']), 1)
-        before = self.authority()
-        self.assertTrue(before['original_admitted'])
-        self.assertTrue(before['enabled'])
-        self.assertEqual(before['unsettled_attempts'], 1)
-
-        # Compare every application-private row, including both policy pins,
-        # job/reservation identities, receipt bytes, source gate and charges.
-        self.assert_quarantined()
-        after = self.authority()
-        self.assertFalse(after['original_admitted'])
-        self.assertFalse(after['enabled'])
-        self.assertTrue(after['recovery_required'])
-        self.assertEqual(after['revision'], before['revision'] + 2)
-        self.assertEqual(after['epoch'], before['epoch'])
-        self.assertEqual(after['unsettled_attempts'], 1)
-        for key in ['metadata_policy_id', 'original_policy_id', 'host_id', 'boot_id',
-                    'metadata_deployment_id', 'original_deployment_id']:
-            self.assertEqual(after[key], before[key])
-        self.assert_activation_rejected(before, before['revision'], 'stale_executor_authority')
-        self.assert_activation_rejected(after, after['revision'], 'executor_recovery_required')
-
-        replay = json.loads(self.sql(f'select test.original_grant({self.json_sql(arguments)});'))
-        self.assertFalse(replay['granted'])
-        self.assertEqual(replay['action'], 'reconcile')
-        self.assertEqual(replay['execution'], closed['execution'])
-        fresh = copy.deepcopy(arguments)
-        fresh['claim_id'] = str(uuid.uuid4())
-        fresh['binding']['scope']['scope_id'] = fresh['claim_id']
-        fresh['binding']['child_id'] = str(uuid.uuid4())
-        fresh['binding']['process_id'] += 1
-        refused = json.loads(self.sql(f'select test.original_grant({self.json_sql(fresh)});'))
-        self.assertFalse(refused['granted'])
-        self.assertEqual(refused['action'], 'disabled')
-        self.assertEqual(self.authority(), after)
+    def test_real_schema_preserves_personal_data_and_rejects_pre_restore_cursors(self):
+        self.sql(f"insert into auth.users(id) values ('{self.ACCOUNT}');")
+        for i in range(1, 4):
+            self.actor_sql(f"select public.v2_begin_import(gen_random_uuid(),'2407.0390{i}',{i-1},1);")
+        baseline = json.loads(self.actor_sql('select public.v4_library_page(null,1);'))
+        query = json.loads(self.actor_sql("select public.v4_library_query('{}',null,1);"))
+        self.assertIsNotNone(baseline['next_cursor'])
+        self.assertIsNotNone(query['next_cursor'])
+        before = self.rows()
+        RESTORE.quarantine(self.sql)
+        after = self.rows()
+        expected = copy.deepcopy(before)
+        old_epoch = before['library_v4_config'][0]['dataset_epoch']
+        new_epoch = after['library_v4_config'][0]['dataset_epoch']
+        self.assertNotEqual(old_epoch, new_epoch)
+        expected['library_v4_config'][0]['dataset_epoch'] = new_epoch
+        for table, names in {'platform_budgets': ['work_enabled'],
+                             'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
+                             'paper_read_policy': ['enabled']}.items():
+            for row in expected[table]:
+                for name in names:
+                    row[name] = False
+        self.assertEqual(after, expected, 'personal rows, sequence, holds and usage survive quarantine exactly')
+        for statement, error in [
+            (f"select public.v4_library_page('{json.dumps(baseline['next_cursor'])}'::jsonb,1);", 'library_resync_required'),
+            (f"select public.v4_library_changes('{old_epoch}',0);", 'library_resync_required'),
+            (f"select public.v4_library_metadata('{old_epoch}',array[]::uuid[]);", 'library_resync_required'),
+            (f"select public.v4_library_query('{{}}','{json.dumps(query['next_cursor'])}'::jsonb,1);", 'library_query_restart_required'),
+        ]:
+            with self.subTest(statement=statement), self.assertRaisesRegex(RuntimeError, error):
+                self.actor_sql(statement)
+        fresh = json.loads(self.actor_sql('select public.v4_library_page();'))
+        self.assertEqual(fresh['dataset_epoch'], new_epoch)
+        self.assertEqual(len(fresh['entries']), 3)
 
 
 if __name__ == '__main__':
