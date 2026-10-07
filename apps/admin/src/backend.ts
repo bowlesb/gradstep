@@ -54,3 +54,14 @@ export type Pipeline = {
   papers: { id: string; source: string; title: string | null; private: boolean; stage: string; error_code: string | null; failures: number; interested: number; updated_at: string }[];
   attempts: { id: string; paper_id: string; state: string; page_limit: number; pages_reported: number | null; provider_job_id: string | null; error_code: string | null; created_at: string; finished_at: string | null }[];
 };
+
+// v1_admin_pipeline_metrics (migration 022). Days without events are absent from `daily`.
+export interface PipelineMetrics {
+  since: string; generated_at: string;
+  daily: { day: string; started: number; ready: number; failed: number; cancelled: number; ready_p50_s: number | null; ready_p90_s: number | null }[];
+  stages: { stage: string; count: number; p50_s: number | null; p90_s: number | null; failed: number }[];
+  crashes: Record<string, number>;
+  failure_causes: Record<string, number>;
+  recent_failures: { at: string; kind: 'crash' | 'import' | 'stage'; source: string | null; stage: string | null; error_code: string | null; private: boolean | null }[];
+  stuck: { id: string; source: string; private: boolean; stage: string; since: string; minutes: number; claims: number; crashes: number; leased: boolean }[];
+}

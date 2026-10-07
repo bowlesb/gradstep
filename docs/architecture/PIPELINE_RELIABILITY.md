@@ -62,6 +62,15 @@ Entering a new stage resets the counters.
 4. **Step durations** — median / 90th percentile per stage.
 5. **Stuck now** — papers in a non-terminal stage longer than 15 minutes, with crashes and claims.
 
+## Admin graphs
+
+The admin **Reliability** tab (owners, 7 / 30 / 90-day window; `apps/admin/src/reliability.tsx`) draws these as inline
+SVG: headline counts and failure rate, time to ready per day (gaps where nothing finished), outcomes per day with the
+daily failure rate, failures by cause, crashes by step, step durations, stuck papers, and recent failures (adjacent
+events for one paper and cause are grouped). Every value is also in a table. The headline median is approximate — a
+median of daily medians weighted by ready imports — because the RPC returns no window-wide percentile. Development
+builds render sample data with `?fixture=reliability`; production builds exclude the fixture.
+
 ## App
 
 Import rows show how long the current step has taken; past 3 minutes they say it is taking longer than usual and keep
