@@ -8,7 +8,7 @@ import { unpackReaderZip } from './archive.ts';
 import { sha256 } from './http.ts';
 import { MathpixError, mathpixProfile, type MathpixConversion, type MathpixStatus, type MathpixSubmission } from './mathpix.ts';
 import { SourceError } from './source-xml.ts';
-import { fetchFirstWebPDF, fetchOpenAlexWork, openAlexWork, openAlexWorkURL, openPDFLocations, WebSourceError, type ResolveHost } from './web-source.ts';
+import { downloadLocations, fetchFirstWebPDF, fetchOpenAlexWork, openAlexWork, openAlexWorkURL, WebSourceError, type ResolveHost } from './web-source.ts';
 
 export const BUCKET = 'paper-assets';
 export const RAW_FORMAT = 'science-reader-mathpix-raw-v1';
@@ -95,8 +95,12 @@ export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: nu
   let current = new URL(url);
   for (let hop = 0; hop < 4; hop++) {
     if (current.protocol !== 'https:' || !['arxiv.org', 'export.arxiv.org', 'oaipmh.arxiv.org', 'www.arxiv.org'].includes(current.hostname)) throw new PermanentFailure('download_failed', 'download');
-    const response = await fetcher(current.href, { redirect: 'manual', headers: { accept, 'user-agent': 'ScienceReader/0.1 (research paper reader; mailto:support@sciencereader.invalid)' },
-      signal: AbortSignal.timeout(60_000) });
+    let response: Response;
+    // Unreachable (reset, timeout, DNS): transient, and named so a download that keeps failing says so.
+    try {
+      response = await fetcher(current.href, { redirect: 'manual', headers: { accept, 'user-agent': 'ScienceReader/0.1 (research paper reader; mailto:support@sciencereader.invalid)' },
+        signal: AbortSignal.timeout(60_000) });
+    } catch { throw new Error('source_unavailable'); }
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location'); void response.body?.cancel().catch(() => {});
       if (!location) throw new Error('arxiv_redirect_invalid');
@@ -243,7 +247,7 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
     // Locations move: re-read them from OpenAlex (falling back to the recorded ones).
     let urls = e.pdf_urls;
     try {
-      const fresh = openPDFLocations(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id)));
+      const fresh = downloadLocations(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id)));
       if (fresh.length && fresh.join('\n') !== urls.join('\n')) {
         urls = (await deps.rpc<PaperEntry>('worker_pipeline_web_locations', { ...claim, p_pdf_urls: fresh })).pdf_urls ?? fresh;
         deps.log('web_locations', { paper: e.id, locations: urls.length });
@@ -509,7 +513,11 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
     // Provider-side stages hold credits: never fail them on transient errors.
     const failable = ['metadata', 'private_split', 'download', 'ocr_fund', 'render'].includes(entry.stage);
     const fail = failable && (permanent || failures >= 5);
-    const stageCode = ({ metadata: 'metadata_unavailable', download: 'download_failed' } as Record<string, string>)[entry.stage] ?? 'conversion_failed';
+    // A download that kept failing because its host was busy or unreachable says so (and is
+    // retried automatically later; migration 027).
+    const unreachable = entry.stage === 'download' && ['rate_limited', 'download_failed', 'source_unavailable'].includes(code);
+    const stageCode = unreachable ? 'source_unavailable'
+      : ({ metadata: 'metadata_unavailable', download: 'download_failed' } as Record<string, string>)[entry.stage] ?? 'conversion_failed';
     const resume = permanent ? error.resume : entry.stage === 'private_split' ? 'metadata' : entry.stage;
     await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: fail ? 0 : Math.min(600, 15 * 2 ** Math.min(failures, 6)),
       p_error_code: fail ? (permanent ? code : stageCode) : code.slice(0, 64), p_fail: fail,
@@ -524,6 +532,12 @@ export async function runPipeline(deps: PipelineDeps, deadline: number): Promise
   // Housekeeping: release chat holds whose invocation died before settling.
   await deps.rpc('worker_expire_stale_chat_operations', {}).catch(() => deps.log('chat_sweep_failed'));
   if (!policy.enabled) return { processed: 0 };
+  // Self-healing (migration 027): failed downloads whose automatic retry is due, and failed imports
+  // whose paper has since moved on, go back into the pipeline before the next claim. At most one
+  // sweep every 20 s; never blocks the pipeline.
+  await deps.rpc<{ retried?: number; healed?: number; postponed?: number } | null>('worker_pipeline_auto_retry', { p_min_interval_seconds: 20 })
+    .then(r => { if (r && (r.retried || r.healed || r.postponed)) deps.log('auto_retry', { retried: r.retried ?? 0, healed: r.healed ?? 0, postponed: r.postponed ?? 0 }); })
+    .catch(() => deps.log('auto_retry_failed'));
   const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
   if (!claimed) return { processed: 0 };
   await processPaper(deps, claimed, policy, deadline);

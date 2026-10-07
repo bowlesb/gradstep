@@ -52,6 +52,7 @@ final class LiveJourneyTests: XCTestCase {
         while Date() < setupDeadline {
             if saved.exists {
                 capture(app, "Recovery code")
+                XCTAssertTrue(app.buttons["recovery.saveToPasswords"].exists, "The code can be saved to Passwords")
                 if (saved.value as? String) != "1" { saved.switches.firstMatch.exists ? saved.switches.firstMatch.tap() : saved.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap() }
                 let proceed = app.buttons["Continue"]
                 XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: proceed)], timeout: 10), .completed)

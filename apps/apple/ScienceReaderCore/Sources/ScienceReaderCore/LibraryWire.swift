@@ -319,12 +319,19 @@ public enum LibraryImportPhase: String, Codable, Sendable {
 public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
     case metadataUnavailable, downloadFailed, pdfInvalid, rateLimited, licenseUnverified, membershipConflict
     case insufficientCredits, conversionFailed, tooLarge
+    /// Migration 027: the download failed and is retried automatically (failed, still retryable now).
+    case downloadRetrying
+    /// Migration 027 download causes: a sign-in or paywall, a website refusing automated downloads,
+    /// a website not responding, a link that leads to no PDF.
+    case pdfRestricted, sourceBlocked, sourceUnavailable, notPDF
     case other(String)
 
     static let known: [String: LibraryImportErrorCode] = [
         "metadata_unavailable": .metadataUnavailable, "download_failed": .downloadFailed, "pdf_invalid": .pdfInvalid,
         "rate_limited": .rateLimited, "license_unverified": .licenseUnverified, "membership_conflict": .membershipConflict,
         "insufficient_credits": .insufficientCredits, "conversion_failed": .conversionFailed, "too_large": .tooLarge,
+        "download_retrying": .downloadRetrying, "pdf_restricted": .pdfRestricted, "source_blocked": .sourceBlocked,
+        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF,
     ]
     public var rawValue: String {
         if case .other(let raw) = self { return raw }

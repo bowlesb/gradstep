@@ -170,7 +170,8 @@ test('transient errors back off; repeated failures fail resumably; lost claims d
     fetch: (async () => new Response('busy', { status: 503 })) as unknown as typeof fetch });
   await processPaper(exhausted.deps, entry('download', { failures: 4 }), policy, deadline);
   const failed = exhausted.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
-  assert.equal(failed.p_fail, true); assert.equal(failed.p_error_code, 'download_failed'); assert.equal(failed.p_resume_stage, 'download');
+  // A host that stays busy or unreachable says so (and is retried automatically later; migration 027).
+  assert.equal(failed.p_fail, true); assert.equal(failed.p_error_code, 'source_unavailable'); assert.equal(failed.p_resume_stage, 'download');
 
   const polling = harness({ worker_pipeline_defer: p => p }, {
     mathpix: { ...harness({}).deps.mathpix, async status() { throw new Error('provider_transport_failed'); } } });
