@@ -188,8 +188,7 @@ struct RootView: View {
                 switch model.wideMode {
                 case .feed: FeedView(model: model)
                 case .library: LibraryView(model: model)
-                case .reader:
-                    HStack(spacing: 0) { PaperView(model: model).frame(maxWidth: .infinity); Divider(); ChatView(model: model).frame(width: min(400, max(320, width * 0.28))) }
+                case .reader: ReaderSplit(model: model, width: width)
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)

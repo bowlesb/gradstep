@@ -121,10 +121,7 @@ final class ReaderWebView: WKWebView {
 
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
-        #if targetEnvironment(macCatalyst)
-        // Mac: find in the paper (⌘F, ⌘G), as in Safari.
-        isFindInteractionEnabled = true
-        #endif
+        // Find in the paper (⌘F, ⌘G, as in Safari) is enabled by PaperWebView for the paper's own view.
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

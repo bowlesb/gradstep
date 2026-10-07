@@ -151,6 +151,37 @@ renders. Verified with Core/unit/backend tests and Simulator UI journeys on the 
 iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
 progress and live DOI adds from an answer are unverified against staging.
 
+### Reader navigation pass — local verification
+
+Owner request 2026-10-07 (legacy gaps 7, 10, 6, 5; [decision](DECISIONS.md#reader-navigation-find-contents-levels-figures-ipad-chat-column-owner-asked-2026-10-07-agent-decisions-reversible)).
+The interrupted navigation branch was rebuilt from a clean, private build folder after merging main's verified
+offline-save and passage work (`1aeaea2`, merge `70d5d31`). It contains Find in paper, section levels in Contents,
+a figure gallery with Show in paper and Back, and the wide Reader's hideable, resizable chat column.
+
+- **iPhone Simulator:** 68 applicable app tests pass, with two opt-in screenshot tests skipped; 11 applicable UI
+  journeys pass. Coverage includes heading levels, numbering and the DPO appendix, figure labels and navigation,
+  selection/anchored passage chats, draft ownership, equation actions, citation return and saved reading positions.
+  The real-paper Contents screenshots and light/dark figure gallery screens were inspected.
+- **Failures resolved:** Contents buttons intentionally span their full row, so their accessibility frames do not
+  measure text indentation. The test now asserts spoken levels and ordering; screenshots confirm the actual indent.
+  Find scrolls the matching last line of a wrapping list item into view, leaving its earlier lines above the viewport;
+  the assertion checks that last line, then verifies the same reading position after a chat round trip. The older
+  figure-sheet journey passes from the isolated build without a production change.
+- **Draft fix:** reopening an unsent paper draft or explicitly starting a new paper chat now reveals a hidden chat
+  column. Unit regressions verify that the earlier draft stays available and its text survives.
+- **iPad Simulator:** all five selected journeys pass on the 11-inch iPad: hide/resize, full-width reading in both
+  orientations, hardware-keyboard Find, Browse isolation, hidden state/chosen split width after relaunch,
+  passage-linked chats, Browse-to-chat navigation and the latest reply above a growing composer. Screenshots were
+  reviewed. At the default narrow chat width, a long title overlaps its toolbar buttons; the shared header fix is
+  owned by the chat-quality workstream and remains an integration follow-up.
+- **Mac:** a clean unsigned Catalyst `build-for-testing` passes for arm64 and x86_64 (app and both test bundles).
+  This is compilation evidence; this pass does not verify Mac keyboard/pointer workflows or live services.
+
+Evidence in this navigation worktree: `.artifacts/reader-navigation-review-20261007-4f918777ed/`, including
+`iphone-verified.xcresult`, `iphone-final.xcresult`, `ipad-verified.xcresult`, exported screenshots and
+`catalyst-build.xcresult`.
+All builds use public local fixtures (`https://fixture.invalid`); no hosted call, deployment or physical-phone work.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
