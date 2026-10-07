@@ -21,6 +21,7 @@ parser.add_argument('--skip-migrations', action='store_true')
 parser.add_argument('--functions', nargs='*', help='Subset of functions to deploy')
 parser.add_argument('--rotate-pipeline-secret', action='store_true', help='Generate a new worker secret and update the function and Vault')
 parser.add_argument('--chat-web-search', choices=['on', 'off'], help='Override infra chat_web_search (Anthropic web search in chat)')
+parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploying (docs/architecture/WORKFLOW_CHECKS.md)')
 args = parser.parse_args()
 manifest = json.loads((ROOT/'infra/account.json').read_text())
 project = manifest['projects'][args.environment]['id']
@@ -131,3 +132,14 @@ sql(f"""select cron.schedule('science-reader-pipeline',{literal(config['pipeline
   timeout_milliseconds:=5000)
 $cron$)""")
 print('Scheduled pipeline worker', config['pipeline_schedule'])
+
+# Workflow checks (opt out with --skip-checks): the free deploy suite — pipeline URL, worker,
+# scheduler, secrets, functions, budget, stuck imports, add paper, library sync, credits. A chat
+# deploy adds the two cheapest paid checks (about $0.01): an answer and an Add paper outcome.
+if not args.skip_checks:
+    deployed = args.functions if args.functions is not None else config['functions']
+    also = ['--also=chat.smoke,ingest.not-found'] if 'chat' in deployed else []
+    print('Running workflow checks (deploy suite; --skip-checks to opt out)', flush=True)
+    checks = subprocess.run(['node', str(ROOT/'scripts/workflow-checks.mjs'), '--suite=deploy', '--trigger=deploy-staging', '--record', *also], cwd=ROOT)
+    if checks.returncode != 0:
+        raise SystemExit('Deployed, but workflow checks FAILED (table above; report under .artifacts/workflow-checks/).')

@@ -5,17 +5,25 @@
 // the database platform budget. The synthetic account is kept for inspection.
 // With --delete the run instead deletes the account through Settings and checks
 // the server (closed, login removed, no personal rows).
+// --store runs Settings › Get credits and requires every product to be listed (no purchase).
+// --reference=11:PaLM adds the paper first, follows citation 11 → Add to library and waits for
+// the cited paper to become readable (one Add paper answer, about $0.10 on DPO).
+// --derived=/private/tmp/... uses that DerivedData folder (default .artifacts/lead-derived).
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 
 const root = new URL('../', import.meta.url);
-const env = Object.fromEntries(readFileSync(new URL('.env.staging', root), 'utf8').split('\n').filter(l => l.includes('='))
+// A git worktree reads the main checkout's secrets.
+const secrets = existsSync(new URL('.env.staging', root)) ? root : pathToFileURL(dirname(execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+  { cwd: fileURLToPath(root), encoding: 'utf8' }).trim()) + '/');
+const env = Object.fromEntries(readFileSync(new URL('.env.staging', secrets), 'utf8').split('\n').filter(l => l.includes('='))
   .map(l => { const i = l.indexOf('='); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; }));
+mkdirSync(new URL('.artifacts/', root), { recursive: true });
 assert.equal(env.SUPABASE_PROJECT_REF, 'coxhjvqpflgxkleydati');
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const arxiv = args.arxiv ?? '2305.18290', title = args.title ?? 'Direct Preference Optimization';
@@ -32,20 +40,22 @@ writeFileSync(new URL(`.artifacts/live-journey-${account}.json`, root), JSON.str
 console.log('Synthetic account', account, 'granted', args.credits ?? 300, 'credits');
 // --open-timing=2305.18290:Direct Preference|2312.00752:Mamba — add converted papers first, then time opening them.
 const timing = args['open-timing'] && args['open-timing'] !== 'true' ? args['open-timing'].split('|').map(x => x.split(':')) : [];
-if (timing.length) {
+const reference = args.reference && args.reference !== 'true' ? args.reference : null;
+const prepared = timing.length ? timing : reference ? [[arxiv, title]] : [];
+if (prepared.length) {
   const user = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   assert.equal((await user.auth.signInWithPassword({ email, password })).error, null);
-  for (const [source] of timing) {
+  for (const [source] of prepared) {
     const cursor = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 1 })).data.baseline_cursor;
     const begun = await user.rpc('v2_begin_import', { p_operation_id: randomUUID(), p_source_id: source, p_observed_cursor: cursor });
     assert.equal(begun.error, null, begun.error?.message);
   }
   for (const started = Date.now(); ;) {
     const ready = (await user.rpc('v2_library_page', { p_cursor: null, p_limit: 50 })).data.entries.filter(e => e.kind === 'item' && e.readiness === 'converted_ready');
-    if (ready.length === timing.length) break;
+    if (ready.length === prepared.length) break;
     assert.ok(Date.now() - started < 300_000, 'papers did not become ready'); await new Promise(r => setTimeout(r, 2000));
   }
-  console.log('Papers ready:', timing.map(t => t[0]).join(', '));
+  console.log('Papers ready:', prepared.map(t => t[0]).join(', '));
 }
 if (!args['no-generate']) execFileSync('xcodegen', ['generate'], { cwd: new URL('apps/apple/', root), stdio: 'ignore' });
 // Start from a clean install: the Keychain session of an earlier synthetic
@@ -55,7 +65,9 @@ try { execFileSync('xcrun', ['simctl', 'uninstall', device, 'com.sciencereader.i
 try { execFileSync('xcrun', ['simctl', 'keychain', device, 'reset'], { stdio: 'ignore' }); } catch { /* older simctl */ }
 const result = `../../.artifacts/live-journey-${account}.xcresult`;
 const xcode = ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug', '-destination', `platform=iOS Simulator,id=${device}`,
-  '-derivedDataPath', '../../.artifacts/lead-derived', '-resultBundlePath', result, `-only-testing:ScienceReaderUITests/LiveJourneyTests/${timing.length ? 'testOpenTimingsOfConvertedPapers' : args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
+  '-derivedDataPath', args.derived && args.derived !== 'true' ? args.derived : '../../.artifacts/lead-derived', '-resultBundlePath', result,
+  `-only-testing:ScienceReaderUITests/LiveJourneyTests/${timing.length ? 'testOpenTimingsOfConvertedPapers' : args.store ? 'testGetCreditsListsEveryProduct'
+    : reference ? 'testReferenceAddToLibraryImportsThePaper' : args.delete ? 'testDeleteAccountFromSettings' : 'testAddConvertDownloadReadAskAndRelaunch'}`,
   'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'test'];
 const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env,
   TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_EMAIL: email, TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_PASSWORD: password,
@@ -63,6 +75,8 @@ const child = spawn('xcodebuild', xcode, { cwd: new URL('apps/apple/', root), st
   ...(args.question ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_QUESTION: args.question } : {}),
   ...(args.search ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_SEARCH: args.search } : {}),
   ...(args.delete ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_DELETE: '1' } : {}),
+  ...(args.store ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_STORE: '1' } : {}),
+  ...(reference ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_REFERENCE: reference } : {}),
   ...(timing.length ? { TEST_RUNNER_SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING: timing.map(t => t[1]).join('|') } : {}) } });
 let log = ''; child.stdout.on('data', b => { log += b; }); child.stderr.on('data', b => { log += b; });
 // A timing run records a session; copy it out while the test runs (Xcode removes the app when testing ends).

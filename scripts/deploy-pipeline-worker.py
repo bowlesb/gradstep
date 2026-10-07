@@ -95,15 +95,27 @@ def cutover(url):
     with urllib.request.urlopen(request, timeout=60) as response: response.read()
     print('Staging pipeline URL now', url)
 
+def workflow_checks():
+    """The free deploy suite (docs/architecture/WORKFLOW_CHECKS.md): the Vault URL is this service,
+    it answers /health and refuses calls without the secret, the scheduler reaches it, nothing is
+    stuck, and an arXiv paper imports to ready through it."""
+    print('Running workflow checks (deploy suite; --skip-checks to opt out)', flush=True)
+    checks = subprocess.run(['node', str(ROOT / 'scripts/workflow-checks.mjs'), '--suite=deploy', '--trigger=deploy-pipeline-worker', '--record'], cwd=ROOT)
+    if checks.returncode != 0:
+        raise SystemExit('Deployed, but workflow checks FAILED (table above; report under .artifacts/workflow-checks/).')
+
 parser = argparse.ArgumentParser()
 parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover'])
 parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url')
+parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploy/cutover')
 args = parser.parse_args()
 if args.command == 'build': build()
 elif args.command == 'run': run()
 elif args.command == 'deploy':
     if not args.project: raise SystemExit('--project is required')
     deploy(args.project, args.region)
+    if not args.skip_checks: workflow_checks()
 else:
     if not args.url or not args.url.startswith('https://'): raise SystemExit('--url https://… is required')
     cutover(args.url)
+    if not args.skip_checks: workflow_checks()

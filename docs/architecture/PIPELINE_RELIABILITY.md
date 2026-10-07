@@ -100,3 +100,6 @@ specific. Unit tests: `LibraryMetadataTests` (injected clock); screens: `library
   reset on stage change, events and metrics, owner-only access.
 - Worker: Node tests of the server entry (secret check, one paper per call, deadline), and a large-PDF download test.
 - Live: re-run both failed papers on staging through Cloud Run; a daily canary import feeds the graphs.
+- Continuous: [workflow checks](WORKFLOW_CHECKS.md) — after every deploy and on a schedule: the Vault URL is the
+  Cloud Run worker, nothing is stuck or crash-looping, and imports (including the 44.6 MB and 49-page papers,
+  weekly) reach ready within limits. 2026-10-07: 2610.03771 ready in 37 s on Cloud Run.
