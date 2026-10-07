@@ -19,14 +19,25 @@ struct PaperReadingLocation: Equatable {
 }
 
 struct PaperJumpRequest: Equatable, Identifiable {
+    enum Target: Equatable {
+        /// A Contents entry: the heading goes to the top of the page.
+        case heading
+        /// The figure gallery's "Show in paper": the figure is centered and highlighted, with Back.
+        case figure
+    }
     let id = UUID()
     let locationKey: String
+    /// The heading's ID, or the figure's for `.figure`.
     let headingID: String
+    var target: Target = .heading
 }
 
 struct PaperHeading: Equatable, Identifiable {
     let id: String
     let title: String
+    /// Steps below the shallowest heading shown in Contents (0…3), from its level or, where Mathpix flattened the
+    /// levels, its section number (reader-bridge.js, CONTENTS OUTLINE).
+    var depth: Int = 0
 }
 
 private struct PaperLoadIdentity: Hashable {
@@ -110,15 +121,24 @@ struct PaperView: View {
     @State private var reloadID = UUID()
     @State private var selectionClearID = UUID()
     @State private var figure: String?
+    @State private var showFigures = false
+    /// "Show in paper" from the gallery, applied once the gallery has closed.
+    @State private var figureToShow: String?
     @State private var loadingPaper = true
     /// After following a citation: offer "Back" to the place left.
     @State private var citationBack = false
     @State private var citationReturnID: UUID?
     @State private var reference: ReaderReference?
+    /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
+    @State private var findRequestID: UUID?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    /// One step of a Contents entry's indent.
+    @ScaledMetric(relativeTo: .body) private var contentsIndent = 18.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
+    /// In the wide Reader, beside the chat column (which the reader can hide).
+    @Environment(\.readerChatColumn) private var besideChat
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -173,7 +193,7 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { reference = value }
                                      }, selectionAction: selection == nil ? nil : { action in
                                          runSelectionAction(action, scope: readerScope)
-                                     }, marks: model.paperMarks(for: paper), onMarks: { ids in
+                                     }, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
                                      }, passage: model.passageJump(for: paper), onPassage: { id, found in
                                          if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
@@ -189,6 +209,7 @@ struct PaperView: View {
                             .background(Color(uiColor: .systemBackground))
                     } }
                     .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
+                    .background { findShortcut }
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
@@ -217,6 +238,12 @@ struct PaperView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
+                if besideChat && model.readerChatHidden {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { model.readerChatHidden = false } label: { Image(GradstepSymbol.chat) }
+                            .accessibilityLabel("Show chat").accessibilityIdentifier("paper.showChat")
+                    }
+                }
                 // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
                 // then this screen's actions, then "Report this screen".
                 ToolbarItem(placement: .topBarTrailing) {
@@ -229,6 +256,17 @@ struct PaperView: View {
                                 .disabled(model.paperFontSize >= 26)
                         }
                         .controlGroupStyle(.compactMenu)
+                        if besideChat {
+                            MenuRow(model.readerChatHidden ? "Show chat" : "Hide chat", systemImage: "sidebar.right") {
+                                model.readerChatHidden.toggle()
+                            }.accessibilityIdentifier("paper.chatColumn")
+                        }
+                        MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
+                            .disabled(!canFind)
+                        if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {
+                            MenuRow("Figures", systemImage: "photo.on.rectangle") { showFigures = true }
+                                .accessibilityIdentifier("paper.figures").disabled(readerFailed || loadingPaper)
+                        }
                         MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
@@ -239,14 +277,31 @@ struct PaperView: View {
             }
             .sheet(isPresented: $showContents) {
                 NavigationStack {
+                    let nested = model.headings.contains { $0.depth > 0 }
                     List(model.headings) { heading in
-                        Button(heading.title) {
+                        Button {
                             if let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: heading.id) }
                             showContents = false
+                        } label: {
+                            ContentsRow(heading: heading, nested: nested)
                         }
+                        .accessibilityValue(nested ? "Level \(heading.depth + 1)" : "")
+                        // Outside the button, so its row (and the separator under it) starts at the text.
+                        .padding(.leading, CGFloat(heading.depth) * contentsIndent)
                     }.navigationTitle("Contents").navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showContents = false } } }
                 }.presentationDetents([.medium, .large]).macSheetKeys()
+            }
+            .sheet(isPresented: $showFigures, onDismiss: {
+                // After the gallery has gone, so the jump and its highlight are seen.
+                if let id = figureToShow, let readingKey { model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .figure) }
+                figureToShow = nil
+            }) {
+                if let bundle = model.selectedPaper?.readerBundle {
+                    FigureGalleryView(bundle: bundle, baseFontSize: model.paperFontSize) { id in
+                        figureToShow = id; showFigures = false
+                    }.macSheetKeys()
+                }
             }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
@@ -266,9 +321,29 @@ struct PaperView: View {
             }
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
-            selection = nil; figure = nil; showContents = false; readerFailed = false
+            selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
             citationBack = false; reference = nil; model.referenceNotice = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
+        }
+    }
+
+    // MARK: - Find in paper
+
+    /// WebKit's find bar searches the open paper (docs/LEGACY_GAP_AUDIT.md #7). It only highlights and scrolls;
+    /// the page's text and blocks are unchanged, so selections and reading positions keep working.
+    private var canFind: Bool { model.selectedPaper?.readerBundle != nil && !readerFailed && !loadingPaper }
+
+    private func showFind() {
+        guard canFind else { return }
+        selection = nil; selectionClearID = UUID()
+        findRequestID = UUID()
+    }
+
+    /// ⌘F with a hardware keyboard on iPad (the Mac's Edit menu has its own Find in Paper).
+    @ViewBuilder private var findShortcut: some View {
+        if !Platform.isMac {
+            Button("Find in paper") { showFind() }.keyboardShortcut("f").disabled(!canFind)
+                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
         }
     }
 
@@ -454,6 +529,8 @@ struct PaperWebView: UIViewRepresentable {
     var onReference: (ReaderReference) -> Void = { _ in }
     /// While text is selected: runs a selection action (the Mac's context menu for the selection).
     var selectionAction: ((SelectionAction) -> Void)? = nil
+    /// A new value shows the find bar (the paper only; a figure's view has none).
+    var findRequestID: UUID? = nil
     /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
     var marks: [PaperMark] = []
     var onMarks: ([UUID]) -> Void = { _ in }
@@ -509,6 +586,7 @@ struct PaperWebView: UIViewRepresentable {
         let web = ReaderWebView(frame: .zero, configuration: configuration)
         if figureID == nil { ReaderWebView.paper = web }
         web.isOpaque = false; web.backgroundColor = .systemBackground
+        web.isFindInteractionEnabled = figureID == nil
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
         web.navigationDelegate = context.coordinator
         #if DEBUG
@@ -530,6 +608,7 @@ struct PaperWebView: UIViewRepresentable {
         }
         guard context.coordinator.ready else { return }
         context.coordinator.clearSelectionIfNeeded(in: web)
+        context.coordinator.showFindIfNeeded(in: web)
         context.coordinator.returnFromCitationIfNeeded(in: web)
         context.coordinator.applyPaperLine(in: web)
         context.coordinator.applyPaperTags(in: web)
@@ -565,6 +644,7 @@ struct PaperWebView: UIViewRepresentable {
         private var sampledOffsetY = 0.0
         private var lastSelectionClearID: UUID?
         private var lastCitationReturnID: UUID?
+        private var lastFindRequestID: UUID?
         /// After a citation jump the saved place stays where reading left off.
         private var citationActive = false
         var appliedPaperLine: String?
@@ -572,6 +652,7 @@ struct PaperWebView: UIViewRepresentable {
         var passages = PaperPassageState()
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
+            lastFindRequestID = parent.findRequestID
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -584,11 +665,12 @@ struct PaperWebView: UIViewRepresentable {
                       let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { parent.onSelection(nil); return }
                 parent.onSelection(selection)
             case "headings":
-                if let items = body["items"] as? [[String: String]], items.count <= 500 {
+                if let items = body["items"] as? [[String: Any]], items.count <= 1_000 {
                     let headings = items.compactMap { item -> PaperHeading? in
-                        guard let id = item["id"], !id.isEmpty, id.utf8.count <= 2_048,
-                              let title = item["title"], !title.isEmpty, title.utf8.count <= 8_000 else { return nil }
-                        return PaperHeading(id: id, title: title)
+                        guard let id = item["id"] as? String, !id.isEmpty, id.utf8.count <= 2_048,
+                              let title = item["title"] as? String, !title.isEmpty, title.utf8.count <= 8_000,
+                              let depth = item["depth"] as? Int, (0...3).contains(depth) else { return nil }
+                        return PaperHeading(id: id, title: title, depth: depth)
                     }
                     guard headings.count == items.count, Set(headings.map(\.id)).count == headings.count else { return }
                     parent.onHeadings(headings)
@@ -650,9 +732,10 @@ struct PaperWebView: UIViewRepresentable {
                   request.locationKey == parent.locationKey, request.id != lastJumpID else { return }
             inFlightJumpID = request.id
             let load = loadingID
-            web.callAsyncJavaScript("""
-                return window.__scienceReaderJumpToHeading(id,reduced);
-                """, arguments: ["id": request.headingID, "reduced": parent.reduceMotion], in: nil, in: .defaultClient) { [weak self, weak web] result in
+            let script = request.target == .figure ? "return window.__scienceReaderShowFigure(id,reduced);"
+                : "return window.__scienceReaderJumpToHeading(id,reduced);"
+            web.callAsyncJavaScript(script, arguments: ["id": request.headingID, "reduced": parent.reduceMotion],
+                                    in: nil, in: .defaultClient) { [weak self, weak web] result in
                     guard let self, let web, self.active, self.loadingID == load else { return }
                     self.inFlightJumpID = nil
                     if case .success(let value) = result, value as? Bool == true {
@@ -667,6 +750,13 @@ struct PaperWebView: UIViewRepresentable {
             guard let id = parent.selectionClearID, id != lastSelectionClearID else { return }
             lastSelectionClearID = id
             web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
+        func showFindIfNeeded(in web: WKWebView) {
+            guard let id = parent.findRequestID, id != lastFindRequestID else { return }
+            lastFindRequestID = id
+            // After the menu that asked has closed, so the page can take the keyboard focus.
+            DispatchQueue.main.async { [weak web] in (web as? ReaderWebView)?.showFind() }
         }
 
         func returnFromCitationIfNeeded(in web: WKWebView) {
@@ -744,6 +834,21 @@ struct PaperWebView: UIViewRepresentable {
             if navigationAction.navigationType == .linkActivated, destination.scheme == "https" { await UIApplication.shared.open(destination) }
             return .cancel
         }
+    }
+}
+
+/// One Contents entry (docs/LEGACY_GAP_AUDIT.md #10; the row is indented by its depth). In a nested outline the
+/// top-level sections are semibold, as in the paper's own printed contents.
+private struct ContentsRow: View {
+    let heading: PaperHeading
+    let nested: Bool
+
+    var body: some View {
+        Text(heading.title)
+            .font(nested && heading.depth == 0 ? .body.weight(.semibold) : .body)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
     }
 }
 
