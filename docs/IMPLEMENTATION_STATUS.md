@@ -3,12 +3,14 @@
 Updated 2026-10-07 (local browser integration and framework decision; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
-## Browser integration checkpoint — local, not deployed
+## Browser/Mac integration checkpoint — local, not deployed
 
-Work is isolated in `codex/web-mac-integration-20261007` at `/Users/benbowlwes/science-reader-web-mac` while the
-original checkout remains available to the interrupted agent. The unmerged browser branch and floating-control
-branch were recovered there. Their combined Mac Catalyst Debug build and test build pass locally with a fixture-only
-configuration; signed-in Mac journeys and distribution remain unverified.
+The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
+`/Users/benbowlwes/science-reader-web-mac`, recovering the browser and floating-control branches. Integration
+includes `main` through `5f95c97`, preserving its newer chat-title fixes and TestFlight build 15 feedback records.
+The combined source passes a fresh universal Mac Catalyst Debug test build using public local fixtures, plus
+71 web unit/interop tests, the production build and 42 browser checks (15 known WebKit capability skips).
+Signed-in Mac journeys and distribution remain unverified; merge validation does not deploy a build.
 Mac sheet shortcuts now guard unsaved tags (including text still being typed) and busy report submission; Browse
 offers Find in Paper on ⌘F. The app and test targets compile for arm64 and x86_64. The keyboard runtime attempt
 started no assertions and was interrupted; developer-tool and Computer Use permissions still need resolution.

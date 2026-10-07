@@ -80,4 +80,23 @@ final class ChatTitleTests: XCTestCase {
                                                                     lastUsedAt: nil, lastArrival: 0, latestAnswer: nil, questions: ""),
                                       paperTitle: nil).title, "Untitled conversation")
     }
+
+    /// A saved title cut inside one long display formula still names the formula (the journey fixtures' shape).
+    func testATitleCutInsideOneLongFormulaShowsItsStart() {
+        let prompt = "Explain in plain terms, including any symbols: \\begin{equation}\n\\operatorname{Attention}(Q, K, V)=\\operatorname{softmax}\\left(\\frac{Q K^{T}}{\\sqrt{d_{k}}}\\right) V\n\\end{equation}"
+        let saved = String(prompt.prefix(100))
+        let title = ChatTitle.display(saved)
+        XCTAssertTrue(title.hasPrefix("Explain · "), title)
+        XCTAssertTrue(title.hasSuffix("…"), title)
+        XCTAssertFalse(title.contains("\\"), title)
+    }
+
+    /// The reader's equation selection wraps the environment in display delimiters; cut inside it, the title still
+    /// shows the formula's start.
+    func testATitleCutInsideAWrappedEquationShowsItsStart() {
+        let prompt = "Explain in plain terms, including any symbols: \\[\\begin{equation}\n\\mathrm{Attention}(Q, K, V)=\\mathrm{softmax}\\left(\\frac{Q K^{\\top}}{\\sqrt{d_k}}\\right) V \\label{eq:attention}\n\\end{equation}\\]"
+        let title = ChatTitle.display(String(prompt.prefix(100)))
+        XCTAssertTrue(title.hasPrefix("Explain · ") && title.count > 12, title)
+        XCTAssertFalse(title.contains("\\"), title)
+    }
 }

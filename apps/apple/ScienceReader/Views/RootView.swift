@@ -835,7 +835,7 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 4) {
             TextField("Chat", text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true }
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Ask about this
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 18).padding(.vertical, 14)
             Group {

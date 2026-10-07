@@ -6,6 +6,12 @@ assertions and was interrupted; behavior remains unverified. Earlier work record
 archive, build 15, and local Debug-fixture exercise; that historical result does not validate the current
 changes. Mac sign-in, sync, purchases and distribution remain unverified. See the validation checkpoint below.
 
+**Merge validation, 2026-10-07:** integration with `main` through `5f95c97` passed a fresh unsigned Catalyst
+`build-for-testing` in 60.1 seconds. The app, unit-test bundle and UI-test bundle each contain arm64 and x86_64.
+The newer chat-title code/tests and TestFlight feedback records are preserved. Logs and the result bundle remain
+in the integration worktree under `.artifacts/merge-validation-20261007/` (`catalyst-build.log` and
+`CatalystBuildForTesting.xcresult`). This is compilation evidence; no native runtime tests ran in this merge check.
+
 ## Shape
 
 The Mac app is the iOS target built with **Mac Catalyst** and the Mac idiom ("Optimize for Mac"): one code

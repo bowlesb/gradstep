@@ -239,7 +239,8 @@ pending request. A persistent command outbox needs the account/deployment and at
 ## Evidence
 
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
-2026-10-07. Local evidence is separate from deployment evidence:
+2026-10-07. Merging current `main` through `5f95c97` preserved these changes; the combined source passed a fresh
+unit/interop, production-build and full production-CSP browser run. Local evidence is separate from deployment evidence:
 
 - Production build and **71 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
   same-account/cross-tab lifetimes, abandoned verification, a stale key operation finishing crypto, bounded response
