@@ -1172,7 +1172,9 @@
       if (config && !config.figure_id) {
         if (selectedEquation && window.getSelection()?.isCollapsed) return;
         clearEquation();
-        post({type:'selection',selection:{manifest_sha256:manifest,parts:selectionParts()}});
+        const parts = selectionParts();
+        // The text around it lets a conversation find this passage again (passage anchors, end of this file).
+        post({type:'selection',selection:{manifest_sha256:manifest,parts,context:parts.length ? passageContext() : null}});
       }
     },180);
   });
@@ -1242,7 +1244,8 @@
         if (equationIDs.get(id) !== block) return;
         clearTimeout(selectionTimer); clearEquation();
         selectedEquation = equation; equation.classList.add('reader-selected-equation');
-        post({type:'selection',selection:{manifest_sha256:manifest,parts:[{kind:'equation',block_id:block,equation_id:id}]}});
+        post({type:'selection',selection:{manifest_sha256:manifest,parts:[{kind:'equation',block_id:block,equation_id:id}],
+          context:passageContext(equation)}});
       } else if (selectedEquation) {
         clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}});
       }
@@ -1285,4 +1288,273 @@
     jumpToReference({id, range}, null);
     return true;
   };
+
+  // ---- Passage anchors: Go to passage and marks (docs/DECISIONS.md, "Passage-linked conversations") ----
+  // A conversation started from a selection remembers its passage: block, quote and ~32 characters each side. The
+  // paper's text is read here exactly as selections resolve it (text as shown, equations as their LaTeX, the same
+  // separators), so a quote from this artifact is found verbatim; collapsed-whitespace, opening and context matches
+  // cover another conversion of the paper. Marks are CSS custom highlights: no element is added or moved, so
+  // selection, citations, figures and reading positions are untouched.
+  const CONTEXT = 32;
+  const equationSource = new Map(config?.equations.map(value => [value.id, value]) || []);
+  const collapse = value => String(value || '').replace(/\s+/g, ' ').trim();
+  let paperText = null;
+  if (config && !config.figure_id) {
+    new MutationObserver(() => { paperText = null; }).observe(document.body, {childList: true, subtree: true, characterData: true});
+  }
+  const readPaperText = () => {
+    if (paperText) return paperText;
+    const segments = [], textNodes = new Map(); let text = '';
+    const push = (value, node, kind) => {
+      if (kind === 'text') textNodes.set(node, segments.length);
+      segments.push({start: text.length, length: value.length, node, kind}); text += value;
+    };
+    const walk = node => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        if (node.hasAttribute(CHROME)) return;
+        if (node.matches('script,style,mjx-assistive-mml,[aria-hidden="true"]:not(.sr-toc-leader)') && !node.hasAttribute('data-reader-equation')) return;
+        const equation = node.getAttribute('data-reader-equation');
+        if (equation) {
+          const source = equationSource.get(equation);
+          if (source) push(source.source_form === 'environment' ? '\n' + source.latex + '\n'
+            : source.display ? '\n\\[' + source.latex + '\\]\n' : '\\(' + source.latex + '\\)', node, 'equation');
+          return;
+        }
+        const inBlock = blockIDs.has(enclosingBlock(node));
+        if (node.tagName === 'BR' && inBlock) push('\n', null, 'separator');
+        for (const child of node.childNodes) walk(child);
+        if (inBlock && (node.tagName === 'TD' || node.tagName === 'TH')) push('\t', null, 'separator');
+        if (inBlock && (node.tagName === 'TR' || node.tagName === 'LI')) push('\n', null, 'separator');
+        if (node.hasAttribute(key)) push('\n', null, 'separator');
+      } else if (node.nodeType === Node.TEXT_NODE && node.length) {
+        if (/^(TABLE|THEAD|TBODY|TFOOT|TR|UL|OL)$/.test(node.parentElement?.tagName || '') && !node.textContent.trim()) return;
+        if (blockIDs.has(enclosingBlock(node))) push(node.textContent, node, 'text');
+      }
+    };
+    walk(document.body);
+    return paperText = {text, segments, content: segments.filter(segment => segment.node), textNodes, flat: null};
+  };
+  // The same text with whitespace runs collapsed, and where each character came from.
+  const flatText = paper => {
+    if (paper.flat) return paper.flat;
+    const chars = [], map = []; let space = true;
+    for (let index = 0; index < paper.text.length; index++) {
+      const char = paper.text[index];
+      if (/\s/.test(char)) { if (!space) { chars.push(' '); map.push(index); space = true; } }
+      else { chars.push(char); map.push(index); space = false; }
+    }
+    map.push(paper.text.length);
+    return paper.flat = {text: chars.join(''), map};
+  };
+  const flatIndex = (flat, raw) => {
+    let low = 0, high = flat.map.length - 1;
+    while (low < high) { const middle = (low + high) >> 1; if (flat.map[middle] >= raw) high = middle; else low = middle + 1; }
+    return low;
+  };
+  const occurrences = (haystack, needle, limit, from = 0) => {
+    const found = [];
+    for (let at = needle ? haystack.indexOf(needle, from) : -1; at >= 0 && found.length < limit; at = haystack.indexOf(needle, at + 1)) found.push(at);
+    return found;
+  };
+  // Where a DOM boundary point falls in the paper's text.
+  const textOffset = (paper, container, offset) => {
+    const own = paper.textNodes.get(container);
+    if (own !== undefined) { const segment = paper.segments[own]; return segment.start + Math.min(offset, segment.length); }
+    const point = document.createRange(); point.setStart(container, offset);
+    // The first text or equation at or after the point (both are in document order).
+    let low = 0, high = paper.content.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (point.comparePoint(paper.content[middle].node, 0) >= 0) high = middle; else low = middle + 1;
+    }
+    return low < paper.content.length ? paper.content[low].start : paper.text.length;
+  };
+  // The text around the selection (or a tapped equation) for its anchor; null when it can't be read.
+  function passageContext(element) {
+    try {
+      let range;
+      if (element) { range = document.createRange(); range.selectNode(element); }
+      else {
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
+        range = selection.getRangeAt(0);
+      }
+      const paper = readPaperText();
+      const start = textOffset(paper, range.startContainer, range.startOffset);
+      const end = Math.max(start, textOffset(paper, range.endContainer, range.endOffset));
+      return {prefix: Array.from(collapse(paper.text.slice(Math.max(0, start - 200), start))).slice(-CONTEXT).join(''),
+              suffix: Array.from(collapse(paper.text.slice(end, end + 200))).slice(0, CONTEXT).join('')};
+    } catch { return null; }
+  }
+  const segmentAt = (segments, index) => {
+    let low = 0, high = segments.length - 1, found = -1;
+    while (low <= high) { const middle = (low + high) >> 1; if (segments[middle].start <= index) { found = middle; low = middle + 1; } else high = middle - 1; }
+    return found;
+  };
+  const rangeFor = (paper, start, end) => {
+    const segments = paper.segments;
+    let first = segmentAt(segments, start), last = segmentAt(segments, end - 1);
+    while (first < segments.length && (first < 0 || !segments[first].node || segments[first].start + segments[first].length <= start)) first++;
+    while (last >= 0 && (!segments[last].node || segments[last].start >= end)) last--;
+    if (first >= segments.length || last < first) return null;
+    const range = document.createRange(), a = segments[first], b = segments[last];
+    if (a.kind === 'text') range.setStart(a.node, Math.max(0, start - a.start)); else range.setStartBefore(a.node);
+    if (b.kind === 'text') range.setEnd(b.node, Math.min(b.length, end - b.start)); else range.setEndAfter(b.node);
+    return range.collapsed ? null : range;
+  };
+  const blockSpan = (paper, id) => {
+    const element = id && document.getElementById(id);
+    if (!element || !element.hasAttribute(key)) return null;
+    return {start: textOffset(paper, element, 0), end: textOffset(paper, element, element.childNodes.length)};
+  };
+  // Of several matches: the one in the anchored block, then the one with the same text around it.
+  const choose = (paper, candidates, anchor, span, method) => {
+    const prefix = collapse(anchor.prefix), suffix = collapse(anchor.suffix);
+    let best = null, bestScore = -1;
+    for (const candidate of candidates) {
+      let score = span && candidate.start >= span.start && candidate.start < span.end ? 4 : 0;
+      const before = collapse(paper.text.slice(Math.max(0, candidate.start - 120), candidate.start));
+      const after = collapse(paper.text.slice(candidate.end, candidate.end + 120));
+      if (prefix && before && (before.endsWith(prefix) || prefix.endsWith(before))) score += 2;
+      if (suffix && after && (after.startsWith(suffix) || suffix.startsWith(after))) score += 2;
+      if (score > bestScore) { best = candidate; bestScore = score; }
+    }
+    const range = best && rangeFor(paper, best.start, best.end);
+    return range ? {range, method} : null;
+  };
+  // anchor: {quote, prefix, suffix, element, same}; `same` when it was made on this artifact (its block ID applies).
+  // Exact quote → collapsed whitespace → (fuzzy only) the quote's first line and openings → the text around it.
+  const resolvePassage = (anchor, fuzzy) => {
+    const quote = String(anchor?.quote || '').trim();
+    if (!quote || !config) return null;
+    const paper = readPaperText(), flat = flatText(paper);
+    const span = anchor.same ? blockSpan(paper, anchor.element) : null;
+    const flatSpan = span && {start: flatIndex(flat, span.start), end: flatIndex(flat, span.end)};
+    const fromFlat = (index, length) => ({start: flat.map[index], end: flat.map[index + length - 1] + 1});
+    // In the anchored block first (a short quote can occur many times), then anywhere.
+    const find = (haystack, needle, within, convert) => {
+      if (within) {
+        const local = occurrences(haystack, needle, 50, within.start).filter(index => index < within.end);
+        if (local.length) return local.map(convert);
+      }
+      return occurrences(haystack, needle, 200).map(convert);
+    };
+    let found = find(paper.text, quote, span, index => ({start: index, end: index + quote.length}));
+    if (found.length) return choose(paper, found, anchor, span, 'exact');
+    const needle = collapse(quote);
+    found = find(flat.text, needle, flatSpan, index => fromFlat(index, needle.length));
+    if (found.length) return choose(paper, found, anchor, span, 'whitespace');
+    if (!fuzzy) return null;
+    const firstLine = collapse(quote.split('\n').find(line => line.trim()) || '');
+    for (const opening of [firstLine, needle.slice(0, 80), needle.slice(0, 60), needle.slice(0, 40), needle.slice(0, 25)]) {
+      const part = opening.trim();
+      if (part.length < 20 || part.length >= needle.length) continue;
+      found = find(flat.text, part, flatSpan, index => fromFlat(index, part.length));
+      if (found.length) return choose(paper, found, anchor, span, 'opening');
+    }
+    const prefix = collapse(anchor.prefix), suffix = collapse(anchor.suffix);
+    if (prefix.length >= 8 && suffix.length >= 8) {
+      for (const at of occurrences(flat.text, prefix, 50)) {
+        let from = at + prefix.length, to = flat.text.indexOf(suffix, from);
+        if (to < 0) break;
+        if (to - from > Math.max(400, needle.length * 2)) continue;
+        while (from < to && flat.text[from] === ' ') from++;
+        while (to > from && flat.text[to - 1] === ' ') to--;
+        if (to > from) return choose(paper, [fromFlat(from, to - from)], anchor, span, 'context');
+      }
+    }
+    return null;
+  };
+  const highlights = () => typeof Highlight !== 'undefined' && window.CSS?.highlights ? CSS.highlights : null;
+  if (config && !config.figure_id) {
+    const style = document.createElement('style');
+    style.textContent = [
+      ':root{--sr-mark:rgba(86,89,214,.5)}@media(prefers-color-scheme:dark){:root{--sr-mark:rgba(165,167,255,.55)}}',
+      '::highlight(sr-chat-mark){text-decoration-line:underline;text-decoration-color:var(--sr-mark);text-decoration-thickness:2px;text-underline-offset:.24em}',
+      '::highlight(sr-passage){background-color:var(--sr-flash)}',
+      // Math is drawn, not text: a marked formula gets a line under it (inline) or beside it (display).
+      '.sr-chat-mark-math{box-shadow:0 2px 0 var(--sr-mark)}.sr-chat-mark-display{box-shadow:-6px 0 0 -3px var(--sr-mark)}',
+    ].join('');
+    document.head.append(style);
+  }
+
+  // Go to passage: the same landing and Back as a citation; the passage is briefly tinted.
+  let passageTimer;
+  window.__scienceReaderGoToPassage = anchor => {
+    let found = null;
+    try { found = resolvePassage(anchor, true); } catch { found = null; }
+    if (!found) return {found: false};
+    const entry = {id: 'passage', range: found.range};
+    const origin = citationBack?.origin ?? {location: window.__scienceReaderLocation(), cite: null};
+    citationBack = {origin, entry, landing: null};
+    window.scrollTo({top: scrollTarget(found.range.getBoundingClientRect()), behavior: reducedMotion() ? 'instant' : 'smooth'});
+    settled(() => {
+      if (citationBack?.entry !== entry) return;
+      citationBack.landing = window.scrollY;
+      // Unlike a citation peek, the reader chose to go here: like a contents jump, this becomes the place
+      // remembered (leaving the tab and coming back shows the passage); Back still returns to where they were.
+      lastPosition = window.__scienceReaderLocation(); post({type: 'position', ...lastPosition});
+      const registry = highlights();
+      if (!registry) return;
+      registry.set('sr-passage', new Highlight(found.range));
+      clearTimeout(passageTimer);
+      passageTimer = setTimeout(() => registry.delete('sr-passage'), 2600);
+    });
+    post({type: 'citation', state: 'jumped', id: 'passage'});
+    return {found: true, method: found.method};
+  };
+
+  // Marks: passages with conversations on this paper. list: [{id, quote, prefix, suffix, element, same}].
+  let marks = [];
+  const markedMath = new Set();
+  window.__scienceReaderSetMarks = list => {
+    marks = [];
+    for (const element of markedMath) element.classList.remove('sr-chat-mark-math', 'sr-chat-mark-display');
+    markedMath.clear();
+    const registry = highlights();
+    registry?.delete('sr-chat-mark');
+    if (!registry || !config || config.figure_id || !Array.isArray(list)) return 0;
+    for (const anchor of list.slice(0, 500)) {
+      let found = null;
+      try { found = resolvePassage(anchor, false); } catch { found = null; }
+      if (found) marks.push({id: String(anchor.id), range: found.range});
+    }
+    if (!marks.length) return 0;
+    registry.set('sr-chat-mark', new Highlight(...marks.map(mark => mark.range)));
+    for (const element of document.querySelectorAll('[data-reader-equation]')) {
+      if (!marks.some(mark => mark.range.intersectsNode(element))) continue;
+      element.classList.add(equationSource.get(element.getAttribute('data-reader-equation'))?.display ? 'sr-chat-mark-display' : 'sr-chat-mark-math');
+      markedMath.add(element);
+    }
+    return marks.length;
+  };
+  // The conversations marked at a point: the caret there is inside the mark and the point is on its text.
+  const marksAt = (x, y) => {
+    const caret = document.caretRangeFromPoint?.(x, y);
+    if (!caret) return [];
+    const ids = [];
+    for (const mark of marks) {
+      if (ids.includes(mark.id)) continue;
+      try { if (!mark.range.isPointInRange(caret.startContainer, caret.startOffset)) continue; } catch { continue; }
+      if ([...mark.range.getClientRects()].some(rect => x >= rect.left - 2 && x <= rect.right + 2 && y >= rect.top - 4 && y <= rect.bottom + 4)) ids.push(mark.id);
+    }
+    return ids;
+  };
+  if (config && !config.figure_id) {
+    let gesture = null;
+    document.addEventListener('pointerdown', event => { gesture = {id: event.pointerId, x: event.clientX, y: event.clientY, moved: false}; }, {passive: true});
+    document.addEventListener('pointermove', event => {
+      if (gesture?.id === event.pointerId && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 8) gesture.moved = true;
+    }, {passive: true});
+    document.addEventListener('pointercancel', () => { if (gesture) gesture.moved = true; }, {passive: true});
+    // After the reader's own taps: links, citations, contents rows, figures, references, tags and math keep theirs.
+    document.addEventListener('click', event => {
+      const moved = gesture?.moved; gesture = null;
+      if (moved || !marks.length || !window.getSelection()?.isCollapsed) return;
+      const element = event.target instanceof Element ? event.target : event.target?.parentElement;
+      if (!element || element.closest(`a,.sr-cite,.sr-toc-link,figure,[role="button"],[data-sr-reference],[data-sr-paper-tags],[data-reader-equation],[${CHROME}]`)) return;
+      const ids = marksAt(event.clientX, event.clientY);
+      if (ids.length) post({type: 'marks', manifest_sha256: manifest, ids});
+    });
+  }
 })();

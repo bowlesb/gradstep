@@ -255,6 +255,30 @@ final class ReaderBundleCoordinatorTests: XCTestCase {
         XCTAssertEqual(opened.bundle.manifestSHA256, fixture.bundle.manifestSHA256)
     }
 
+    func testChangedDecodedTagsAreRepairedWithoutHaltingDownloadsOrPrivateWrites() async throws {
+        let fixture = try OfflineBundleFixture(), persistence = ReaderLocalPersistence()
+        addTeardownBlock { [folder = fixture.folder] in try? FileManager.default.removeItem(at: folder) }
+        let store = try await fixture.activate(persistence)
+        try await store.saveLibraryPresentation(fixture.observation(), scope: fixture.scope)
+        var issue: String?
+        let coordinator = ReaderBundleCoordinator(scope: fixture.scope, persistence: persistence, report: { issue = $0 })
+        let updated = try fixture.observation(tags: ["Transformers"])
+        _ = try await coordinator.observe(updated).value
+        await coordinator.waitUntilIdle()
+        XCTAssertNil(issue)
+        let saved = try await store.cachedLibraryPresentation(scope: fixture.scope)
+        XCTAssertEqual(saved?.entries, updated.entries)
+        let installed = try await fixture.install(coordinator).value
+        XCTAssertTrue(coordinator.permits(installed))
+        _ = try await persistence.performWrite { store in
+            [try await store.append(PrivateEvent(kind: .note, text: "Offline recovery preserves private writing"), deviceID: UUID())]
+        }
+        let snapshot = await store.snapshot()
+        XCTAssertEqual(snapshot.state.events.count, 1)
+        let opened = try await coordinator.open(installed).value
+        XCTAssertEqual(opened.bundle.manifestSHA256, fixture.bundle.manifestSHA256)
+    }
+
     func testFailedQuarantineCheckpointCannotBeSkippedByALaterOutage() async throws {
         let fixture = try OfflineBundleFixture(), persistence = ReaderLocalPersistence()
         defer { try? FileManager.default.removeItem(at: fixture.folder) }
@@ -331,8 +355,9 @@ private struct OfflineBundleFixture: Sendable {
     @MainActor func install(_ coordinator: ReaderBundleCoordinator) throws -> Task<InstalledReaderBundle, Error> {
         try coordinator.install(binding: binding, manifestData: bundle.manifestData, members: members)
     }
-    func observation(state: Int64 = 1, availability: String = "available", availabilityRevision: Int64 = 1) throws -> LibraryCompleteObservation {
-        let row: [String: Any] = ["kind": "item", "id": item.wire, "document_id": document.wire, "created_seq": 1, "state_seq": state,
+    func observation(state: Int64 = 1, availability: String = "available", availabilityRevision: Int64 = 1,
+                     tags: [String]? = nil) throws -> LibraryCompleteObservation {
+        var row: [String: Any] = ["kind": "item", "id": item.wire, "document_id": document.wire, "created_seq": 1, "state_seq": state,
             "membership_revision": 1, "visible": true, "added_at": "2026-10-03T10:00:00Z", "last_remove_seq": 0,
             "approval_id": approval.wire, "version_id": version.wire, "metadata_id": metadata.wire, "source": "arxiv",
             "source_id": "2404.00001", "source_revision": 1, "metadata": ["title": "Authored offline fixture", "authors": ["Fixture"],
@@ -342,6 +367,7 @@ private struct OfflineBundleFixture: Sendable {
             "scope": "shared_catalog", "page_count": 1, "original_object_id": original.wire, "artifact_id": artifact.wire,
             "readiness": availability == "available" ? "converted_ready" : "unavailable", "original_availability": "available",
             "render_availability": availability, "original_availability_revision": 1, "render_availability_revision": availabilityRevision]
+        if let tags { row["tags"] = tags }
         let baseline: [String: Any] = ["format": 2, "account_id": account.wire, "baseline_cursor": state, "retained_after": 0,
             "entries": [row], "has_more": false, "next_cursor": ["format": 2, "account_id": account.wire, "through": state,
                 "created_seq": 1, "id": item.wire, "kind": "item"]]

@@ -324,12 +324,24 @@ public actor EncryptedStore {
         try saveLibraryPresentation(observation, scope: scope, capturedAt: capturedAt, format: CachePresentationCheckpoint.currentFormat)
     }
 
-    /// `format` 1 only in tests: a snapshot as builds reading v2 saved it.
+    /// Rebuilds readable presentation metadata from a complete server observation while retaining
+    /// immutable identity, monotonic sequences and reader availability policy. Corrupt policy is
+    /// never reset. Downloaded papers, notes, chats and pending changes are untouched.
+    @discardableResult
+    public func rebuildLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
+                                           capturedAt: Date = Date()) throws -> CachedLibraryPresentation {
+        try saveLibraryPresentation(observation, scope: scope, capturedAt: capturedAt,
+                                    format: CachePresentationCheckpoint.currentFormat, rebuild: true)
+    }
+
+    /// An earlier `format` only in tests: a snapshot as an older build saved it.
     @discardableResult
     func saveLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
-                                 capturedAt: Date = Date(), format: Int) throws -> CachedLibraryPresentation {
+                                 capturedAt: Date = Date(), format: Int, rebuild: Bool = false) throws -> CachedLibraryPresentation {
         guard observation.accountID == accountID else { throw ReaderError.wrongAccount }
-        let prepared = try withOfflineCache(scope: scope) { try $0.preparePresentation(observation, roots: $1, capturedAt: capturedAt, format: format) }
+        let prepared = try withOfflineCache(scope: scope) {
+            try $0.preparePresentation(observation, roots: $1, capturedAt: capturedAt, format: format, rebuild: rebuild)
+        }
         if let mutation = prepared.0 { try persistOfflineCache(mutation) }
         return prepared.1
     }

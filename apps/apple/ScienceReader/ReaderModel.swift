@@ -211,6 +211,11 @@ final class ReaderModel {
     var readerChatHidden = UserDefaults.standard.bool(forKey: "reader.chatHidden") { didSet { UserDefaults.standard.set(readerChatHidden, forKey: "reader.chatHidden") } }
     /// The chat column's width there as the reader dragged it; nil is the default for the window's width.
     var readerChatWidth = UserDefaults.standard.object(forKey: "reader.chatWidth") as? Double { didSet { UserDefaults.standard.set(readerChatWidth, forKey: "reader.chatWidth") } }
+    /// Passage-linked conversations (Views/PaperPassages.swift): underline passages with chats (Settings › Reading),
+    /// a Go to passage waiting for the reader, and the chats offered when a tap lands on several marks.
+    var showsPassageMarks = UserDefaults.standard.object(forKey: "reader.passageMarks") as? Bool ?? true { didSet { UserDefaults.standard.set(showsPassageMarks, forKey: "reader.passageMarks") } }
+    var passageRequest: PaperPassageRequest?
+    var passageChoices: [UUID]?
     var message = ""
     var generalChat = true
     var chatPaperID: UUID?
@@ -350,7 +355,7 @@ final class ReaderModel {
     private var chatStreamProgress: [UUID: ChatProgress] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
-    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?)?
+    @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?)?
     var chatConsentPrompt: ChatConsentPrompt?
     private(set) var creditBalance: CreditBalance?
     private(set) var creditBalanceIssue: String?
@@ -1748,7 +1753,7 @@ final class ReaderModel {
                     deferredLibraryObservation = snapshot.observation
                 } else { try readerBundles?.observe(snapshot.observation) }
             }
-            catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
             presentLibraryEntries(snapshot.entries)
             libraryPublicationGeneration = snapshot.generation
         }
@@ -1762,7 +1767,7 @@ final class ReaderModel {
             do {
                 guard let readerBundles else { throw ReaderError.storageUnavailable }
                 try readerBundles.observe(observation)
-            } catch { offlineCacheIssue = "Your latest library update wasn’t saved for offline use. Reopen the app to try again." }
+            } catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
         }
         deferredLibraryObservation = nil
         libraryPublicationDeferred = false
@@ -2189,13 +2194,15 @@ final class ReaderModel {
         }
     }
 
-    func selectionAction(_ action: SelectionAction, quote: String) {
+    func selectionAction(_ action: SelectionAction, quote: String, origin: PassageOrigin? = nil) {
         selectedQuote = quote
         // The prompts live with `ChatTitle`, which turns them back into short titles.
         newChat(general: false); chatInput = action.prompt(quote)
         tab = .chat; wideMode = .reader; readerChatHidden = false
-        // The quote travels with this exact prompt and composer only.
-        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
+        // The quote (and the passage it came from, saved on the new conversation) travels with this exact prompt
+        // and composer only.
+        pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote,
+            action: action == .ingest ? .ingest : action == .similar ? .related : nil, origin: origin) }
         if !isSignedIn { openSignIn() }
         // The question is saved first; first-use cloud consent then binds the
         // answer request to that captured, saved turn.
@@ -2213,7 +2220,7 @@ final class ReaderModel {
         guard readerDocumentScope == scope, let bundle = selectedPaper?.readerBundle,
               bundle.manifestSHA256 == scope.manifestSHA256,
               let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { return }
-        selectionAction(action, quote: quote)
+        selectionAction(action, quote: quote, origin: PassageOrigin(scope: scope, selection: selection, quote: quote))
     }
 
     func newChat(general: Bool) {
@@ -2250,8 +2257,10 @@ final class ReaderModel {
             // Encrypted with the event; All chats shows it as Started / Last used.
             let createdAt = PrivateEvent.timestamp(Date())
             if let root = submission.rootID {
+                // A selection action's passage, for Go to passage and the paper's marks (encrypted with the event).
+                let anchor = pending?.origin.flatMap { $0.documentID == documentID ? $0.anchor : nil }
                 events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID,
-                    text: String(submission.text.prefix(100)), createdAt: createdAt)))
+                    text: String(submission.text.prefix(100)), anchor: anchor, createdAt: createdAt)))
                 parents = [root]
             }
             events.append((submission.id, PrivateEvent(kind: .message, entityID: submission.id, parents: parents,

@@ -276,7 +276,8 @@ struct ChatHistoryView: View {
             Group {
                 if tableShown {
                     HStack(alignment: .firstTextBaseline, spacing: ChatTableLayout.spacing) {
-                        ChatTitleCell(title: row.title, subtitle: paperShown ? answerLine(row) : row.contextTitle)
+                        // With the Paper column shown, a chat from a passage shows that passage; else the newest answer.
+                        ChatTitleCell(title: row.title, subtitle: paperShown ? (row.passageLine ?? answerLine(row)) : row.contextTitle)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         ForEach(visible) { column in
                             cell(row, column.field).frame(width: column.width * scale, alignment: column.alignment)
@@ -298,6 +299,7 @@ struct ChatHistoryView: View {
         .accessibilityIdentifier("chat.history.\(row.id.wire)")
         .accessibilityActions {
             if let paper = paper(for: row) { Button("Open paper") { model.select(paper); dismiss() } }
+            if model.canGoToPassage(row.id) { Button("Go to passage") { dismiss(); model.goToPassage(row.id) } }
             if model.canDeleteConversations { Button("Delete") { deleting = row } }
         }
     }
@@ -333,6 +335,9 @@ struct ChatHistoryView: View {
     @ViewBuilder private func actions(_ row: ChatHistoryRow) -> some View {
         if let paper = paper(for: row) {
             Button("Open paper", systemImage: "doc.text") { model.select(paper); dismiss() }
+        }
+        if model.canGoToPassage(row.id) {
+            Button("Go to passage", systemImage: "text.quote") { dismiss(); model.goToPassage(row.id) }
         }
         if model.canDeleteConversations {
             Button("Delete conversation", systemImage: "trash", role: .destructive) { deleting = row }

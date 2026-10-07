@@ -5,6 +5,12 @@ public enum OfflineCacheError: Error, Equatable, Sendable {
     case invalidBinding, invalidObservation, staleObservation, conflictingObservation
     case corruptCache, capacityExceeded, installBusy, staleTicket, notInstalled
     case revisionConflict, blocked
+
+    /// Readable presentation metadata conflicts with a complete server observation. A rebuild
+    /// still validates identity, sequence and saved reader policy; it never recovers unreadable policy.
+    public var replacesSavedLibrary: Bool {
+        self == .conflictingObservation
+    }
 }
 
 /// Logical committed ciphertext ceilings, not physical disk or process memory.
@@ -206,9 +212,16 @@ struct CacheEntryReference: Codable, Equatable {
 }
 
 struct CachePresentationCheckpoint: Codable {
-    /// 2: saved from v3 library reads, which include web papers. 1: saved by builds
-    /// that read v2 (web papers left out); such a snapshot is replaced, never compared.
-    static let currentFormat = 2
+    /// Which entry fields the saving build decoded. A snapshot of an earlier format is
+    /// replaced by the next observation, never compared with it: an older build dropped
+    /// fields it didn't know, so its copy of an entry differs from the server's at the
+    /// same `state_seq` (build 15, 2026-10-07: items cached by build 14 without `tags`
+    /// conflicted on every launch and the library was never saved again).
+    /// 3: decodes `tags`, `user_tags`, `hidden_tags` (migration 030) and `progress_detail` (029).
+    /// 2: v3 library reads, which include web papers. 1: v2 reads (web papers left out).
+    /// Bump it whenever `LibraryItemRecord` or `LibraryImportRecord` decodes a new field
+    /// (`OfflineCacheTests.snapshotFormatCoversEveryDecodedEntryField` pins the field list).
+    static let currentFormat = 3
     let format: Int
     let scope: LibraryCommandScope
     let cursor: Int64
