@@ -5,6 +5,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { arxivAtomRecord, arxivCatalogArguments, arxivReuseEvidence, arxivURLs } from './arxiv.ts';
 import { unpackReaderZip } from './archive.ts';
+import { uploadInventoried } from './asset-upload.ts';
 import { sha256 } from './http.ts';
 import { MathpixError, mathpixProfile, type MathpixConversion, type MathpixStatus, type MathpixSubmission } from './mathpix.ts';
 import { SourceError } from './source-xml.ts';
@@ -271,7 +272,7 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
   await reportProgress(deps, claim, { pages, bytes: bytes.length });
   const digest = await sha256(bytes);
   const path = `${e.owner_id ? `private/${e.owner_id}/` : ''}originals/${digest}.pdf`;
-  await deps.storage.upload(path, bytes, 'application/pdf');
+  await uploadInventoried(deps, claim, 'original', [{ path, bytes, mediaType: 'application/pdf' }], pages);
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_original', { ...claim, p_sha256: hex(digest), p_bytes: bytes.length, p_pages: pages, p_path: path });
   deps.log('original', { paper: e.id, bytes: bytes.length, pages, stage: entry.stage });
   return { entry };
@@ -283,6 +284,7 @@ export async function ocrIdentity(documentSHA256: string, pageLimit: number): Pr
 }
 
 async function stageFund(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<StepResult> {
+  await deps.rpc('worker_pipeline_admit_processing', claim);
   if (!e.page_count || !e.document_sha256) throw new Error('document_missing');
   const pageLimit = Math.min(e.page_count, policy.max_ocr_pages);
   const identity = await ocrIdentity(e.document_sha256, pageLimit);
@@ -345,12 +347,18 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
     deps.log('ocr_failed', { paper: e.id, code, pages });
     return { entry: await deps.rpc<PaperEntry>('worker_pipeline_ocr_failed', { ...claim, p_error_code: code, p_pages_billed: Math.min(pages, e.attempt!.page_limit) }) };
   };
-  // A job the provider no longer knows, or one polled past the timeout, can
-  // never complete: fail it so the hold settles (customer not charged).
+  const uncertain = async (code: string) => {
+    deps.log('ocr_usage_uncertain', { paper: e.id, code, provider_job_id: job });
+    return { entry: await deps.rpc<PaperEntry>('worker_pipeline_ocr_uncertain', { ...claim, p_error_code: code }) };
+  };
+  // Local age and missing status never prove that remote work stopped or was
+  // free. Preserve the known job and full liability until reconciliation.
+  let missing = false;
   const poll = async () => {
     try { return await deps.mathpix.status(job); }
     catch (error) {
-      if ((error instanceof MathpixError && [404, 410].includes(error.httpStatus ?? 0)) || age > PROVIDER_TIMEOUT_MS) return null;
+      if (error instanceof MathpixError && [404, 410].includes(error.httpStatus ?? 0)) { missing = true; return null; }
+      if (age > PROVIDER_TIMEOUT_MS) return null;
       throw error;
     }
   };
@@ -360,15 +368,17 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
     await reportProgress(deps, claim, { pagesDone: polled.completedPages, pages: polled.pages });
     await deps.sleep(4000); polled = await poll();
   }
-  if (!polled) return fail('conversion_failed', e.attempt.page_limit);
+  if (!polled) return uncertain(missing ? 'provider_job_missing' : 'provider_status_unknown');
   const status = polled;
   await deps.rpc('worker_pipeline_heartbeat', claim);
-  if (status.state === 'error') return fail('conversion_failed', status.completedPages ?? 0);
-  if (status.deleted) return fail('conversion_failed', e.attempt.page_limit);
-  if (status.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.completedPages ?? 0) : { entry: e, defer: age > 120_000 ? 15 : 4 };
-  const conversion = await deps.mathpix.conversion(job);
-  if (conversion.state === 'error') return fail('conversion_failed', status.pages ?? e.attempt.page_limit);
-  if (conversion.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? fail('conversion_timeout', status.pages ?? e.attempt.page_limit) : { entry: e, defer: 4 };
+  if (status.state === 'error') return uncertain('provider_usage_unknown');
+  if (status.deleted) return uncertain('provider_job_missing');
+  if (status.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? uncertain('conversion_timeout') : { entry: e, defer: age > 120_000 ? 15 : 4 };
+  let conversion: MathpixConversion;
+  try { conversion = await deps.mathpix.conversion(job); }
+  catch (error) { if (age > PROVIDER_TIMEOUT_MS) return uncertain('provider_status_unknown'); throw error; }
+  if (conversion.state === 'error') return uncertain('provider_usage_unknown');
+  if (conversion.state !== 'completed') return age > PROVIDER_TIMEOUT_MS ? uncertain('conversion_timeout') : { entry: e, defer: 4 };
   let members: Map<string, Uint8Array>;
   try {
     members = new Map<string, Uint8Array>([
@@ -377,7 +387,7 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
       ['lines.json', await deps.mathpix.output(status, 'lines.json')],
     ]);
   } catch (error) {
-    if (error instanceof MathpixError && UNUSABLE_OUTPUT.has(error.code)) return fail('conversion_failed', status.pages ?? e.attempt.page_limit);
+    if (error instanceof MathpixError && UNUSABLE_OUTPUT.has(error.code)) return fail('conversion_failed', e.attempt.page_limit);
     throw error;
   }
   let processed: number;
@@ -393,8 +403,8 @@ async function stageWait(deps: PipelineDeps, e: PaperEntry, claim: Claim, _polic
     options_sha256: identity.optionsSHA256, page_limit: e.attempt.page_limit, pages, document_sha256: e.document_sha256,
     status: { pages: status.pages, completed_pages: status.completedPages, pipeline_version: status.pipelineVersion }, members: memberIdentity }));
   const manifestSHA = await sha256(manifestBytes);
-  for (const [name, bytes] of members) await deps.storage.upload(`raw/${manifestSHA}/${name}`, bytes, contentType(name));
-  await deps.storage.upload(`raw/${manifestSHA}/manifest.json`, manifestBytes, 'application/json');
+  await uploadInventoried(deps, claim, 'raw', [...members].map(([name, bytes]) => ({ path: `raw/${manifestSHA}/${name}`, bytes, mediaType: contentType(name) }))
+    .concat([{ path: `raw/${manifestSHA}/manifest.json`, bytes: manifestBytes, mediaType: 'application/json' }]));
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_collected', { ...claim, p_pages_reported: pages,
     p_raw_manifest_sha256: hex(manifestSHA), p_raw_manifest_bytes: manifestBytes.length });
   deps.log('collected', { paper: e.id, pages, mmd_bytes: members.get('standalone.mmd')!.length });
@@ -444,8 +454,8 @@ async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, poli
     throw new PermanentFailure('render_failed', 'render');
   }
   if (await sha256(bundle.manifestBytes) !== bundle.manifestSHA256) throw new Error('bundle_integrity');
-  for (const [name, bytes] of bundle.members) await deps.storage.upload(`reader/${bundle.manifestSHA256}/${name}`, bytes, contentType(name));
-  await deps.storage.upload(`reader/${bundle.manifestSHA256}/manifest.json`, bundle.manifestBytes, 'application/json');
+  await uploadInventoried(deps, claim, 'reader', [...bundle.members].map(([name, bytes]) => ({ path: `reader/${bundle.manifestSHA256}/${name}`, bytes, mediaType: contentType(name) }))
+    .concat([{ path: `reader/${bundle.manifestSHA256}/manifest.json`, bytes: bundle.manifestBytes, mediaType: 'application/json' }]));
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_published', { ...claim, p_manifest_sha256: hex(bundle.manifestSHA256),
     p_manifest_bytes: bundle.manifestBytes.length, p_renderer_version: policy.renderer_version });
   deps.log('published', { paper: e.id, members: bundle.members.size });

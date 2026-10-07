@@ -1978,7 +1978,7 @@ final class ReaderModel {
             // Four members at a time (they were fetched one by one: ~0.4–1 s each).
             let members = try await withThrowingTaskGroup(of: (String, Data).self) { group in
                 var fetched: [String: Data] = [:], queue = descriptor.members[...]
-                func next() { if let member = queue.popFirst() { group.addTask { (member.path, try await backend.readerMember(member)) } } }
+                func next() { if let member = queue.popFirst() { group.addTask { (member.path, try await backend.readerMember(member, accountID: accountID)) } } }
                 for _ in 0..<4 { next() }
                 while let (path, data) = try await group.next() { fetched[path] = data; next() }
                 return fetched

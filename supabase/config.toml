@@ -49,6 +49,10 @@ verify_jwt = false
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false
 
+[functions.reader-member]
+# Auth.getUser plus an account-bound, one-use member grant in the handler.
+verify_jwt = false
+
 [functions.discover]
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false

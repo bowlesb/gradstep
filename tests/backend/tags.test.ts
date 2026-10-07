@@ -118,7 +118,7 @@ test('a classification is priced from usage; refusals, bad output and errors fal
   const lost = await classifyPaper(fakeAnthropic(() => { throw new TypeError('socket hang up'); }).client, input);
   assert.equal(lost.status === 'failed' && lost.code, 'provider_transport');
   assert.equal(lost.microusd, estimateMicrousd(tagRequest(input)), 'a lost call is charged its upper bound');
-  assert.ok(lost.microusd > 3000 && lost.microusd < 10_000, `${lost.microusd} µ$ fits the hold`);
+  assert.ok(lost.microusd > 10_000 && lost.microusd < 40_000, `${lost.microusd} µ$ conservative byte bound fits the revised hold`);
 });
 
 function harness(claims: ClaimedVersion[][], classify: TaggingDeps['classify'], options: { failRecord?: boolean; items?: number } = {}) {
@@ -145,7 +145,7 @@ function harness(claims: ClaimedVersion[][], classify: TaggingDeps['classify'], 
 }
 const claimed = (id: string, model: boolean, categories = ['cs.CL', 'cs.LG']): ClaimedVersion => ({
   version_id: id, claim_id: 'c-' + id, metadata_id: 'm-' + id, title: 'A title', abstract: 'An abstract', categories,
-  model, hold_microusd: model ? 10_000 : 0, model_refused: model ? null : 'platform_budget_exhausted', method: null, tags: [] });
+  model, hold_microusd: model ? 40_000 : 0, model_refused: model ? null : 'platform_budget_exhausted', method: null, tags: [] });
 
 test('a tagging run: model tags under a hold, the category fallback without one, projections, then stragglers', async () => {
   const seen: unknown[] = [];
@@ -183,7 +183,8 @@ test('a failed model call records the fallback with its cost; no model means no 
   const record = calls.find(call => call.name === 'worker_tags_record')!.params;
   assert.equal(record.p_method, 'categories');
   assert.equal(record.p_model_attempted, true);
-  assert.equal(record.p_microusd, 4321);
+  assert.equal(record.p_microusd, 40000, 'unknown result retains the entire admitted ceiling');
+  assert.deepEqual(record.p_units, { input_tokens: 0, output_tokens: 0, estimated: true });
   assert.equal(record.p_provider_event_id, 'tags-estimate:c-v1:v1', 'an estimate is still recorded as provider usage');
   assert.equal(record.p_model, TAG_MODEL);
 
@@ -195,6 +196,17 @@ test('a failed model call records the fallback with its cost; no model means no 
   const keyless = harness([[claimed('v1', false)]], null);
   await tagCatalog(keyless.deps, { deadline: 1_000_000 });
   assert.equal(keyless.calls[0].params.p_model, false);
+});
+
+test('a tag input whose byte bound exceeds its admitted hold never calls the model', async () => {
+  const candidate = claimed('v1', true); candidate.hold_microusd = 10_000;
+  let generated = 0;
+  const { deps, calls } = harness([[candidate]], async () => { generated++; throw new Error('must not send'); });
+  await tagCatalog(deps, { deadline: 1_000_000 });
+  assert.equal(generated, 0);
+  const record = calls.find(call => call.name === 'worker_tags_record')!.params;
+  assert.equal(record.p_method, 'categories'); assert.equal(record.p_microusd, 0);
+  assert.equal(record.p_model_attempted, false); assert.equal(record.p_provider_event_id, null);
 });
 
 test('runs stop at their bounds; a record that fails is counted and logged, not thrown', async () => {

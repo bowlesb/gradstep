@@ -3,6 +3,11 @@
 Status: implemented and tested locally (migration `202610050018_app_store_purchases.sql`, Edge functions `store-sync` and
 `app-store-notifications`, Settings › Get credits); App Store Connect products created. An independent review's findings were
 fixed. Not yet verified with a real sandbox purchase.
+
+**2026-10-07 spending-controls branch:** migration035 closes the concurrent Sandbox identity allowance gap and
+requires a current or previously verified app-transaction identity for new free grants. This addition is not yet
+deployed. See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-035). The historical upgrade
+behavior below still conflicts with the owner's decision to retain earlier period credits;035 does not change it.
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
 pack = 400 credits that never expire; TestFlight testers get 1,000 credits by operator grant.
 
@@ -27,7 +32,7 @@ an older copy reported later can never undo a refund.
 | A subscription period that already ended (restored history) or a refunded first sight | Recorded, nothing granted |
 | Plan change mid-period (upgrade) | The new plan's credits are granted; the earlier plan's unspent credits end (Apple refunds its unused time). A replaced period reported later grants nothing |
 | Renewal-date extension | Recorded (periods up to 400 days); later refunds still apply |
-| Sandbox purchase (TestFlight, sandbox testers: free) | Credits capped at 1,000 per account per UTC month (`store_policy`) |
+| Sandbox purchase (TestFlight, sandbox testers: free) | At most 1,000 new credits per account and verified Apple app-transaction identity per UTC month. Migration035 serializes admission; missing identity grants zero with an audit reason. Refunds do not replenish the allowance |
 | Unknown product, wrong type, family sharing | Refused (`unknown_product`, `unsupported`) |
 
 There is no separate mutable "entitlement" whose state could be regressed by an out-of-order or re-signed
@@ -67,6 +72,11 @@ never accepted. Production will need `APP_STORE_APP_APPLE_ID` and a decision on 
 purchases are accepted there.
 
 The database functions re-validate every field shape and are callable only by the service role.
+
+Apple documents `appTransactionId` as stable for an Apple Account and app across redownloads, refunds, repurchases
+and storefront changes. It is distinct from an individual purchase's original transaction ID. Use only Apple's
+verified value, including a previously verified value for the same transaction; the app account token is not a
+substitute. [Apple app transaction information](https://developer.apple.com/documentation/appstoreserverapi/get-app-transaction-info).
 
 ## Flows
 

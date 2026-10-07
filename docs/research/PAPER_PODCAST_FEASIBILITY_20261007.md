@@ -131,6 +131,43 @@ A reusable episode work key should bind the exact ordered source/version set, ve
 
 Sharing is allowed only for an approved, non-personalized shared derivative whose inputs all satisfy the sharing policy. Include the owner in private work identity; authorize before revealing even a cache hit. A title, DOI, arXiv ID, or coincidentally identical private PDF hash is insufficient authorization. Shared generation can follow the existing explicit first-funder rule, with waiters and no duplicate charge, or an independently budgeted platform-funded catalog. Decide which before publishing prices. Removing one membership must not erase a shared result others use; an account deletion must fence private generation and remove its private outputs, including late arrivals.
 
+## Owner direction: browse prepared episodes (2026-10-07)
+
+The owner especially values finding an episode that is already ready, without planning generation in advance.
+Treat a shared, browsable episode catalog as a first-class product design requirement. This expands planning,
+not authorization for new paid generation, public publishing, or a new subscription. Detailed schema and UX
+review precede implementation; the current spending-control work remains first.
+
+Separate three identities: an eligible source/version and approved episode profile; an immutable generated
+episode release with its transcript, evidence and audio; and each listener's private membership, download and
+playback position. Generation jobs and first-funder receipts belong to the accounting workflow, not the public
+catalog. Shared reuse must not disclose who requested an episode, their library membership, private notes,
+questions or listening history. Private and personalized results never become public through a cache hit.
+
+Browse should show ready, eligible releases with paper title/authors, topic, duration, language, source version
+and a clear generated-audio label. Open the transcript/citations or play immediately; an empty search should
+not silently enqueue generation. Keep the existing app navigation until a concrete catalog/listening proposal
+is reviewed. Download, playback resume, background audio, interruption handling and removal must work across
+iPhone, iPad, Mac and web, with offline playback of retained downloads. Define the privacy/sync contract for
+listening position explicitly instead of copying server-visible activity analytics.
+
+Admission deduplicates a requested episode profile before reserving generation cost. Concurrent requests join
+one durable job; only one provider execution gets a grant, and waiters receive no duplicate generation charge.
+Publishing requires a complete, reviewed transcript/audio pair, exact source provenance and sharing approval.
+An updated paper or corrected explanation creates a new release; old links remain attributable and listeners
+see which version they have. Retraction, rights withdrawal, factual-error reports, correction and removal need
+an explicit lifecycle, including search visibility and offline-cache freshness limits.
+
+Decide first-funder fairness and playback access together: generating a reusable episode, listening to it,
+downloading it, and requesting a personalized variant are distinct actions with distinct costs. A platform-
+funded seed catalog needs its own allocation inside the existing operating budget. Demand signals can guide
+that allocation only after their privacy and abuse controls are designed. Playback must use bounded delivery
+and record transfer cost; sharing eliminates repeated generation, not storage or distribution expense.
+
+Before activation, review schema evolution, exact deduplication keys, eligibility, moderation/corrections,
+retention/deletion, library integration, discovery pagination, cross-device playback, credits and aggregate
+reuse analytics as one end-to-end design. No catalog migration or audio provider call is part of this update.
+
 ## Small proof of concept, if separately activated
 
 Propose a **$5 maximum experiment**, only after confirmed budget headroom and reliable per-attempt admission. Nothing was generated during this research.

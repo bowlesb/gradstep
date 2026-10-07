@@ -266,7 +266,7 @@ export interface ChatDependencies {
   accountID: string;
   rpc(name: string, params: Record<string, unknown>): Promise<unknown>;
   /** Returns the stored object bytes, or null when it is missing. */
-  loadPaper(bucket: string, path: string): Promise<Uint8Array | null>;
+  loadPaper(bucket: string, path: string, expectedBytes?: number): Promise<Uint8Array | null>;
   /** Null when the provider is not configured in this environment. */
   generate: ((params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, options: StreamOptions) => Promise<ProviderOutcome>) | null;
   sha256Hex(bytes: Uint8Array): Promise<string>;
@@ -280,12 +280,15 @@ export interface ChatDependencies {
   /** Offer web search (server setting; off by default). Anthropic's search serves it,
    * or backs up `search` when that is configured. */
   webSearch?: boolean;
+  /** Native backup requires a separately verified provider-enforced cost bound.
+   * Production leaves this false until that deployment gate is implemented. */
+  nativeSearch?: boolean;
   /** Tavily, the primary search provider (absent when not configured). `ready` is false
    * while it is paused after a failure or its plan allowance is used up. */
   search?: { ready(): Promise<boolean>; run(input: SearchInput, signal: AbortSignal): Promise<SearchOutcome> };
   /** Ingest: the paper that strictly matches the citation, if any: on arXiv, else (with `web`)
    * an open-access copy found through OpenAlex. */
-  findPaper?: (request: PaperRequest, signal: AbortSignal, options: { web: boolean }) => Promise<FindResult>;
+  findPaper?: (request: PaperRequest, signal: AbortSignal, options: { web: boolean; tavily?: boolean }) => Promise<FindResult>;
   /** Ingest: adds one found paper to the caller's library (as the caller). */
   importPaper?: (paper: FoundPaper, signal: AbortSignal) => Promise<'added' | 'present' | 'failed'>;
 }
@@ -321,31 +324,43 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
 
+  if (!deps.generate) throw new ChatFailure('provider_unavailable');
+  const tavily = await tavilyReady === true;
+  const nativeSearch = search && deps.nativeSearch === true;
+  const searchOffered = tavily || nativeSearch;
+  const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
+  const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: chatInstructions(request.mode, request.action, searchOffered),
+    paper, turns: request.turns, selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
+      : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
+  const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
+  if (deps.availableCredits && (available === null || !Number.isSafeInteger(available) || available < 0)) throw new ChatFailure('service_unavailable');
+  // The history/instructions/output budget already imply this minimum hold.
+  // Refuse clearly insufficient balances before downloading the paper; cheap
+  // general chats still use their own quote, not an invented 50-credit minimum.
+  const minimum = Math.min(HOLD_CAP_MINIMUM_CREDITS, holdFor(promptCharacters(makeParams(null)), CHAT_MAX_TOKENS).credits);
+  if (available !== null && available < minimum) throw new ChatFailure('insufficient_credits');
+
   let paper: PaperContext | null = null;
   if (request.mode === 'paper') {
-    let context: { bucket?: unknown; path?: unknown; title?: unknown };
+    let context: { bucket?: unknown; path?: unknown; title?: unknown; byte_count?: unknown };
     try { context = await deps.rpc('worker_chat_context', { p_account_id: deps.accountID, p_document_id: request.documentID }) as typeof context; }
     catch (error) { throw new ChatFailure(reason(error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable'); }
     if (!context || typeof context.bucket !== 'string' || typeof context.path !== 'string') throw new ChatFailure('document_unavailable');
-    const bytes = await deps.loadPaper(context.bucket, context.path);
+    const byteCount = typeof context.byte_count === 'number' ? context.byte_count : undefined;
+    if (byteCount !== undefined && (!Number.isSafeInteger(byteCount) || byteCount <= 0 || byteCount > MAX_PAPER_BYTES)) throw new ChatFailure('document_unavailable');
+    const bytes = await deps.loadPaper(context.bucket, context.path, byteCount);
     if (!bytes || !bytes.length || bytes.length > MAX_PAPER_BYTES) throw new ChatFailure('document_unavailable');
     let text: string;
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw new ChatFailure('document_unavailable'); }
     paper = { title: typeof context.title === 'string' ? context.title : null, text };
   }
-  if (!deps.generate) throw new ChatFailure('provider_unavailable');
-  const tavily = await tavilyReady === true;
-  const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
-  const params = chatRequestParams({ instructions: chatInstructions(request.mode, request.action, search), paper, turns: request.turns,
-    selection: request.selection, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
-      : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : search ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
+  const params = makeParams(paper);
   const hold = holdFor(promptCharacters(params), CHAT_MAX_TOKENS);
-  if (search) {
+  if (searchOffered) {
     // Sized for Anthropic's search, which also bounds Tavily and a mid-answer switch between them.
     hold.microusd += webSearchHoldMicrousd(hold.inputTokens, searchCap);
     hold.credits = creditsFor(hold.microusd);
   }
-  const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
   if (available !== null && Number.isSafeInteger(available) && available >= HOLD_CAP_MINIMUM_CREDITS && available < hold.credits) {
     hold.credits = available;
   }
@@ -383,7 +398,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       signal: deadline.signal, inputEstimateTokens: hold.inputTokens, now,
       onText: text => { if (text.trim()) wroteText = true; answerTail = (answerTail + text).slice(-4000); if (!signal.aborted && text) emit({ event: 'delta', data: { text } }); },
       onStatus: status,
-    }, { tavily, backup: search, cap: searchCap }, stats);
+    }, { tavily, backup: nativeSearch, cap: searchCap }, stats);
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', stop);
@@ -405,7 +420,7 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
   if (stats.tavily || stats.failures) await recordSearchUsage(deps, request.operationID, stats);
   // Counts only (never text): whether answers search the web, per selection action.
   deps.log({ event: 'chat_answer', operation_id: request.operationID, action: request.action ?? 'none', mode: request.mode,
-    web_search_offered: search, search_provider: tavily ? 'tavily' : search ? 'anthropic' : 'none',
+    web_search_offered: searchOffered, search_provider: tavily ? 'tavily' : nativeSearch ? 'anthropic' : 'none',
     web_searches: (outcome.webSearches ?? 0) + stats.tavily, tavily_searches: stats.tavily, search_failures: stats.failures,
     failover: stats.failover, sources: outcome.sources?.length ?? 0 });
 
@@ -432,7 +447,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
       const web = request.capabilities.includes('web_import');
       const clock = deps.now ?? Date.now, started = clock();
       status({ kind: 'finding_paper' });
-      const search = await deps.findPaper(wanted, budget, { web }).catch((): FindResult => ({ status: 'unavailable' }));
+      const search = await deps.findPaper(wanted, budget, { web,
+        tavily: request.consentVersion === CONSENT_VERSION && deps.webSearch === true }).catch((): FindResult => ({ status: 'unavailable' }));
       const findMs = clock() - started;
       const found = 'paper' in search ? search.paper : null;
       let result: IngestResult = search.status === 'found' ? 'failed' : search.status;
@@ -507,6 +523,11 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
   let firstID: string | null = null, wrote = false, separate = false;
   for (let round = 0; ; round++) {
     const used = attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
+    const remaining = Math.max(0, search.cap - searches - anthropicSearches);
+    // Native search's max_uses is per API request. Never reset it on pause_turn
+    // or after a client-tool round. With no allowance the tool is unavailable.
+    if (tools) tools = tools.flatMap(tool => 'name' in tool && tool.name === 'web_search'
+      ? remaining > 0 ? [{ ...tool, max_uses: remaining }] : [] : [tool]);
     let opening = true, outcome: ProviderOutcome;
     try {
       outcome = await generate({ ...params, messages: [...params.messages, ...marked(extra)], ...(tools ? { tools } : {}),
@@ -531,14 +552,25 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
         ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
     };
     const left = CHAT_MAX_TOKENS - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
-    if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round > search.cap || left < MIN_ROUND_TOKENS) return finish();
+    const continuation = outcome.stopReason === 'pause_turn'
+      || (outcome.stopReason === 'tool_use' && outcome.toolCalls?.some(call => call.name === SEARCH_WEB_TOOL.name));
+    if (outcome.status !== 'complete' || !outcome.content || options.signal.aborted || round >= search.cap || left < MIN_ROUND_TOKENS) {
+      if (continuation && outcome.status === 'complete') outcome = { ...outcome, status: 'failed', failure: 'provider_error' };
+      return finish();
+    }
     const previous = extra.at(-1);
     const append = () => {
       if (previous?.role === 'assistant') previous.content = [...previous.content as unknown[], ...outcome.content!] as typeof previous.content;
       else extra.push({ role: 'assistant', content: outcome.content as MessageParam['content'] });
     };
     // A long server-side search turn paused: send it back to continue it.
-    if (outcome.stopReason === 'pause_turn') { append(); separate = false; continue; }
+    if (outcome.stopReason === 'pause_turn') {
+      if (search.cap - searches - anthropicSearches <= 0) {
+        outcome = { ...outcome, status: 'failed', failure: 'provider_error' };
+        return finish();
+      }
+      append(); separate = false; continue;
+    }
     const roundCalls = outcome.stopReason === 'tool_use' ? outcome.toolCalls ?? [] : [];
     if (!roundCalls.some(call => call.name === SEARCH_WEB_TOOL.name) || roundCalls.some(call => !call.id)) return finish();
     calls.push(...roundCalls);
@@ -550,7 +582,7 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       if (call.name !== SEARCH_WEB_TOOL.name) return reply(call.name === CREATE_DIAGRAM_TOOL.name ? 'The diagram is shown with your answer.' : 'Done.');
       searches++;
       const input = searchInput(call.input);
-      if (searches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
+      if (searches + anthropicSearches > search.cap) return reply('No searches are left for this answer. Answer with what you have.', true);
       if (!input) return reply('Invalid search: give a short query.', true);
       if (!tavily || !deps.search) return reply(unavailable(canSwitch()), true);
       options.onStatus?.(searchingStatus(input.query));
@@ -565,11 +597,11 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
     append();
     extra.push({ role: 'user', content: results });
     separate = wrote;
-    const remaining = search.cap - searches - anthropicSearches;
-    if (failed && search.backup && remaining > 0) {
+    const searchesLeft = search.cap - searches - anthropicSearches;
+    if (failed && search.backup && searchesLeft > 0) {
       // The rest of this answer searches with Anthropic. search_web stays defined: the conversation uses it.
       stats.failover = true;
-      tools = [...(params.tools ?? []), { ...WEB_SEARCH_TOOL, max_uses: remaining }];
+      tools = [...(params.tools ?? []), { ...WEB_SEARCH_TOOL, max_uses: searchesLeft }];
     }
   }
 }

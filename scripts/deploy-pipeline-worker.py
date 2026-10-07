@@ -35,7 +35,7 @@ def secrets():
 def context():
     """The build context: the worker directory plus the shared pipeline modules (no tests, no apps)."""
     target = Path(tempfile.mkdtemp(prefix='gradstep-pipeline-'))
-    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts']:
+    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts']:
         shutil.copy(ROOT / 'services/pipeline-worker' / name, target / name)
     shutil.copytree(ROOT / 'supabase/functions/_shared', target / 'supabase/functions/_shared',
                     ignore=shutil.ignore_patterns('node_modules', '*.test.ts'))
@@ -54,6 +54,48 @@ def run():
 
 def gcloud(*args, input=None, capture=False):
     return subprocess.run(['gcloud', *args], check=True, input=input, text=True, capture_output=capture)
+
+def deployment_args(project, region, image, account, mapping):
+    # Request-based billing depends on server.ts awaiting and joining its bounded worker thread.
+    # Set both scopes: a revision-only maximum leaves the service ceiling at its old value.
+    return ['run', 'deploy', SERVICE, '--project', project, '--region', region, '--image', image,
+            '--memory', '2Gi', '--cpu', '1', '--concurrency', '1', '--max', '3', '--min', '0',
+            '--max-instances', '3', '--min-instances', '0', '--timeout', '900', '--cpu-throttling',
+            '--allow-unauthenticated', '--service-account', account, '--set-secrets', mapping, '--quiet']
+
+def deployment_policy(service):
+    """Allowlisted, nonsecret shape used by deployment verification and spending inspection."""
+    annotations = service.get('metadata', {}).get('annotations', {})
+    template = service.get('spec', {}).get('template', {})
+    revision = template.get('metadata', {}).get('annotations', {})
+    spec = template.get('spec', {})
+    containers = spec.get('containers', [])
+    resources = containers[0].get('resources', {}).get('limits', {}) if len(containers) == 1 else {}
+    return {
+        'revision': service.get('status', {}).get('latestReadyRevisionName'),
+        'cpu_throttling': revision.get('run.googleapis.com/cpu-throttling', 'true'),
+        'service_min': annotations.get('run.googleapis.com/minScale', '0'),
+        'service_max': annotations.get('run.googleapis.com/maxScale'),
+        'revision_min': revision.get('autoscaling.knative.dev/minScale', '0'),
+        'revision_max': revision.get('autoscaling.knative.dev/maxScale'),
+        'concurrency': spec.get('containerConcurrency'), 'timeout_seconds': spec.get('timeoutSeconds'),
+        'cpu': resources.get('cpu'), 'memory': resources.get('memory'),
+        'container_count': len(containers),
+        'traffic': [{'revision': row.get('revisionName'), 'percent': row.get('percent', 0)}
+                    for row in service.get('status', {}).get('traffic', [])],
+    }
+
+def verify_policy(policy):
+    expected = {'cpu_throttling': 'true', 'service_min': '0', 'service_max': '3',
+                'revision_min': '0', 'revision_max': '3', 'concurrency': 1,
+                'timeout_seconds': 900, 'container_count': 1}
+    mismatches = [name for name, value in expected.items() if policy.get(name) != value]
+    if policy.get('cpu') not in ('1', '1000m'): mismatches.append('cpu')
+    if policy.get('memory') not in ('2Gi', '2048Mi', '2147483648'): mismatches.append('memory')
+    traffic = policy.get('traffic', [])
+    if not policy.get('revision') or traffic != [{'revision': policy['revision'], 'percent': 100}]:
+        mismatches.append('traffic')
+    if mismatches: raise RuntimeError('pipeline_configuration_mismatch: ' + ', '.join(mismatches))
 
 def deploy(project, region):
     env = secrets()
@@ -78,12 +120,13 @@ def deploy(project, region):
     subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context())], check=True)
     subprocess.run(['docker', 'push', image], check=True)
     mapping = ','.join(f'{name}=gradstep-{name.lower().replace("_", "-")}:latest' for name in env)
-    gcloud('run', 'deploy', SERVICE, '--project', project, '--region', region, '--image', image,
-           '--memory', '2Gi', '--cpu', '1', '--concurrency', '1', '--max-instances', '3', '--min-instances', '0',
-           '--timeout', '900', '--no-cpu-throttling', '--allow-unauthenticated', '--service-account', account,
-           '--set-secrets', mapping, '--quiet')
-    url = gcloud('run', 'services', 'describe', SERVICE, '--project', project, '--region', region,
-                 '--format', 'value(status.url)', capture=True).stdout.strip()
+    gcloud(*deployment_args(project, region, image, account, mapping))
+    service = json.loads(gcloud('run', 'services', 'describe', SERVICE, '--project', project, '--region', region,
+                               '--format', 'json', capture=True).stdout)
+    policy = deployment_policy(service)
+    verify_policy(policy)
+    print('Verified pipeline configuration', json.dumps(policy, sort_keys=True))
+    url = service['status']['url']
     print('Deployed', url)
     return image.rsplit(':', 1)[1]
 
@@ -123,22 +166,25 @@ def workflow_checks():
     if checks.returncode != 0:
         raise SystemExit('Deployed, but workflow checks FAILED (table above; report under .artifacts/workflow-checks/).')
 
-parser = argparse.ArgumentParser()
-parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover', 'retry-failed'])
-parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url'); parser.add_argument('--label')
-parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploy/cutover')
-args = parser.parse_args()
-if args.command == 'build': build()
-elif args.command == 'run': run()
-elif args.command == 'deploy':
-    if not args.project: raise SystemExit('--project is required')
-    label = deploy(args.project, args.region)
-    retry_failed(label)
-    if not args.skip_checks: workflow_checks()
-elif args.command == 'retry-failed':
-    if not args.label: raise SystemExit('--label is required (letters, digits, . _ : -)')
-    retry_failed(args.label)
-else:
-    if not args.url or not args.url.startswith('https://'): raise SystemExit('--url https://… is required')
-    cutover(args.url)
-    if not args.skip_checks: workflow_checks()
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=['build', 'run', 'deploy', 'cutover', 'retry-failed'])
+    parser.add_argument('--project'); parser.add_argument('--region', default='us-west1'); parser.add_argument('--url'); parser.add_argument('--label')
+    parser.add_argument('--skip-checks', action='store_true', help='Do not run the workflow checks after deploy/cutover')
+    args = parser.parse_args()
+    if args.command == 'build': build()
+    elif args.command == 'run': run()
+    elif args.command == 'deploy':
+        if not args.project: raise SystemExit('--project is required')
+        label = deploy(args.project, args.region)
+        retry_failed(label)
+        if not args.skip_checks: workflow_checks()
+    elif args.command == 'retry-failed':
+        if not args.label: raise SystemExit('--label is required (letters, digits, . _ : -)')
+        retry_failed(args.label)
+    else:
+        if not args.url or not args.url.startswith('https://'): raise SystemExit('--url https://… is required')
+        cutover(args.url)
+        if not args.skip_checks: workflow_checks()
+
+if __name__ == '__main__': main()

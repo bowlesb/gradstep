@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allowedPrefix, completeAccountDeletion, listPrefix, sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
+import { allowedPrefix, completeAccountDeletion, IncompleteDeletionScan, listPrefix, sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 
 const account = '17000000-0000-0000-0000-00000000000a';
 function fakeService(files: Record<string, string[]>, options: { failRemoveTimes?: number; failLogin?: boolean; failFinish?: boolean } = {}) {
@@ -86,4 +86,28 @@ test('the worker sweep resumes pending deletions', async () => {
   await sweepAccountDeletions(service, fields => logs.push(fields));
   assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_delete_account_begin', 'worker_delete_account_finish']);
   assert.deepEqual(logs, [{ event: 'account_deletion_swept', account_id: account, step: undefined }]);
+});
+
+test('a truncated file or folder scan never confirms erasure or releases capacity', async () => {
+  for (const folders of [false, true]) {
+    let listed = 0, removed = 0, finished = 0, loginDeleted = 0;
+    const service = {
+      storage: { from: () => ({
+        list: async (_folder: string, { limit, offset }: { limit: number; offset: number }) => {
+          listed++;
+          return { error: null, data: Array.from({ length: Math.min(limit, 20_001 - offset) }, (_, i) =>
+            ({ name: `object-${offset + i}`, id: folders ? null : 'file' })) };
+        },
+        remove: async () => { removed++; return { error: null }; },
+      }) },
+      rpc: async () => { finished++; return { error: null }; },
+      auth: { admin: { deleteUser: async () => { loginDeleted++; return { error: null }; } } },
+    } as never;
+    await assert.rejects(() => listPrefix(service, 'paper-assets', `private/${account}/`), IncompleteDeletionScan);
+    listed = 0;
+    const result = await completeAccountDeletion(service, account, { private_prefix: `private/${account}/` });
+    assert.deepEqual(result, { complete: false, step: 'files', code: 'deletion_scan_incomplete' });
+    assert.ok(listed <= 21, 'an incomplete scan is not retried three times');
+    assert.deepEqual([removed, finished, loginDeleted], [0, 0, 0]);
+  }
 });

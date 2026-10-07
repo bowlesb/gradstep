@@ -30,6 +30,9 @@ function harness(responses: Record<string, (params: Record<string, unknown>) => 
     async rpc<T>(name: string, params: Record<string, unknown>): Promise<T> {
       calls.push({ name, params });
       const handler = responses[name];
+      if (!handler && name === 'worker_pipeline_asset_plan') return { upload_id: params.p_upload_id,
+        objects: (params.p_objects as { path: string }[]).map(o => ({ id: crypto.randomUUID(), path: o.path, verified: false })) } as T;
+      if (!handler && name === 'worker_pipeline_asset_write') return { write: true, verified: false } as T;
       if (!handler) return null as T;
       return handler(params) as T;
     },
@@ -45,7 +48,7 @@ function harness(responses: Record<string, (params: Record<string, unknown>) => 
       async output() { throw new Error('unexpected output'); },
     },
     async render() { throw new Error('unexpected render'); },
-    async sleep() {}, now: () => Date.parse('2026-10-05T06:00:00Z'), uuid: () => '33333333-3333-4333-8333-333333333333',
+    async sleep() {}, now: () => Date.parse('2026-10-05T06:00:00Z'), uuid: () => crypto.randomUUID(),
     log: event => { logs.push(event); }, ...extra,
   };
   return { deps, calls, uploads, logs };
@@ -104,7 +107,8 @@ test('metadata → download → fund → submit in one claim, then sync and rele
   // The fresh submission is waited on in the same claim (no wait for the next minute's run), then deferred briefly.
   // Readers see each stage as it starts (sync before metadata, download, fund, submit, wait), and at the end.
   assert.deepEqual(names(calls).filter(n => n !== 'worker_pipeline_arxiv_slot'), ['worker_pipeline_sync_imports', 'worker_pipeline_metadata',
-    'worker_pipeline_sync_imports', 'worker_pipeline_admit_download', 'worker_pipeline_original', 'worker_pipeline_sync_imports', 'worker_pipeline_fund',
+    'worker_pipeline_sync_imports', 'worker_pipeline_admit_download', 'worker_pipeline_asset_plan', 'worker_pipeline_asset_write', 'worker_pipeline_asset_written',
+    'worker_pipeline_original', 'worker_pipeline_sync_imports', 'worker_pipeline_admit_processing', 'worker_pipeline_fund',
     'worker_pipeline_sync_imports', 'worker_pipeline_begin_submit', 'worker_pipeline_submitted', 'worker_pipeline_sync_imports', 'worker_pipeline_heartbeat',
     'worker_pipeline_sync_imports', 'worker_pipeline_defer']);
   assert.ok(polls.length > 1 && polls.every(id => id === 'job-1'), 'the new job is polled in this invocation');
@@ -151,12 +155,12 @@ test('polling defers until complete, then captures raw output and settles on pro
   assert.equal(raw.members.size, 3);
 });
 
-test('provider error settles without customer charge via ocr_failed', async () => {
-  const { deps, calls } = harness({ worker_pipeline_ocr_failed: p => { assert.equal(p.p_pages_billed, 2); return entry('failed'); } }, {
+test('provider error progress is not final billed usage: quarantine its full liability', async () => {
+  const { deps, calls } = harness({ worker_pipeline_ocr_uncertain: p => { assert.equal(p.p_error_code, 'provider_usage_unknown'); return entry('ocr_uncertain'); } }, {
     mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'error', pages: 5, completedPages: 2, pipelineVersion: null, deleted: false, errorCode: 'x' }; } } });
   await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
     attempt: { id: 'a', state: 'submitted', page_limit: 5, provider_job_id: 'job-2', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
-  assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_heartbeat', 'worker_pipeline_ocr_failed', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_heartbeat', 'worker_pipeline_ocr_uncertain', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
 
 test('transient errors back off; repeated failures fail resumably; lost claims do nothing', async () => {
@@ -276,13 +280,37 @@ test('render stage turns real retained Mathpix output into a valid reader bundle
   assert.ok([...bundleMembers.keys()].some(k => k.endsWith('.jpg')), 'JPEG figures published');
 });
 
-test('a job the provider no longer knows fails (hold settles) instead of polling forever', async () => {
+test('a job the provider no longer knows retains full liability and its identity for reconciliation', async () => {
   const { MathpixError } = await import('../../supabase/functions/_shared/mathpix.ts');
-  const { deps, calls } = harness({ worker_pipeline_ocr_failed: p => { assert.equal(p.p_pages_billed, 6); return entry('failed'); } }, {
+  const { deps, calls } = harness({ worker_pipeline_ocr_uncertain: p => { assert.equal(p.p_error_code, 'provider_job_missing'); return entry('ocr_uncertain'); } }, {
     mathpix: { ...harness({}).deps.mathpix, async status() { throw new MathpixError('provider_http_failure', 404); } } });
   await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
     attempt: { id: 'a', state: 'submitted', page_limit: 6, provider_job_id: 'job-typo', submitted_at: null, raw_manifest_path: null } }), policy, deadline);
-  assert.ok(names(calls).includes('worker_pipeline_ocr_failed'));
+  assert.ok(names(calls).includes('worker_pipeline_ocr_uncertain'));
+  assert.ok(!names(calls).includes('worker_pipeline_ocr_failed'));
+});
+
+test('six-hour Mathpix timeout with zero completed pages never settles zero or starts replacement work', async () => {
+  const { deps, calls } = harness({ worker_pipeline_ocr_uncertain: p => {
+    assert.equal(p.p_error_code, 'conversion_timeout'); assert.equal(p.p_pages_billed, undefined); return entry('ocr_uncertain');
+  } }, {
+    mathpix: { ...harness({}).deps.mathpix, async status(id) { return { providerJobID: id, state: 'processing', pages: 80,
+      completedPages: 0, pipelineVersion: null, deleted: false, errorCode: null }; } },
+  });
+  await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
+    attempt: { id: 'a', state: 'submitted', page_limit: 80, provider_job_id: 'known-job', submitted_at: '2026-10-04T20:00:00Z', raw_manifest_path: null } }), policy, deadline);
+  assert.ok(names(calls).includes('worker_pipeline_ocr_uncertain'));
+  assert.ok(!names(calls).some(name => ['worker_pipeline_ocr_failed', 'worker_settle_operation', 'worker_pipeline_begin_submit'].includes(name)));
+});
+
+test('stale Mathpix status transport loss keeps known-job liability for reconciliation', async () => {
+  const { deps, calls } = harness({ worker_pipeline_ocr_uncertain: p => {
+    assert.equal(p.p_error_code, 'provider_status_unknown'); return entry('ocr_uncertain');
+  } }, { mathpix: { ...harness({}).deps.mathpix, async status() { throw new TypeError('lost status'); } } });
+  await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64),
+    attempt: { id: 'a', state: 'submitted', page_limit: 80, provider_job_id: 'known-job', submitted_at: '2026-10-04T20:00:00Z', raw_manifest_path: null } }), policy, deadline);
+  assert.ok(names(calls).includes('worker_pipeline_ocr_uncertain'));
+  assert.ok(!names(calls).includes('worker_pipeline_ocr_failed'));
 });
 
 test('a download that is not admitted fetches nothing', async () => {

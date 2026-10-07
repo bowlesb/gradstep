@@ -3,14 +3,12 @@ import { PublicError, sha256 } from '../_shared/http.ts';
 import { createAnthropicClient, streamChat } from '../_shared/anthropic.ts';
 import { MAX_PAPER_BYTES, readChatBody, RpcFailure, runChat, sseFrame, type ChatDependencies } from '../_shared/chat.ts';
 import { paperFinder } from '../_shared/find-paper.ts';
-import { type SearchFailure, tavilySearch } from '../_shared/tavily.ts';
+import { type SearchFailure } from '../_shared/tavily.ts';
+import { admittedAnthropic, admittedTavily } from '../_shared/provider-spending.ts';
 
 type Runtime = { waitUntil(promise: Promise<unknown>): void };
 const encoder = new TextEncoder();
 
-// Tavily searches allowed in any 31 days (the plan's monthly credits less a margin for
-// searches in flight); past it, answers use Anthropic's search until older ones age out.
-const tavilyAllowance = Number(Deno.env.get('TAVILY_SEARCH_ALLOWANCE') ?? '3900');
 // After a failure, this instance sends new answers to the backup for a while.
 let tavilyPausedUntil = 0;
 const PAUSE_MS: Record<SearchFailure, number> = { limit: 6 * 3600_000, unauthorized: 3600_000, rate_limited: 60_000, unavailable: 120_000, rejected: 0 };
@@ -36,32 +34,43 @@ Deno.serve(async request => {
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY'), tavilyKey = Deno.env.get('TAVILY_API_KEY');
   const client = apiKey ? createAnthropicClient({ apiKey }) : null;
-  const finder = paperFinder(service, user, tavilyKey);
+  const rpc: ChatDependencies['rpc'] = async (name, params) => {
+    const { data, error } = await service.rpc(name, params);
+    // A database exception carries a SQLSTATE; a fetch failure does not and
+    // stays ambiguous (the call may have committed).
+    if (error) throw error.code ? new RpcFailure(error.message) : new Error('transport');
+    return data;
+  };
+  const log: ChatDependencies['log'] = entry => console.warn(JSON.stringify({ function: 'chat', ...entry }));
+  // Validation in runChat precedes every provider call. Keep the canonical UUID
+  // here so case differences cannot create a second attempt namespace.
+  const rawID = body && typeof body === 'object' ? (body as { operation_id?: unknown }).operation_id : null;
+  const spending = { accountID, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
+  const providerPolicy = await rpc('worker_provider_spending_policy', {}).catch(() => null) as { tavily_enabled?: boolean; native_search_enabled?: boolean } | null;
+  const search = tavilyKey ? admittedTavily(spending, 'chat_search', fetch, tavilyKey) : null;
+  const finder = paperFinder(service, user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', fetch, tavilyKey) : undefined);
   const deps: ChatDependencies = {
     accountID,
-    rpc: async (name, params) => {
-      const { data, error } = await service.rpc(name, params);
-      // A database exception carries a SQLSTATE; a fetch failure does not and
-      // stays ambiguous (the call may have committed).
-      if (error) throw error.code ? new RpcFailure(error.message) : new Error('transport');
-      return data;
-    },
-    loadPaper: async (bucket, path) => {
+    rpc,
+    loadPaper: async (bucket, path, expectedBytes) => {
       const { data, error } = await service.storage.from(bucket).download(path);
-      if (error || !data || data.size > MAX_PAPER_BYTES) return null;
+      if (error || !data || data.size > MAX_PAPER_BYTES || (expectedBytes !== undefined && data.size !== expectedBytes)) return null;
       return new Uint8Array(await data.arrayBuffer());
     },
-    generate: client ? (params, options) => streamChat(client, params, options) : null,
+    generate: client ? admittedAnthropic(spending, (params, options) => streamChat(client, params, options)) : null,
     sha256Hex: sha256,
     webSearch: Deno.env.get('CHAT_WEB_SEARCH') === 'on',
-    search: tavilyKey ? {
+    // RPC readiness cannot stand in for an enforceable native-search quote.
+    // The adapter independently refuses native search until that work exists.
+    nativeSearch: false,
+    search: search ? {
       ready: async () => {
-        if (Date.now() < tavilyPausedUntil || !(tavilyAllowance > 0)) return false;
-        const { data, error } = await service.rpc('worker_provider_units_recent', { p_provider: 'tavily', p_unit: 'credits', p_days: 31 });
-        return !error && typeof data === 'number' && data < tavilyAllowance;
+        // This local pause is advisory. The transactional grant is the sole
+        // authority for provider allowance, account limits and platform pause.
+        return providerPolicy?.tavily_enabled === true && Date.now() >= tavilyPausedUntil;
       },
       run: async (input, signal) => {
-        const outcome = await tavilySearch(fetch, tavilyKey, input, signal);
+        const outcome = await search(input, signal);
         if (outcome.status === 'failed') tavilyPausedUntil = Math.max(tavilyPausedUntil, Date.now() + (outcome.retryAfterMs ?? PAUSE_MS[outcome.failure]));
         return outcome;
       },
@@ -72,7 +81,7 @@ Deno.serve(async request => {
     },
     findPaper: finder.findPaper,
     importPaper: finder.importPaper,
-    log: entry => console.warn(JSON.stringify({ function: 'chat', ...entry })),
+    log,
   };
 
   const gone = new AbortController();

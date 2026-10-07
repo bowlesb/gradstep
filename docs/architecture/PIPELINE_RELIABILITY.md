@@ -27,6 +27,32 @@ queues (pgmq) but no compute beyond Edge Functions, whose limits are fixed on ev
 
 ## Architecture
 
+### Spending-control hardening (2026-10-07, implementation branch; not deployed)
+
+Use request-based Cloud Run billing only with a bounded, awaited request lifecycle. The HTTP process will run
+each pipeline invocation in a Node worker thread, await its result, and terminate/join the thread before replying.
+A hard 840-second limit leaves 60 seconds before Cloud Run's 900-second request timeout. A timeout is a failure;
+it must not settle an unknown provider submission as free, release a still-uncertain liability, or start a retry.
+Existing durable provider grants and fenced queue leases allow later reconciliation. Each instance admits one
+run; health checks, invalid methods, unauthorized requests and overlapping wakeups do not create another thread.
+This boundary also covers account-deletion and tag projection loops, whose per-request network timeouts did not
+previously establish an overall run limit. Expensive renderer imports live in the worker, not the HTTP process.
+
+Deployment will explicitly select `--cpu-throttling`, zero minimum instances, and a maximum of three at both
+service and revision scope, then read back the configuration. The one-minute scheduler remains a recovery wakeup;
+it is not permission to run outside the HTTP request. The pg_net wakeup callers have short client deadlines, and
+their timeout does not establish that a pipeline run failed. Google documents that HTTP/1.1 client disconnects
+are not propagated to the container; the server still awaits the run. Cloud Run's own timeout is the upper bound
+that must be avoided. Any future HTTP/2, streaming-response, detached-task or periodic-background change requires
+rechecking this lifecycle before rollout. No claim of free hosting follows from choosing request-based billing.
+[Billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings),
+[request timeout](https://docs.cloud.google.com/run/docs/configuring/request-timeout),
+[client disconnect behavior](https://docs.cloud.google.com/run/docs/troubleshooting#client-disconnect).
+
+The first deployment must wait for the spending-control backend changes that preserve uncertain provider and
+upload liability. Record the new revision, billing mode, limits, timeout and measured allocation after cutover.
+No live change has been made by this implementation branch.
+
 - **Supabase stays the system of record and the queue.** `pipeline_papers` rows with fenced leases are the queue;
   pg_cron + pg_net call the worker every minute with the pipeline secret, as today.
 - **The worker moves to Cloud Run** (`gradstep-pipeline`): the same `runPipeline` code under Node 24 (the shared
@@ -36,8 +62,11 @@ queues (pgmq) but no compute beyond Edge Functions, whose limits are fixed on ev
   until the cutover is verified, then is deleted.
 - **Downloads hold one copy.** The PDF is read into one buffer sized from `content-length` (bounded by the policy's
   maximum), hashed and counted from that buffer, and uploaded from it.
-- **Cost:** within Cloud Run's free tier at beta volume (estimate $0–2/month); recorded in
-  [operations](OPERATIONS_AND_BILLING.md#fixed-commitments) once billed.
+- **Cost:** the original $0–2/month estimate was unsupported by the deployed instance-based billing mode.
+  The [dated infrastructure inspection](../reviews/PIPELINE_SPENDING_EVIDENCE_20261007.md) measured 22.49 aggregate
+  billable instance-hours in a 24-hour window; no invoice was retrieved. Request-based billing is implemented on
+  the spending-controls branch and still needs a coordinated cutover and measured follow-up. See
+  [operations](OPERATIONS_AND_BILLING.md#fixed-commitments) for the unchanged budget and fixed commitments.
 
 ## Loop breaker (migration 022)
 

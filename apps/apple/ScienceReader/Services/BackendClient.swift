@@ -528,16 +528,22 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Authorizes an offline reader download for one library item.
     func readerArtifact(itemID: UUID, accountID: UUID) async throws -> ReaderArtifactDescriptor {
-        let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)", body: nil, method: "GET",
+        let data = try await authorized(path: "functions/v1/reader-artifact?item_id=\(itemID.wire)&transport=bounded-v1", body: nil, method: "GET",
                                         accountID: accountID, maximumResponseBytes: 1_048_576)
         return try JSONDecoder().decode(ReaderArtifactDescriptor.self, from: data)
     }
 
     /// Fetches one signed bundle member. Signed Storage URLs stay on the
     /// configured project host and carry no account credential.
-    func readerMember(_ member: ReaderArtifactDescriptor.Member) async throws -> Data {
-        guard member.url.scheme == "https", member.url.host == config.url.host,
-              member.url.path.hasPrefix("/storage/v1/object/sign/") else { throw BackendError.unavailable }
+    func readerMember(_ member: ReaderArtifactDescriptor.Member, accountID: UUID) async throws -> Data {
+        let transport = try ReaderMemberTransport.validated(member.url, backendURL: config.url)
+        if transport == .bounded {
+            guard let query = URLComponents(url: member.url, resolvingAgainstBaseURL: false)?.percentEncodedQuery else { throw BackendError.unavailable }
+            let data = try await authorized(path: "functions/v1/reader-member?\(query)", body: nil, method: "GET", accountID: accountID,
+                                            maximumResponseBytes: member.bytes)
+            guard data.count == member.bytes else { throw BackendError.transport }
+            return data
+        }
         var request = URLRequest(url: member.url)
         request.httpMethod = "GET"
         let started = ProcessInfo.processInfo.systemUptime
