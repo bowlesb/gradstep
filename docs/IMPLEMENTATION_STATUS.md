@@ -65,6 +65,16 @@ deploy check `admin.accounts-gate` refuses anonymous and customer callers). Veri
 fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
 dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
 
+**Chat answers (2026-10-07, legacy gaps 4, 2, 9; [decision](DECISIONS.md#chat-answers-tables-papers-named-progress-agent-decisions-2026-10-07-overnight-mandate)):**
+Markdown tables render as native tables (pipe text only while incomplete during streaming); **Papers in this
+answer** lists arXiv IDs and DOIs an answer names, with Open (confirmed) and Add to library; a `status` stream event
+shows "Searching the web for “…”", "Reading results…", "Finding the paper…", "Adding to your library…" under the
+streaming answer. Owner feedback (build 14, items 3, 10, 11): selected answer text offers Ask about this, Explain and
+Define next to Copy; formulas offer Copy LaTeX and Copy as text; the "Answer:" label is gone; bold around inline math
+renders. Verified with Core/unit/backend tests and Simulator UI journeys on the chat fixture (iPhone and
+iPad, light and dark). The `status` events need the chat function deployed (not yet); live search/add
+progress and live DOI adds from an answer are unverified against staging.
+
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
 available PDF that OpenAlex lists (open-access copies and free ML venues), converted privately for the account.
 Installed builds keep working (their library reads leave web papers out; Ingest tells them to update). Verified
@@ -215,7 +225,7 @@ Platform, External audience in testing mode, test users only; branding gradstep.
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
   testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
   synthetic-account hook.
-- **Chat polish**: tables render as monospaced text; long papers raise the per-question hold (context is the
+- **Chat polish**: long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
 - **Accessibility**: an opt-in XCTest audit (`TEST_RUNNER_SCIENCE_READER_AX_AUDIT=1`, test

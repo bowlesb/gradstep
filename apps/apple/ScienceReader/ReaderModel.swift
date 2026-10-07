@@ -341,6 +341,7 @@ final class ReaderModel {
     private var chatAnswerIssues: [UUID: ChatAnswerIssue] = [:]
     /// Throttled partial text by generation ID; only the transcript reads it.
     private var chatStreamingText: [UUID: String] = [:]
+    private var chatStreamProgress: [UUID: ChatProgress] = [:]
     @ObservationIgnored private var chatStreamBuffer: [UUID: String] = [:]
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?)?
@@ -2113,33 +2114,71 @@ final class ReaderModel {
         let kind: Kind
         let message: String
         let reference: String
+        /// The library source the server matched (added or already present), if any.
+        var sourceID: String? = nil
     }
     var referenceNotice: ReferenceNotice?
 
     /// Adds the paper a bibliography entry cites, without a chat: the server identifies it and
     /// queues it like the Library's Add. When it can't, the notice offers "Ask in chat".
     func addReference(_ text: String) async {
-        guard isSignedIn, let backend, let accountID else { openSignIn(); return }
+        guard isSignedIn, backend != nil, accountID != nil else { openSignIn(); return }
         let scope = sessionID
         referenceNotice = ReferenceNotice(kind: .working, message: "Adding to your library…", reference: text)
-        let notice: ReferenceNotice
+        guard let notice = await referenceOutcome(text), sessionID == scope, referenceNotice?.reference == text else { return }
+        referenceNotice = notice
+    }
+
+    /// The `add-reference` call and its outcome, without presenting it (the reader shows a
+    /// banner; "Papers in this answer" shows it on the row). Nil when signed out.
+    func referenceOutcome(_ text: String) async -> ReferenceNotice? {
+        guard let backend, let accountID else { return nil }
         do {
             let result = try await backend.addReference(text, accountID: accountID)
             let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
-            switch result.status {
-            case "added": notice = .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text)
-            case "present": notice = .init(kind: .present, message: "\(title) is already in your library.", reference: text)
-            case "closed": notice = .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
-            case "not_found": notice = .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
-            case "needs_update": notice = .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
-            default: notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
-            }
+            let source = result.paper?.source_id
             if result.status == "added" { Task { await refreshLibrary() } }
+            switch result.status {
+            case "added": return .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text, sourceID: source)
+            case "present": return .init(kind: .present, message: "\(title) is already in your library.", reference: text, sourceID: source)
+            case "closed": return .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
+            case "not_found": return .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
+            case "needs_update": return .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
+            default: return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            }
         } catch {
-            notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            return .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
         }
-        guard sessionID == scope, referenceNotice?.reference == text else { return }
-        referenceNotice = notice
+    }
+
+    /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Ask about this
+    /// quotes it into the composer; Explain and Define ask about it as a new question in this chat.
+    enum ChatQuoteAction { case ask, explain, define }
+    /// Changes when the composer should take focus (Ask about this).
+    private(set) var chatComposerFocusRequest = UUID()
+
+    func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {
+        let quote = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatGenerationRequest.maximumSelectionScalars))
+        guard !quote.isEmpty else { return }
+        let draft = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch action {
+        case .ask:
+            // A reference the reader completes with their question; an existing draft follows it.
+            chatInput = "About “\(quote)”: " + draft
+            chatComposerFocusRequest = UUID()
+        case .explain, .define:
+            let prompt = action == .explain ? "Explain in plain terms, including any symbols: \(quote)"
+                : "Define the terms and symbols in: \(quote)"
+            // Never overwrite a draft: with one, the question waits in the composer instead.
+            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; chatComposerFocusRequest = UUID(); return }
+            chatInput = prompt
+            if !isSignedIn { openSignIn(); return }
+            let scope = sessionID, composer = chatComposerID
+            Task {
+                guard sessionID == scope, chatComposerID == composer, chatInput == prompt else { return }
+                await sendMessage()
+            }
+        }
     }
 
     func selectionAction(_ action: SelectionAction, quote: String) {
@@ -2270,6 +2309,8 @@ final class ReaderModel {
         return generation
     }
     var chatStreamingMessageID: UUID? { visibleGeneration?.assistantID }
+    /// What the server is doing for the visible answer (searching, adding a paper) until text resumes.
+    var chatStreamingProgress: ChatProgress? { visibleGeneration.flatMap { chatStreamProgress[$0.id] } }
     /// Saved branch messages plus the streaming answer, which already carries
     /// the identity its sealed encrypted message will use.
     var chatTranscriptMessages: [AppliedEvent] {
@@ -2370,7 +2411,10 @@ final class ReaderModel {
                 switch event {
                 case .delta(let piece):
                     text += piece
+                    // Text resumed: the server's status line has done its job.
+                    if piece.contains(where: { !$0.isWhitespace }) { chatStreamProgress[generation.id] = nil }
                     bufferAnswer(generation, text: text)
+                case .status(let progress): chatStreamProgress[generation.id] = progress
                 case .diagram(let title, let source): diagram = (title, source)
                 case .done(let stopReason, _): outcome = .completed(stopReason: stopReason)
                 case .failure(let code): outcome = .failed(code: code)
@@ -2423,7 +2467,7 @@ final class ReaderModel {
         }
         guard ownsGeneration(generation) else { return }
         chatGenerations[generation.turn.composerID] = nil
-        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil
+        chatStreamingText[generation.id] = nil; chatStreamBuffer[generation.id] = nil; chatStreamProgress[generation.id] = nil
         if let issue { chatAnswerIssues[generation.turn.composerID] = ChatAnswerIssue(turn: generation.turn, code: issue) }
         let scope = sessionID, added = generation.turn.action == .ingest && resolution.status != nil
         Task {
@@ -2481,7 +2525,7 @@ final class ReaderModel {
     /// interrupted encrypted turn in the old account's store before it retires.
     private func retireChatGenerations() {
         let retiring = Array(chatGenerations.values), buffers = chatStreamBuffer
-        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []
+        chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
         storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false

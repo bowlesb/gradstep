@@ -547,3 +547,30 @@ reader bridge only, no re-render); details and measurements in [Reader renderer]
 - **Bracketed author–year citations needed no new rule.** Build 14 predates the author–year links; with the current
   bridge the owner's paper links 210 of 210 measurable citations (build 14: 3). Small-capital spellings OCR can
   produce ("AND", "ET AL.", "And" in entries) were added; `[Cadoli et al. 1997]`, which fits two entries, stays plain.
+
+## Chat answers: tables, papers named, progress (agent decisions 2026-10-07, overnight mandate)
+
+Legacy audit gaps 4, 2 and 9, built without questions under the overnight mandate; all reversible, all additions under
+or inside answers (no page arrangement or selection action changed).
+
+- **Tables** render as a native grid; while streaming, rows at the end stay pipe text until complete, so the layout
+  changes once. Tables over 12 columns or 120 rows stay pipe text. Details: [chat rendering](architecture/NATIVE_CHAT_RENDERING.md).
+- **Papers in this answer** lists arXiv IDs and DOIs found in the answer's own text, on the device, without a model
+  call (at most 8). A paper that appears only in the server's Sources list is not repeated (Sources already offers it).
+  Open asks first, like Sources. arXiv adds use the Add sheet's library command (latest version, not the version a link
+  names); DOIs use `add-reference` with the reader's outcome wording on the row. "Ask in chat" is not offered from
+  chat. A DOI paper added earlier shows "In your library" only once this session's add matched it (the library has
+  no DOI field).
+- **Progress**: a backward-compatible `status` stream event (`searching` with the query, `reading`, `finding_paper`,
+  `adding_paper`), shown as one line under the streaming answer. The query goes only to the reader's stream, never to
+  logs. Needs a chat function deploy (not deployed by this work); older servers simply send none.
+- **Owner feedback (build 14, items 3, 10, 11):** answer paragraphs, headings and list items are now read-only
+  selectable text views (same look; formulas are image attachments) because SwiftUI `Text` cannot extend its selection
+  menu. Selecting answer text offers **Ask about this** (puts `About “…”: ` before any draft in the composer and focuses
+  it), **Explain** and **Define** (sent as a new question in this chat; with a draft in the composer they wait there
+  instead of replacing it), then the system's Copy/Look Up/Share; Copy keeps formulas as `\( … \)`. A formula (long
+  press, right-click on the Mac; display formulas through their context menu) offers Copy LaTeX, Copy as text (a
+  Unicode approximation, `ChatMathText.plain`), Explain, Define, Ask about this. "Define" is a chat-only prompt
+  ("Define the terms and symbols in: …"); the paper's Explain prompt is reused. Your own messages and streaming answers
+  keep the system menu. A leading "Answer:" label is stripped on display (stored text unchanged) and the chat
+  instructions say not to write one. Bold/italic spans around inline math (`**$n = 0$:**`) now render as emphasis.

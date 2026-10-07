@@ -147,6 +147,70 @@ final class ChatGenerationTests: XCTestCase {
                                                                      "And without scaling?", "Softmax saturates."], "Answers persist encrypted")
     }
 
+    /// Status events show what the server is doing until text resumes or the answer ends; never sealed.
+    func testServerStatusShowsUntilTextResumesAndIsNeverSaved() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatInput = "What followed DPO?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.status(ChatProgress(kind: .searching, query: "DPO follow-ups")))
+        try await waitUntil("searching shown") { model.chatStreamingProgress == ChatProgress(kind: .searching, query: "DPO follow-ups") }
+        transport.send(.status(ChatProgress(kind: .reading)))
+        try await waitUntil("reading shown") { model.chatStreamingProgress?.kind == .reading }
+        transport.send(.delta("IPO generalizes it."))
+        try await waitUntil("cleared by text") { model.chatStreamingProgress == nil }
+        transport.send(.status(ChatProgress(kind: .searching, query: "KTO")))
+        try await waitUntil("second search shown") { model.chatStreamingProgress?.query == "KTO" }
+        transport.send(.done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        XCTAssertNil(model.chatStreamingProgress, "Cleared when the answer ends")
+        XCTAssertEqual(model.chatMessages.last?.payload.text, "IPO generalizes it.", "Status text is never part of the answer")
+    }
+
+    /// Owner feedback #10/#3: Ask about this quotes into the composer; Explain/Define ask in this chat,
+    /// never over a draft; menus on answer text and formulas carry these actions and copy LaTeX.
+    func testAnswerTextAndFormulaActions() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.chatQuoteAction(.ask, quote: "  softmax temperature ")
+        XCTAssertEqual(model.chatInput, "About “softmax temperature”: ")
+        model.chatQuoteAction(.explain, quote: "\\(\\beta\\)")
+        XCTAssertTrue(model.chatInput.hasPrefix("Explain in plain terms, including any symbols: \\(\\beta\\)\n\nAbout “softmax temperature”:"),
+                      "A draft is kept and the question waits in the composer")
+        XCTAssertTrue(transport.requests.isEmpty)
+        model.chatInput = ""
+        model.chatQuoteAction(.define, quote: "KL divergence")
+        try await waitUntil("sent as a new question in this chat") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].turns.last?.text, "Define the terms and symbols in: KL divergence")
+        transport.send(.delta("It measures…"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+
+        // The selectable answer text: quotes and Copy keep formulas as LaTeX.
+        let text = NSMutableAttributedString(string: "Scale by ")
+        let formula = NSMutableAttributedString(attachment: NSTextAttachment(image: UIImage(systemName: "x.squareroot")!))
+        formula.addAttribute(.chatLatex, value: "1/\\sqrt{d_k}", range: NSRange(location: 0, length: formula.length))
+        text.append(formula); text.append(NSAttributedString(string: " here."))
+        XCTAssertEqual(ChatSelectableText.quote(text, range: NSRange(location: 0, length: text.length)), "Scale by \\(1/\\sqrt{d_k}\\) here.")
+        XCTAssertEqual(ChatSelectableText.soleFormula(text, range: NSRange(location: 9, length: 1)), "1/\\sqrt{d_k}")
+        XCTAssertEqual(ChatSelectableText.soleFormula(text, range: NSRange(location: 8, length: 2)), "1/\\sqrt{d_k}", "Spaces around it are fine")
+        XCTAssertNil(ChatSelectableText.soleFormula(text, range: NSRange(location: 0, length: 10)))
+
+        var asked: [(ReaderModel.ChatQuoteAction, String)] = []
+        let coordinator = ChatSelectableText.Coordinator()
+        coordinator.onQuote = { asked.append(($0, $1)) }
+        let view = UITextView(); view.attributedText = text
+        let copy = UIMenu(identifier: .standardEdit, options: .displayInline, children: [UIAction(title: "Copy") { _ in }])
+        let share = UIAction(title: "Share") { _ in }
+        let menu = try XCTUnwrap(coordinator.textView(view, editMenuForTextIn: NSRange(location: 0, length: 5), suggestedActions: [copy, share]))
+        let titles = menu.children.flatMap { ($0 as? UIMenu)?.children ?? [$0] }.compactMap { ($0 as? UIAction)?.title }
+        XCTAssertEqual(titles, ["Copy", "Ask about this", "Explain", "Define", "Share"], "Copy first, then the chat actions, then the rest")
+        let formulaMenu = try XCTUnwrap(coordinator.textView(view, editMenuForTextIn: NSRange(location: 9, length: 1), suggestedActions: [copy]))
+        XCTAssertEqual(formulaMenu.children.compactMap { ($0 as? UIAction)?.title }, ["Copy LaTeX", "Copy as text", "Explain", "Define", "Ask about this"])
+        coordinator.onQuote = nil
+        XCTAssertNil(coordinator.textView(view, editMenuForTextIn: NSRange(location: 0, length: 5), suggestedActions: [copy]),
+                     "Without actions (streaming, your own messages) the system menu is unchanged")
+        XCTAssertTrue(asked.isEmpty)
+    }
+
     func testADrawnDiagramIsSealedWithItsAnswerAndSurvivesReopening() async throws {
         let (model, transport) = try await makeModel(consented: true)
         model.chatInput = "Draw the attention computation"

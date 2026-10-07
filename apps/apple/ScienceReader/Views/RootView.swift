@@ -741,6 +741,7 @@ struct ChatView: View {
                     HStack(alignment: .bottom, spacing: 8) {
                         TextField("Ask a question…", text: $model.chatInput, axis: .vertical)
                             .focused($composerFocused).accessibilityIdentifier("chat.composer")
+                            .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Ask about this
                             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                             .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
                         // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.

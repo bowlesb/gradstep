@@ -1,9 +1,9 @@
 # Native chat formatting
 
-## Implemented (2026-10-05)
+## Implemented (2026-10-05; tables 2026-10-07)
 
 Chat messages render natively: `ChatRichText` (Core) parses Markdown-like blocks (paragraphs, headings, lists,
-fenced code/tables as monospaced text, inert links) with inline `\( \)`/`$ $` and display `\[ \]`/`$$ $$` math;
+fenced code as monospaced text, GFM tables, inert links) with inline `\( \)`/`$ $` and display `\[ \]`/`$$ $$` math;
 `ChatRichTextView` typesets math with SwiftMath 1.7.3 (CoreText, Latin Modern Math), scaling wide display equations
 to fit. Stored text is never changed. `ChatMathTypesetting.prepare` first rewrites LaTeX SwiftMath cannot parse into
 supported equivalents (`\operatorname`→`\mathrm`, `\boldsymbol`→`\bm`, `\dfrac`→`\frac`, sizing commands dropped,
@@ -13,6 +13,45 @@ split only outside nested environments, `\tag`). SwiftMath silently skips non-AS
 `ChatMathTypesetting.customSymbols` (glyphs verified to draw). Measured with SwiftMath's parser: 57 of 904 distinct
 equations from six real papers (6.3%) fell back to source before; all parse after (the three using registered
 symbols parse once the app registers them). Anything still unsupported shows its source.
+
+**Tables (2026-10-07, legacy gap 4).** A run of lines starting with `|` whose second line is a valid alignment row
+with the header's column count becomes a `ChatTable` (alignment from `:---`, `:---:`, `---:`; body rows padded or
+cut to the header's width, as GFM does; at most 12 columns and 120 rows, larger tables stay pipe text). Cells split on
+unescaped pipes outside inline code and math (`\|` is a literal pipe, kept as `\|` inside math) and render with the
+paragraph inline renderer (bold, italic, code, inline math). `ChatTableView` draws a native `Grid`: semibold header on
+a faint fill, a rule under it and hairlines between rows, a rounded outline. It keeps its natural width when it fits,
+wraps cells at 9 × the text size next, and otherwise scrolls sideways with cells wrapped at 14 ×. While an answer
+streams, rows at its very end stay monospaced pipe text until a following line (or the finished answer) completes
+the table, so the layout changes once. VoiceOver: a message with a table is a container; the text around the table
+stays one combined element per run, and the table is an element ("Table, 4 rows, 4 columns") whose children are
+"Columns: …" and "Row n: header, value; …" (identifiers `chat.table.N`, `.header`, `.row.M`). Messages without a
+table keep the single combined element.
+
+**Selectable answers (2026-10-07, owner feedback 3, 10, 11).** Inline Markdown is parsed once per line with each
+formula as a private-use placeholder (`ChatRichText.styledRuns`), so emphasis spanning math applies; links stay inert
+(link attributes removed). In answers, paragraphs, headings and list items render through `ChatSelectableText`, a
+non-editable, non-scrolling `UITextView` (TextKit 2) sized to the proposed width, with inline formulas as
+`NSTextAttachment` images carrying their LaTeX (`.chatLatex`). Its edit menu adds Ask about this / Explain / Define
+before the system actions; a selection that is one formula, or a long press on it (`UITextItem` menu), offers Copy
+LaTeX, Copy as text, Explain, Define, Ask about this; display math has the same items as a context menu. Copy and
+quotes write formulas as `\( … \)`. User messages, tables and streaming answers keep the earlier rendering/menus.
+`ChatRichText.withoutAnswerLabel` hides a leading "Answer:" label in answers.
+
+**Papers in this answer (2026-10-07, legacy gap 2).** Under a complete assistant answer, `ChatPaperMentions` (Core)
+lists the papers its text names: arXiv links (`arxiv.org/abs|pdf/…`), `arXiv:ID`/`arXiv ID` (validated by
+`ArxivReference`), and DOIs (Crossref's pattern, trailing punctuation and unbalanced `)` trimmed; `10.48550/arXiv.*`
+counts as the arXiv paper). Bare numbers are ignored. On the device, no model call; at most 8, deduplicated, in
+order of first mention; a paper that appears only in the trailing Sources list is left out (Sources already shows
+it). A row's title is the Markdown link text around the ID, or the list item's leading bold/quoted title when the
+line names only that paper, else the library's title for an arXiv paper already in it, else the ID. Each row
+(`ChatAnswerPapersView`, styled like Sources) has **Open** (the same "Open … in Safari?" confirmation with the full
+address: arXiv abstract page or `https://doi.org/…`) and **Add to library**: arXiv through `importPaper` (the Add
+sheet's library command, library search left as it is); a DOI through `add-reference` with the DOI as the reference
+text, showing the reader's `ReferenceNotice` wording on the row (working, added, already present, not openly
+available, not identified, couldn't add with Try again; "Ask in chat" is not offered from chat). "In your library"
+comes from `librarySourceIDs` (arXiv) or, for a DOI, the source the server matched in this session. Add state is
+shared by all answers in the transcript and fenced to the reader session. Interrupted and streaming answers show no
+list. Identifiers: `chat.papers`, `chat.paper.N` (title), `.open`, `.add`, `.inLibrary`, `.notice`.
 
 The plan below (WebKit typesetter) is superseded and kept for history.
 

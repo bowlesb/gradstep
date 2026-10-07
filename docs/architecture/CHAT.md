@@ -6,12 +6,12 @@ Status 2026-10-05: deployed to staging and verified live (API smoke and the Simu
 
 - Auth: user JWT verified in the handler (`verify_jwt = false`, `userClient`); RPCs run as service role. Origin/method/auth failures are HTTP JSON `{code}`; after authentication every outcome is `200 text/event-stream`.
 - Body (strict, unknown keys rejected, ≤ 512 KiB raw): `{operation_id: uuid, consent_version: "cloud-ai-v1", mode: "paper"|"general", document_id?: uuid (paper only), messages: [{role: "user"|"assistant", text}] (1–60, first and last user, non-empty, ≤ 200,000 UTF-8 bytes total), selection?: {quote ≤ 4,000 Unicode scalars}, action?: "ingest" (requires selection), capabilities?: ["web_import"] (≤ 8 strings ≤ 32 characters; unknown values ignored)}`.
-- Events: `delta {text}`, `diagram {title, source}`, `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
+- Events: `delta {text}`, `diagram {title, source}`, `status {kind, query?}` (2026-10-07, below), `done {stop_reason, credits, usage}`, `error {code}` with codes `insufficient_credits`, `platform_budget_exhausted`, `rate_limited` (route limit or 3 active operations), `document_unavailable`, `provider_unavailable`, `refused`, `invalid_request`, `operation_replayed`, `service_unavailable`. Comment lines (`: ping`) every 15 s keep idle connections open.
 - Order: `worker_consume_request(account,'chat')` → validate → paper context (`worker_chat_context` → Storage `standalone.mmd`, ≤ 2 MiB, strict UTF-8) → hold → `worker_reserve_operation` → stream → `worker_settle_operation` → `worker_record_provider_usage` → final event.
 
 ## Provider request
 
-`@anthropic-ai/sdk` 0.131.0 (`npm:` import map entry and root `package.json`). Model `claude-sonnet-5-5`, `max_tokens` 8,000, adaptive thinking at effort `low` (the model guidance for chat; it skips thinking on simple turns and keeps time-to-first-token and cost low), thinking display omitted. Server-side refusal fallback `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); for this model it retries `cyber`/`frontier_llm` declines on Claude Sonnet 5, which matters for an ML-paper reader. Final `stop_reason: "refusal"` becomes `error refused`. System prompt = short instructions (cite sections/equations, LaTeX with `\( \)`/`\[ \]`) + `<paper title>` MMD block with `cache_control: ephemeral` (cached prefix). The selected passage is a separate text block before the last question. One SDK retry; a 130 s generation deadline leaves time to settle inside the Edge wall-clock limit.
+`@anthropic-ai/sdk` 0.131.0 (`npm:` import map entry and root `package.json`). Model `claude-sonnet-5-5`, `max_tokens` 8,000, adaptive thinking at effort `low` (the model guidance for chat; it skips thinking on simple turns and keeps time-to-first-token and cost low), thinking display omitted. Server-side refusal fallback `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`); for this model it retries `cyber`/`frontier_llm` declines on Claude Sonnet 5, which matters for an ML-paper reader. Final `stop_reason: "refusal"` becomes `error refused`. System prompt = short instructions (cite sections/equations, LaTeX with `\( \)`/`\[ \]`, no "Answer:" label since 2026-10-07) + `<paper title>` MMD block with `cache_control: ephemeral` (cached prefix). The selected passage is a separate text block before the last question. One SDK retry; a 130 s generation deadline leaves time to settle inside the Edge wall-clock limit.
 
 ## Ingest (selection action)
 
@@ -110,6 +110,22 @@ shows the full address and asks before opening Safari); when the model cites res
 appends one from the citations. Consent `cloud-ai-v2` (build 12+) says queries go to Tavily, or Anthropic's search
 provider as a backup, and that search services see only the searches; accepting v1 does not cover Tavily, so newer
 builds ask once more.
+
+## Progress (`status` events, 2026-10-07)
+
+While an answer waits on server work, the stream carries `status {kind, query?}` (legacy gap 9):
+`searching` (with the query, a single line of at most 200 characters) when a Tavily `search_web` call is about to run
+or when Anthropic's server-side `web_search` block ends (its query streams in as the block's input; an unreadable
+input reports `searching` without a query); `reading` when a Tavily round's results are in (at least one search
+succeeded) or Anthropic's `web_search_tool_result` block starts; `finding_paper` before the Ingest lookup and
+`adding_paper` before its import (only when a paper was found). Nothing is sent after a client disconnect. The query
+goes only to the reader's own stream; logs and the database keep counts only, as before (tests assert neither
+contains it). Backward compatible: installed builds' parser returns nil for unknown event names (verified against
+the shipped `ChatSSEParser` with a status frame before this change); `scripts/workflow-checks.mjs` also ignores
+them. The app keeps the latest status per answer and shows it as one footnote line under the streaming answer
+("Searching the web for “…”", "Reading results…", "Finding the paper…", "Adding to your library…"), or in place of
+"Thinking…" before the first text; it clears when text resumes or the answer ends. Malformed or unknown statuses
+are ignored, never fatal.
 
 ## Money
 
