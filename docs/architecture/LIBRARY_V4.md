@@ -1,9 +1,9 @@
 # Library v4 foundation
 
-Status: implemented and independently reviewed; local validation passed, 2026-10-07. The owner authorized
+Status: implemented and independently reviewed; local validation passed and migrations 031/032 applied to staging after encrypted backup, 2026-10-07. The migration ledger readback and deploy journey checks passed (13 passed, zero failed, one historical-import warning). The owner authorized
 the database work after reviewing [capacity evolution](LIBRARY_CAPACITY.md). This is an
 additive backend foundation; installed clients continue using v2/v3. No capacity increase,
-new subscription allowance, client cache replacement or hosted deployment is implied.
+new subscription allowance or client cache replacement is implied. Deployment evidence and checkpoint are in [the handoff](../HANDOFF_20261007.md).
 
 ## Decision and boundaries
 

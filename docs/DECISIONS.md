@@ -655,3 +655,11 @@ Owner feedback on build 14 (same day, [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md) ite
 | "Ask a question is bad language, you can just have chat" | The message box's placeholder is "Chat". |
 | "Space below chat box not well used … the paper vs general option needs to be in a menu … can't take away screen real estate for chatting" | The Paper chat / General chat row is gone; the switch is the chat title's menu (same two modes, Paper disabled without a paper), and the subtitle says which (the paper's title, or "General chat"). The message box sits 10 pt above the floating tab bar, with the conversation running under both. |
 | "The icon choice is bad it looks like a refresh icon, it probably needs to have lines in it" | All chats (top bar and menus) is a list symbol: bullets and lines, the first bullet the amber point. |
+
+## Pipeline worker billing (owner approved 2026-10-07, audit F1)
+
+The Cloud Run worker billed ~22.6 instance-hours on 2026-10-07 (instance-based billing, `--no-cpu-throttling`, woken
+every minute): about $54/month for a mostly idle instance. It now uses request-based billing (`--cpu-throttling`,
+revision gradstep-pipeline-00007): every handler awaits its work before responding, so nothing runs unbilled after a
+response. Expected at current volume: ~$0–3/month, mostly within the free tier. Next (approved): wake the worker when
+work is queued, with a 10–15 minute sweep, instead of every minute; its design is shown to the owner before deploy.
