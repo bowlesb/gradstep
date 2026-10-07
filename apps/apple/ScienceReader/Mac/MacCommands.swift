@@ -1,0 +1,169 @@
+import SwiftUI
+
+/// What the open paper offers the menu bar (published by PaperView). nil members are unavailable now.
+struct PaperMenuActions {
+    var contents: (() -> Void)?
+    /// Back to the reading position after following a citation.
+    var back: (() -> Void)?
+    /// Runs a selection action on the text selected in the paper.
+    var selection: ((SelectionAction) -> Void)?
+}
+
+private struct PaperMenuActionsKey: FocusedValueKey { typealias Value = PaperMenuActions }
+
+extension FocusedValues {
+    var paperMenuActions: PaperMenuActions? {
+        get { self[PaperMenuActionsKey.self] }
+        set { self[PaperMenuActionsKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Mac: offers the paper's actions to the menu bar (Paper menu). No effect on iPhone and iPad.
+    @ViewBuilder func macPaperMenu(_ actions: PaperMenuActions) -> some View {
+        #if targetEnvironment(macCatalyst)
+        focusedSceneValue(\.paperMenuActions, actions)
+        #else
+        self
+        #endif
+    }
+}
+
+#if targetEnvironment(macCatalyst)
+/// The Mac menu bar. It mirrors each screen's "…" options menu (docs/DESIGN.md) and the header buttons,
+/// so every action has one place on screen and one in the menus; nothing here is Mac-only behavior.
+struct GradstepCommands: Commands {
+    @Bindable var model: ReaderModel
+    @FocusedValue(\.paperMenuActions) private var paper
+
+    static let privacyURL = URL(string: "https://gradstep.ai/privacy/")!
+
+    var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") { model.tab = .settings }.keyboardShortcut(",")
+        }
+
+        // File
+        CommandGroup(replacing: .newItem) {
+            Button("Add Paper…") { addPaper() }.keyboardShortcut("n")
+            Button("New Chat") { newChat() }.keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(!model.generalChat && !model.canUsePaperChat && model.wideMode != .chat)
+        }
+
+        // Edit
+        // ⌘F finds in the paper while reading (as in any Mac document) and searches the library elsewhere;
+        // ⌥⌘F always searches the library (as Mail and Notes do), ⇧⌘F searches arXiv.
+        CommandGroup(after: .pasteboard) {
+            Section {
+                if findsInPaper {
+                    Button("Find in Paper…") { ReaderWebView.paper?.showFind() }.keyboardShortcut("f")
+                    Button("Find Next") { ReaderWebView.paper?.findNext(backwards: false) }.keyboardShortcut("g")
+                    Button("Find Previous") { ReaderWebView.paper?.findNext(backwards: true) }.keyboardShortcut("g", modifiers: [.command, .shift])
+                    Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f", modifiers: [.command, .option])
+                } else {
+                    Button("Search Library") { search(arXiv: false) }.keyboardShortcut("f")
+                }
+                Button("Search arXiv") { search(arXiv: true) }.keyboardShortcut("f", modifiers: [.command, .shift])
+            }
+        }
+
+        // View
+        CommandGroup(before: .toolbar) {
+            Section {
+                ForEach(Array(WideMode.allCases.enumerated()), id: \.offset) { index, mode in
+                    Toggle(mode.rawValue, isOn: Binding(get: { model.wideMode == mode && model.tab != .settings },
+                                                        set: { _ in model.showWideMode(mode) }))
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
+                }
+                Button(model.wideMode == .browse ? "Hide Library Beside Paper" : "Show Library Beside Paper") {
+                    model.showWideMode(model.wideMode == .browse ? .reader : .browse)
+                }.keyboardShortcut("s", modifiers: [.command, .control])
+            }
+            Section {
+                Picker("Library As", selection: $model.libraryLayout) {
+                    ForEach(LibraryLayout.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Picker("Sort Library By", selection: Binding(get: { model.librarySort.field },
+                                                             set: { model.librarySort = LibrarySearchSort(field: $0) })) {
+                    ForEach(LibrarySearchSort.Field.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                Menu("Show in Library") {
+                    Toggle("Abstracts", isOn: $model.showAbstracts).disabled(model.libraryLayout != .list)
+                    Toggle("Topics", isOn: $model.showTopics)
+                    Toggle("Archived Papers", isOn: $model.showArchivedPapers)
+                }
+                Picker("Feed As", selection: $model.feedLayout) {
+                    ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+            }
+            Section {
+                Button("Larger Paper Text") { model.paperFontSize = min(26, model.paperFontSize + 1) }
+                    .keyboardShortcut("+").disabled(model.paperFontSize >= 26)
+                Button("Smaller Paper Text") { model.paperFontSize = max(14, model.paperFontSize - 1) }
+                    .keyboardShortcut("-").disabled(model.paperFontSize <= 14)
+                Button("Actual Paper Text Size") { model.paperFontSize = 17 }.keyboardShortcut("0")
+                Button("Larger Chat Text") { model.chatFontSize = min(26, model.chatFontSize + 1) }
+                    .keyboardShortcut("+", modifiers: [.command, .option])
+                Button("Smaller Chat Text") { model.chatFontSize = max(13, model.chatFontSize - 1) }
+                    .keyboardShortcut("-", modifiers: [.command, .option])
+            }
+            Section {
+                Button(model.wideMode == .feed ? "Refresh Feed" : "Refresh Library") { refresh() }
+                    .keyboardShortcut("r")
+                    .disabled(model.wideMode == .feed ? model.librarySignInRequired : (!model.isSignedIn || model.libraryRefreshing))
+                Button("All Chats") { model.showAllChats = true }.keyboardShortcut("y", modifiers: [.command, .shift])
+                Button("All Diagrams") { model.showDiagrams = true }
+            }
+        }
+
+        CommandMenu("Paper") {
+            Button("Table of Contents") { paper?.contents?() }
+                .keyboardShortcut("t", modifiers: [.command, .option]).disabled(paper?.contents == nil)
+            Button("Back to Reading Position") { paper?.back?() }
+                .keyboardShortcut("[").disabled(paper?.back == nil)
+            Divider()
+            Menu("Ask About Selection") {
+                ForEach(Array(SelectionAction.allCases.enumerated()), id: \.offset) { index, action in
+                    Button(action.title) { paper?.selection?(action) }
+                        .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
+                }
+            }.disabled(paper?.selection == nil)
+            Button("Ask About This Paper") { model.askAboutSelectedPaper() }
+                .keyboardShortcut("a", modifiers: [.command, .shift]).disabled(model.selectedPaper == nil)
+        }
+
+        CommandGroup(replacing: .help) {
+            Button("Report This Screen…") { model.beginReport(afterMenu: true) }
+            Button("My Reports") { model.showReports = true }.disabled(model.support == nil)
+            Divider()
+            Button("Privacy & Data") { UIApplication.shared.open(Self.privacyURL) }
+        }
+    }
+
+    /// Reading a paper (the Reader view with a paper open).
+    private var findsInPaper: Bool { paper != nil && model.wideMode == .reader && model.tab != .settings }
+
+    // The same rules as the Library's + button and the Chat's compose button.
+    private func addPaper() {
+        if model.wideMode != .library && model.wideMode != .browse { model.showWideMode(.library) }
+        if model.tab == .settings { model.showWideMode(model.wideMode) }
+        if model.librarySignInRequired { model.openSignIn() } else { model.showImport = true }
+    }
+
+    private func newChat() {
+        if model.tab == .settings { model.showWideMode(model.wideMode) }
+        if model.wideMode != .reader && model.wideMode != .chat { model.showWideMode(model.generalChat ? .chat : .reader) }
+        model.newChat(general: model.generalChat)
+    }
+
+    private func search(arXiv: Bool) {
+        if model.tab == .settings || (model.wideMode != .library && model.wideMode != .browse) { model.showWideMode(.library) }
+        model.searchExternal = arXiv
+        MacCommandRequests.shared.librarySearch = UUID()
+    }
+
+    private func refresh() {
+        if model.wideMode == .feed { model.loadFeed() } else { Task { await model.refreshLibrary() } }
+    }
+}
+#endif

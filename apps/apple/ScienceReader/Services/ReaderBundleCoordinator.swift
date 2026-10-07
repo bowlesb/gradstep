@@ -107,12 +107,12 @@ final class ReaderBundleCoordinator {
             let presentation: Result<CachedLibraryProjection<LibraryPresentationRow>?, Error>
             let installations: Result<InstalledReaderBundleList, Error>
             var projectionElapsed: Double?
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             let started = ContinuousClock.now
             #endif
             do { presentation = .success(try await store.cachedLibraryProjection(scope: scope, project: LibraryPresentationRow.project)) }
             catch { presentation = .failure(error) }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             let elapsed = started.duration(to: .now).components
             projectionElapsed = Double(elapsed.seconds) * 1_000 + Double(elapsed.attoseconds) / 1_000_000_000_000_000
             #endif
