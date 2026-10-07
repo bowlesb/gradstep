@@ -172,6 +172,186 @@ test('new account: new keys and recovery code, empty library, reload stays ready
   expect(problems).toEqual([]);
 });
 
+test('live tags preserve the open document, selection, reading place and citation return', async ({ page, request }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  const problems = watch(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await signIn(page, 'returning@example.test');
+  await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
+  await page.getByTestId('recover').click();
+  await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  const frame = page.frameLocator('[data-testid=reader-frame]'), body = frame.locator('body');
+  await expect(page.getByTestId('contents')).toBeEnabled();
+  const position = () => body.evaluate(() => (window as unknown as {
+    __scienceReaderLocation: () => { block: number; fraction: number; height: number; y: number };
+  }).__scienceReaderLocation());
+  const samePlace = async (expected: Awaited<ReturnType<typeof position>>) => {
+    await expect.poll(async () => {
+      const actual = await position();
+      return actual.block === expected.block && Math.abs(actual.fraction - expected.fraction) * expected.height < 3;
+    }).toBe(true);
+  };
+  const updateTags = async (tags: string[]) => {
+    expect((await request.post(`${FIXTURE}/__paper-tags`, { data: { tags } })).ok()).toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(frame.locator('.sr-tag')).toHaveText(tags);
+  };
+
+  // Observe the bridge's position report so a delayed report cannot make the assertion pass by accident.
+  await page.evaluate(() => {
+    const state = window as unknown as { readerPositionY?: number };
+    window.addEventListener('message', event => {
+      if (event.data?.gradstep === 'reader' && event.data.value?.type === 'position') state.readerPositionY = event.data.value.y;
+    });
+  });
+  const selection = await body.evaluate(() => {
+    document.body.dataset.readerInstance = 'original';
+    const paragraph = [...document.querySelectorAll('p[data-reader-block]')].filter(p => p.textContent!.length > 100)[6];
+    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    let text = walker.nextNode();
+    while (text && text.textContent!.length < 40) text = walker.nextNode();
+    if (!text) throw new Error('fixture paragraph has no selectable prose');
+    const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 30);
+    window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
+    const rect = paragraph.getBoundingClientRect();
+    window.scrollTo(0, window.scrollY + rect.top + rect.height / 3);
+    return range.toString();
+  });
+  await page.waitForFunction(() => ((window as unknown as { readerPositionY?: number }).readerPositionY ?? 0) > 100);
+  const reading = await position();
+  await updateTags(['Preference optimization', 'Reinforcement learning', 'Natural language processing', 'Alignment']);
+  await expect(body).toHaveAttribute('data-reader-instance', 'original');
+  expect(await body.evaluate(() => window.getSelection()?.toString())).toBe(selection);
+  await samePlace(reading);
+
+  const citation = frame.locator('.sr-cite').first();
+  await citation.scrollIntoViewIfNeeded();
+  const origin = await position();
+  await citation.click();
+  await expect(page.getByTestId('citation-back')).toBeVisible();
+  await updateTags([]);
+  await expect(body).toHaveAttribute('data-reader-instance', 'original');
+  await expect(page.getByTestId('citation-back')).toBeVisible();
+  await page.getByTestId('citation-back').click();
+  await samePlace(origin);
+  await expect(page.getByTestId('citation-back')).toBeHidden();
+  expect(problems).toEqual([]);
+});
+
+test('tags arriving during paper download appear before restoring the saved reading place', async ({ page, request }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  await signIn(page, 'returning@example.test');
+  await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
+  await page.getByTestId('recover').click();
+  await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  const frame = page.frameLocator('[data-testid=reader-frame]'), body = frame.locator('body');
+  await expect(page.getByTestId('contents')).toBeEnabled();
+  await page.evaluate(() => {
+    const state = window as unknown as { readerPositionY?: number };
+    window.addEventListener('message', event => {
+      if (event.data?.gradstep === 'reader' && event.data.value?.type === 'position') state.readerPositionY = event.data.value.y;
+    });
+  });
+  await body.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
+  await page.waitForFunction(() => ((window as unknown as { readerPositionY?: number }).readerPositionY ?? 0) > 100);
+  const saved = await body.evaluate(() => (window as unknown as {
+    __scienceReaderLocation: () => { block: number; fraction: number; height: number };
+  }).__scienceReaderLocation());
+  await page.getByTestId('back-to-library').click();
+  const row = page.getByTestId('paper-row').filter({ hasText: 'Direct Preference Optimization' });
+  await expect(row.locator('.reading-progress')).toBeVisible();
+  await expect.poll(async () => Number(await row.locator('.reading-progress progress').getAttribute('value'))).toBeGreaterThan(0.4);
+  // Signing out waits for the encrypted local save and retires the cache, so the next open downloads again.
+  await page.getByTestId('account-menu').click();
+  await page.getByTestId('sign-out').click();
+  await page.getByTestId('confirm-sign-out').click();
+  await signIn(page, 'returning@example.test', false);
+  await expect(row.locator('.reading-progress')).toBeVisible();
+  await expect.poll(async () => Number(await row.locator('.reading-progress progress').getAttribute('value'))).toBeGreaterThan(0.4);
+
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route('**/functions/v1/reader-artifact?*', async route => {
+    const response = await route.fetch(); reached.resolve(); await release.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+    await reached.promise;
+    const tags = ['Preference optimization', 'Alignment'];
+    expect((await request.post(`${FIXTURE}/__paper-tags`, { data: { tags } })).ok()).toBe(true);
+    const refreshed = page.waitForResponse(response => response.url().endsWith('/rpc/v3_library_changes'));
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await refreshed;
+    release.resolve();
+    await expect(frame.locator('.sr-tag')).toHaveText(tags);
+    await expect(page.getByTestId('contents')).toBeEnabled();
+    const location = () => body.evaluate(() => (window as unknown as {
+      __scienceReaderLocation: () => { block: number; fraction: number };
+    }).__scienceReaderLocation());
+    await expect.poll(async () => (await location()).block).toBe(saved.block);
+    await expect.poll(async () => Math.abs((await location()).fraction - saved.fraction) * saved.height).toBeLessThan(3);
+  } finally { release.resolve(); }
+});
+
+test('reopening a paper waits for its encrypted reading place before starting the reader', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
+  const problems = watch(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await signIn(page, 'returning@example.test');
+  await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
+  await page.getByTestId('recover').click();
+  await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
+  const body = page.frameLocator('[data-testid=reader-frame]').locator('body');
+  await expect(page.getByTestId('contents')).toBeEnabled();
+  const paperPath = new URL(page.url()).pathname;
+  const position = () => body.evaluate(() => (window as unknown as {
+    __scienceReaderLocation: () => { block: number; fraction: number; height: number };
+  }).__scienceReaderLocation());
+  await page.evaluate(() => {
+    const state = window as unknown as { readerPositionY?: number };
+    window.addEventListener('message', event => {
+      if (event.data?.gradstep === 'reader' && event.data.value?.type === 'position') state.readerPositionY = event.data.value.y;
+    });
+  });
+  await body.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
+  await page.waitForFunction(() => ((window as unknown as { readerPositionY?: number }).readerPositionY ?? 0) > 100);
+  const saved = await position();
+  await page.getByTestId('back-to-library').click();
+  const row = page.getByTestId('paper-row').filter({ hasText: 'Direct Preference Optimization' });
+  await expect.poll(async () => Number(await row.locator('.reading-progress progress').getAttribute('value'))).toBeGreaterThan(0.4);
+  await page.getByTestId('account-menu').click();
+  await page.getByTestId('sign-out').click();
+  await page.getByTestId('confirm-sign-out').click(); // drains the encrypted save
+  await signIn(page, 'returning@example.test', false);
+  await expect.poll(async () => Number(await row.locator('.reading-progress progress').getAttribute('value'))).toBeGreaterThan(0.4);
+
+  // On the next document, hold real activity decryption independently of the fast library/bundle responses.
+  // Hold every load until released, including React Strict Mode's cancelled first effect.
+  await page.addInitScript(() => {
+    const hooks = window as unknown as { readingLoadWaiting?: boolean; releaseReadingLoad: () => void };
+    const gate = new Promise<void>(resolve => { hooks.releaseReadingLoad = resolve; });
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    crypto.subtle.decrypt = (async (algorithm: AesGcmParams, key: CryptoKey, data: BufferSource) => {
+      const value = await decrypt(algorithm, key, data);
+      if (algorithm.additionalData && new TextDecoder().decode(algorithm.additionalData).startsWith('gradstep/web-reading/v1/')) {
+        hooks.readingLoadWaiting = true;
+        await gate;
+      }
+      return value;
+    }) as typeof crypto.subtle.decrypt;
+  });
+  await page.goto(paperPath);
+  await page.waitForFunction(() => (window as unknown as { readingLoadWaiting?: boolean }).readingLoadWaiting);
+  try {
+    await expect(page.getByRole('status', { name: 'Opening paper' })).toBeVisible();
+    await expect(page.getByTestId('reader-frame')).toHaveCount(0);
+  } finally { await page.evaluate(() => (window as unknown as { releaseReadingLoad: () => void }).releaseReadingLoad()); }
+  await expect(page.getByTestId('contents')).toBeEnabled();
+  await expect.poll(async () => (await position()).block).toBe(saved.block);
+  await expect.poll(async () => Math.abs((await position()).fraction - saved.fraction) * saved.height).toBeLessThan(3);
+  expect(problems).toEqual([]);
+});
+
 test('choosing another email cancels a verification that already reached the server', async ({ page }) => {
   const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   await page.route('**/auth/v1/verify', async route => {

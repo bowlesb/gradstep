@@ -90,6 +90,10 @@ The native app loads a verified bundle into a `WKWebView` with content JavaScrip
 4. Render it in `<iframe sandbox="allow-scripts" srcdoc=…>`: an opaque origin with no access to the app's
    storage, keys or session. The parent accepts messages only from that frame's window and validates each
    (`headings`, `position`, `citation`, `selection`, `reference`, `figure`, `tags`, `invalid`) with the native bounds.
+   The document stays mounted while publication details/tags change: those updates use the native bridge's
+   `__scienceReaderSetPaperLine` / `__scienceReaderSetPaperTags`, preserving the reading place, selection and
+   citation-return state. Updates received during download are applied when the bridge is ready, before restoring
+   the saved reading place. Account/item/artifact/availability changes still retire the old reader.
 
 Contents, citation jumps with Back, the paper's own contents lists, figures and math fitting therefore behave as in
 the app. Selections and reference taps report "Not yet available in the browser".
@@ -142,7 +146,10 @@ succeeding is insufficient.
   device and activity records in one transaction under the key operation lock before returning to sign-in. A failed
   local removal stays visible and retryable. Late reading saves cannot recreate a forgotten/replaced device's data.
 - **Device-local reading data** (Opened, Progress, last position) is sealed with a separate non-extractable AES-GCM
-  key in the same IndexedDB record (account bound into the authenticated data); never sent anywhere.
+  key in the same IndexedDB record (account bound into the authenticated data); never sent anywhere. The reader
+  waits for this local load before mounting, including on a direct paper URL, so a fast bundle cannot overwrite a
+  saved place before it is restored. Missing/unreadable activity settles to an empty map and still permits reading.
+  Every bounded bridge position report updates memory; encrypted writes are debounced and serialized separately.
 
 ## Authentication
 
@@ -210,19 +217,23 @@ No migration, RPC or format change is required for Phase 1.
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
 2026-10-07. Local evidence is separate from deployment evidence:
 
-- Production build and **53 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
+- Production build and **54 unit/Swift–WebCrypto interop tests** pass. New tests cover stale refresh success/failure,
   same-account/cross-tab lifetimes, abandoned verification, a stale key operation finishing crypto, bounded response
   bodies with caller cancellation, ordered encrypted reading-place persistence, and non-null unusable/extractable
-  stored keys that remain refused on retry without losing pending enrollment material.
-- Production-CSP Playwright: **20 passed, 4 capability skips** (2026-10-07). All 16 desktop/narrow Chromium cases
+  stored keys that remain refused on retry without losing pending enrollment material. Frame contents accept the
+  same maximum of 1,000 headings as the Mathpix bundle verifier; the boundary is regression-tested.
+- Production-CSP Playwright: **26 passed, 7 capability skips** (2026-10-07). All 22 desktop/narrow Chromium cases
   pass, including no-reload sign-out/recovery, reauthorization of a reopened reader, a late encrypted save after
-  forgetting keys and a delayed sign-out after another tab logs in. WebKit passes sign-in cancellation,
-  unsupported-key guidance, invite-only messaging and CSP checks. Its four key-dependent journeys are blocked
+  forgetting keys, a delayed sign-out after another tab logs in, live tag updates while reading/selected/at a
+  citation, tags arriving during a fresh download with a persisted nonzero position, and reopening a direct paper
+  URL while activity decryption is deliberately delayed. WebKit passes sign-in cancellation,
+  unsupported-key guidance, invite-only messaging and CSP checks. Its seven key-dependent journeys are blocked
   by the engine issue below; these are not Safari workflow passes.
-- Six desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
+- Nine desktop journeys also pass against the development server with React Strict Mode's effect cleanup/restart:
   returning reader, new keys/reload, abandoned verification, late reading save, delayed sign-out and enrollment
-  persistence. Reproduce with `WEB_E2E_DEV=1 npm run e2e -- --project=desktop` and a `--grep` selecting those
-  journeys; the CSP-header test specifically requires the production preview server.
+  persistence, live tags, tags arriving during download and delayed local activity loading. Reproduce with
+  `WEB_E2E_DEV=1 npm run e2e -- --project=desktop --grep-invert 'address without|security headers'`;
+  the CSP-header test specifically requires the production preview server.
 - The React/Svelte experiment's successful WebKit table tests do not exercise crypto/key storage and therefore
   do not imply that the complete browser app works there.
 - No deployment, live Safari profile, real Google/Apple browser OAuth, browser offline reader or browser chat has
@@ -248,10 +259,14 @@ safe refusal without server enrollment on engines that fail.
 would change the documented key-custody properties and requires a separate design/review; it is not silently used
 to bypass this check. The current fix keeps non-extractable private keys and prevents unreliable enrollment.
 
-### Remaining reader follow-up
+### Reader integration and remaining capacity work
 
 The cache is now owned by one auth lifetime and keyed by account/item/artifact/availability revision, with at most
-three verified bundles. Unchanged metadata no longer regenerates the frame just because an item object changes.
-A genuine live metadata/tag change can still recreate `srcDoc` without preserving the current position; address
-that in the next reader UX pass. Large-library capacity and rendering work follow the
+three verified bundles. Metadata and tag updates use the existing reader bridge; an actual tag update no longer
+recreates `srcDoc` or loses the current reading interaction. Large-library capacity and rendering work follow the
 [framework evaluation](WEB_FRAMEWORK_EVALUATION.md#large-library-architecture-findings).
+
+Immediate departure remains a separate reading-position edge: leaving before the iframe's next asynchronous
+scroll report reaches the parent retains the last received position. Removing the extra two-second throttle fixes
+dropped reports, but a guarantee for the final movement needs a bounded capture/ack before app-owned navigation,
+with citation-return semantics preserved. Abrupt process termination cannot guarantee a final encrypted write.

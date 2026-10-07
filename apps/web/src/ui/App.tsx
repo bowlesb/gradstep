@@ -56,6 +56,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [path, navigate] = usePath();
   const [device, setDevice] = useState<DeviceRecord | null>(null);
   const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
+  const [activityLoaded, setActivityLoaded] = useState(false);
   const [menu, setMenu] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
@@ -67,22 +68,23 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
 
   useEffect(() => {
     let live = true;
+    setActivityLoaded(false);
     readDevice(account).then(async record => {
       if (!record || record.deviceID !== ready.deviceID) return;
       const saved = await loadActivity(record);
       if (!live) return;
       setDevice(record); setActivity(saved);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => { if (live) setActivityLoaded(true); });
     return () => { live = false; if (saveTimer.current) clearTimeout(saveTimer.current); readerCache.clear(); };
   }, [account, ready.deviceID]);
 
   const record = useCallback((itemID: string, value: Activity) => {
-    if (leaving) return;
+    if (!activityLoaded || leaving) return;
     setActivity(previous => {
       const next = new Map(previous); next.set(itemID, value);
       return next;
     });
-  }, [leaving]);
+  }, [activityLoaded, leaving]);
 
   useEffect(() => {
     if (!device || leaving) return;
@@ -134,7 +136,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </div>
       </header>
       {match ? (
-        item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} onBack={() => navigate('/')} />
+        // A direct paper URL can finish loading the library before local decryption. Mounting the
+        // reader then would record the top of the paper before its saved place could be restored.
+        item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
+          : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} onBack={() => navigate('/')} />
           : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
             : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>
       ) : (

@@ -55,9 +55,11 @@ function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack
   const [figure, setFigure] = useState<string | null>(null);
   const [font, setFont] = useState(readFont);
   const frame = useRef<HTMLIFrameElement>(null);
-  const restored = useRef(false);
-  const lastSave = useRef(0);
+  const frameReady = useRef(false);
   const title = item.metadata?.title ?? 'Paper';
+  const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
+  const [initialPresentation] = useState(() => ({ paperLine, paperTags, fontSize: font }));
+  const appliedPresentation = useRef(initialPresentation);
 
   useEffect(() => { document.title = `${title} · Gradstep`; return () => { document.title = 'Gradstep'; }; }, [title]);
 
@@ -74,15 +76,26 @@ function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack
     return () => controller.abort();
   }, [account, item.id, cache, cacheKey, attempt]);
 
-  // Built once per bundle: later font changes go through the bridge, so the place is kept.
-  const paperLine = publicationLine(item), paperTags = JSON.stringify(effectiveTags(item));
-  const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine,
-    paperTags: JSON.parse(paperTags) as string[], fontSize: readFont() }) : null, [bundle, paperLine, paperTags]);
+  // One document per bundle. Live presentation changes use the shared native bridge, preserving
+  // the reading place, DOM selection and citation-return state instead of navigating the frame.
+  const srcdoc = useMemo(() => bundle ? frameDocument(bundle, { parentOrigin: location.origin, paperLine: initialPresentation.paperLine,
+    paperTags: JSON.parse(initialPresentation.paperTags) as string[], fontSize: initialPresentation.fontSize }) : null, [bundle, initialPresentation]);
   const figureDoc = useMemo(() => bundle && figure ? frameDocument(bundle, { parentOrigin: location.origin, figureID: figure }) : null, [bundle, figure]);
 
   const command = useCallback((name: string, ...args: unknown[]) => {
     frame.current?.contentWindow?.postMessage({ gradstep: 'command', name, args }, '*');
   }, []);
+
+  const applyPresentation = useCallback(() => {
+    if (!frameReady.current) return;
+    const previous = appliedPresentation.current;
+    if (previous.paperLine !== paperLine) command('paperLine', paperLine);
+    if (previous.paperTags !== paperTags) command('paperTags', JSON.parse(paperTags));
+    if (previous.fontSize !== font) command('fontSize', font);
+    appliedPresentation.current = { paperLine, paperTags, fontSize: font };
+  }, [command, paperLine, paperTags, font]);
+
+  useEffect(applyPresentation, [applyPresentation]);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -92,16 +105,18 @@ function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack
       switch (message.type) {
         case 'headings':
           setHeadings(message.items);
-          if (!restored.current) {
-            restored.current = true;
-            if (saved?.location && saved.manifest === bundle?.manifestSHA256) command('restore', saved.location);
-            onActivity(item.id, { ...(saved ?? { progress: 0 }), opened: Date.now() });
-          }
+          frameReady.current = true;
+          appliedPresentation.current = initialPresentation;
+          // Updates that arrived while the bundle loaded must precede the saved-place restoration.
+          applyPresentation();
+          if (saved?.location && saved.manifest === bundle?.manifestSHA256) command('restore', saved.location);
+          onActivity(item.id, { ...(saved ?? { progress: 0 }), opened: Date.now() });
           break;
         case 'position': {
           const now = Date.now();
-          if (now - lastSave.current < 2000) break;
-          lastSave.current = now;
+          // The bridge already bounds scroll reports (120 ms plus scroll-end). Keep the final one:
+          // an additional leading-only throttle can discard the place just before leaving the paper.
+          // App owns debounced, ordered encrypted persistence independently of this in-memory update.
           const { block, fraction, height, y } = message;
           onActivity(item.id, { opened: now, progress: message.progress, location: { block, fraction, height, y }, manifest: bundle?.manifestSHA256 });
           break;
@@ -116,7 +131,7 @@ function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [bundle, command, item.id, onActivity, saved]);
+  }, [bundle, command, item.id, onActivity, saved, applyPresentation, initialPresentation]);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
 
@@ -124,7 +139,6 @@ function PaperReader({ cache, cacheKey, account, item, saved, onActivity, onBack
     const next = Math.min(28, Math.max(13, font + delta));
     setFont(next);
     try { localStorage.setItem(FONT_KEY, String(next)); } catch { /* per-viewer convenience only */ }
-    command('fontSize', next);
   };
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 

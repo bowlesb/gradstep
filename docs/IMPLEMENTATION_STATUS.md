@@ -7,7 +7,12 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 
 Work is isolated in `codex/web-mac-integration-20261007` at `/Users/benbowlwes/science-reader-web-mac` while the
 original checkout remains available to the interrupted agent. The unmerged browser branch and floating-control
-branch were recovered there. Native changes from that recovery still need their combined-build validation.
+branch were recovered there. Their combined Mac Catalyst Debug build and test build pass locally with a fixture-only
+configuration; signed-in Mac journeys and distribution remain unverified.
+Mac sheet shortcuts now guard unsaved tags (including text still being typed) and busy report submission; Browse
+offers Find in Paper on ⌘F. The app and test targets compile for arm64 and x86_64. The keyboard runtime attempt
+started no assertions and was interrupted; developer-tool and Computer Use permissions still need resolution.
+See the [Mac checkpoint](architecture/MAC_APP.md#validation-checkpoint--2026-10-07).
 
 The owner selected **React + TypeScript + Vite for both browser reader and admin** after the
 [framework evaluation](architecture/WEB_FRAMEWORK_EVALUATION.md). The 168-sample comparison supports windowing
@@ -16,14 +21,17 @@ and better data handling as the main large-library work; it does not establish 5
 Browser work now retires keys, pending requests and reader caches with their login lifetime; protects newer logins
 from delayed refresh/sign-out/verification; preserves request deadlines; stops disposed import polling; and prevents
 late reading saves from recreating forgotten device data. Device records must survive an IndexedDB roundtrip and
-remain usable before enrollment, including on retry/reload. Local validation: production build, **53 unit/interop tests**, **20 production-CSP
-browser checks** and **6 development Strict Mode journeys** pass. **Four WebKit key-dependent journeys remain
+remain usable before enrollment, including on retry/reload. Live tags now update through the reader bridge without
+replacing the document or losing the selection, reading place or citation return. Local validation: production build,
+**54 unit/interop tests**, **26 production-CSP browser checks** and **9 development Strict Mode journeys** pass.
+Direct paper URLs now wait for encrypted reading activity to load before restoring the paper, and received scroll
+reports no longer lose the last update to a second throttle. **Seven WebKit key-dependent journeys remain
 capability skips**, with safe refusal tested: WebKit cannot currently read back the non-extractable X25519 keys in
 this environment. Full Safari support requires further design/work; see
 [browser evidence and release gate](architecture/BROWSER_READER.md#evidence).
 
-Next: finish the remaining reader UX issues, design large-library loading/sync evolution, implement accessible
-windowing, validate the combined native/Mac changes, and verify browser deployment separately. Existing staging
+Next: design large-library loading/sync evolution, implement accessible windowing, validate native/Mac workflows,
+and verify browser deployment separately. Existing staging
 evidence below does not assert that this integration branch is deployed.
 
 ## Works end to end on staging

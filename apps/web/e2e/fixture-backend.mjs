@@ -195,6 +195,16 @@ createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
   if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  // A tag projection arriving from the worker or another device, through the real library journal shape.
+  if (url.pathname === '/__paper-tags' && request.method === 'POST') {
+    const body = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    const paper = a.entries.get('item:aaaaaaaa-0000-4000-8000-000000000001');
+    if (!paper || !Array.isArray(body?.tags) || body.tags.length > 16 || body.tags.some(tag => typeof tag !== 'string' || tag.length > 40)) return send(response, 400, {});
+    const updated = { ...paper };
+    if (body.tags.length) updated.tags = body.tags; else delete updated.tags; // the wire omits empty lists
+    emit(a, [updated]);
+    return send(response, 200, { ok: true });
+  }
   // Signed Storage URLs carry no API key or account credential.
   if (url.pathname.startsWith('/storage/v1/object/sign/paper-assets/reader/')) {
     const path = decodeURIComponent(url.pathname.slice(`/storage/v1/object/sign/paper-assets/reader/${SAMPLE_SHA}/`.length));

@@ -2,7 +2,7 @@
 // (docs/architecture/BROWSER_READER.md#reader-frame).
 import frame from 'virtual:reader-frame';
 import { toBase64 } from '../lib/bytes';
-import type { VerifiedBundle } from '../lib/bundle';
+import { MAXIMUM_READER_HEADINGS, type VerifiedBundle } from '../lib/bundle';
 
 export const FRAME_SCRIPT_HASH = frame.hash;
 
@@ -73,7 +73,7 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
   const finite = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
   switch (v.type) {
     case 'headings':
-      if (!Array.isArray(v.items) || v.items.length > 500) return null;
+      if (!Array.isArray(v.items) || v.items.length > MAXIMUM_READER_HEADINGS) return null;
       return { type: 'headings', items: (v.items as { id?: unknown; title?: unknown }[]).filter(i => typeof i?.id === 'string' && i.id && i.id.length <= 2048
         && typeof i.title === 'string' && i.title && i.title.length <= 8000).map(i => ({ id: i.id as string, title: i.title as string })) };
     case 'position':

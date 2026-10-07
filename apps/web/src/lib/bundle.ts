@@ -20,6 +20,8 @@ const PROFILES: Profile[] = [
   { renderer: 'timestep-mmd-v1', source: 'authored-mmd', images: ['image/png'], equations: 512, figures: 128, blocks: 5000, headings: 500, indexBytes: 2_097_152, pixels: 16_000_000 },
   { renderer: 'timestep-mathpix-mathml-v1', source: 'mathpix-mmd', images: ['image/png', 'image/jpeg'], equations: 4000, figures: 256, blocks: 20_000, headings: 1000, indexBytes: 4_194_304, pixels: 64_000_000 },
 ];
+/** The frame bridge must admit every contents list accepted by the bundle verifier. */
+export const MAXIMUM_READER_HEADINGS = Math.max(...PROFILES.map(profile => profile.headings));
 const MATHPIX_OCR_API = 'v3/pdf', MATHPIX_PROFILE = 'science-reader-mmd-v1';
 
 const isDigest = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);

@@ -20,6 +20,8 @@
     restore: location => window.__scienceReaderRestore?.(location),
     citationBack: () => window.__scienceReaderCitationBack?.(),
     clearSelection: () => window.__scienceReaderClearSelection?.(),
+    paperLine: text => window.__scienceReaderSetPaperLine?.(text),
+    paperTags: tags => window.__scienceReaderSetPaperTags?.(tags),
     fontSize: size => { document.documentElement.style.fontSize = Number(size) + 'px'; window.__scienceReaderFit?.(); return true; },
   };
   addEventListener('message', event => {
