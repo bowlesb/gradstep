@@ -94,3 +94,60 @@ The database functions re-validate every field shape and are callable only by th
 - Production: accepted environments, App Review sandbox policy, `APP_STORE_APP_APPLE_ID`.
 - Apple's consumption-information requests for refund decisions (optional) are ignored for now.
 - Sign in with Apple token revocation on account deletion (separate follow-up).
+
+## Verification diagnostics (2026-10-07, local implementation)
+
+The reported purchases have not been verified end to end. The app's old generic message covered
+both temporary verification outages and permanently refused data, so it does **not** establish
+OCSP as the cause. A public, real Apple signing-certificate chain from Apple's library tests
+passes the pinned library's online checks locally in Node 24 and Deno 2.9.6. This is evidence
+about those local runtimes, not the deployed Edge runtime or the owner's signed transaction.
+Sandbox revocation checks stay enabled. Production configuration must never disable them.
+
+Migration `202610070038_purchase_verification_observations.sql` adds a separate, bounded
+diagnostic record; it does not alter credit grants, StoreKit transaction ownership, or refunds.
+Deployment requires the complete ordered migration prefix and a working database cleanup job.
+
+- `worker_store_verification_begin(account, attempt, submission_sha256)` admits one actual
+  verification call. Its digest is SHA-256 of a versioned domain, authenticated account UUID,
+  and the exact signed submission. Replaying an attempt grants no second call. There are
+  50 admissions/account/hour, 1,000/environment/hour, and retained-row caps of 2,048/account
+  and 50,000/environment. Unavailable admission leaves StoreKit transactions unfinished.
+- `worker_store_verification_finish(account, attempt, outcome, stage, apple_status, transport_code)`
+  records finite codes only. No signed JWS, certificate, error message/body, transaction identity,
+  Apple identity, or unverified claimed field enters these records. The customer receives the
+  same opaque digest as a support reference. An ambiguous finish acknowledgement never causes
+  another credit grant; the existing transaction ledger remains authoritative.
+- An observation is one admitted attempt, not proof of a purchase. Owner + MFA diagnostics
+  group by account-bound submission and show the newest outcome, retries and timings. Different
+  signed copies may describe the same purchase. A started attempt older than ten minutes is
+  shown as interrupted/unconfirmed, without changing any financial state.
+- Observations expire after 30 days and are deleted by a database-only hourly cleanup job;
+  admission also makes bounded cleanup progress. Readiness reports the actual schedule, so a
+  missing hosted job cannot silently pass deployment checks. Account closure deletes these
+  support records. Admission locks the account before the policy; cleanup never locks accounts,
+  and account closure never takes the policy lock.
+- One temporary Apple verification failure defers the rest of that request's batch. It does not
+  make 24 more identical failing OCSP calls or create observations for attempts never made.
+- The app retains only bounded, safe outcomes in memory for support. Temporary failures say
+  that credits are pending; invalid/environment/refused purchases explain that the server could
+  not confirm that purchase. A restored active plan is not inferred from an unverified submission.
+
+The real-purchase regression remains required before calling the purchase flow repaired. No
+Sandbox online-check exception, hosted schema change, new purchase or physical-device action is included
+in the local evidence above. Apple's reference implementation and test certificate chain are
+at [apple/app-store-server-library-node](https://github.com/apple/app-store-server-library-node).
+
+Local checks: all 224 backend tests; 12 purchase tests under both Node and Deno, including
+the real SDK against a loopback OCSP responder returning HTTP 503; the database suites and
+five independent-session admission/replay/deletion/cleanup races; six StorePurchaseTests on
+the iPhone Simulator; iOS/iPad test build; admin production build and the synthetic Purchases
+browser journey at desktop and narrow widths, with dark mode and keyboard focus checked.
+`scripts/check-purchase-diagnostics.mjs` runs that browser fixture without contacting hosted
+services. It does not establish hosted verification or credit delivery.
+
+This change adds no provider purchase or external worker. Each admitted verification adds
+two database RPCs (admit and finish), while the hourly cleanup runs inside the existing
+database. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
+to the existing database allocation. Review actual database growth after deployment. The
+existing $100/month operating budget is unchanged.

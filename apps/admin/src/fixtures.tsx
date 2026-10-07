@@ -3,6 +3,7 @@ import type { PipelineMetrics } from './backend';
 import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type AccountSort } from './accounts';
 import { Reliability } from './reliability';
 import { Shell } from './shell';
+import { Purchases, type PurchasesApi, type PurchaseSubmission } from './purchases';
 
 // Development-only sample data for screenshots: `?fixture=reliability` (add `&state=empty`
 // for empty states) and `?fixture=accounts`. main.tsx loads this module only when import.meta.env.DEV is true,
@@ -94,6 +95,43 @@ export function ReliabilityFixture() {
   return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Reliability load={load} reloadKey={reloads} />
+  </Shell>;
+}
+
+export function PurchasesFixture() {
+  const [reloads, setReloads] = useState(0);
+  const scenario = new URLSearchParams(location.search).get('state');
+  const api = useMemo<PurchasesApi>(() => {
+    const now = new Date().toISOString();
+    const account = '38000000-0000-0000-0000-000000000001';
+    const rows: PurchaseSubmission[] = scenario === 'empty' ? [] : [
+      { account_id: account, reference: '38'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 3,
+        state: 'pending', outcome: 'verification_unavailable', stage: 'revocation', apple_status: 'retryable_verification_failure', transport_code: 'timeout' },
+      { account_id: account, reference: '39'.repeat(32), first_at: now, last_at: now, finished_at: null, attempts: 1,
+        state: 'interrupted', outcome: 'started', stage: null, apple_status: null, transport_code: null },
+      { account_id: account, reference: '40'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 1,
+        state: 'refused', outcome: 'invalid', stage: 'certificate_chain', apple_status: 'invalid_certificate', transport_code: null },
+    ];
+    return {
+      async list(filter, reference) {
+        if (scenario === 'error') throw Error('synthetic_failure');
+        const matched = rows.filter(row => (!reference || row.reference.startsWith(reference)) &&
+          (filter === 'all' || row.state === filter || (filter === 'unconfirmed' && ['pending', 'interrupted', 'verifying'].includes(row.state))));
+        return { generated_at: now, matched: matched.length, counts: { pending: 1, interrupted: 1, refused: 1 }, submissions: matched,
+          readiness: { retained: 5, policy: { retention_days: 30, account_rows: 2048, environment_rows: 50000 },
+            cleanup: { active: scenario !== 'cleanup', expected_command: true, schedule: '17 * * * *' } } };
+      },
+      async attempts(_account, reference) {
+        return Array.from({ length: rows.find(row => row.reference === reference)?.attempts ?? 0 }, (_, n) => ({
+          id: `fixture-attempt-${n}`, admitted_at: now, finished_at: now, outcome: 'verification_unavailable',
+          stage: 'revocation', apple_status: 'retryable_verification_failure', transport_code: 'timeout',
+        }));
+      },
+    };
+  }, [scenario]);
+  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Purchases" onTab={() => undefined}
+    email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
+    <Purchases api={api} reloadKey={reloads} />
   </Shell>;
 }
 
