@@ -124,6 +124,13 @@ extension ReaderModel {
         uploads.fetcher = FixturePDFFetcher()
         uploads.activate(.init(service: service, accountID: AddPaperFixture.accountID, deploymentID: "add-paper-fixture",
             cursor: { 0 }, added: { [weak self] in self?.showFixtureUpload() }))
+        // `--share-inbox-fixture`: what the Share extension would have saved — a PDF from Files and a link from Safari.
+        if ProcessInfo.processInfo.arguments.contains("--share-inbox-fixture"), let inbox = Self.shareInbox {
+            try? FileManager.default.removeItem(at: inbox.root)
+            _ = try inbox.addPDF(from: try AddPaperFixture.samplePDF(), title: "shared-draft")
+            _ = try inbox.addLink(URL(string: AddPaperFixture.blockedLink)!, title: nil)
+        }
+        importSharedItems()
     }
 
     /// A finalized upload as the server would show it: a new paper converting, or the failed import running again.

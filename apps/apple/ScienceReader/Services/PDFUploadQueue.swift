@@ -40,7 +40,8 @@ enum PDFFileCheck {
     static let maximumTitle = 500
 
     /// The same rules the worker applies: `%PDF-` first, at most 64 MiB, 1–250 pages, readable.
-    static func check(_ url: URL, title preferred: String? = nil) throws -> CheckedPDF {
+    /// `preferred`: the paper's known title (it wins); `fallback`: a name to use when the PDF has no title of its own.
+    static func check(_ url: URL, title preferred: String? = nil, fallback: String? = nil) throws -> CheckedPDF {
         let size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         if size == 0 { throw PDFFileProblem.empty }
         if size > maximumBytes { throw PDFFileProblem.tooLarge }
@@ -60,7 +61,7 @@ enum PDFFileCheck {
         if pages > maximumPages { throw PDFFileProblem.tooManyPages }
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         return CheckedPDF(sha256: digest, byteCount: size, pages: pages,
-                          title: cleanTitle(preferred) ?? documentTitle(document) ?? fileTitle(url))
+                          title: cleanTitle(preferred) ?? documentTitle(document) ?? cleanTitle(fallback) ?? fileTitle(url))
     }
 
     /// The PDF's own title when it looks like one (not "Microsoft Word - draft.docx" or "untitled").
@@ -230,6 +231,10 @@ final class PDFUploadCenter {
     var pickRequest: PickRequest?
     /// A PDF that couldn't be queued (picked or dropped), for an alert.
     var problem: String?
+    /// A link shared to Gradstep, for the Add sheet to look up when it opens.
+    var sharedLink: String?
+    /// Shared items being queued now (an inbox scan never queues one twice).
+    @ObservationIgnored var sharedInFlight = Set<UUID>()
     /// Downloads on this device in progress or stopped (device fallback), before their upload is queued.
     private(set) var fetches: [DeviceFetch] = []
     /// This device's fetcher (a script in UI fixtures).
@@ -284,7 +289,7 @@ final class PDFUploadCenter {
     /// Sign-out or account change: stop sending. The files stay for that account's next sign-in.
     func deactivate() {
         worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
-        context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil; fetches = []; problem = nil
+        context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil; fetches = []; problem = nil; sharedLink = nil
     }
 
     /// Device fallback: fetches the PDF over this device's network (the server's checks), then queues its
@@ -317,9 +322,9 @@ final class PDFUploadCenter {
 
     /// Checks and queues a PDF from Files, a drop, the share inbox or a device download.
     @discardableResult
-    func add(file: URL, title: String? = nil, target: PDFUploadTarget) async throws -> PDFUploadJob {
+    func add(file: URL, title: String? = nil, fallbackTitle: String? = nil, target: PDFUploadTarget) async throws -> PDFUploadJob {
         guard let context, let store else { throw BackendError.signInRequired }
-        let checked = try await Task.detached(priority: .userInitiated) { try PDFFileCheck.check(file, title: title) }.value
+        let checked = try await Task.detached(priority: .userInitiated) { try PDFFileCheck.check(file, title: title, fallback: fallbackTitle) }.value
         guard self.context?.accountID == context.accountID else { throw CancellationError() }
         let job = PDFUploadJob(id: UUID(), uploadID: UUID(), accountID: context.accountID, createdAt: now(), title: checked.title,
                                sha256: checked.sha256, byteCount: checked.byteCount, target: target)

@@ -1387,7 +1387,7 @@ final class ReaderModel {
     }
 
     func refreshLibrary() async {
-        uploads.resume()
+        uploads.resume(); importSharedItems()
         guard let accountID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let scope = sessionID
         await loadLibrary(accountID: accountID, scope: scope)
@@ -2172,6 +2172,7 @@ final class ReaderModel {
                 return self.completeLibrary?.committedCursor
             },
             added: { [weak self] in Task { await self?.refreshLibrary() } }))
+        importSharedItems()
     }
 
     /// The Add sheet's and uploads' network calls for the signed-in account (a script in UI fixtures).

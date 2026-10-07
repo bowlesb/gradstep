@@ -124,6 +124,20 @@ final class AddPaperFlowTests: XCTestCase {
         save("device-download-blocked")
     }
 
+    /// Share › Gradstep: the extension saved a PDF and a link (fixture inbox); on launch the PDF is uploaded and
+    /// the link opens Add, already looked up.
+    func testSharedItemsAreAddedOnLaunch() {
+        let app = launch(["--share-inbox-fixture"])
+        XCTAssertTrue(app.navigationBars["Add a paper"].waitForExistence(timeout: 10), "the shared link opens Add")
+        let outcome = app.staticTexts["add.outcome"]
+        XCTAssertTrue(outcome.waitForExistence(timeout: 5))
+        XCTAssertTrue(outcome.label.contains("blocked the download"), outcome.label)
+        save("share-link-outcome")
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 15), "the shared PDF was uploaded")
+        save("share-pdf-added")
+    }
+
     /// A paper that isn't openly available: Add says so and offers the upload, which attaches to that paper.
     func testUploadForAPaperThatIsNotOpen() {
         let app = launch(["--visual-show-import"])

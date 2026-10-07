@@ -90,6 +90,13 @@ struct ImportPaperView: View {
                 }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
                 .onChange(of: input) { _, _ in outcome = nil; issue = nil }
+                // A link shared to Gradstep (Share › Gradstep): looked up as if typed here.
+                .task {
+                    guard let link = model.uploads.sharedLink else { return }
+                    model.uploads.sharedLink = nil
+                    input = link
+                    add()
+                }
                 .fileImporter(isPresented: Binding(get: { picking != nil && !PDFUploadPresenter.fixturePicks }, set: { if !$0 { picking = nil } }),
                               allowedContentTypes: [.pdf]) { result in
                     guard let request = picking else { return }
