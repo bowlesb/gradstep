@@ -137,6 +137,8 @@ struct PaperView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.openURL) private var openURL
+    /// In the wide Reader, beside the chat column (which the reader can hide).
+    @Environment(\.readerChatColumn) private var besideChat
 
     private var readingKey: String? {
         guard let paper = model.selectedPaper else { return nil }
@@ -231,6 +233,12 @@ struct PaperView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
+                if besideChat && model.readerChatHidden {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { model.readerChatHidden = false } label: { Image(GradstepSymbol.chat) }
+                            .accessibilityLabel("Show chat").accessibilityIdentifier("paper.showChat")
+                    }
+                }
                 // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
                 // then this screen's actions, then "Report this screen".
                 ToolbarItem(placement: .topBarTrailing) {
@@ -243,6 +251,11 @@ struct PaperView: View {
                                 .disabled(model.paperFontSize >= 26)
                         }
                         .controlGroupStyle(.compactMenu)
+                        if besideChat {
+                            MenuRow(model.readerChatHidden ? "Show chat" : "Hide chat", systemImage: "sidebar.right") {
+                                model.readerChatHidden.toggle()
+                            }.accessibilityIdentifier("paper.chatColumn")
+                        }
                         MenuRow("Find in paper", systemImage: "magnifyingglass") { showFind() }.accessibilityIdentifier("paper.find")
                             .disabled(!canFind)
                         if model.selectedPaper?.readerBundle?.index.figures.isEmpty == false {

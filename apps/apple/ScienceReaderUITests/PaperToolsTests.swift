@@ -142,4 +142,67 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(wait { title.exists && abs(title.frame.minY - web.frame.minY - start) < 3 && !back.exists },
                       "Back returns to the place left")
     }
+
+    // MARK: - iPad: full-width paper, resizable chat (gap 5)
+
+    func testTabletReaderHidesAndResizesTheChatColumn() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "iPad layout")
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = openSample()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        XCTAssertTrue(wait { app.frame.width > app.frame.height }, "Landscape")
+        let web = app.webViews.firstMatch, composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(app.segmentedControls.buttons["Reader"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "Chat beside the paper by default")
+        let paperWidth = web.frame.width
+        capture(app, "iPad landscape: paper and chat (default)")
+
+        // Resize: drag the divider left; the chat widens once the drag ends.
+        let divider = app.descendants(matching: .any).matching(identifier: "reader.chatDivider").firstMatch
+        XCTAssertTrue(divider.waitForExistence(timeout: 5))
+        let grip = divider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        grip.press(forDuration: 0.2, thenDragTo: grip.withOffset(CGVector(dx: -160, dy: 0)))
+        XCTAssertTrue(wait { abs(web.frame.width - (paperWidth - 160)) < 12 }, "Paper \(paperWidth) → \(web.frame.width)")
+        capture(app, "iPad landscape: chat widened")
+
+        // Hide: full-width paper; the paper's bar offers the chat back.
+        app.buttons["Paper options"].tap()
+        app.buttons["paper.chatColumn"].tap()
+        XCTAssertTrue(composer.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(wait { abs(web.frame.width - app.frame.width) < 2 }, "Full-width paper")
+        XCTAssertTrue(app.buttons["paper.showChat"].exists)
+        capture(app, "iPad landscape: full-width paper")
+        // ⌘F with a hardware keyboard finds in the paper.
+        app.typeKey("f", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["find.doneButton"].waitForExistence(timeout: 5), "⌘F shows the find bar")
+        app.buttons["find.doneButton"].tap()
+
+        XCUIDevice.shared.orientation = .portrait
+        XCTAssertTrue(wait { app.frame.width < app.frame.height }, "Portrait")
+        XCTAssertTrue(wait { abs(web.frame.width - app.frame.width) < 2 }, "Still full width after rotating")
+        capture(app, "iPad portrait: full-width paper")
+
+        // Browse keeps the library beside the paper and has no chat column to hide.
+        app.segmentedControls.buttons["Browse"].tap()
+        XCTAssertTrue(app.searchFields["library.search"].waitForExistence(timeout: 5))
+        app.buttons["Paper options"].tap()
+        XCTAssertTrue(app.buttons["paper.find"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["paper.chatColumn"].exists)
+        app.buttons["paper.find"].tap() // closes the menu
+        app.buttons["find.doneButton"].tap()
+        app.segmentedControls.buttons["Reader"].tap()
+        XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 5))
+
+        // The choice is kept on this device.
+        app.terminate()
+        app.launchArguments = ["--workflow-fixture", "--keep-reader-chat"]
+        app.launch()
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
+        app.buttons[sampleID].tap()
+        XCTAssertTrue(app.buttons["paper.showChat"].waitForExistence(timeout: 8), "Still hidden after relaunch")
+        app.buttons["paper.showChat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        capture(app, "iPad portrait: chat shown again at its chosen width")
+    }
 }

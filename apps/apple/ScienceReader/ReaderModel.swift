@@ -207,6 +207,10 @@ final class ReaderModel {
     var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" { didSet { UserDefaults.standard.set(appearance, forKey: "appearance") } }
     var paperFontSize = UserDefaults.standard.double(forKey: "paperFontSize") == 0 ? 17 : UserDefaults.standard.double(forKey: "paperFontSize") { didSet { UserDefaults.standard.set(paperFontSize, forKey: "paperFontSize") } }
     var chatFontSize = UserDefaults.standard.double(forKey: "chatFontSize") == 0 ? 17 : UserDefaults.standard.double(forKey: "chatFontSize") { didSet { UserDefaults.standard.set(chatFontSize, forKey: "chatFontSize") } }
+    /// iPad and Mac Reader: the chat column beside the paper is hidden for full-width reading (kept per device).
+    var readerChatHidden = UserDefaults.standard.bool(forKey: "reader.chatHidden") { didSet { UserDefaults.standard.set(readerChatHidden, forKey: "reader.chatHidden") } }
+    /// The chat column's width there as the reader dragged it; nil is the default for the window's width.
+    var readerChatWidth = UserDefaults.standard.object(forKey: "reader.chatWidth") as? Double { didSet { UserDefaults.standard.set(readerChatWidth, forKey: "reader.chatWidth") } }
     var message = ""
     var generalChat = true
     var chatPaperID: UUID?
@@ -2021,13 +2025,14 @@ final class ReaderModel {
 
     func askAboutSelectedPaper() {
         guard let selectedPaper else { return }
-        chatPaperID = selectedPaper.id; generalChat = false; tab = .chat; wideMode = .reader
+        chatPaperID = selectedPaper.id; generalChat = false; tab = .chat; wideMode = .reader; readerChatHidden = false
     }
 
     func openConversation(_ id: UUID) {
         guard let event = privateState.revisions(for: id).first, event.payload.kind == .conversation else { return }
         if let documentID = event.payload.documentID {
             chatPaperID = documentID; selectedPaper = papers.first { $0.id == documentID }; generalChat = false; wideMode = .reader
+            readerChatHidden = false
             openLocalPaperIfNeeded()
         } else { generalChat = true; wideMode = .chat }
         activeConversation = id; tab = .chat
@@ -2188,7 +2193,7 @@ final class ReaderModel {
         selectedQuote = quote
         // The prompts live with `ChatTitle`, which turns them back into short titles.
         newChat(general: false); chatInput = action.prompt(quote)
-        tab = .chat; wideMode = .reader
+        tab = .chat; wideMode = .reader; readerChatHidden = false
         // The quote travels with this exact prompt and composer only.
         pendingSelection = chatComposerID.map { (composerID: $0, prompt: chatInput, quote: quote, action: action == .ingest ? .ingest : action == .similar ? .related : nil) }
         if !isSignedIn { openSignIn() }
@@ -2949,6 +2954,8 @@ extension ReaderModel {
         libraryColumns = columns
         libraryFilter = argument("--library-filter=").flatMap(LibraryFilter.init(rawValue:)) ?? .all
         libraryTagFilter = argument("--library-tag=")
+        // The iPad Reader's chat column: shown at its default width unless a test hides it or keeps the last run's.
+        if !arguments.contains("--keep-reader-chat") { readerChatHidden = arguments.contains("--reader-chat-hidden"); readerChatWidth = nil }
         // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
         if arguments.contains("--visual-show-import") { showImport = true }
     }
