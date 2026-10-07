@@ -31,7 +31,9 @@ Deno.serve(async request => {
         return data;
       },
     }, body);
-    console.log(JSON.stringify({ function: 'app-store-notifications', event: 'notification', status: result.status, outcome: result.outcome }));
+    // Unauthenticated invalid submissions do not allocate durable observation rows.
+    console.log(JSON.stringify({ function: 'app-store-notifications', event: 'notification', status: result.status,
+      outcome: result.outcome, ...result.diagnostic }));
     return Response.json({ outcome: result.outcome }, { status: result.status, headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');

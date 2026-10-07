@@ -55,6 +55,11 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .table-view table{margin-top:8px}
 .table-view .muted{margin:10px 0 0}
 .table-scroll{overflow-x:auto}
+.purchase-diagnostics select{font:inherit;padding:8px 10px;border:1px solid #d8ddeb;border-radius:8px;background:#fff;color:inherit}
+.purchase-diagnostics select:focus-visible{outline:3px solid #a5b4fc;outline-offset:3px}
+@media(prefers-color-scheme:dark){.purchase-diagnostics select{background:#12131a;border-color:#333748;color:#e3e5ee}}
+.purchase-diagnostics td{vertical-align:top}
+.purchase-diagnostics .inline-form+.muted{margin-top:12px}
 .reliability table{margin-top:6px}
 .table-view table{min-width:600px}
 th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}

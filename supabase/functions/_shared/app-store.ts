@@ -3,11 +3,10 @@
 // bundle ID, environment), then recording through migration 018's functions.
 // Every money effect happens in the database; this module only verifies and
 // normalizes. See docs/architecture/PURCHASES.md.
-import { Environment, SignedDataVerifier, VerificationStatus } from '@apple/app-store-server-library';
-import type { VerificationException } from '@apple/app-store-server-library';
+import { Environment, SignedDataVerifier, VerificationException, VerificationStatus } from '@apple/app-store-server-library';
 import type { JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload } from '@apple/app-store-server-library';
 import { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID, type KeyObject, type X509Certificate } from 'node:crypto';
 
 /** Apple Root CA - G3 (DER, base64), from https://www.apple.com/certificateauthority/. */
 const APPLE_ROOT_CA_G3 = 'MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQL'
@@ -44,7 +43,9 @@ export function storeConfig(env: (name: string) => string | undefined): StoreCon
   if (!bundleID || !environments.length || environments.some(e => e !== 'Sandbox' && e !== 'Production')) return null;
   const appAppleID = env('APP_STORE_APP_APPLE_ID') ? Number(env('APP_STORE_APP_APPLE_ID')) : undefined;
   if (environments.includes('Production') && !(appAppleID && Number.isSafeInteger(appAppleID))) return null;
-  return { bundleID, environments: environments as StoreEnvironment[], appAppleID, onlineChecks: env('APP_STORE_ONLINE_CHECKS') !== 'false' };
+  const onlineChecks = env('APP_STORE_ONLINE_CHECKS') !== 'false';
+  if (environments.includes('Production') && !onlineChecks) return null;
+  return { bundleID, environments: environments as StoreEnvironment[], appAppleID, onlineChecks };
 }
 
 export interface StoreVerifier {
@@ -55,17 +56,85 @@ export interface StoreVerifier {
 /** `verification_unavailable`: Apple's revocation check could not be reached
  * (retry later); the others are permanent for that data. */
 export type VerificationCode = 'invalid' | 'environment_unavailable' | 'verification_unavailable';
+export type VerificationStage = 'input' | 'environment' | 'certificate_chain' | 'revocation' | 'signature_or_payload'
+  | 'application' | 'transaction_fields' | 'recording' | 'admission' | 'deferred';
+export type AppleVerificationStatus = 'verification_failure' | 'retryable_verification_failure' | 'invalid_app_identifier'
+  | 'invalid_environment' | 'invalid_chain_length' | 'invalid_certificate' | 'failure';
+export type VerificationTransportCode = 'timeout' | 'dns' | 'connection' | 'tls' | 'network' | 'runtime' | 'other';
+export interface VerificationDiagnostic {
+  stage: VerificationStage;
+  apple_status?: AppleVerificationStatus;
+  transport_code?: VerificationTransportCode;
+}
 export class StoreVerificationError extends Error {
   readonly code: VerificationCode;
-  constructor(code: VerificationCode) { super(code); this.code = code; }
+  readonly diagnostic: VerificationDiagnostic;
+  constructor(code: VerificationCode, diagnostic: VerificationDiagnostic = { stage: 'signature_or_payload' }) {
+    super(code); this.code = code; this.diagnostic = diagnostic;
+  }
+}
+
+const APPLE_STATUSES: Readonly<Record<number, AppleVerificationStatus>> = {
+  [VerificationStatus.VERIFICATION_FAILURE]: 'verification_failure',
+  [VerificationStatus.RETRYABLE_VERIFICATION_FAILURE]: 'retryable_verification_failure',
+  [VerificationStatus.INVALID_APP_IDENTIFIER]: 'invalid_app_identifier',
+  [VerificationStatus.INVALID_ENVIRONMENT]: 'invalid_environment',
+  [VerificationStatus.INVALID_CHAIN_LENGTH]: 'invalid_chain_length',
+  [VerificationStatus.INVALID_CERTIFICATE]: 'invalid_certificate',
+  [VerificationStatus.FAILURE]: 'failure',
+};
+
+/** Preserve the SDK's status and behavior while identifying the failed step.
+ * Subclassing its protected methods changes no signature, chain or OCSP checks. */
+class StageVerificationException extends VerificationException {
+  readonly stage: VerificationStage;
+  constructor(stage: VerificationStage, error: unknown) {
+    const status = (error as Partial<VerificationException> | null)?.status;
+    super(typeof status === 'number' && APPLE_STATUSES[status] ? status : VerificationStatus.VERIFICATION_FAILURE,
+      error instanceof Error ? error : undefined);
+    this.stage = error instanceof StageVerificationException ? error.stage : stage;
+  }
+}
+class DiagnosticSignedDataVerifier extends SignedDataVerifier {
+  protected override async verifyCertificateChain(roots: X509Certificate[], leaf: X509Certificate, intermediate: X509Certificate,
+    effectiveDate: Date): Promise<KeyObject> {
+    try { return await super.verifyCertificateChain(roots, leaf, intermediate, effectiveDate); }
+    catch (error) { throw new StageVerificationException('certificate_chain', error); }
+  }
+  protected override async checkOCSPStatus(cert: X509Certificate, issuer: X509Certificate): Promise<void> {
+    try { await super.checkOCSPStatus(cert, issuer); }
+    catch (error) { throw new StageVerificationException('revocation', error); }
+  }
+}
+
+/** Never serialize errors, messages, URLs, arbitrary codes or decoded claims. */
+function transportCode(error: unknown): VerificationTransportCode | undefined {
+  const seen = new Set<unknown>();
+  let value = error;
+  for (let i = 0; value && typeof value === 'object' && i < 8 && !seen.has(value); i++) {
+    seen.add(value);
+    const cause = value as { code?: unknown; type?: unknown; name?: unknown; cause?: unknown };
+    if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(String(cause.code)) || ['request-timeout', 'body-timeout'].includes(String(cause.type))) return 'timeout';
+    if (['ENOTFOUND', 'EAI_AGAIN'].includes(String(cause.code))) return 'dns';
+    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH'].includes(String(cause.code))) return 'connection';
+    if (['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(String(cause.code))) return 'tls';
+    if (['NotSupportedError', 'NotCapable'].includes(String(cause.name))) return 'runtime';
+    if (!cause.cause) return cause.name === 'FetchError' ? 'network' : i > 0 && !(value instanceof VerificationException) ? 'other' : undefined;
+    value = cause.cause;
+  }
+  return undefined;
 }
 export function verificationError(error: unknown): StoreVerificationError {
   if (error instanceof StoreVerificationError) return error;
   // By status, not class: VerificationException may come from another copy of the library.
-  if ((error as Partial<VerificationException> | null)?.status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE) {
-    return new StoreVerificationError('verification_unavailable');
-  }
-  return new StoreVerificationError('invalid');
+  const status = (error as Partial<VerificationException> | null)?.status;
+  const appleStatus = typeof status === 'number' ? APPLE_STATUSES[status] : undefined;
+  const stage = error instanceof StageVerificationException ? error.stage
+    : status === VerificationStatus.INVALID_APP_IDENTIFIER ? 'application'
+    : status === VerificationStatus.INVALID_ENVIRONMENT ? 'environment' : 'signature_or_payload';
+  const transport = stage === 'revocation' || status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? transportCode(error) : undefined;
+  return new StoreVerificationError(status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? 'verification_unavailable' : 'invalid',
+    { stage, ...(appleStatus ? { apple_status: appleStatus } : {}), ...(transport ? { transport_code: transport } : {}) });
 }
 
 /** The environment a JWS claims, read before verification only to choose the
@@ -81,13 +150,15 @@ export function claimedEnvironment(signed: string, notification: boolean): strin
 }
 
 export function appleVerifier(config: StoreConfig, roots: Buffer[] = appleRootCertificates()): StoreVerifier {
-  const verifiers = new Map(config.environments.map(e => [e, new SignedDataVerifier(roots, config.onlineChecks,
+  // Defense in depth for callers that construct StoreConfig without storeConfig().
+  if (config.environments.includes('Production') && !config.onlineChecks) throw new Error('production_online_checks_required');
+  const verifiers = new Map(config.environments.map(e => [e, new DiagnosticSignedDataVerifier(roots, config.onlineChecks,
     e === 'Production' ? Environment.PRODUCTION : Environment.SANDBOX, config.bundleID, e === 'Production' ? config.appAppleID : undefined)]));
   const pick = (signed: string, notification: boolean) => {
-    if (typeof signed !== 'string' || signed.length < 20 || signed.length > 64_000 || signed.split('.').length !== 3) throw new StoreVerificationError('invalid');
+    if (typeof signed !== 'string' || signed.length < 20 || signed.length > 64_000 || signed.split('.').length !== 3) throw new StoreVerificationError('invalid', { stage: 'input' });
     const claimed = claimedEnvironment(signed, notification);
     const verifier = claimed ? verifiers.get(claimed as StoreEnvironment) : undefined;
-    if (!verifier) throw new StoreVerificationError(claimed ? 'environment_unavailable' : 'invalid');
+    if (!verifier) throw new StoreVerificationError(claimed ? 'environment_unavailable' : 'invalid', { stage: claimed ? 'environment' : 'input' });
     return verifier;
   };
   return {
@@ -146,16 +217,24 @@ export function transactionRecord(t: JWSTransactionDecodedPayload): StoreTransac
 
 export type SyncOutcome = 'recorded' | 'updated' | 'already_recorded' | 'linked_to_another_account' | 'account_closed'
   | 'unknown_product' | 'unsupported' | 'unattributed' | VerificationCode;
-export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number }
+export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number; support_reference?: string; diagnostic?: VerificationDiagnostic }
 /** Outcomes after which the app finishes the StoreKit transaction. */
 export const FINAL_OUTCOMES: ReadonlySet<SyncOutcome> = new Set(['recorded', 'updated', 'already_recorded']);
 export const MAX_SYNC_TRANSACTIONS = 25;
 
 export interface StoreDeps {
   verifier: StoreVerifier;
+  /** Required together by the production store-sync adapter. Optional for standalone verification tests. */
+  beginVerification?(accountID: string, attemptID: string, submissionSHA256: string): Promise<boolean>;
+  finishVerification?(accountID: string, attemptID: string, outcome: SyncOutcome | 'recording_unavailable', diagnostic?: VerificationDiagnostic): Promise<void>;
   recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number }>;
   recordNotification(input: { environment: string; notification_uuid: string; type: string; subtype: string | null;
     signed_at: string; transaction: StoreTransactionRecord | null }): Promise<{ outcome: string; duplicate?: boolean }>;
+}
+
+/** Stable correlation for this account's exact submission, without exposing Apple identity. */
+export function storeSubmissionReference(accountID: string, signed: string): string {
+  return createHash('sha256').update('science-reader:store-verification:v1\0').update(accountID.toLowerCase()).update('\0').update(signed).digest('hex');
 }
 
 /** Records the caller's transactions (purchases from this device, renewals and
@@ -163,16 +242,43 @@ export interface StoreDeps {
 export async function syncTransactions(deps: StoreDeps, accountID: string, body: unknown): Promise<SyncResult[]> {
   const list = (body as { transactions?: unknown })?.transactions;
   if (!Array.isArray(list) || list.length === 0 || list.length > MAX_SYNC_TRANSACTIONS || list.some(s => typeof s !== 'string')) throw new Error('invalid_request');
+  if (!!deps.beginVerification !== !!deps.finishVerification) throw new Error('verification_observation_configuration');
   const results: SyncResult[] = [];
+  let deferred = false;
   for (const signed of list as string[]) {
-    let decoded: JWSTransactionDecodedPayload;
-    try { decoded = await deps.verifier.transaction(signed); }
-    catch (error) { results.push({ outcome: error instanceof StoreVerificationError ? error.code : 'invalid' }); continue; }
-    const record = transactionRecord(decoded);
-    if (!record) { results.push({ outcome: 'invalid' }); continue; }
-    const recorded = await deps.recordTransaction(accountID, record);
-    results.push({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
-      ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}) });
+    const reference = storeSubmissionReference(accountID, signed);
+    if (deferred) {
+      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'deferred' } }); continue;
+    }
+    const attemptID = randomUUID();
+    if (deps.beginVerification && !await deps.beginVerification(accountID, attemptID, reference)) {
+      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'admission' } });
+      deferred = true; continue;
+    }
+    let result: SyncResult;
+    try {
+      const decoded = await deps.verifier.transaction(signed);
+      const record = transactionRecord(decoded);
+      if (!record) result = { outcome: 'invalid', diagnostic: { stage: 'transaction_fields' } };
+      else {
+        let recorded: { outcome: string; credits?: number };
+        try { recorded = await deps.recordTransaction(accountID, record); }
+        catch (error) {
+          await deps.finishVerification?.(accountID, attemptID, 'recording_unavailable', { stage: 'recording' });
+          throw error;
+        }
+        result = { transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
+          ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
+          ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) };
+      }
+    } catch (error) {
+      // Database/observation failures propagate (HTTP 503); they are not mislabeled invalid JWS.
+      if (!(error instanceof StoreVerificationError)) throw error;
+      result = { outcome: error.code, diagnostic: error.diagnostic };
+    }
+    await deps.finishVerification?.(accountID, attemptID, result.outcome, result.diagnostic);
+    results.push({ ...result, support_reference: reference });
+    if (result.outcome === 'verification_unavailable') deferred = true;
   }
   return results;
 }
@@ -183,14 +289,14 @@ export async function syncTransactions(deps: StoreDeps, accountID: string, body:
  * propagate (503). Apple retries failed production notifications for a few
  * days; sandbox notifications are not retried, so the app's own reports and
  * the planned reconciliation are the backstop. */
-export async function handleNotification(deps: StoreDeps, body: unknown): Promise<{ status: number; outcome: string }> {
+export async function handleNotification(deps: StoreDeps, body: unknown): Promise<{ status: number; outcome: string; diagnostic?: VerificationDiagnostic }> {
   const signedPayload = (body as { signedPayload?: unknown })?.signedPayload;
   if (typeof signedPayload !== 'string') return { status: 400, outcome: 'invalid' };
   let decoded: ResponseBodyV2DecodedPayload;
   try { decoded = await deps.verifier.notification(signedPayload); }
   catch (error) {
-    const code = error instanceof StoreVerificationError ? error.code : 'invalid';
-    return { status: code === 'verification_unavailable' ? 503 : 400, outcome: code };
+    const failure = verificationError(error);
+    return { status: failure.code === 'verification_unavailable' ? 503 : 400, outcome: failure.code, diagnostic: failure.diagnostic };
   }
   const environment = decoded.data?.environment ?? decoded.summary?.environment;
   if (typeof decoded.notificationUUID !== 'string' || typeof decoded.notificationType !== 'string' || typeof environment !== 'string'
@@ -201,8 +307,8 @@ export async function handleNotification(deps: StoreDeps, body: unknown): Promis
     let inner: JWSTransactionDecodedPayload;
     try { inner = await deps.verifier.transaction(signedTransaction); }
     catch (error) {
-      const code = error instanceof StoreVerificationError ? error.code : 'invalid';
-      return { status: code === 'verification_unavailable' ? 503 : 400, outcome: code };
+      const failure = verificationError(error);
+      return { status: failure.code === 'verification_unavailable' ? 503 : 400, outcome: failure.code, diagnostic: failure.diagnostic };
     }
     transaction = transactionRecord(inner);
     if (!transaction || transaction.environment !== environment) return { status: 400, outcome: 'invalid' };
