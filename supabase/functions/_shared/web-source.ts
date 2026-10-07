@@ -142,7 +142,7 @@ export async function fetchWebPDF(fetcher: typeof fetch, start: string, maximum:
     await checkHost(current, resolve);
     let response: Response;
     try {
-      response = await fetcher(current.href, { redirect: 'manual', headers: { accept: 'application/pdf', 'user-agent': WEB_USER_AGENT },
+      response = await fetcher(current.href, { redirect: 'manual', headers: { accept: 'application/pdf, text/html;q=0.8, */*;q=0.5', 'user-agent': WEB_USER_AGENT },
         signal: AbortSignal.any([budget, AbortSignal.timeout(60_000)]) });
     } catch { throw new WebSourceError('download_failed', false); }
     const drop = () => void response.body?.cancel().catch(() => {});

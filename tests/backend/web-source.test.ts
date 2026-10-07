@@ -97,7 +97,7 @@ test('OpenAlex fetch stays on api.openalex.org', async () => {
 
 test('web PDF download: every hop checked, landing pages and blocks refused, bounded', async () => {
   const body = await pdf(2);
-  const fetcher = (async (url: string) => {
+  const fetcher = (async (url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
     if (path === '/ok.pdf') return new Response(body, { headers: { 'content-type': 'application/pdf' } });
     if (path === '/hop') return new Response(null, { status: 302, headers: { location: '/ok.pdf' } });
@@ -113,7 +113,9 @@ test('web PDF download: every hop checked, landing pages and blocks refused, bou
     // A repository record page (Zenodo's pattern) that declares its PDF.
     const page = (meta: string) => new Response(`<!doctype html><html><head><title>Record</title>${meta}</head><body>Files</body></html>`,
       { headers: { 'content-type': 'text/html; charset=utf-8' } });
-    if (path === '/record/38240') return page('<meta name="citation_pdf_url" content="https://repository.example.org/records/38240/files/cr1175.pdf"/>');
+    // Zenodo answers 406 to a PDF-only Accept header: HTML must be acceptable too.
+    if (path === '/record/38240') return /text\/html/.test(String((init?.headers as Record<string, string>)?.accept)) ? page('<meta name="citation_pdf_url" content="https://repository.example.org/records/38240/files/cr1175.pdf"/>')
+      : new Response('{"status":406}', { status: 406, headers: { 'content-type': 'application/json' } });
     if (path === '/records/38240/files/cr1175.pdf') return new Response(body, { headers: { 'content-type': 'application/pdf' } });
     if (path === '/record/relative') return page(`<meta content='/ok.pdf' name='CITATION_PDF_URL'>`);
     if (path === '/record/alternate') return page('<link rel="alternate" type="application/pdf" href="/ok.pdf?download=1&amp;v=2">');
