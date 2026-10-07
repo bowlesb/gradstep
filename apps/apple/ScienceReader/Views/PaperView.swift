@@ -169,6 +169,7 @@ struct PaperView: View {
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
                             .overlay(alignment: .bottom) { if citationBack && !readerFailed { citationBackButton } }
+                            .overlay(alignment: .bottom) { if let notice = model.referenceNotice, !readerFailed { referenceBanner(notice) } }
                             .overlay(alignment: .topLeading) { referenceActions }
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                             .overlay { if readerFailed {
@@ -247,12 +248,39 @@ struct PaperView: View {
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false
-            citationBack = false; reference = nil
+            citationBack = false; reference = nil; model.referenceNotice = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
         }
     }
 
     // MARK: - Citations and references
+
+    /// The outcome of "Add to library" on a reference. Success clears itself; a reference the
+    /// server can't identify offers the chat, which searches more widely.
+    private func referenceBanner(_ notice: ReaderModel.ReferenceNotice) -> some View {
+        let problem = notice.kind == .notFound || notice.kind == .unavailable || notice.kind == .closed
+        return StatusBanner(tone: problem ? .problem : .info,
+                            systemImage: notice.kind == .working ? "arrow.down.circle" : problem ? "exclamationmark.circle" : "checkmark.circle",
+                            message: notice.message, actionsBelow: notice.kind == .notFound, messageID: "reader.reference.notice") {
+            if notice.kind == .notFound {
+                Button("Ask in chat") { model.referenceNotice = nil; model.selectionAction(.ingest, quote: notice.reference) }
+            } else if notice.kind == .unavailable {
+                Button("Try again") { Task { await model.addReference(notice.reference) } }
+            }
+            if notice.kind != .working {
+                Button { model.referenceNotice = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)) }
+                    .accessibilityLabel("Dismiss").tint(.secondary)
+            }
+        }
+        .frame(maxWidth: 560)
+        .padding(.horizontal, 16).padding(.bottom, citationBack ? 76 : 16)
+        .transition(.opacity)
+        .task(id: notice.id) {
+            guard notice.kind == .added || notice.kind == .present else { return }
+            try? await Task.sleep(for: .seconds(6))
+            if model.referenceNotice?.id == notice.id { model.referenceNotice = nil }
+        }
+    }
 
     /// Floats over the bottom of the paper after a citation jump; returns to the exact place.
     private var citationBackButton: some View {
@@ -283,7 +311,7 @@ struct PaperView: View {
                     if let link = value.link {
                         Button(link.title) { openURL(link.url) }
                     }
-                    Button("Add to library") { model.selectionAction(.ingest, quote: value.text) }
+                    Button("Add to library") { Task { await model.addReference(value.text) } }
                     Button("Copy") { UIPasteboard.general.string = value.text }
                     Button("Cancel", role: .cancel) {}
                 } message: { value in

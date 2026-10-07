@@ -31,6 +31,14 @@ struct AuthSession: Codable, Sendable {
     let user: User
 }
 
+/// The outcome of a direct "Add to library" on a reference (functions/v1/add-reference).
+struct AddReferenceResult: Decodable, Sendable, Equatable {
+    struct Paper: Decodable, Sendable, Equatable { let title: String; let year: Int?; let source_id: String; let kind: String?; let host: String?; let link: String? }
+    let status: String
+    let route: String?
+    let paper: Paper?
+}
+
 struct GoogleAuthorization: Sendable { let id: UUID; let url: URL; let callbackURL: URL }
 struct AppleAuthorization: Sendable { let id: UUID; let hashedNonce: String }
 
@@ -439,6 +447,15 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let data = try await authorized(path: "functions/v1/discover?q=\(encoded)", body: nil, method: "GET",
                                         accountID: accountID, maximumResponseBytes: 524_288)
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
+    }
+
+    /// "Add to library" on a bibliography entry: the server identifies the paper (arXiv id, DOI,
+    /// citation match; no model, no credits) and queues it as this account's own import.
+    func addReference(_ text: String, accountID: UUID) async throws -> AddReferenceResult {
+        struct Body: Encodable { let operation_id: String; let reference: String; let capabilities: [String] }
+        let body = try JSONEncoder().encode(Body(operation_id: UUID().wire, reference: String(text.prefix(2_000)), capabilities: ["web_import"]))
+        let data = try await authorized(path: "functions/v1/add-reference", body: body, accountID: accountID, maximumResponseBytes: 65_536)
+        return try JSONDecoder().decode(AddReferenceResult.self, from: data)
     }
 
     /// Newest arXiv submissions in one category (Feed).

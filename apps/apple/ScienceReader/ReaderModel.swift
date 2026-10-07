@@ -1890,6 +1890,42 @@ final class ReaderModel {
         select(paper)
     }
 
+    /// The result of "Add to library" on a reference, shown over the reader.
+    struct ReferenceNotice: Equatable, Identifiable {
+        enum Kind: Equatable { case working, added, present, closed, notFound, unavailable }
+        let id = UUID()
+        let kind: Kind
+        let message: String
+        let reference: String
+    }
+    var referenceNotice: ReferenceNotice?
+
+    /// Adds the paper a bibliography entry cites, without a chat: the server identifies it and
+    /// queues it like the Library's Add. When it can't, the notice offers "Ask in chat".
+    func addReference(_ text: String) async {
+        guard isSignedIn, let backend, let accountID else { openSignIn(); return }
+        let scope = sessionID
+        referenceNotice = ReferenceNotice(kind: .working, message: "Adding to your library…", reference: text)
+        let notice: ReferenceNotice
+        do {
+            let result = try await backend.addReference(text, accountID: accountID)
+            let title = result.paper.map { "“\($0.title)”" } ?? "This paper"
+            switch result.status {
+            case "added": notice = .init(kind: .added, message: "Added \(title). It’s being prepared to read.", reference: text)
+            case "present": notice = .init(kind: .present, message: "\(title) is already in your library.", reference: text)
+            case "closed": notice = .init(kind: .closed, message: "\(title) isn’t openly available, so it can’t be added.", reference: text)
+            case "not_found": notice = .init(kind: .notFound, message: "Couldn’t identify this reference.", reference: text)
+            case "needs_update": notice = .init(kind: .closed, message: "\(title) needs the latest version of Gradstep.", reference: text)
+            default: notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+            }
+            if result.status == "added" { Task { await refreshLibrary() } }
+        } catch {
+            notice = .init(kind: .unavailable, message: "Couldn’t add it right now.", reference: text)
+        }
+        guard sessionID == scope, referenceNotice?.reference == text else { return }
+        referenceNotice = notice
+    }
+
     func selectionAction(_ action: SelectionAction, quote: String) {
         selectedQuote = quote
         let prompts: [SelectionAction: String] = [

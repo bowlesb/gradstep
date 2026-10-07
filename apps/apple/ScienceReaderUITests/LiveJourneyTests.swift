@@ -230,7 +230,7 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertEqual(result, .completed, "Get credits lists \(expected.filter { app.staticTexts[$0].exists }) of \(expected)")
     }
 
-    /// Reader → a citation → its reference → Add to library: the Add paper answer names the paper,
+    /// Reader → a citation → its reference → Add to library: the reader's notice names the paper,
     /// the import appears in the Library and becomes readable. The runner adds the citing paper
     /// first (`--reference=11:PaLM` with the default DPO paper; PaLM is a shared conversion).
     func testReferenceAddToLibraryImportsThePaper() throws {
@@ -256,14 +256,11 @@ final class LiveJourneyTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 5), "The reference offers Add to library")
         capture(app, "Reference actions")
         add.tap()
-        // First paid request on this account asks for cloud-processing consent.
-        let consent = app.buttons["chat.consent.accept"]
-        if consent.waitForExistence(timeout: 15) { capture(app, "Consent"); consent.tap() }
-        // The answer must end with an outcome line naming the paper (never silently).
-        let outcome = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.message.text.' AND (label CONTAINS 'Queued' OR label CONTAINS 'already in your library')")).firstMatch
-        XCTAssertTrue(outcome.waitForExistence(timeout: 180), "Add paper ended without saying what it added")
+        // No chat and no credits: the reader shows the outcome, naming the paper (never silently).
+        let outcome = app.staticTexts.matching(NSPredicate(format: "identifier == 'reader.reference.notice' AND (label BEGINSWITH 'Added' OR label CONTAINS 'already in your library')")).firstMatch
+        XCTAssertTrue(outcome.waitForExistence(timeout: 30), "Add to library ended without saying what it added")
         XCTAssertTrue(outcome.label.contains(reference.title), "The outcome names \(reference.title): \(outcome.label.suffix(200))")
-        capture(app, "Add paper answer")
+        capture(app, "Add to library outcome")
         // The import shows in the Library and becomes a readable paper.
         app.buttons["tab.library"].tap()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", reference.title)).firstMatch
