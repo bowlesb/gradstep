@@ -33,6 +33,8 @@ struct Paper: Identifiable, Sendable {
     var pageCount: Int? = nil
     /// False for a library item whose structured reader isn't available (not converted).
     var canReadStructured = true
+    /// Where it was published ("NeurIPS"), from the library metadata (`publicationLine`).
+    var venue: String? = nil
     var sourceReference: String? { sourceID.map { $0 + (sourceRevision.map { "v\($0)" } ?? "") } }
 
     func displaying(_ bundle: VerifiedReaderBundle?) -> Paper {

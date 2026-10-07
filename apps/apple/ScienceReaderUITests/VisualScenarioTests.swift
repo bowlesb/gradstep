@@ -8,6 +8,8 @@ import XCTest
 @MainActor
 final class VisualScenarioTests: XCTestCase {
     private let sampleID = "paper.aaaaaaaa-0000-0000-0000-000000000001"
+    /// The real DPO paper (Mathpix renderer fixture): numbered citations, a bibliography, metadata.
+    private let mathpixID = "paper.dddddddd-0000-4000-8000-000000000002"
 
     struct Scenario {
         let arguments: [String]
@@ -16,6 +18,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private static let chatFixture = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"]
     private static let metadataFixture = ["--workflow-fixture", "--library-metadata-fixture"]
+    private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
     private var scenarios: [String: Scenario] {
@@ -114,6 +117,20 @@ final class VisualScenarioTests: XCTestCase {
                     dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18)).press(forDuration: 1)
                 XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5)); sleep(1)
             },
+            // Citations and the publication line (owner feedback, build 11 session).
+            "paper-top": Scenario(arguments: Self.mathpixFixture) { app in self.openMathpix(app) },
+            "paper-citation": Scenario(arguments: Self.mathpixFixture) { app in
+                self.openMathpix(app); self.contents(app, "1 Introduction"); sleep(1)
+            },
+            "paper-reference": Scenario(arguments: Self.mathpixFixture) { app in
+                self.openMathpix(app); self.contents(app, "1 Introduction"); self.followCitation(app, "Reference 11")
+            },
+            "paper-reference-actions": Scenario(arguments: Self.mathpixFixture) { app in
+                self.openMathpix(app); self.contents(app, "1 Introduction"); self.followCitation(app, "Reference 11")
+                let entry = app.webViews.firstMatch.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[11]")).firstMatch
+                XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
+                XCTAssertTrue(app.buttons["Add to library"].waitForExistence(timeout: 5)); sleep(1)
+            },
             "chat-history": Scenario(arguments: Self.chatFixture + ["--chat-fixture-mode=answer"]) { app in
                 self.ask(app, "Why scale by the square root of d_k?")
                 sleep(3); self.dismissKeyboard(app)
@@ -156,6 +173,29 @@ final class VisualScenarioTests: XCTestCase {
         sleep(2)
     }
 
+    private func openMathpix(_ app: XCUIApplication) {
+        XCTAssertTrue(app.buttons[mathpixID].waitForExistence(timeout: 10)); app.buttons[mathpixID].tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 8))
+        sleep(2)
+    }
+
+    /// Opens a section from Contents (a real paper's list is longer than the sheet).
+    private func contents(_ app: XCUIApplication, _ heading: String) {
+        app.buttons["Table of contents"].tap()
+        let row = app.buttons[heading]
+        for _ in 0..<6 { if row.waitForExistence(timeout: 2) { break }; app.swipeUp() }
+        if !row.isHittable { app.swipeUp() }
+        row.tap()
+        sleep(1)
+    }
+
+    private func followCitation(_ app: XCUIApplication, _ label: String) {
+        let citation = app.webViews.firstMatch.links[label].firstMatch
+        XCTAssertTrue(citation.waitForExistence(timeout: 5)); citation.tap()
+        XCTAssertTrue(app.buttons["reader.citation.back"].waitForExistence(timeout: 5))
+        usleep(700_000) // the reference is still highlighted
+    }
+
     private func ask(_ app: XCUIApplication, _ question: String) {
         // The wide iPad layout has no tab bar; its general chat is a segment.
         if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
@@ -182,8 +222,11 @@ final class VisualScenarioTests: XCTestCase {
             let app = XCUIApplication()
             app.launchArguments = scenario.arguments
             app.launch()
-            XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15) || app.buttons["tab.library"].waitForExistence(timeout: 5)
-                          || app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
+            if scenario.arguments.contains("--offline-reader-fixture") { XCTAssertTrue(app.buttons[mathpixID].waitForExistence(timeout: 15)) }
+            else {
+                XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 15) || app.buttons["tab.library"].waitForExistence(timeout: 5)
+                              || app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5))
+            }
             do { try scenario.steps(app) } catch { failures.append("\(name): \(error)") }
             let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
             attachment.name = "visual__\(name)"; attachment.lifetime = .keepAlways; add(attachment)

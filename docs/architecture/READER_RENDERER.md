@@ -29,6 +29,24 @@ visible while a wide equation scrolls, display/inline math scaled to the column 
 scrolls in its own box; the page never scrolls sideways) and edge shadows on scrollable equations and tables.
 At iPhone width this fixed page-level sideways scrolling on 4 of 6 real papers; at iPad width every equation fits.
 
+Citations and references (owner feedback on build 11, 2026-10-06; same bridge, no re-render): the bibliography is
+the section under a "References"/"Bibliography"/"Works Cited" heading — `ul.reader-references` items, or paragraphs
+with one entry per line. Entries are keyed by `[n]`/`n.` (or `ol` position), by label (`[Bel+15]`), or by first
+author surname + year; each gets `data-sr-reference="ref-<key>"` (block IDs are untouched — they are the selection
+and position identity). In-text citations become `span.sr-cite[role=link]` wrappers around existing text: numbered
+`[16]`, `[3, 5]`, `[1–4]` when every number is in the bibliography, labelled keys likewise, and author–year
+(`(Vaswani et al., 2017)`, `(Gu, Dao, et al. 2020)`, `Vaswani et al. (2017)`) only on a single surname+year match.
+Math, code, links, headings and the bibliography itself are skipped; every block's text is unchanged (checked on 13 retained
+bundles of 12 papers: 1,107 links, all sampled author–year targets correct, no block text changed). A tap scrolls to the
+entry (smooth unless Reduce Motion), highlights it briefly and shows a native Back that returns to the block-relative
+place left; Back disappears on return, after scrolling a screen away, or on a Contents jump. While Back is shown the
+saved reading position stays at the place left. Tapping an entry offers Open (arXiv ID, then DOI, then an `https`
+link), Add to library (the Ingest action with the entry as the passage) and Copy.
+
+Publication line: native passes `year · venue · source` (`Paper.publicationLine`) and the bridge inserts it after the
+authors (or the title) as a `data-sr-chrome` element before the first layout. It is `user-select: none`, outside every
+block, and skipped by selections, so anchors, quotes and positions are unaffected. The bundled sample shows none.
+
 ## Sanitization
 
 Provider HTML is rebuilt from an allowlist, never passed through. Scripts, styles, SVG, forms, embeds and Mathpix sidecars are dropped with their content; other unknown elements are unwrapped; all provider attributes except table spans are discarded. Links survive only as normalized `https:` URLs with `rel="noopener noreferrer"` or fragments resolved to generated IDs; everything else keeps only its text. `PaperView` already opens activated `https:` links in Safari and allows only same-document fragment navigation. The validator then requires an exact skeleton (CSP, no scripts), a parse/serialize fixed point, HTML5-stable content models, allowlisted tags/attributes/classes, member-backed images and full DOM/index agreement.
