@@ -92,6 +92,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.tests
         GENERATE_INFOPLIST_FILE: YES
+        "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep"
   # This app runs the same reader/model with an isolated synthetic account.
   # Its resources and URL configuration are separate from all shipping builds.
   ScienceReaderResourceProbe:

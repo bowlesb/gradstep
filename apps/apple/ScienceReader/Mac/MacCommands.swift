@@ -142,8 +142,8 @@ struct GradstepCommands: Commands {
         }
     }
 
-    /// Reading a paper (the Reader view with a paper open).
-    private var findsInPaper: Bool { paper != nil && model.wideMode == .reader && model.tab != .settings }
+    /// Both Reader and Browse show the paper; option-command-F always targets the library.
+    private var findsInPaper: Bool { paper != nil && (model.wideMode == .reader || model.wideMode == .browse) && model.tab != .settings }
 
     // The same rules as the Library's + button and the Chat's compose button.
     private func addPaper() {

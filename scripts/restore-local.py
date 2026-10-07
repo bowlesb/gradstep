@@ -60,6 +60,11 @@ def quarantine(sql):
     sql("""do $restore_quarantine$
     begin
       update app_private.platform_budgets set work_enabled=false;
+      if pg_catalog.to_regclass('app_private.library_v4_config') is not null then
+        -- Backup epochs are restored too. Rotate before any v4 client can
+        -- combine a pre-restore cursor/cache with this rewound dataset.
+        execute 'update app_private.library_v4_config set dataset_epoch=gen_random_uuid()';
+      end if;
       if pg_catalog.to_regclass('app_private.acquisition_policy') is not null then
         execute 'update app_private.acquisition_policy set metadata_enabled=false, original_enabled=false, verification_enabled=false';
       end if;

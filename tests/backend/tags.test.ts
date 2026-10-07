@@ -43,6 +43,14 @@ test('fallback tags come from arXiv categories that mean the same thing', () => 
   assert.equal(vocabularyName('Diffusion'), null);
 });
 
+test('library query migration preserves the shared category fallback mapping', () => {
+  const migration = readFileSync(new URL('supabase/migrations/202610070032_library_query.sql', root), 'utf8');
+  const mapping = migration.match(/select '(\{"cs\.LG"[^\n]+\})'::jsonb->>value name/);
+  assert.ok(mapping, 'versioned SQL category mapping exists');
+  assert.deepEqual(JSON.parse(mapping[1]), Object.fromEntries(TAG_VOCABULARY.flatMap(tag =>
+    (tag.categories ?? []).map(category => [category, tag.name]))));
+});
+
 test('the request: Haiku 4.5, the vocabulary as an enum, title and abstract only', () => {
   const request = tagRequest({ title: '  Attention   Is All You Need ', abstract: 'We propose the Transformer.\n\nIt uses attention.',
     categories: ['cs.CL', 'cs.LG', 'not a category!'] });

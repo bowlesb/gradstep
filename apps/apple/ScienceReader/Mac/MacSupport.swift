@@ -98,11 +98,10 @@ private struct MacSheetKeys: ViewModifier {
     func body(content: Content) -> some View {
         #if targetEnvironment(macCatalyst)
         content.background {
-            if enabled {
-                // An invisible button owns the shortcut; the sheet's visible Cancel/Done stay as they are.
-                Button("Close") { dismiss() }.keyboardShortcut("w")
-                    .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
-            }
+            // Always own the shortcut: removing/disabling this button would let Cmd-W fall through
+            // to window Close while a save is in progress. Keep this modifier outside disabled content.
+            Button("Close") { if enabled { dismiss() } }.keyboardShortcut("w")
+                .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true).allowsHitTesting(false)
         }
         #else
         content
