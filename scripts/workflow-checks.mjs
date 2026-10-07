@@ -833,7 +833,7 @@ if (args.record) {
 if (args.notify && (counts.fail || kept.length) && env.RESEND_API_KEY && env.WORKFLOW_ALERT_EMAIL) {
   const lines = all.filter(r => r.status === 'fail' || r.id === 'cleanup.accounts' && r.status !== 'pass').map(r => `${r.id}: ${r.reason}`);
   const sent = await http('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
-    body: { from: env.WORKFLOW_ALERT_FROM ?? 'Gradstep checks <onboarding@resend.dev>', to: [env.WORKFLOW_ALERT_EMAIL],
+    body: { from: env.WORKFLOW_ALERT_FROM ?? 'Gradstep checks <checks@gradstep.ai>', to: [env.WORKFLOW_ALERT_EMAIL],
       subject: `Gradstep ${suite} checks: ${counts.fail} failed`, text: redact(`${lines.join('\n')}\n\nRun ${runID} (${report.trigger}, commit ${commit ?? 'unknown'}).`) } }).catch(e => ({ status: e.message }));
   console.log(`Alert email: ${sent.status === 200 ? 'sent' : `not sent (${sent.status})`}`);
 }
