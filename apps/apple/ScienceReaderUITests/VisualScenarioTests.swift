@@ -18,6 +18,7 @@ final class VisualScenarioTests: XCTestCase {
 
     private static let chatFixture = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture"]
     private static let metadataFixture = ["--workflow-fixture", "--library-metadata-fixture"]
+    private static let feedTableFixture = metadataFixture + ["--feed-fixture", "--feed-layout=table"]
     private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
@@ -26,19 +27,29 @@ final class VisualScenarioTests: XCTestCase {
             "library": Scenario(arguments: ["--workflow-fixture"]) { _ in },
             "feed": Scenario(arguments: ["--workflow-fixture"]) { app in self.go(app, "feed"); sleep(1) },
             "feed-results": Scenario(arguments: ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]) { app in self.go(app, "feed"); sleep(1) },
+            // The Feed as the shared paper table; `feed-table-abstract` opens a row's abstract.
+            "feed-table": Scenario(arguments: Self.feedTableFixture) { app in self.go(app, "feed"); sleep(1) },
+            "feed-table-abstract": Scenario(arguments: Self.feedTableFixture) { app in
+                self.go(app, "feed")
+                // At accessibility text sizes the Feed shows its List, which has no row to open.
+                let row = app.descendants(matching: .any)["feed.table.2610.01234"]
+                if row.waitForExistence(timeout: 5) { row.tap() }
+                sleep(1)
+            },
             "library-search": Scenario(arguments: ["--workflow-fixture"]) { app in
                 let search = app.searchFields.firstMatch
                 XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("attention")
                 sleep(1)
             },
-            // Library layouts (owner decision 2026-10-05) over a varied metadata fixture. On iPad
-            // library-table is the native table; on iPhone portrait the same layout is detailed rows.
+            // Library layouts (owner decisions 2026-10-05/06) over a varied metadata fixture. The table is the
+            // shared paper table at every width (more columns where there is room); `library-table-browse` is
+            // the iPad's narrow Browse column.
             "library-table": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { _ in sleep(1) },
-            "library-detailed": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
-                // iPad: the Browse column is narrow, so the table layout shows detailed rows there.
+            "library-table-browse": Scenario(arguments: Self.metadataFixture + ["--library-layout=table"]) { app in
                 if app.segmentedControls.buttons["Browse"].exists { app.segmentedControls.buttons["Browse"].tap() }
                 sleep(2)
             },
+            "library-detailed": Scenario(arguments: Self.metadataFixture + ["--library-layout=detailed"]) { _ in sleep(1) },
             "library-metadata-list": Scenario(arguments: Self.metadataFixture) { _ in sleep(1) },
             // Pipeline reliability: an import whose step has run for minutes says it is taking longer than usual.
             // List layout; with the table layout, detailed rows on iPhone portrait and the table on iPad.

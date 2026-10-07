@@ -22,6 +22,13 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   left and the confirming action on the right; short sheets open at medium height.
 - **Rows**: `.headline` title (≤ 2 lines), `.subheadline` authors, `.footnote` details/status; 16 pt side and 12 pt
   vertical padding; at most one trailing icon; navigation rows have a chevron, action rows accent text.
+- **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A header
+  of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again to
+  reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold title
+  (≤ 2 lines, truncated) and the first author in `.footnote` secondary. Columns are added by priority while they fit,
+  never scrolling sideways; values are `.subheadline` secondary, statuses an icon and one word. Rows: 16 pt sides,
+  10 pt vertical; tap = the screen's primary action, long-press = actions, swipe = delete-type actions; each row is
+  one VoiceOver element reading every column. At accessibility text sizes the screen's rows replace the table.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.

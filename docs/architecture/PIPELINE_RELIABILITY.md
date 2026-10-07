@@ -87,7 +87,7 @@ preparing, downloading, converting, building the reader), in memory only, so a r
 status reads "Downloading PDF…" for the first minute, then "Downloading PDF · 1 min", "· 2 min", and from 3 minutes
 "Downloading PDF · Taking longer than usual" (secondary text, updated once a minute without animation; VoiceOver reads
 the step and the time, e.g. "Downloading PDF, 4 minutes, taking longer than usual"). The table and detailed rows show
-the same, the table's Status column on two lines. Cancel import and Retry import (failed, retryable) stay in the
+the same; the table's Progress column has a spinner and the step's one word, the time beneath. Cancel import and Retry import (failed, retryable) stay in the
 long-press menu and are also a trailing swipe on list rows, like Remove and Archive on papers. Failure messages name
 what failed: `metadata_unavailable` reads "Couldn’t get this paper’s details" and `license_unverified` "Couldn’t
 confirm this paper’s license" (they read "Couldn’t import this paper" before); the other codes were already

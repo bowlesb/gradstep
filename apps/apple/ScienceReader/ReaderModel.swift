@@ -164,6 +164,11 @@ final class ReaderModel {
     var libraryLayout = LibraryLayout(rawValue: UserDefaults.standard.string(forKey: "library.layout") ?? "") ?? .list {
         didSet { UserDefaults.standard.set(libraryLayout.rawValue, forKey: "library.layout") }
     }
+    var feedLayout = FeedLayout(rawValue: UserDefaults.standard.string(forKey: "feed.layout") ?? "") ?? .list {
+        didSet { UserDefaults.standard.set(feedLayout.rawValue, forKey: "feed.layout") }
+    }
+    /// The Feed table's order (not persisted, like the Library's sort).
+    var feedSort = FeedTableColumn.defaultSort
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
     var showAbstracts = UserDefaults.standard.object(forKey: "library.showAbstracts") as? Bool ?? true { didSet { UserDefaults.standard.set(showAbstracts, forKey: "library.showAbstracts") } }
@@ -2617,14 +2622,14 @@ struct ReaderWorkOwnership {
 #if DEBUG && targetEnvironment(simulator)
 /// Synthetic UI fixtures only (compiled out of device and release builds).
 extension ReaderModel {
-    /// Fixture runs start from the default Library layout and columns unless an argument names a
-    /// layout (`--library-layout=table`), so one test's choice can't leak into the next run.
+    /// Fixture runs start from the default Library and Feed layouts unless an argument names one
+    /// (`--library-layout=table`, `--feed-layout=table`), so one test's choice can't leak into the next run.
     func resetLibraryPreferencesForFixtures() {
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains(where: { $0.hasPrefix("--") && $0.contains("fixture") }) else { return }
-        let prefix = "--library-layout="
-        libraryLayout = arguments.first { $0.hasPrefix(prefix) }.flatMap { LibraryLayout(rawValue: String($0.dropFirst(prefix.count))) } ?? .list
-        LibraryTableSettings.reset()
+        func argument(_ prefix: String) -> String? { arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } }
+        libraryLayout = argument("--library-layout=").flatMap(LibraryLayout.init(rawValue:)) ?? .list
+        feedLayout = argument("--feed-layout=").flatMap(FeedLayout.init(rawValue:)) ?? .list
         // Visual checks only: show the Add-paper sheet, which otherwise needs a signed-in account.
         if arguments.contains("--visual-show-import") { showImport = true }
     }

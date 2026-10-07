@@ -226,28 +226,17 @@ struct LibraryView: View {
                     } actions: {
                         Button("Open sample") { model.openSample() }.buttonStyle(.bordered).accessibilityIdentifier("sample.open")
                     }
-                } else if model.libraryLayout == .table {
-                    // Owner decision 2026-10-05: a native table where there is room; detailed rows
-                    // in narrow containers and at accessibility text sizes.
-                    GeometryReader { proxy in
-                        if LibraryView.showsTable(width: proxy.size.width, textSize: dynamicTypeSize) {
-                            VStack(spacing: 0) {
-                                banners(inset: true)
-                                // SwiftUI's Table shows a single column on iPhone, even in landscape.
-                                if UIDevice.current.userInterfaceIdiom == .pad {
-                                    // A wide split-view pane can still report compact width; it has room for columns.
-                                    LibraryTable(model: model).environment(\.horizontalSizeClass, .regular)
-                                }
-                                else { LibraryCompactTable(model: model) }
-                            }
-                            .refreshable { await model.refreshLibrary() }
-                            .overlay(alignment: .top) { updatingIndicator }
-                        } else {
-                            libraryList(detailed: true)
-                        }
+                } else if tableShown {
+                    // Owner request 2026-10-06: the same table on every size, with the columns that fit.
+                    LibraryPaperTable(model: model) {
+                        banners(inset: false).listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 8, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
                     }
+                    .refreshable { await model.refreshLibrary() }
+                    .overlay(alignment: .top) { updatingIndicator }
                 } else {
-                    libraryList(detailed: false)
+                    // Detailed rows are also the table's form at accessibility text sizes.
+                    libraryList(detailed: model.libraryLayout != .list)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
@@ -265,9 +254,10 @@ struct LibraryView: View {
     }
 
     private var searching: Bool { searchFocused || !model.searchQuery.isEmpty || model.searchExternal }
-    /// The table spans the pane; everything else sits in the readable column.
+    /// The table spans the pane; everything else sits in the readable column. At accessibility text sizes the
+    /// table shows as detailed rows.
     private var tableShown: Bool {
-        model.libraryLayout == .table && !model.searchExternal && LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
+        model.libraryLayout == .table && !model.searchExternal && !dynamicTypeSize.isAccessibilitySize
     }
 
     /// Only states the reader can act on; none while browsing normally.
@@ -339,33 +329,27 @@ struct LibraryView: View {
     /// show the current choice, then where else to go, then reporting.
     private var optionsMenu: some View {
         Menu {
-            let table = LibraryView.showsTable(width: containerWidth, textSize: dynamicTypeSize)
-            let tableName = table ? "Table" : "Detailed rows"
             Section {
                 Menu {
                     Picker("View as", selection: $model.libraryLayout) {
-                        Text("List").tag(LibraryLayout.list)
-                        Text(tableName).tag(LibraryLayout.table)
+                        ForEach(LibraryLayout.allCases, id: \.self) { Text($0.title).tag($0) }
                     }.pickerStyle(.inline)
                 } label: {
-                    Label { Text("View as"); Text(model.libraryLayout == .list ? "List" : tableName) } icon: { menuIcon("rectangle.grid.1x2") }
+                    Label { Text("View as"); Text(model.libraryLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
                 }
                 Menu {
                     Picker("Sort by", selection: sortField) {
-                        ForEach(sortFields(table: table && model.libraryLayout == .table), id: \.self) { Text($0.label).tag($0) }
+                        ForEach(sortFields(table: tableShown), id: \.self) { Text($0.label).tag($0) }
                     }.pickerStyle(.inline)
                 } label: {
                     Label { Text("Sort by"); Text(model.librarySort.field.label) } icon: { menuIcon("arrow.up.arrow.down") }
                 }
-                if model.libraryLayout == .list || !table {
-                    Menu {
-                        if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
-                        Toggle("Topics", isOn: $model.showTopics)
-                        Toggle("Archived papers", isOn: $model.showArchivedPapers)
-                    } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
-                } else {
-                    Menu { Toggle("Archived papers", isOn: $model.showArchivedPapers) } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
-                }
+                // Topics is a column in the table, a line in the rows.
+                Menu {
+                    if model.libraryLayout == .list { Toggle("Abstracts", isOn: $model.showAbstracts) }
+                    Toggle("Topics", isOn: $model.showTopics)
+                    Toggle("Archived papers", isOn: $model.showArchivedPapers)
+                } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
             }
             Section {
                 MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
@@ -378,11 +362,6 @@ struct LibraryView: View {
             }
         } label: { HeaderButtonLabel(systemImage: "ellipsis") }
         .buttonStyle(.plain).accessibilityLabel("Library options")
-    }
-
-    static func showsTable(width: CGFloat, textSize: DynamicTypeSize) -> Bool {
-        width >= (UIDevice.current.userInterfaceIdiom == .pad ? LibraryLayout.tableMinimumWidth : LibraryLayout.compactTableMinimumWidth)
-            && !textSize.isAccessibilitySize
     }
 
     /// Choosing a field from the menu uses its natural direction; table headers can reverse it.
@@ -426,17 +405,7 @@ struct LibraryView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("paper.\(paper.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
-                        // Owner feedback (2026-10-06): remove and archive by swiping, as in Mail.
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if !paper.isSample {
-                                Button(role: .destructive) { Task { await model.removePaper(paper) } } label: { Label("Remove", systemImage: "trash") }
-                                    .tint(.red).disabled(!model.canChangeLibrary)
-                                let archived = model.isArchived(paper)
-                                Button { Task { await model.setArchived(paper, archived: !archived) } } label: {
-                                    Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox")
-                                }.tint(.indigo).disabled(!model.canChangeLibrary)
-                            }
-                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) { LibrarySwipeActions(model: model, entry: entry) }
                 case .pending(let item):
                     Group {
                         if detailed {
@@ -451,18 +420,8 @@ struct LibraryView: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("import.\(item.id.wire)")
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
-                        // Like paper rows: cancel (and retry a failed import) by swiping, so a slow import is
-                        // easy to stop. The same actions as the long-press menu.
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) { Task { await model.changeImport(item, retry: false) } } label: {
-                                Label("Cancel import", systemImage: "xmark.circle")
-                            }.tint(.red).disabled(!model.canChangeLibrary)
-                            if item.phase == .failed && item.retryable {
-                                Button { Task { await model.changeImport(item, retry: true) } } label: {
-                                    Label("Retry import", systemImage: "arrow.clockwise")
-                                }.tint(.accentColor).disabled(!model.canChangeLibrary)
-                            }
-                        }
+                        // Cancel (and retry a failed import) by swiping, so a slow import is easy to stop.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) { LibrarySwipeActions(model: model, entry: entry) }
                 case .queued(let command):
                     VStack(alignment: .leading, spacing: 4) {
                         Text(command.display ?? "Queued paper").font(.headline)
@@ -587,7 +546,12 @@ struct FeedView: View {
     @Bindable var model: ReaderModel
     @State private var issue: String?
     @State private var width: CGFloat = 0
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var isFailed: Bool { if case .failed = model.feedState { true } else { false } }
+    /// The table spans the pane (its header too); at accessibility text sizes it shows as the list.
+    private var tableShown: Bool {
+        model.feedLayout == .table && !dynamicTypeSize.isAccessibilitySize && model.feedState == .loaded && !model.feedResults.isEmpty
+    }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -605,6 +569,8 @@ struct FeedView: View {
                 case .loaded:
                     if model.feedResults.isEmpty {
                         ContentUnavailableView("No new papers", systemImage: "dot.radiowaves.up.forward", description: Text("Check back later or pick another topic."))
+                    } else if tableShown {
+                        FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
                     } else {
                         List {
                             if let issue {
@@ -651,12 +617,23 @@ struct FeedView: View {
                 })
             }
             Menu {
-                MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
+                Section {
+                    Menu {
+                        Picker("View as", selection: $model.feedLayout) {
+                            ForEach(FeedLayout.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }.pickerStyle(.inline)
+                    } label: {
+                        Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
+                    }
+                }
+                Section {
+                    MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
+                }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
             } label: { HeaderButtonLabel(systemImage: "ellipsis") }
             .buttonStyle(.plain).accessibilityLabel("Feed options")
         }
-        .readableColumn().padding(.top, 2).padding(.bottom, 8)
+        .modifier(HeaderWidth(fullWidth: tableShown)).padding(.top, 2).padding(.bottom, 8)
         .background(Color(uiColor: .systemBackground))
     }
 }
@@ -1127,7 +1104,6 @@ struct DiscoveryRow: View {
     var showsIdentifier = true
     @State private var adding = false
     var body: some View {
-        let inLibrary = model.librarySourceIDs.contains(result.sourceID)
         HStack(alignment: .top, spacing: 12) {
             // The Library rows' type scale (design audit F6): title, authors, then details.
             VStack(alignment: .leading, spacing: 4) {
@@ -1141,22 +1117,14 @@ struct DiscoveryRow: View {
                     .joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 4)
-            if inLibrary {
-                Image(systemName: "checkmark").foregroundStyle(.secondary).frame(minWidth: 44, minHeight: 44).accessibilityLabel("In library")
-            } else if adding {
-                ProgressView().frame(minWidth: 44, minHeight: 44)
-            } else {
-                Button("Add") {
-                    adding = true; issue = nil
-                    Task {
-                        do { try await model.addDiscovered(result) }
-                        catch { issue = "Couldn’t add “\(result.title)”. Try again." }
-                        adding = false
-                    }
+            DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID), adding: adding,
+                                enabled: model.canBeginImport) {
+                adding = true; issue = nil
+                Task {
+                    do { try await model.addDiscovered(result) }
+                    catch { issue = "Couldn’t add “\(result.title)”. Try again." }
+                    adding = false
                 }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).disabled(!model.canBeginImport)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("discover.add.\(result.sourceID)")
             }
         }
         .accessibilityElement(children: .contain)

@@ -1,343 +1,195 @@
 import SwiftUI
 import ScienceReaderCore
 
-/// One table row: the library entry and the metadata snapshot its current order was computed from.
-struct LibraryTableRow: Identifiable {
+/// One Library table row: the entry and its facts, computed once per row.
+struct LibraryTableItem: Identifiable {
     let entry: LibraryListEntry
-    let candidate: LibrarySearchCandidate
+    let facts: LibraryRowFacts
     var id: String { entry.id }
+
+    /// "Vaswani et al."; the joined byline when names are unknown (the sample).
+    var firstAuthor: String? {
+        switch entry {
+        case .paper(let paper): LibraryFormat.firstAuthor(for: paper)
+        case .pending(let item): LibraryFormat.firstAuthor(item.metadata?.authors ?? [])
+        case .queued: nil
+        }
+    }
+    /// An import in progress: the step it is on.
+    var step: LibraryImportStep? { if case .pending(let item) = entry { item.step } else { nil } }
+    /// The full status, for VoiceOver ("Not enough credits to convert this paper").
+    var statusDescription: String? { if case .pending(let item) = entry { item.libraryStatus } else { facts.statusText } }
 }
 
-/// Header sorting for the table. It never sorts by itself: the model's search engine orders the
-/// rows, and this comparator delegates to that same ordering so the two cannot disagree.
-struct LibraryTableComparator: SortComparator, Hashable {
-    let field: LibrarySearchSort.Field
-    var order: SortOrder
+/// The Library's columns. Phone portrait has room for the title, Progress and Year; landscape and iPad add the
+/// dates and chats; wide iPads add topics.
+enum LibraryTableColumn: String {
+    case year, topics, added, opened, chats, progress
 
-    init(field: LibrarySearchSort.Field, order: SortOrder? = nil) {
-        self.field = field
-        self.order = order ?? (field.defaultAscending ? .forward : .reverse)
+    typealias Column = PaperTableColumn<LibrarySearchSort.Field>
+    static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
+
+    /// In row order. Progress is last: it carries an import's status, the column with the most to say.
+    static func all(showTopics: Bool) -> [Column] {
+        [Column(id: year.rawValue, title: "Year", priority: 1, width: 40, sortKey: .year),
+         showTopics ? Column(id: topics.rawValue, title: "Topics", priority: 5, width: 150) : nil,
+         Column(id: added.rawValue, title: "Added", priority: 2, width: 76, sortKey: .recent),
+         Column(id: opened.rawValue, title: "Opened", priority: 3, width: 76, sortKey: .opened),
+         Column(id: chats.rawValue, title: "Chats", priority: 4, width: 46, sortKey: .chats),
+         Column(id: progress.rawValue, title: "Progress", priority: 0, width: 100, sortKey: .progress)].compactMap { $0 }
     }
-    init(_ sort: LibrarySearchSort) { self.init(field: sort.field, order: sort.ascending ? .forward : .reverse) }
-    var sort: LibrarySearchSort { LibrarySearchSort(field: field, ascending: order == .forward) }
 
-    func compare(_ lhs: LibraryTableRow, _ rhs: LibraryTableRow) -> ComparisonResult {
-        if LibrarySearchEngine.ordered(lhs.candidate, before: rhs.candidate, by: sort) { return .orderedAscending }
-        if LibrarySearchEngine.ordered(rhs.candidate, before: lhs.candidate, by: sort) { return .orderedDescending }
-        return .orderedSame
+    /// What VoiceOver reads for this column of a row.
+    func spoken(_ item: LibraryTableItem, now: Date = Date()) -> String? {
+        let facts = item.facts
+        switch self {
+        case .year: return facts.year.map(String.init)
+        case .topics: return facts.topics.isEmpty ? nil : facts.topics.joined(separator: ", ")
+        case .added: return facts.added.map { "Added " + LibraryFormat.relativeDayInSentence($0, now: now) }
+        case .opened:
+            guard facts.paper != nil else { return nil }
+            return facts.opened.map { "Opened " + LibraryFormat.relativeDayInSentence($0, now: now) } ?? "Not opened"
+        case .chats: return facts.chats > 0 ? LibraryFormat.chats(facts.chats) : nil
+        case .progress:
+            if let timing = facts.stepTiming {
+                return timing.step.spokenStatus(elapsed: ImportStepElapsed(since: timing.since, now: now))
+            }
+            switch facts.status {
+            case .active, .problem: return item.statusDescription
+            case .info where facts.paper == nil: return item.statusDescription
+            default:
+                guard facts.paper != nil else { return nil }
+                return facts.progress.map { "\(LibraryFormat.percent($0)) percent read" } ?? "Not started"
+            }
+        }
     }
 }
 
-/// Column visibility and order, kept across launches.
-enum LibraryTableSettings {
-    private static let key = "library.tableColumns"
-    static func reset() { UserDefaults.standard.removeObject(forKey: key) }
-    static func load() -> TableColumnCustomization<LibraryTableRow> {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let value = try? JSONDecoder().decode(TableColumnCustomization<LibraryTableRow>.self, from: data) else { return .init() }
-        return value
-    }
-    static func save(_ value: TableColumnCustomization<LibraryTableRow>) {
-        if let data = try? JSONEncoder().encode(value) { UserDefaults.standard.set(data, forKey: key) }
-    }
-}
-
-/// The wide Library layout: a native table with sortable, customizable columns. Tapping a row
-/// opens the paper exactly like the list; long-press keeps the list's row actions.
-struct LibraryTable: View {
+/// The Table layout of the Library: `PaperTable` over the library's rows. Tapping a paper opens it as in the list;
+/// tapping an import that needs credits opens the store; long-press and swipe keep the list's row actions.
+struct LibraryPaperTable<Top: View>: View {
     @Bindable var model: ReaderModel
-    @State private var columns = LibraryTableSettings.load()
-    @State private var selection: Set<String> = []
+    @ViewBuilder var top: Top
 
     var body: some View {
-        let rows = model.libraryRows.map { LibraryTableRow(entry: $0, candidate: model.librarySearchCandidate(for: $0)) }
-        let anyStatus = model.libraryRows.contains { model.libraryStatus(for: $0) != .none }
-        let getCredits = { model.showStore = true }
-        Table(rows, selection: $selection, sortOrder: sortOrder, columnCustomization: $columns) {
-            TableColumn("Title", sortUsing: LibraryTableComparator(field: .title)) { row in
-                LibraryCell.title(model.libraryFacts(for: row.entry), selected: isSelected(row.entry))
-            }
-            .width(min: 200, ideal: 400).customizationID("title").disabledCustomizationBehavior(.visibility)
-            TableColumn("Authors", sortUsing: LibraryTableComparator(field: .authors)) { row in
-                LibraryCell.text(model.libraryFacts(for: row.entry).authors, label: "Authors", lines: 2)
-            }
-            .width(min: 100, ideal: 150).customizationID("authors")
-            TableColumn("Year", sortUsing: LibraryTableComparator(field: .year)) { row in
-                LibraryCell.year(model.libraryFacts(for: row.entry))
-            }
-            .width(48).customizationID("year")
-            TableColumn("Topics") { row in
-                LibraryCell.topics(model.libraryFacts(for: row.entry))
-            }
-            .width(min: 100, ideal: 140).customizationID("topics")
-            TableColumn("Added", sortUsing: LibraryTableComparator(field: .recent)) { row in
-                LibraryCell.added(model.libraryFacts(for: row.entry))
-            }
-            .width(78).customizationID("added")
-            TableColumn("Opened", sortUsing: LibraryTableComparator(field: .opened)) { row in
-                LibraryCell.opened(model.libraryFacts(for: row.entry))
-            }
-            .width(78).customizationID("opened")
-            TableColumn("Read", sortUsing: LibraryTableComparator(field: .progress)) { row in
-                LibraryCell.read(model.libraryFacts(for: row.entry))
-            }
-            .width(86).customizationID("read")
-            TableColumn("Chats", sortUsing: LibraryTableComparator(field: .chats)) { row in
-                LibraryCell.chats(model.libraryFacts(for: row.entry))
-            }
-            .width(52).customizationID("chats")
-            TableColumn("Pages") { row in
-                LibraryCell.text(model.libraryFacts(for: row.entry).pages.map(String.init), label: "Pages").monospacedDigit()
-            }
-            .width(52).customizationID("pages").defaultVisibility(.hidden)
-            TableColumn("Status") { row in
-                LibraryCell.status(model.libraryFacts(for: row.entry), getCredits: getCredits)
-            }
-            .width(min: 100, ideal: 124).customizationID("status").defaultVisibility(anyStatus ? .automatic : .hidden)
-        }
-        .contextMenu(forSelectionType: String.self) { ids in
-            if ids.count == 1, let id = ids.first, let entry = model.libraryRows.first(where: { $0.id == id }) {
-                LibraryRowActions(model: model, entry: entry, inTable: true)
-            }
-        } primaryAction: { ids in
-            open(ids)
-        }
-        .onChange(of: selection) { _, ids in
-            // A tap selects the row; opening it is the list's tap. Selection isn't kept.
-            guard !ids.isEmpty else { return }
-            open(ids)
-            selection = []
-        }
-        .onChange(of: columns) { _, value in LibraryTableSettings.save(value) }
-        .accessibilityIdentifier("library.table")
+        let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
+        PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.all(showTopics: model.showTopics),
+                   sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], identifier: "library.table",
+                   rowIdentifier: { "library.table.\($0.id)" },
+                   title: { item in
+                       PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry))
+                   },
+                   cell: { item, column in LibraryTableCell(item: item, column: LibraryTableColumn(rawValue: column)) },
+                   spoken: { item, column in LibraryTableColumn(rawValue: column)?.spoken(item) },
+                   primaryAction: { action(for: $0) },
+                   menu: { LibraryRowActions(model: model, entry: $0.entry, inTable: true) },
+                   swipe: { LibrarySwipeActions(model: model, entry: $0.entry) },
+                   detail: { _ in EmptyView() },
+                   top: { top })
     }
 
-    private var sortOrder: Binding<[LibraryTableComparator]> {
-        Binding(get: { [LibraryTableComparator(model.librarySort)] },
-                set: { if let first = $0.first { model.librarySort = first.sort } })
+    private var sort: Binding<PaperTableSort<LibrarySearchSort.Field>> {
+        Binding(get: { PaperTableSort(key: model.librarySort.field, ascending: model.librarySort.ascending) },
+                set: { model.librarySort = LibrarySearchSort(field: $0.key, ascending: $0.ascending) })
     }
 
     /// The open paper is highlighted only where it is shown beside the table (iPad Browse).
     private func isSelected(_ entry: LibraryListEntry) -> Bool {
-        guard model.wideMode == .browse else { return false }
-        if case .paper(let paper) = entry { return model.selectedPaper?.id == paper.id }
-        return false
+        guard model.wideMode == .browse, UIDevice.current.userInterfaceIdiom == .pad, case .paper(let paper) = entry else { return false }
+        return model.selectedPaper?.id == paper.id
     }
 
-    private func open(_ ids: Set<String>) {
-        guard ids.count == 1, let id = ids.first,
-              case .paper(let paper)? = model.libraryRows.first(where: { $0.id == id }) else { return }
-        model.select(paper)
+    private func action(for item: LibraryTableItem) -> PaperTableAction? {
+        switch item.entry {
+        case .paper(let paper): return PaperTableAction(hint: "Opens the paper") { model.select(paper) }
+        case .pending where item.facts.needsCredits: return PaperTableAction(hint: "Opens Get credits") { model.showStore = true }
+        default: return nil
+        }
     }
 }
 
-/// The phone form of the table (iPhone landscape). SwiftUI's Table shows only its first column on
-/// iPhone, so this draws a pinned header of sortable columns over plain rows. The title column
-/// carries authors and topics beneath the title; the other columns match the iPad table.
-struct LibraryCompactTable: View {
-    @Bindable var model: ReaderModel
-    @ScaledMetric(relativeTo: .subheadline) private var scale: CGFloat = 1
-
-    private enum Column: CaseIterable {
-        case year, added, opened, read, chats, status
-        var title: String {
-            switch self { case .year: "Year"; case .added: "Added"; case .opened: "Opened"; case .read: "Read"; case .chats: "Chats"; case .status: "Status" }
-        }
-        var field: LibrarySearchSort.Field? {
-            switch self { case .year: .year; case .added: .recent; case .opened: .opened; case .read: .progress; case .chats: .chats; case .status: nil }
-        }
-        var width: CGFloat {
-            switch self { case .year: 44; case .added: 70; case .opened: 70; case .read: 80; case .chats: 46; case .status: 108 }
-        }
-    }
+/// One cell of the Library table.
+struct LibraryTableCell: View {
+    let item: LibraryTableItem
+    let column: LibraryTableColumn?
 
     var body: some View {
-        let showStatus = model.libraryRows.contains { model.libraryStatus(for: $0) != .none }
-        let columns = Column.allCases.filter { $0 != .status || showStatus }
-        List {
-            Section {
-                ForEach(model.libraryRows) { entry in
-                    let facts = model.libraryFacts(for: entry)
-                    Group {
-                        if case .paper(let paper) = entry {
-                            Button { model.select(paper) } label: { row(facts, entry: entry, columns: columns) }.buttonStyle(.plain)
-                                .accessibilityIdentifier("library.table.\(entry.id)")
-                        } else {
-                            row(facts, entry: entry, columns: columns)
-                        }
-                    }
-                    .contextMenu { LibraryRowActions(model: model, entry: entry, inTable: true) }
-                    .listRowInsets(EdgeInsets(top: 9, leading: 18, bottom: 9, trailing: 18))
-                }
-            } header: {
-                header(columns)
-            }
+        let facts = item.facts
+        switch column {
+        case .year: PaperTableText(text: facts.year.map(String.init))
+        case .topics:
+            Text(facts.topics.joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        case .added: PaperTableText(text: facts.added.map { LibraryFormat.relativeDay($0) })
+        // "—" for a paper never opened on this device; imports have no reading activity.
+        case .opened: PaperTableText(text: facts.opened.map { LibraryFormat.relativeDay($0) } ?? (facts.paper == nil ? nil : "—"))
+        // No chats is the usual case: left blank, so the counts stand out.
+        case .chats: PaperTableText(text: facts.chats > 0 ? String(facts.chats) : nil)
+        case .progress: LibraryProgressCell(item: item)
+        case nil: EmptyView()
         }
-        .listStyle(.plain)
-        .accessibilityIdentifier("library.table")
-    }
-
-    private func header(_ columns: [Column]) -> some View {
-        HStack(spacing: 10) {
-            headerButton("Title", field: .title).frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(columns, id: \.self) { column in
-                Group {
-                    if let field = column.field { headerButton(column.title, field: field) }
-                    else { Text(column.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) }
-                }
-                .frame(width: column.width * scale, alignment: .leading)
-            }
-        }
-        .lineLimit(1).padding(.vertical, 6)
-    }
-
-    /// Like the iPad table's headers: tap to sort, tap the current column again to reverse it.
-    private func headerButton(_ title: String, field: LibrarySearchSort.Field) -> some View {
-        let current = model.librarySort.field == field
-        return Button {
-            model.librarySort = current ? LibrarySearchSort(field: field, ascending: !model.librarySort.ascending) : LibrarySearchSort(field: field)
-        } label: {
-            HStack(spacing: 3) {
-                Text(title).font(.subheadline.weight(.semibold))
-                if current {
-                    // The same indicator the iPad table draws for its sort direction.
-                    Image(systemName: model.librarySort.ascending ? "chevron.down" : "chevron.up").font(.caption2.weight(.bold))
-                }
-            }
-            .frame(minHeight: 30).contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(title)
-        .accessibilityValue(current ? (model.librarySort.ascending ? "Sorted ascending" : "Sorted descending") : "")
-        .accessibilityAddTraits(current ? .isSelected : [])
-    }
-
-    private func row(_ facts: LibraryRowFacts, entry: LibraryListEntry, columns: [Column]) -> some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                LibraryCell.title(facts, selected: model.wideMode == .browse && UIDevice.current.userInterfaceIdiom == .pad
-                                  && facts.paper.map { model.selectedPaper?.id == $0.id } ?? false)
-                let subtitle = ([facts.authors] + [facts.topics.isEmpty ? nil : facts.topics.joined(separator: ", ")]).compactMap { $0 }
-                if !subtitle.isEmpty {
-                    Text(subtitle.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(columns, id: \.self) { column in
-                // A ZStack so an empty cell (a ready paper's status) still takes its column's width.
-                ZStack(alignment: .leading) {
-                    switch column {
-                    case .year: LibraryCell.year(facts)
-                    case .added: LibraryCell.added(facts)
-                    case .opened: LibraryCell.opened(facts)
-                    case .read: LibraryCell.read(facts)
-                    case .chats: LibraryCell.chats(facts)
-                    case .status: LibraryCell.status(facts, getCredits: { model.showStore = true })
-                    }
-                }
-                .frame(width: column.width * scale, alignment: .leading)
-            }
-        }
-        .contentShape(Rectangle())
     }
 }
 
-/// Cells shared by the iPad table and the phone table.
-enum LibraryCell {
-    static func title(_ facts: LibraryRowFacts, selected: Bool) -> some View {
-        Text(facts.title).font(.subheadline.weight(.semibold)).lineLimit(2)
-            .foregroundStyle(selected ? Color.accentColor : .primary)
-            .accessibilityLabel(facts.title)
-            .accessibilityIdentifier("library.table.\(facts.id)")
-    }
+/// Progress: how far this device has read a paper, or what an import is doing or needs. Compact (an icon and a short
+/// word that never breaks mid-word); VoiceOver reads the full status through the row.
+struct LibraryProgressCell: View {
+    let item: LibraryTableItem
 
-    static func text(_ text: String?, label: String, lines: Int = 1, spoken: String? = nil) -> some View {
-        Text(text ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(lines)
-            .accessibilityLabel(text.map { "\(label): \(spoken ?? $0)" } ?? "")
-            .accessibilityHidden(text == nil)
-    }
-
-    static func year(_ facts: LibraryRowFacts) -> some View {
-        text(facts.year.map(String.init), label: "Year").monospacedDigit()
-    }
-
-    static func topics(_ facts: LibraryRowFacts) -> some View {
-        text(facts.topics.isEmpty ? nil : facts.topics.joined(separator: ", "), label: "Topics", lines: 2)
-    }
-
-    static func added(_ facts: LibraryRowFacts) -> some View {
-        text(facts.added.map { LibraryFormat.relativeDay($0) }, label: "Added")
-    }
-
-    /// "—" for a paper never opened on this device; imports have no reading activity.
-    static func opened(_ facts: LibraryRowFacts) -> some View {
-        text(facts.opened.map { LibraryFormat.relativeDay($0) } ?? (facts.paper == nil ? nil : "—"), label: "Opened",
-             spoken: facts.opened == nil ? "never" : nil)
-    }
-
-    @ViewBuilder static func read(_ facts: LibraryRowFacts) -> some View {
-        if let progress = facts.progress {
-            let percent = LibraryFormat.percent(progress)
-            HStack(spacing: 6) {
-                LibraryProgressBar(value: progress).frame(width: 28)
-                Text("\(percent)%").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
-            }
-            .accessibilityElement(children: .ignore).accessibilityLabel("\(percent) percent read")
-        } else {
-            text(facts.paper == nil ? nil : "—", label: "Read", spoken: "not started")
-        }
-    }
-
-    static func chats(_ facts: LibraryRowFacts) -> some View {
-        text(facts.chats > 0 ? String(facts.chats) : (facts.paper == nil ? nil : "—"), label: "Chats",
-             spoken: facts.chats > 0 ? nil : "none").monospacedDigit()
-    }
-
-    /// Nothing for a ready paper; otherwise what is happening or what needs attention.
-    @ViewBuilder static func status(_ facts: LibraryRowFacts, getCredits: @escaping () -> Void) -> some View {
+    var body: some View {
+        let facts = item.facts
         switch facts.status {
-        case .none: EmptyView()
         case .active(let text):
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini).accessibilityHidden(true)
-                step(text, timing: facts.stepTiming)
-            }.accessibilityElement(children: .combine)
-        case .info(let text):
-            step(text, timing: facts.stepTiming)
+            VStack(alignment: .leading, spacing: 2) {
+                Label { Text(item.step?.tableTitle ?? text.trimmingCharacters(in: CharacterSet(charactersIn: "…"))) } icon: {
+                    // Centred on the text rather than sitting on its baseline.
+                    ProgressView().controlSize(.mini).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                }
+                .labelStyle(LibraryStatusLabelStyle())
+                .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                if let timing = facts.stepTiming { StepTimeText(timing: timing) }
+            }
         case .problem(let text):
             VStack(alignment: .leading, spacing: 2) {
-                Label { Text(text).foregroundStyle(.secondary).lineLimit(2) } icon: {
+                Label { Text(text).lineLimit(2) } icon: {
                     Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange).imageScale(.small)
-                }.font(.subheadline).labelStyle(LibraryStatusLabelStyle())
+                }
+                .labelStyle(LibraryStatusLabelStyle()).font(.footnote).foregroundStyle(.secondary)
+                // The row's tap opens the store; this says so.
                 if facts.needsCredits {
-                    Button("Get credits", action: getCredits).font(.caption.weight(.semibold)).buttonStyle(.borderless)
-                        .accessibilityIdentifier("import.getCredits")
+                    Text("Get credits").font(.footnote.weight(.semibold)).foregroundStyle(.tint).lineLimit(1)
                 }
             }
-        }
-    }
-
-    /// A status, and for an import in progress beneath it how long the step has run ("1 min", then "Taking
-    /// longer than usual"), changing once a minute without animation.
-    @ViewBuilder private static func step(_ text: String, timing: ImportStepTiming?) -> some View {
-        if let timing {
-            TimelineView(.periodic(from: timing.since, by: 60)) { context in
-                let elapsed = ImportStepElapsed(since: timing.since, now: context.date)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                    if let label = elapsed.label {
-                        Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(timing.step.spokenStatus(elapsed: elapsed))
+        case .info(let text) where facts.paper == nil:
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                if let timing = facts.stepTiming { StepTimeText(timing: timing) }
             }
-        } else {
-            Text(text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        default:
+            // A paper ready to read (or simply not downloaded yet, which the list doesn't flag either).
+            if let progress = facts.progress {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    LibraryProgressBar(value: progress).frame(width: 28).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
+                    Text("\(LibraryFormat.percent(progress))%").font(.subheadline).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
+                }
+            } else {
+                PaperTableText(text: facts.paper == nil ? nil : "—")
+            }
         }
     }
 }
 
+/// How long an import has been on its step ("1 min", then "Taking longer than usual"), changing once a minute
+/// without animation.
+private struct StepTimeText: View {
+    let timing: ImportStepTiming
+    var body: some View {
+        TimelineView(.periodic(from: timing.since, by: 60)) { context in
+            if let label = ImportStepElapsed(since: timing.since, now: context.date).label {
+                Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
 
 /// Icon and text on the first baseline, tightly spaced.
 struct LibraryStatusLabelStyle: LabelStyle {
@@ -346,7 +198,7 @@ struct LibraryStatusLabelStyle: LabelStyle {
     }
 }
 
-/// A small reading-progress bar for the Read column.
+/// A small reading-progress bar.
 struct LibraryProgressBar: View {
     let value: Double
     var body: some View {
@@ -396,8 +248,39 @@ struct LibraryRowActions: View {
     }
 }
 
-/// "Detailed rows": the narrow form of the table layout. Title, then authors · year · topics,
-/// then this device's activity; unknown facts are left out rather than printed blank.
+/// Swipe actions of a Library row (owner feedback 2026-10-06: remove and archive by swiping, as in Mail; cancel and
+/// retry an import the same way). The same actions as the long-press menu; shared by every layout.
+struct LibrarySwipeActions: View {
+    @Bindable var model: ReaderModel
+    let entry: LibraryListEntry
+    var body: some View {
+        switch entry {
+        case .paper(let paper):
+            if !paper.isSample {
+                Button(role: .destructive) { Task { await model.removePaper(paper) } } label: { Label("Remove", systemImage: "trash") }
+                    .tint(.red).disabled(!model.canChangeLibrary)
+                let archived = model.isArchived(paper)
+                Button { Task { await model.setArchived(paper, archived: !archived) } } label: {
+                    Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox")
+                }.tint(.indigo).disabled(!model.canChangeLibrary)
+            }
+        case .pending(let item):
+            Button(role: .destructive) { Task { await model.changeImport(item, retry: false) } } label: {
+                Label("Cancel import", systemImage: "xmark.circle")
+            }.tint(.red).disabled(!model.canChangeLibrary)
+            if item.phase == .failed && item.retryable {
+                Button { Task { await model.changeImport(item, retry: true) } } label: {
+                    Label("Retry import", systemImage: "arrow.clockwise")
+                }.tint(.accentColor).disabled(!model.canChangeLibrary)
+            }
+        case .queued:
+            EmptyView()
+        }
+    }
+}
+
+/// "Detailed rows": title, then authors · year · topics, then this device's activity; unknown facts are left out
+/// rather than printed blank. Also what the Table layout shows at accessibility text sizes.
 struct DetailedPaperRow: View {
     let facts: LibraryRowFacts
     var selected = false

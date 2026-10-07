@@ -1,19 +1,22 @@
-import CoreGraphics
 import Foundation
 import ScienceReaderCore
 
-/// Library layout (owner decision 2026-10-05): the List stays the default. "Table" is a sortable
-/// native table in wide containers and renders as detailed rows in narrow ones.
+/// Library layout (owner decision 2026-10-05): the List stays the default. "Table" is the app's own sortable table
+/// (`PaperTable`) at every width, with as many columns as fit (owner request 2026-10-06); at accessibility text
+/// sizes it shows detailed rows instead.
 enum LibraryLayout: String, CaseIterable, Sendable {
+    case list, detailed, table
+
+    var title: String {
+        switch self { case .list: "List"; case .detailed: "Detailed rows"; case .table: "Table" }
+    }
+}
+
+/// Feed layout: the List (title, authors, abstract, Add) or the same table as the Library's.
+enum FeedLayout: String, CaseIterable, Sendable {
     case list, table
 
-    /// Below this container width (iPhone portrait, the iPad Browse column, narrow split view) or
-    /// at accessibility text sizes, "Table" shows detailed rows instead.
-    /// The native iPad table needs its columns' width (design audit F1: at 834 pt titles and
-    /// status were clipped); narrower iPad containers show detailed rows.
-    static let tableMinimumWidth: CGFloat = 980
-    /// The app-drawn iPhone landscape table is narrower.
-    static let compactTableMinimumWidth: CGFloat = 700
+    var title: String { self == .list ? "List" : "Table" }
 }
 
 /// Friendly names for arXiv categories. The Feed's chips and the Library's Topics share them.
@@ -144,6 +147,20 @@ enum LibraryFormat {
     }
 
     static func chats(_ count: Int) -> String { count == 1 ? "1 chat" : "\(count) chats" }
+
+    /// The table's author line: one author → the full name; more → "Vaswani et al.".
+    static func firstAuthor(_ names: [String]) -> String? {
+        let authors = names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard let first = authors.first else { return nil }
+        return authors.count == 1 ? first : familyName(first) + " et al."
+    }
+
+    /// Falls back to the joined display string (the offline sample's byline) when individual names are unknown.
+    static func firstAuthor(for paper: Paper) -> String? {
+        if let first = firstAuthor(paper.authorNames) { return first }
+        let joined = paper.authors.trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
+    }
 }
 
 /// The step an import in progress is on, as its row names it.
@@ -160,6 +177,13 @@ enum LibraryImportStep: Equatable, Sendable {
     /// Short enough for a table column.
     var shortTitle: String {
         switch self { case .downloading: "Downloading"; case .converting: "Converting"; default: title }
+    }
+    /// One word, beside a spinner in the table's Progress column.
+    var tableTitle: String {
+        switch self {
+        case .queued: "Queued"; case .finding: "Finding"; case .preparing: "Preparing"
+        case .downloading: "Downloading"; case .converting: "Converting"; case .building: "Building"
+        }
     }
     /// "Downloading PDF…"; waiting in the queue has no ellipsis.
     func label(short: Bool) -> String {

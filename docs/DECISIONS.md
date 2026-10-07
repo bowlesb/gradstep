@@ -99,6 +99,23 @@ customization. Detailed rows leave abstracts out (they are the List's detail). D
 month and year ("Sep 2025"). Opened/Read use device-local encrypted reading activity, never synced or sent to the
 server — see [privacy and sync](architecture/PRIVACY_AND_SYNC.md#device-local-reading-activity-2026-10-05).
 
+**Superseded in part (owner request 2026-10-06, "a sane true table view of papers that we can re-use for the
+feed").** "Table" is now one app-drawn table (`PaperTable`, `Views/PaperTable.swift`) on every size, used by the
+Library and the Feed; SwiftUI's `Table` and the 700/980 pt thresholds are gone. "View as" offers List / Detailed rows
+/ Table; Table shows detailed rows only at accessibility text sizes. Each column has a priority and a width; the
+title keeps at least 160 pt (or a third of a wide row) and columns are added in priority order while they fit, so
+there is never sideways scrolling. Library: Title (title and first author, "Vaswani et al."), then Progress, Year,
+Added, Opened, Chats and, on wide iPads, Topics (Show › Topics hides it). iPhone portrait shows Title, Year,
+Progress; iPhone landscape and iPad portrait add Added, Opened, Chats. Progress merges the old Read and Status
+columns: reading progress for a paper, otherwise an icon and one word ("Converting", "Download failed"), the step
+time on a second line, and the full status for VoiceOver; a paper merely not downloaded shows its progress, as the
+List shows nothing for it. Headers sort (tap again to reverse); when the sorted column doesn't fit, "· Added ⌄"
+beside Title shows the order. Tapping a paper opens it; tapping an import that needs credits opens Get credits;
+long-press and swipe keep the List's actions. Column visibility is no longer customized per column (SwiftUI's
+column customization went with `Table`). Feed: "View as" List (default) / Table in the Feed's "…" menu; columns Title
+(and first author), Topic, Published (month from the arXiv identifier — the server sends only the year) and Add;
+newest first; tapping a row shows its abstract under it; long-press offers Add to library and View on arXiv.
+
 ## Web search in chat (owner decided 2026-10-05: turn it on)
 
 Owner approved enabling it with a consent line naming Anthropic's search provider and a tappable Sources list.

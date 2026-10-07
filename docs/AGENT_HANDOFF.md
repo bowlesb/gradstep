@@ -24,7 +24,8 @@ first. The previous handoff (Linux executor plan) is obsolete and in git history
   the encrypted offline store, streaming paid chat with consent, native math in chat (SwiftMath with a LaTeX
   normalizer), Ingest (adds the cited paper from arXiv or, for builds that send `capabilities: ["web_import"]`, a
   freely available PDF found through OpenAlex; library reads are v3, v2 hides web papers from older builds),
-  Library List / Table (iPad ≥ 980 pt) / detailed rows with reading activity, a one-row search header,
+  Library List / Detailed rows / Table (the shared `PaperTable` on every size, also the Feed's Table layout) with
+  reading activity, a one-row search header,
   diagrams from answers (encrypted, drawn on device with bundled
   Mermaid), reader layout fixes for real papers (aligned derivations, pinned equation numbers, no sideways page
   scroll), credits in Settings, app icon (legacy artwork) and privacy manifest. Existing navigation is preserved;
