@@ -339,7 +339,7 @@ public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
     /// Migration 027 download causes: a sign-in or paywall, a website refusing automated downloads,
     /// a website not responding, a link that leads to no PDF.
     case pdfRestricted, sourceBlocked, sourceUnavailable, notPDF
-    /// Migration 031: no open copy of the paper exists (the reader can supply the PDF), and a reader's
+    /// Migration 033: no open copy of the paper exists (the reader can supply the PDF), and a reader's
     /// upload that couldn't be used (missing or not what was sent; upload it again).
     case notOpen, uploadFailed
     case other(String)

@@ -149,7 +149,7 @@ import Testing
         }
     }
 
-    /// Migration 031: a reader's own PDF uploads in v4 reads (`upload:<uuid>`, revision 1, no source page).
+    /// Migration 033: a reader's own PDF uploads in v4 reads (`upload:<uuid>`, revision 1, no source page).
     private let uploadSource = "upload:31000000-0000-4000-8000-0000000000a1"
     private func uploadItem(_ number: Int) -> [String: Any] {
         var row = item(number, approved: true)

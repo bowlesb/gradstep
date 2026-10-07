@@ -66,7 +66,7 @@ test('only the account’s own folders and its conversions’ raw/reader folders
   assert.ok(allowedPrefix(account, 'paper-assets', `private/${account}/`));
   assert.ok(allowedPrefix(account, 'paper-assets', `raw/${sha}/`) && allowedPrefix(account, 'paper-assets', `reader/${sha}/`));
   assert.ok(allowedPrefix(account, 'support', `${account}/`));
-  assert.ok(allowedPrefix(account, 'paper-uploads', `${account}/`), 'PDF uploads (migration 031)');
+  assert.ok(allowedPrefix(account, 'paper-uploads', `${account}/`), 'PDF uploads (migration 033)');
   for (const [bucket, prefix] of [['paper-assets', 'private/other/'], ['paper-assets', 'reader/'], ['paper-assets', 'originals/'],
     ['support', 'other/'], ['paper-uploads', 'other/'], ['paper-uploads', ''], ['private-content', `${account}/`], ['paper-assets', `raw/${sha}/../`]]) {
     assert.equal(allowedPrefix(account, bucket, prefix), false, `${bucket}:${prefix}`);

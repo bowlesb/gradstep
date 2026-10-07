@@ -155,3 +155,32 @@ extension LibraryImportRecord {
     /// A web paper or a reader's own upload can take a PDF from this device; arXiv papers always come from arXiv.
     var canTakeUpload: Bool { LibrarySource.isWebSourceID(sourceID) || LibrarySource.isUploadSourceID(sourceID) }
 }
+
+extension LibraryImportRecord {
+    /// Our servers couldn't fetch this web paper's PDF, but a link is known: this device may (device fallback).
+    var canDownloadOnDevice: Bool {
+        LibrarySource.isWebSourceID(sourceID) && phase == .failed
+            && [.sourceBlocked, .pdfRestricted, .sourceUnavailable, .downloadFailed, .notPDF, .rateLimited, .downloadRetrying].contains(errorCode)
+    }
+}
+
+extension ReaderModel {
+    /// "Download on this device" on a failed web import: the links the pipeline knows (its PDF locations,
+    /// landing page and DOI), fetched here, then uploaded to that same import.
+    func downloadOnDevice(_ item: LibraryImportRecord) {
+        guard let service = addingService, uploads.isActive else { openSignIn(); return }
+        let target = PDFUploadTarget.importID(item.id, revision: item.intentRevision)
+        // Already on its way (a second tap): nothing more to start.
+        guard !uploads.fetches.contains(where: { $0.target == target && $0.issue == nil }),
+              !uploads.jobs.contains(where: { $0.target == target && $0.phase != .failed }) else { return }
+        Task {
+            let sources = try? await service.importSources(item.id)
+            let links = (sources?.links ?? []).compactMap { URL(string: $0) }
+            guard !links.isEmpty else {
+                uploads.problem = "There’s no link to try for this paper on this device. Upload the PDF instead."
+                return
+            }
+            await uploads.downloadOnDevice(links: links, title: item.metadata?.title ?? sources?.title, target: target)
+        }
+    }
+}

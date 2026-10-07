@@ -583,9 +583,14 @@ enum LibraryImportAction: Equatable, Sendable {
     case remove
     /// No open copy, or the reader's upload didn't arrive: the reader supplies the PDF from Files.
     case uploadPDF
+    /// The website refused our servers: this device fetches the PDF and uploads it to the same paper.
+    case downloadOnDevice
 
     var title: String {
-        switch self { case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove"; case .uploadPDF: "Upload PDF" }
+        switch self {
+        case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove"; case .uploadPDF: "Upload PDF"
+        case .downloadOnDevice: "Download on this device"
+        }
     }
 
     /// Nil while the import is running, or while a retry is on its way.
@@ -596,6 +601,7 @@ enum LibraryImportAction: Equatable, Sendable {
         case .failed:
             if item.errorCode == .insufficientCredits { return .getCredits }
             if item.canTakeUpload, [.notOpen, .uploadFailed].contains(item.errorCode) { return .uploadPDF }
+            if item.canDownloadOnDevice, [.sourceBlocked, .pdfRestricted].contains(item.errorCode) { return .downloadOnDevice }
             return item.retryable ? .retry : .remove
         case .membershipConflict: return .remove
         default: return nil

@@ -1,4 +1,4 @@
--- PDF uploads (migration 031; docs/architecture/PDF_UPLOADS.md): owner-only sessions, size/quota/
+-- PDF uploads (migration 033; docs/architecture/PDF_UPLOADS.md): owner-only sessions, size/quota/
 -- credit limits, idempotent begin and finalize, an uploaded paper through the pipeline to the
 -- library (v4 only), a reader's PDF supplying a failed or closed web paper, the read-level rule,
 -- the janitor, and account deletion.

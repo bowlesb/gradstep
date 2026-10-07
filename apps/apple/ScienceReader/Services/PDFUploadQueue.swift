@@ -230,6 +230,20 @@ final class PDFUploadCenter {
     var pickRequest: PickRequest?
     /// A PDF that couldn't be queued (picked or dropped), for an alert.
     var problem: String?
+    /// Downloads on this device in progress or stopped (device fallback), before their upload is queued.
+    private(set) var fetches: [DeviceFetch] = []
+    /// This device's fetcher (a script in UI fixtures).
+    @ObservationIgnored var fetcher: any DevicePDFFetching = DevicePDFFetcher()
+
+    struct DeviceFetch: Identifiable, Equatable {
+        let id: UUID
+        let title: String
+        var progress: Double?
+        var issue: String?
+        /// The page to open in Safari when the download didn't work here either.
+        let page: URL?
+        let target: PDFUploadTarget
+    }
 
     struct PickRequest: Identifiable, Equatable {
         let id = UUID()
@@ -270,8 +284,36 @@ final class PDFUploadCenter {
     /// Sign-out or account change: stop sending. The files stay for that account's next sign-in.
     func deactivate() {
         worker?.cancel(); worker = nil; wake?.cancel(); wake = nil
-        context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil
+        context = nil; jobs = []; progress = [:]; notice = nil; pickRequest = nil; fetches = []; problem = nil
     }
+
+    /// Device fallback: fetches the PDF over this device's network (the server's checks), then queues its
+    /// upload to `target`. Progress and a failure (with what to try next) show in the Library.
+    func downloadOnDevice(links: [URL], title: String?, target: PDFUploadTarget) async {
+        guard let account = context?.accountID, !links.isEmpty else { return }
+        let fetch = DeviceFetch(id: UUID(), title: title ?? links[0].host() ?? "the paper", progress: 0, issue: nil, page: links.last, target: target)
+        fetches.append(fetch)
+        do {
+            let pdf = try await fetcher.fetch(links) { [weak self] fraction in
+                Task { @MainActor in
+                    guard let self, let index = self.fetches.firstIndex(where: { $0.id == fetch.id }) else { return }
+                    self.fetches[index].progress = fraction
+                }
+            }
+            defer { try? FileManager.default.removeItem(at: pdf.file) }
+            guard context?.accountID == account else { return }
+            try await add(file: pdf.file, title: title ?? pdf.title, target: target)
+            fetches.removeAll { $0.id == fetch.id }
+        } catch is CancellationError {
+            fetches.removeAll { $0.id == fetch.id }
+        } catch {
+            guard context?.accountID == account, let index = fetches.firstIndex(where: { $0.id == fetch.id }) else { return }
+            fetches[index].progress = nil
+            fetches[index].issue = (error as? DeviceFetchError)?.message ?? (error as? PDFFileProblem)?.message ?? DeviceFetchError.failed.message
+        }
+    }
+
+    func dismissFetch(_ id: UUID) { fetches.removeAll { $0.id == id } }
 
     /// Checks and queues a PDF from Files, a drop, the share inbox or a device download.
     @discardableResult

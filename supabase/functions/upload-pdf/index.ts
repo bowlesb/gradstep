@@ -1,4 +1,4 @@
-// PDF uploads (functions/v1/upload-pdf; migration 031; docs/architecture/PDF_UPLOADS.md).
+// PDF uploads (functions/v1/upload-pdf; migration 033; docs/architecture/PDF_UPLOADS.md).
 // POST {action:'begin', upload_id, sha256, byte_count, target, title?|import_id+expected_revision?|source_id?}
 //   → a signed token to upload the bytes to paper-uploads/<account>/<upload_id>.pdf (private bucket).
 // POST {action:'finalize', upload_id, observed_cursor}

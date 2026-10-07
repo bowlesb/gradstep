@@ -27,7 +27,7 @@ export function rpcAdapter(client: SupabaseClient): PipelineDeps['rpc'] {
   };
 }
 
-/** Readers' uploads (migration 031): their own private bucket, read once and then deleted. */
+/** Readers' uploads (migration 033): their own private bucket, read once and then deleted. */
 export const UPLOAD_BUCKET = 'paper-uploads';
 export function uploadStorageAdapter(client: SupabaseClient): NonNullable<PipelineDeps['uploads']> {
   const bucket = () => client.storage.from(UPLOAD_BUCKET);

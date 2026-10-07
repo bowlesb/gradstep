@@ -87,6 +87,43 @@ final class AddPaperFlowTests: XCTestCase {
         save("upload-added")
     }
 
+    /// Device fallback: a website that blocked our servers; this device downloads the PDF and uploads it to
+    /// the same import, which runs again.
+    func testDownloadOnThisDeviceForABlockedImport() {
+        let app = launch()
+        let filter = app.buttons["library.filter.failed"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 10)); filter.tap()
+        let download = app.buttons.matching(NSPredicate(format: "label == %@", "Download on this device")).firstMatch
+        XCTAssertTrue(download.waitForExistence(timeout: 5))
+        save("library-blocked-import")
+        download.tap()
+        let status = app.staticTexts["device.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        XCTAssertTrue(status.label.contains("on this device"), status.label)
+        save("device-download-progress")
+        XCTAssertTrue(app.staticTexts["upload.notice"].waitForExistence(timeout: 15))
+        XCTAssertTrue(download.waitForNonExistence(timeout: 5), "the import is running again")
+        save("device-download-added")
+    }
+
+    /// A link this device can't download either: what to try next (Safari, or the PDF from Files).
+    func testDeviceDownloadThatIsBlockedToo() {
+        let app = launch(["--visual-show-import"])
+        let field = app.textFields["import.reference"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        replace(field, with: Self.blockedLink, in: app)
+        app.buttons["import.add"].tap()
+        let device = app.buttons["add.next.device"]
+        XCTAssertTrue(device.waitForExistence(timeout: 5))
+        save("add-link-blocked-steps")
+        device.tap()
+        let issue = app.staticTexts["device.issue"]
+        XCTAssertTrue(issue.waitForExistence(timeout: 10))
+        XCTAssertTrue(issue.label.contains("blocked this device too"), issue.label)
+        XCTAssertTrue(app.buttons["device.upload"].exists)
+        save("device-download-blocked")
+    }
+
     /// A paper that isn't openly available: Add says so and offers the upload, which attaches to that paper.
     func testUploadForAPaperThatIsNotOpen() {
         let app = launch(["--visual-show-import"])

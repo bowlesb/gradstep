@@ -92,6 +92,17 @@ final class ScriptedPaperAdding: PaperAddingService, @unchecked Sendable {
     }
 }
 
+/// Fetches the fixture's "website" without a network: the sample PDF, or (for the blocked link) a refusal.
+struct FixturePDFFetcher: DevicePDFFetching {
+    func fetch(_ links: [URL], progress: @escaping @Sendable (Double) -> Void) async throws -> DevicePDF {
+        for step in 1...4 { try await Task.sleep(for: .milliseconds(400)); progress(Double(step) / 4) }
+        if links.contains(where: { $0.absoluteString == AddPaperFixture.blockedLink }) { throw DeviceFetchError.blocked }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("fixture-device-\(UUID().uuidString).pdf")
+        try FileManager.default.copyItem(at: try AddPaperFixture.samplePDF(), to: copy)
+        return DevicePDF(file: copy, title: nil, link: links[0])
+    }
+}
+
 extension ReaderModel {
     /// `--add-paper-fixture`: two failed web imports (a website that blocks servers, and a paper with no
     /// open copy) and an upload queue that sends to the script; a finished upload appears as an import.
@@ -110,6 +121,7 @@ extension ReaderModel {
         insertFixtureImport(try failed(AddPaperFixture.blockedImport, sequence: 1, title: "Deep Learning Scaling is Predictable, Empirically",
                                        authors: ["Joel Hestness", "Sharan Narang"], error: "source_blocked"))
         guard let service = AddPaperFixture.service else { return }
+        uploads.fetcher = FixturePDFFetcher()
         uploads.activate(.init(service: service, accountID: AddPaperFixture.accountID, deploymentID: "add-paper-fixture",
             cursor: { 0 }, added: { [weak self] in self?.showFixtureUpload() }))
     }

@@ -193,6 +193,7 @@ extension LibraryImportAction {
         case .remove: Task { await model.changeImport(item, retry: false) }
         case .getCredits: model.showStore = true
         case .uploadPDF: model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)
+        case .downloadOnDevice: model.downloadOnDevice(item)
         }
     }
 
@@ -202,6 +203,7 @@ extension LibraryImportAction {
         case .getCredits: "Opens Get credits"
         case .remove: "Removes this import from your library"
         case .uploadPDF: "Chooses the paper’s PDF from Files"
+        case .downloadOnDevice: "Downloads the PDF over this device’s connection, then adds it"
         }
     }
 }
@@ -424,6 +426,10 @@ struct LibraryRowActions: View {
                 Button("Get credits", systemImage: "creditcard") { model.showStore = true }
             }
             // A web paper (or a reader's own upload) can take the PDF from this device (docs/architecture/PDF_UPLOADS.md).
+            if item.canDownloadOnDevice {
+                Button("Download on this device", systemImage: "arrow.down.circle") { model.downloadOnDevice(item) }
+                    .disabled(!model.uploads.isActive)
+            }
             if item.phase == .failed, item.canTakeUpload {
                 Button("Upload PDF…", systemImage: "doc.badge.plus") {
                     model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)

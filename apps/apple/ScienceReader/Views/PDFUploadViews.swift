@@ -88,6 +88,20 @@ struct PDFUploadBanners: View {
     var body: some View {
         let center = model.uploads
         VStack(spacing: 8) {
+            ForEach(center.fetches) { fetch in
+                if let issue = fetch.issue {
+                    StatusBanner(tone: .problem, systemImage: "exclamationmark.triangle", message: issue, actionsBelow: true, messageID: "device.issue") {
+                        if let page = fetch.page { Link("Open in Safari", destination: page).accessibilityIdentifier("device.openPage") }
+                        Button("Upload PDF") { center.dismissFetch(fetch.id); center.pickRequest = .init(target: fetch.target, title: fetch.title) }
+                            .accessibilityIdentifier("device.upload")
+                        Button("OK") { center.dismissFetch(fetch.id) }
+                    }
+                } else {
+                    let percent = fetch.progress.map { $0 > 0 ? " · \(Int(($0 * 100).rounded()))%" : "" } ?? ""
+                    StatusBanner(tone: .info, systemImage: "arrow.down.circle", message: "Downloading “\(fetch.title)” on this device\(percent)",
+                                 messageID: "device.status") { ProgressView().controlSize(.small) }
+                }
+            }
             ForEach(center.jobs) { job in
                 if job.phase == .failed {
                     StatusBanner(tone: .problem, systemImage: "exclamationmark.triangle", message: "“\(job.title)”: \(job.issue ?? "Couldn’t upload this PDF.")",
@@ -122,7 +136,7 @@ struct PDFUploadBanners: View {
         }
     }
 
-    static func shows(_ model: ReaderModel) -> Bool { !model.uploads.jobs.isEmpty || model.uploads.notice != nil }
+    static func shows(_ model: ReaderModel) -> Bool { !model.uploads.jobs.isEmpty || !model.uploads.fetches.isEmpty || model.uploads.notice != nil }
 }
 
 extension View {

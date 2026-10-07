@@ -351,7 +351,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Library pages use their bounded wire decoder and keep the reconciler's
     /// original account/session/request ticket through the transport boundary.
-    /// v4 reads include the reader's uploads (migration 031) and v3 web papers (v2, for older builds,
+    /// v4 reads include the reader's uploads (migration 033) and v3 web papers (v2, for older builds,
     /// leaves both out). A server without v4 yet is read at v3 (no uploads exist there) for this client's life.
     func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
         let function: String, body: Data
@@ -929,7 +929,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
             }
-            // PostgREST: no such function (a server before migration 031 has no v4 reads).
+            // PostgREST: no such function (a server before migration 033 has no v4 reads).
             if libraryErrors, response.statusCode == 404, failure?.code == "PGRST202" { throw LibraryReadVersionMissing() }
             if libraryCommandErrors {
                 if response.statusCode == 401 { throw BackendError.signInRequired }

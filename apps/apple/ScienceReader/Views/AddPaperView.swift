@@ -128,9 +128,17 @@ struct ImportPaperView: View {
             Text(outcome.message).font(.callout).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("add.outcome")
             ForEach(outcome.steps, id: \.self) { step in
-                if case .uploadPDF(let target, let title) = step {
+                switch step {
+                case .uploadPDF(let target, let title):
                     Button { choosePDF(target: target, title: title) } label: { Label(step.title, systemImage: "doc.badge.plus") }
                         .disabled(saving).accessibilityIdentifier(step.identifier)
+                case .downloadOnDevice(let link, let target, let title):
+                    Button {
+                        // Runs on in the Library (progress there); the sheet's work is done.
+                        Task { await model.uploads.downloadOnDevice(links: [link], title: title, target: target) }
+                        dismiss()
+                    } label: { Label(step.title, systemImage: "arrow.down.circle") }
+                        .disabled(saving || !model.uploads.isActive).accessibilityIdentifier(step.identifier)
                 }
             }
         }

@@ -396,7 +396,7 @@ final class LibraryTransportTests: XCTestCase {
         return (try await store.beginLibraryAttempt(handle, scope: scope), directory)
     }
 
-    /// Migration 031: v4 reads add uploads. A server without them yet is read at v3 for this client's life.
+    /// Migration 033: v4 reads add uploads. A server without them yet is read at v3 for this client's life.
     func testLibraryReadsFallBackToV3WhenTheServerHasNoV4() async throws {
         let account = UUID(), f = LibraryFixture(accountID: account)
         let missing = Data(#"{"code":"PGRST202","message":"Could not find the function public.v4_library_page"}"#.utf8)
