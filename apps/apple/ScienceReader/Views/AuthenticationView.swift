@@ -45,7 +45,7 @@ struct AuthenticationView: View {
 
     private var cancelButton: some View {
         Button("Cancel") { model.closeSignIn(presentationID: presentationID) }
-            .accessibilityIdentifier("auth.close")
+            .accessibilityIdentifier("auth.close").macBarButton()
     }
 }
 
@@ -262,7 +262,7 @@ private struct AuthenticationForm: View {
     }
 
     private func authenticationPresenter(anchor: UIWindow) -> any AuthenticationPresenting {
-        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if AuthenticationWorkflowFixture.isEnabled {
             return AuthenticationWorkflowFixture.presenter(anchor: anchor)
         }

@@ -293,3 +293,54 @@ test('a download that is not admitted fetches nothing', async () => {
   assert.equal(fetched, false);
   assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_admit_download', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
 });
+
+test('readers hear the provider page progress every 5 s while OCR is polled; a failed report never touches the stage', async () => {
+  let t = Date.parse('2026-10-05T06:00:00Z'), polls = 0;
+  const reports: { at: number; params: Record<string, unknown> }[] = [];
+  const { deps, calls, logs } = harness({
+    worker_pipeline_progress: p => { reports.push({ at: t, params: p }); if (reports.length === 2) throw new PipelineRPCError('invalid_progress'); return 1; },
+    worker_pipeline_defer: p => p,
+  }, {
+    now: () => t, async sleep(ms) { t += ms; },
+    mathpix: { ...harness({}).deps.mathpix, async status(id) {
+      polls += 1; return { providerJobID: id, state: 'split', pages: 30, completedPages: Math.min(29, polls), pipelineVersion: null, deleted: false, errorCode: null }; } },
+  });
+  const started = t;
+  await processPaper(deps, entry('ocr_wait', { document_sha256: 'd'.repeat(64), page_count: 30,
+    attempt: { id: 'a', state: 'submitted', page_limit: 30, provider_job_id: 'job-p', submitted_at: '2026-10-05T05:59:50Z', raw_manifest_path: null } }),
+    policy, t + 5 * 60_000);
+  assert.ok(reports.length >= 5, `reported ${reports.length} times`);
+  assert.ok(reports[0].at - started >= 5_000, 'the first report waits 5 s after the stage projection');
+  for (let i = 1; i < reports.length; i++) {
+    assert.ok(reports[i].at - reports[i - 1].at >= 5_000, 'at most every 5 s');
+    assert.ok((reports[i].params.p_pages_done as number) > (reports[i - 1].params.p_pages_done as number), 'pages move on');
+  }
+  assert.deepEqual(Object.keys(reports[0].params).sort(), ['p_bytes', 'p_claim_id', 'p_generation', 'p_pages', 'p_pages_done', 'p_paper_id']);
+  assert.equal(reports[0].params.p_pages, 30); assert.equal(reports[0].params.p_bytes, null);
+  assert.ok(logs.includes('progress_failed'), 'a failed report is logged');
+  assert.equal(names(calls).at(-1), 'worker_pipeline_defer', 'polling carried on and deferred as usual');
+  assert.equal(calls.find(c => c.name === 'worker_pipeline_defer')!.params.p_error_code, undefined, 'not an error');
+});
+
+test('a slow download tells readers the size and pages; a quick one leaves it to the next stage', async () => {
+  const original = await pdf(12);
+  for (const seconds of [7, 1]) {
+    let t = Date.parse('2026-10-05T06:00:00Z');
+    const { deps, calls } = harness({
+      worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }),
+      worker_pipeline_admit_download: () => ({ admitted: true }),
+      worker_pipeline_original: () => entry('ocr_fund', { page_count: 12 }),
+      worker_pipeline_fund: () => ({ ...entry('ocr_fund'), funding: 'waiting' }),
+    }, {
+      now: () => t, async sleep(ms) { t += ms; },
+      fetch: (async () => { t += seconds * 1000; return new Response(original); }) as unknown as typeof fetch,
+    });
+    await processPaper(deps, entry('download'), policy, t + 5 * 60_000);
+    const reports = calls.filter(c => c.name === 'worker_pipeline_progress');
+    if (seconds === 7) {
+      assert.equal(reports.length, 1);
+      assert.equal(reports[0].params.p_bytes, original.length); assert.equal(reports[0].params.p_pages, 12);
+      assert.ok(names(calls).indexOf('worker_pipeline_progress') < names(calls).indexOf('worker_pipeline_original'), 'before the copy is recorded');
+    } else assert.equal(reports.length, 0, 'within 5 s of the stage projection');
+  }
+});

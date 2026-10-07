@@ -4,7 +4,9 @@
 //
 //   node scripts/visual-check.mjs capture --label=before [--scenarios=chat-keyboard,store|all]
 //        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl] [--landscape]
-//        [--device-ids=iphone:<udid>,ipad:<udid>] [--derived=/private/tmp/…]   (an agent's own Simulators and build folder)
+//        [--udids=iphone:<UDID>,ipad:<UDID>] [--derived=/private/tmp/<session>/derived]
+//   --udids runs a device name on your own Simulator instead of the shared one (parallel sessions must not share
+//   Simulators); --derived keeps the build products apart too.
 //   node scripts/visual-check.mjs compare --before=before --after=after
 //   node scripts/visual-check.mjs sheet --label=after
 //
@@ -16,11 +18,19 @@ import { join, resolve } from 'node:path';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const [command = 'capture', ...rest] = process.argv.slice(2);
-const args = Object.fromEntries(rest.map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
+const args = Object.fromEntries(rest.map(a => {
+  const option = a.replace(/^--/, ''), at = option.indexOf('=');
+  return at < 0 ? [option, 'true'] : [option.slice(0, at), option.slice(at + 1)];
+}));
 const visual = join(root, '.artifacts/visual');
 const DEVICES = { iphone: 'B6CD74CE-CB0C-417E-9E9B-F68175B5094D', small: '20F95B85-3BCE-4930-933C-8DC4E98E6EB1',
   max: '621A934F-8F1D-4410-953A-6D3ECD951CA0', ipad: 'F1371651-051A-4368-8FE7-6878F74781F2', mini: '1D17687F-2188-4025-8570-5A9C905C2D04',
   ipad13: 'B8DEE99E-FCD3-472F-BAFC-E01E5B952A36' };
+for (const pair of (args.udids ?? '').split(',').filter(Boolean)) {
+  const [name, udid] = pair.split(':');
+  if (!DEVICES[name] || !/^[0-9A-F-]{36}$/i.test(udid ?? '')) throw new Error(`--udids expects name:UDID pairs, got ${pair}`);
+  DEVICES[name] = udid;
+}
 // xxl: the largest size below the accessibility sizes (layouts that switch form at accessibility sizes keep theirs).
 const VARIANTS = { light: ['light', 'large'], dark: ['dark', 'large'], xxl: ['light', 'extra-extra-extra-large'],
   xl: ['light', 'accessibility-extra-large'] };
@@ -34,8 +44,7 @@ const tool = () => {
 if (command === 'capture') {
   const label = args.label ?? 'current', scenarios = args.scenarios ?? 'all';
   const devices = (args.devices ?? 'iphone,ipad').split(','), variants = (args.variants ?? 'light,dark').split(',');
-  for (const pair of (args['device-ids'] ?? '').split(',').filter(Boolean)) { const [name, udid] = pair.split(':'); DEVICES[name] = udid; }
-  const derived = args.derived ?? join(root, '.artifacts/visual-derived');
+  const derived = args.derived ? resolve(args.derived) : join(root, '.artifacts/visual-derived');
   execFileSync('xcodegen', ['generate'], { cwd: join(root, 'apps/apple'), stdio: 'ignore' });
   console.log('Building for testing…');
   run('xcodebuild', ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug',

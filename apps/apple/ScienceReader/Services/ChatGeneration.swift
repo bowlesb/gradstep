@@ -68,14 +68,16 @@ struct ChatGeneration: Sendable {
     var text = ""
     var stopping = false
     var task: Task<Void, Never>?
+    /// The answer's time in history ("Last used"), fixed when it starts so every save of it is the same event.
+    let createdAt: Int64
 
-    init(turn: ChatAnswerTurn) {
-        id = UUID(); self.turn = turn; assistantID = UUID()
+    init(turn: ChatAnswerTurn, now: Date = Date()) {
+        id = UUID(); self.turn = turn; assistantID = UUID(); createdAt = PrivateEvent.timestamp(now)
     }
 
     func event(text: String, status: PrivateEvent.TurnStatus) -> PrivateEvent {
         PrivateEvent(kind: .message, entityID: assistantID, parents: [turn.userMessageID], conversationID: turn.conversationID,
-                     documentID: turn.documentID, text: text, role: .assistant, status: status)
+                     documentID: turn.documentID, text: text, role: .assistant, status: status, createdAt: createdAt)
     }
 }
 

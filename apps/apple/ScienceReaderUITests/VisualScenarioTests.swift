@@ -20,6 +20,7 @@ final class VisualScenarioTests: XCTestCase {
     private static let metadataFixture = ["--workflow-fixture", "--library-metadata-fixture"]
     private static let feedTableFixture = metadataFixture + ["--feed-fixture", "--feed-layout=table"]
     private static let mathpixFixture = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture"]
+    private static let historyFixture = chatFixture + ["--chat-history-fixture"]
 
     /// The catalogue. Keep steps short and deterministic; wait for the state, never for time alone when avoidable.
     private var scenarios: [String: Scenario] {
@@ -56,6 +57,19 @@ final class VisualScenarioTests: XCTestCase {
             "library-slow-import": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture"]) { app in self.showSlowImport(app) },
             "library-slow-import-table": Scenario(arguments: Self.metadataFixture + ["--slow-import-fixture", "--library-layout=table"]) { app in
                 self.showSlowImport(app)
+            },
+            // Import progress (2026-10-07): imports at every step with percent and time left, one taking longer than
+            // usual and one from an older server; `-help` opens "Why does this take a minute?" from a row.
+            "library-import-progress": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture"]) { app in
+                XCTAssertTrue(app.descendants(matching: .any)["importProgress"].firstMatch.waitForExistence(timeout: 5)); sleep(1)
+            },
+            "library-import-progress-help": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture"]) { app in
+                let help = app.buttons["importProgress.help"].firstMatch
+                XCTAssertTrue(help.waitForExistence(timeout: 5)); help.tap()
+                XCTAssertTrue(app.navigationBars["Getting a paper ready"].waitForExistence(timeout: 5)); sleep(1)
+            },
+            "library-import-progress-table": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { _ in
+                sleep(2)
             },
             "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
                 let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
@@ -171,6 +185,21 @@ final class VisualScenarioTests: XCTestCase {
                 sleep(3); self.dismissKeyboard(app)
                 app.buttons["Chat history"].tap(); sleep(1)
             },
+            // All chats as a table (owner request 2026-10-07) over ~30 fixture conversations and one unsent draft;
+            // `-search` filters it, `-actions` long-presses a paper chat.
+            "chat-history-table": Scenario(arguments: Self.historyFixture) { app in self.openHistory(app, draft: "Compare LoRA ranks across tasks") },
+            "chat-history-search": Scenario(arguments: Self.historyFixture) { app in
+                self.openHistory(app)
+                let search = app.searchFields.firstMatch
+                XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("DPO")
+                sleep(1)
+            },
+            "chat-history-actions": Scenario(arguments: Self.historyFixture) { app in
+                self.openHistory(app)
+                let row = app.buttons["chat.history.c4a7c4a7-0000-4000-8000-000000000004"]
+                XCTAssertTrue(row.waitForExistence(timeout: 5)); row.press(forDuration: 1.2)
+                sleep(1)
+            },
             "signin": Scenario(arguments: ["--authentication-fixture", "--reset-authentication-fixture"]) { app in
                 // The wide iPad layout has no tab bar; Settings is its gear button.
                 if app.buttons["tab.settings"].exists { app.buttons["tab.settings"].tap() } else { app.buttons["Settings"].tap() }
@@ -199,7 +228,7 @@ final class VisualScenarioTests: XCTestCase {
     }
 
     /// Scrolls the slow import's status into view (large text pushes it below the fold). VoiceOver reads the step and
-    /// the time: "Converting equations and figures, 4 minutes, taking longer than usual".
+    /// the time: "Reading equations and figures, 4 minutes, taking longer than usual".
     private func showSlowImport(_ app: XCUIApplication) {
         let status = app.descendants(matching: .any).matching(NSPredicate(format: "label ENDSWITH %@", "minutes, taking longer than usual")).firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 5))
@@ -256,6 +285,21 @@ final class VisualScenarioTests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap()
         input.typeText(question)
         app.buttons["chat.send"].tap()
+    }
+
+    /// Opens All chats from the chat's top bar, after leaving an unsent general draft when one is given.
+    private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        if let draft {
+            if app.segmentedControls.buttons["General chat"].exists { app.segmentedControls.buttons["General chat"].tap() }
+            let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+            XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText(draft)
+            dismissKeyboard(app)
+        }
+        let history = app.buttons["Chat history"]
+        XCTAssertTrue(history.waitForExistence(timeout: 5)); history.tap()
+        XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
+        sleep(1)
     }
 
     private func dismissKeyboard(_ app: XCUIApplication) {

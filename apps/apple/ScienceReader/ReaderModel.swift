@@ -107,12 +107,16 @@ final class ReaderModel {
     private(set) var libraryImports: [LibraryImportRecord] = [] {
         didSet {
             guard libraryImports != oldValue else { return }
-            importSteps.observe(libraryImports, now: importClock())
+            let now = importClock()
+            importSteps.observe(libraryImports, now: now)
+            importProgressTracker.observe(libraryImports, now: now)
             librarySearchSourceChanged(); updateImportPolling()
         }
     }
     /// When each import in progress entered its current step, as this device saw it (rows show how long).
     private(set) var importSteps = ImportStepClock()
+    /// When each import's progress detail arrived here and how far its bar has got (rows count down from it).
+    private(set) var importProgressTracker = ImportProgressTracker()
     /// The step clock's time source (tests inject one).
     @ObservationIgnored var importClock: () -> Date = { Date() }
     private var importPollTask: Task<Void, Never>?
@@ -252,8 +256,13 @@ final class ReaderModel {
                 paperChatCounts = counts
                 if librarySort.field == .chats { librarySearchSourceChanged() }
             }
+            let summaries = privateState.conversationSummaries()
+            if summaries != conversationSummaries { conversationSummaries = summaries }
         }
     }
+    /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
+    /// decrypted events, on this device).
+    private(set) var conversationSummaries: [ConversationSummary] = []
     /// Saved conversations per paper, from the private state (deleted ones excluded).
     private(set) var paperChatCounts: [UUID: Int] = [:]
     /// This device's reading activity per paper: last opened here and progress at the saved
@@ -380,7 +389,7 @@ final class ReaderModel {
         var fixtureFailed = false
         var resolvedTransport = chatTransport
         var resolvedConsentStore: any AuthenticationCredentialStore = chatConsentStore ?? KeychainAuthenticationCredentialStore()
-        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if ChatFixtureTransport.isEnabled {
             // Never a network transport: scripted answers and in-memory consent.
             resolvedTransport = ChatFixtureTransport.launchTransport()
@@ -466,7 +475,7 @@ final class ReaderModel {
             libraryMatchedIDs = []; libraryRows = []; completedLibrarySearchKey = nil
         }
         librarySearchPending = true; librarySearchIssue = nil
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         OfflineResourceProbe.shared.beginSearch(query: libraryQuery)
         #endif
         guard librarySearchPreparation == nil else { return }
@@ -499,7 +508,7 @@ final class ReaderModel {
     }
 
     private func prepareLibrarySearchSource() -> Bool {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         let start = DispatchTime.now().uptimeNanoseconds
         #endif
         var candidates: [LibrarySearchCandidate] = []
@@ -543,7 +552,7 @@ final class ReaderModel {
         librarySearchCandidatePositions = Dictionary(candidates.map { ($0.id, $0.position) }, uniquingKeysWith: { first, _ in first })
         librarySearchCandidateRevision = librarySearchSourceRevision
         librarySearchSourceDirty = false
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         OfflineResourceProbe.shared.searchSourceBuilt(rows: candidates.count,
             elapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
         #endif
@@ -554,7 +563,7 @@ final class ReaderModel {
         switch event {
         case .completed(let result):
             guard librarySearchTicket == result.ticket, currentLibrarySearchKey == result.ticket.key else { return }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             let start = DispatchTime.now().uptimeNanoseconds
             #endif
             let rows = result.rowIDs.compactMap { libraryRowLookup[$0] }
@@ -565,7 +574,7 @@ final class ReaderModel {
             libraryMatchedIDs = result.rowIDs; libraryRows = rows
             completedLibrarySearchKey = result.ticket.key
             librarySearchPending = false; librarySearchIssue = nil
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             OfflineResourceProbe.shared.searchCompleted(query: result.ticket.key.query,
                 workerElapsedMS: result.workerElapsedMilliseconds,
                 publicationElapsedMS: Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000,
@@ -604,11 +613,16 @@ final class ReaderModel {
                 topics: ArxivTopics.names(for: item.metadata?.categories ?? []), added: nil, opened: nil, progress: nil,
                 chats: 0, pages: nil, status: status,
                 needsCredits: item.phase == .failed && item.errorCode == .insufficientCredits,
-                stepTiming: importSteps.timing(of: item))
+                stepTiming: importSteps.timing(of: item), importProgress: importProgress(for: item))
         case .queued:
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, topics: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
         }
+    }
+
+    /// An import in progress: its step in the reader's words, percent and time left (nil when it isn't in progress).
+    func importProgress(for item: LibraryImportRecord) -> ImportProgress? {
+        importProgressTracker.progress(of: item, stepSince: importSteps.timing(of: item)?.since, now: importClock())
     }
 
     /// Only the Status column's value (cheap enough to check every row for the column's visibility).
@@ -625,6 +639,7 @@ final class ReaderModel {
         case .pending(let item):
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
+            case .failed where item.isRetryingAutomatically: return .active(item.libraryShortStatus)
             case .failed, .membershipConflict: return .problem(item.libraryShortStatus)
             default: return .info(item.libraryShortStatus)
             }
@@ -782,10 +797,10 @@ final class ReaderModel {
     func start() async {
         guard !started else { return }; started = true
         startStoreUpdates()
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         resetLibraryPreferencesForFixtures()
         #endif
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         if ProcessInfo.processInfo.arguments.contains("--offline-resource-fixture") {
             do {
                 guard let mode = try OfflineResourceFixture.launchMode() else { throw OfflineResourceFixture.Failure.invalidArguments }
@@ -834,7 +849,7 @@ final class ReaderModel {
             return
         }
         #endif
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         if ProcessInfo.processInfo.arguments.contains("--offline-reader-fixture") {
             let variant: OfflineReaderFixture.Variant = ProcessInfo.processInfo.arguments.contains("--mathpix-reader-fixture") ? .mathpix : .authored
             do { try await configureOfflineReaderFixture(reset: ProcessInfo.processInfo.arguments.contains("--reset-offline-reader-fixture"), variant: variant) }
@@ -852,7 +867,7 @@ final class ReaderModel {
             return
         }
         #endif
-        #if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+        #if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
         if AuthenticationWorkflowFixture.isEnabled {
             openSample(); tab = .library; wideMode = .library
         }
@@ -868,7 +883,7 @@ final class ReaderModel {
                 beginAccountPreparation(user, client: client, scope: scope)
                 await accountPreparationTask?.value
             }
-            #if DEBUG && targetEnvironment(simulator)
+            #if DEBUG && FIXTURE_HOST
             // Live staging journey tests sign in a synthetic @example.invalid
             // account supplied by the test runner. Never present in releases.
             let live = ProcessInfo.processInfo.environment
@@ -1274,13 +1289,14 @@ final class ReaderModel {
     /// Seconds until the next import status check, by seconds since polling began: fast at
     /// first so "Queued" moves on as soon as the worker starts (owner feedback 2026-10-05).
     @ObservationIgnored var importPollDelay: (TimeInterval) -> Double = { elapsed in elapsed < 20 ? 1 : elapsed > 120 ? 15 : 4 }
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG && FIXTURE_HOST
     /// Library metadata fixture only: synthetic offline availability for guest rows.
     @ObservationIgnored var fixtureOfflineStatus: [UUID: PaperOfflineStatus] = [:]
     #endif
 
     private func updateImportPolling() {
-        let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) }
+        // Includes a download the server will retry by itself, so the row turns into progress when it does.
+        let isActive: (LibraryImportRecord) -> Bool = { [.accepted, .resolving, .acquiring].contains($0.phase) || $0.isRetryingAutomatically }
         guard libraryImports.contains(where: isActive), accountID != nil else {
             importPollTask?.cancel(); importPollTask = nil; return
         }
@@ -1369,7 +1385,7 @@ final class ReaderModel {
             if case .failure = restored.installations {
                 offlineCacheIssue = "Downloaded papers couldn’t be listed. Your notes and conversations are still available."
             }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if let mode = OfflineResourceProbe.shared.mode, mode != .seed {
                 let presentation = try restored.presentation.get(), list = try restored.installations.get()
                 guard mode == .empty || presentation?.committedCursor == Int64(OfflineResourceFixture.rowCount) else {
@@ -1384,7 +1400,7 @@ final class ReaderModel {
             #endif
         } catch {
             guard sessionID == scope, workOwnership.owns(activation) else { return }
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             if OfflineResourceProbe.shared.mode != nil { OfflineResourceProbe.shared.fail(.unexpectedState) }
             #endif
             offlineCacheIssue = "Offline reading couldn’t be restored. Your saved data has been preserved."
@@ -1663,7 +1679,7 @@ final class ReaderModel {
     }
 
     private func presentLibraryEntries(_ entries: [LibraryEntry]) {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         // Live publication still includes native metadata mapping. Offline
         // projection does that within its separate measured cache-read phase.
         OfflineResourceProbe.shared.begin(.publication)
@@ -1673,7 +1689,7 @@ final class ReaderModel {
     }
 
     private func presentLibraryProjection(_ rows: [LibraryPresentationRow], validatedEntryCount: Int) {
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         // Format 4: final MainActor application only. Author joining and cache
         // validation are included in restoreProjectionElapsedMS and restore.
         OfflineResourceProbe.shared.begin(.publication)
@@ -1755,7 +1771,7 @@ final class ReaderModel {
     /// Availability belongs to the permitted encrypted installation, not to
     /// whether this row currently owns decoded bytes in memory.
     func offlineStatus(for paper: Paper) -> PaperOfflineStatus {
-        #if DEBUG && targetEnvironment(simulator)
+        #if DEBUG && FIXTURE_HOST
         if let status = fixtureOfflineStatus[paper.id] { return status }
         #endif
         if paper.isSample { return paper.readerBundle == nil ? .none : .available }
@@ -1794,7 +1810,7 @@ final class ReaderModel {
         guard !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let attempt = UUID(), scope = sessionID
         do {
-            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+            #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
             OfflineResourceProbe.shared.begin(.open)
             #endif
             let openStarted = ProcessInfo.processInfo.systemUptime
@@ -1815,7 +1831,7 @@ final class ReaderModel {
                     let displayed = current.displaying(result.bundle)
                     self.papers = self.papers.map { $0.id == displayed.id ? displayed : $0 }
                     self.selectedPaper = displayed
-                    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+                    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
                     if OfflineResourceProbe.shared.mode != nil {
                         let bytes = result.bundle.manifest.members.reduce(0) { $0 + (result.bundle.data(for: $1.path)?.count ?? 0) }
                         let pixels = result.bundle.manifest.members.filter { $0.role == "image" }
@@ -1929,6 +1945,31 @@ final class ReaderModel {
             openLocalPaperIfNeeded()
         } else { generalChat = true; wideMode = .chat }
         activeConversation = id; tab = .chat
+    }
+
+    /// Deleting needs this account's encrypted history on the device (not the signed-out sample or a fixture).
+    var canDeleteConversations: Bool { store != nil && device != nil && !workOwnership.isActivating }
+
+    /// Deletes a saved conversation everywhere: a durable tombstone in the encrypted history, which hides it (and its
+    /// diagrams) on every device once synced and blocks continuing it. Its unsent follow-up text stays recoverable
+    /// as a draft. The encrypted records remain until account deletion; the service never could read them.
+    func deleteConversation(_ id: UUID) async {
+        guard privateState.revisions(for: id).first?.payload.kind == .conversation,
+              let store, let device, accountID == device.accountID, !workOwnership.isActivating else { return }
+        let scope = sessionID, storeScope = workOwnership.storeScope, persistence = localPersistence, deviceID = device.deviceID
+        // The visible chat moves to a new one in the same context rather than showing a deleted conversation.
+        if activeConversation == id { newChat(general: generalChat) }
+        do {
+            let entry = [(id: UUID(), event: PrivateEvent(kind: .tombstone, entityID: id, createdAt: PrivateEvent.timestamp(Date())))]
+            let write = try persistence.acceptWrite { local in try await local.appendBatch(entry, deviceID: deviceID) }
+            _ = try await write.value
+            let snapshot = await store.snapshot()
+            guard sessionID == scope else { return }
+            if workOwnership.owns(storeScope) { publish(snapshot) }
+            Task { if self.sessionID == scope { await self.synchronize() } }
+        } catch {
+            if sessionID == scope, workOwnership.owns(storeScope) { show(error) }
+        }
     }
 
     func openUnsentDraft(_ id: UUID) {
@@ -2082,12 +2123,16 @@ final class ReaderModel {
         do {
             guard let checkpoint = submission.checkpoint else { throw ReaderError.invalidEvent }
             var events: [(id: UUID, event: PrivateEvent)] = []
+            // Encrypted with the event; All chats shows it as Started / Last used.
+            let createdAt = PrivateEvent.timestamp(Date())
             if let root = submission.rootID {
-                events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID, text: String(submission.text.prefix(100)))))
+                events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID,
+                    text: String(submission.text.prefix(100)), createdAt: createdAt)))
                 parents = [root]
             }
             events.append((submission.id, PrivateEvent(kind: .message, entityID: submission.id, parents: parents,
-                conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete)))
+                conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete,
+                createdAt: createdAt)))
             let batch = events
             let committing = try persistence.acceptWrite { local in
                 try await local.commitDraftSubmission(batch, deviceID: device.deviceID,
@@ -2325,7 +2370,8 @@ final class ReaderModel {
         if let diagram {
             let diagramID = UUID()
             batch.append((id: diagramID, event: PrivateEvent(kind: .diagram, entityID: diagramID, conversationID: generation.turn.conversationID,
-                                                             documentID: generation.turn.documentID, text: diagram.encodedText())))
+                                                             documentID: generation.turn.documentID, text: diagram.encodedText(),
+                                                             createdAt: generation.createdAt)))
         }
         let entries = batch
         let envelopes: [EventEnvelope]
@@ -2389,7 +2435,8 @@ final class ReaderModel {
     var sessionState: [String: String] {
         let sheet: String? = showSignIn ? "sign_in" : showRecovery ? "recovery" : chatConsentPrompt != nil ? "chat_consent"
             : showStore ? "store" : showImport ? "import" : showLibraryChanges ? "library_changes" : showAllChats ? "all_chats"
-            : showDiagrams ? "diagrams" : presentedDiagram != nil ? "diagram" : showReport ? "report" : showReports ? "reports" : nil
+            : showDiagrams ? "diagrams" : presentedDiagram != nil ? "diagram" : showReport ? "report" : showReports ? "reports"
+            : showImportHelp ? "import_help" : nil
         var state: [String: String] = ["tab": tab.rawValue, "signed_in": isSignedIn ? "1" : "0", "sync": syncStatus]
         if let sheet { state["sheet"] = sheet }
         if let paper = selectedPaper { state["paper"] = String(paper.id.uuidString.prefix(8)) }
@@ -2415,6 +2462,9 @@ final class ReaderModel {
         return state
     }
     #endif
+
+    /// "Why does this take a minute?": what happens while a paper is being made readable.
+    var showImportHelp = false
 
     // MARK: App Store purchases (docs/architecture/PURCHASES.md)
 
@@ -2598,7 +2648,7 @@ final class ReaderModel {
         await localPersistence.waitForAcceptedWrites()
     }
 
-    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+    #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
     private func configureOfflineResourceFixture(mode: OfflineResourceFixture.Mode) async throws {
         let probe = OfflineResourceProbe.shared
         probe.configure(mode)
@@ -2632,7 +2682,7 @@ final class ReaderModel {
     }
     #endif
 
-    #if DEBUG && targetEnvironment(simulator)
+    #if DEBUG && FIXTURE_HOST
     /// The reset flag is explicit installation intent in this test-only
     /// account. Relaunch reads only encrypted rows; it never reloads the sample
     /// resource as a substitute for a missing or damaged installed copy.
@@ -2695,6 +2745,7 @@ final class ReaderModel {
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
         openSample()
+        if Self.chatHistoryFixtureEnabled { try await installChatHistoryFixture(into: local, deviceID: fixtureDevice.deviceID) }
         let snapshot = await local.snapshot()
         prepareDrafts(snapshot: snapshot, scope: sessionID)
         publish(snapshot)
@@ -2754,7 +2805,7 @@ struct ReaderWorkOwnership {
     func owns(_ attempt: SyncAttempt) -> Bool { owns(attempt.store) && latestSync == attempt && !isActivating }
 }
 
-#if DEBUG && targetEnvironment(simulator)
+#if DEBUG && FIXTURE_HOST
 /// Synthetic UI fixtures only (compiled out of device and release builds).
 extension ReaderModel {
     /// Fixture runs start from the default Library and Feed layouts unless an argument names one
@@ -2785,12 +2836,13 @@ extension ReaderModel {
 
     func installLibraryMetadataFixture(papers fixturePapers: [Paper], imports: [LibraryImportRecord], sequences: [UUID: Int64],
                                        activity: [UUID: PaperActivity], offline: [UUID: PaperOfflineStatus],
-                                       importStepStarts: [UUID: Date] = [:]) {
+                                       importStepStarts: [UUID: Date] = [:], importDetailsReceived: [UUID: Date] = [:]) {
         fixtureOfflineStatus = offline
         libraryCreationSequences = sequences
         readingActivity = activity
         libraryImports = imports
         for item in imports { if let since = importStepStarts[item.id] { importSteps.record(item, since: since) } }
+        for item in imports { if let at = importDetailsReceived[item.id] { importProgressTracker.record(item, receivedAt: at) } }
         papers = papers.filter { $0.isSample } + fixturePapers
     }
 }

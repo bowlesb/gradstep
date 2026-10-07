@@ -10,7 +10,8 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 850 { wideLayout(width: geometry.size.width) }
+            // The Mac window is always the wide layout (its minimum width fits the panes).
+            if geometry.size.width >= 850 || Platform.isMac { wideLayout(width: geometry.size.width) }
             else {
                 VStack(spacing: 0) {
                     destination(model.tab)
@@ -53,13 +54,14 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             softwareKeyboardShown = false
         }
-        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
+        #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         .overlay(alignment: .topTrailing) {
             if OfflineResourceProbe.shared.mode != nil { OfflineResourceStatusView() }
         }
         #endif
         .overlay {
-            if scenePhase != .active {
+            // Hides the paper in the iOS app switcher. A Mac window stays visible while another app is active.
+            if scenePhase != .active && !Platform.isMac {
                 ZStack {
                     Color(uiColor: .systemBackground).ignoresSafeArea()
                     Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.secondary)
@@ -68,29 +70,30 @@ struct RootView: View {
         }
         .sheet(isPresented: signInPresentation, onDismiss: { model.authenticationSheetDismissed() }) {
             if let presentationID = model.signInPresentationID {
-                AuthenticationView(model: model, presentationID: presentationID).id(presentationID)
+                AuthenticationView(model: model, presentationID: presentationID).id(presentationID).macSheetKeys()
             }
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
-        .sheet(isPresented: $model.showAllChats) { HistoryView(model: model, diagrams: false) }
-        .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true) }
+        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model).macSheetKeys() }
+        .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
             Text("Your account and its data were deleted from our servers and this device.")
         }
-        .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model) }
+        .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
+        .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .sheet(item: $model.tagEditor) { request in
-            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
+            if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper).macSheetKeys() }
         }
         .sheet(item: $model.presentedDiagram) { presented in
-            if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram) }
+            if let diagram = model.diagram(presented.id) { DiagramSheet(diagram: diagram).macSheetKeys() }
         }
         .sheet(isPresented: $model.showReport, onDismiss: {
             model.reportScreenshot = nil
             if model.showReportsAfterComposer { model.showReportsAfterComposer = false; model.showReports = true }
-        }) { ReportComposer(model: model) }
-        .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service) } }
+        }) { ReportComposer(model: model).macSheetKeys() }
+        .sheet(isPresented: $model.showReports) { if let service = model.support { ReportsView(service: service).macSheetKeys() } }
         .alert("Gradstep", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
             Button("OK") { model.error = nil }
         } message: { Text(model.error ?? "") }
@@ -148,20 +151,18 @@ struct RootView: View {
 
     private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
-            HStack {
-                Label("Gradstep", systemImage: "books.vertical").font(.headline)
-                Spacer()
-                Picker("View", selection: $model.wideMode) {
-                    ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented).frame(maxWidth: 560)
-                    .onChange(of: model.wideMode) { _, mode in
-                        model.tab = mode == .feed ? .feed : (mode == .chat ? .chat : (mode == .reader ? .paper : .library))
-                        if mode == .chat { model.generalChat = true }
-                        if mode == .reader, model.chatPaperID != nil { model.generalChat = false }
-                    }
-                Button { model.tab = .settings } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }.accessibilityLabel("Settings")
-            }.padding(.horizontal, 18).padding(.vertical, 12)
-            Divider()
+            // On the Mac the view switch and Settings are in the window's toolbar (MacWindowConfiguration).
+            if !Platform.isMac {
+                HStack {
+                    Label("Gradstep", systemImage: "books.vertical").font(.headline)
+                    Spacer()
+                    Picker("View", selection: $model.wideMode) {
+                        ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented).frame(maxWidth: 560)
+                    Button { model.tab = .settings } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }.accessibilityLabel("Settings")
+                }.padding(.horizontal, 18).padding(.vertical, 12)
+                Divider()
+            }
             if model.tab == .settings {
                 SettingsView(model: model, dismissSettings: { model.tab = .library })
             } else {
@@ -176,6 +177,10 @@ struct RootView: View {
                 }
             }
         }
+        .onChange(of: model.wideMode) { _, mode in model.showWideMode(mode) }
+        #if targetEnvironment(macCatalyst)
+        .background(MacWindowConfiguration(model: model, mode: model.wideMode, settingsShown: model.tab == .settings))
+        #endif
     }
 }
 
@@ -251,8 +256,12 @@ struct LibraryView: View {
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
             }
+            // Mac menu bar: Edit › Search Library (⌘F) / Search arXiv (⌥⌘F).
+            .onChange(of: MacCommandRequests.shared.librarySearch, initial: true) { _, request in
+                if request != nil { MacCommandRequests.shared.librarySearch = nil; searchFocused = true }
+            }
             .sheet(isPresented: $model.showImport) { ImportPaperView(model: model) }
-            .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model) }
+            .sheet(isPresented: $model.showLibraryChanges) { LibraryChangesView(model: model).macSheetKeys() }
         }
     }
 
@@ -298,14 +307,14 @@ struct LibraryView: View {
 
 
     /// The selected paper is highlighted only where it is shown beside the list (iPad Browse).
-    private var highlightsSelection: Bool { model.wideMode == .browse && UIDevice.current.userInterfaceIdiom == .pad }
+    private var highlightsSelection: Bool { model.wideMode == .browse && Platform.isLargeScreen }
 
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search arXiv" : "Search your library",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
-                    .frame(height: 44)
+                    .frame(height: DesignMetrics.headerControl)
                 if searching {
                     Button("Cancel") {
                         model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
@@ -416,7 +425,8 @@ struct LibraryView: View {
                                               getCredits: { model.showStore = true })
                         } else {
                             ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
-                                      stepSince: model.importSteps.timing(of: item)?.since, getCredits: { model.showStore = true })
+                                      stepSince: model.importSteps.timing(of: item)?.since, progress: model.importProgress(for: item),
+                                      getCredits: { model.showStore = true }, explain: { model.showImportHelp = true })
                         }
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
@@ -434,6 +444,7 @@ struct LibraryView: View {
                         .contextMenu { LibraryRowActions(model: model, entry: entry) }
                 }
             }.listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
+                .macRowHover()
             }
         }.listStyle(.plain).refreshable { await model.refreshLibrary() }
             .readableScrollColumn(width: containerWidth)
@@ -447,8 +458,12 @@ struct ImportRow: View {
     var showTopics = true
     /// When this device first saw the import on its current step (shown as how long the step has run).
     var stepSince: Date? = nil
+    /// While in progress: the step in the reader's words, a bar and the time left (`ImportProgressView`).
+    var progress: ImportProgress? = nil
     /// Offered when the conversion failed for lack of credits.
     var getCredits: (() -> Void)? = nil
+    /// "Why does this take a minute?" beside the progress.
+    var explain: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var active: Bool { item.isActive }
     var body: some View {
@@ -467,25 +482,31 @@ struct ImportRow: View {
             let revision = LibrarySource.badge(sourceID: item.sourceID, revision: item.sourceRevision ?? item.requestedRevision).map { [$0] } ?? []
             let metadata = (year.map { [$0] } ?? []) + revision + topics
             if !metadata.isEmpty { Text(metadata.joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
-            HStack(spacing: 6) {
-                if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
-                ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
-                if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
-                    Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
-                        .accessibilityIdentifier("import.getCredits")
-                }
-                if !active, let url = URL(string: item.sourceURL) {
-                    Spacer(minLength: 8)
-                    Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
-                }
-            }.padding(.top, 2)
+            if let progress {
+                // In progress: the step in the reader's words, a bar and the time left (pipeline progress, 2026-10-07).
+                ImportProgressView(progress: progress, style: .row, explain: explain).padding(.top, 2)
+            } else {
+                HStack(spacing: 6) {
+                    if active { ProgressView().controlSize(.small).accessibilityHidden(true) }
+                    ImportStatusText(item: item, since: stepSince).font(.footnote).foregroundStyle(.secondary)
+                    if item.phase == .failed, item.errorCode == .insufficientCredits, let getCredits {
+                        Button("Get credits", action: getCredits).font(.footnote.weight(.semibold)).buttonStyle(.borderless)
+                            .accessibilityIdentifier("import.getCredits")
+                    }
+                    if !active, let url = URL(string: item.sourceURL) {
+                        Spacer(minLength: 8)
+                        Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
+                    }
+                }.padding(.top, 2)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 /// An import's status line. While it is in progress, how long the current step has run follows quietly
-/// ("Downloading PDF · 1 min"), and past three minutes "Taking longer than usual". It changes once a minute,
-/// without animation; VoiceOver reads the step and the time.
+/// ("Downloading the PDF · 1 min"), and past three minutes "Taking longer than usual". It changes once a minute,
+/// without animation; VoiceOver reads the step and the time. (Rows with an `ImportProgress` show
+/// `ImportProgressView` instead.)
 struct ImportStatusText: View {
     let item: LibraryImportRecord
     let since: Date?
@@ -696,7 +717,7 @@ struct ChatView: View {
                             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                             .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
                         // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.
-                        if composerFocused {
+                        if composerFocused && !Platform.isMac {
                             Button { composerFocused = false } label: {
                                 Image(systemName: "keyboard.chevron.compact.down").font(.body).frame(width: 44, height: 44)
                             }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
@@ -706,8 +727,10 @@ struct ChatView: View {
                             Button { model.stopAnswer() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
                                 .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
                         } else {
-                            Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                                .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                            Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
+                                .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                                // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
+                                .macKeyboardShortcut(.return, modifiers: .command)
                         }
                     }.readableColumn().padding(.vertical, 10)
                     // Design audit F8: sync status only when something needs attention.
@@ -728,6 +751,26 @@ struct ChatView: View {
         }
     }
 
+    private func send() {
+        // Mac (⌘Return): the composer ends editing first, so it can't write the sent text back afterwards;
+        // then it takes the focus again for the next question.
+        guard Platform.isMac, composerFocused else { Task { await model.sendMessage() }; return }
+        composerFocused = false
+        Task {
+            try? await Task.sleep(for: .milliseconds(60))
+            await model.sendMessage()
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            composerFocused = true
+        }
+    }
+
+    private var sendDisabled: Bool {
+        model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete
+            || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private func contextPicker(compact: Bool) -> some View {
         Picker("Context", selection: Binding(get: { model.generalChat }, set: { if $0 || model.canUsePaperChat { model.generalChat = $0 } })) {
             Text(compact ? "Paper" : "Paper chat").accessibilityLabel("Paper chat").tag(false).disabled(!model.canUsePaperChat)
@@ -746,7 +789,7 @@ struct ChatView: View {
     }
 
     /// iPad Reader layout: the paper is already open beside the chat.
-    private var besidePaper: Bool { UIDevice.current.userInterfaceIdiom == .pad && model.wideMode == .reader && model.tab != .chat }
+    private var besidePaper: Bool { Platform.isLargeScreen && model.wideMode == .reader && model.tab != .chat }
 
     /// Conversation title, and under it the paper it is about (tap to return to the paper).
     private var titleView: some View {
@@ -905,59 +948,21 @@ struct PrivacyView: View {
     }
 }
 
+/// All diagrams. (All chats is `ChatHistoryView`, a table.)
 struct HistoryView: View {
     @Bindable var model: ReaderModel
     let diagrams: Bool
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
-            let entities = diagrams ? [] : model.privateState.entities(kind: .conversation)
-            let savedDiagrams = diagrams ? model.privateState.diagrams() : []
-            let drafts = diagrams ? [] : model.unsentDrafts
+            let savedDiagrams = model.privateState.diagrams()
             List {
-                if !drafts.isEmpty {
-                    Section {
-                        ForEach(drafts) { draft in
-                            Button { model.openUnsentDraft(draft.id); dismiss() } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(draft.text).lineLimit(2)
-                                    Text(draft.failed ? "Not saved" : (draft.context == "general" ? "General chat" : "Paper chat"))
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.accessibilityIdentifier("chat.draft.\(draft.id.wire)")
-                                .swipeActions(allowsFullSwipe: false) {
-                                    Button("Discard", role: .destructive) { model.discardUnsentDraft(draft.id) }
-                                }
-                        }
-                    } header: { Text("Unsent drafts") } footer: {
-                        Text(model.draftsArePersistent ? "Drafts stay on this device." : "Kept for this session.")
-                    }
+                ForEach(savedDiagrams, id: \.id) { saved in
+                    NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
+                        .accessibilityIdentifier("diagram.\(saved.id.wire)")
                 }
-                Section {
-                    ForEach(entities, id: \.self) { id in
-                        if let event = model.privateState.revisions(for: id).first {
-                            // Design audit F16: a conversation row says what it is about.
-                            let paper = event.payload.documentID.flatMap { document in model.papers.first { $0.id == document } }
-                            Button { model.openConversation(id); dismiss() } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(event.payload.text ?? "Untitled").foregroundStyle(.primary).lineLimit(2)
-                                        Text(paper.map { "Paper chat · \($0.title)" } ?? (event.payload.documentID == nil ? "General chat" : "Paper chat"))
-                                            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(.tertiary)
-                                }.contentShape(Rectangle())
-                            }.tint(.primary).accessibilityLabel(event.payload.text ?? "Untitled")
-                        }
-                    }
-                    ForEach(savedDiagrams, id: \.id) { saved in
-                        NavigationLink(saved.diagram.title) { DiagramDetail(diagram: saved.diagram) }
-                            .accessibilityIdentifier("diagram.\(saved.id.wire)")
-                    }
-                } header: { if !drafts.isEmpty { Text("Saved conversations") } }
-            }.overlay { if entities.isEmpty && savedDiagrams.isEmpty && drafts.isEmpty { ContentUnavailableView(diagrams ? "No diagrams yet" : "No conversations yet", systemImage: diagrams ? "square.stack.3d.up" : "bubble.left.and.bubble.right") } }
-                .navigationTitle(diagrams ? "All diagrams" : "All chats").navigationBarTitleDisplayMode(.inline)
+            }.overlay { if savedDiagrams.isEmpty { ContentUnavailableView("No diagrams yet", systemImage: "square.stack.3d.up") } }
+                .navigationTitle("All diagrams").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }.presentationDetents([.medium, .large])
     }
@@ -1093,7 +1098,7 @@ struct ImportPaperView: View {
                 }
             }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving).macBarButton() }
                     // Design audit 2: a task sheet confirms in the top bar.
                     ToolbarItem(placement: .confirmationAction) {
                         if saving { ProgressView() } else {
@@ -1105,6 +1110,7 @@ struct ImportPaperView: View {
                 }
                 .onSubmit { if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.canBeginImport { add() } }
                 .interactiveDismissDisabled(saving)
+                .macSheetKeys(enabled: !saving)
         }
     }
 }
@@ -1254,8 +1260,9 @@ struct DeleteAccountView: View {
             }
             }
             .navigationTitle("Delete account").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(deleting) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(deleting).macBarButton() } }
             .interactiveDismissDisabled(deleting)
+            .macSheetKeys(enabled: !deleting)
         }
     }
 }

@@ -58,7 +58,8 @@ begin
  perform public.worker_pipeline_defer(p,(e->>'claim_id')::uuid,(e->>'generation')::bigint,0,code,true,'download');
  perform test.sync(p);
 end $$;
-create function test.entry(a uuid,i uuid) returns jsonb language sql as $$ select app_private.library_import_entry(a,i) $$;
+-- Migration 029 adds `progress_detail` to active imports (checked in test_progress.sql); everything else is checked here.
+create function test.entry(a uuid,i uuid) returns jsonb language sql as $$ select app_private.library_import_entry(a,i)-'progress_detail' $$;
 create function test.due(p uuid) returns void language sql as $$
  update app_private.pipeline_papers set auto_retry_at=clock_timestamp()-interval '1 second' where id=p
 $$;
@@ -283,7 +284,7 @@ select test.assert(test.entry(:'F','27000000-0000-0000-0000-0000000000f1')->>'er
 
 -- 7. Entries: the new key only while a failed import waits for its retry; otherwise 019's JSON.
 select test.assert(not exists(select 1 from app_private.import_requests i
- where (app_private.library_import_entry(i.account_id,i.id)-'auto_retry_at') is distinct from pg_temp.entry_019(i.account_id,i.id)
+ where (app_private.library_import_entry(i.account_id,i.id)-'auto_retry_at'-'progress_detail') is distinct from pg_temp.entry_019(i.account_id,i.id)
   or (app_private.library_import_entry(i.account_id,i.id) ? 'auto_retry_at') is distinct from (i.phase='failed' and i.auto_retry_at is not null)),
  'every entry is 019''s, plus auto_retry_at only while a retry is scheduled');
 select test.assert(exists(select 1 from app_private.import_requests where phase='failed' and auto_retry_at is not null),'the check above covered a scheduled retry');

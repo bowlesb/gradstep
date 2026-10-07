@@ -1,4 +1,4 @@
-#if DEBUG && targetEnvironment(simulator) && !OFFLINE_RESOURCE_MEASUREMENTS
+#if DEBUG && FIXTURE_HOST && !OFFLINE_RESOURCE_MEASUREMENTS
 import Foundation
 import ScienceReaderCore
 import UIKit

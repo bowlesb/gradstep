@@ -349,6 +349,118 @@ The owner asked for an owner-only Accounts tab so testers can be managed without
   Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
   relies on Supabase linking identities with the same verified email; not yet tried on staging.
 
+## All chats as a table (owner asked 2026-10-07)
+
+Owner: "the all chats UX is terrible, bad use of space, we also need a nice table, better more dense rows, not
+overdoing it, thoughtful. But at the very least I should be able to see a table with my chats, sort them based on
+last used, etc." Decided by the agent overnight (owner asked not to stop for feedback); all reversible.
+
+- **Same place, same entry points.** "Chat history" (chat top bar) and "All chats" (Library, chat and Settings menus)
+  still open one sheet titled All chats with Done; All diagrams is unchanged. The sheet now opens full height on
+  iPhone and page-sized on iPad (iOS 18+), since a table needs the room.
+- **A table in the `PaperTable` pattern** (`Views/ChatHistoryView.swift`): a pinned header of column titles (tap to
+  sort, tap again to reverse; "· Started ⌄" beside Conversation when the sorted column doesn't fit), compact rows
+  (~52 pt: 7 pt vertical padding, 16 pt sides), columns added by priority while they fit, never sideways scrolling.
+  Columns: **Conversation** (the first question on one line; under it, muted, the paper's title, or the newest
+  answer as one plain line when the Paper column is shown), **Paper** (title, "General", or "Paper chat" when the
+  paper is no longer in the library), **Messages**, **Started**, **Last used** (always rightmost: "Just now",
+  "5 min ago", "2 h ago", "Yesterday", "Mon", "Oct 3", "Sep 2025"). iPhone portrait: Conversation and Last used;
+  iPhone landscape and iPad: all five. Default order **Last used, newest first**; it isn't remembered between
+  openings. At accessibility text sizes rows replace the table (title, paper, "2 h ago · 6 messages").
+  A separate table rather than `PaperTable` itself: chats aren't papers, and `PaperTable` was being changed by another
+  session the same night; merging the two into one generic table is a later cleanup.
+- **Search and a quick filter.** A search field ("Search chats": every word must match a question in the
+  conversation or the paper's title, ignoring case and accents) and chips **All · Paper chats · General** with the
+  count ("34 chats", "5 of 34 chats"). Both apply to drafts too. No date grouping (Today / This week / Earlier):
+  it only makes sense for one sort, and the Last used column already says it.
+- **Unsent drafts stay on top**, in their own section ("Unsent drafts"), with a pencil, "Draft · <paper or General
+  chat>" and when they were edited; tap reopens, swipe or long-press discards, as before.
+- **Row actions.** Tap opens the conversation (as before). Long-press: **Open paper** (paper chats whose paper is in
+  the library) and **Delete conversation**; swipe: **Delete**. Both ask first ("… will be removed from your chats on
+  all your devices"). There was no delete before: it appends the conversation tombstone the sync design already had
+  (hidden on every device once synced, its diagrams too, continuing it blocked, an unsent follow-up kept as a draft).
+  The encrypted records stay on the server until account deletion; the app doesn't claim otherwise. Delete needs
+  this account's encrypted history on the device (not offered signed out).
+- **Times in history.** Events carried no time, so "Last used" had nothing to read. New conversation, message and
+  diagram events now carry `createdAt` (the author device's clock, Unix ms) **inside the encrypted payload**: the
+  service learns nothing it didn't already (it sees when ciphertext arrives), older app builds ignore the field,
+  and no migration or server change is involved. History saved before this has no times: those conversations show
+  "—" and sort after dated ones, among themselves by the order they reached this device (`PrivateState` keeps that
+  arrival order as an unsynced, uncompared hint). The original web app showed server `created_at`/`updated_at`.
+- **What the original web view had** (`reference/web/components/AllChatsView.tsx`): a desktop table Paper · Chat ·
+  Type (Paper/General badge) · Started · Last active · Msgs, newest activity first, no sorting, search or actions; a
+  card list on phones (title, paper, badge, relative time); a "New chat" button and a count in the header. Kept: the
+  columns (Type became the filter chips and the Paper column's "General"), newest-first, relative times, the count.
+  Dropped: the badge styling, the New chat button (the chat's own compose button stays one tap away), the
+  highlighted-passage quote of the in-panel history (not stored separately in the native history).
+
+## Author–year citations link like numbered ones (owner asked 2026-10-07)
+
+Owner: "when references are indicated like 'Stadter et al, 2021', I don't see an obvious way to use them as
+hyperlinks, like if they are numbers (which seems to work)". Decided without waking the owner (reversible, reader-only):
+
+- **Same interaction as numbers.** An author–year citation links to its bibliography entry only when exactly one entry
+  fits; the tap, highlight, Back and reference actions are the numbered ones. Each name–year pair is its own link
+  ("(Peters et al., 2017, 2018a)" is two). Ambiguous citations stay plain text rather than risk a wrong jump.
+- **Discoverability (styling only).** Same link color as numbers; on touch screens every citation link (numbered too)
+  gets a faint 1 px underline at 40% of the link color, so long author–year spans show their extent. No new controls.
+- **Matching rules** (detail and measurements in [Reader renderer](architecture/READER_RENDERER.md)): diacritics
+  folded, particles and multi-word surnames, "et al" with or without period, "and"/"&", groups, brackets, narrative and
+  parenthetical forms, lists, suffix letters; ties broken by cited names' places, author count, initials, suffix
+  letter or entry order. The bibliography now ends at an appendix paragraph, and lower-case-particle surnames start a
+  new entry.
+- **Measured, not assumed.** `scripts/citation-harness.mjs` runs the bridge in headless WebKit over 22 real bundles
+  (12 retained, 10 downloaded read-only from staging storage): unambiguous author–year citations linked 89.5% → 99.8%
+  (1,393 → 1,568 of 1,571), no wrong link against the oracle, 30/30 random links correct by hand, numbered papers
+  unchanged, no block text changed. The owner's "Städter et al., 2021" paper went from 44.9% to 100%.
+
+## Import progress (owner asked 2026-10-07)
+
+Owner: "when items are processing, we should have a better UX, ideally, we have an estimate of the total time, and
+have a percent done, with stages that make more sense to the user (What does 'Converting...' mean?) What is a reader
+to the user?" Agent decisions overnight (owner asleep; all reversible); design in
+[import progress](architecture/IMPORT_PROGRESS.md).
+
+- **Steps in the reader's words:** Finding the paper → Downloading the PDF (40.8 MB) → Reading equations and figures
+  (page 12 of 27) → Preparing it for reading; also "Waiting to start", "Waiting to continue" (budget pause) and
+  "Couldn't download yet · Trying again automatically" (027's automatic retry, shown as under way, not as a failure).
+  No user-facing "converting", "rendering", "reader" or "bundle" on import rows.
+- **The readable result is "a readable version"** where a noun is needed (the explainer); rows avoid naming it.
+  "Reader" stays an internal word. Failure messages ("Conversion failed", "…to convert this paper") were left for a
+  separate pass.
+- **Percent and time left are computed by the server** from measured stage times (30-day medians, defaults from the
+  staging canary), scaled by pages, using Mathpix's page progress during OCR, and sent as `progress_detail` on the
+  import entry (migration 029). The percent never goes backwards within an attempt; the time is shown only when
+  trustworthy, rounded ("About 40 s left"), said loosely before the page count is known ("Usually under a minute"),
+  and replaced by "Taking longer than usual" when the paper is backing off or well past its estimate.
+- **Updates are throttled:** at most one progress entry per import per 5 s, only when the reader would see something
+  new, within a per-account progress rate (720/hour) separate from library writes; the app moves the bar and counts
+  down between updates.
+- **Explained once:** an info button beside the progress opens "Getting a paper ready" (four steps, about a minute,
+  carries on if you leave the app).
+- **Look:** a slim neutral bar (the accent bar remains reading progress), "62% · About 40 s left" beside it.
+
+## Mac app (agent decisions, overnight 2026-10-07; owner asleep, all reversible)
+
+Owner: "build out the MacOS app … don't stop to ask for feedback". Details: [Mac app](architecture/MAC_APP.md).
+
+- **Mac Catalyst with the Mac idiom on the existing target**, not a separate AppKit app: one code base, the
+  same bundle ID and App Store record (universal purchase), iOS build settings unchanged (`[sdk=macosx*]`
+  conditions only).
+- **Window:** always the wide layout; the view switch and Settings move into the window toolbar (platform
+  adaptation; the arrangement, modes and panes are the iPad's). Minimum 720 × 520 pt so it tiles on a
+  13-inch screen; size remembered. No privacy cover when the app is inactive (a Mac window stays visible).
+- **Menu bar mirrors on-screen controls** (no menu-only features). ⌘F finds in the paper while reading and
+  searches the library elsewhere (⌥⌘F always searches the library, as in Mail/Notes) — a change from
+  "⌘F = library search" because a reader pressing ⌘F in a paper expects to find text, not to leave it.
+- **Chat sends with ⌘Return** (Return = new line, as on iPad).
+- **Fixtures** compile for Debug builds on the Simulator or a Mac (`FIXTURE_HOST`), never for devices or
+  distributed builds.
+- **Distribution:** `scripts/upload-testflight-mac.sh`. Build 15 archived and signed for development; the
+  upload waits for the owner: a Mac Installer Distribution identity in the keychain and a Mac Catalyst App
+  Store profile ("Gradstep Mac App Store"). Not created by the agent: the existing installer certificate's
+  key is held outside this project, and new signing certificates are the owner's to hold.
+
 ## Topic tags (owner asked 2026-10-07; agent decisions, reversible)
 
 Owner: "I thought we had a tagging system based on topics? … it was useful and we need to bring that back and make
@@ -371,4 +483,3 @@ it a first class citizen." Design: [Topic tags](architecture/TAGS.md).
 - Live check (13 calls, $0.049): good tags for Attention, DPO, Mamba, Switch Transformers, RAG, Chain-of-thought,
   NeRF, PPO (after adding "Policy optimization"); remaining errors are comparison/adjacent tags (DDPM → GANs,
   Whisper → Large language models), removable by readers.
-
