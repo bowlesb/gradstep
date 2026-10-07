@@ -1,0 +1,21 @@
+{
+  "name": "gradstep-framework-comparison",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "svelte": "5.57.2"
+  },
+  "devDependencies": {
+    "vite": "8.3.2",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@playwright/test": "1.63.0",
+    "@babel/core": "7.28.4",
+    "babel-plugin-react-compiler": "1.0.0"
+  }
+}

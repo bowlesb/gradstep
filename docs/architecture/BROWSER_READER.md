@@ -35,6 +35,11 @@ URL/anon key are referenced).
 
 ## Stack
 
+The owner selected React for both the reader and admin on 2026-10-07 after the
+[React/Svelte evaluation](WEB_FRAMEWORK_EVALUATION.md), which includes source audits and a reproducible
+performance experiment. Keep the protocol/crypto services framework-neutral and share presentation components
+where useful; customer and admin authentication remain separate.
+
 Vite 8 + React 19 + TypeScript (the admin site's house style) as a self-contained package (`apps/web/package.json`,
 its own lockfile, so the deployable has reproducible dependencies independent of Edge/admin tooling). Vitest for
 unit/interop tests, Playwright for end-to-end. **No `supabase-js`**: a ~250-line fetch client mirrors the native

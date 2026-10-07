@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+screenshots/
+results.json
+smoke-results.json
+bundle-sizes.json

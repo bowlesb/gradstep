@@ -1,15 +1,24 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-03. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-07. Requirements below come from the current user conversation, not from TextBrain's product specification.
+
+## Web framework (owner decided 2026-10-07)
+
+Owner: "react it is then", following the [React/Svelte evaluation](architecture/WEB_FRAMEWORK_EVALUATION.md).
+Use React + TypeScript + Vite for both the browser reader and the admin. Share useful presentation components
+and conventions; keep customer device-key/auth state separate from admin MFA and privileged operations.
+SwiftUI/Catalyst remains the Apple application. Retain framework-neutral protocol, encryption and reader services.
+Large-library work must address rendering, data loading and sync deliberately; the synthetic 50,000-row comparison
+does not raise the current 4,000-entry protocol limit or establish product capacity.
 
 ## Agreed
 
 | Decision | Requirement |
 |---|---|
 | Audience | Individual ML researchers and engineers |
-| Native surfaces | iPhone and iPad |
+| Native surfaces | iPhone and iPad; Mac through Catalyst (2026-10-07 addition) |
 | Sign-in | Apple and Google following TextBrain's interaction pattern; email one-time code fallback selected under the user's delegated choice; no usernames/passwords in launch customer UX |
-| Public name | Timestep is the user's first choice; review found existing App Store and AI/software uses, so qualified-title availability and clearance remain unresolved; no public rename yet |
+| Public name | Gradstep (owner decided 2026-10-06); gradstep.ai is the owned public domain; see the dated name decision below |
 | Reader launch scope | iPhone/iPad first; admin website included; user additionally authorized building and deploying the browser reader after iOS, including while they are away |
 | Key custody | Device-held keys; recovery requires an approved device or saved recovery code |
 | Business model | Subscription with included AI/OCR allowance; tiers and credits supported |
