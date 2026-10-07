@@ -112,38 +112,45 @@ Deno.serve(async request => {
         } catch { return null; }
       })();
       const urls = arxivTitleURLs(wanted.title, wanted.arxivID);
-      const arxiv = async (url: string): Promise<FindResult | null> => {
-        if (signal.aborted) return null;
-        try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { return null; }
+      const arxiv = async (url: string, within: AbortSignal): Promise<FindResult | null> => {
+        if (within.aborted) return null;
+        try { seen.push(...await searchArxiv([url], fetch, slot, within)); answered = true; } catch { return null; }
         const match = matchPaper(wanted, seen);
         return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } } : null;
       };
       // An arXiv id in the citation is checked directly (one paced request).
       if (urls.length && new URL(urls[0]).searchParams.has('id_list')) {
-        const byID = await arxiv(urls.shift()!);
+        const byID = await arxiv(urls.shift()!, signal);
         if (byID) return byID;
       }
       const viaOpenAlex = await openAlex;
       if (viaOpenAlex) return viaOpenAlex;
-      for (const url of urls) {
-        const byTitle = await arxiv(url);
-        if (byTitle) return byTitle;
-      }
-      // Last resort: a scholarly web search (Tavily) for an arXiv copy under another title
-      // or one arXiv's search missed, accepted only under the same strict match.
-      if (tavilyKey && !signal.aborted) {
+      // Fallbacks, in parallel and capped at 15 s so "not found" is said promptly: arXiv's own
+      // (paced, slow) title search, and a scholarly web search (Tavily) for an arXiv copy under
+      // another title. Both accept only the same strict match.
+      const fallback = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+      const byTitle = (async (): Promise<FindResult | null> => {
+        for (const url of urls) { const found = await arxiv(url, fallback); if (found) return found; if (fallback.aborted) break; }
+        return null;
+      })();
+      const byWeb = (async (): Promise<FindResult | null> => {
+        if (!tavilyKey) return null;
         const query = `${wanted.title}${wanted.firstAuthor ? ` ${wanted.firstAuthor}` : ''} arXiv`;
-        const searched = await tavilySearch(fetch, tavilyKey, { query, academic: true }, signal).catch(() => null);
+        const searched = await tavilySearch(fetch, tavilyKey, { query, academic: true }, fallback).catch(() => null);
         const ids = searched?.status === 'ok'
           ? [...new Set(searched.results.flatMap(r => /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/.exec(r.url)?.[1] ?? []))].slice(0, 5) : [];
-        if (ids.length) {
-          const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
-          try {
-            const match = matchPaper(wanted, await searchArxiv([url], fetch, slot, signal));
-            if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } };
-          } catch { /* fall through */ }
-        }
-      }
+        if (!ids.length) return null;
+        const url = `https://export.arxiv.org/api/query?${new URLSearchParams({ id_list: ids.join(','), max_results: String(ids.length) })}`;
+        try {
+          const match = matchPaper(wanted, await searchArxiv([url], fetch, slot, fallback));
+          return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year, kind: 'arxiv' } } : null;
+        } catch { return null; }
+      })();
+      const hit = await new Promise<FindResult | null>(resolve => {
+        let pending = 2;
+        for (const attempt of [byTitle, byWeb]) attempt.then(found => { if (found) resolve(found); else if (--pending === 0) resolve(null); }, () => { if (--pending === 0) resolve(null); });
+      });
+      if (hit) return hit;
       if (closed) return closed;
       return { status: answered && !signal.aborted ? 'not_found' : 'unavailable' };
     },
