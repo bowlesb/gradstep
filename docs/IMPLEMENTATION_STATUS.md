@@ -46,7 +46,7 @@ Related and Add paper; Related searches the web for related papers.
 **Web search: Tavily first, Anthropic's search as the backup** (owner decision 2026-10-06, migration 021): one rate
 card whichever provider serves; Tavily's prepaid searches are a fixed commitment, not metered spend; a 31-day
 allowance keeps within the plan. Live on staging: the same Related request cost $0.047 with Tavily against $0.111
-with Anthropic's search (15 vs 23 credits). Consent v2 names Tavily (build 12). See [chat](architecture/CHAT.md#web-search-on-in-staging)
+with Anthropic's search (15 vs 23 credits). Consent v2 names Tavily. **TestFlight build 12** (uploaded 2026-10-06 18:39 PDT, processed VALID) carries citations, archive, the selection-action changes and consent v2; unit 256, Core 170, backend 181, database suites pass; full iPhone and iPad UI suites pass except the known rotation flake, which passed after a Simulator reboot. See [chat](architecture/CHAT.md#web-search-on-in-staging)
 and [decisions](DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
 
 **Ingest from the web** (owner request, migration 019): a cited paper with no arXiv copy is added from a freely
