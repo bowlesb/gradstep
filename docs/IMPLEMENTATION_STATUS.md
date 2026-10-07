@@ -60,8 +60,8 @@ paper directly (no chat); automated user-workflow checks run after deploys and o
 owners with MFA list every account (email, status, plan, credits, library size, sign-in methods, created, last
 sign-in; search and sort; synthetic test logins marked), add testers (confirmed login, no email sent, starting
 credits once), grant credits (audited, at most 2,000) and disable/enable sign-in (audited Auth ban). Migration
-`…028_admin_accounts.sql` and the `admin-accounts` function are **written and tested locally only — not yet applied
-or deployed to staging**. Verified: database suite (new `test_owner_accounts.sql`), backend suite (10 new cases with
+`…028_admin_accounts.sql` was applied to staging and the `admin-accounts` function deployed on 2026-10-07 (the
+deploy check `admin.accounts-gate` refuses anonymous and customer callers). Verified: database suite (new `test_owner_accounts.sql`), backend suite (10 new cases with
 fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
 dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
 

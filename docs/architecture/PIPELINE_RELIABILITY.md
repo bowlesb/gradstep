@@ -96,8 +96,10 @@ specific. Unit tests: `LibraryMetadataTests` (injected clock); screens: `library
 
 ## Self-healing downloads (migration 027)
 
-> **Status 2026-10-07:** implemented and tested locally (migration `202610070027_download_retry.sql`, worker and
-> download code, app codes); **migration not applied to staging, worker not deployed**. Decision:
+> **Status 2026-10-07:** migration `202610070027_download_retry.sql` applied to staging; worker deployed
+> (revision gradstep-pipeline-00004); the deploy's one-time retry retried 3 failed papers and healed 4 imports, and
+> the owner's three failed imports (2610.03771, 2610.02287, the Zenodo paper) are now ready. Check
+> `downloads.corpus` passes 13/13 against real hosts. App codes ship with the next TestFlight build. Decision:
 > [DECISIONS](../DECISIONS.md#self-healing-downloads-decided-2026-10-07).
 
 ### Root causes on staging (2026-10-07, read-only)
