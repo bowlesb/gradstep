@@ -70,7 +70,7 @@ export async function handle(request: IncomingMessage, response: ServerResponse,
     response.end(JSON.stringify(body));
   };
   request.resume();
-  if (request.method === 'GET' && request.url === '/healthz') return send(200, { ok: true });
+  if (request.method === 'GET' && request.url === '/health') return send(200, { ok: true });
   if (request.method !== 'POST') return send(405, { code: 'method_unavailable' });
   const given = request.headers['x-pipeline-secret'];
   if (!secret || secret.length < 32 || typeof given !== 'string' || !sameSecret(given, secret)) return send(401, { code: 'unauthorized' });

@@ -9,7 +9,7 @@
 Secrets come from .env.staging / .env.providers into Secret Manager (deploy) or the
 container environment (run); values are never printed.
 """
-import argparse, json, os, shutil, subprocess, tempfile, urllib.request
+import argparse, json, os, shutil, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,16 +55,31 @@ def gcloud(*args, input=None, capture=False):
 
 def deploy(project, region):
     env = secrets()
+    # A dedicated runtime identity that can read only these secrets.
+    account = f'{SERVICE}@{project}.iam.gserviceaccount.com'
+    if subprocess.run(['gcloud', 'iam', 'service-accounts', 'describe', account, '--project', project], capture_output=True).returncode != 0:
+        gcloud('iam', 'service-accounts', 'create', SERVICE, '--project', project, '--display-name', 'Gradstep pipeline worker', capture=True)
     for name, value in env.items():
         secret = f'gradstep-{name.lower().replace("_", "-")}'
         exists = subprocess.run(['gcloud', 'secrets', 'describe', secret, '--project', project], capture_output=True).returncode == 0
         if not exists: gcloud('secrets', 'create', secret, '--project', project, '--replication-policy', 'automatic', capture=True)
         gcloud('secrets', 'versions', 'add', secret, '--project', project, '--data-file=-', input=value, capture=True)
-    path = context()
+        gcloud('secrets', 'add-iam-policy-binding', secret, '--project', project, '--member', f'serviceAccount:{account}',
+               '--role', 'roles/secretmanager.secretAccessor', capture=True)
+    # Built here (linux/amd64) and pushed, so Cloud Build's default account needs no extra roles.
+    repository = 'cloud-run-source-deploy'
+    if subprocess.run(['gcloud', 'artifacts', 'repositories', 'describe', repository, '--project', project, '--location', region], capture_output=True).returncode != 0:
+        gcloud('artifacts', 'repositories', 'create', repository, '--project', project, '--location', region, '--repository-format', 'docker', capture=True)
+    tag = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    image = f'{region}-docker.pkg.dev/{project}/{repository}/{SERVICE}:{tag}-{int(time.time())}'
+    gcloud('auth', 'configure-docker', f'{region}-docker.pkg.dev', '--quiet', capture=True)
+    subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context())], check=True)
+    subprocess.run(['docker', 'push', image], check=True)
     mapping = ','.join(f'{name}=gradstep-{name.lower().replace("_", "-")}:latest' for name in env)
-    gcloud('run', 'deploy', SERVICE, '--project', project, '--region', region, '--source', str(path),
+    gcloud('run', 'deploy', SERVICE, '--project', project, '--region', region, '--image', image,
            '--memory', '2Gi', '--cpu', '1', '--concurrency', '1', '--max-instances', '3', '--min-instances', '0',
-           '--timeout', '900', '--no-cpu-throttling', '--allow-unauthenticated', '--set-secrets', mapping, '--quiet')
+           '--timeout', '900', '--no-cpu-throttling', '--allow-unauthenticated', '--service-account', account,
+           '--set-secrets', mapping, '--quiet')
     url = gcloud('run', 'services', 'describe', SERVICE, '--project', project, '--region', region,
                  '--format', 'value(status.url)', capture=True).stdout.strip()
     print('Deployed', url)

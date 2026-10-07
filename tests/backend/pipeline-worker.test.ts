@@ -14,7 +14,7 @@ async function serve(): Promise<{ server: Server; url: string }> {
 test('the Cloud Run worker answers health checks and refuses calls without the pipeline secret', async () => {
   const { server, url } = await serve();
   try {
-    assert.equal((await fetch(`${url}/healthz`)).status, 200);
+    assert.equal((await fetch(`${url}/health`)).status, 200);
     assert.equal((await fetch(url, { method: 'GET' })).status, 405);
     assert.equal((await fetch(url, { method: 'POST' })).status, 401);
     assert.equal((await fetch(url, { method: 'POST', headers: { 'x-pipeline-secret': 'x'.repeat(40) } })).status, 401);
