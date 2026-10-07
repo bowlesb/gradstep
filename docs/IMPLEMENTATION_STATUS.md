@@ -1,7 +1,27 @@
 # Implementation status
 
-Updated 2026-10-07 (local browser integration and framework decision; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-07 (local library foundation, cost audit and podcast research; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
+
+## Library foundation and independent reviews — 2026-10-07
+
+The owner authorized additive database work on `codex/library-v4-foundation-20261007`. Migrations 031/032 separate
+compact synchronization, account-authorized immutable metadata and bounded indexed library queries. Query
+continuations restart after meaningful edits; progress updates preserve them. Old v2/v3 clients, command receipts,
+grouped changes and current quotas remain unchanged. This work is **local and not deployed or used by a client**.
+Independent reviews cover upgrade compatibility, paging, isolation and concurrent deletion; the
+[contract and validation evidence](architecture/LIBRARY_V4.md) records the exact scope. Synthetic 10k/50k read-model
+benchmarks do not establish end-to-end product capacity.
+
+The requested [credit, identity and cost audit](reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) is complete, with
+open findings and local reproductions. Priorities include live Cloud Run billing, Tavily admission coverage,
+invisible provider retries, unresolved Mathpix liability, and storage/download accounting. Fixed-cost forecasts
+were corrected; no cost fixes or continuous monitoring were deployed by this audit. Heavy-user estimates separate
+credits, provider expense, platform overhead and store commission. The $100 incremental beta budget is unchanged.
+
+The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_20261007.md) recommends a metered,
+paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
+rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
 
 ## Browser/Mac integration checkpoint — local, not deployed
 
@@ -42,9 +62,9 @@ than publishing a single returned entry. Add captures the displayed cursor. Fail
 recovery completes the accepted form without a duplicate request, and stale actions show revision conflicts.
 See [command publication](architecture/BROWSER_READER.md#command-acknowledgements-and-complete-library-views).
 
-The [capacity proposal](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm
-caches, compact sync, consistent paged queries and reviewed record retirement. The existing retained-entry and
-backend lifetime limits stay unchanged; this is a proposed architecture, not a migration or capacity increase.
+The [capacity plan](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm caches,
+compact sync, consistent paged queries and reviewed record retirement. The first backend foundation is implemented
+locally in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
 
 Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
 and verify browser deployment separately. Existing staging

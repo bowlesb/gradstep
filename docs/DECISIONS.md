@@ -11,6 +11,16 @@ SwiftUI/Catalyst remains the Apple application. Retain framework-neutral protoco
 Large-library work must address rendering, data loading and sync deliberately; the synthetic 50,000-row comparison
 does not raise the current 4,000-entry protocol limit or establish product capacity.
 
+## Library database foundation (owner authorized 2026-10-07)
+
+The owner approved proceeding with the larger-library database direction and independent agent review, with a
+reviewable branch for integration. The first stage separates compact replication, immutable metadata hydration
+and indexed current-library queries. Independent review favored explicit query-generation invalidation over
+version-history tables and snapshot leases until churn measurements justify that complexity. Preserve existing
+command identities, grouped changes, old clients and capacity limits. No larger plan allowance, client rollout or
+hosted deployment follows from local fixture tests. See [Library v4](architecture/LIBRARY_V4.md) and the remaining
+[capacity acceptance gates](architecture/LIBRARY_CAPACITY.md).
+
 ## Agreed
 
 | Decision | Requirement |

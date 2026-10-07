@@ -1,8 +1,10 @@
 # Library capacity evolution
 
-Status: **design proposal**, 2026-10-07. No new backend contract, migration, cache format or capacity increase is
-approved or implemented by this document. The **4,000 retained-entry client bound and existing backend lifetime
-quotas remain unchanged**. React remains the browser/admin framework; SwiftUI/Catalyst remains the Apple client.
+Status: **staged implementation authorized**, 2026-10-07. The owner approved the database direction and independent
+review. [Library v4](LIBRARY_V4.md) records the first additive implementation in migrations 031/032, currently local
+and not enabled in clients. The cache changes and larger-capacity rollout below remain future work. The
+**4,000 retained-entry client bound and existing backend lifetime quotas remain unchanged**. React remains the
+browser/admin framework; SwiftUI/Catalyst remains the Apple client.
 This plan follows the owner's request for large libraries and careful infrastructure design in
 [Decisions](../DECISIONS.md). Read the acceptance gates before changing limits.
 
@@ -67,18 +69,20 @@ from confirmed rows. [Command contract](NATIVE_LIBRARY_COMMANDS.md), [current da
 ## Paged query consistency and indexes
 
 Add a bounded query RPC with deterministic keyset ordering and an ID/kind tie-breaker. Bind its opaque continuation
-to account, backend dataset epoch, query/filter/sort, collation version, snapshot boundary and expiry. Auth checks
+to account, backend dataset epoch, query/filter/sort, search version and query revision. Auth checks
 apply on every page. A query cursor must never substitute for the replication cursor or a mutation precondition.
 
-Preferred design for review: transactionally maintain **versioned compact query rows** and bounded snapshot leases.
-Query-affecting changes produce new versions; ticking progress does not. All pages use one retained query boundary
-without holding a database transaction open across requests. Bound active leases, age, retained versions and bytes;
-expired snapshots return an explicit restart result. Do not implement this by silently changing the meaning of v3.
+Independent review selected **indexed current query rows with explicit invalidation** for the first stage.
+Query-affecting changes advance the account's query revision; ticking progress does not. Each page observes one
+database snapshot. A changed revision requires a fresh query generation, so pages from different result sets cannot
+be appended together. This avoids adding history tables and leases before measuring their need. Versioned rows and
+bounded leases remain an option if churn causes repeated restarts; their retention, age and byte budgets would need
+a separate design. Existing v2/v3 semantics remain unchanged.
 
 Keep the current snapshot's ordering/filter fields coherent while refreshing its replacement; restore the user's
 row anchor when the replacement is ready. Current removals/quarantine still invalidate reading immediately, even
 when an older query contains that row. Query counts belong to their boundary and may become stale. Test these
-behaviors during active imports/tag changes before committing to the versioned-table layout.
+behaviors during active imports/tag changes before enabling the new query contract in a client.
 
 Index authorized account membership plus supported archive/recent/title/year/source/tag paths. Fetch candidate IDs
 before constructing large JSON projections. Review query plans at representative and maximum field sizes; do not
