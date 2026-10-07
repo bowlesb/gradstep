@@ -161,6 +161,8 @@ because sign-up is closed (`signup_disabled`); the app showed "Sign-in isn’t a
 the email has no account (next build). Codes to the owner's existing account are accepted by the server; delivery
 uses Resend's shared test sender, which delivers only to the Resend account's own address. The app has no password
 sign-in (replaced by email codes on 2026-10-04); only the local admin site uses a password.
+Update 22:20 PDT: codes now come from `codes@gradstep.ai` (verified domain) and reach any invited address; Google
+sign-in still needs its Google Cloud client (the Chrome connection for setting it up was unavailable).
 
 ## Still required
 

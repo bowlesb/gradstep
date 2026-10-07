@@ -220,3 +220,16 @@ careers/developer tools rather than ML). Gradstep: a gradient step is the basic 
   still advised before public launch.
 - Logo: not yet chosen (concepts: Folio, Nabla, Ribbon were the favourites).
 
+## Logo, domain and sign-in email (owner decided 2026-10-06)
+
+- **Logo: 06 Nabla** ("The nabla looks good"): the gradient operator ∇ as a valley with an optimiser stepping down to
+  the minimum (amber point) on an Ink tile. Installed as the app icon (light, dark and tinted variants), the
+  gradstep.ai favicon and header, and the admin mark. Concept sheets: `.artifacts/brand/logo-concepts/06-nabla/`.
+- **gradstep.ai** (owner bought it, with gradstep.shop): DNS on Cloudflare; the site (home, beta privacy notice,
+  Apple `webcredentials` association for "Save to Passwords") is the Cloudflare Pages project `gradstep-site`.
+  Namecheap's email-forwarding MX/SPF records are kept at the apex.
+- **Sign-in codes are sent as `Gradstep <codes@gradstep.ai>`** through Resend, with the domain verified (DKIM and the
+  `send.` subdomain's MX/SPF records in Cloudflare) and a sending-only key scoped to gradstep.ai as the Supabase SMTP
+  password. Verified: a code to a non-owner address was delivered (Resend test inbox), 2026-10-06. Sign-up stays
+  invite-only; testers need an account created for them.
+
