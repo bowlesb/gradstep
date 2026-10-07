@@ -117,3 +117,37 @@ progress::-webkit-progress-bar{background:#262836}
 .table-view summary{color:#a5a9ff}
 }
 .check-status{font-size:12px;font-weight:600;border-radius:5px;padding:2px 7px}.check-status.pass{background:#e4f5eb;color:#26824c}.check-status.fail{background:#fde8e8;color:#b42318}.check-status.warn{background:#fff4e0;color:#9a5b00}.check-status.skip{background:#f0f1f5;color:#72798a}td.reason{max-width:520px;color:#5d6475;font-size:12px}.history{display:inline-flex;gap:2px}.history i{width:6px;height:16px;border-radius:2px;background:#d7dae3}.history i.pass{background:#4caf7a}.history i.fail{background:#e5484d}.history i.warn{background:#f2b544}@media (prefers-color-scheme:dark){.check-status.pass{background:#173b28;color:#7ad3a0}.check-status.fail{background:#3b1717;color:#ff9b9b}.check-status.warn{background:#3b2c12;color:#f2c97a}.check-status.skip{background:#2a2c36;color:#a6abba}td.reason{color:#a6abba}}
+
+/* Accounts tab. */
+.accounts .inline-form{max-width:none}.accounts .inline-form .grow{flex:1 1 320px}.accounts .inline-form .narrow{flex:0 0 150px}
+.field-help{margin:8px 0 0}
+.toolbar .search{flex:1 1 280px;max-width:420px}
+.notice.success{border-color:#bfe5cd;background:#effaf3;color:#1f6b40}.notice.success>span:first-child{background:#2f9e5c}.notice .quiet.inline{margin-left:auto;color:inherit}
+.added{margin-top:20px;padding:18px;border:1px solid #e1e4ee;border-radius:9px;background:#fafbfd;display:flex;flex-direction:column;gap:14px;align-items:flex-start}.added p{margin:0;font-size:13px}.added label{align-self:stretch}
+.added textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.55;resize:none}
+/* Positioned so screen-reader-only labels stay inside the scroll area. */
+.accounts .table-scroll{position:relative}.accounts-table{margin-top:4px;min-width:980px}.accounts-table th,.accounts-table td{padding:12px 10px;vertical-align:top}
+.accounts-table tbody th{font-weight:500;max-width:280px}.accounts-table .email{overflow-wrap:anywhere}
+.accounts-table .tags{display:flex;gap:6px;margin-top:5px}.badge.test{background:#eceaf8;color:#5b4fa8}
+.accounts-table tr.synthetic .email{color:#7a8192}.accounts-table tr.synthetic{background:repeating-linear-gradient(135deg,transparent 0 9px,rgba(120,128,150,.035) 9px 18px)}
+.accounts-table td small{display:block;margin-top:2px;font-size:11px;color:#8a90a1}
+.accounts-table time{white-space:nowrap}
+th button.sort{background:transparent;color:inherit;font:inherit;font-weight:500;padding:0;display:inline-flex;gap:5px;align-items:center;white-space:nowrap}
+.sort-mark{opacity:.45;font-size:11px}.sort-mark.active{opacity:1;color:#5657d1}
+td.actions{white-space:nowrap;text-align:right}td.actions button+button{margin-left:6px}
+button.small{padding:5px 10px;font-size:12px;border-radius:7px}
+button.danger{background:#c23b3b;color:white;border-color:transparent}.secondary.danger{background:white;color:#b4372f;border:1px solid #f0c9c6}
+dialog.modal{width:min(calc(100% - 32px),460px);border:1px solid #e1e4ee;border-radius:13px;padding:26px;color:inherit;background:white;box-shadow:0 24px 70px rgba(36,39,53,.22)}
+dialog.modal::backdrop{background:rgba(24,26,35,.42)}dialog.modal h2{font-size:19px;margin-bottom:10px}dialog.modal>p{font-size:14px;color:#4b5061}
+dialog.modal form{gap:16px}dialog.modal .notice{margin:0}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+@media(max-width:1000px){.accounts .inline-form .grow,.accounts .inline-form .narrow{flex:none}}
+@media(max-width:650px){.toolbar .search{max-width:none}}
+@media(prefers-color-scheme:dark){
+.notice.success{background:#13281c;border-color:#24563a;color:#8fdcae}
+.added{background:#15161e;border-color:#272a37}
+.badge.test{background:#2a2645;color:#bdb4f5}
+.accounts-table tr.synthetic .email{color:#8a91a5}.accounts-table tr.synthetic{background:repeating-linear-gradient(135deg,transparent 0 9px,rgba(160,168,190,.05) 9px 18px)}
+.accounts-table td small{color:#8a91a5}.sort-mark.active{color:#a5a9ff}
+.secondary.danger{background:#1e2030;color:#f08585;border-color:#5c2a2c}
+dialog.modal{background:#181a23;border-color:#272a37;box-shadow:0 24px 70px rgba(0,0,0,.6)}dialog.modal>p{color:#b7bccc}
+}

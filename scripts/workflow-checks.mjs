@@ -644,6 +644,18 @@ check('credits.store', { title: 'Credits readable; purchase endpoints refuse for
   return pass(`balance ${balance.available} available / ${balance.held} held; store-sync reachable and refuses forged/Xcode data; real purchases need a sandbox Apple Account on a device (not automated)`);
 });
 
+check('admin.accounts-gate', { title: 'Admin accounts refuses callers who are not an owner with MFA', suites: ALL, timeout: 60 }, async ({ signal }) => {
+  const acct = await account('library', 60);
+  const before = await acct.balance();
+  const body = { action: 'grant_credits', request_id: randomUUID(), account_id: acct.id, credits: 1, reason: 'Workflow check: must be refused' };
+  const anonymous = await http(`${env.SUPABASE_URL}/functions/v1/admin-accounts`, { method: 'POST', headers: { apikey: env.SUPABASE_ANON_KEY }, body, signal });
+  if (anonymous.status !== 401) return fail(`without sign-in: HTTP ${anonymous.status}`);
+  const customer = await acct.fn('admin-accounts', { method: 'POST', body, signal });
+  if (customer.status !== 403 || customer.json?.code !== 'owner_mfa_required') return fail(`a customer: HTTP ${customer.status} ${customer.json?.code ?? ''}`);
+  if ((await acct.balance()).available !== before.available) return fail('a refused grant changed the balance');
+  return pass('anonymous 401, customer 403 owner_mfa_required, balance unchanged');
+});
+
 check('chat.smoke', { title: 'General chat streams an answer and settles', suites: SCHEDULED, timeout: 120, costUSD: 0.005 }, async ({ signal }) => {
   const acct = await account('chat', 200);
   const r = await chat(acct, { mode: 'general', messages: [{ role: 'user', text: 'Reply with the single word OK.' }] }, { signal });
