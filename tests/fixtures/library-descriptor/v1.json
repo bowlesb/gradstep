@@ -1,0 +1,93 @@
+{
+  "status": "proposed wire contract; synthetic test material, never production keys/nonces",
+  "algorithm": "AES-256-GCM",
+  "key_derivation": "HKDF-SHA256",
+  "content_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "hkdf_salt_utf8": "11111111-1111-4111-8111-111111111111",
+  "hkdf_info_utf8": "science-reader/library-descriptor/key/v1",
+  "derived_key_hex": "34afdc661498ac1e2eaa76c436721e0228454b0c9446d471b2be5802454fa31f",
+  "nonce_hex": "202122232425262728292a2b",
+  "account_id": "11111111-1111-4111-8111-111111111111",
+  "source_id": "upload:55555555-5555-4555-8555-555555555555",
+  "plaintext": {
+    "display_name": "Attention and α — draft",
+    "filename": "attention-draft.pdf"
+  },
+  "plaintext_utf8": "{\"display_name\":\"Attention and α — draft\",\"filename\":\"attention-draft.pdf\"}",
+  "aad_utf8": "science-reader/library-descriptor/v1\n11111111-1111-4111-8111-111111111111\nupload:55555555-5555-4555-8555-555555555555\n22222222-2222-4222-8222-222222222222\n1\n33333333-3333-4333-8333-333333333333\n44444444-4444-4444-8444-444444444444\n7\n1\n",
+  "envelope": {
+    "descriptor_id": "22222222-2222-4222-8222-222222222222",
+    "revision": 1,
+    "mutation_id": "33333333-3333-4333-8333-333333333333",
+    "device_id": "44444444-4444-4444-8444-444444444444",
+    "epoch": 7,
+    "format": 1,
+    "ciphertext": "ICEiIyQlJicoKSor5uLhGHlYXQ9ZolEBJwj4D3HaqoZkVn/paX+MIsqhDj/NFaemS8mbGvgYzfJPcKQ211fRDHkerqbPj219EG4yUVrzasp2fJulM2NkzDMdKUgTkGdWS+GjuQFBr+RnRg==",
+    "sha256": "6a56a65a36786f09a45731b8132790befc19ab5b3919bfca4f01de7be0b055e2"
+  },
+  "ciphertext_hex": "202122232425262728292a2be6e2e11879585d0f59a251012708f80f71daaa8664567fe9697f8c22caa10e3fcd15a7a64bc99b1af818cdf24f70a436d757d10c791eaea6cf8f6d7d106e32515af36aca767c9ba5336364cc331d2948139067564be1a3b90141afe46746",
+  "additional_vectors": [
+    {
+      "name": "quotes-backslash-non-bmp",
+      "plaintext": {
+        "display_name": "A \"quoted\" \\ path and 🧠",
+        "filename": "notes \\ draft.pdf"
+      },
+      "plaintext_utf8": "{\"display_name\":\"A \\\"quoted\\\" \\\\ path and 🧠\",\"filename\":\"notes \\\\ draft.pdf\"}",
+      "nonce_hex": "404142434445464748494a4b",
+      "ciphertext": "QEFCQ0RFRkdISUpLJuLBzk2dUqOkA4/EF2YxrhZBq8Fn5tHPaw5SfJho41rUEjKiEiMCAUhrATmPSUXWvt2giPT0U05fjtAGuKgARpiHueXWJZjQotps5a9dXVGSk/U46D5dsNujGbVeqgRL",
+      "ciphertext_hex": "404142434445464748494a4b26e2c1ce4d9d52a3a4038fc4176631ae1641abc167e6d1cf6b0e527c9868e35ad41232a212230201486b01398f4945d6bedda088f4f4534e5f8ed006b8a800469887b9e5d62598d0a2da6ce5af5d5d519293f538e83e5db0dba319b55eaa044b",
+      "sha256": "cffddd11d67ef8d62391fbb975db44b87e0bf638f440c5074b9093883a9221d5"
+    },
+    {
+      "name": "combining-preserved",
+      "plaintext": {
+        "display_name": "Café and café",
+        "filename": "research.pdf"
+      },
+      "plaintext_utf8": "{\"display_name\":\"Café and café\",\"filename\":\"research.pdf\"}",
+      "nonce_hex": "606162636465666768696a6b",
+      "ciphertext": "YGFiY2RlZmdoaWprHd3SuEysyIbJTGDo+uRbbsBv6GNis4hWx3GiLbXCkLb5vqklVYBFUjbYJ3mOo4IIBrpnDvLblpX/IdE90apXJmuYov1IgQifgbyGOaI=",
+      "ciphertext_hex": "606162636465666768696a6b1dddd2b84cacc886c94c60e8fae45b6ec06fe86362b38856c771a22db5c290b6f9bea9255580455236d827798ea3820806ba670ef2db9695ff21d13dd1aa57266b98a2fd4881089f81bc8639a2",
+      "sha256": "a2b15627388394e0cecbcdb8182dec81c989912143641e6a239ef64a46d80efc"
+    }
+  ],
+  "normalization_cases": [
+    {
+      "input": "\t  attention  \nheads　 ",
+      "expected": "attention heads"
+    },
+    {
+      "input": "Café",
+      "expected": "Café"
+    },
+    {
+      "input": "café",
+      "expected": "café"
+    },
+    {
+      "input": "brain 🧠",
+      "expected": "brain 🧠"
+    },
+    {
+      "input": "\u0000title",
+      "error": "invalid_scalar_or_control"
+    },
+    {
+      "input": "title",
+      "error": "invalid_scalar_or_control"
+    },
+    {
+      "input": "\ud800",
+      "error": "invalid_scalar_or_control"
+    },
+    {
+      "input": "\udfff",
+      "error": "invalid_scalar_or_control"
+    },
+    {
+      "input": "\ud800x",
+      "error": "invalid_scalar_or_control"
+    }
+  ]
+}

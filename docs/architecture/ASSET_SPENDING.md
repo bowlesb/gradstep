@@ -333,6 +333,122 @@ filters still need testing. Old builds continue to use their supported sources a
 available only after an explicit server capability advertises this ingress and descriptor version; it never falls
 back to a signed Storage upload token.
 
+#### Proposed descriptor wire contract (separate review before crypto/client implementation)
+
+Freeze the proposed format in [the synthetic cross-client vector](../../tests/fixtures/library-descriptor/v1.json).
+The vector is a specification fixture produced with the existing independent Node crypto helper. Native and browser
+implementations must both reproduce/decrypt it before activation; producing the vector does not establish that
+cross-client verification has already passed.
+
+- **Identity and payload:** one account/source-owned descriptor has a stable random `descriptor_id`. Its plaintext is
+  UTF-8 JSON with sorted keys, no whitespace or escaped forward slashes, containing `display_name` and optional
+  `filename` (absent, not null, when omitted). No other keys in format 1. The name is 1–500 Unicode scalar values and
+  at most 2,000 UTF-8 bytes; a filename is 1–255 scalar values and at most 1,024 bytes. Apply the exact normalization
+  below before sealing and enforce a 4,096-byte encoded plaintext ceiling. These are private
+  display descriptors, never paths or a basis for globally matching a publication.
+- **Key and ciphertext:** use the content key for the envelope's epoch, deriving a dedicated 32-byte key with
+  HKDF-SHA256, salt = lowercase account UUID as UTF-8, info = UTF-8 `science-reader/library-descriptor/key/v1`.
+  AES-256-GCM uses a fresh random 12-byte nonce and a 16-byte tag. Combined bytes are nonce || ciphertext || tag,
+  canonical padded Base64 on the JSON wire; accepted decoded length is 28–4,124 bytes. The `sha256` field is lowercase
+  hex of those combined bytes. Nonces in the fixture are test-only. Retrying a mutation reuses its exact persisted
+  envelope rather than re-encrypting under that mutation ID.
+- **Envelope:** `{descriptor_id, revision, mutation_id, device_id, epoch, format, ciphertext, sha256}`. UUIDs are
+  canonical lowercase. Revision/epoch are integers 1–2,147,483,647; format is exactly 1. Account is taken from the
+  authenticated session, and `source_id` comes from the authorized import/source, not from a path supplied by a client.
+  For a new PDF it is `upload:<client-upload-UUID>`. A revised name retains descriptor/source identity and increments
+  revision exactly once. No timestamp participates in conflict resolution.
+- **AAD:** the exact UTF-8 text below, replacing angle-bracket values and including the final newline. Source IDs are
+  already canonical ASCII and contain no newline. This binds the encrypted value to its account, source, identity,
+  revision, logical mutation, author, epoch and format.
+
+```text
+science-reader/library-descriptor/v1
+<account-uuid>
+<source-id>
+<descriptor-uuid>
+<revision-decimal>
+<mutation-uuid>
+<device-uuid>
+<epoch-decimal>
+1
+```
+
+**Text normalization is independent of locale and Unicode library version.** First reject invalid Unicode scalar
+sequences, including every unpaired UTF-16 surrogate in JavaScript and invalid UTF-8 after decryption. In the display
+name only, map this fixed set to U+0020, collapse runs and trim both ends: U+0009–000D, U+0020, U+0085, U+00A0,
+U+1680, U+2000–200A, U+2028–2029, U+202F, U+205F, U+3000. Then reject any remaining C0/C1 control (U+0000–001F or
+U+007F–009F). In the optional filename preserve the scalar sequence exactly and reject all C0/C1 controls, including
+tabs/newlines; require at least one scalar outside that whitespace set. Neither field applies NFC, NFKC, case folding,
+or locale transformations. Composed and combining spellings remain distinct. Readers require the decrypted payload
+to be already normalized, valid and canonically encoded; they do not silently repair tampered/invalid content.
+Canonical JSON emits non-ASCII scalars as UTF-8 and escapes only JSON quotes/backslashes (controls were rejected),
+which also rejects escaped lone surrogates rather than accepting a parser's replacement character.
+
+**Write authority and conflicts.** A descriptor command carries its management token, author device, expected revision
+(0 for creation), and immutable envelope. Lock account → keyring → normal library/import rows → descriptor/session →
+capacity; any monetary admission remains an earlier separate transaction. Verify the existing management-token
+authority and nonrevoked device under the same keyring lock used by rotation. An already accepted exact mutation can
+return its recorded outcome after a rotation, provided the caller still proves current authority. A new write must
+use the current key epoch. A changed envelope under the same mutation ID is a conflict. A stale expected revision
+returns the current descriptor reference without overwriting it; the client fetches/decrypts that revision and either
+accepts it or explicitly creates a new mutation for its edit. The server never merges encrypted title text.
+
+Command caller and envelope author are separate fields. `caller_device_id` must name a currently approved, nonrevoked
+device and the command must prove the **current** management token under the keyring lock. For a new mutation,
+`envelope.device_id` must equal that caller and its epoch must be current. For an exact already-accepted mutation, a
+different surviving or newly recovered/approved device may query/replay the recorded result using current authority,
+even if the original envelope author has since been revoked. Replay compares the complete stored request digest and
+cannot insert, reseal or change a revision. An old token alone is never sufficient. A revoked original author cannot
+create a new write or replay using its revoked caller identity. This permits recovery of lost acknowledgements
+without attributing a new mutation to a device that no longer has write authority.
+
+Retain the current envelope plus bounded idempotency receipts containing digest/revision/result, not all historical
+plaintext or ciphertext versions. Use the library command retention contract for receipts; an expired receipt must
+not let an old expected revision overwrite a newer value. Count current descriptor ciphertext in the same encrypted
+storage allowance, with transactional account/environment projections. Do not call it a history `event_count`.
+Descriptor changes advance the account's library change sequence and invalidate its query generation; references on
+the import and resolved item update in one grouped change. Deletion removes descriptor envelopes, receipts and
+personal projections; only unrelated de-identified financial records remain. Session cleanup retains the descriptor.
+
+**Read and cache compatibility.** Immutable public metadata UUIDs keep their meaning. A mutable custom title must not
+be inserted into `catalog_metadata` or returned as different plaintext under the same cached metadata UUID. Compact
+entry state carries a descriptor reference (ID, revision, epoch, digest), with bounded owner-authorized hydration by
+exact ID/revision. The hydration response has its own format, account binding and byte cap; it uses library transfer
+admission. If a requested revision was superseded, return an explicit stale-reference result so the client catches up,
+not replacement ciphertext disguised as that revision. Clients cache ciphertext by account/descriptor/revision,
+decrypt only with the matching historical epoch key, and retain the highest observed revision for that descriptor.
+A locked or unsupported key shows a neutral placeholder and must not discard ciphertext or reset its revision.
+An unsupported format or corrupt descriptor likewise preserves the opaque ciphertext/reference, exposes a neutral
+title with a local error state, and cannot fail the entire library sync or trigger any plaintext fallback.
+
+Proposed API split to review: keep installed v3 full reads and existing v4 compact/query/hydration signatures limited
+to arXiv/web source kinds; retain the pending branch's v5 full reads for upload-capable native clients. Add v5 compact
+page/changes/metadata/query facades that share v4's internal algorithms and add the explicit upload/descriptor contract.
+This avoids PostgreSQL overload/default-argument ambiguity and preserves web loading performance. Use separate
+capability-bound cursor identities; a cursor from a different source visibility or format restarts explicitly.
+Unsupported entries must still advance a legacy delta's high-water mark without leaking an unknown source; empty
+filtered pages cannot create an infinite loop. Legacy metadata hydration rejects unsupported-source IDs consistently.
+Existing v4 query projection includes neutral upload rows for the new facades, but legacy queries filter them before
+paging; counts, cursor fingerprints and tie breaks use the same visibility. Full v5 may return only the descriptor
+reference and use the same bounded hydration. No format 1 encrypted history events change, so mixed-version devices
+continue to sync chats normally. Verify these rules against installed native/web codecs before enabling uploads.
+
+Persist a minimum source-visibility level on projected entries and tombstones before deleting their source row;
+do not infer a removed upload's type from missing metadata. Baseline, delta, current query, counts and hydration all
+apply that same level. Old-client deltas filter each grouped change and strip descriptor references, but advance to
+the recorded scan boundary even when every entry was hidden. A tombstone for an upload the old client could never
+see stays hidden; a tombstone for supported content is still delivered. Public-source metadata and existing cursor
+formats retain their validation; the rollout bumps the dataset epoch where a rebuilt projection is required. New
+facades bind cursors to the upload-capable visibility, and every mutation still advances query generation even if
+the legacy visible set did not change. Thus a legacy query may restart conservatively, but never mix two generations
+or leak hidden rows in counts. No source-changing reuse of an existing item identity is permitted.
+
+**Frozen-vector acceptance:** Node reference, Swift CryptoKit and browser WebCrypto produce/open identical bytes with
+the test nonce; modification of every AAD field, nonce, ciphertext or tag fails authentication. Cover Base64 aliases,
+wrong digest/length, unknown format, unavailable historical key, revoked author, rotation-vs-create/rename races,
+exact lost-response replay, concurrent rename CAS, account switch, descriptor deletion and v3/v4/v5 mixed libraries.
+Persist encrypted local outbox data before sending and reconcile accepted mutations before resealing after rotation.
+
 ### UX, cost and operational evidence
 
 Keep Choose PDF, device-download fallback, Share and Library progress in their current locations. The native queue
