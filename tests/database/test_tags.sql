@@ -1,4 +1,4 @@
--- Topic tags (migration 028): catalog tags claimed, platform-funded, recorded and projected with
+-- Topic tags (migration 029): catalog tags claimed, platform-funded, recorded and projected with
 -- a new state_seq; personal tags replayable and revision-checked; untagged entries unchanged.
 begin;
 insert into auth.users values('28000000-0000-0000-0000-00000000000a'),('28000000-0000-0000-0000-00000000000b'),('28000000-0000-0000-0000-00000000000c');

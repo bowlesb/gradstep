@@ -2,7 +2,7 @@
 
 Status, 2026-10-03: **Core encrypted queue and native integration implemented and verified with deterministic fixtures**. Twenty-one focused Core queue cases pass; the complete package passes 98 Swift Testing cases plus four XCTest cases. The signed native suite passes 114 cases with three live/device checks skipped, including eleven coordinator schedules, eight transport checks, eleven library-service schedules and five model journeys. Two existing search/navigation journeys also pass. New Add/Pending screens were captured and inspected on iPad. These are local storage and simulated-HTTP workflow checks; live populated native mutation/acquisition remains unverified. Migration 010 is applied and immutable; this change needs no server migration and does not enable acquisition or paid processing. It builds on [the library contract](DATA_MODEL.md#migration-010--applied-and-verified-in-staging) and [local encrypted storage](PRIVACY_AND_SYNC.md#local-encrypted-event-journal).
 
-Update 2026-10-07: item commands also include `setArchived` (migration 020) and `setTags` (migration 028, [Topic
+Update 2026-10-07: item commands also include `setArchived` (migration 020) and `setTags` (migration 029, [Topic
 tags](TAGS.md)); all three share the item's membership revision and lane. A tag edit made while an earlier one is
 pending is resolved in one transaction (`editLibraryTags`): an unsent edit is replaced, a sent one gets the new lists
 as its held successor.

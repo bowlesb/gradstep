@@ -1,7 +1,7 @@
 # Topic tags
 
 Status, 2026-10-07: **implemented and tested locally; not yet applied or deployed.** Migration
-`202610070028_tags.sql` (after 027), the pipeline worker change and the app need the main session to apply/deploy.
+`202610070029_tags.sql` (after 027 and 028), the pipeline worker change and the app need the main session to apply/deploy.
 Owner request: "I thought we had a tagging system based on topics? … it was useful and we need to bring that back
 and make it a first class citizen." The archival web app asked an LLM for 5–10 free keywords per paper and showed
 them as chips (`reference/web/lib/metadata.ts`, `PaperTable.tsx`); free keywords drifted between papers. Gradstep

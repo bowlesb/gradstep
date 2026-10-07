@@ -247,7 +247,7 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
     /// Migration 020: present (true) only while archived — hidden from the default list, still in the library.
     public let archived: Bool?
     public var isArchived: Bool { archived == true && visible }
-    /// Migration 028 (each present only while visible and non-empty): the catalog's topic tags for this
+    /// Migration 029 (each present only while visible and non-empty): the catalog's topic tags for this
     /// paper, the reader's own tags, and the catalog tags the reader removed.
     public let tags: [String]?
     public let userTags: [String]?

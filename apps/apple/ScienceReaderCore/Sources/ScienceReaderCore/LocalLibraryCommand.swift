@@ -32,7 +32,7 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
     case retryImport(importID: UUID, expectedRevision: Int64)
     /// Archive or unarchive a library item (migration 020); uses the item's membership revision.
     case setArchived(documentID: UUID, archived: Bool, expectedRevision: Int64)
-    /// The reader's own tags and hidden catalog tags for a library item (migration 028); replaces both lists.
+    /// The reader's own tags and hidden catalog tags for a library item (migration 029); replaces both lists.
     case setTags(documentID: UUID, tags: [String], hiddenTags: [String], expectedRevision: Int64)
 
     func validate() throws {

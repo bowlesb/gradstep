@@ -67,7 +67,7 @@ enum OfflineReaderFixture {
             "artifact_id": artifact.wire, "readiness": "converted_ready", "original_availability": "available",
             "render_availability": "available", "original_availability_revision": 1, "render_availability_revision": 1]
         if variant == .mathpix {
-            // Topic tags (migration 028): the catalog's, one the reader removed, and one of their own.
+            // Topic tags (migration 029): the catalog's, one the reader removed, and one of their own.
             row["tags"] = ["Natural language processing", "Large language models", "Preference optimization", "Alignment", "Reward modeling"]
             row["hidden_tags"] = ["Reward modeling"]
             row["user_tags"] = ["Reading group"]

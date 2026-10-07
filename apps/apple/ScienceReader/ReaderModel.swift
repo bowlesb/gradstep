@@ -48,7 +48,7 @@ struct Paper: Identifiable, Sendable {
     /// those the reader removed, then the reader's own, including an edit still syncing. Library columns and
     /// filters, the reader's header chips and search use these.
     var tags: [String] = []
-    /// The server's lists behind `tags` (migration 028): the catalog's, the reader's own and the removed ones.
+    /// The server's lists behind `tags` (migration 029): the catalog's, the reader's own and the removed ones.
     var catalogTags: [String] = []
     var ownTags: [String] = []
     var hiddenTags: [String] = []

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ScienceReaderCore
 
-/// Topic tags (migration 028): text rules shared with the server, effective tags, the edit that
+/// Topic tags (migration 029): text rules shared with the server, effective tags, the edit that
 /// produces them, wire decoding, the vocabulary, and the durable tag command.
 @Suite struct PaperTagsTests {
     @Test func normalizationMatchesTheServerRules() {

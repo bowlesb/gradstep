@@ -11,7 +11,7 @@ test('the vocabulary is curated: 60-120 distinct names within the server text ru
   assert.ok(TAG_VOCABULARY.length >= 60 && TAG_VOCABULARY.length <= 120, `${TAG_VOCABULARY.length} tags`);
   assert.equal(new Set(TAG_NAMES.map(name => name.toLowerCase())).size, TAG_NAMES.length);
   for (const tag of TAG_VOCABULARY) {
-    // migration 028 valid_tag_list: trimmed, single spaces, 1-40 characters, no control characters.
+    // migration 029 valid_tag_list: trimmed, single spaces, 1-40 characters, no control characters.
     assert.ok(tag.name === tag.name.trim() && !/\s\s/.test(tag.name) && tag.name.length >= 1 && [...tag.name].length <= 40, tag.name);
     assert.ok(tag.definition.length > 10 && tag.definition.length <= 120, tag.name);
   }
