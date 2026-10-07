@@ -81,41 +81,53 @@ Deno.serve(async request => {
       };
       const seen: DiscoveryResult[] = [];
       let answered = false, closed: FindResult | null = null;
-      for (const url of arxivTitleURLs(wanted.title, wanted.arxivID)) {
-        if (signal.aborted) break;
-        try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { continue; }
-        const match = matchPaper(wanted, seen);
-        if (match) return { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } };
-      }
-      // OpenAlex knows a paper's other versions: an arXiv copy arXiv's own search
-      // missed (conference titles often differ), with the same strict match; otherwise
-      // an open-access copy elsewhere (the worker re-reads its locations from OpenAlex).
-      const find = !signal.aborted ? openAlexFindURL(wanted) : null;
-      if (find) {
+      // OpenAlex first, in parallel: it answers in about a second and knows a paper's other
+      // versions (an arXiv copy under a conference title; open-access PDFs elsewhere), under
+      // the same strict match. arXiv's own paced title search is the slower fallback.
+      const openAlex = (async (): Promise<FindResult | null> => {
+        const find = openAlexFindURL(wanted);
+        if (!find) return null;
         try {
           const response = await fetch(find, { redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
-            headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
-          if (response.ok) {
-            answered = true;
-            // A paper's preprint and journal versions are often separate works: prefer one
-            // with an arXiv copy, then one with an open-access PDF.
-            const candidates = openAlexCandidates(await response.json());
-            const openPDF = (url: string | null) => {
-              const open = url ? publicHTTPS(url.replace(/^http:\/\//i, 'https://')) : null;
-              return open && !/(^|\.)arxiv\.org$/.test(open.hostname) ? open : null;
-            };
-            const match = matchPaper(wanted, candidates.filter(c => c.arxivID)) ?? matchPaper(wanted, candidates.filter(c => openPDF(c.pdfURL)))
-              ?? matchPaper(wanted, candidates);
-            if (match?.arxivID) return { status: 'found', paper: { source_id: match.arxivID, title: match.title, year: match.year, kind: 'arxiv' } };
-            if (match) {
-              const open = openPDF(match.pdfURL);
-              const paper = { source_id: `openalex:${match.openalexID}`, title: match.title, year: match.year, kind: 'web' as const,
-                host: open?.hostname ?? null, link: match.landingURL };
-              if (open) return { status: web ? 'found' : 'needs_update', paper };
-              closed = { status: 'closed', paper };
-            }
-          } else void response.body?.cancel().catch(() => {});
-        } catch { /* unavailable */ }
+            headers: { accept: 'application/json', 'user-agent': 'Gradstep/0.1 (research paper reader)' } });
+          if (!response.ok) { void response.body?.cancel().catch(() => {}); return null; }
+          answered = true;
+          // A paper's preprint and journal versions are often separate works: prefer one
+          // with an arXiv copy, then one with an open-access PDF.
+          const candidates = openAlexCandidates(await response.json());
+          const openPDF = (url: string | null) => {
+            const open = url ? publicHTTPS(url.replace(/^http:\/\//i, 'https://')) : null;
+            return open && !/(^|\.)arxiv\.org$/.test(open.hostname) ? open : null;
+          };
+          const match = matchPaper(wanted, candidates.filter(c => c.arxivID)) ?? matchPaper(wanted, candidates.filter(c => openPDF(c.pdfURL)))
+            ?? matchPaper(wanted, candidates);
+          if (match?.arxivID) return { status: 'found', paper: { source_id: match.arxivID, title: match.title, year: match.year, kind: 'arxiv' } };
+          if (!match) return null;
+          const open = openPDF(match.pdfURL);
+          const paper = { source_id: `openalex:${match.openalexID}`, title: match.title, year: match.year, kind: 'web' as const,
+            host: open?.hostname ?? null, link: match.landingURL };
+          if (open) return { status: web ? 'found' : 'needs_update', paper };
+          closed = { status: 'closed', paper };
+          return null;
+        } catch { return null; }
+      })();
+      const urls = arxivTitleURLs(wanted.title, wanted.arxivID);
+      const arxiv = async (url: string): Promise<FindResult | null> => {
+        if (signal.aborted) return null;
+        try { seen.push(...await searchArxiv([url], fetch, slot, signal)); answered = true; } catch { return null; }
+        const match = matchPaper(wanted, seen);
+        return match ? { status: 'found', paper: { source_id: match.source_id, title: match.title, year: match.year } } : null;
+      };
+      // An arXiv id in the citation is checked directly (one paced request).
+      if (urls.length && new URL(urls[0]).searchParams.has('id_list')) {
+        const byID = await arxiv(urls.shift()!);
+        if (byID) return byID;
+      }
+      const viaOpenAlex = await openAlex;
+      if (viaOpenAlex) return viaOpenAlex;
+      for (const url of urls) {
+        const byTitle = await arxiv(url);
+        if (byTitle) return byTitle;
       }
       // Last resort: a scholarly web search (Tavily) for an arXiv copy under another title
       // or one arXiv's search missed, accepted only under the same strict match.
