@@ -2,7 +2,7 @@
 
 > **Status 2026-10-07:** implemented locally (migration 029, worker reports, app); database, backend, Core and app
 > unit tests pass; Simulator screens reviewed. **Not applied to staging and the worker is not redeployed** (the main
-> session does both). Until 031 is applied, apps show the previous step-and-timer status.
+> session does both). Until 029 is applied, apps show the previous step-and-timer status.
 
 Owner, 2026-10-07: "when items are processing, we should have a better UX, ideally, we have an estimate of the total
 time, and have a percent done, with stages that make more sense to the user (What does 'Converting...' mean?) What is
@@ -114,5 +114,5 @@ at least 5 successful exits; `pipeline_measure_timing`, cached 15 min in `pipeli
   `state_seq`.
 - `tests/backend/pipeline.test.ts`: reports every ≥ 5 s during OCR polling, a failed report never touches the stage,
   slow vs quick downloads.
-- Not yet: a live staging import after 031 is applied (the estimate's defaults are from one canary; the medians take
+- Not yet: a live staging import after 029 is applied (the estimate's defaults are from one canary; the medians take
   over after 5 imports per stage).
