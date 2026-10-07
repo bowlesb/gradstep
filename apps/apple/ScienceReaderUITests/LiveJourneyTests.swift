@@ -14,6 +14,14 @@ final class LiveJourneyTests: XCTestCase {
     private var searchQuery: String? { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_SEARCH"] }
     private var deletesAccount: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_DELETE"] == "1" }
     private var openTiming: [String] { (ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_OPEN_TIMING"] ?? "").split(separator: "|").map(String.init) }
+    /// `scripts/live-journey.mjs --store`: Get credits must list every product (no purchase).
+    private var checksStore: Bool { ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_STORE"] == "1" }
+    /// `scripts/live-journey.mjs --reference=11:PaLM`: follow citation 11 and add its paper.
+    private var reference: (number: String, title: String)? {
+        let parts = (ProcessInfo.processInfo.environment["SCIENCE_READER_LIVE_JOURNEY_REFERENCE"] ?? "").split(separator: ":", maxSplits: 1).map(String.init)
+        return parts.count == 2 ? (parts[0], parts[1]) : nil
+    }
+    private var runsSomethingElse: Bool { deletesAccount || !openTiming.isEmpty || checksStore || reference != nil }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -61,7 +69,7 @@ final class LiveJourneyTests: XCTestCase {
     }
 
     func testAddConvertDownloadReadAskAndRelaunch() throws {
-        try XCTSkipIf(deletesAccount || !openTiming.isEmpty, "This run does something else")
+        try XCTSkipIf(runsSomethingElse, "This run does something else")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         launch(app)
@@ -160,7 +168,7 @@ final class LiveJourneyTests: XCTestCase {
     /// Settings › Delete account… against staging; the runner checks the server
     /// afterwards. Runs only when the runner asks for it (it ends the account).
     func testDeleteAccountFromSettings() throws {
-        try XCTSkipUnless(deletesAccount && openTiming.isEmpty, "Runs only with scripts/live-journey.mjs --delete")
+        try XCTSkipUnless(deletesAccount && openTiming.isEmpty && !checksStore && reference == nil, "Runs only with scripts/live-journey.mjs --delete")
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         launch(app)
@@ -199,6 +207,77 @@ final class LiveJourneyTests: XCTestCase {
         app.buttons["tab.settings"].tap()
         XCTAssertTrue(app.buttons["account.signIn"].waitForExistence(timeout: 10), "Settings should show the signed-out state")
         capture(app, "Signed out after deletion")
+    }
+
+    /// Settings › Get credits lists every App Store product (no purchase). Catches an app without a
+    /// price or products stuck in MISSING_METADATA, which leave the sheet without products. The
+    /// API check `store.products` (scripts/workflow-checks.mjs) reads the same states directly.
+    func testGetCreditsListsEveryProduct() throws {
+        try XCTSkipUnless(checksStore, "Runs only with scripts/live-journey.mjs --store")
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
+        app.buttons["tab.settings"].tap()
+        let getCredits = app.buttons["settings.getCredits"]
+        for _ in 0..<3 where !getCredits.isHittable { app.swipeUp() }
+        XCTAssertTrue(getCredits.waitForExistence(timeout: 10)); getCredits.tap()
+        XCTAssertTrue(app.staticTexts["store.balance"].waitForExistence(timeout: 15), "The balance shows")
+        let expected = ["Pro", "Standard", "400 Credits"]
+        let listed = NSPredicate { _, _ in expected.allSatisfy { app.staticTexts[$0].exists } }
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: listed, object: nil)], timeout: 30)
+        capture(app, "Get credits")
+        XCTAssertEqual(result, .completed, "Get credits lists \(expected.filter { app.staticTexts[$0].exists }) of \(expected)")
+    }
+
+    /// Reader → a citation → its reference → Add to library: the Add paper answer names the paper,
+    /// the import appears in the Library and becomes readable. The runner adds the citing paper
+    /// first (`--reference=11:PaLM` with the default DPO paper; PaLM is a shared conversion).
+    func testReferenceAddToLibraryImportsThePaper() throws {
+        guard let reference else { throw XCTSkip("Runs only with scripts/live-journey.mjs --reference=N:Title") }
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        launch(app)
+        waitForSignedInAccount(app)
+        XCTAssertTrue(paperRow(app).waitForExistence(timeout: 60), "The citing paper is in the library")
+        paperRow(app).tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 120), "Reader did not open")
+        app.buttons["Table of contents"].tap()
+        let introduction = app.buttons["1 Introduction"]
+        for _ in 0..<6 { if introduction.waitForExistence(timeout: 2) { break }; app.swipeUp() }
+        introduction.tap()
+        let citation = web.links["Reference \(reference.number)"].firstMatch
+        XCTAssertTrue(citation.waitForExistence(timeout: 15), "Citation \(reference.number) is a link")
+        citation.tap()
+        let entry = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[\(reference.number)]")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10)); entry.tap()
+        let add = app.buttons["Add to library"]
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "The reference offers Add to library")
+        capture(app, "Reference actions")
+        add.tap()
+        // First paid request on this account asks for cloud-processing consent.
+        let consent = app.buttons["chat.consent.accept"]
+        if consent.waitForExistence(timeout: 15) { capture(app, "Consent"); consent.tap() }
+        // The answer must end with an outcome line naming the paper (never silently).
+        let outcome = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'chat.message.text.' AND (label CONTAINS 'Queued' OR label CONTAINS 'already in your library')")).firstMatch
+        XCTAssertTrue(outcome.waitForExistence(timeout: 180), "Add paper ended without saying what it added")
+        XCTAssertTrue(outcome.label.contains(reference.title), "The outcome names \(reference.title): \(outcome.label.suffix(200))")
+        capture(app, "Add paper answer")
+        // The import shows in the Library and becomes a readable paper.
+        app.buttons["tab.library"].tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'paper.' AND label CONTAINS %@", reference.title)).firstMatch
+        let deadline = Date().addingTimeInterval(300)
+        while !row.exists && Date() < deadline {
+            sleep(5)
+            let options = app.buttons["Library options"]
+            if options.exists { options.tap(); let refresh = app.buttons["Refresh library"]; if refresh.waitForExistence(timeout: 3) { refresh.tap() } }
+        }
+        XCTAssertTrue(row.exists, "\(reference.title) did not become readable within five minutes")
+        capture(app, "Added paper in library")
+        row.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 120), "The added paper opens")
+        capture(app, "Added paper open")
     }
 
     /// Opens already-converted papers twice each (first open downloads, the second reads the local
