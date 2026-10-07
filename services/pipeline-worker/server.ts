@@ -69,7 +69,7 @@ export async function runOnce(make: () => PipelineDeps = deps, now: () => number
   let processed = 0;
   // Finish any account deletion left incomplete (cheap when none is).
   await sweepAccountDeletions(pipelineService(), fields => log('account_deletion', fields)).catch(() => {});
-  // Delete readers' uploads that were used, abandoned or never finished (migration 033).
+  // Delete readers' uploads that were used, abandoned or never finished (migration 039).
   if (sweepUploads) {
     try {
       const service = pipelineService();

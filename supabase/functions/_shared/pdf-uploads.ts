@@ -1,4 +1,4 @@
-// PDF uploads (migration 033; docs/architecture/PDF_UPLOADS.md). functions/v1/upload-pdf begins a
+// PDF uploads (migration 039; docs/architecture/PDF_UPLOADS.md). functions/v1/upload-pdf begins a
 // session (the database checks size, quota, limits and credits) and hands the reader a signed URL to
 // upload the bytes straight to the private `paper-uploads` bucket; it finalizes only when the object
 // is in Storage with the declared size, which creates or retries the import. The pipeline worker

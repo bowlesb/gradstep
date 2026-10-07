@@ -196,7 +196,7 @@ test('web metadata stage records OpenAlex metadata and locations; never touches 
   assert.ok(calls.some(c => c.name === 'worker_pipeline_web_metadata'));
 });
 
-test('a work without an open-access PDF keeps its metadata and fails at download as not_open (migration 033)', async () => {
+test('a work without an open-access PDF keeps its metadata and fails at download as not_open (migration 039)', async () => {
   const closed = { ...work, best_oa_location: null, locations: [] };
   const { deps, calls } = harness({ worker_pipeline_web_metadata: p => { assert.deepEqual(p.p_pdf_urls, []); return entry('private_split', { revision: 1 }); } },
     async () => Response.json(closed));

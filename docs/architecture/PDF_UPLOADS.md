@@ -1,9 +1,19 @@
 # Adding any paper: identifiers, PDF uploads, device downloads, sharing
 
-> **Status 2026-10-07:** built on branch, not deployed. Migration `202610070033_pdf_uploads.sql` (not applied),
+> **Status 2026-10-07:** built on branch, not deployed. Migration `202610070039_pdf_uploads.sql` (not applied),
 > Edge functions `add-paper` and `upload-pdf` (not deployed), bucket `paper-uploads` (not created), pipeline
 > worker changes (not deployed), app changes and the Share extension (Simulator only; needs provisioning).
 > Decisions: [DECISIONS](../DECISIONS.md#adding-any-paper-identifiers-uploads-device-downloads-sharing-owner-asked-2026-10-07).
+
+**Integration review, 2026-10-07:** this branch is not ready to enable uploads. Migration 039 replaces the
+never-applied 033 and must follow provider, asset, Sandbox and diagnostic migrations 034–038. Number 033 stays
+unused; the migration ledger validates the sorted source prefix, not consecutive numbers. Applied migrations are
+unchanged. The reusable signed-upload design below is historical branch implementation: it does not yet bound
+actual staging writes against shared asset capacity or safely resolve late writes during account deletion.
+Authenticated chunk admission and worker assembly are under review in the spending branch's `ASSET_SPENDING.md`.
+The proposed server-visible custom title is also unapproved; the original encrypted-title design remains the
+accepted privacy contract unless the owner changes it. Do not deploy this branch until those gaps are resolved.
+Main was integrated as `386a2b6`; the earlier test totals below predate that integration.
 
 Owner, 2026-10-07: "adding a pdf needs to be absolutely bullet proof." About 17 publishers refuse downloads from
 cloud servers (our worker runs on Google Cloud; [self-healing downloads](PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027)),
@@ -39,7 +49,7 @@ pipeline:
 App: `AddInput` (arXiv stays local), `AddOutcome.from` (the reader's words and next steps), `ImportPaperView` in
 `Views/AddPaperView.swift`. A queued paper closes the sheet; anything else stays with its message and buttons.
 
-## 2. Upload sessions (migration 033, `upload-pdf`)
+## 2. Upload sessions (migration 039, `upload-pdf`)
 
 The upload session designed in [DATA_MODEL](DATA_MODEL.md#import-identity-and-membership), built:
 

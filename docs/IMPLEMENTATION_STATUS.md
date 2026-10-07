@@ -257,7 +257,7 @@ and the existing chat-history journeys; visual scenarios `chat-history-table`, `
 
 Owner: "adding a pdf needs to be absolutely bullet proof." Add takes an arXiv ID, a DOI or any link
 (`functions/v1/add-paper`); PDFs upload from Files, by drag and drop, or through Share › Gradstep, into private
-upload sessions (migration `202610070033_pdf_uploads.sql`, `functions/v1/upload-pdf`, bucket `paper-uploads`)
+upload sessions (migration `202610070039_pdf_uploads.sql`, `functions/v1/upload-pdf`, bucket `paper-uploads`)
 verified by the Cloud Run worker and converted privately with credits; failed web imports a website refused
 offer Download on this device. Uploaded papers reach the app through new v5 library reads (and compact v4).
 Design: [PDF uploads](architecture/PDF_UPLOADS.md). Verified locally only (2026-10-07, after merging main's

@@ -33,7 +33,7 @@ export interface PaperEntry {
   license_uri?: string | null; title?: string | null; authors?: string[] | null;
   /** Web papers (migration 019): OpenAlex source ID, open-access PDF locations, landing page. */
   source_kind?: 'arxiv' | 'web' | 'upload'; pdf_urls?: string[] | null; landing_url?: string | null;
-  /** A reader's PDF this private paper uses at download (migration 033): their own upload, or one
+  /** A reader's PDF this private paper uses at download (migration 039): their own upload, or one
    * supplying a web paper our servers couldn't fetch. Declared size and sha256 (hex). */
   upload?: { id: string; object_id: string; path: string; sha256: string; bytes: number } | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
@@ -75,7 +75,7 @@ export interface PipelineDeps {
   kick?(): Promise<void>;
   /** Resolves a web PDF host so private and reserved addresses are refused. */
   resolveHost?: ResolveHost;
-  /** Readers' uploads (`paper-uploads` bucket, migration 033). Absent: an upload waits for a worker that has it. */
+  /** Readers' uploads (`paper-uploads` bucket, migration 039). Absent: an upload waits for a worker that has it. */
   uploads?: {
     /** Throws `storage_object_missing` when the object isn't there. */
     download(path: string, maximumBytes: number): Promise<Uint8Array>;
@@ -205,7 +205,7 @@ async function stageWebMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim)
   catch (error) { webFailure(error, 'metadata'); }
   if (!work) throw new PermanentFailure('metadata_unavailable', 'metadata');
   // No open-access copy: the metadata is still recorded, so readers see the paper and can supply its PDF
-  // (its private papers fail at download as `not_open`; migration 033).
+  // (its private papers fail at download as `not_open`; migration 039).
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_web_metadata', { ...claim, p_metadata: work.metadata, p_doi: work.doi,
     p_pdf_urls: work.pdfURLs, p_landing_url: work.landingURL });
   deps.log('metadata', { paper: e.id, web: true, locations: work.pdfURLs.length });
