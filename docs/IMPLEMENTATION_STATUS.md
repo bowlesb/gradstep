@@ -273,6 +273,18 @@ Email" relay address would create a separate account (no linking); testers shoul
 
 ## Still required
 
+**Queued follow-ups (owner approved 2026-10-07, "item 5"; collected from finished agents' reports so none is stranded):**
+- Workflow check `pipeline.stuck` flags an import while an automatic retry is running (count from the paper's last
+  stage change, not the import's creation).
+- A full private storage quota shows "too large"; give it its own reason and message.
+- Reliability charts count each automatic retry's failure again.
+- Show when the next automatic download retry happens (`auto_retry_at`) on the row.
+- Failure wording pass ("Conversion failed", "…to convert this paper").
+- VoiceOver: the new chat selection/formula actions and the library rows' swipe and long-press actions.
+- Library: tap a tag chip to filter by it; remember filters between launches; show tags on papers still importing.
+- Admin: disabling sign-in should also end open sessions (today an open session lasts until its token expires).
+
+
 - **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
   testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
   synthetic-account hook.
