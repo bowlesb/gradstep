@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-07 (local library foundation, cost audit and podcast research; earlier staging milestones below). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-07 (library foundation deployed to staging; cost work and takeover in progress). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
 ## Library foundation and independent reviews — 2026-10-07
@@ -8,7 +8,7 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 The owner authorized additive database work on `codex/library-v4-foundation-20261007`. Migrations 031/032 separate
 compact synchronization, account-authorized immutable metadata and bounded indexed library queries. Query
 continuations restart after meaningful edits; progress updates preserve them. Old v2/v3 clients, command receipts,
-grouped changes and current quotas remain unchanged. This work is **local and not deployed or used by a client**.
+grouped changes and current quotas remain unchanged. Migrations 031/032 were **applied and ledger-verified on staging at 15:37 PDT**, after an encrypted checkpoint. Deploy checks passed (13 passed, zero failed; one warning about earlier failed imports). Client adoption and larger quotas remain separate work.
 Independent reviews cover upgrade compatibility, paging, isolation and concurrent deletion; the
 [contract and validation evidence](architecture/LIBRARY_V4.md) records the exact scope. Synthetic 10k/50k read-model
 benchmarks do not establish end-to-end product capacity.
@@ -64,7 +64,7 @@ See [command publication](architecture/BROWSER_READER.md#command-acknowledgement
 
 The [capacity plan](architecture/LIBRARY_CAPACITY.md) records the path to larger libraries: encrypted warm caches,
 compact sync, consistent paged queries and reviewed record retirement. The first backend foundation is implemented
-locally in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
+on staging in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
 
 Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
 and verify browser deployment separately. Existing staging
