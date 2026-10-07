@@ -92,7 +92,7 @@ export function ReliabilityFixture() {
   const [reloads, setReloads] = useState(0);
   const empty = new URLSearchParams(location.search).get('state') === 'empty';
   const load = useCallback((days: number) => new Promise<PipelineMetrics>(resolve => setTimeout(() => resolve(empty ? emptyMetrics(days) : fixtureMetrics(days)), 120)), [empty]);
-  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
+  return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Reliability" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Reliability load={load} reloadKey={reloads} />
   </Shell>;
@@ -129,7 +129,7 @@ export function PurchasesFixture() {
       },
     };
   }, [scenario]);
-  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Purchases" onTab={() => undefined}
+  return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support']} tab="Purchases" onTab={() => undefined}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Purchases api={api} reloadKey={reloads} />
   </Shell>;
@@ -186,7 +186,7 @@ export function AccountsFixture() {
       return wait({ disabled });
     },
   }), [accounts]);
-  return <Shell tabs={['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Accounts" onTab={() => undefined} counts={{ Support: 2 }}
+  return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Accounts" onTab={() => undefined} counts={{ Support: 2 }}
     email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
     <Accounts api={api} reloadKey={reloads} />
   </Shell>;
