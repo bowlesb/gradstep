@@ -10,6 +10,7 @@ import SwiftUI
 // - Text: `.headline` titles, `.subheadline` secondary, `.footnote` tertiary (secondary color);
 //   accent color only for things that can be tapped.
 // - Status: one `StatusBanner`, shown only when the reader can act on it.
+// - Floating chrome and the app's own icons: Chrome.swift.
 
 enum DesignMetrics {
     static let margin: CGFloat = 16
@@ -24,21 +25,24 @@ enum DesignMetrics {
     static func columnInset(for width: CGFloat) -> CGFloat { max(margin, (width - column) / 2) }
 }
 
-/// A top-bar button drawn by the app, matching the system's glass bar buttons.
+/// A top-bar button drawn by the app, matching the system's glass bar buttons. `image` names one of the
+/// app's own symbols (`GradstepSymbol`), drawn with its amber point.
 struct HeaderButtonLabel: View {
-    let systemImage: String
+    var systemImage: String? = nil
+    var image: String? = nil
     var body: some View {
-        Image(systemName: systemImage).font(.system(size: DesignMetrics.headerSymbol, weight: .semibold)).foregroundStyle(.tint)
-            .frame(width: DesignMetrics.headerControl, height: DesignMetrics.headerControl).modifier(GlassCircle())
-            .contentShape(Circle())
+        Group {
+            if let image { BrandSymbol(name: image) } else { Image(systemName: systemImage ?? "questionmark") }
+        }
+        .font(.system(size: DesignMetrics.headerSymbol, weight: .semibold)).foregroundStyle(.tint)
+        .frame(width: DesignMetrics.headerControl, height: DesignMetrics.headerControl).modifier(GlassCircle())
+        .contentShape(Circle())
     }
 }
 
+/// Floating chrome's glass (Chrome.swift), as a circle; solid with Reduce Transparency.
 struct GlassCircle: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) { content.glassEffect(.regular.interactive(), in: Circle()) }
-        else { content.background(.regularMaterial, in: Circle()) }
-    }
+    func body(content: Content) -> some View { content.chromeSurface(Circle(), interactive: true) }
 }
 
 /// The one status message style: an inset rounded card, a symbol, one line of text, and a
@@ -109,11 +113,14 @@ struct ProminentLabel: View {
     }
 }
 
-/// An SF Symbol drawn in the app's accent color inside system menus, which ignore the window tint.
+/// An SF Symbol, or one of the app's own symbols (`GradstepSymbol`), drawn in the app's accent color
+/// inside system menus, which ignore the window tint.
 func menuIcon(_ name: String) -> Image {
     if let accent = UIColor(named: "AccentColor"),
-       let image = UIImage(systemName: name)?.withTintColor(accent, renderingMode: .alwaysOriginal) { return Image(uiImage: image) }
-    return Image(systemName: name)
+       let image = (UIImage(systemName: name) ?? UIImage(named: name))?.withTintColor(accent, renderingMode: .alwaysOriginal) {
+        return Image(uiImage: image)
+    }
+    return UIImage(systemName: name) != nil ? Image(systemName: name) : Image(name)
 }
 
 extension View {

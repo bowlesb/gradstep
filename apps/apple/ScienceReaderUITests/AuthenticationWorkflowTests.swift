@@ -199,7 +199,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         XCTAssertFalse(app.buttons["auth.verify"].isEnabled)
         app.buttons["auth.close"].tap()
         wait("Closing sign-in returns to the paper draft") { input.exists && input.value as? String == draft }
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(app.buttons["chat.context"].value as? String, "Paper chat")
         capture("Closing preserves the paper question")
         app.buttons["chat.send"].tap()
         XCTAssertTrue(app.buttons["auth.emailMethod"].waitForExistence(timeout: 5))

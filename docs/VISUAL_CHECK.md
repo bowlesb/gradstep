@@ -14,7 +14,7 @@ longer than usual, one a minute into downloading, one failed), `library-columns`
 `library-retry` (right after Retry: downloading again), `library-filter-tag` (a tag chosen), `library-tag-menu`,
 `library-import-progress`, `library-import-progress-help`, `library-import-progress-table` (imports at every step with
 percent and time left; the explainer sheet), `library-swipe`, `feed`, `feed-results` (the Feed's
-List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
+List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-scrolled` (messages passing under the floating controls), `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
 `chat-history`, `signin`; All chats over ~30 fixture conversations (`--chat-history-fixture`): `chat-history-table` (with
@@ -48,7 +48,9 @@ node scripts/visual-check.mjs compare --before=before --after=after
   names on the given Simulators (same models), and `--derived=/private/tmp/<session>/derived` keeps builds apart;
   `--skip-build` reuses that build for another variant or orientation.
 - Devices: `iphone` (17 Pro), `small` (17e), `max` (17 Pro Max), `ipad` (Pro 11"), `ipad13` (Pro 13"), `mini` (iPad mini). Variants:
-  `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text). The status bar is pinned to 9:41 and full battery.
+  `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text), `rt` (Reduce
+  Transparency, light). The status bar is pinned to 9:41 and full battery. `--skip-build` reuses the build folder's
+  last build.
 - Output: `.artifacts/visual/<label>/<device>-<variant>/<scenario>.png`, a contact sheet `<label>-sheet.png`, and
   for compare `compare-<before>-<after>/` with side-by-side images (before | after | changed pixels in red) and
   `report.md` sorted by the share of changed pixels. Over 0.3 % is flagged: confirm every flagged screen changed
