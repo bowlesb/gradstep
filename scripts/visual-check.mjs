@@ -3,10 +3,10 @@
 // devices and appearances, before/after comparison, contact sheets.
 //
 //   node scripts/visual-check.mjs capture --label=before [--scenarios=chat-keyboard,store|all]
-//        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl] [--landscape]
-//        [--udids=iphone:<UDID>,ipad:<UDID>] [--derived=/private/tmp/<session>/derived]
+//        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl,rt] [--landscape]
+//        [--udids=iphone:<UDID>,ipad:<UDID>] [--derived=/private/tmp/<session>/derived] [--skip-build]
 //   --udids runs a device name on your own Simulator instead of the shared one (parallel sessions must not share
-//   Simulators); --derived keeps the build products apart too.
+//   Simulators); --derived keeps the build products apart too; --skip-build reuses that folder's last build.
 //   node scripts/visual-check.mjs compare --before=before --after=after
 //   node scripts/visual-check.mjs sheet --label=after
 //
@@ -32,8 +32,11 @@ for (const pair of (args.udids ?? '').split(',').filter(Boolean)) {
   DEVICES[name] = udid;
 }
 // xxl: the largest size below the accessibility sizes (layouts that switch form at accessibility sizes keep theirs).
+// rt: Reduce Transparency (light), set through the Simulator's accessibility preferences.
 const VARIANTS = { light: ['light', 'large'], dark: ['dark', 'large'], xxl: ['light', 'extra-extra-extra-large'],
-  xl: ['light', 'accessibility-extra-large'] };
+  xl: ['light', 'accessibility-extra-large'], rt: ['light', 'large', 'reduce-transparency'] };
+const setReduceTransparency = (id, on) => quiet('xcrun', ['simctl', 'spawn', id, 'defaults', 'write', 'com.apple.Accessibility',
+  'EnhancedBackgroundContrastEnabled', '-bool', on ? 'true' : 'false']);
 const run = (cmd, a, options = {}) => execFileSync(cmd, a, { stdio: ['ignore', 'pipe', 'pipe'], ...options }).toString();
 const quiet = (cmd, a) => { try { run(cmd, a); } catch { /* best effort */ } };
 const tool = () => {
@@ -59,9 +62,10 @@ if (command === 'capture') {
     quiet('xcrun', ['simctl', 'status_bar', id, 'override', '--time', '9:41', '--batteryState', 'charged', '--batteryLevel', '100',
       '--cellularMode', 'active', '--cellularBars', '4', '--wifiBars', '3']);
     for (const variant of variants) {
-      const [appearance, size] = VARIANTS[variant] ?? []; if (!appearance) throw new Error(`unknown variant ${variant}`);
+      const [appearance, size, setting] = VARIANTS[variant] ?? []; if (!appearance) throw new Error(`unknown variant ${variant}`);
       quiet('xcrun', ['simctl', 'ui', id, 'appearance', appearance]);
       quiet('xcrun', ['simctl', 'ui', id, 'content_size', size]);
+      setReduceTransparency(id, setting === 'reduce-transparency');
       const folder = join(visual, label, `${device}-${variant}${args.landscape ? '-landscape' : ''}`);
       const result = join(root, `.artifacts/visual-${label}-${device}-${variant}-${Date.now()}.xcresult`);
       process.stdout.write(`${device} ${variant}: `);
@@ -86,6 +90,7 @@ if (command === 'capture') {
     }
     quiet('xcrun', ['simctl', 'ui', id, 'appearance', 'light']);
     quiet('xcrun', ['simctl', 'ui', id, 'content_size', 'large']);
+    setReduceTransparency(id, false);
     quiet('xcrun', ['simctl', 'status_bar', id, 'clear']);
   }
   execFileSync(tool(), ['sheet', join(visual, label), join(visual, `${label}-sheet.png`)], { stdio: 'inherit' });

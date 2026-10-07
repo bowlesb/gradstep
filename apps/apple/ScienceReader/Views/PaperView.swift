@@ -129,7 +129,10 @@ struct PaperView: View {
         NavigationStack {
             Group {
                 if let paper = model.selectedPaper, let bundle = paper.readerBundle, let readingKey, let readerScope = model.readerDocumentScope {
-                    VStack(spacing: 0) {
+                    // Floating chrome (2026-10-07): the tab bar and the reader's controls float on a band below the
+                    // page, which fades its last lines. The page itself stops above them: reading positions,
+                    // heading and citation jumps are measured in the page's own viewport, which must be what shows.
+                    Group {
                         PaperWebView(url: bundle.entryURL, bundle: bundle, locationKey: readingKey,
                                      location: paper.artifactID == nil ? nil : model.paperLocations[readingKey],
                                      fontSize: model.paperFontSize * bodySize / 17, jump: model.paperJump,
@@ -172,21 +175,20 @@ struct PaperView: View {
                                          runSelectionAction(action, scope: readerScope)
                                      })
                             .id(PaperLoadIdentity(scope: readerScope, revision: reloadID))
-                            .overlay(alignment: .bottom) { if citationBack && !readerFailed { citationBackButton } }
-                            .overlay(alignment: .bottom) { if let notice = model.referenceNotice, !readerFailed { referenceBanner(notice) } }
                             .overlay(alignment: .topLeading) { referenceActions }
-                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
-                            .overlay { if readerFailed {
-                                ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
-                                    description: { Text("The reading bundle couldn’t be loaded completely.") }
-                                    actions: { Button("Try again") { readerFailed = false; loadingPaper = true; reloadID = UUID() } }
-                                    .background(Color(uiColor: .systemBackground))
-                            } }
-                            .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
-                        if let selection {
-                            selectionControls(selection, scope: readerScope)
-                        }
-                    }.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
+                    }
+                    .overlay { if readerFailed {
+                        ContentUnavailableView { Label("Couldn’t open this paper", systemImage: "doc.badge.ellipsis") }
+                            description: { Text("The reading bundle couldn’t be loaded completely.") }
+                            actions: { Button("Try again") { readerFailed = false; loadingPaper = true; reloadID = UUID() } }
+                            .background(Color(uiColor: .systemBackground))
+                    } }
+                    .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
+                    // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
+                    // viewport moved the reading position near the end of a paper).
+                    .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                     .macPaperMenu(PaperMenuActions(
                         contents: { showContents = true },
                         back: citationBack && !readerFailed ? { citationBack = false; citationReturnID = UUID() } : nil,
@@ -202,12 +204,13 @@ struct PaperView: View {
                         ContentUnavailableView("Paper download needed", systemImage: "arrow.down.document", description: Text("Download this paper’s complete reading bundle to open it offline."))
                     }
                 } else {
-                    ContentUnavailableView("Open a paper", systemImage: "doc.text", description: Text("Choose a paper from your library to start reading."))
+                    ContentUnavailableView("Open a paper", image: GradstepSymbol.paper, description: Text("Choose a paper from your library to start reading."))
                 }
             }
+            .tabBarSpace(fade: false)
             .navigationTitle("Paper").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(systemName: "list.bullet") }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
+                ToolbarItem(placement: .topBarLeading) { Button { showContents = true } label: { Image(GradstepSymbol.contents) }.accessibilityLabel("Table of contents").disabled(model.selectedPaper == nil) }
                 ToolbarItem(placement: .principal) { titleView }
                 // Screen options (docs/DESIGN.md): "…" is the rightmost item; view choices first,
                 // then this screen's actions, then "Report this screen".
@@ -221,7 +224,7 @@ struct PaperView: View {
                                 .disabled(model.paperFontSize >= 26)
                         }
                         .controlGroupStyle(.compactMenu)
-                        MenuRow("Ask about this paper", systemImage: "bubble.left") { model.askAboutSelectedPaper() }
+                        MenuRow("Ask about this paper", systemImage: GradstepSymbol.chat) { model.askAboutSelectedPaper() }
                         if let paper = model.selectedPaper, !paper.isSample {
                             MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                         }
@@ -264,6 +267,22 @@ struct PaperView: View {
         }
     }
 
+    /// The reader's floating bottom controls (a reference's outcome, Back after a citation, the selection
+    /// actions), over the paper's fade; with none showing, the fade alone (under the tab bar).
+    private func bottomControls(scope: ReaderDocumentScope) -> some View {
+        let notice = readerFailed ? nil : model.referenceNotice
+        let back = citationBack && !readerFailed
+        return VStack(spacing: 8) {
+            if let notice { referenceBanner(notice) }
+            if back { citationBackButton }
+            if let selection { selectionControls(selection, scope: scope) }
+        }
+        .padding(.top, notice != nil || back || selection != nil ? 6 : 0)
+        .padding(.bottom, notice != nil || back || selection != nil ? 8 : 0)
+        .frame(maxWidth: .infinity)
+        .chromeBand(.bottom)
+    }
+
     // MARK: - Citations and references
 
     /// The outcome of "Add to library" on a reference. Success clears itself; a reference the
@@ -284,7 +303,7 @@ struct PaperView: View {
             }
         }
         .frame(maxWidth: 560)
-        .padding(.horizontal, 16).padding(.bottom, citationBack ? 76 : 16)
+        .padding(.horizontal, 16)
         .transition(.opacity)
         .task(id: notice.id) {
             guard notice.kind == .added || notice.kind == .present else { return }
@@ -306,7 +325,6 @@ struct PaperView: View {
         .modifier(ReaderControlMaterial())
         .accessibilityIdentifier("reader.citation.back")
         .accessibilityHint("Returns to where you were reading")
-        .padding(.bottom, 16)
         .transition(.opacity)
     }
 
@@ -374,7 +392,7 @@ struct PaperView: View {
         // iPhone: a full-width bar, so every action is easy to reach. iPad: the bar fits its
         // content rather than stretching a band of glass around four words.
         .padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
-        .modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.bottom, 4).transition(.opacity)
+        .modifier(ReaderControlMaterial()).padding(.horizontal, 12).transition(.opacity)
     }
 
     /// The selection bar, the Mac's context menu and its Paper menu run the same action.

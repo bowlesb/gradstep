@@ -14,6 +14,16 @@ final class WorkflowJourneyTests: XCTestCase {
         return app
     }
 
+    /// The chat's Paper chat / General chat switch is the title's menu (owner feedback, build 14).
+    private func selectChatContext(_ app: XCUIApplication, _ name: String) {
+        let menu = app.buttons["chat.context"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5)); menu.tap()
+        let option = app.buttons[name]
+        XCTAssertTrue(option.waitForExistence(timeout: 5)); option.tap()
+    }
+
+    private func chatContext(_ app: XCUIApplication) -> String? { app.buttons["chat.context"].value as? String }
+
     private func capture(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
@@ -24,15 +34,30 @@ final class WorkflowJourneyTests: XCTestCase {
             "chat.message.text.", "This is a synthetic conversation for layout testing")).firstMatch
     }
 
+    /// The transcript runs under the floating chrome (2026-10-07), so "visible" means clear of it: below the
+    /// context switch and above the message box.
     private func assertFinalReplyAtBottom(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let reply = finalReply(in: app), transcript = app.tables["chat.transcript"]
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         let visible = NSPredicate { _, _ in
-            reply.exists && transcript.exists && reply.frame.maxY <= transcript.frame.maxY + 2
-                && reply.frame.maxY > transcript.frame.minY + 2
+            reply.exists && transcript.exists && composer.exists && reply.frame.maxY <= composer.frame.minY + 2
+                && reply.frame.maxY > self.readingTop(app) + 2
                 && !app.buttons["chat.latest"].isHittable
         }
         let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: visible, object: nil)], timeout: 5)
-        XCTAssertEqual(result, .completed, "Final reply bottom \(reply.frame) should be inside transcript \(transcript.frame)", file: file, line: line)
+        XCTAssertEqual(result, .completed, "Final reply bottom \(reply.frame) should be above the message box \(composer.frame)", file: file, line: line)
+    }
+
+    /// Top of the conversation's readable area: below the title bar.
+    private func readingTop(_ app: XCUIApplication) -> CGFloat {
+        let bar = app.navigationBars.containing(.button, identifier: "chat.context").firstMatch
+        return bar.exists ? bar.frame.maxY : app.tables["chat.transcript"].frame.minY
+    }
+
+    /// Height of the conversation left readable between the floating chrome above and below it.
+    private func readingHeight(_ app: XCUIApplication) -> CGFloat {
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        return composer.frame.minY - readingTop(app)
     }
 
     func testSearchOpenReturnNoMatchesAndSeparateExternalScope() throws {
@@ -73,12 +98,12 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
         assertFinalReplyAtBottom(app)
         capture(app, "Chat composer and keyboard")
-        XCTAssertTrue(app.segmentedControls.buttons["General chat"].isHittable, "Keep context controls visible while composing")
+        XCTAssertTrue(app.buttons["chat.context"].isHittable, "Keep the context menu reachable while composing")
         app.buttons["chat.dismissKeyboard"].tap()
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         input.tap(); input.typeText("General draft\nSecond line")
         app.buttons["chat.dismissKeyboard"].tap()
-        app.segmentedControls.buttons["Paper chat"].tap()
+        selectChatContext(app, "Paper chat")
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         app.buttons["Chat history"].tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
@@ -93,8 +118,34 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["Chat history"].tap()
         app.buttons["Understanding attention"].tap()
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         XCTAssertEqual(input.value as? String, "General draft\nSecond line")
+    }
+
+    /// Floating chrome (2026-10-07): content runs under the tab bar and the message box, and the ends of the
+    /// library and the conversation can still scroll clear of them.
+    func testContentFlowsBehindFloatingChromeAndStaysReachable() throws {
+        let app = launch(additionalArguments: ["--library-metadata-fixture"])
+        let tab = app.buttons["tab.library"]
+        try XCTSkipUnless(tab.exists, "Compact layout (tab bar)")
+        let list = app.collectionViews.firstMatch
+        XCTAssertTrue(list.exists)
+        XCTAssertGreaterThan(list.frame.maxY, tab.frame.maxY, "The list runs under the tab bar")
+        for _ in 0..<12 { list.swipeUp(velocity: .fast) }
+        let rows = list.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "paper.")).allElementsBoundByIndex
+            + list.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "import.")).allElementsBoundByIndex
+        let last = rows.filter(\.exists).max { $0.frame.maxY < $1.frame.maxY }
+        XCTAssertNotNil(last)
+        if let last { XCTAssertLessThanOrEqual(last.frame.maxY, tab.frame.minY + 1, "The last row scrolls clear of the tab bar") }
+
+        app.buttons["tab.chat"].tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        let transcript = app.tables["chat.transcript"]
+        XCTAssertLessThan(composer.frame.maxY, app.buttons["tab.chat"].frame.minY, "The message box floats above the tab bar")
+        XCTAssertGreaterThan(transcript.frame.maxY, app.buttons["tab.chat"].frame.minY, "The conversation runs under the chrome")
+        XCTAssertTrue(app.buttons["chat.send"].exists && app.buttons["Chat history"].exists && app.buttons["New chat"].exists)
+        assertFinalReplyAtBottom(app)
     }
 
     func testChatKeepsLatestVisibleAsComposerGrowsAndKeyboardDismisses() throws {
@@ -107,7 +158,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let app = launch(additionalArguments: ["--branch-fixture"])
         app.buttons["tab.chat"].tap()
         let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
-        XCTAssertTrue(app.segmentedControls.buttons["General chat"].isSelected)
+        XCTAssertEqual(chatContext(app), "General chat")
         XCTAssertEqual(input.value as? String, "A separate general draft")
         app.buttons["Chat history"].tap()
         XCTAssertTrue(app.navigationBars["All chats"].waitForExistence(timeout: 5))
@@ -123,7 +174,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let siblingText = "A sibling reply requires an explicit choice."
         let sibling = message(siblingText)
         XCTAssertTrue(app.navigationBars["A retained paper discussion"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(chatContext(app), "Paper chat")
         XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
         XCTAssertTrue(earlier.waitForExistence(timeout: 5))
         XCTAssertTrue(earlier.isHittable)
@@ -144,9 +195,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(earlier.exists)
         XCTAssertFalse(removed.exists)
         XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         XCTAssertEqual(input.value as? String, "A separate general draft")
-        app.segmentedControls.buttons["Paper chat"].tap()
+        selectChatContext(app, "Paper chat")
         XCTAssertTrue(sibling.waitForExistence(timeout: 5))
         XCTAssertEqual(input.value as? String, "Draft for the retained paper discussion")
         XCTAssertTrue(app.buttons["chat.returnToPaper"].isHittable)
@@ -171,7 +222,7 @@ final class WorkflowJourneyTests: XCTestCase {
         func assertComposerEmpty() {
             let empty = NSPredicate { _, _ in
                 let value = input.value as? String ?? ""
-                return (value.isEmpty || value == "Ask a question…") && !app.buttons["chat.send"].isEnabled
+                return (value.isEmpty || value == "Chat") && !app.buttons["chat.send"].isEnabled
             }
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: empty, object: nil)], timeout: 8), .completed)
         }
@@ -187,20 +238,20 @@ final class WorkflowJourneyTests: XCTestCase {
                 "chat.message.text.", "You: \(paperDraft)"))
         }
 
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(chatContext(app), "Paper chat")
         input.tap(); input.typeText(paperDraft)
         assertDraftSaved()
         app.buttons["chat.dismissKeyboard"].tap()
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         input.tap(); input.typeText(generalDraft)
         assertDraftSaved()
         app.buttons["chat.dismissKeyboard"].tap()
 
         relaunch()
         XCTAssertEqual(input.value as? String, paperDraft)
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         XCTAssertEqual(input.value as? String, generalDraft)
-        app.segmentedControls.buttons["Paper chat"].tap()
+        selectChatContext(app, "Paper chat")
         XCTAssertEqual(input.value as? String, paperDraft)
         capture(app, "Encrypted paper and general drafts survive process relaunch")
         app.buttons["chat.send"].tap()
@@ -217,9 +268,9 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(sentQuestion().firstMatch.waitForExistence(timeout: 5))
         XCTAssertEqual(sentQuestion().count, 1, "The saved question appears once after relaunch")
         assertComposerEmpty()
-        app.segmentedControls.buttons["General chat"].tap()
+        selectChatContext(app, "General chat")
         XCTAssertEqual(input.value as? String, generalDraft)
-        app.segmentedControls.buttons["Paper chat"].tap()
+        selectChatContext(app, "Paper chat")
         assertComposerEmpty()
         capture(app, "Saved question reopens once without resurrecting its draft")
     }
@@ -680,13 +731,13 @@ final class WorkflowJourneyTests: XCTestCase {
         assertFinalReplyAtBottom(app)
         input.tap(); input.typeText("First line")
         XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(app.tables["chat.transcript"].frame.height, 80, "Keep a usable reading area above the keyboard")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the keyboard")
         assertFinalReplyAtBottom(app)
         let singleLineHeight = input.frame.height
         input.typeText("\nSecond line\nThird line\nFourth line")
         XCTAssertEqual(input.value as? String, "First line\nSecond line\nThird line\nFourth line")
         XCTAssertGreaterThan(input.frame.height, singleLineHeight + 20, "Exercise an actual composer resize")
-        XCTAssertGreaterThanOrEqual(app.tables["chat.transcript"].frame.height, 80, "Keep a usable reading area above the growing composer")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the growing composer")
         assertFinalReplyAtBottom(app)
         capture(app, "Latest reply remains visible above multiline composer")
         app.buttons["chat.dismissKeyboard"].tap()
@@ -748,7 +799,7 @@ final class WorkflowJourneyTests: XCTestCase {
         copy.tap()
         XCTAssertFalse(copy.isHittable)
         XCTAssertEqual(input.value as? String, "Draft survives copying")
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(chatContext(app), "Paper chat")
         XCTAssertTrue(app.navigationBars["Understanding attention"].exists)
     }
 
@@ -779,7 +830,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["chat.latest"].isHittable, "Reader deliberately left the latest message")
         input.tap(); input.typeText("A draft while reading")
         XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(transcript.frame.height, 80, "Keep the older passage readable while composing")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep the older passage readable while composing")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
         input.typeText("\nSecond line\nThird line")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
@@ -876,7 +927,7 @@ final class WorkflowJourneyTests: XCTestCase {
         let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 8), "The exact equation environment reaches encrypted local chat")
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertEqual(chatContext(app), "Paper chat")
         app.buttons["chat.returnToPaper"].tap()
         XCTAssertTrue(before.waitForExistence(timeout: 5))
         XCTAssertEqual(before.frame.minY - web.frame.minY, location, accuracy: 6)
@@ -969,8 +1020,8 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["Ask about this paper"].tap()
         XCTAssertTrue(app.segmentedControls.buttons["Reader"].isSelected)
         // The paper is open beside its conversation, so the chat shows no separate link back to it.
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.segmentedControls.buttons["Paper chat"].isSelected)
+        XCTAssertTrue(app.buttons["chat.context"].waitForExistence(timeout: 5))
+        XCTAssertEqual(chatContext(app), "Paper chat")
         XCTAssertFalse(app.buttons["chat.returnToPaper"].exists)
         capture(app, "Browse opens reader and its conversation")
     }

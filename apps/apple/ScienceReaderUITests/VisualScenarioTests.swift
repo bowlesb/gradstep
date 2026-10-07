@@ -110,6 +110,17 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch.waitForExistence(timeout: 5))
                 sleep(1)
             },
+            // Floating chrome (2026-10-07): a conversation scrolled part-way, so messages pass under the header,
+            // the message box and the tab bar.
+            "chat-scrolled": Scenario(arguments: ["--workflow-fixture"]) { app in
+                self.go(app, "chat")
+                let transcript = app.tables["chat.transcript"]
+                XCTAssertTrue(transcript.waitForExistence(timeout: 5)); sleep(1)
+                transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                    .press(forDuration: 0.1, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)),
+                           withVelocity: .slow, thenHoldForDuration: 0.3)
+                sleep(1)
+            },
             "chat-keyboard": Scenario(arguments: ["--workflow-fixture"]) { app in
                 self.go(app, "chat")
                 let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
@@ -351,7 +362,10 @@ final class VisualScenarioTests: XCTestCase {
     private func openHistory(_ app: XCUIApplication, draft: String? = nil) {
         if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
         if let draft {
-            if app.segmentedControls.buttons["General chat"].exists { app.segmentedControls.buttons["General chat"].tap() }
+            if app.buttons["chat.context"].exists, app.buttons["chat.context"].value as? String != "General chat" {
+                app.buttons["chat.context"].tap()
+                if app.buttons["General chat"].waitForExistence(timeout: 5) { app.buttons["General chat"].tap() }
+            }
             let input = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
             XCTAssertTrue(input.waitForExistence(timeout: 5)); input.tap(); input.typeText(draft)
             dismissKeyboard(app)
