@@ -69,6 +69,7 @@
 		6A9FB40EA22828F4E4F61F58 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
 		6E79A84877F64CFD3D7DA853 /* PaperWebViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */; };
 		72C14249354A75B7ADFF874C /* NativeAuthenticationControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C78074324405596C300892BD /* NativeAuthenticationControls.swift */; };
+		734D0CB084C052C707890BCC /* RecoveryPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B491333EEA1B9C04089469C /* RecoveryPasswords.swift */; };
 		74A4180D876E3097503ACBB1 /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = BD48DC7B746589499F3F6C03 /* ScienceReaderCore */; };
 		74FBD6C35779F342FA2A69EC /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E95203AFDE6CC762825DA86 /* BackendClient.swift */; };
 		75E904FF52D43C762C5FD2AF /* EnrollmentSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15CECF5E28F723846BFFD1E /* EnrollmentSafetyTests.swift */; };
@@ -139,6 +140,7 @@
 		D425678EA644AA4CF16CF5D3 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A87576DE63B383CD1FD6B82E /* RootView.swift */; };
 		D5C2FD73B3C049B2FAEF13BB /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A7005386659A627AA9009A5 /* DeviceKeys.swift */; };
 		D5FC50CB49940EBB76428C02 /* ScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */; };
+		D6269A29317A4F0EE7E61F3C /* RecoveryPasswords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B491333EEA1B9C04089469C /* RecoveryPasswords.swift */; };
 		D7454B3BF7F9D5B8F05C53BE /* FeedTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CB1587BDBC05A7A1CB6AA48 /* FeedTableView.swift */; };
 		D7C1B9FA356C53FEB40F18D0 /* WorkflowFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDCE7A02D5BC2DE24DC1F5E /* WorkflowFixture.swift */; };
 		D825F1E7D5F8E17E9784A3A8 /* ChatFixtureTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D4BEDE817F71094F5708F59 /* ChatFixtureTransport.swift */; };
@@ -210,6 +212,7 @@
 		26C4B6D06505F71518652CD5 /* LibraryChangesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryChangesView.swift; sourceTree = "<group>"; };
 		27DD95103ED41FF20F9124CF /* ScienceReaderUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		298181C077A52AD1412AD0BD /* AuthenticationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationCoordinator.swift; sourceTree = "<group>"; };
+		2B491333EEA1B9C04089469C /* RecoveryPasswords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryPasswords.swift; sourceTree = "<group>"; };
 		2D4BEDE817F71094F5708F59 /* ChatFixtureTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFixtureTransport.swift; sourceTree = "<group>"; };
 		2EBF787F7B1C6797526C2C97 /* ScienceReaderResourceProbeUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ScienceReaderResourceProbeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryCommandCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -352,6 +355,7 @@
 				E4580863EE1ABAA2F93C90E8 /* ReaderBundleLoader.swift */,
 				C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */,
 				B6000EC4CB02C65A7033A4E2 /* ReaderPNGValidator.swift */,
+				2B491333EEA1B9C04089469C /* RecoveryPasswords.swift */,
 				18D7C48E28ACFAF4616685D1 /* ScreenshotCapture.swift */,
 				7F7A0A6B096E56AED84CEFEF /* StorePurchases.swift */,
 				5AE8BFB12F20AFB425BA5B88 /* SupportService.swift */,
@@ -754,6 +758,7 @@
 				66F54F280A5A30A81AEEF232 /* ReaderDraftQueue.swift in Sources */,
 				B387D3A25266DAE9CA83D50A /* ReaderModel.swift in Sources */,
 				0DB9E535292D2D1CB9A4FCAF /* ReaderPNGValidator.swift in Sources */,
+				D6269A29317A4F0EE7E61F3C /* RecoveryPasswords.swift in Sources */,
 				FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */,
 				5F9F67BCEEDCA5151271C981 /* ReportsView.swift in Sources */,
 				2068FF43BBD2F54711A95852 /* RootView.swift in Sources */,
@@ -869,6 +874,7 @@
 				E4DC587F25584B44A530A3E2 /* ReaderDraftQueue.swift in Sources */,
 				7886FA4E53948C5AC01576B9 /* ReaderModel.swift in Sources */,
 				8B62E95A35E7D85E8FBA4F47 /* ReaderPNGValidator.swift in Sources */,
+				734D0CB084C052C707890BCC /* RecoveryPasswords.swift in Sources */,
 				CF3F86D0DCB5E1CDC69D02E6 /* ReportComposer.swift in Sources */,
 				8302B96AC73E77B70A85A0DF /* ReportsView.swift in Sources */,
 				D425678EA644AA4CF16CF5D3 /* RootView.swift in Sources */,
