@@ -324,9 +324,9 @@ public actor EncryptedStore {
         try saveLibraryPresentation(observation, scope: scope, capturedAt: capturedAt, format: CachePresentationCheckpoint.currentFormat)
     }
 
-    /// Replaces the saved library list with `observation` when it can't be saved over it
-    /// (`OfflineCacheError.replacesSavedLibrary`). Only the list of papers is rewritten, from the
-    /// server's complete state; downloaded papers, notes, chats and pending changes are untouched.
+    /// Rebuilds readable presentation metadata from a complete server observation while retaining
+    /// immutable identity, monotonic sequences and reader availability policy. Corrupt policy is
+    /// never reset. Downloaded papers, notes, chats and pending changes are untouched.
     @discardableResult
     public func rebuildLibraryPresentation(_ observation: LibraryCompleteObservation, scope: LibraryCommandScope,
                                            capturedAt: Date = Date()) throws -> CachedLibraryPresentation {

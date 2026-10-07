@@ -1750,16 +1750,6 @@ final class ReaderModel {
         }
     }
 
-    /// The offline banner's Try again: saves the latest library again on this device (rebuilding the
-    /// saved list from it if needed); the banner clears when that save lands.
-    var offlineSaveRetryable: Bool { offlineCacheIssue == ReaderBundleCoordinator.cacheFailureMessage && readerBundles != nil }
-
-    func retryOfflineSave() {
-        guard let readerBundles, readerBundles.cacheHalted, !libraryPublicationDeferred else { return }
-        do { try readerBundles.retryCachePersistence() }
-        catch { offlineCacheIssue = ReaderBundleCoordinator.cacheFailureMessage }
-    }
-
     /// Synchronous registration preserves accepted observation order before
     /// another refresh or command drain may start, including cancellation.
     private func resumeLibraryPublication() {

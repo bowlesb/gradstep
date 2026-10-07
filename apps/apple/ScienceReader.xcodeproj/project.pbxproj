@@ -1039,8 +1039,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1210,8 +1212,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1227,8 +1231,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.uitests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ScienceReader;
 			};
@@ -1271,8 +1277,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
@@ -1333,8 +1341,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";
@@ -1461,8 +1471,10 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
+				"MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]" = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sciencereader.ios.tests;
 				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ScienceReader.app/ScienceReader";
 				"TEST_HOST[sdk=macosx*]" = "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep";

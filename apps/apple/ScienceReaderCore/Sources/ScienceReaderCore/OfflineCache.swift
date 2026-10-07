@@ -6,10 +6,10 @@ public enum OfflineCacheError: Error, Equatable, Sendable {
     case corruptCache, capacityExceeded, installBusy, staleTicket, notInstalled
     case revisionConflict, blocked
 
-    /// The saved library list can't take a newer complete observation (it conflicts, lost entries,
-    /// or can't be read): rebuild it from that observation rather than stop saving.
+    /// Readable presentation metadata conflicts with a complete server observation. A rebuild
+    /// still validates identity, sequence and saved reader policy; it never recovers unreadable policy.
     public var replacesSavedLibrary: Bool {
-        self == .conflictingObservation || self == .invalidObservation || self == .corruptCache
+        self == .conflictingObservation
     }
 }
 
@@ -283,7 +283,7 @@ struct CacheBundleHeader: Codable {
 }
 
 enum CacheWrite {
-    case checkpoint(Data), presentationRow(UUID, Data), deletePresentationRow(UUID), clearPresentationRows
+    case checkpoint(Data), presentationRow(UUID, Data), deletePresentationRow(UUID)
     case bundleIndex(Data), header(UUID, Data), member(UUID, Int, Data), deleteBundle(UUID)
 }
 

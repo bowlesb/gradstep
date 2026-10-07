@@ -423,6 +423,7 @@ final class PaperWebViewTests: XCTestCase {
               focus: [...document.querySelectorAll('#b-3 .sr-cite')].map(span => span.tabIndex),
               labels: [...document.querySelectorAll('#b-2 .sr-cite[aria-label]')].map(span => span.getAttribute('aria-label')),
               text: ['b-2', 'b-3', 'b-4'].map(id => document.getElementById(id).textContent),
+              touchOnly: matchMedia('(hover:none)').matches,
               linkColor: style.color === linkColor, underline: style.textDecorationLine || style.webkitTextDecorationLine};
             """) as? [String: Any]
         let state = try XCTUnwrap(stateValue)
@@ -441,7 +442,9 @@ final class PaperWebViewTests: XCTestCase {
                                                     split.replacingOccurrences(of: "<em>", with: "").replacingOccurrences(of: "</em>", with: "")
                                                         .replacingOccurrences(of: "<br>", with: ""),
                                                     "Figure 1: The filter (Kalman, 1960)."], "Only inline wrappers are added")
-        XCTAssertEqual(state["underline"] as? String, "underline", "Touch devices underline citations subtly")
+        let touchOnly = try XCTUnwrap(state["touchOnly"] as? Bool)
+        XCTAssertEqual(state["underline"] as? String, touchOnly ? "underline" : "none",
+                       "Citations gain a subtle underline when hover is unavailable, including touch devices")
         XCTAssertEqual(state["linkColor"] as? Bool, true, "Author–year links use the numbered links' color")
 
         _ = try await web.callAsyncJavaScript("document.querySelector('.sr-cite[data-sr-cite=\"ref-13\"]').click();",

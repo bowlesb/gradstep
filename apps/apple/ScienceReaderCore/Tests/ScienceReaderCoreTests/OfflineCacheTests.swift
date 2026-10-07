@@ -573,12 +573,11 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             await #expect(throws: OfflineCacheError.conflictingObservation) {
                 try await f.store.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
             }
-            // Start again from build 14's format: the first build-15 observation replaces it.
+            // Write a real earlier checkpoint through the test-only format parameter, then reopen it.
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 2, rebuild: true)
             let fresh = try f.reopen()
-            try await fresh.rebuildLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope)
-            try await fresh.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 2)
             let saved = try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
-            let restored = try #require(try await f.reopen().cachedLibraryPresentation(scope: f.scope))
+            let restored = try #require(try await fresh.cachedLibraryPresentation(scope: f.scope))
             #expect(restored == saved)
             let tagged = restored.entries.values.compactMap { entry -> LibraryItemRecord? in
                 if case .item(let item) = entry, item.tags != nil { return item }; return nil
@@ -587,13 +586,13 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             #expect(tagged.contains { $0.tags == ["AI for science", "Evaluation", "Computer vision"] })
             // From then on it is compared as before, and a later cursor applies normally.
             try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
-            try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor + 1), scope: f.scope)
+            let latest = try await fresh.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor + 1), scope: f.scope)
+            #expect(try await f.reopen().cachedLibraryPresentation(scope: f.scope) == latest)
         }
     }
 
-    /// The self-healing path: a saved list that a newer observation can't be applied over (conflicting, or
-    /// unreadable) is rebuilt from it; downloaded papers stay installed and openable.
-    @Test func conflictingOrDamagedSavedLibraryIsRebuiltKeepingDownloads() async throws {
+    /// Conflicting decoded display fields can be repaired; unreadable eligibility cannot be discarded.
+    @Test func conflictingSavedLibraryIsRebuiltButUnreadablePolicyIsPreserved() async throws {
         try await withFixture { f in
             let bundle = try bundle(), binding = try f.binding(bundle), row = item(binding: binding)
             try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope)
@@ -611,14 +610,49 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             await #expect(throws: OfflineCacheError.staleObservation) {
                 try await f.store.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 2), scope: f.scope)
             }
-            // A damaged saved row: reading fails, the rebuild replaces every row.
+            // A damaged saved row cannot prove its availability history. Keep its bytes and refuse repair.
             let db = try SQLiteConnection(url: f.url)
             try db.update("UPDATE local_library_cache_entries SET sealed=zeroblob(64)", values: [])
             let damaged = try f.reopen()
             await #expect(throws: (any Error).self) { try await damaged.cachedLibraryPresentation(scope: f.scope) }
-            let repaired = try await damaged.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 4), scope: f.scope)
-            #expect(try await f.reopen().cachedLibraryPresentation(scope: f.scope) == repaired)
+            await #expect(throws: (any Error).self) {
+                try await damaged.rebuildLibraryPresentation(observation(f.account, rows: [changed], cursor: 4), scope: f.scope)
+            }
             #expect(try await damaged.listInstalledReaderBundles(scope: f.scope).installations.count == 1)
+        }
+    }
+
+    @Test func rebuildingPresentationKeepsQuarantineAfterLocalRemovalAndRejectsChangedPins() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), binding = try f.binding(bundle)
+            var row = item(binding: binding)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 1), scope: f.scope)
+            _ = try await install(bundle, binding: binding, store: f.store)
+            row["state_seq"] = Int64(2); row["render_availability"] = "quarantined"; row["render_availability_revision"] = 2
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 2), scope: f.scope)
+            row["state_seq"] = Int64(3); row["render_availability"] = "unavailable"; row["render_availability_revision"] = 3
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope)
+            let blocked = try #require(try await f.store.listInstalledReaderBundles(scope: f.scope).installations.first)
+            try await f.store.removeReaderBundle(id: blocked.id, expectedRevision: blocked.revision, scope: f.scope)
+            row["tags"] = ["Transformers"]
+            let repaired = try await f.store.rebuildLibraryPresentation(observation(f.account, rows: [row], cursor: 3), scope: f.scope)
+            let reopened = try f.reopen()
+            await #expect(throws: OfflineCacheError.blocked) { try await reopened.beginReaderInstall(binding: binding) }
+            for (key, value) in [("artifact_id", UUID().wire), ("version_id", UUID().wire), ("render_availability", "available")] {
+                var inconsistent = row; inconsistent[key] = value
+                await #expect(throws: (any Error).self) {
+                    try await reopened.rebuildLibraryPresentation(observation(f.account, rows: [inconsistent], cursor: 3), scope: f.scope)
+                }
+            }
+            await #expect(throws: (any Error).self) {
+                try await reopened.rebuildLibraryPresentation(observation(f.account, rows: [], cursor: 4), scope: f.scope)
+            }
+            let additional = item(binding: try f.binding(bundle), created: 2)
+            await #expect(throws: OfflineCacheError.conflictingObservation) {
+                try await reopened.rebuildLibraryPresentation(observation(f.account, rows: [row, additional], cursor: 3), scope: f.scope)
+            }
+            #expect(try await reopened.cachedLibraryPresentation(scope: f.scope) == repaired)
+            await #expect(throws: OfflineCacheError.blocked) { try await reopened.beginReaderInstall(binding: binding) }
         }
     }
 
@@ -629,7 +663,8 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         var item = try #require(library.entries.first { $0["kind"] as? String == "item" && $0["tags"] != nil && $0["visible"] as? Bool == true })
         item["user_tags"] = ["Mine"]; item["hidden_tags"] = ["Computer vision"]; item["archived"] = true
         var active = try #require(library.entries.first { $0["kind"] as? String == "import" && $0["phase"] as? String == "failed" })
-        active["phase"] = "acquiring"; active["retryable"] = false; active["error_code"] = NSNull()
+        active["requested_revision"] = active["source_revision"]
+        active["document_id"] = UUID().wire; active["library_item_id"] = UUID().wire
         active["progress"] = "downloading"; active["progress_detail"] = ["step": "downloading", "percent": 12]
         func keys(_ row: [String: Any]) throws -> Set<String> {
             let entry = try JSONDecoder().decode(LibraryEntry.self, from: json(row))

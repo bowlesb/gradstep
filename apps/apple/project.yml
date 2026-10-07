@@ -79,6 +79,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.uitests
+        SUPPORTS_MACCATALYST: YES
+        # Match the app's iOS 17 / macOS 14 floor in XCTest destination preflight.
+        "MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]": "14.0"
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: ScienceReader
   ScienceReaderTests:
@@ -91,6 +94,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.tests
+        SUPPORTS_MACCATALYST: YES
+        # Match the app's iOS 17 / macOS 14 floor in XCTest destination preflight.
+        "MACOSX_DEPLOYMENT_TARGET[sdk=macosx*]": "14.0"
         GENERATE_INFOPLIST_FILE: YES
         "TEST_HOST[sdk=macosx*]": "$(BUILT_PRODUCTS_DIR)/Gradstep.app/Contents/MacOS/Gradstep"
   # This app runs the same reader/model with an isolated synthetic account.

@@ -655,3 +655,17 @@ Owner feedback on build 14 (same day, [OWNER_FEEDBACK.md](OWNER_FEEDBACK.md) ite
 | "Ask a question is bad language, you can just have chat" | The message box's placeholder is "Chat". |
 | "Space below chat box not well used … the paper vs general option needs to be in a menu … can't take away screen real estate for chatting" | The Paper chat / General chat row is gone; the switch is the chat title's menu (same two modes, Paper disabled without a paper), and the subtitle says which (the paper's title, or "General chat"). The message box sits 10 pt above the floating tab bar, with the conversation running under both. |
 | "The icon choice is bad it looks like a refresh icon, it probably needs to have lines in it" | All chats (top bar and menus) is a list symbol: bullets and lines, the first bullet the amber point. |
+
+## Offline-save recovery across app upgrades (2026-10-07)
+
+The owner's build-15 offline-save banner was caused by build 14 saving library entries without the later tags and
+import-progress fields. Local checkpoint format 3 marks that decoder boundary, so the next complete server
+observation replaces an older readable snapshot without treating those omitted fields as a changed server revision.
+For current-format caches, repair is restricted to those four display fields; immutable pins, membership, artifact,
+availability and sequence checks remain enforced. Quarantine survives local copy removal and a repaired checkpoint.
+
+The untested handoff also proposed rebuilding unreadable policy and a Try again button that saved only the latest
+observation. Review removed those paths: they could forget a failed quarantine before an ordinary outage. A real
+persistence failure continues to preserve bytes/private content, halt ordered cache installs and ask for reopening.
+This is a client-only compatibility fix; no database migration, cache deletion, server rewrite or deployment is needed.
+Local verification and remaining limits are recorded in [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review).
