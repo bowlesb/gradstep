@@ -184,7 +184,9 @@ struct PaperView: View {
                             .background(Color(uiColor: .systemBackground))
                     } }
                     .overlay { if loadingPaper { ProgressView("Opening paper…").allowsHitTesting(false) } }
-                    .safeAreaInset(edge: .bottom, spacing: 0) { bottomControls(scope: readerScope) }
+                    // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
+                    // viewport moved the reading position near the end of a paper).
+                    .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                     .macPaperMenu(PaperMenuActions(

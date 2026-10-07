@@ -26,10 +26,11 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
     under it the paper, tap to return, or "General chat"). The message box is a glass pill with the placeholder
     "Chat" and Send/Stop inside it on the right, 10 pt above the tab bar on the bottom band (`chromeBand(.bottom)`);
     the hide-keyboard button is a glass circle beside it (not on the Mac).
-  - *Paper*: the tab bar and the reader's floating controls (selection actions, Back, a reference's outcome) sit on
-    the bottom band, which fades the page's last lines; the page itself stops above the band and below the title
-    bar. (Running it under them changed the page's own viewport, which reading positions and heading and citation
-    jumps are measured in: returning to a place and landing on a reference failed.)
+  - *Paper*: the page sits between the title bar and the tab bar's room; the reader's floating controls (selection
+    actions, Back, a reference's outcome) float over its last lines on the bottom band, which also fades the page
+    under the tab bar. The page's viewport never changes size as controls come and go: reading positions and
+    heading and citation jumps are measured in it (running the page under the tab bar, or shrinking it for the
+    selection bar, moved the reading position near a paper's end).
   - *Surfaces* (`chromeSurface`): Liquid Glass on iOS 26, a material with a hairline and soft shadow before it.
     With Reduce Transparency every surface is solid (secondary system background with a separator hairline) and
     every band is the plain background.
