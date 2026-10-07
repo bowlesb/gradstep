@@ -28,11 +28,11 @@ private final class AuthenticationModelServer: @unchecked Sendable {
             case "/rest/v1/rpc/v1_key_state":
                 if holdKeys { heldKeys = request; keysArrived.fulfill() }
                 else { respondKeys(request) }
-            case "/rest/v1/rpc/v4_library_page":
+            case "/rest/v1/rpc/v5_library_page":
                 request.respond(Data("""
                     {"format":2,"account_id":"\(account.wire)","baseline_cursor":0,"retained_after":0,"entries":[],"next_cursor":null,"has_more":false}
                     """.utf8))
-            case "/rest/v1/rpc/v4_library_changes":
+            case "/rest/v1/rpc/v5_library_changes":
                 request.respond(Data("""
                     {"format":2,"account_id":"\(account.wire)","through":0,"retained_after":0,"changes":[],"next_cursor":0,"has_more":false}
                     """.utf8))

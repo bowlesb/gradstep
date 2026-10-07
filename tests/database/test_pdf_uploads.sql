@@ -28,7 +28,7 @@ select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,1000
 select test.reject($q$select public.worker_claim_stale_pdf_uploads(10)$q$,'permission denied');
 reset role;
 set role anon;
-select test.reject('select public.v4_library_page()','permission denied');
+select test.reject('select public.v5_library_page()','permission denied');
 select test.reject($q$select public.v1_import_pdf_sources(gen_random_uuid())$q$,'permission denied');
 reset role;
 
@@ -79,15 +79,24 @@ select test.assert((select stage='download' and owner_id=:'A' and revision=1 and
 select test.assert((select metadata->>'title'='Uploaded PDF' from app_private.catalog_metadata where source_id='upload:'||:'U1'),'the catalog keeps a neutral placeholder');
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
-select test.assert(exists(select 1 from jsonb_array_elements(public.v4_library_page()->'entries') e where e->>'source'='upload' and e->'metadata'->>'title'='A workshop draft'),
- 'v4 shows the upload');
+select test.assert(exists(select 1 from jsonb_array_elements(public.v5_library_page()->'entries') e where e->>'source'='upload' and e->'metadata'->>'title'='A workshop draft'),
+ 'v5 shows the upload');
 select test.assert(not exists(select 1 from jsonb_array_elements(public.v3_library_page()->'entries') e where e->>'source'='upload')
  and not exists(select 1 from jsonb_array_elements(public.v2_library_page()->'entries') e where e->>'source'='upload'),'v2/v3 never see uploads');
 select test.assert(not exists(select 1 from jsonb_array_elements(public.v3_library_changes(0)->'changes') c, jsonb_array_elements(c->'entries') e where e->>'source'='upload')
- and exists(select 1 from jsonb_array_elements(public.v4_library_changes(0)->'changes') c, jsonb_array_elements(c->'entries') e where e->>'source'='upload'),
+ and exists(select 1 from jsonb_array_elements(public.v5_library_changes(0)->'changes') c, jsonb_array_elements(c->'entries') e where e->>'source'='upload'),
  'changes by read level');
+-- Compact v4 (031) carries the upload too; its metadata and query rows show the owner's own title.
+select public.v4_library_page() as v4 \gset
+select (select e->>'metadata_id' from jsonb_array_elements(:'v4'::jsonb->'entries') e where e->>'source'='upload') as upmeta \gset
+select test.assert(:'upmeta' is not null and not exists(select 1 from jsonb_array_elements(:'v4'::jsonb->'entries') e where e ? 'metadata'),'compact v4 upload entry');
+select public.v4_library_metadata((:'v4'::jsonb->>'dataset_epoch')::uuid,array[:'upmeta'::uuid]) as hydrated \gset
+select test.assert(:'hydrated'::jsonb->'records'->0->>'source'='upload' and :'hydrated'::jsonb->'records'->0->'metadata'->>'title'='A workshop draft','v4 metadata: the owner title');
+select test.assert((public.v4_library_query('{"text":"workshop draft","source":"upload"}')->'rows'->0->'summary'->>'title')='A workshop draft'
+ and jsonb_array_length(public.v4_library_query('{"text":"Uploaded PDF"}')->'rows')=0,'v4 queries find the owner title, not the placeholder');
 select set_config('request.jwt.claim.sub',:'B',false);
-select test.assert(jsonb_array_length(public.v4_library_page()->'entries')=0,'another account sees nothing');
+select test.assert(jsonb_array_length(public.v5_library_page()->'entries')=0,'another account sees nothing');
+select test.reject(format('select public.v4_library_metadata(%L,array[%L]::uuid[])',:'v4'::jsonb->>'dataset_epoch',:'upmeta'),'library_metadata_unavailable');
 reset role;
 
 -- The worker verifies the bytes before they become the private original.
@@ -133,7 +142,7 @@ reset role;
 -- The same bytes through arXiv (a private, non-CC copy) never resolve onto the upload-pinned item.
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
-select public.v2_begin_import('31000000-0000-0000-0000-0000000000b1','2006.11239',(public.v4_library_page()->>'baseline_cursor')::bigint);
+select public.v2_begin_import('31000000-0000-0000-0000-0000000000b1','2006.11239',(public.v5_library_page()->>'baseline_cursor')::bigint);
 reset role;
 select id as ax from app_private.pipeline_papers where owner_id is null and source_id='2006.11239' \gset
 update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day';
@@ -163,7 +172,7 @@ select test.assert((select phase='membership_conflict' and library_item_id is nu
 -- supplies that same import, which is retried at once.
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
-select public.v2_begin_web_import('31000000-0000-0000-0000-0000000000c1','openalex:W3100000001',(public.v4_library_page()->>'baseline_cursor')::bigint);
+select public.v2_begin_web_import('31000000-0000-0000-0000-0000000000c1','openalex:W3100000001',(public.v5_library_page()->>'baseline_cursor')::bigint);
 reset role;
 select id as w from app_private.pipeline_papers where owner_id is null and source_id='openalex:W3100000001' \gset
 update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day';
@@ -279,11 +288,20 @@ reset role;
 
 -- Account deletion removes upload sessions (their titles are personal) and returns their objects.
 \set U6 '31000000-0000-0000-0000-0000000000a6'
+\set U7 '31000000-0000-0000-0000-0000000000a7'
 set role service_role;
 select public.worker_begin_pdf_upload(:'B',:'U6',:'sha2',2000,'paper',null,null,null,'Private draft title');
+select public.worker_begin_pdf_upload(:'B',:'U7',:'sha1',1000,'paper',null,null,null,'Another private title');
+select public.worker_finalize_pdf_upload(:'B',:'U7',0,1000);
+reset role;
+select test.assert((select summary->>'title'='Another private title' from app_private.library_query_metadata
+ where metadata_id=(select id from app_private.catalog_metadata where source_id='upload:'||:'U7')),'query projection has the title');
+set role service_role;
 select public.worker_delete_account_begin(:'B') as deleted \gset
 reset role;
 select test.assert(not exists(select 1 from app_private.pdf_uploads where account_id=:'B'),'upload rows deleted');
+select test.assert((select summary->>'title'='Uploaded PDF' from app_private.library_query_metadata
+ where metadata_id=(select id from app_private.catalog_metadata where source_id='upload:'||:'U7')),'the query projection forgets the title');
 select test.assert(exists(select 1 from jsonb_array_elements(:'deleted'::jsonb->'objects') o where o->>'bucket'='paper-uploads' and o->>'path'=:'B'||'/'||:'U6'||'.pdf')
  and exists(select 1 from jsonb_array_elements(:'deleted'::jsonb->'prefixes') p where p->>'bucket'='paper-uploads' and p->>'prefix'=:'B'||'/'),
  'upload objects and folder returned for removal');

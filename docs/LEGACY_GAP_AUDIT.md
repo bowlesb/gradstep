@@ -70,6 +70,10 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 
 ### 3. Add papers that aren't on arXiv
 
+> **Update 2026-10-07:** built (not deployed): Add takes a DOI or any link, PDFs upload from Files or by drag and
+> drop, failed web imports can be downloaded on the device, and a Share extension queues PDFs and links. Bulk folder
+> import is not done. See [PDF uploads](architecture/PDF_UPLOADS.md).
+
 - **Legacy:** the upload sheet took a dropped or chosen PDF, or any PDF URL (`components/UploadModal.tsx`,
   `app/api/upload/route.ts`, `app/api/ingest/route.ts:15-104`), plus bulk folder import (`ingest-local.sh`). External
   search returned Semantic Scholar open-access PDFs as well as arXiv (`lib/paper-search.ts:357-396`).

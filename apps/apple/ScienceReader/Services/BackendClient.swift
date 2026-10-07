@@ -114,8 +114,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var refreshTask: (generation: UInt64, task: Task<AuthSession, Error>)?
     private var authGeneration: UInt64 = 0
     private let network: URLSession
-    /// Library read version: 4 (uploads), or 3 on a server that doesn't have v4 yet.
-    private var libraryReadVersion = 4
+    /// Library read version: 5 (full entries with uploads), or 3 on a server that doesn't have v5 yet.
+    private var libraryReadVersion = 5
     private let authNetwork: URLSession
     private let credentials: any AuthenticationCredentialStore
     private var credentialCleanupAttempt: UUID?
@@ -351,8 +351,9 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Library pages use their bounded wire decoder and keep the reconciler's
     /// original account/session/request ticket through the transport boundary.
-    /// v4 reads include the reader's uploads (migration 033) and v3 web papers (v2, for older builds,
-    /// leaves both out). A server without v4 yet is read at v3 (no uploads exist there) for this client's life.
+    /// v5 reads (v3's full entries) include the reader's uploads (migration 033), and v3 web papers (v2, for
+    /// older builds, leaves both out; v4 is the compact format with separate metadata, not used here yet). A
+    /// server without v5 yet is read at v3 (no uploads exist there) for this client's life.
     func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
         let function: String, body: Data
         switch request.query {
@@ -369,7 +370,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         do {
             data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
                                         maximumResponseBytes: LibraryWire.maximumPageBytes, libraryErrors: true)
-        } catch is LibraryReadVersionMissing where libraryReadVersion == 4 {
+        } catch is LibraryReadVersionMissing where libraryReadVersion == 5 {
             libraryReadVersion = 3
             return try await libraryPage(request)
         }
@@ -929,7 +930,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
             }
-            // PostgREST: no such function (a server before migration 033 has no v4 reads).
+            // PostgREST: no such function (a server before migration 033 has no v5 reads).
             if libraryErrors, response.statusCode == 404, failure?.code == "PGRST202" { throw LibraryReadVersionMissing() }
             if libraryCommandErrors {
                 if response.statusCode == 401 { throw BackendError.signInRequired }

@@ -1,5 +1,5 @@
 -- Adding a paper must be "absolutely bullet proof" (owner, 2026-10-07). Design:
--- docs/architecture/PDF_UPLOADS.md. Additive over 008/010/014/016/017/019/027/029/030.
+-- docs/architecture/PDF_UPLOADS.md. Additive over 008/010/014/016/017/019/027/029/030/031/032.
 --
 -- 1. Add by any identifier or link: a rate rule for functions/v1/add-paper (identification
 --    without a model; imports go through the existing begin RPCs).
@@ -16,9 +16,11 @@
 --    known web paper that isn't openly available. A supplied PDF is keyed by (account, source): the
 --    account's private paper for that source uses the newest finalized upload at download.
 -- 4. Uploaded papers' titles are personal: they live on the upload row (deleted with the account)
---    and replace the catalog's neutral placeholder in the owner's library entries. Installed builds
---    read v3 and never see upload entries (they reject an unknown source); v4 reads return them.
---    An import never resolves onto an item a reader at its read version could not see.
+--    and replace the catalog's neutral placeholder in the owner's library entries, compact v4
+--    metadata (031) and v4 query rows (032). Installed builds read v3 and never see upload entries
+--    (they reject an unknown source); v5 reads (v3's full entries, every source) and compact v4
+--    reads (every source already) return them. An import never resolves onto an item a reader at
+--    its read version could not see.
 -- 5. A web paper with no open location now records its metadata and fails at download with
 --    `not_open` (resumable there), so a reader can supply the PDF to the same paper.
 --
@@ -130,6 +132,19 @@ begin
  return result;
 end $$;
 
+-- 032's per-metadata query projection for an uploaded paper: its personal metadata instead of the
+-- catalog's placeholder (`p_metadata`), or the placeholder again (null; account deletion). Only before
+-- or after any query entry references it (finalize, deletion), since entries point at the row.
+create function app_private.upload_query_projection(p_metadata_id uuid,p_metadata jsonb) returns void
+language plpgsql security definer set search_path='' as $$
+declare m app_private.catalog_metadata;
+begin
+ select * into strict m from app_private.catalog_metadata where id=p_metadata_id and source_id like 'upload:%';
+ if p_metadata is not null then m.metadata:=p_metadata; end if;
+ delete from app_private.library_query_metadata where metadata_id=m.id;
+ perform app_private.library_query_metadata_project(m);
+end $$;
+
 -- Begins (or resumes) an upload session. Service role: called by functions/v1/upload-pdf for the
 -- authenticated account, which then signs an upload URL for the returned path.
 create function public.worker_begin_pdf_upload(p_account_id uuid,p_upload_id uuid,p_sha256 bytea,p_byte_count bigint,p_target text,
@@ -217,7 +232,9 @@ begin
   select * into i from app_private.import_requests where account_id=a and id=u.import_id;
   if not found or i.source_id<>u.source_id then raise exception 'upload_target_unavailable'; end if;
   if i.desired_present and i.phase='failed' and i.retryable then
-   result:=app_private.library_import_command(a,u.id,u.import_id,u.expected_revision,true);
+   -- The reader asked to supply this import's PDF: retry it at its current revision (it is still wanted,
+   -- failed and retryable; a revision seen before an automatic retry must not strand the upload).
+   result:=app_private.library_import_command(a,u.id,u.import_id,i.intent_revision,true);
   elsif i.desired_present and i.phase in ('accepted','resolving','acquiring') then
    -- Already running again: its paper uses the upload when it reaches the download.
    result:=app_private.library_command_response(a,jsonb_build_object('status','attached','kind','import','id',i.id,'revision',i.intent_revision),false);
@@ -234,7 +251,10 @@ begin
   if (select count(*) from app_private.import_requests where account_id=a and desired_present and phase in ('accepted','resolving','acquiring'))+1>p.account_active_imports
   or (select count(*) from app_private.import_requests where desired_present and phase in ('accepted','resolving','acquiring'))+1>p.environment_active_imports
   then raise exception 'library_active_import_limit'; end if;
-  if u.target='paper' then meta:=app_private.record_upload_metadata(u.id); end if;
+  if u.target='paper' then
+   meta:=app_private.record_upload_metadata(u.id);
+   perform app_private.upload_query_projection(meta,u.metadata);
+  end if;
   s:=app_private.library_next_seq(a);
   -- An uploaded paper's import starts with its (neutral) catalog identity; its paper starts at download.
   insert into app_private.import_requests(account_id,id,request_sha256,source_id,requested_revision,observed_cursor,created_seq,state_seq,metadata_id,progress)
@@ -545,8 +565,8 @@ create or replace function app_private.library_item_entry(a uuid,p_id uuid) retu
  left join app_private.library_asset_projection ap on (ap.account_id,ap.item_id)=(li.account_id,li.id) where li.account_id=a and li.id=p_id
 $$;
 
--- 019's baseline and delta by read level: 2 (arXiv), 3 (+ web), 4 (+ uploads). The 019 functions keep
--- their signatures for any caller and never return uploads.
+-- 019's baseline and delta by read level: 2 (arXiv), 3 (+ web), 4 (+ uploads; served as v5 because v4
+-- is the compact format of migration 031). The 019 functions keep their signatures and never return uploads.
 create function app_private.library_entry_level(p_entry jsonb) returns integer language sql immutable set search_path='' as $$
  select case p_entry->>'source' when 'web' then 3 when 'upload' then 4 else 2 end
 $$;
@@ -611,11 +631,11 @@ $$;
 create or replace function app_private.library_delta_for(a uuid,p_after bigint,p_through bigint,p_limit integer,p_web boolean) returns jsonb language sql stable security definer set search_path='' as $$
  select app_private.library_delta_at(a,p_after,p_through,p_limit,case when p_web then 3 when p_web is not null then 2 end)
 $$;
-create function public.v4_library_page(p_cursor jsonb default null,p_limit integer default 100) returns jsonb language plpgsql security definer set search_path='' as $$
+create function public.v5_library_page(p_cursor jsonb default null,p_limit integer default 100) returns jsonb language plpgsql security definer set search_path='' as $$
 declare a uuid:=app_private.require_actor(); result jsonb;
 begin perform public.worker_consume_request(a,'library-read'); result:=app_private.library_baseline_at(a,p_cursor,p_limit,4);
  perform app_private.consume_library_transfer(a,result); return result; end $$;
-create function public.v4_library_changes(p_after bigint,p_through bigint default null,p_limit integer default 100) returns jsonb language plpgsql security definer set search_path='' as $$
+create function public.v5_library_changes(p_after bigint,p_through bigint default null,p_limit integer default 100) returns jsonb language plpgsql security definer set search_path='' as $$
 declare a uuid:=app_private.require_actor(); result jsonb;
 begin perform public.worker_consume_request(a,'library-read'); result:=app_private.library_delta_at(a,p_after,p_through,p_limit,4);
  perform app_private.consume_library_transfer(a,result); return result; end $$;
@@ -672,6 +692,57 @@ begin
  if item_id is not null then e:=e||jsonb_build_array(app_private.library_item_entry(p_account_id,item_id)); end if;
  perform app_private.library_emit(p_account_id,s,e);
  return app_private.library_import_entry(p_account_id,i.id);
+end $$;
+
+-- 031's metadata hydration, plus uploaded papers: source `upload` and the owner's own metadata.
+create or replace function app_private.library_v4_metadata(a uuid,p_dataset_epoch uuid,p_metadata_ids uuid[]) returns jsonb
+language plpgsql stable security definer set search_path='' as $$
+declare epoch uuid; result jsonb;
+begin
+ select dataset_epoch into strict epoch from app_private.library_v4_config where singleton;
+ if p_dataset_epoch is distinct from epoch then raise exception 'library_resync_required'; end if;
+ if p_metadata_ids is null or coalesce(array_ndims(p_metadata_ids),1)<>1 or cardinality(p_metadata_ids)>24
+  or exists(select 1 from unnest(p_metadata_ids) id where id is null)
+  or (select count(distinct id) from unnest(p_metadata_ids) id)<>cardinality(p_metadata_ids)
+ then raise exception 'invalid_library_metadata_request'; end if;
+ if exists(select 1 from unnest(p_metadata_ids) requested(id)
+  where not exists(select 1 from app_private.library_v4_entries e where e.account_id=a and e.metadata_id=requested.id)
+   or not exists(select 1 from app_private.catalog_metadata m where m.id=requested.id))
+ then raise exception 'library_metadata_unavailable' using errcode='42501'; end if;
+ select jsonb_build_object('format',4,'dataset_epoch',epoch,'account_id',a,'records',coalesce(jsonb_agg(
+  jsonb_build_object('metadata_id',m.id,'version_id',m.version_id,
+   'source',case when m.source_id like 'openalex:%' then 'web' when m.source_id like 'upload:%' then 'upload' else 'arxiv' end,
+   'source_id',m.source_id,'source_revision',m.source_revision,
+   'metadata',case when m.source_id like 'upload:%' then coalesce(app_private.upload_metadata(a,m.source_id),m.metadata) else m.metadata end,
+   'recorded_at',m.recorded_at)
+  order by requested.ordinality),'[]'::jsonb)) into result
+ from unnest(p_metadata_ids) with ordinality requested(id,ordinality) join app_private.catalog_metadata m on m.id=requested.id;
+ return result;
+end $$;
+
+-- 032's query filters, plus `source: upload` (a reader's own PDFs).
+create or replace function app_private.library_query_spec(p jsonb) returns jsonb
+language plpgsql immutable set search_path='' as $$
+declare q text; terms text[]; s text; d text; a text; src text; tag text;
+begin
+ if p is null or jsonb_typeof(p)<>'object' or octet_length(p::text)>4096
+  or (p-'text'-'sort'-'direction'-'archive'-'source'-'tag')<>'{}'::jsonb
+  or exists(select 1 from jsonb_each(p) where jsonb_typeof(value)<>'string') then raise exception 'invalid_library_query'; end if;
+ q:=coalesce(p->>'text','');
+ if octet_length(q)>512 then raise exception 'invalid_library_query'; end if;
+ select coalesce(array_agg(t order by t collate "C"),'{}') into terms from (
+  select distinct t from regexp_split_to_table(app_private.library_search_normalize(q) collate pg_catalog.pg_c_utf8,'[[:space:]]+') t where t<>''
+ ) x;
+ if cardinality(terms)>16 then raise exception 'invalid_library_query'; end if;
+ s:=coalesce(p->>'sort','recent'); d:=coalesce(p->>'direction',case when s='title' then 'asc' else 'desc' end);
+ a:=coalesce(p->>'archive','active'); src:=coalesce(p->>'source','all');
+ if s not in ('recent','title','year') or d not in ('asc','desc') or a not in ('active','archived','all') or src not in ('all','arxiv','web','upload')
+ then raise exception 'invalid_library_query'; end if;
+ if p ? 'tag' then
+  if octet_length(p->>'tag') not between 1 and 120 then raise exception 'invalid_library_query'; end if;
+  tag:=lower((p->>'tag') collate pg_catalog.pg_c_utf8);
+ end if;
+ return jsonb_build_object('terms',to_jsonb(terms),'sort',s,'direction',d,'archive',a,'source',src,'tag',tag);
 end $$;
 
 -- 030's wanted versions, without uploaded papers (their neutral catalog identity has nothing to tag,
@@ -741,7 +812,10 @@ begin
  update app_private.stored_objects set state='deleting'
  where id in (select id from app_private.account_deletion_objects(p_account_id)) and state in ('pending','verified');
 
- -- Upload sessions (their objects are owner-scoped and returned below).
+ -- Upload sessions (their objects are owner-scoped and returned below), and their titles in the v4 query
+ -- projection (its account rows went with library_sync_state above).
+ perform app_private.upload_query_projection(cm.id,null) from app_private.pdf_uploads u
+  join app_private.catalog_metadata cm on cm.source_id='upload:'||u.id::text where u.account_id=p_account_id and u.target='paper';
  delete from app_private.pdf_uploads where account_id=p_account_id;
 
  return jsonb_build_object('account_id',p_account_id,
@@ -760,7 +834,7 @@ revoke all on all functions in schema app_private from public,anon,authenticated
 do $$ declare f record; begin
  for f in select p.oid::regprocedure signature,p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
  and p.proname in ('worker_begin_pdf_upload','worker_finalize_pdf_upload','v1_import_pdf_sources','worker_pipeline_upload_original',
-  'worker_pipeline_upload_rejected','worker_claim_stale_pdf_uploads','worker_confirm_pdf_uploads_deleted','v4_library_page','v4_library_changes',
+  'worker_pipeline_upload_rejected','worker_claim_stale_pdf_uploads','worker_confirm_pdf_uploads_deleted','v5_library_page','v5_library_changes',
   'worker_pipeline_web_metadata','worker_pipeline_sync_imports','worker_resolve_import','worker_delete_account_begin') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role',f.signature);
   execute format('grant execute on function %s to %I',f.signature,case when f.proname like 'worker_%' then 'service_role' else 'authenticated' end);

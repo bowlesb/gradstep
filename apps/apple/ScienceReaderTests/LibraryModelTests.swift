@@ -71,10 +71,10 @@ private final class LibraryModelServer: @unchecked Sendable {
     func handle(_ request: StubProtocol) {
         lock.withLock {
             switch request.request.url!.lastPathComponent {
-            case "v4_library_page":
+            case "v5_library_page":
                 if failBaseline { failBaseline = false; request.respond(Data("{}".utf8), status: 503) }
                 else { request.respond(baseline()) }
-            case "v4_library_changes":
+            case "v5_library_changes":
                 let body = fields(request.request)
                 let after = body["p_after"] as? Int ?? 0, through = body["p_through"] as? Int ?? cursor
                 let rows = libraryChanges.filter { $0.0 > after && $0.0 <= through }

@@ -74,15 +74,19 @@ named by Add (`openalex:W…`); finalize creates its web import. A supplied PDF 
 account's private paper for that source uses the newest finalized upload when it reaches download. Web papers are
 always private, so a reader's bytes are never shared or reused by another account.
 
-**Uploaded papers in the library.** A new source kind `upload` appears only in **v4** reads (`v4_library_page`,
-`v4_library_changes`); v3 (installed builds) and v2 never return upload entries, and an import never resolves onto an
-item its read version can't see (`source_level`: arXiv 2, web 3, upload 4; generalizes 019's rule). Entries carry
+**Uploaded papers in the library.** A new source kind `upload` appears only in **v5** reads (`v5_library_page`,
+`v5_library_changes`: v3's full entries, every source; the app reads v5 and falls back to v3 on a server without it)
+and in the compact **v4** reads of migration 031 (every source already; `v4_library_metadata` returns `source: upload`
+and the owner's title, and 032's query projection and `source: upload` filter use it too). v3 (installed builds) and v2
+never return upload entries, and an import never resolves onto an item its read version can't see (`source_level`:
+arXiv 2, web 3, upload 4; generalizes 019's rule). Entries carry
 `source: "upload"`, `source_url: null`, revision 1. The **title is personal**: it lives on the upload row (from the
 PDF's own title, else the file name; the reader's typed title when known) and replaces the catalog's neutral
 "Uploaded PDF" placeholder in the owner's entries and the reader attribution ("… uploaded by its reader. Converted for
 the personal use of one Gradstep account; not redistributed."). Upload rows are deleted with the account; their
 objects are owner-scoped, so account deletion already returns them for removal (and the `paper-uploads/<account>/`
-folder). Uploaded papers are not sent for catalog tagging. Approval policy `owner-upload-v1`.
+folder), and the v4 query projection of their titles goes back to the placeholder. Uploaded papers are not sent for
+catalog tagging. Approval policy `owner-upload-v1`.
 
 **Closed web papers.** A work with no open PDF now records its metadata and splits privately; its private paper
 fails at download as **`not_open`** (resumable, no automatic retry), so the reader can supply the PDF to the same paper.
@@ -127,12 +131,12 @@ credits, and "Added …").
 ## Tests
 
 - Database `tests/database/test_pdf_uploads.sql`: owner-only access, validation, size, credits, quota, limits,
-  idempotent begin and finalize (also after the object is gone), stored size, v2/v3/v4 visibility, worker
+  idempotent begin and finalize (also after the object is gone), stored size, v2/v3/v5 visibility, compact v4 metadata and queries, worker
   verification and provenance, conversion metered and resolved, the read-level rule (arXiv bytes never adopt an
   upload item), device fallback on a `not_open` import, closed paper by source, supersession, janitor, account deletion.
 - Backend `tests/backend/add-paper.test.ts`, `pdf-uploads.test.ts`, `web-source.test.ts` (closed works), account deletion prefixes.
 - App: `PaperAddingTests`, `PDFUploadTests`, `DevicePDFFetcherTests`, `ShareInboxTests`, `LibraryTransportTests`
-  (v4 with v3 fallback), Core `LibraryReconcilerTests` (upload entries). UI: `AddPaperFlowTests` (`--add-paper-fixture`,
+  (v5 with v3 fallback), Core `LibraryReconcilerTests` (upload entries). UI: `AddPaperFlowTests` (`--add-paper-fixture`,
   `--share-inbox-fixture`): DOI, link, upload, closed paper, device fallback, device refused, shared items.
 
 ## Not done

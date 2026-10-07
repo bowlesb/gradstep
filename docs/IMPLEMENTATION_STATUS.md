@@ -244,6 +244,19 @@ only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHi
 and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
 `chat-history-actions`. Not yet seen with a real signed-in history or on a device.
 
+## Adding any paper (2026-10-07, built, not deployed)
+
+Owner: "adding a pdf needs to be absolutely bullet proof." Add takes an arXiv ID, a DOI or any link
+(`functions/v1/add-paper`); PDFs upload from Files, by drag and drop, or through Share › Gradstep, into private
+upload sessions (migration `202610070033_pdf_uploads.sql`, `functions/v1/upload-pdf`, bucket `paper-uploads`)
+verified by the Cloud Run worker and converted privately with credits; failed web imports a website refused
+offer Download on this device. Uploaded papers reach the app through new v5 library reads (and compact v4).
+Design: [PDF uploads](architecture/PDF_UPLOADS.md). Verified locally only: database suites including
+`test_pdf_uploads.sql`, backend tests, app/Core unit tests, `AddPaperFlowTests` UI journeys with scripted
+fixtures (Simulator). Not yet: deployment (migration, two functions, bucket, worker), provisioning for the Share
+extension (App Group, new App ID, profiles), a real upload or device download against staging, the Share
+extension through the system share sheet, a device check.
+
 ## Verified locally
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private

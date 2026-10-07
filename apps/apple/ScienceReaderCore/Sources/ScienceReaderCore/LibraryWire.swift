@@ -480,7 +480,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let versionID: UUID?
     public let metadata: LibraryMetadata?
     public let metadataRecordedAt: LibraryTimestamp?
-    /// The paper's page (arXiv, or OpenAlex for a web paper). Nil only for a reader's own upload (v4 reads).
+    /// The paper's page (arXiv, or OpenAlex for a web paper). Nil only for a reader's own upload (v5 reads).
     public let sourceURL: String?
     public let documentID: UUID?
     public let libraryItemID: UUID?
@@ -751,7 +751,7 @@ private func arxivURL(_ source: String, _ revision: Int?) -> String {
 
 /// Where a library paper came from. v3 library reads carry arXiv papers and web
 /// papers: open-access copies found through OpenAlex (`openalex:W…`, revision 1),
-/// converted privately for this account. v4 reads add the reader's own PDF uploads
+/// converted privately for this account. v5 reads add the reader's own PDF uploads
 /// (`upload:<uuid>`, revision 1, no source page). v2 reads (older builds) carry arXiv only.
 public enum LibrarySource {
     public static let arxiv = "arxiv", web = "web", upload = "upload"
