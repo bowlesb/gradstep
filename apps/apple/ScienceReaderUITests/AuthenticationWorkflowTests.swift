@@ -124,6 +124,7 @@ final class AuthenticationWorkflowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Restore your private library"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["auth.close"].exists, "Recovery follows accepted sheet dismissal")
         XCTAssertFalse(app.staticTexts["Save your recovery code"].exists, "Existing key state must not create fresh keys")
+        XCTAssertTrue(app.buttons["recovery.fromPasswords"].exists, "A code saved in Passwords can fill the recovery field")
         _ = recoverySignOut(app)
         capture("Accepted nil-email account requires recovery")
     }

@@ -270,3 +270,24 @@ October's staging provider cap raised to **$25** (from $9.80; within the $30/mon
 Mon/Wed/Fri plus a weekly heavy suite (~$6/month); free checks every 6 hours and after deploys. Failures email the
 owner. See [workflow checks](architecture/WORKFLOW_CHECKS.md).
 
+
+## Recovery code in Apple Passwords (owner asked 2026-10-06)
+
+Owner: "can we build an integration with Apple password manager so its easy for users to sync the retrieval password
+into Apple". The recovery code is needed only on a device that has no approved device to approve it (an approved
+device can approve a new one), not on every sign-in.
+
+- The recovery screen offers **Save to Passwords**: the code is saved as a password for `gradstep.ai` (title
+  "Gradstep recovery code", user name = the account email) through the system prompt
+  (`ASCredentialDataManager.save` on iOS 26.2+, `SecAddSharedWebCredential` before). Saving also ticks "I saved this
+  code". It is optional; copying the code still works.
+- On a new device, **Use code saved in Passwords** asks the system to offer passwords saved for `gradstep.ai`
+  (`ASAuthorizationPasswordProvider`) and fills the field; the field also accepts Password AutoFill.
+- Requires the `webcredentials:gradstep.ai` associated domain (App ID capability enabled; `gradstep.ai/.well-known/
+  apple-app-site-association` lists the app) and the "Gradstep App Store" profile.
+- Apple documents iCloud Keychain (which Passwords uses) as end-to-end encrypted; Gradstep's server still never receives the code. Anyone who can
+  open the person's Passwords can read the code, as with any password they store there.
+- Evidence (2026-10-06, iPhone Simulator): **Use code saved in Passwords** runs and reports "No saved recovery code was
+  filled" when none exists; **Save to Passwords** on a fresh staging account opens Apple's password-saving sheet, which
+  the Simulator closes because it has no iCloud Keychain. Saving and filling on a real device is not yet verified
+  (physical iPhone work is paused).

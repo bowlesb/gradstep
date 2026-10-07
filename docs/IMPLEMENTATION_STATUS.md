@@ -149,6 +149,8 @@ before/after. Not yet seen with a real signed-in library or on a device.
   DPO output, chat validation/pricing/settlement, renderer hostile-input and tamper checks, Mathpix,
   archive, arXiv).
 - Swift: ScienceReaderCore package tests (166) and app unit tests (248, 3 skipped; 2026-10-05 library metadata view); iPhone and iPad UI suites.
+- Recovery code ↔ Apple Passwords (2026-10-06, Simulator only): fill-from-Passwords handles "none saved"; Save to
+  Passwords reaches Apple's save sheet, which the Simulator can't complete without iCloud Keychain. Needs a device check.
 
 ## Foundations from earlier checkpoints (still true)
 
