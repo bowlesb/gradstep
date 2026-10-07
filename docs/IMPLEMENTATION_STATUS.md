@@ -177,6 +177,17 @@ only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHi
 and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
 `chat-history-actions`. Not yet seen with a real signed-in history or on a device.
 
+**Passage-linked conversations** (owner request 2026-10-07, [decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible),
+legacy gap 1): selection actions save a `TextAnchor` (artifact, block, quote, 32 characters each side) inside the
+conversation's encrypted event (wire format unchanged); **Go to passage** from the chat's title menu, its "…" menu
+and All chats opens the paper, lands on the passage with Back, and falls back to the legacy text-search cascade on
+another conversion ("Couldn't find the passage…" when nothing matches); passages with chats are underlined (CSS
+custom highlights, no DOM change) and a tap opens the chat, or a chooser when several share it; Settings › Reading can
+hide the underlines; All chats shows the passage as a wide row's second line. Verified in the Simulator only (iPhone
+17 Pro, iPad Pro 11"): Core `PassageAnchorTests`, app `PaperPassageTests` (bridge: context, cascade, short quotes,
+formulas, marks vs selection/citations/layout/position, taps, native request), UI `PassageJourneyTests`; screenshots
+light, dark and iPad. Not yet seen with real synced history, on a device, in the browser reader or run on the Mac.
+
 ## Verified locally
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
