@@ -235,8 +235,13 @@ final class ReaderModel {
                 paperChatCounts = counts
                 if librarySort.field == .chats { librarySearchSourceChanged() }
             }
+            let summaries = privateState.conversationSummaries()
+            if summaries != conversationSummaries { conversationSummaries = summaries }
         }
     }
+    /// All chats' rows: one summary per saved conversation, computed once per history change (one pass over the
+    /// decrypted events, on this device).
+    private(set) var conversationSummaries: [ConversationSummary] = []
     /// Saved conversations per paper, from the private state (deleted ones excluded).
     private(set) var paperChatCounts: [UUID: Int] = [:]
     /// This device's reading activity per paper: last opened here and progress at the saved
@@ -1838,6 +1843,31 @@ final class ReaderModel {
         activeConversation = id; tab = .chat
     }
 
+    /// Deleting needs this account's encrypted history on the device (not the signed-out sample or a fixture).
+    var canDeleteConversations: Bool { store != nil && device != nil && !workOwnership.isActivating }
+
+    /// Deletes a saved conversation everywhere: a durable tombstone in the encrypted history, which hides it (and its
+    /// diagrams) on every device once synced and blocks continuing it. Its unsent follow-up text stays recoverable
+    /// as a draft. The encrypted records remain until account deletion; the service never could read them.
+    func deleteConversation(_ id: UUID) async {
+        guard privateState.revisions(for: id).first?.payload.kind == .conversation,
+              let store, let device, accountID == device.accountID, !workOwnership.isActivating else { return }
+        let scope = sessionID, storeScope = workOwnership.storeScope, persistence = localPersistence, deviceID = device.deviceID
+        // The visible chat moves to a new one in the same context rather than showing a deleted conversation.
+        if activeConversation == id { newChat(general: generalChat) }
+        do {
+            let entry = [(id: UUID(), event: PrivateEvent(kind: .tombstone, entityID: id, createdAt: PrivateEvent.timestamp(Date())))]
+            let write = try persistence.acceptWrite { local in try await local.appendBatch(entry, deviceID: deviceID) }
+            _ = try await write.value
+            let snapshot = await store.snapshot()
+            guard sessionID == scope else { return }
+            if workOwnership.owns(storeScope) { publish(snapshot) }
+            Task { if self.sessionID == scope { await self.synchronize() } }
+        } catch {
+            if sessionID == scope, workOwnership.owns(storeScope) { show(error) }
+        }
+    }
+
     func openUnsentDraft(_ id: UUID) {
         guard let draft = unsentDrafts.first(where: { $0.id == id }) else { return }
         let documentID = draft.context.hasPrefix("paper/") ? UUID(uuidString: String(draft.context.dropFirst(6))) : nil
@@ -1989,12 +2019,16 @@ final class ReaderModel {
         do {
             guard let checkpoint = submission.checkpoint else { throw ReaderError.invalidEvent }
             var events: [(id: UUID, event: PrivateEvent)] = []
+            // Encrypted with the event; All chats shows it as Started / Last used.
+            let createdAt = PrivateEvent.timestamp(Date())
             if let root = submission.rootID {
-                events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID, text: String(submission.text.prefix(100)))))
+                events.append((root, PrivateEvent(kind: .conversation, entityID: submission.conversationID, documentID: documentID,
+                    text: String(submission.text.prefix(100)), createdAt: createdAt)))
                 parents = [root]
             }
             events.append((submission.id, PrivateEvent(kind: .message, entityID: submission.id, parents: parents,
-                conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete)))
+                conversationID: submission.conversationID, documentID: documentID, text: submission.text, role: .user, status: .complete,
+                createdAt: createdAt)))
             let batch = events
             let committing = try persistence.acceptWrite { local in
                 try await local.commitDraftSubmission(batch, deviceID: device.deviceID,
@@ -2232,7 +2266,8 @@ final class ReaderModel {
         if let diagram {
             let diagramID = UUID()
             batch.append((id: diagramID, event: PrivateEvent(kind: .diagram, entityID: diagramID, conversationID: generation.turn.conversationID,
-                                                             documentID: generation.turn.documentID, text: diagram.encodedText())))
+                                                             documentID: generation.turn.documentID, text: diagram.encodedText(),
+                                                             createdAt: generation.createdAt)))
         }
         let entries = batch
         let envelopes: [EventEnvelope]
@@ -2596,6 +2631,7 @@ final class ReaderModel {
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
         openSample()
+        if Self.chatHistoryFixtureEnabled { try await installChatHistoryFixture(into: local, deviceID: fixtureDevice.deviceID) }
         let snapshot = await local.snapshot()
         prepareDrafts(snapshot: snapshot, scope: sessionID)
         publish(snapshot)

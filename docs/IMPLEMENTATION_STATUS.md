@@ -149,6 +149,14 @@ Simulator only (iPhone 17 Pro Max, iPad Pro 13"): unit tests for formatting, sor
 `library-detailed`, `library-metadata-list` in light/dark/XL and landscape; the default List is pixel-identical
 before/after. Not yet seen with a real signed-in library or on a device.
 
+**All chats as a table** (owner request 2026-10-07, [decision](DECISIONS.md#all-chats-as-a-table-owner-asked-2026-10-07)):
+a dense, sortable table of conversations (Conversation, Paper, Messages, Started, Last used; newest first), search,
+All · Paper chats · General, unsent drafts on top, Open paper and Delete (a conversation tombstone, confirmed first).
+New events carry an encrypted `createdAt`; older history shows "—" and sorts by arrival. Verified in the Simulator
+only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHistoryTests`, UI `ChatHistoryTableTests`
+and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
+`chat-history-actions`. Not yet seen with a real signed-in history or on a device.
+
 ## Verified locally
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
