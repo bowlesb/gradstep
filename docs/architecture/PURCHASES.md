@@ -4,10 +4,10 @@ Status: implemented and tested locally (migration `202610050018_app_store_purcha
 `app-store-notifications`, Settings › Get credits); App Store Connect products created. An independent review's findings were
 fixed. Not yet verified with a real sandbox purchase.
 
-**2026-10-07 spending-controls branch:** migration035 closes the concurrent Sandbox identity allowance gap and
+**2026-10-07 spending-controls branch:** migration036 closes the concurrent Sandbox identity allowance gap and
 requires a current or previously verified app-transaction identity for new free grants. This addition is not yet
-deployed. See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-035). The historical upgrade
-behavior below still conflicts with the owner's decision to retain earlier period credits;035 does not change it.
+deployed. See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036). The historical upgrade
+behavior below still conflicts with the owner's decision to retain earlier period credits;036 does not change it.
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
 pack = 400 credits that never expire; TestFlight testers get 1,000 credits by operator grant.
 
@@ -32,7 +32,7 @@ an older copy reported later can never undo a refund.
 | A subscription period that already ended (restored history) or a refunded first sight | Recorded, nothing granted |
 | Plan change mid-period (upgrade) | The new plan's credits are granted; the earlier plan's unspent credits end (Apple refunds its unused time). A replaced period reported later grants nothing |
 | Renewal-date extension | Recorded (periods up to 400 days); later refunds still apply |
-| Sandbox purchase (TestFlight, sandbox testers: free) | At most 1,000 new credits per account and verified Apple app-transaction identity per UTC month. Migration035 serializes admission; missing identity grants zero with an audit reason. Refunds do not replenish the allowance |
+| Sandbox purchase (TestFlight, sandbox testers: free) | At most 1,000 new credits per account and verified Apple app-transaction identity per UTC month. Migration036 serializes admission; missing identity grants zero with an audit reason. Refunds do not replenish the allowance |
 | Unknown product, wrong type, family sharing | Refused (`unknown_product`, `unsupported`) |
 
 There is no separate mutable "entitlement" whose state could be regressed by an out-of-order or re-signed

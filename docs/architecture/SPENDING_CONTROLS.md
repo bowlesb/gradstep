@@ -18,7 +18,7 @@ The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST
 
 ## Coordinated rollout
 
-Provider attempt admission (033), complete asset accounting and bounded delivery (034), Sandbox identity allowances (035), and owner investigation APIs (036) are additive. Existing applied migrations stay immutable. Drain old workers before enabling new accounting: rejecting their final writes cannot undo already-sent provider calls or unregistered uploads. Verify vendor allowance baselines and reconcile the existing bucket inventory before enabling enforcement.
+Provider attempt admission (034), complete asset accounting and bounded delivery (035), Sandbox identity allowances (036), and owner investigation APIs (037) are additive. Existing applied migrations stay immutable. Drain old workers before enabling new accounting: rejecting their final writes cannot undo already-sent provider calls or unregistered uploads. Verify vendor allowance baselines and reconcile the existing bucket inventory before enabling enforcement.
 
 Existing Apple/web readers validate only Storage signed URLs. Implement and test dual-transport clients before retiring legacy issuance; existing downloaded bundles remain readable offline. The legacy path cannot be described as a hard replay cap, and a cutover needs explicit minimum-client handling plus expiry of previously issued URLs.
 
@@ -32,7 +32,7 @@ Track fixed commitments, infrastructure observations and invoice adjustments wit
 
 Sandbox purchases require a stable verified Apple app-transaction identity for new free credit grants; missing identity grants no Sandbox credits and is inspectable. Production signature/receipt behavior is unchanged. Serialize both account/month and Apple-identity/month consumption; refunds do not replenish the free allowance. The existing upgrade-credit policy discrepancy is a separate product-policy reconciliation, not permission to silently change owner-approved allowances.
 
-### Sandbox allowance implementation (035)
+### Sandbox allowance implementation (036)
 
 Every Sandbox app report, notification, restore and refund reversal acquires the single Sandbox `store_policy`
 row `FOR UPDATE` before transaction, original-purchase-owner, account and credit-bucket locks. This deliberately

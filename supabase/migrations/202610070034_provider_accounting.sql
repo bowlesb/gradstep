@@ -135,13 +135,13 @@ begin
 end $$;
 
 alter function public.worker_reserve_operation(uuid,uuid,text,bytea,text,bigint,bigint) set schema app_private;
-alter function app_private.worker_reserve_operation(uuid,uuid,text,bytea,text,bigint,bigint) rename to reserve_operation_before_033;
+alter function app_private.worker_reserve_operation(uuid,uuid,text,bytea,text,bigint,bigint) rename to reserve_operation_before_034;
 create function public.worker_reserve_operation(p_account_id uuid,p_id uuid,p_kind text,p_request_sha256 bytea,
  p_rate_version text,p_credits bigint,p_microusd bigint) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare result jsonb;
 begin
- result:=app_private.reserve_operation_before_033(p_account_id,p_id,p_kind,p_request_sha256,p_rate_version,p_credits,p_microusd);
+ result:=app_private.reserve_operation_before_034(p_account_id,p_id,p_kind,p_request_sha256,p_rate_version,p_credits,p_microusd);
  if exists(select 1 from app_private.accounts where id=p_account_id and spending_suspended) then raise exception 'spending_suspended'; end if;
  return result;
 end $$;
@@ -327,7 +327,7 @@ begin
 end $$;
 
 alter function public.worker_settle_operation(uuid,uuid,bigint,bigint) set schema app_private;
-alter function app_private.worker_settle_operation(uuid,uuid,bigint,bigint) rename to settle_operation_before_033;
+alter function app_private.worker_settle_operation(uuid,uuid,bigint,bigint) rename to settle_operation_before_034;
 create function public.worker_settle_operation(p_account_id uuid,p_id uuid,p_actual_credits bigint,p_actual_microusd bigint) returns void
 language plpgsql security definer set search_path='' as $$
 declare op app_private.metered_operations; known bigint; liability bigint;
@@ -335,7 +335,7 @@ begin
  op:=app_private.provider_lock_operation(p_account_id,p_id);
  if p_actual_microusd is null or p_actual_microusd<0 then raise exception 'invalid_settlement'; end if;
  if not op.attempt_accounting then
-  perform app_private.settle_operation_before_033(p_account_id,p_id,p_actual_credits,p_actual_microusd); return;
+  perform app_private.settle_operation_before_034(p_account_id,p_id,p_actual_credits,p_actual_microusd); return;
  end if;
  if op.state='settled' then
   if op.actual_credits is distinct from p_actual_credits or op.settlement_reported_microusd is distinct from p_actual_microusd
@@ -343,7 +343,7 @@ begin
  end if;
  select coalesce(sum(actual_microusd),0),coalesce(sum(ceiling_microusd) filter(where state in ('admitted','unknown')),0)
   into known,liability from app_private.provider_attempts where account_id=p_account_id and operation_id=p_id;
- perform app_private.settle_operation_before_033(p_account_id,p_id,p_actual_credits,known);
+ perform app_private.settle_operation_before_034(p_account_id,p_id,p_actual_credits,known);
  update app_private.platform_budgets set reserved_microusd=reserved_microusd+liability,
   work_enabled=work_enabled and known+liability<=op.spend_ceiling_microusd where period=op.period;
  update app_private.metered_operations set provider_liability_microusd=liability,settlement_reported_microusd=p_actual_microusd
@@ -352,14 +352,14 @@ end $$;
 
 -- Preserve API compatibility without duplicating new per-attempt expenses.
 alter function public.worker_record_provider_usage(uuid,uuid,text,text,text,jsonb,bigint) set schema app_private;
-alter function app_private.worker_record_provider_usage(uuid,uuid,text,text,text,jsonb,bigint) rename to record_provider_usage_before_033;
+alter function app_private.worker_record_provider_usage(uuid,uuid,text,text,text,jsonb,bigint) rename to record_provider_usage_before_034;
 create function public.worker_record_provider_usage(p_account_id uuid,p_operation_id uuid,p_provider text,p_provider_event_id text,
  p_model text,p_units jsonb,p_microusd bigint) returns void
 language plpgsql security definer set search_path='' as $$
 begin
  if p_provider in ('anthropic','tavily','mathpix') and exists(select 1 from app_private.provider_attempts
   where account_id=p_account_id and operation_id=p_operation_id and provider=p_provider and state<>'denied') then return; end if;
- perform app_private.record_provider_usage_before_033(p_account_id,p_operation_id,p_provider,p_provider_event_id,p_model,p_units,p_microusd);
+ perform app_private.record_provider_usage_before_034(p_account_id,p_operation_id,p_provider,p_provider_event_id,p_model,p_units,p_microusd);
 end $$;
 
 create function public.worker_provider_attempt_reconcile(p_actor_id uuid,p_request_id uuid,p_attempt_id uuid,
@@ -399,12 +399,12 @@ end $$;
 -- The DB spending guard commits with the owner request, before the separate Auth
 -- API. Replaying an old disable must not undo a newer enable (or vice versa).
 alter function public.worker_admin_set_sign_in(uuid,uuid,uuid,boolean,text) set schema app_private;
-alter function app_private.worker_admin_set_sign_in(uuid,uuid,uuid,boolean,text) rename to admin_set_sign_in_before_033;
+alter function app_private.worker_admin_set_sign_in(uuid,uuid,uuid,boolean,text) rename to admin_set_sign_in_before_034;
 create function public.worker_admin_set_sign_in(p_actor_id uuid,p_request_id uuid,p_account_id uuid,p_disabled boolean,p_reason text) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare result jsonb; current_disabled boolean;
 begin
- result:=app_private.admin_set_sign_in_before_033(p_actor_id,p_request_id,p_account_id,p_disabled,p_reason);
+ result:=app_private.admin_set_sign_in_before_034(p_actor_id,p_request_id,p_account_id,p_disabled,p_reason);
  if not (result->>'replayed')::boolean then update app_private.accounts set spending_suspended=p_disabled where id=p_account_id; end if;
  select spending_suspended into strict current_disabled from app_private.accounts where id=p_account_id;
  return result||jsonb_build_object('disabled',current_disabled,'spending_suspended',current_disabled);
@@ -498,14 +498,14 @@ begin
 end $$;
 
 alter function public.worker_pipeline_submitted(uuid,text,text) set schema app_private;
-alter function app_private.worker_pipeline_submitted(uuid,text,text) rename to pipeline_submitted_before_033;
+alter function app_private.worker_pipeline_submitted(uuid,text,text) rename to pipeline_submitted_before_034;
 create function public.worker_pipeline_submitted(p_attempt_id uuid,p_provider_job_id text,p_uncertain_reason text default null) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare x app_private.ocr_attempts; a app_private.provider_attempts; result jsonb;
 begin
  select * into strict x from app_private.ocr_attempts where id=p_attempt_id;
  perform app_private.pipeline_money_lock(x.paper_id);
- result:=app_private.pipeline_submitted_before_033(p_attempt_id,p_provider_job_id,p_uncertain_reason);
+ result:=app_private.pipeline_submitted_before_034(p_attempt_id,p_provider_job_id,p_uncertain_reason);
  select * into a from app_private.provider_attempts where id=x.id;
  if found and p_provider_job_id is not null and a.provider_request_id is distinct from p_provider_job_id then
   if a.provider_request_id is not null then raise exception 'provider_job_conflict'; end if;
@@ -560,7 +560,7 @@ begin
 end $$;
 
 alter function public.worker_pipeline_resolve_uncertain(uuid,text,integer) set schema app_private;
-alter function app_private.worker_pipeline_resolve_uncertain(uuid,text,integer) rename to pipeline_resolve_before_033;
+alter function app_private.worker_pipeline_resolve_uncertain(uuid,text,integer) rename to pipeline_resolve_before_034;
 create function public.worker_pipeline_resolve_uncertain(p_attempt_id uuid,p_provider_job_id text,p_pages_billed integer) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare x app_private.ocr_attempts;
@@ -570,22 +570,22 @@ begin
  if p_provider_job_id is null and exists(select 1 from app_private.provider_attempts where id=x.id and state<>'reconciled')
  then raise exception 'provider_reconciliation_required'; end if;
  if p_provider_job_id is not null and x.provider_job_id is not null and x.provider_job_id<>p_provider_job_id then raise exception 'provider_job_conflict'; end if;
- return app_private.pipeline_resolve_before_033(p_attempt_id,p_provider_job_id,p_pages_billed);
+ return app_private.pipeline_resolve_before_034(p_attempt_id,p_provider_job_id,p_pages_billed);
 end $$;
 
 -- These existing stage implementations settle while holding paper/attempt rows.
 -- Acquire their financial/account locks before entering them.
 alter function public.worker_pipeline_collected(uuid,uuid,bigint,integer,bytea,bigint) set schema app_private;
-alter function app_private.worker_pipeline_collected(uuid,uuid,bigint,integer,bytea,bigint) rename to pipeline_collected_before_033;
+alter function app_private.worker_pipeline_collected(uuid,uuid,bigint,integer,bytea,bigint) rename to pipeline_collected_before_034;
 create function public.worker_pipeline_collected(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_pages_reported integer,
  p_raw_manifest_sha256 bytea,p_raw_manifest_bytes bigint) returns jsonb
 language plpgsql security definer set search_path='' as $$
 begin
  perform app_private.pipeline_money_lock(p_paper_id);
- return app_private.pipeline_collected_before_033(p_paper_id,p_claim_id,p_generation,p_pages_reported,p_raw_manifest_sha256,p_raw_manifest_bytes);
+ return app_private.pipeline_collected_before_034(p_paper_id,p_claim_id,p_generation,p_pages_reported,p_raw_manifest_sha256,p_raw_manifest_bytes);
 end $$;
 alter function public.worker_pipeline_ocr_failed(uuid,uuid,bigint,text,integer) set schema app_private;
-alter function app_private.worker_pipeline_ocr_failed(uuid,uuid,bigint,text,integer) rename to pipeline_ocr_failed_before_033;
+alter function app_private.worker_pipeline_ocr_failed(uuid,uuid,bigint,text,integer) rename to pipeline_ocr_failed_before_034;
 create function public.worker_pipeline_ocr_failed(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_error_code text,p_pages_billed integer) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare page_cap integer;
@@ -595,26 +595,26 @@ begin
  -- This endpoint is only for unusable output of a completed job. Its full
  -- provider-enforced page cap is expensed; partial progress never releases money.
  if p_pages_billed is distinct from page_cap then raise exception 'provider_reconciliation_required'; end if;
- return app_private.pipeline_ocr_failed_before_033(p_paper_id,p_claim_id,p_generation,p_error_code,p_pages_billed);
+ return app_private.pipeline_ocr_failed_before_034(p_paper_id,p_claim_id,p_generation,p_error_code,p_pages_billed);
 end $$;
 alter function public.worker_pipeline_abandon_funding(uuid,uuid,bigint,text) set schema app_private;
-alter function app_private.worker_pipeline_abandon_funding(uuid,uuid,bigint,text) rename to pipeline_abandon_before_033;
+alter function app_private.worker_pipeline_abandon_funding(uuid,uuid,bigint,text) rename to pipeline_abandon_before_034;
 create function public.worker_pipeline_abandon_funding(p_paper_id uuid,p_claim_id uuid,p_generation bigint,p_error_code text) returns jsonb
 language plpgsql security definer set search_path='' as $$
 begin
  perform app_private.pipeline_money_lock(p_paper_id);
- return app_private.pipeline_abandon_before_033(p_paper_id,p_claim_id,p_generation,p_error_code);
+ return app_private.pipeline_abandon_before_034(p_paper_id,p_claim_id,p_generation,p_error_code);
 end $$;
 
 -- Tag claim is already a one-shot grant, including its platform-funded hold.
 update app_private.tag_policy set hold_microusd=40000;
 alter function public.worker_tags_claim(uuid,integer,boolean,text) set schema app_private;
-alter function app_private.worker_tags_claim(uuid,integer,boolean,text) rename to tags_claim_before_033;
+alter function app_private.worker_tags_claim(uuid,integer,boolean,text) rename to tags_claim_before_034;
 create function public.worker_tags_claim(p_claim_id uuid,p_limit integer,p_model boolean,p_vocabulary text) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare result jsonb; item jsonb; t app_private.catalog_tags; op app_private.metered_operations; admission jsonb; final_result jsonb:='[]';
 begin
- result:=app_private.tags_claim_before_033(p_claim_id,p_limit,p_model,p_vocabulary);
+ result:=app_private.tags_claim_before_034(p_claim_id,p_limit,p_model,p_vocabulary);
  for item in select value from jsonb_array_elements(result) loop
   if (item->>'model')::boolean then
    select * into strict t from app_private.catalog_tags where version_id=(item->>'version_id')::uuid;
@@ -632,7 +632,7 @@ begin
  return final_result;
 end $$;
 alter function public.worker_tags_record(uuid,uuid,uuid,text[],text,text,text,bytea,text,jsonb,bigint,boolean) set schema app_private;
-alter function app_private.worker_tags_record(uuid,uuid,uuid,text[],text,text,text,bytea,text,jsonb,bigint,boolean) rename to tags_record_before_033;
+alter function app_private.worker_tags_record(uuid,uuid,uuid,text[],text,text,text,bytea,text,jsonb,bigint,boolean) rename to tags_record_before_034;
 create function public.worker_tags_record(p_version_id uuid,p_claim_id uuid,p_metadata_id uuid,p_tags text[],p_method text,p_vocabulary text,
  p_model text,p_input_sha256 bytea,p_provider_event_id text,p_units jsonb,p_microusd bigint,p_model_attempted boolean) returns jsonb
 language plpgsql security definer set search_path='' as $$
@@ -647,7 +647,7 @@ begin
   perform public.worker_provider_attempt_finish(t.operation_account_id,t.operation_id,t.operation_id,state,p_provider_event_id,
    case when state='unknown' then null else p_microusd end,units,case when state='unknown' then 'provider_usage_unknown' else null end);
  end if;
- return app_private.tags_record_before_033(p_version_id,p_claim_id,p_metadata_id,p_tags,p_method,p_vocabulary,p_model,p_input_sha256,
+ return app_private.tags_record_before_034(p_version_id,p_claim_id,p_metadata_id,p_tags,p_method,p_vocabulary,p_model,p_input_sha256,
   p_provider_event_id,p_units,p_microusd,p_model_attempted);
 end $$;
 
@@ -662,7 +662,7 @@ begin
   execute format('revoke all on app_private.%I from public,anon,authenticated,service_role',r.relname);
  end loop;
  for r in select p.oid::regprocedure signature,n.nspname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-  where (n.nspname='app_private' and (p.proname like '%before_033' or p.proname in ('valid_provider_units','provider_lock_operation','provider_attempt_apply','pipeline_money_lock')))
+  where (n.nspname='app_private' and (p.proname like '%before_034' or p.proname in ('valid_provider_units','provider_lock_operation','provider_attempt_apply','pipeline_money_lock')))
    or (n.nspname='public' and p.proname in ('worker_reserve_operation','worker_settle_operation','worker_record_provider_usage','worker_admin_set_sign_in',
     'worker_provider_spending_policy','worker_provider_allowance_configure','worker_provider_attempt_begin','worker_provider_attempt_finish','worker_provider_attempt_reconcile',
     'worker_pipeline_begin_submit','worker_pipeline_submitted','worker_pipeline_ocr_uncertain','worker_pipeline_resolve_uncertain',

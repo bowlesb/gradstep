@@ -1,6 +1,6 @@
 # Paper storage and delivery spending
 
-Status: implementation in progress, 2026-10-07. This is the contract for migration 034 and the worker/client
+Status: implementation in progress, 2026-10-07. This is the contract for migration 035 and the worker/client
 transition. It does not describe a deployed limit. The [cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md)
 identified incomplete storage accounting and replayable reader URLs (F5/F6).
 
