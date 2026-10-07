@@ -495,6 +495,16 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try JSONDecoder().decode(AddReferenceResult.self, from: data)
     }
 
+    /// Add by any identifier or link (a DOI, a landing page or PDF link, a reference): the server
+    /// identifies the paper and queues it as this account's own import, or says what this device can
+    /// do next (upload the PDF, download it here). No credits.
+    func addPaper(_ query: String, accountID: UUID) async throws -> AddPaperResult {
+        struct Body: Encodable { let operation_id: String; let query: String; let capabilities: [String] }
+        let body = try JSONEncoder().encode(Body(operation_id: UUID().wire, query: String(query.prefix(2_000)), capabilities: ["web_import", "pdf_upload"]))
+        let data = try await authorized(path: "functions/v1/add-paper", body: body, accountID: accountID, maximumResponseBytes: 65_536)
+        return try JSONDecoder().decode(AddPaperResult.self, from: data)
+    }
+
     /// Newest arXiv submissions in one category (Feed).
     func feed(category: String, accountID: UUID) async throws -> [DiscoveryResult] {
         guard category.range(of: "^[a-z]{2,8}(-[a-z]{2,6})?(\\.[A-Z]{2})?$", options: .regularExpression) != nil else { throw BackendError.unavailable }

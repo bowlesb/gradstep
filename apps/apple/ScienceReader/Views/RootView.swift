@@ -1173,66 +1173,6 @@ struct RecoveryView: View {
     }
 }
 
-struct ImportPaperView: View {
-    @Bindable var model: ReaderModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var input = ""
-    @State private var saving = false
-    @State private var issue: String?
-
-    private func add() {
-        saving = true; issue = nil
-        Task {
-            defer { saving = false }
-            do { try await model.importPaper(input); dismiss() }
-            catch is CancellationError { }
-            catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
-            catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
-            catch { issue = "Couldn’t save this import. Your link is still here." }
-        }
-    }
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Paper link") {
-                    TextField("arXiv link or ID", text: $input).keyboardType(.URL)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityIdentifier("import.reference")
-                        .disabled(saving)
-                    if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
-                }
-                if model.librarySignInRequired {
-                    Section {
-                        Text("Sign in to add papers to your library.").font(.footnote).foregroundStyle(.secondary)
-                        Button("Sign in") { dismiss(); model.openSignIn() }
-                    }
-                } else if !model.canChangeLibrary {
-                    Section { Text("Finish setting up this device to add papers.").font(.footnote).foregroundStyle(.secondary) }
-                } else if !model.libraryHasSnapshot {
-                    Section {
-                        Text("Refresh your library before adding a paper.").font(.footnote).foregroundStyle(.secondary)
-                        Button("Refresh library") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
-                    }
-                }
-            }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving).macBarButton() }
-                    // Design audit 2: a task sheet confirms in the top bar.
-                    ToolbarItem(placement: .confirmationAction) {
-                        if saving { ProgressView() } else {
-                            Button("Add") { add() }
-                                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canBeginImport)
-                                .accessibilityIdentifier("import.add")
-                        }
-                    }
-                }
-                .onSubmit { if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.canBeginImport { add() } }
-                .interactiveDismissDisabled(saving)
-                .macSheetKeys(enabled: !saving)
-        }
-    }
-}
-
 /// arXiv search results for the Library's "arXiv" segment. Adding stays in
 /// search and appears as a pending import in the library.
 struct DiscoveryList: View {

@@ -2154,6 +2154,32 @@ final class ReaderModel {
         }
     }
 
+    // MARK: Add by any identifier or link, and PDF uploads (docs/architecture/PDF_UPLOADS.md)
+
+    /// The Add sheet's and uploads' network calls for the signed-in account (a script in UI fixtures).
+    var addingService: (any PaperAddingService)? {
+        #if DEBUG && FIXTURE_HOST
+        if let fixture = AddPaperFixture.service { return fixture }
+        #endif
+        guard let backend, let accountID else { return nil }
+        return BackendPaperAdding(backend: backend, accountID: accountID)
+    }
+
+    /// The Add sheet's lookup for anything but an arXiv ID: the server identifies it and queues it as
+    /// this account's import, or says what to do next. Nil when signed out or after an account change.
+    func addPaperOutcome(_ query: String) async -> AddOutcome? {
+        guard let service = addingService else { return nil }
+        let scope = sessionID
+        do {
+            let result = try await service.addPaper(query)
+            guard sessionID == scope else { return nil }
+            if result.status == "added" { Task { await refreshLibrary() } }
+            return AddOutcome.from(result)
+        } catch {
+            return sessionID == scope && !(error is CancellationError) ? .unavailable : nil
+        }
+    }
+
     /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Ask about this
     /// quotes it into the composer; Explain and Define ask about it as a new question in this chat.
     enum ChatQuoteAction { case ask, explain, define }

@@ -36,7 +36,8 @@
     "store-sync",
     "app-store-notifications",
     "add-reference",
-    "admin-accounts"
+    "admin-accounts",
+    "add-paper"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,
