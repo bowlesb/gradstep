@@ -162,7 +162,9 @@ struct PaperView: View {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && targetEnvironment(simulator)
                                          if model.readerDocumentScope == readerScope { OfflineResourceProbe.shared.finish(.readerReady) }
                                          #endif
-                                     }, paperLine: paper.publicationLine, citationReturnID: citationReturnID, onCitation: { active in
+                                     }, paperLine: paper.publicationLine, paperTags: paper.tags,
+                                     onTags: { if model.readerDocumentScope == readerScope { model.editTags(for: paper) } },
+                                     citationReturnID: citationReturnID, onCitation: { active in
                                          if model.readerDocumentScope == readerScope { citationBack = active }
                                      }, onReference: { value in
                                          if model.readerDocumentScope == readerScope { reference = value }
@@ -214,6 +216,9 @@ struct PaperView: View {
                         }
                         .controlGroupStyle(.compactMenu)
                         MenuRow("Ask about this paper", systemImage: "bubble.left") { model.askAboutSelectedPaper() }
+                        if let paper = model.selectedPaper, !paper.isSample {
+                            MenuRow("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
+                        }
                         MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) }
                     } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Paper options")
                 }
@@ -403,6 +408,9 @@ struct PaperWebView: UIViewRepresentable {
     var onReady: () -> Void = {}
     /// One secondary line under the authors (year · venue · source); nil shows none.
     var paperLine: String? = nil
+    /// The paper's tags as small chips under that line (docs/architecture/TAGS.md); a tap calls `onTags`.
+    var paperTags: [String] = []
+    var onTags: () -> Void = {}
     /// A new value returns from a citation jump to the reading position.
     var citationReturnID: UUID? = nil
     /// True while the reader can go back from a citation jump.
@@ -446,8 +454,11 @@ struct PaperWebView: UIViewRepresentable {
         // The line is placed before the first layout, so restoring a position never shifts.
         let line = figureID == nil ? paperLine.flatMap { try? JSONEncoder().encode($0) } : nil
         context.coordinator.appliedPaperLine = line == nil ? nil : paperLine
+        let tags = figureID == nil ? try? JSONEncoder().encode(paperTags) : nil
+        context.coordinator.appliedPaperTags = tags == nil ? [] : paperTags
         let prelude = "window.__readerBundleConfig = " + (bundle == nil ? "null" : String(decoding: json, as: UTF8.self)) + ";\n"
             + "window.__readerPaperLine = " + (line.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
+            + "window.__readerPaperTags = " + (tags.map { String(decoding: $0, as: UTF8.self) } ?? "null") + ";\n"
         configuration.userContentController.addUserScript(WKUserScript(source: prelude + script,
             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
@@ -475,6 +486,7 @@ struct PaperWebView: UIViewRepresentable {
         context.coordinator.clearSelectionIfNeeded(in: web)
         context.coordinator.returnFromCitationIfNeeded(in: web)
         context.coordinator.applyPaperLine(in: web)
+        context.coordinator.applyPaperTags(in: web)
         // Math fit depends on the text size, so refit only when it changes
         // (compared here: WebKit rounds the size it stores).
         if context.coordinator.appliedFontSize != fontSize {
@@ -509,6 +521,7 @@ struct PaperWebView: UIViewRepresentable {
         /// After a citation jump the saved place stays where reading left off.
         private var citationActive = false
         var appliedPaperLine: String?
+        var appliedPaperTags: [String] = []
         init(_ parent: PaperWebView) {
             self.parent = parent; lastSelectionClearID = parent.selectionClearID; lastCitationReturnID = parent.citationReturnID
         }
@@ -541,6 +554,9 @@ struct PaperWebView: UIViewRepresentable {
                 guard ready, let state = body["state"] as? String, state == "jumped" || state == "ended" else { return }
                 citationActive = state == "jumped"
                 parent.onCitation(citationActive)
+            case "tags":
+                guard ready, parent.figureID == nil else { return }
+                parent.onTags()
             case "reference":
                 guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
                       let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }
@@ -615,6 +631,14 @@ struct PaperWebView: UIViewRepresentable {
             guard parent.figureID == nil, appliedPaperLine != parent.paperLine else { return }
             appliedPaperLine = parent.paperLine
             web.callAsyncJavaScript("window.__scienceReaderSetPaperLine(line);", arguments: ["line": parent.paperLine ?? NSNull()],
+                                    in: nil, in: .defaultClient, completionHandler: nil)
+        }
+
+        /// Tags can arrive or change while the paper is open (tagging, an edit on another device).
+        func applyPaperTags(in web: WKWebView) {
+            guard parent.figureID == nil, appliedPaperTags != parent.paperTags else { return }
+            appliedPaperTags = parent.paperTags
+            web.callAsyncJavaScript("window.__scienceReaderSetPaperTags(tags);", arguments: ["tags": parent.paperTags],
                                     in: nil, in: .defaultClient, completionHandler: nil)
         }
 

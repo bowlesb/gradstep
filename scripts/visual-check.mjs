@@ -4,6 +4,7 @@
 //
 //   node scripts/visual-check.mjs capture --label=before [--scenarios=chat-keyboard,store|all]
 //        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl] [--landscape]
+//        [--device-ids=iphone:<udid>,ipad:<udid>] [--derived=/private/tmp/…]   (an agent's own Simulators and build folder)
 //   node scripts/visual-check.mjs compare --before=before --after=after
 //   node scripts/visual-check.mjs sheet --label=after
 //
@@ -33,7 +34,8 @@ const tool = () => {
 if (command === 'capture') {
   const label = args.label ?? 'current', scenarios = args.scenarios ?? 'all';
   const devices = (args.devices ?? 'iphone,ipad').split(','), variants = (args.variants ?? 'light,dark').split(',');
-  const derived = join(root, '.artifacts/visual-derived');
+  for (const pair of (args['device-ids'] ?? '').split(',').filter(Boolean)) { const [name, udid] = pair.split(':'); DEVICES[name] = udid; }
+  const derived = args.derived ?? join(root, '.artifacts/visual-derived');
   execFileSync('xcodegen', ['generate'], { cwd: join(root, 'apps/apple'), stdio: 'ignore' });
   console.log('Building for testing…');
   run('xcodebuild', ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug',

@@ -22,11 +22,13 @@ extension LocalLibraryCommand {
         case .cancelImport: "Cancel import"
         case .retryImport: "Retry import"
         case .setArchived(_, let archived, _): archived ? "Archive" : "Unarchive"
+        case .setTags: "Edit tags"
         case nil:
             switch successor {
             case .cancelImport: "Cancel import"
             case .setMembership(let present, _): present ? "Undo removal" : "Undo addition"
             case .setArchived(let archived): archived ? "Undo unarchive" : "Undo archive"
+            case .setTags: "Edit tags"
             case nil: "Library change"
             }
         }

@@ -340,7 +340,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let deployment = try LibraryCommandScope(accountID: attempt.scope.accountID, deploymentID: config.url.absoluteString)
         guard attempt.scope == deployment else { throw LibraryCommandError.invalidScope }
         let request = attempt.request
-        guard ["v2_begin_import", "v2_set_library_item", "v2_cancel_import", "v2_retry_import", "v2_set_item_archived"].contains(request.endpoint),
+        guard ["v2_begin_import", "v2_set_library_item", "v2_cancel_import", "v2_retry_import", "v2_set_item_archived",
+                "v2_set_item_tags"].contains(request.endpoint),
               !request.body.isEmpty, request.body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
         let data = try await authorized(path: "rest/v1/rpc/\(request.endpoint)", body: request.body,
                                         accountID: attempt.scope.accountID, maximumResponseBytes: LibraryWire.maximumPageBytes,

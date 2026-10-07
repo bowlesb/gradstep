@@ -221,6 +221,8 @@ struct LibraryRowActions: View {
         switch entry {
         case .paper(let paper):
             if !paper.isSample {
+                Button("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
+                    .disabled(!model.canChangeLibrary)
                 let archived = model.isArchived(paper)
                 Button(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
                     Task { await model.setArchived(paper, archived: !archived) }

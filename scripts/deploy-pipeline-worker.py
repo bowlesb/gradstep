@@ -14,7 +14,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICE = 'gradstep-pipeline'
-SECRETS = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'PIPELINE_SECRET']
+# ANTHROPIC_API_KEY: Claude Haiku topic tags (docs/architecture/TAGS.md); the Science Reader key, as for chat.
+SECRETS = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'MATHPIX_APP_ID', 'MATHPIX_APP_KEY', 'PIPELINE_SECRET', 'ANTHROPIC_API_KEY']
 
 def dotenv(path):
     values = {}

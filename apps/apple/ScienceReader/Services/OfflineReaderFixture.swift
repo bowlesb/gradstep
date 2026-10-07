@@ -52,7 +52,7 @@ enum OfflineReaderFixture {
     }
 
     static func observation(variant: Variant) throws -> LibraryCompleteObservation {
-        let row: [String: Any] = ["kind": "item", "id": item.wire, "document_id": document.wire,
+        var row: [String: Any] = ["kind": "item", "id": item.wire, "document_id": document.wire,
             "created_seq": 1, "state_seq": 1, "membership_revision": 1, "visible": true,
             "added_at": "2026-10-03T10:00:00Z", "last_remove_seq": 0,
             "approval_id": "dddddddd-0000-4000-8000-000000000005", "version_id": "dddddddd-0000-4000-8000-000000000006",
@@ -66,6 +66,12 @@ enum OfflineReaderFixture {
             "scope": "shared_catalog", "page_count": variant == .authored ? 1 : 27, "original_object_id": "dddddddd-0000-4000-8000-000000000008",
             "artifact_id": artifact.wire, "readiness": "converted_ready", "original_availability": "available",
             "render_availability": "available", "original_availability_revision": 1, "render_availability_revision": 1]
+        if variant == .mathpix {
+            // Topic tags (migration 028): the catalog's, one the reader removed, and one of their own.
+            row["tags"] = ["Natural language processing", "Large language models", "Preference optimization", "Alignment", "Reward modeling"]
+            row["hidden_tags"] = ["Reward modeling"]
+            row["user_tags"] = ["Reading group"]
+        }
         let baseline: [String: Any] = ["format": 2, "account_id": account.wire, "baseline_cursor": 1, "retained_after": 0,
             "entries": [row], "has_more": false, "next_cursor": ["format": 2, "account_id": account.wire, "through": 1,
                 "created_seq": 1, "id": item.wire, "kind": "item"]]

@@ -247,6 +247,15 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
     /// Migration 020: present (true) only while archived — hidden from the default list, still in the library.
     public let archived: Bool?
     public var isArchived: Bool { archived == true && visible }
+    /// Migration 028 (each present only while visible and non-empty): the catalog's topic tags for this
+    /// paper, the reader's own tags, and the catalog tags the reader removed.
+    public let tags: [String]?
+    public let userTags: [String]?
+    public let hiddenTags: [String]?
+    /// What the reader sees (`PaperTags.effective`).
+    public var effectiveTags: [String] {
+        PaperTags.effective(catalog: tags ?? [], own: userTags ?? [], hidden: hiddenTags ?? [])
+    }
 
     /// A descriptor/download still needs current server authorization. These
     /// are presentation capabilities from the last committed row projection.
@@ -281,7 +290,8 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
         case sourceURL = "source_url", pageCount = "page_count", originalObjectID = "original_object_id", artifactID = "artifact_id"
         case originalAvailability = "original_availability", renderAvailability = "render_availability"
         case originalAvailabilityRevision = "original_availability_revision", renderAvailabilityRevision = "render_availability_revision"
-        case archived
+        case archived, tags
+        case userTags = "user_tags", hiddenTags = "hidden_tags"
     }
 
     func validate() throws {
@@ -291,6 +301,11 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
               renderAvailabilityRevision.map({ $0 >= 0 }) ?? true,
               (1...250).contains(pageCount) else { throw LibraryProtocolError.invalidEntry }
         try metadata?.validate()
+        // Bounded like the server's lists; the server sends each only when non-empty.
+        guard tags.map({ !$0.isEmpty && $0.count <= 16 && $0.allSatisfy { bounded($0, 120, minimum: 1) } }) ?? true,
+              userTags.map({ !$0.isEmpty && $0.count <= 32 && $0.allSatisfy { bounded($0, 120, minimum: 1) } }) ?? true,
+              hiddenTags.map({ !$0.isEmpty && $0.count <= 16 && $0.allSatisfy { bounded($0, 120, minimum: 1) } }) ?? true
+        else { throw LibraryProtocolError.invalidEntry }
         if approvalID == nil {
             guard versionID == nil, metadataID == nil, source == nil, sourceID == nil,
                   sourceRevision == nil, metadata == nil, metadataRecordedAt == nil, sourceURL == nil,
