@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="3300" height="2200">
+ <!--glyph: "gradstep.contents", point size: 100.0, template writer version: "Gradstep icon script 1"-->
+ <style>.monochrome-0 {-sfsymbols-motion-group:0}
+.monochrome-1 {-sfsymbols-motion-group:1}
+.hierarchical-0:primary {-sfsymbols-motion-group:0}
+.hierarchical-1:secondary {-sfsymbols-motion-group:1}
+</style>
+ <g id="Notes">
+  <rect height="2200" id="artboard" style="fill:white;opacity:1" width="3300" x="0" y="0"/>
+  <text id="template-version" style="stroke:none;fill:black;font-family:sans-serif;font-size:13;text-anchor:end;" transform="matrix(1 0 0 1 3036 1933)">Template v.3.0</text>
+  <text id="descriptive-name" style="stroke:none;fill:black;font-family:sans-serif;font-size:13;text-anchor:end;" transform="matrix(1 0 0 1 3036 1953)">gradstep.contents</text>
+ </g>
+ <g id="Guides">
+  <line id="Baseline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="696" y2="696"/>
+  <line id="Capline-S" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="625.541" y2="625.541"/>
+  <line id="Baseline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1126" y2="1126"/>
+  <line id="Capline-M" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1055.54" y2="1055.54"/>
+  <line id="Baseline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1556" y2="1556"/>
+  <line id="Capline-L" style="fill:none;stroke:#27AAE1;opacity:1;stroke-width:0.5;" x1="263" x2="3036" y1="1485.54" y2="1485.54"/>
+  <line id="left-margin-Regular-S" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="600" y2="720"/>
+  <line id="right-margin-Regular-S" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1466.200" x2="1466.200" y1="600" y2="720"/>
+  <line id="left-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="1030" y2="1150"/>
+  <line id="right-margin-Regular-M" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1484.000" x2="1484.000" y1="1030" y2="1150"/>
+  <line id="left-margin-Regular-L" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1391.000" x2="1391.000" y1="1460" y2="1580"/>
+  <line id="right-margin-Regular-L" style="fill:none;stroke:#00AEEF;stroke-width:0.5;opacity:1.0;" x1="1506.250" x2="1506.250" y1="1460" y2="1580"/>
+ </g>
+ <g id="Symbols">
+  <g id="Regular-S" transform="matrix(1 0 0 1 1391.000 696)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M23.600 -59.630 L70.000 -59.630 Q73.200 -59.630 73.200 -56.430 Q73.200 -53.230 70.000 -53.230 L23.600 -53.230 Q20.400 -53.230 20.400 -56.430 Q20.400 -59.630 23.600 -59.630 Z M23.600 -14.829 L70.000 -14.829 Q73.200 -14.829 73.200 -11.630 Q73.200 -8.430 70.000 -8.430 L23.600 -8.430 Q20.400 -8.430 20.400 -11.630 Q20.400 -14.829 23.600 -14.829 Z M34.800 -37.230 L70.000 -37.230 Q73.200 -37.230 73.200 -34.029 Q73.200 -30.830 70.000 -30.830 L34.800 -30.830 Q31.600 -30.830 31.600 -34.029 Q31.600 -37.230 34.800 -37.230 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M13.200 -56.430 C13.200 -53.337 10.693 -50.830 7.600 -50.830 C4.507 -50.830 2.000 -53.337 2.000 -56.430 C2.000 -59.522 4.507 -62.029 7.600 -62.029 C10.693 -62.029 13.200 -59.522 13.200 -56.430 Z"/>
+  </g>
+  <g id="Regular-M" transform="matrix(1 0 0 1 1391.000 1126)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M29.000 -65.730 L87.000 -65.730 Q91.000 -65.730 91.000 -61.730 Q91.000 -57.730 87.000 -57.730 L29.000 -57.730 Q25.000 -57.730 25.000 -61.730 Q25.000 -65.730 29.000 -65.730 Z M29.000 -9.730 L87.000 -9.730 Q91.000 -9.730 91.000 -5.730 Q91.000 -1.730 87.000 -1.730 L29.000 -1.730 Q25.000 -1.730 25.000 -5.730 Q25.000 -9.730 29.000 -9.730 Z M43.000 -37.730 L87.000 -37.730 Q91.000 -37.730 91.000 -33.730 Q91.000 -29.730 87.000 -29.730 L43.000 -29.730 Q39.000 -29.730 39.000 -33.730 Q39.000 -37.730 43.000 -37.730 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M16.000 -61.730 C16.000 -57.864 12.866 -54.730 9.000 -54.730 C5.134 -54.730 2.000 -57.864 2.000 -61.730 C2.000 -65.595 5.134 -68.730 9.000 -68.730 C12.866 -68.730 16.000 -65.595 16.000 -61.730 Z"/>
+  </g>
+  <g id="Regular-L" transform="matrix(1 0 0 1 1391.000 1556)">
+   <path class="monochrome-0 hierarchical-0:primary" d="M35.750 -73.355 L108.250 -73.355 Q113.250 -73.355 113.250 -68.355 Q113.250 -63.355 108.250 -63.355 L35.750 -63.355 Q30.750 -63.355 30.750 -68.355 Q30.750 -73.355 35.750 -73.355 Z M35.750 -3.355 L108.250 -3.355 Q113.250 -3.355 113.250 1.645 Q113.250 6.645 108.250 6.645 L35.750 6.645 Q30.750 6.645 30.750 1.645 Q30.750 -3.355 35.750 -3.355 Z M53.250 -38.355 L108.250 -38.355 Q113.250 -38.355 113.250 -33.355 Q113.250 -28.355 108.250 -28.355 L53.250 -28.355 Q48.250 -28.355 48.250 -33.355 Q48.250 -38.355 53.250 -38.355 Z"/>
+   <path class="monochrome-1 hierarchical-1:secondary" d="M19.500 -68.355 C19.500 -63.522 15.582 -59.605 10.750 -59.605 C5.918 -59.605 2.000 -63.522 2.000 -68.355 C2.000 -73.187 5.918 -77.105 10.750 -77.105 C15.582 -77.105 19.500 -73.187 19.500 -68.355 Z"/>
+  </g>
+ </g>
+</svg>

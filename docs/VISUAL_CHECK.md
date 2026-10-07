@@ -10,7 +10,7 @@ feedback from [test sessions](SESSION_REVIEW.md) and for any UI change.
 (no network, no account): `library`, `library-search`, `library-table`, `library-table-browse` (iPad landscape: the
 table in the Browse column), `library-detailed`, `library-metadata-list`, `library-slow-import`, `library-slow-import-table` (an import taking
 longer than usual, one a minute into downloading, one failed), `library-swipe`, `feed`, `feed-results` (the Feed's
-List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-keyboard`,
+List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-scrolled` (part-way up, messages passing under the floating chrome), `chat-keyboard`,
 `chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
 `chat-history`, `signin`; and over the real DPO fixture (`--offline-reader-fixture --mathpix-reader-fixture`) `paper-top` (publication line),
@@ -36,7 +36,10 @@ node scripts/visual-check.mjs compare --before=before --after=after
 ```
 
 - Devices: `iphone` (17 Pro), `small` (17e), `max` (17 Pro Max), `ipad` (Pro 11"), `ipad13` (Pro 13"), `mini` (iPad mini). Variants:
-  `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text). The status bar is pinned to 9:41 and full battery.
+  `light`, `dark`, `xxl` (the largest text below the accessibility sizes), `xl` (accessibility extra large text), `rt` (Reduce
+  Transparency, light). The status bar is pinned to 9:41 and full battery. Sessions running in parallel use their own
+  Simulators and build folder: `--udids=iphone:<UDID>,ipad:<UDID> --derived=/private/tmp/<dir>`; `--skip-build` reuses
+  that folder's last build.
 - Output: `.artifacts/visual/<label>/<device>-<variant>/<scenario>.png`, a contact sheet `<label>-sheet.png`, and
   for compare `compare-<before>-<after>/` with side-by-side images (before | after | changed pixels in red) and
   `report.md` sorted by the share of changed pixels. Over 0.3 % is flagged: confirm every flagged screen changed

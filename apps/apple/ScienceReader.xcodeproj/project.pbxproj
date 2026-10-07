@@ -83,6 +83,7 @@
 		82938CA5AC3674043DA6620B /* AuthenticationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298181C077A52AD1412AD0BD /* AuthenticationCoordinator.swift */; };
 		82A6ED991AFF099402257535 /* AuthenticationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CCA6B141496516544EC2620 /* AuthenticationView.swift */; };
 		8302B96AC73E77B70A85A0DF /* ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2673CB0144CC1585AD755137 /* ReportsView.swift */; };
+		83F0BEDE87879BCBFED01D59 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A4B62340948C8940C6CD5B5 /* Chrome.swift */; };
 		850ED8A2B16232D31D131836 /* AuthenticationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298181C077A52AD1412AD0BD /* AuthenticationCoordinator.swift */; };
 		85A35CD26D64E2734B3292D1 /* ReaderBundleLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030E1CFB76A0DFDEDF57638C /* ReaderBundleLoaderTests.swift */; };
 		8648D78ABCD4824DBD42A2EA /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
@@ -158,6 +159,7 @@
 		F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */; };
 		F3A9F9A825586ABD0390AADD /* SessionCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */; };
 		F4B046F9350393446D8DAE4E /* ChatConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4945661F367880A111DF5CF2 /* ChatConsentView.swift */; };
+		F55AB1B399C624013D9599B2 /* Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A4B62340948C8940C6CD5B5 /* Chrome.swift */; };
 		FB7517BB2F9EF4AAB69C6684 /* DiagramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F00A3E50BBA6CA58D4062C /* DiagramView.swift */; };
 		FC9AF62596891E66C27490B5 /* ReportComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB064A74942A4C0133B4BE8 /* ReportComposer.swift */; };
 		FCC586596B435AF7180731D7 /* ReaderSamples in Resources */ = {isa = PBXBuildFile; fileRef = 7B70D15BE449FE77F2DCF2AE /* ReaderSamples */; };
@@ -240,6 +242,7 @@
 		75DDCC2B7B9C8AD8C39EC24E /* AuthenticationBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationBackend.swift; sourceTree = "<group>"; };
 		7741ECADEE690DBE29C60740 /* DraftQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftQueueTests.swift; sourceTree = "<group>"; };
 		78F26AC3CC887892BFD85E25 /* offline-resource */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "offline-resource"; path = "ScienceReader/Resources/offline-resource"; sourceTree = SOURCE_ROOT; };
+		7A4B62340948C8940C6CD5B5 /* Chrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chrome.swift; sourceTree = "<group>"; };
 		7AE39314F13A59D175222F59 /* KeychainVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainVault.swift; sourceTree = "<group>"; };
 		7B70D15BE449FE77F2DCF2AE /* ReaderSamples */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ReaderSamples; path = ScienceReader/Resources/ReaderSamples; sourceTree = SOURCE_ROOT; };
 		7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionCaptureTests.swift; sourceTree = "<group>"; };
@@ -469,6 +472,7 @@
 				4945661F367880A111DF5CF2 /* ChatConsentView.swift */,
 				18AFED85CC085152AD2629AC /* ChatRichTextView.swift */,
 				82D2B07BF114FDBB8DCDE61D /* ChatTranscript.swift */,
+				7A4B62340948C8940C6CD5B5 /* Chrome.swift */,
 				14B7234D9A179E48ACEB0C02 /* CreditsStoreView.swift */,
 				16BB0761CB97647F552ADC5A /* DesignSystem.swift */,
 				09F00A3E50BBA6CA58D4062C /* DiagramView.swift */,
@@ -723,6 +727,7 @@
 				0388B27352FBB7F072C9DCAE /* ChatRichTextView.swift in Sources */,
 				142F91E67E1BB140E6BF9583 /* ChatTranscript.swift in Sources */,
 				C85C6F3BA0684808A9D3B155 /* ChatWorkspace.swift in Sources */,
+				83F0BEDE87879BCBFED01D59 /* Chrome.swift in Sources */,
 				7707551B28B8897B64FD97F1 /* ConversationBranchSelections.swift in Sources */,
 				00E25EDF3C88707B707DFEA3 /* CreditsStoreView.swift in Sources */,
 				B1713C47ADAC1C5C2F62FC21 /* DesignSystem.swift in Sources */,
@@ -837,6 +842,7 @@
 				B460865CD511CCB74668327C /* ChatRichTextView.swift in Sources */,
 				FD84D16563ED6E2867A32EAB /* ChatTranscript.swift in Sources */,
 				951EFA319EF9D270231D50C0 /* ChatWorkspace.swift in Sources */,
+				F55AB1B399C624013D9599B2 /* Chrome.swift in Sources */,
 				B64939D08D249131230E3C12 /* ConversationBranchSelections.swift in Sources */,
 				8B866AA9475B06F08942C935 /* CreditsStoreView.swift in Sources */,
 				792A6D98599A601613D2DEAA /* DesignSystem.swift in Sources */,

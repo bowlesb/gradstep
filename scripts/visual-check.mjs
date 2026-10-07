@@ -3,7 +3,11 @@
 // devices and appearances, before/after comparison, contact sheets.
 //
 //   node scripts/visual-check.mjs capture --label=before [--scenarios=chat-keyboard,store|all]
-//        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl] [--landscape]
+//        [--devices=iphone,ipad,small,max,mini,ipad13] [--variants=light,dark,xxl,xl,rt] [--landscape]
+//        [--udids=iphone:<UDID>,ipad:<UDID>] [--derived=/private/tmp/<dir>] [--skip-build]
+//
+// --udids runs a device name on another Simulator (parallel sessions each use their own);
+// --derived keeps that session's build products apart.
 //   node scripts/visual-check.mjs compare --before=before --after=after
 //   node scripts/visual-check.mjs sheet --label=after
 //
@@ -21,8 +25,15 @@ const DEVICES = { iphone: 'B6CD74CE-CB0C-417E-9E9B-F68175B5094D', small: '20F95B
   max: '621A934F-8F1D-4410-953A-6D3ECD951CA0', ipad: 'F1371651-051A-4368-8FE7-6878F74781F2', mini: '1D17687F-2188-4025-8570-5A9C905C2D04',
   ipad13: 'B8DEE99E-FCD3-472F-BAFC-E01E5B952A36' };
 // xxl: the largest size below the accessibility sizes (layouts that switch form at accessibility sizes keep theirs).
+// rt: Reduce Transparency (light), set through the Simulator's accessibility preferences.
 const VARIANTS = { light: ['light', 'large'], dark: ['dark', 'large'], xxl: ['light', 'extra-extra-extra-large'],
-  xl: ['light', 'accessibility-extra-large'] };
+  xl: ['light', 'accessibility-extra-large'], rt: ['light', 'large', 'reduce-transparency'] };
+for (const pair of (args.udids ?? '').split(',').filter(Boolean)) {
+  const [name, udid] = pair.split(':'); if (!name || !udid) throw new Error(`--udids expects name:UDID, got ${pair}`);
+  DEVICES[name] = udid;
+}
+const setReduceTransparency = (id, on) => quiet('xcrun', ['simctl', 'spawn', id, 'defaults', 'write', 'com.apple.Accessibility',
+  'EnhancedBackgroundContrastEnabled', '-bool', on ? 'true' : 'false']);
 const run = (cmd, a, options = {}) => execFileSync(cmd, a, { stdio: ['ignore', 'pipe', 'pipe'], ...options }).toString();
 const quiet = (cmd, a) => { try { run(cmd, a); } catch { /* best effort */ } };
 const tool = () => {
@@ -33,21 +44,24 @@ const tool = () => {
 if (command === 'capture') {
   const label = args.label ?? 'current', scenarios = args.scenarios ?? 'all';
   const devices = (args.devices ?? 'iphone,ipad').split(','), variants = (args.variants ?? 'light,dark').split(',');
-  const derived = join(root, '.artifacts/visual-derived');
+  const derived = args.derived ? resolve(args.derived) : join(root, '.artifacts/visual-derived');
+  if (args['skip-build'] !== 'true') {
   execFileSync('xcodegen', ['generate'], { cwd: join(root, 'apps/apple'), stdio: 'ignore' });
   console.log('Building for testing…');
   run('xcodebuild', ['-project', 'ScienceReader.xcodeproj', '-scheme', 'ScienceReader', '-configuration', 'Debug',
     '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', derived, 'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGN_IDENTITY=-', 'build-for-testing'],
     { cwd: join(root, 'apps/apple'), maxBuffer: 1 << 28 });
+  }
   for (const device of devices) {
     const id = DEVICES[device]; if (!id) throw new Error(`unknown device ${device}`);
     quiet('xcrun', ['simctl', 'boot', id]);
     quiet('xcrun', ['simctl', 'status_bar', id, 'override', '--time', '9:41', '--batteryState', 'charged', '--batteryLevel', '100',
       '--cellularMode', 'active', '--cellularBars', '4', '--wifiBars', '3']);
     for (const variant of variants) {
-      const [appearance, size] = VARIANTS[variant] ?? []; if (!appearance) throw new Error(`unknown variant ${variant}`);
+      const [appearance, size, setting] = VARIANTS[variant] ?? []; if (!appearance) throw new Error(`unknown variant ${variant}`);
       quiet('xcrun', ['simctl', 'ui', id, 'appearance', appearance]);
       quiet('xcrun', ['simctl', 'ui', id, 'content_size', size]);
+      setReduceTransparency(id, setting === 'reduce-transparency');
       const folder = join(visual, label, `${device}-${variant}${args.landscape ? '-landscape' : ''}`);
       const result = join(root, `.artifacts/visual-${label}-${device}-${variant}-${Date.now()}.xcresult`);
       process.stdout.write(`${device} ${variant}: `);
@@ -72,6 +86,7 @@ if (command === 'capture') {
     }
     quiet('xcrun', ['simctl', 'ui', id, 'appearance', 'light']);
     quiet('xcrun', ['simctl', 'ui', id, 'content_size', 'large']);
+    setReduceTransparency(id, false);
     quiet('xcrun', ['simctl', 'status_bar', id, 'clear']);
   }
   execFileSync(tool(), ['sheet', join(visual, label), join(visual, `${label}-sheet.png`)], { stdio: 'inherit' });

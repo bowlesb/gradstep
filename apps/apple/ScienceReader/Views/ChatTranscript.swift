@@ -5,6 +5,9 @@ import ScienceReaderCore
 struct ChatTranscript: View {
     @Bindable var model: ReaderModel
     let fontSize: Double
+    /// Floating chrome over the transcript (title bar and context switch above, message box and tab bar
+    /// below): the conversation scrolls under it, and its ends can scroll clear of it.
+    var insets = EdgeInsets()
     @State private var followsLatest = true
     @State private var hasNewMessages = false
     @State private var jump = TranscriptJump()
@@ -17,6 +20,7 @@ struct ChatTranscript: View {
             TranscriptTable(messages: messages, streamingID: model.chatStreamingMessageID, fontSize: fontSize, diagrams: model.chatDiagrams,
                 openDiagram: { model.openDiagram($0) }, jump: jump,
                 localRequest: model.chatFollowRequest?.composerID == scope.composerID ? model.chatFollowRequest?.id : nil,
+                insets: UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0),
                 isCurrent: { model.readerSessionID == scope.sessionID && model.chatComposerID == scope.composerID },
                 didFollow: { following in
                     guard model.readerSessionID == scope.sessionID, model.chatComposerID == scope.composerID else { return }
@@ -24,13 +28,8 @@ struct ChatTranscript: View {
                     if following { hasNewMessages = false }
                 })
                 .id(scope)
-                // A soft top edge instead of messages sliced under the header.
-                .mask(VStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 14)
-                    Color.black
-                })
             if messages.isEmpty {
-                emptyState.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(16)
+                emptyState.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top).padding(16).padding(.top, insets.top)
             }
             Button {
                 jump = TranscriptJump(animated: !reduceMotion)
@@ -38,7 +37,7 @@ struct ChatTranscript: View {
                 Label(hasNewMessages ? "New messages" : "Latest", systemImage: "arrow.down")
                     .font(.caption.weight(.semibold)).padding(12)
             }
-            .modifier(ReaderControlMaterial()).padding(12).accessibilityIdentifier("chat.latest")
+            .modifier(ReaderControlMaterial()).padding(12).padding(.bottom, insets.bottom).accessibilityIdentifier("chat.latest")
             .opacity(!followsLatest && !messages.isEmpty ? 1 : 0)
             .allowsHitTesting(!followsLatest && !messages.isEmpty)
             .accessibilityHidden(followsLatest || messages.isEmpty)
@@ -53,9 +52,9 @@ struct ChatTranscript: View {
         } else if model.chatHasRemovedMessages {
             ContentUnavailableView("Messages removed", systemImage: "bubble.left", description: Text("You can add a new message to this conversation."))
         } else if !model.generalChat && !model.canUsePaperChat {
-            ContentUnavailableView("Choose a paper", systemImage: "doc.text", description: Text("Open a paper from your library, or use General chat."))
+            ContentUnavailableView("Choose a paper", image: GradstepSymbol.paper, description: Text("Open a paper from your library, or use General chat."))
         } else {
-            ContentUnavailableView(model.generalChat ? "Explore an idea" : "Ask about this paper", systemImage: "bubble.left.and.bubble.right", description: Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question."))
+            ContentUnavailableView(model.generalChat ? "Explore an idea" : "Ask about this paper", image: GradstepSymbol.chat, description: Text(model.generalChat ? "Ask a research question." : "Select a passage or ask a question."))
         }
     }
 }
@@ -137,6 +136,8 @@ private struct TranscriptTable: UIViewRepresentable {
     let openDiagram: (UUID) -> Void
     let jump: TranscriptJump
     let localRequest: UUID?
+    /// The floating chrome's depth at each end; the table scrolls under it.
+    let insets: UIEdgeInsets
     let isCurrent: () -> Bool
     let didFollow: (Bool) -> Void
 
@@ -234,6 +235,7 @@ private struct TranscriptTable: UIViewRepresentable {
             updating = true
             defer { updating = false; table.setNeedsLayout() }
             owner = value
+            applyInsets(value.insets, to: table)
             if lastJump != value.jump.id || (value.localRequest != nil && lastLocalRequest != value.localRequest) {
                 following = true; anchors = []; realizingAnchor = nil; needsRestore = true
                 animateRestore = lastJump != nil && lastJump != value.jump.id && value.jump.animated
@@ -245,6 +247,17 @@ private struct TranscriptTable: UIViewRepresentable {
             generation += 1
             pending = value
             applyPending(table)
+        }
+
+        /// Chrome that grows or shrinks (a banner, the keyboard hiding the tab bar) moves the readable area;
+        /// the latest message stays in view when followed, otherwise the rows being read stay put.
+        private func applyInsets(_ insets: UIEdgeInsets, to table: TranscriptTableView) {
+            guard table.contentInset != insets else { return }
+            if !following && !userScrolling && anchors.isEmpty { anchors = readAnchors(table) }
+            table.contentInset = insets
+            table.verticalScrollIndicatorInsets = insets
+            realizingAnchor = nil
+            needsRestore = true
         }
 
         private func applyPending(_ table: TranscriptTableView) {

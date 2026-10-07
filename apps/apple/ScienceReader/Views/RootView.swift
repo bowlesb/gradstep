@@ -12,36 +12,22 @@ struct RootView: View {
         GeometryReader { geometry in
             if geometry.size.width >= 850 { wideLayout(width: geometry.size.width) }
             else {
-                VStack(spacing: 0) {
-                    destination(model.tab)
-                    if !softwareKeyboardShown {
-                        HStack(spacing: 0) {
-                            ForEach(ReaderTab.allCases) { tab in
-                                Button {
-                                    model.tab = tab
-                                    // Keep the selected destination when an iPad
-                                    // rotates from tabs into the wider layout.
-                                    switch tab {
-                                    case .feed: model.wideMode = .feed
-                                    case .library: model.wideMode = .library
-                                    case .paper: model.wideMode = .reader
-                                    case .chat: model.wideMode = model.generalChat ? .chat : .reader
-                                    case .settings: break
-                                    }
-                                } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
-                                .disabled(tab == .paper && model.selectedPaper == nil)
-                                .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
-                                .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
-                                .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
-                                .accessibilityShowsLargeContentViewer { Label(tab.rawValue, systemImage: tab.symbol) }
-                            }
+                // Floating chrome (2026-10-07): the tab bar floats over the screen, whose content scrolls
+                // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
+                let safeBottom = geometry.safeAreaInsets.bottom
+                destination(model.tab)
+                    .environment(\.tabBarReserve, softwareKeyboardShown ? 0 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom))
+                    .overlay(alignment: .bottom) {
+                        if !softwareKeyboardShown {
+                            tabBar.padding(.horizontal, DesignMetrics.margin)
+                                .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .ignoresSafeArea(.container, edges: .bottom)
                         }
-                        .padding(4).modifier(ReaderControlMaterial()).padding(.horizontal, 12).padding(.vertical, 4)
                     }
-                }
-                .onChange(of: model.generalChat) { _, general in
-                    if model.tab == .chat { model.wideMode = general ? .chat : .reader }
-                }
+                    .onChange(of: model.generalChat) { _, general in
+                        if model.tab == .chat { model.wideMode = general ? .chat : .reader }
+                    }
             }
         }
         // On the root so the state stays true across wide/compact layout switches.
@@ -108,6 +94,35 @@ struct RootView: View {
         }
     }
 
+    /// The tab bar: one glass capsule floating over the screen (2026-10-07).
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(ReaderTab.allCases) { tab in
+                Button {
+                    model.tab = tab
+                    // Keep the selected destination when an iPad
+                    // rotates from tabs into the wider layout.
+                    switch tab {
+                    case .feed: model.wideMode = .feed
+                    case .library: model.wideMode = .library
+                    case .paper: model.wideMode = .reader
+                    case .chat: model.wideMode = model.generalChat ? .chat : .reader
+                    case .settings: break
+                    }
+                } label: { TabBarItem(tab: tab, selected: model.tab == tab) }
+                .buttonStyle(.plain)
+                .disabled(tab == .paper && model.selectedPaper == nil)
+                .opacity(tab == .paper && model.selectedPaper == nil ? 0.35 : 1)
+                .accessibilityIdentifier("tab.\(tab.rawValue.lowercased())")
+                .accessibilityAddTraits(model.tab == tab ? .isSelected : [])
+                .accessibilityShowsLargeContentViewer { Label(tab.rawValue, image: tab.icon) }
+            }
+        }
+        .padding(4)
+        .frame(maxWidth: ChromeMetrics.tabBarMaxWidth)
+        .chromeSurface(Capsule(), interactive: true)
+    }
+
     private var signInPresentation: Binding<Bool> {
         // SwiftUI may deliver the dismissal after this body has changed. Keep
         // the ID that this binding actually presented, rather than cancelling
@@ -146,7 +161,10 @@ struct RootView: View {
     private func wideLayout(width: CGFloat) -> some View {
         VStack(spacing: 0) {
             HStack {
-                Label("Gradstep", systemImage: "books.vertical").font(.headline)
+                // The app's mark (∇ and its amber point), not a stock symbol.
+                Label { Text("Gradstep") } icon: {
+                    Image(GradstepSymbol.mark).symbolRenderingMode(.palette).foregroundStyle(Color.gradstepInk, Color.gradstepAmber)
+                }.font(.headline)
                 Spacer()
                 Picker("View", selection: $model.wideMode) {
                     ForEach(WideMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -156,7 +174,8 @@ struct RootView: View {
                         if mode == .chat { model.generalChat = true }
                         if mode == .reader, model.chatPaperID != nil { model.generalChat = false }
                     }
-                Button { model.tab = .settings } label: { Image(systemName: "gearshape").frame(width: 44, height: 44) }.accessibilityLabel("Settings")
+                Button { model.tab = .settings } label: { Image(GradstepSymbol.settings).font(.system(size: 19, weight: .medium)).frame(width: 44, height: 44) }
+                    .accessibilityLabel("Settings")
             }.padding(.horizontal, 18).padding(.vertical, 12)
             Divider()
             if model.tab == .settings {
@@ -173,13 +192,6 @@ struct RootView: View {
                 }
             }
         }
-    }
-}
-
-struct ReaderControlMaterial: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) { content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28)) }
-        else { content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28)) }
     }
 }
 
@@ -220,7 +232,9 @@ struct LibraryView: View {
                     }
                 } else if !model.librarySearchPending && model.libraryRows.isEmpty {
                     ContentUnavailableView {
-                        Label(model.searchExternal ? "Find papers" : "Your library", systemImage: model.searchExternal ? "magnifyingglass" : "books.vertical")
+                        Label { Text(model.searchExternal ? "Find papers" : "Your library") } icon: {
+                            model.searchExternal ? Image(systemName: "magnifyingglass") : Image(GradstepSymbol.library)
+                        }
                     } description: {
                         Text(model.searchExternal ? "Search arXiv to add a paper." : "Add a paper to read and ask questions.")
                     } actions: {
@@ -244,6 +258,7 @@ struct LibraryView: View {
             // bar's title row and search drawer. At rest: search, Add and one options menu. While
             // searching: Cancel, and the Library/arXiv switch under the field.
             .safeAreaInset(edge: .top, spacing: 0) { header }
+            .tabBarSpace()
             .toolbar(.hidden, for: .navigationBar)
             .onChange(of: model.searchExternal) { _, external in
                 if external, model.discoveryState == .idle, !model.discoveryQuery.trimmingCharacters(in: .whitespaces).isEmpty { model.runDiscovery() }
@@ -302,7 +317,8 @@ struct LibraryView: View {
             HStack(spacing: 10) {
                 LibrarySearchField(text: $model.searchQuery, prompt: model.searchExternal ? "Search arXiv" : "Search your library",
                                    focused: $searchFocused) { if model.searchExternal { model.runDiscovery() } }
-                    .frame(height: 44)
+                    .padding(.leading, 10).padding(.trailing, 6).frame(height: 44)
+                    .chromeSurface(Capsule())
                 if searching {
                     Button("Cancel") {
                         model.searchExternal = false; model.libraryQuery = ""; model.discoveryQuery = ""; searchFocused = false
@@ -321,7 +337,9 @@ struct LibraryView: View {
         }
         .modifier(HeaderWidth(fullWidth: tableShown))
         .padding(.top, 2).padding(.bottom, 8)
-        .background(Color(uiColor: .systemBackground))
+        // Floating chrome (2026-10-07): rows scroll under the header and fade out behind it. Over the table
+        // the band stays solid: the table's column titles pin right below it.
+        .chromeBand(.top, solid: tableShown)
         .animation(.snappy(duration: 0.2), value: searching)
     }
 
@@ -352,7 +370,7 @@ struct LibraryView: View {
                 } label: { Label { Text("Show") } icon: { menuIcon("eye") } }
             }
             Section {
-                MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { model.showAllChats = true }
+                MenuRow("All chats", systemImage: GradstepSymbol.chatHistory) { model.showAllChats = true }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { model.showDiagrams = true }
                 MenuRow("Refresh library", systemImage: "arrow.clockwise") { Task { await model.refreshLibrary() } }
                     .disabled(!model.isSignedIn || model.libraryRefreshing)
@@ -559,7 +577,7 @@ struct FeedView: View {
                 case .idle, .loading:
                     Spacer(); ProgressView("Finding new papers…"); Spacer()
                 case .failed(let message):
-                    ContentUnavailableView { Label("Feed unavailable", systemImage: "dot.radiowaves.up.forward") }
+                    ContentUnavailableView { Label("Feed unavailable", image: GradstepSymbol.feed) }
                         description: { Text(message) }
                         actions: {
                             if model.librarySignInRequired {
@@ -568,7 +586,7 @@ struct FeedView: View {
                         }
                 case .loaded:
                     if model.feedResults.isEmpty {
-                        ContentUnavailableView("No new papers", systemImage: "dot.radiowaves.up.forward", description: Text("Check back later or pick another topic."))
+                        ContentUnavailableView("No new papers", image: GradstepSymbol.feed, description: Text("Check back later or pick another topic."))
                     } else if tableShown {
                         FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
                     } else {
@@ -589,6 +607,7 @@ struct FeedView: View {
             // Owner feedback (2026-10-06): the Feed's top used space like the Library's used to. Same
             // header as the Library: one row — the topics (the feed's filter) and the "…" menu.
             .safeAreaInset(edge: .top, spacing: 0) { header }
+            .tabBarSpace()
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
@@ -634,7 +653,7 @@ struct FeedView: View {
             .buttonStyle(.plain).accessibilityLabel("Feed options")
         }
         .modifier(HeaderWidth(fullWidth: tableShown)).padding(.top, 2).padding(.bottom, 8)
-        .background(Color(uiColor: .systemBackground))
+        .chromeBand(.top, solid: tableShown)
     }
 }
 
@@ -642,86 +661,146 @@ struct ChatView: View {
     @Bindable var model: ReaderModel
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
     @FocusState private var composerFocused: Bool
+    /// Where the floating controls end (global y): the bottom of the switch above, the top of the message box below.
+    @State private var chromeTop: CGFloat = 0
+    @State private var chromeBottom: CGFloat = 0
     var body: some View {
         NavigationStack {
             GeometryReader { available in
                 // Reserve reading and editing space as text grows or a keyboard
                 // reduces the pane. The transcript/composer retain their identity.
                 let compact = available.size.height < bodySize * 20
-                VStack(spacing: 0) {
-                    contextHeader(compact: compact)
-                    if model.chatBranches.count > 1 {
-                        Picker("Conversation branch", selection: $model.activeBranchID) {
-                            ForEach(model.chatBranches, id: \.head) { branch in
-                                Text(model.privateState.events[branch.head].map { model.privateState.isDeleted($0.payload.entityID) } == true
-                                    ? "Earlier messages" : String((branch.messages.last?.payload.text ?? "Continuation").prefix(60)))
-                                    .tag(Optional(branch.head))
-                            }
-                        }.pickerStyle(.menu).padding(.horizontal).accessibilityIdentifier("chat.branchPicker")
-                    }
-                    if !model.chatContextComplete && !model.chatWasDeleted {
-                        Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                    }
-                    ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17)
-                    if let issue = model.chatAnswerIssue {
-                        // Design audit F4: the app's one banner style, above the message box.
-                        StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message, actionsBelow: true,
-                                     messageID: "chat.answerIssue") {
-                            if issue.code == "insufficient_credits" {
-                                Button("Get credits") { model.showStore = true }.accessibilityIdentifier("chat.getCredits")
-                            }
-                            if issue.retryable {
-                                Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("chat.retryAnswer")
-                            }
-                        }
-                        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-                        .readableColumn().padding(.top, 8)
-                    }
-                    if let issue = model.chatDraftIssue {
-                        HStack {
-                            Text(issue).font(.caption)
-                            Button("Retry") { model.retryDraftSave() }.font(.caption.weight(.semibold))
-                        }.padding(.horizontal, 16).accessibilityIdentifier("chat.draftIssue")
-                    } else if model.draftsArePersistent && !model.chatInput.isEmpty {
-                        Text(model.chatDraftStatusText).font(.caption2).foregroundStyle(.tertiary)
-                            .accessibilityIdentifier("chat.draftStatus")
-                    }
-                    HStack(alignment: .bottom, spacing: 8) {
-                        TextField("Ask a question…", text: $model.chatInput, axis: .vertical)
-                            .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                            .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-                            .padding(12).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                        // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.
-                        if composerFocused {
-                            Button { composerFocused = false } label: {
-                                Image(systemName: "keyboard.chevron.compact.down").font(.body).frame(width: 44, height: 44)
-                            }.accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
-                                .keyboardShortcut(.cancelAction)
-                        }
-                        if model.isAnswering {
-                            Button { model.stopAnswer() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                                .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
-                        } else {
-                            Button { Task { await model.sendMessage() } } label: { Image(systemName: "arrow.up.circle.fill").font(.system(size: 32)).frame(width: 44, height: 44) }
-                                .disabled(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
-                        }
-                    }.readableColumn().padding(.vertical, 10)
-                    // Design audit F8: sync status only when something needs attention.
-                    if model.isGenerating { ProgressView("Saving…").font(.caption).padding(.bottom, 5) }
-                    else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary).padding(.bottom, 5) }
+                // Floating chrome (2026-10-07): the conversation runs the full height, under the title bar,
+                // the context switch, the message box and the tab bar, and fades out behind them.
+                // The insets are measured from the controls' edges (a proxy's safe area leaves out the
+                // controls' own insets).
+                GeometryReader { pane in
+                    let frame = pane.frame(in: .global)
+                    ChatTranscript(model: model, fontSize: model.chatFontSize * bodySize / 17, insets: EdgeInsets(
+                        top: chromeTop > 0 ? max(0, chromeTop - frame.minY) : pane.safeAreaInsets.top, leading: 0,
+                        bottom: chromeBottom > 0 ? max(0, frame.maxY - chromeBottom) : pane.safeAreaInsets.bottom, trailing: 0))
+                }
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    topControls(compact: compact).onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { chromeTop = $0 }
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    bottomControls(compact: compact).onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { chromeBottom = $0 }
                 }
             }
+            .tabBarSpace(fade: false)
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { composerFocused = false; model.showAllChats = true } label: { Image(systemName: "clock.arrow.circlepath") }.accessibilityLabel("Chat history") }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { composerFocused = false; model.showAllChats = true } label: { Image(GradstepSymbol.chatHistory) }
+                        .accessibilityLabel("Chat history")
+                }
                 // Design audit F8: the paper a conversation is about sits under its title (one tap back).
                 ToolbarItem(placement: .principal) { titleView }
-                ToolbarItem(placement: .topBarTrailing) { Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New chat") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(GradstepSymbol.newChat) }
+                        .accessibilityLabel("New chat")
+                }
                 // Separate circles, like the Library's + and … (iOS 26 groups adjacent items otherwise).
                 if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
                 ToolbarItem(placement: .topBarTrailing) { optionsMenu }
             }
         }
+    }
+
+    /// The context switch and conversation notes, floating over the top of the conversation.
+    private func topControls(compact: Bool) -> some View {
+        VStack(spacing: 0) {
+            contextHeader(compact: compact)
+            if model.chatBranches.count > 1 {
+                Picker("Conversation branch", selection: $model.activeBranchID) {
+                    ForEach(model.chatBranches, id: \.head) { branch in
+                        Text(model.privateState.events[branch.head].map { model.privateState.isDeleted($0.payload.entityID) } == true
+                            ? "Earlier messages" : String((branch.messages.last?.payload.text ?? "Continuation").prefix(60)))
+                            .tag(Optional(branch.head))
+                    }
+                }.pickerStyle(.menu).padding(.horizontal).accessibilityIdentifier("chat.branchPicker")
+            }
+            if !model.chatContextComplete && !model.chatWasDeleted {
+                Text("Sync to load the earlier messages in this conversation.").font(.caption).foregroundStyle(.secondary).padding(.horizontal)
+                    .padding(.bottom, 4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .chromeBand(.top)
+    }
+
+    /// The message box and its notes, floating over the end of the conversation (like Gemini's "Ask" field).
+    private func bottomControls(compact: Bool) -> some View {
+        VStack(spacing: 6) {
+            if let issue = model.chatAnswerIssue {
+                // Design audit F4: the app's one banner style, above the message box.
+                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue.message, actionsBelow: true,
+                             messageID: "chat.answerIssue") {
+                    if issue.code == "insufficient_credits" {
+                        Button("Get credits") { model.showStore = true }.accessibilityIdentifier("chat.getCredits")
+                    }
+                    if issue.retryable {
+                        Button(issue.actionTitle) { model.retryAnswer() }.accessibilityIdentifier("chat.retryAnswer")
+                    }
+                }
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                .readableColumn()
+            }
+            if let issue = model.chatDraftIssue {
+                HStack {
+                    Text(issue).font(.caption)
+                    Button("Retry") { model.retryDraftSave() }.font(.caption.weight(.semibold))
+                }.padding(.horizontal, 16).accessibilityIdentifier("chat.draftIssue")
+            } else if model.draftsArePersistent && !model.chatInput.isEmpty {
+                Text(model.chatDraftStatusText).font(.caption2).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chat.draftStatus")
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                composer(compact: compact)
+                // The software keyboard covers the tab bar (iPhone and compact iPad): a visible way back.
+                if composerFocused {
+                    Button { composerFocused = false } label: {
+                        Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 17, weight: .semibold))
+                            .frame(width: 50, height: 50).modifier(GlassCircle()).contentShape(Circle())
+                    }.buttonStyle(.plain).foregroundStyle(.tint)
+                        .accessibilityLabel("Dismiss keyboard").accessibilityIdentifier("chat.dismissKeyboard")
+                        .keyboardShortcut(.cancelAction)
+                }
+            }.readableColumn()
+            // Design audit F8: sync status only when something needs attention.
+            if model.isGenerating { ProgressView("Saving…").font(.caption) }
+            else if let issue = model.syncIssue { Text(issue).font(.caption2).dynamicTypeSize(...DynamicTypeSize.xxxLarge).foregroundStyle(.secondary) }
+        }
+        .padding(.top, 6).padding(.bottom, 8)
+        .frame(maxWidth: .infinity)
+        .chromeBand(.bottom)
+    }
+
+    private var canSend: Bool {
+        !(model.isGenerating || model.isDiscardingDraft || (!model.generalChat && !model.canUsePaperChat) || !model.chatContextComplete
+          || model.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    /// One glass pill: the question, and Send (or Stop) inside it on the right.
+    private func composer(compact: Bool) -> some View {
+        HStack(alignment: .bottom, spacing: 4) {
+            TextField("Ask a question…", text: $model.chatInput, axis: .vertical)
+                .focused($composerFocused).accessibilityIdentifier("chat.composer")
+                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, 18).padding(.vertical, 14)
+            Group {
+                if model.isAnswering {
+                    Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
+                        .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
+                } else {
+                    Button { Task { await model.sendMessage() } } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: canSend) }
+                        .disabled(!canSend).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                }
+            }.buttonStyle(.plain).padding(3)
+        }
+        .frame(minHeight: 50)
+        .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
     }
 
     private func contextPicker(compact: Bool) -> some View {
@@ -766,7 +845,7 @@ struct ChatView: View {
                 MenuRow("Larger text", systemImage: "textformat.size.larger") { model.chatFontSize = min(26, model.chatFontSize + 1) }
             }.controlGroupStyle(.compactMenu)
             Section {
-                MenuRow("All chats", systemImage: "bubble.left.and.bubble.right") { composerFocused = false; model.showAllChats = true }
+                MenuRow("All chats", systemImage: GradstepSymbol.chatHistory) { composerFocused = false; model.showAllChats = true }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
             }
             Section {
@@ -853,6 +932,7 @@ struct SettingsView: View {
                 }
             }
             .readableScrollColumn(width: width)
+            .tabBarSpace(color: .chromeGroupedBackground)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 // On the Form: a sheet attached inside a Form row doesn't present reliably.
@@ -1226,6 +1306,9 @@ struct LibrarySearchField: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UISearchTextField {
         let field = UISearchTextField()
+        // On the header's glass capsule (floating chrome), not the system's gray field.
+        field.borderStyle = .none
+        field.backgroundColor = .clear
         field.delegate = context.coordinator
         field.returnKeyType = .search
         field.autocorrectionType = .no
@@ -1256,25 +1339,6 @@ struct LibrarySearchField: UIViewRepresentable {
         func textFieldShouldReturn(_ field: UITextField) -> Bool {
             parent.onSubmit(); field.resignFirstResponder(); return true
         }
-    }
-}
-
-/// One tab of the app's tab bar (design audit F10): every symbol in the same box so labels share a
-/// baseline; the selected tab gets its filled symbol and a light accent capsule.
-struct TabBarItem: View {
-    let tab: ReaderTab
-    let selected: Bool
-    var body: some View {
-        VStack(spacing: 3) {
-            Image(systemName: selected && UIImage(systemName: tab.symbol + ".fill") != nil ? tab.symbol + ".fill" : tab.symbol).resizable().scaledToFit()
-                .fontWeight(.medium).frame(width: 26, height: 21)
-                .frame(width: 30, height: 24)
-            Text(tab.rawValue).font(.caption2.weight(selected ? .semibold : .regular)).lineLimit(1)
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-        }
-        .frame(maxWidth: .infinity).frame(minHeight: 49)
-        .background(selected ? Color.accentColor.opacity(0.12) : Color.clear, in: Capsule())
-        .foregroundStyle(selected ? Color.accentColor : Color.secondary)
     }
 }
 

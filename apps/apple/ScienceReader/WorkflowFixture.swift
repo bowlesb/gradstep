@@ -36,6 +36,16 @@ extension ReaderModel {
         }
         if ProcessInfo.processInfo.arguments.contains("--feed-fixture") { installFeedFixture() }
         tab = .library; wideMode = .library
+        // Quick visual checks from the command line (`simctl launch … --start-tab=chat`): open on another tab.
+        if let name = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--start-tab=") })?.dropFirst("--start-tab=".count),
+           let start = ReaderTab.allCases.first(where: { $0.rawValue.lowercased() == name }) {
+            tab = start
+            switch start {
+            case .feed: wideMode = .feed
+            case .paper, .chat: wideMode = .reader
+            case .library, .settings: break
+            }
+        }
     }
 
     /// Varied library metadata for the table / detailed-row layouts: author counts, years,

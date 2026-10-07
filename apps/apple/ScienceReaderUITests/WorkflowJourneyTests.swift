@@ -24,15 +24,30 @@ final class WorkflowJourneyTests: XCTestCase {
             "chat.message.text.", "This is a synthetic conversation for layout testing")).firstMatch
     }
 
+    /// The transcript runs under the floating chrome (2026-10-07), so "visible" means clear of it: below the
+    /// context switch and above the message box.
     private func assertFinalReplyAtBottom(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let reply = finalReply(in: app), transcript = app.tables["chat.transcript"]
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         let visible = NSPredicate { _, _ in
-            reply.exists && transcript.exists && reply.frame.maxY <= transcript.frame.maxY + 2
-                && reply.frame.maxY > transcript.frame.minY + 2
+            reply.exists && transcript.exists && composer.exists && reply.frame.maxY <= composer.frame.minY + 2
+                && reply.frame.maxY > self.readingTop(app) + 2
                 && !app.buttons["chat.latest"].isHittable
         }
         let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: visible, object: nil)], timeout: 5)
-        XCTAssertEqual(result, .completed, "Final reply bottom \(reply.frame) should be inside transcript \(transcript.frame)", file: file, line: line)
+        XCTAssertEqual(result, .completed, "Final reply bottom \(reply.frame) should be above the message box \(composer.frame)", file: file, line: line)
+    }
+
+    /// Top of the conversation's readable area: below the Paper/General switch.
+    private func readingTop(_ app: XCUIApplication) -> CGFloat {
+        let context = app.segmentedControls.buttons["General chat"]
+        return context.exists ? context.frame.maxY : app.tables["chat.transcript"].frame.minY
+    }
+
+    /// Height of the conversation left readable between the floating chrome above and below it.
+    private func readingHeight(_ app: XCUIApplication) -> CGFloat {
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        return composer.frame.minY - readingTop(app)
     }
 
     func testSearchOpenReturnNoMatchesAndSeparateExternalScope() throws {
@@ -95,6 +110,32 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(input.value as? String, "Paper draft to keep")
         app.segmentedControls.buttons["General chat"].tap()
         XCTAssertEqual(input.value as? String, "General draft\nSecond line")
+    }
+
+    /// Floating chrome (2026-10-07): content runs under the tab bar and the message box, and the ends of the
+    /// library and the conversation can still scroll clear of them.
+    func testContentFlowsBehindFloatingChromeAndStaysReachable() throws {
+        let app = launch(additionalArguments: ["--library-metadata-fixture"])
+        let tab = app.buttons["tab.library"]
+        try XCTSkipUnless(tab.exists, "Compact layout (tab bar)")
+        let list = app.collectionViews.firstMatch
+        XCTAssertTrue(list.exists)
+        XCTAssertGreaterThan(list.frame.maxY, tab.frame.maxY, "The list runs under the tab bar")
+        for _ in 0..<12 { list.swipeUp(velocity: .fast) }
+        let rows = list.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "paper.")).allElementsBoundByIndex
+            + list.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "import.")).allElementsBoundByIndex
+        let last = rows.filter(\.exists).max { $0.frame.maxY < $1.frame.maxY }
+        XCTAssertNotNil(last)
+        if let last { XCTAssertLessThanOrEqual(last.frame.maxY, tab.frame.minY + 1, "The last row scrolls clear of the tab bar") }
+
+        app.buttons["tab.chat"].tap()
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        let transcript = app.tables["chat.transcript"]
+        XCTAssertLessThan(composer.frame.maxY, app.buttons["tab.chat"].frame.minY, "The message box floats above the tab bar")
+        XCTAssertGreaterThan(transcript.frame.maxY, app.buttons["tab.chat"].frame.minY, "The conversation runs under the chrome")
+        XCTAssertTrue(app.buttons["chat.send"].exists && app.buttons["Chat history"].exists && app.buttons["New chat"].exists)
+        assertFinalReplyAtBottom(app)
     }
 
     func testChatKeepsLatestVisibleAsComposerGrowsAndKeyboardDismisses() throws {
@@ -544,13 +585,13 @@ final class WorkflowJourneyTests: XCTestCase {
         assertFinalReplyAtBottom(app)
         input.tap(); input.typeText("First line")
         XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(app.tables["chat.transcript"].frame.height, 80, "Keep a usable reading area above the keyboard")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the keyboard")
         assertFinalReplyAtBottom(app)
         let singleLineHeight = input.frame.height
         input.typeText("\nSecond line\nThird line\nFourth line")
         XCTAssertEqual(input.value as? String, "First line\nSecond line\nThird line\nFourth line")
         XCTAssertGreaterThan(input.frame.height, singleLineHeight + 20, "Exercise an actual composer resize")
-        XCTAssertGreaterThanOrEqual(app.tables["chat.transcript"].frame.height, 80, "Keep a usable reading area above the growing composer")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep a usable reading area above the growing composer")
         assertFinalReplyAtBottom(app)
         capture(app, "Latest reply remains visible above multiline composer")
         app.buttons["chat.dismissKeyboard"].tap()
@@ -643,7 +684,7 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(app.buttons["chat.latest"].isHittable, "Reader deliberately left the latest message")
         input.tap(); input.typeText("A draft while reading")
         XCTAssertTrue(app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(transcript.frame.height, 80, "Keep the older passage readable while composing")
+        XCTAssertGreaterThanOrEqual(readingHeight(app), 80, "Keep the older passage readable while composing")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
         input.typeText("\nSecond line\nThird line")
         XCTAssertEqual(olderReply.frame.minY - transcript.frame.minY, readingOffset, accuracy: 4)
