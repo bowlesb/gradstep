@@ -29,7 +29,6 @@
   },
   "functions": [
     "support-assets",
-    "paper-worker",
     "reader-artifact",
     "chat",
     "discover",
@@ -45,5 +44,6 @@
       "Sandbox"
     ],
     "online_checks": true
-  }
+  },
+  "pipeline_worker_url": "https://gradstep-pipeline-885355087025.us-west1.run.app"
 }

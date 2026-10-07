@@ -108,7 +108,10 @@ for name in (args.functions if args.functions is not None else config['functions
 
 def sql(query):
     return request(base + '/database/query', mgmt, {'query': query})
-worker_url = env['SUPABASE_URL'] + '/functions/v1/paper-worker'
+# The pipeline worker runs on Cloud Run (docs/architecture/PIPELINE_RELIABILITY.md); the Edge
+# paper-worker is retired. Never fall back to it silently.
+worker_url = config.get('pipeline_worker_url')
+if not worker_url or not worker_url.startswith('https://'): raise SystemExit('infra pipeline_worker_url is required')
 def literal(value): return "'" + value.replace("'", "''") + "'"
 sql("create extension if not exists pg_net with schema extensions")
 sql("create extension if not exists pg_cron with schema pg_catalog")
