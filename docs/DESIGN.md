@@ -22,13 +22,22 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   left and the confirming action on the right; short sheets open at medium height.
 - **Rows**: `.headline` title (≤ 2 lines), `.subheadline` authors, `.footnote` details/status; 16 pt side and 12 pt
   vertical padding; at most one trailing icon; navigation rows have a chevron, action rows accent text.
-- **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A header
-  of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again to
-  reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold title
-  (≤ 2 lines, truncated) and the first author in `.footnote` secondary. Columns are added by priority while they fit,
-  never scrolling sideways; values are `.subheadline` secondary, statuses an icon and one word. Rows: 16 pt sides,
-  10 pt vertical; tap = the screen's primary action, long-press = actions, swipe = delete-type actions; each row is
-  one VoiceOver element reading every column. At accessibility text sizes the screen's rows replace the table.
+- **Tables**: one `PaperTable` (`Views/PaperTable.swift`) wherever papers show as a table (Library, Feed). A pinned
+  header of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again
+  to reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold
+  title (≤ 2 lines, truncated) and the first author in `.footnote` secondary. The reader chooses columns (screen
+  options › Columns, a half-height sheet of toggles; Title always shows); of those, columns are added by priority
+  while they fit, never scrolling sideways, and the chooser says "Shown when there's room" for the rest. Values are
+  `.subheadline` secondary (numbers trailing), tags small `.caption` chips (≤ 2 lines), statuses an icon and a few
+  plain words. A row that needs the reader (a failed import) shows its one action as a small bordered capsule
+  (Retry, Get credits, Remove) in its status cell — or under the title when that column isn't shown — never only in
+  a menu. Rows: 16 pt sides, 10 pt vertical; pointer hover and the arrow-key row get a quiet fill; tap or Return =
+  the screen's primary action, long-press = actions, swipe = delete-type actions; each row is one VoiceOver element
+  reading every chosen column, its action button a separate one. At accessibility text sizes the screen's rows
+  replace the table.
+- **Filters**: quick filters are `ChipButton`s in one horizontally scrolling row that scrolls away with the rows
+  (open space while browsing); a menu chip comes first (Tags ⌄); only filters that would change the list appear,
+  and the row is hidden when none would. A problem count (Failed 2) is orange.
 - **Empty states**: `ContentUnavailableView`, one sentence, one prominent button; hide controls that can't work.
 - **Details on demand**: screen options in "…"; per-item actions on long-press (swipe for delete-type actions);
   long explanations behind a row.

@@ -4,7 +4,8 @@ import SwiftUI
 // re-use for the feed"). It is the same table on every size: a header of column titles (tap to sort, tap again to
 // reverse), one aligned row per paper, and as many columns beside the title as fit the width — never a horizontal
 // scroll. SwiftUI's `Table` collapses to one column in compact width, so this is built from a plain List, which
-// also gives the rows long-press menus, swipe actions, pull to refresh and a header that stays pinned.
+// also gives the rows long-press menus, swipe actions, pull to refresh and a header that stays pinned. The caller
+// passes the columns the reader chose (owner request 2026-10-07); rows get a hover fill and arrow-key navigation.
 
 /// One column beside the title. Which columns show depends on the width (see `PaperTableLayout`).
 struct PaperTableColumn<Key: Hashable>: Identifiable {

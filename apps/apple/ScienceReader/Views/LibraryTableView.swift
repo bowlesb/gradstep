@@ -449,8 +449,8 @@ struct LibrarySwipeActions: View {
 
 // MARK: Filters
 
-/// The Library's quick filters, above the table (and the List): All, then the filters that would show something
-/// different (Unread, Reading, Failed with its count, Archived), then Tags. It scrolls away with the rows, so
+/// The Library's quick filters, above the table (and the List): the Tags menu, All, then the filters that would show
+/// something different (Unread, Reading, Failed with its count, Archived). It scrolls away with the rows, so
 /// browsing keeps the open space; it is hidden while there is nothing to narrow down.
 struct LibraryFilterBar: View {
     @Bindable var model: ReaderModel
@@ -461,6 +461,8 @@ struct LibraryFilterBar: View {
         if !chips.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    // Tags first: it combines with the others, and on a phone the row runs past the edge.
+                    if summary.showsTags(tagSelected: model.libraryTagFilter != nil) { tagMenu(summary) }
                     ForEach(chips, id: \.self) { filter in
                         ChipButton(title: filter.title, selected: model.libraryFilter == filter,
                                    count: filter == .failed ? summary.count(.failed) : nil, countIsProblem: true) {
@@ -469,7 +471,6 @@ struct LibraryFilterBar: View {
                         .accessibilityIdentifier("library.filter.\(filter.rawValue)")
                         .accessibilityValue(filter == .all ? "" : "\(summary.count(filter))")
                     }
-                    if summary.showsTags(tagSelected: model.libraryTagFilter != nil) { tagMenu(summary) }
                 }
             }
             .contentMargins(.horizontal, DesignMetrics.margin, for: .scrollContent)
