@@ -497,6 +497,269 @@ final class PaperWebViewTests: XCTestCase {
         }
     }
 
+    /// Owner feedback (build 14): "[Gelfond and Lifschitz 1991]" and "[Lobo et al. 1992; Eiter et al. 1997b]" did not link.
+    /// ACM style brackets the citation and prints no comma before the year; small capitals may come out of OCR in capitals.
+    func testBracketedAuthorYearCitationsWithoutACommaLink() async throws {
+        let paragraph = "Answer sets [Gelfond and Lifschitz 1991] are expressive [Lobo et al. 1992; Eiter et al. 1997b; Gelfond and Lifschitz 1991]. "
+            + "Stable models [Przymusinski 1991a; 1991b], constraints [Buccafurri, Leone, and Rullo 2000], datalog [Eiter, Gottlob, and Mannila 1997b]. "
+            + "As Gelfond and Lifschitz [1991] showed; [Cadoli et al. 1997] fits two entries. "
+            + "Small capitals [GELFOND AND LIFSCHITZ 1988; EITER ET AL. 1997a] and [Eiter And Leone 1998]."
+        let document = """
+        <h1 data-reader-block="b-1">The DLV System</h1>
+        <p data-reader-block="b-2" id="b-2">\(paragraph)</p>
+        <h2 data-reader-block="b-3">REFERENCES</h2>
+        <p data-reader-block="b-4" id="b-4">Buccafurri, F., Leone, N., and Rullo, P. 2000. Enhancing disjunctive datalog by constraints. IEEE TKDE 12, 5, 845-860.
+        Cadoli, M., Eiter, T., and Gottlob, G. 1997. Default logic as a query language. IEEE TKDE 9, 3, 448-463.
+        Cadoli, M., Giovanardi, A., and Schaerf, M. 1997. Experimental analysis of the computational cost of evaluating QBF.
+        Eiter, T., Gottlob, G., and Leone, N. 1997a. Abduction from logic programs: Semantics and complexity.
+        Eiter, T., Gottlob, G., and Mannila, H. 1997b. Disjunctive datalog. ACM TODS 22, 3, 364-418.
+        Eiter, T., And Leone, N. 1998. A paper whose "and" is in small capitals.
+        Gelfond, M. and Lifschitz, V. 1988. The stable model semantics for logic programming.
+        Gelfond, M. and Lifschitz, V. 1991. Classical negation in logic programs and disjunctive databases.
+        Lobo, J., Minker, J., and Rajasekar, A. 1992. Foundations of Disjunctive Logic Programming. The MIT Press.
+        Przymusinski, T. C. 1991a. Stable semantics for disjunctive programs. New Generation Computing 9, 401-424.
+        Przymusinski, T. C. 1991b. Semantics of normal and disjunctive logic programs.</p>
+        """
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            return {links: [...document.querySelectorAll('#b-2 .sr-cite')].map(cite => cite.textContent + '>' + cite.getAttribute('data-sr-cite')),
+              text: document.getElementById('b-2').textContent};
+            """) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertEqual(state["links"] as? [String], [
+            "Gelfond and Lifschitz 1991>ref-8", "Lobo et al. 1992>ref-9", "Eiter et al. 1997b>ref-5", "Gelfond and Lifschitz 1991>ref-8",
+            "Przymusinski 1991a>ref-10", "1991b>ref-11", "Buccafurri, Leone, and Rullo 2000>ref-1", "Eiter, Gottlob, and Mannila 1997b>ref-5",
+            "Gelfond and Lifschitz [1991]>ref-8", "GELFOND AND LIFSCHITZ 1988>ref-7", "EITER ET AL. 1997a>ref-4", "Eiter And Leone 1998>ref-6",
+        ], "Each bracketed name–year pair links; [Cadoli et al. 1997] fits two three-author entries and stays plain")
+        XCTAssertEqual(state["text"] as? String, paragraph)
+        _ = try await web.callAsyncJavaScript("document.querySelector('#b-2 .sr-cite').click();", arguments: [:], in: nil, contentWorld: .page)
+        let jumped = try await eventually { harness.citationStates == [true] }
+        XCTAssertTrue(jumped, "Tapping [Gelfond and Lifschitz 1991] jumps to the entry and offers Back")
+    }
+
+    // MARK: - The paper's own table of contents
+
+    /// Owner feedback (build 14): the paper's own contents rendered as one run-on paragraph
+    /// ("Contents 1 Introduction ..... 1 2 Core Language ..... 3 2.1 Syntax ..... 3 …").
+    func testPaperContentsBecomeAListThatJumpsToItsSections() async throws {
+        let contents = "Contents\n1 Introduction ..... 1\n2 Core Language ..... 3\n2.1 Syntax ..... 3\n2.1.1 Terms ..... 4\n"
+            + "2.2 Problems in NP and <span class=\"reader-equation reader-inline\" data-reader-equation=\"e-1\" id=\"e-1\" data-latex=\"\\Delta _ { 2 }\">Δ2</span> ..... 5\n"
+            + "3 Knowledge Representation ..... 7\nA Appendix: Encodings ..... 55"
+        // Each of these must stay exactly as it is.
+        let untouched = [
+            "b-3": "We waited ..... 3 hours. Then the second run ..... 5 ended and the third ..... 9 did too, quickly.",
+            "b-4": "Results\n1 apple 2\n2 pears 3\n3 plums 4\n4 figs 5",
+            "b-8": "Contents 1 apple 2 banana 3 cherry 4 kiwi",
+            "b-9": "Contents 1 Introduction 1 3 Background 3 2 Setup 4 5 Results 7",
+            "b-17": "Steps ..... 1\nmore prose that is not an entry at all\nand ..... 2",
+        ]
+        let document = """
+        <h1 data-reader-block="b-1" id="b-1">A paper</h1>
+        <p data-reader-block="b-2" id="b-2">\(contents)</p>
+        <p data-reader-block="b-3" id="b-3">\(untouched["b-3"]!)</p>
+        <p data-reader-block="b-4" id="b-4">\(untouched["b-4"]!)</p>
+        <h2 data-reader-block="b-5" id="b-5">Table of Contents</h2>
+        <p data-reader-block="b-6" id="b-6">1 Introduction 1\n2 Background 3\n2.1 Setup 4\n3 Results 7\nReferences 9</p>
+        <p data-reader-block="b-7" id="b-7">Contents 1 Introduction 1 2 Background 3 2.1 Setup 4 3 Results 7</p>
+        <p data-reader-block="b-8" id="b-8">\(untouched["b-8"]!)</p>
+        <p data-reader-block="b-9" id="b-9">\(untouched["b-9"]!)</p>
+        <p data-reader-block="b-16" id="b-16">List of Figures\n1 Overview of the system ..... 2\n2 Syntax ..... 5\n3 Ablations ..... 8</p>
+        <p data-reader-block="b-17" id="b-17">\(untouched["b-17"]!)</p>
+        <div style="height:900px"></div>
+        <h2 data-reader-block="b-10" id="b-10">1. INTRODUCTION</h2><p data-reader-block="b-11" id="b-11">Body.</p>
+        <div style="height:900px"></div>
+        <h2 data-reader-block="b-12" id="b-12">2 Core Language</h2>
+        <h3 data-reader-block="b-13" id="b-13">2.1 Syntax</h3>
+        <p data-reader-block="b-14" id="b-14">Terms come first.\n2.1.1 Terms. A term is a constant or a variable.</p>
+        <div style="height:900px"></div>
+        <h2 data-reader-block="b-15" id="b-15">A. APPENDIX: ENCODINGS</h2>
+        <h2 data-reader-block="b-18" id="b-18">References</h2>
+        <div style="height:1200px"></div>
+        """
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            const original = new DOMParser().parseFromString('<body>' + html + '</body>', 'text/html');
+            const changed = [...document.querySelectorAll('[data-reader-block]')]
+              .filter(element => original.getElementById(element.id)?.textContent !== element.textContent).map(element => element.id);
+            const rows = id => [...document.querySelectorAll(`#${id} > .sr-toc-entry`)];
+            const describe = row => [row.querySelector('.sr-toc-label').textContent.replace(/\\s+/g, ' ').trim(),
+              row.querySelector('.sr-toc-page').textContent, row.getAttribute('data-sr-depth')].join('|');
+            const linked = id => rows(id).filter(row => row.classList.contains('sr-toc-link'))
+              .map(row => row.querySelector('.sr-toc-label').textContent.replace(/\\s+/g, ' ').trim());
+            const probe = document.createElement('span'); document.body.append(probe);
+            probe.style.color = 'var(--sr-muted)'; const muted = getComputedStyle(probe).color;
+            probe.style.color = 'var(--sr-link)'; const link = getComputedStyle(probe).color; probe.remove();
+            const [top, sub] = [rows('b-2')[0], rows('b-2')[2]], page = top.querySelector('.sr-toc-page');
+            return {changed, lists: [...document.querySelectorAll('.sr-toc')].map(element => element.id),
+              b2: rows('b-2').map(describe), b6: rows('b-6').map(describe), b7: rows('b-7').map(describe), b16: rows('b-16').map(describe),
+              linked2: linked('b-2'), linked6: linked('b-6'), linked16: linked('b-16'),
+              caption: document.querySelector('#b-2 > .sr-toc-caption')?.textContent,
+              equation: document.getElementById('e-1').closest('[data-reader-block]').id,
+              label: rows('b-2')[2].getAttribute('aria-label'), role: rows('b-2')[2].getAttribute('role'),
+              unlinkedRole: rows('b-2')[5].getAttribute('role'), focus: rows('b-2')[2].tabIndex,
+              display: getComputedStyle(top).display, align: getComputedStyle(page).textAlign, pageMuted: getComputedStyle(page).color === muted,
+              leader: getComputedStyle(top.querySelector('.sr-toc-leader')).fontSize,
+              hidden: top.querySelector('.sr-toc-leader').getAttribute('aria-hidden'),
+              indent: parseFloat(getComputedStyle(sub).paddingLeft) - parseFloat(getComputedStyle(top).paddingLeft),
+              linkColor: getComputedStyle(top.querySelector('.sr-toc-label')).color === link,
+              plainColor: getComputedStyle(rows('b-2')[5].querySelector('.sr-toc-label')).color !== link,
+              oneLine: rows('b-2').every((row, i, all) => !i || row.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 1),
+              pagesRight: rows('b-2').every(row => Math.abs(row.querySelector('.sr-toc-page').getBoundingClientRect().right - row.getBoundingClientRect().right) < 1)};
+            """, ["html": document]) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertEqual(state["changed"] as? [String], [], "Only wrappers are added: every block keeps its exact text")
+        XCTAssertEqual(state["lists"] as? [String], ["b-2", "b-6", "b-7", "b-16"],
+                       "Leader entries, plain lines after a Contents heading and a run-together Contents become lists; prose, a "
+                       + "numbered list without a caption, out-of-order numbers and mixed prose do not")
+        XCTAssertEqual(state["b2"] as? [String], ["1 Introduction|1|0", "2 Core Language|3|0", "2.1 Syntax|3|1", "2.1.1 Terms|4|2",
+                                                  "2.2 Problems in NP and Δ2|5|1", "3 Knowledge Representation|7|0", "A Appendix: Encodings|55|0"])
+        XCTAssertEqual(state["b6"] as? [String], ["1 Introduction|1|0", "2 Background|3|0", "2.1 Setup|4|1", "3 Results|7|0", "References|9|0"])
+        XCTAssertEqual(state["b7"] as? [String], ["1 Introduction|1|0", "2 Background|3|0", "2.1 Setup|4|1", "3 Results|7|0"])
+        XCTAssertEqual(state["b16"] as? [String], ["1 Overview of the system|2|0", "2 Syntax|5|0", "3 Ablations|8|0"])
+        XCTAssertEqual(state["linked2"] as? [String], ["1 Introduction", "2 Core Language", "2.1 Syntax", "2.1.1 Terms", "A Appendix: Encodings"],
+                       "Headings match by number and title (\"1. INTRODUCTION\"), a run-in head by its line; no heading, no link")
+        XCTAssertEqual(state["linked6"] as? [String], ["1 Introduction", "References"])
+        XCTAssertEqual(state["linked16"] as? [String], [], "A list of figures never links to a heading")
+        XCTAssertEqual(state["caption"] as? String, "Contents")
+        XCTAssertEqual(state["equation"] as? String, "b-2", "An equation in a title stays in its block")
+        XCTAssertEqual(state["label"] as? String, "2.1 Syntax, page 3")
+        XCTAssertEqual(state["role"] as? String, "link")
+        XCTAssertNil(state["unlinkedRole"] as? String)
+        XCTAssertEqual(state["focus"] as? Int, 0)
+        XCTAssertEqual(state["display"] as? String, "flex")
+        XCTAssertEqual(state["align"] as? String, "right")
+        XCTAssertEqual(state["pageMuted"] as? Bool, true)
+        XCTAssertEqual(state["leader"] as? String, "0px", "The dots become a faint dotted rule")
+        XCTAssertEqual(state["hidden"] as? String, "true")
+        XCTAssertGreaterThan(state["indent"] as? Double ?? 0, 10, "2.1 is indented under 2")
+        XCTAssertEqual(state["linkColor"] as? Bool, true)
+        XCTAssertEqual(state["plainColor"] as? Bool, true)
+        XCTAssertEqual(state["oneLine"] as? Bool, true, "One entry per line")
+        XCTAssertEqual(state["pagesRight"] as? Bool, true, "Page numbers are right-aligned")
+
+        // A tap on "2.1 Syntax" goes to its heading and offers Back to the contents.
+        let originValue = try await script(web, "return window.scrollY;") as? Double
+        let origin = try XCTUnwrap(originValue)
+        _ = try await web.callAsyncJavaScript("document.querySelectorAll('#b-2 > .sr-toc-entry')[2].click();", arguments: [:], in: nil, contentWorld: .page)
+        let atHeading = try await eventually { abs((try await self.script(web, "return document.getElementById('b-13').getBoundingClientRect().top;") as? Double ?? -99)) < 2 }
+        XCTAssertTrue(atHeading, "The heading is at the top, as a Contents jump puts it")
+        XCTAssertEqual(harness.citationStates, [true], "Back is offered")
+        let wentBack = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
+        XCTAssertEqual(wentBack, true)
+        let returned = try await eventually { abs((try await self.script(web, "return window.scrollY;") as? Double ?? -1) - origin) < 1 }
+        XCTAssertTrue(returned, "Back returns to the contents")
+        XCTAssertEqual(harness.citationStates, [true, false])
+
+        // A run-in head ("2.1.1 Terms. A term is…") is reached by keyboard too.
+        _ = try await web.callAsyncJavaScript("""
+            const row = document.querySelectorAll('#b-2 > .sr-toc-entry')[3]; row.focus();
+            row.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+            """, arguments: [:], in: nil, contentWorld: .page)
+        let atRunIn = try await eventually {
+            let top = try await self.script(web, """
+                const block = document.getElementById('b-14'), text = block.firstChild, at = text.data.indexOf('2.1.1');
+                const range = document.createRange(); range.setStart(text, at); range.setEnd(text, at + 5);
+                return range.getBoundingClientRect().top;
+                """) as? Double ?? -99
+            return abs(top - 22) < 2
+        }
+        XCTAssertTrue(atRunIn, "The run-in head's line is at the top")
+        XCTAssertEqual(harness.citationStates, [true, false, true])
+    }
+
+    /// A selection across a formatted contents block still quotes the bundle's own text, dots and all,
+    /// and the app's Contents list is unchanged.
+    func testPaperContentsInABundleKeepSelectionsAndContents() async throws {
+        let sample = try ReaderBundleLoader.sample()
+        let html = String(decoding: try XCTUnwrap(sample.data(for: sample.manifest.entrypoint)), as: UTF8.self)
+        let paragraph = "A useful first pass identifies the problem, the proposed method, and the evidence. Separate the authors’ claims "
+            + "from the measurements that support them. Mark passages that depend on assumptions you want to revisit."
+        let contents = "Contents\n1 Start with the question ..... 1\n2 Read the equations in context ..... 2\n3 Check the evaluation ..... 4\n"
+            + "4 Follow the references ..... 5\nReferences ..... 6"
+        XCTAssertTrue(html.contains(paragraph))
+        let bundle = try replacingHTML(in: sample, with: html.replacingOccurrences(of: paragraph, with: contents))
+        let harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        XCTAssertFalse(harness.failed)
+        let web = try XCTUnwrap(harness.web)
+        let linked = try await script(web, """
+            return [...document.querySelectorAll('#b-51ef8c310855-5 > .sr-toc-link')].map(row => row.getAttribute('aria-label'));
+            """) as? [String]
+        XCTAssertEqual(linked, ["1 Start with the question, page 1", "2 Read the equations in context, page 2", "3 Check the evaluation, page 4",
+                                "4 Follow the references, page 5", "References, page 6"])
+        XCTAssertEqual(harness.headings.map(\.id), bundle.index.headings.map(\.id), "The app's Contents list is unchanged")
+        _ = try await script(web, """
+            const range = document.createRange(); range.selectNodeContents(document.getElementById('b-51ef8c310855-5'));
+            const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            """)
+        await fulfillment(of: [harness.selected], timeout: 5)
+        let quote = try XCTUnwrap(harness.selection).resolvedQuote(in: bundle)
+        XCTAssertEqual(quote, contents, "The quote is the block's own text, leaders included")
+        XCTAssertEqual(Set(try XCTUnwrap(harness.selection).parts.map(\.blockID)), ["b-51ef8c310855-5"])
+    }
+
+    /// Evidence screenshots, not part of the regular suite: a real paper's contents list (light and dark), after following
+    /// one entry, and a bracketed author–year citation. Runs with TEST_RUNNER_SCIENCE_READER_CONTENTS_BUNDLE=<bundle directory>
+    /// (and optionally TEST_RUNNER_SCIENCE_READER_CITATION_TEXT=<text of a citation to show>, TEST_RUNNER_SCIENCE_READER_SHOTS=<directory>).
+    func testPaperContentsScreenshots() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let path = environment["SCIENCE_READER_CONTENTS_BUNDLE"], !path.isEmpty else {
+            throw XCTSkip("Set SCIENCE_READER_CONTENTS_BUNDLE to a reader bundle directory whose paper prints its own contents")
+        }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        let manifest = try Data(contentsOf: directory.appendingPathComponent("manifest.json"))
+        let digest = SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined()
+        let bundle = try ReaderBundleLoader.load(directory: directory, expectedSHA256: digest)
+        let needle = environment["SCIENCE_READER_CITATION_TEXT"] ?? "Gelfond and Lifschitz 1991"
+        let output = environment["SCIENCE_READER_SHOTS"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        func keep(_ harness: Harness, _ name: String) async throws {
+            let attachment = try await harness.screenshot(name)
+            add(attachment)
+            if let output, let image = try await harness.web?.takeSnapshot(configuration: nil), let png = image.pngData() {
+                try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+                try png.write(to: output.appendingPathComponent(name.replacingOccurrences(of: " ", with: "-") + ".png"))
+            }
+        }
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let name = style == .dark ? "dark" : "light"
+            let harness = try Harness(bundle: bundle, style: style)
+            await fulfillment(of: [harness.loaded], timeout: 20)
+            let web = try XCTUnwrap(harness.web)
+            let found = try await script(web, """
+                const list = document.querySelector('.sr-toc');
+                if (!list) return false;
+                window.scrollTo({top: window.scrollY + list.getBoundingClientRect().top - 60, behavior: 'instant'});
+                await new Promise(resolve => setTimeout(resolve, 500));
+                return true;
+                """) as? Bool
+            XCTAssertEqual(found, true, "The paper's contents are shown as a list")
+            try await keep(harness, "contents \(name)")
+            _ = try await web.callAsyncJavaScript("[...document.querySelectorAll('.sr-toc-link')][4].click();", arguments: [:], in: nil, contentWorld: .page)
+            let jumped = try await eventually { harness.citationStates == [true] }
+            XCTAssertTrue(jumped)
+            try await Task.sleep(for: .milliseconds(900))
+            try await keep(harness, "contents followed \(name)")
+            _ = try await script(web, "return window.__scienceReaderCitationBack();")
+            let cited = try await script(web, """
+                const cite = [...document.querySelectorAll('.sr-cite')].find(cite => cite.textContent.includes(needle));
+                if (!cite) return false;
+                window.scrollTo({top: window.scrollY + cite.getBoundingClientRect().top - window.innerHeight / 3, behavior: 'instant'});
+                await new Promise(resolve => setTimeout(resolve, 600));
+                return true;
+                """, ["needle": needle]) as? Bool
+            XCTAssertEqual(cited, true, "A bracketed citation containing \(needle) links")
+            try await keep(harness, "bracketed citation \(name)")
+            harness.close()
+        }
+    }
+
     func testReferenceLinksPreferArXivThenDOIThenTheWeb() {
         func link(_ text: String, _ hrefs: [String] = []) -> String? { ReaderReference.link(in: text, hrefs: hrefs)?.url.absoluteString }
         XCTAssertEqual(link("H. Bong and A. Rinaldo. ICML, 2022. arXiv:2110.11487."), "https://arxiv.org/abs/2110.11487")

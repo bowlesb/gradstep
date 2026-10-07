@@ -527,3 +527,23 @@ it a first class citizen." Design: [Topic tags](architecture/TAGS.md).
 - Live check (13 calls, $0.049): good tags for Attention, DPO, Mamba, Switch Transformers, RAG, Chain-of-thought,
   NeRF, PPO (after adding "Policy optimization"); remaining errors are comparison/adjacent tags (DDPM → GANs,
   Whisper → Large language models), removable by readers.
+
+## The paper's own contents and bracketed citations (owner feedback on build 14, 2026-10-07)
+
+Owner: "What happened here" (a paper's printed contents as one run-on paragraph) and "The reference isn't working"
+(`[Gelfond and Lifschitz 1991]`, `[Lobo et al. 1992; Eiter et al. 1997b]`). Decided without asking (reversible,
+reader bridge only, no re-render); details and measurements in [Reader renderer](architecture/READER_RENDERER.md#the-papers-own-contents).
+
+- **Contents as a list, in the paper where it is printed.** One entry per line, indented by section depth, the page
+  right-aligned and muted, the dot leader as a faint dotted rule. Nothing moves or is added: the block's text and
+  selections are unchanged, and the app's own Contents sheet stays as it is.
+- **Conservative detection.** A paragraph is formatted only when all of it is entries (several leader entries, or —
+  without leaders — numbered entries in order after a "Contents" caption). Any other text keeps the paragraph as it
+  was. Across 48 real conversions only the 5 real lists changed.
+- **Entries link like citations.** An entry that matches a heading (number and title) — or, with no heading, one
+  numbered run-in head ("3.3.1 Exams Scheduling. …", ACM style; 13 of DLV's subsections exist only so) — jumps there
+  with the citation's highlight and Back. Lists of figures and tables are formatted but not linked (they would land
+  on a heading, not the figure). Unmatched entries stay plain rather than guess.
+- **Bracketed author–year citations needed no new rule.** Build 14 predates the author–year links; with the current
+  bridge the owner's paper links 210 of 210 measurable citations (build 14: 3). Small-capital spellings OCR can
+  produce ("AND", "ET AL.", "And" in entries) were added; `[Cadoli et al. 1997]`, which fits two entries, stays plain.
