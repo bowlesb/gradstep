@@ -165,6 +165,10 @@ and introduces no new expiring offline lease.
 
 ## Saved papers and library authority
 
+The detailed gate-2 schema, transaction, v5/descriptor contracts and acceptance plan are in
+[BROWSER_LIBRARY_STORAGE](BROWSER_LIBRARY_STORAGE.md). Its implementation remains separately
+reviewed and is not activated by the schema-2 journal.
+
 Use the existing epoch-aware **v5 full** library contract for the durable library slice, with
 encrypted upload descriptors and matching v5 online command adapters enabled together. Keep
 the 4,000-row bound. Do not switch the read family while leaving Add/Retry/tag writes disabled,
