@@ -103,3 +103,22 @@ in 19 from the follow-up work started afterward.
 | `AAWbg6g4dUfzp4mwU1x5u14` | “It looks like this is a bad UX please fix”; screenshot shows truncated expanded abstract | In build 20 + discover v78. The server's 700-character preview was the root cause; new clients opt into a bounded full abstract, preserve mathematical Unicode and label any actual excerpt. Hosted full source/Feed smoke passes. |
 | `ABHWnLf34Hf5ty2J-F3Blv4` | Reference popover repeats the visible bibliography text; buttons/options are liked | In build 20: reference title and existing actions retained, duplicate body removed. Reference → actions → Copy → Back journey passes. |
 | `AH_QWMX10xPbqz3-10h1WGk` | Ingested-paper links need explicit Library and arXiv website destinations; “Open” is vague | In build 20: visibly labeled Library button beside the external identifier link. Opens the current saved paper or pending import, including wide layout, and preserves the previous chat draft/history; model and UI regressions pass. |
+
+## Build 21, 2026-10-08 (iPhone, 7 items) and today's goals
+
+Screenshots: `.artifacts/feedback/2026-10-08T11-*.png`, `2026-10-08T13-19-34-487Z-0.png` (private, not committed).
+Owner's goals for 2026-10-08, verbatim: "respond to new feedback, and build the notebook LM podcasts feature
+please. One more thing, chats should have the abiltity to customize the length and effort nad model right there
+in the chat in a cleer UX".
+
+| # | Owner said | Where | Plan | Status |
+|---|---|---|---|---|
+| 1 | "Each chat should have a labeled [title] on the topic of the chat in the same way that chat GPT does … embedded everywhere in the app" | All chats (titles like "Explain · L_task(θ) = -…") | A short topic title generated with the first answer, stored in the encrypted history and shown everywhere; renamable | In progress (chat agent) |
+| 2 | "Machine learning and artificial intelligence are too generic it need to be specific to the individual tastes and their nuances" | Feed chips | "For you" first, then specific topics drawn from the reader's library and tags; broad categories under "More topics". Taken as the owner's yes to the pending For you / server-visible metadata decision | In progress (feed agent) |
+| 3 | "Why not topics? And can we put a popularity score?" | Feed Columns sheet | Topics column (several specific tags) and a Popularity column and sort from free signals cached in the shared pool; "—" when unknown | In progress (feed agent) |
+| 4 | "Reference at the top of the message isn't needed" | Reference popup ("Reference 84" header) | Remove the header | In progress (reader agent) |
+| 5 | "Needs to be a discuss in chat button … takes you to the chat with the ref text in there and you can continue typing" | Reference popup | "Discuss in chat": opens the paper's chat with the reference quoted in the composer, unsent | In progress (reader agent) |
+| 6 | "Brafman ref missed" | Citation links ("Brafman and Ten-nenholtz 2002", hyphenated across a line) | Citation matcher handles hyphenation and diacritics; regression fixture; link rate measured before/after | In progress (reader agent) |
+| 7 | "When figures are referenced you should be able to link directly to them … and … a 'return to reading location' option in a sensible location" | Reader ("Fig. 1") | "Fig./Table/Algorithm N" become links that show the figure with "Go to figure"; one Back-to-where-you-were control for every jump | In progress (reader agent) |
+| — | Podcasts ("build the notebook LM podcasts feature") | Feed "Listen", paper "Listen", player | Per [PAPER_PODCASTS.md](architecture/PAPER_PODCASTS.md); owner request taken as acceptance of decisions 2 ($2 seed for two curated episodes inside the $25 cap) and 3 (private generation contract) | In progress (podcast agent); no paid call before review |
+| — | Chat model / effort / length "right there in the chat" | Chat composer | A control showing the current choice with a live credit estimate and maximum; server-enforced, versioned profiles | In progress (chat agent) |
