@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, sign, X509Certificate } from 'node:crypto';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import jsrsasign from 'jsrsasign';
 import {
   appleRootCertificates, appleVerifier, claimedEnvironment, FINAL_OUTCOMES, handleNotification, StoreVerificationError, storeConfig,
-  syncTransactions, transactionRecord, verificationError, type StoreDeps, type StoreTransactionRecord,
+  syncTransactions, transactionRecord, verificationError, storeVerificationObservation, storeRuntimeDiagnostic, storeCryptoCapabilities,
+  storeRecordingCode, type StoreDeps, type StoreTransactionRecord, type StoreVerificationObservation,
 } from '../../supabase/functions/_shared/app-store.ts';
 import { VerificationException, VerificationStatus } from '@apple/app-store-server-library';
 
@@ -13,7 +16,7 @@ const BUNDLE = 'com.sciencereader.ios';
 const ACCOUNT = '18000000-0000-0000-0000-00000000000a';
 
 /** A throwaway chain shaped like Apple's: root → intermediate (Apple WWDR OID) → leaf (App Store receipt-signing OID). */
-function testPKI() {
+function testPKI(ocspURL?: string) {
   const keypair = () => KEYUTIL.generateKeypair('EC', 'secp256r1');
   const root = keypair(), intermediate = keypair(), leaf = keypair();
   const name = (cn: string) => ({ str: `/CN=${cn}/O=Science Reader Tests/C=US` });
@@ -22,9 +25,10 @@ function testPKI() {
     notbefore: '250101000000Z', notafter: '351231235959Z', sbjpubkey: publicKey, sigalg: 'SHA256withECDSA', cakey: signer, ext,
   }).tohex();
   const rootHex = cert('Test Root', 'Test Root', root.pubKeyObj, root.prvKeyObj, [{ extname: 'basicConstraints', critical: true, cA: true }]);
+  const aia = ocspURL ? [{ extname: 'authorityInfoAccess', array: [{ ocsp: ocspURL }] }] : [];
   const intermediateHex = cert('Test Intermediate', 'Test Root', intermediate.pubKeyObj, root.prvKeyObj,
-    [{ extname: 'basicConstraints', critical: true, cA: true }, { extname: '1.2.840.113635.100.6.2.1', extn: '0500' }]);
-  const leafHex = cert('Test Leaf', 'Test Intermediate', leaf.pubKeyObj, intermediate.prvKeyObj, [{ extname: '1.2.840.113635.100.6.11.1', extn: '0500' }]);
+    [{ extname: 'basicConstraints', critical: true, cA: true }, { extname: '1.2.840.113635.100.6.2.1', extn: '0500' }, ...aia]);
+  const leafHex = cert('Test Leaf', 'Test Intermediate', leaf.pubKeyObj, intermediate.prvKeyObj, [{ extname: '1.2.840.113635.100.6.11.1', extn: '0500' }, ...aia]);
   const b64 = (hex: string) => Buffer.from(hex, 'hex').toString('base64');
   const leafKey = createPrivateKey(KEYUTIL.getPEM(leaf.prvKeyObj, 'PKCS8PRV'));
   return {
@@ -150,4 +154,113 @@ test('an unreachable revocation check is retryable: the app keeps the purchase u
   assert.deepEqual(await syncTransactions(unreachable, ACCOUNT, { transactions: ['a.b.c'] }), [{ outcome: 'verification_unavailable' }]);
   assert.ok(!FINAL_OUTCOMES.has('verification_unavailable'));
   assert.deepEqual(await handleNotification(unreachable, { signedPayload: 'a.b.c' }), { status: 503, outcome: 'verification_unavailable' });
+});
+
+
+test('diagnostics separate chain, signature, application, input and environment without changing outcomes', async () => {
+  const observations: StoreVerificationObservation[] = [];
+  const d = deps();
+  const observed = { ...d.value, observeVerification: (value: StoreVerificationObservation) => observations.push(value) };
+  const results = await syncTransactions(observed, ACCOUNT, { transactions: [pki.sign(transaction()), pki.sign(transaction(), true),
+    pki.sign(transaction({ bundleId: 'com.example.other' })), pki.sign(transaction({ environment: 'Production' })), 'not-a-receipt'] });
+  assert.deepEqual(results.map(r => r.outcome), ['recorded', 'invalid', 'invalid', 'environment_unavailable', 'invalid']);
+  assert.deepEqual(observations.map(o => o.stage), ['recording', 'signature_or_payload', 'application', 'environment', 'input']);
+  assert.equal(observations[1].apple_status, 'verification_failure');
+  assert.equal(observations[2].apple_status, 'invalid_app_identifier');
+  observations.length = 0;
+  const rejected = await syncTransactions({ ...observed, verifier: appleVerifier(config) }, ACCOUNT, { transactions: [pki.sign(transaction())] });
+  assert.deepEqual(rejected, [{ outcome: 'invalid' }]);
+  assert.deepEqual(observations, [{ outcome: 'invalid', stage: 'certificate_chain', apple_status: 'verification_failure' }]);
+  assert.equal(d.transactions.length, 1, 'only the valid purchase reaches the money path');
+  assert.ok(!JSON.stringify(observations).includes(ACCOUNT));
+});
+
+test('normalization, SQL refusals and recording outages retain distinct finite stages', async () => {
+  const observations: StoreVerificationObservation[] = [];
+  const d = deps();
+  const observed: StoreDeps = { ...d.value, observeVerification: value => observations.push(value) };
+  const normalize = await syncTransactions({ ...observed, verifier: { ...d.value.verifier, async transaction() { return transaction({ purchaseDate: 1.25 }) as any; } } }, ACCOUNT, { transactions: ['synthetic'] });
+  assert.deepEqual(normalize, [{ outcome: 'invalid' }]);
+  assert.deepEqual(observations.pop(), { outcome: 'invalid', stage: 'transaction_fields' });
+  for (const code of ['invalid_store_transaction', 'store_transaction_conflict', 'invalid_store_notification'] as const) {
+    assert.equal(storeRecordingCode('private SQL body: ' + code), code);
+    const result = await syncTransactions({ ...observed, async recordTransaction() { return { outcome: 'invalid', recordingCode: code }; } }, ACCOUNT, { transactions: [pki.sign(transaction())] });
+    assert.deepEqual(result, [{ transaction_id: '2000000123456789', outcome: 'invalid' }]);
+    assert.deepEqual(observations.pop(), { outcome: 'invalid', stage: 'recording', recording_code: code });
+  }
+  assert.equal(storeRecordingCode('private unrecognized SQL refusal'), undefined);
+  const outage = new Error('private database body never emitted');
+  await assert.rejects(syncTransactions({ ...observed, async recordTransaction() { throw outage; } }, ACCOUNT, { transactions: [pki.sign(transaction())] }), error => error === outage);
+  assert.deepEqual(observations.pop(), { outcome: 'recording_unavailable', stage: 'recording' });
+  assert.equal(d.transactions.length, 0);
+});
+
+test('observer failures and malformed observer values never change results or leak arbitrary data', async () => {
+  const d = deps();
+  const throwing: StoreDeps = { ...d.value, observeVerification() { throw new Error('logging failed with private body'); } };
+  const results = await syncTransactions(throwing, ACCOUNT, { transactions: [pki.sign(transaction()), 'bad'] });
+  assert.deepEqual(results, [{ transaction_id: '2000000123456789', outcome: 'recorded', credits: 800 }, { outcome: 'invalid' }]);
+  assert.equal(d.transactions.length, 1);
+  const privateValue = { message: 'PRIVATE_JWS', toString() { throw Error('must not coerce private values'); } };
+  const expected = { outcome: 'unrecognized', stage: 'signature_or_payload' };
+  for (const value of [null, undefined, 5, 'PRIVATE_JWS', privateValue, { stage: privateValue, apple_status: privateValue, transport_code: privateValue },
+    { stage: 'PRIVATE_JWS', apple_status: 'PRIVATE_CERTIFICATE', transport_code: 'PRIVATE_URL', signed: 'PRIVATE_JWS' }]) {
+    assert.deepEqual(storeVerificationObservation(privateValue, value, privateValue), expected);
+  }
+  assert.deepEqual(storeVerificationObservation('invalid', { stage: 'input', signed: 'PRIVATE_JWS', account: ACCOUNT }), { outcome: 'invalid', stage: 'input' });
+  const observations: StoreVerificationObservation[] = [];
+  await syncTransactions({ ...d.value, observeVerification: value => observations.push(value), verifier: { ...d.value.verifier,
+    async transaction() { throw new StoreVerificationError('invalid', { stage: 'PRIVATE_JWS', apple_status: privateValue, transport_code: privateValue } as any); } } }, ACCOUNT, { transactions: ['private-signed-input'] });
+  assert.deepEqual(observations, [{ outcome: 'invalid', stage: 'signature_or_payload' }]);
+});
+
+test('online verification uses the real SDK and remains retryable on a local OCSP outage', async () => {
+  let requests = 0;
+  const server = createServer((request, response) => {
+    requests++; assert.equal(request.method, 'POST'); assert.equal(request.headers['content-type'], 'application/ocsp-request');
+    request.resume(); response.writeHead(503).end('private-provider-body-never-logged');
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const chain = testPKI(`http://127.0.0.1:${(server.address() as { port: number }).port}/ocsp`);
+    const d = deps(); const observations: StoreVerificationObservation[] = [];
+    const results = await syncTransactions({ ...d.value, verifier: appleVerifier({ ...config, onlineChecks: true }, [chain.root]),
+      observeVerification: value => observations.push(value) }, ACCOUNT, { transactions: [chain.sign(transaction())] });
+    assert.deepEqual(results, [{ outcome: 'verification_unavailable' }]);
+    assert.deepEqual(observations, [{ outcome: 'verification_unavailable', stage: 'revocation', apple_status: 'retryable_verification_failure' }]);
+    assert.equal(d.transactions.length, 0, 'no offline fallback or invented grant');
+    assert.ok(requests >= 1 && requests <= 2, 'only the leaf/intermediate checks, with no extra verification attempt');
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('transport observations use a closed vocabulary even for nested or cyclic causes', () => {
+  const cause = Object.assign(new Error('PRIVATE_JWS and PRIVATE_URL'), { code: 'ECONNRESET' });
+  assert.deepEqual(verificationError(new VerificationException(VerificationStatus.RETRYABLE_VERIFICATION_FAILURE, cause)).diagnostic,
+    { stage: 'signature_or_payload', apple_status: 'retryable_verification_failure', transport_code: 'connection' });
+  const runtime = Object.assign(new Error('PRIVATE_RUNTIME_MESSAGE'), { code: 'ERR_NOT_IMPLEMENTED' });
+  assert.deepEqual(verificationError(new VerificationException(VerificationStatus.VERIFICATION_FAILURE, runtime)).diagnostic,
+    { stage: 'signature_or_payload', apple_status: 'verification_failure', transport_code: 'runtime' });
+  const cycle: any = new Error('PRIVATE'); cycle.cause = cycle;
+  assert.deepEqual(verificationError(cycle).diagnostic, { stage: 'signature_or_payload' });
+  const unsafe = Object.assign(new Error('PRIVATE'), { code: { toString() { throw Error('do not coerce'); } } });
+  assert.deepEqual(verificationError(unsafe).diagnostic, { stage: 'signature_or_payload' });
+});
+
+test('runtime probe is public-only, bounded and survives unimplemented certificate primitives', () => {
+  assert.deepEqual(storeRuntimeDiagnostic('2.9.6'), { release: 'purchase-diagnostics-v1', apple_library: '3.1.0', deno: '2.9.6' });
+  for (const value of ['2.9.6\nPRIVATE', 'PRIVATE', { version: 'PRIVATE' }, null]) assert.equal(storeRuntimeDiagnostic(value).deno, 'unknown');
+  const all = { certificate_parse: true, certificate_string: true, certificate_raw: true, public_key_export: true,
+    certificate_verify: true, certificate_info_access: true };
+  assert.deepEqual(storeCryptoCapabilities(), all);
+  assert.deepEqual(storeCryptoCapabilities(() => { throw Error('PRIVATE runtime error'); }), Object.fromEntries(Object.keys(all).map(k => [k, false])));
+  let created = 0;
+  assert.deepEqual(storeCryptoCapabilities(der => {
+    created++; assert.deepEqual(der, appleRootCertificates()[0], 'the sole input is the bundled public root');
+    return { toString() { throw Error('PRIVATE'); }, get raw() { throw Error('PRIVATE'); },
+      get publicKey() { throw Error('PRIVATE'); }, verify() { throw Error('PRIVATE'); },
+      get infoAccess() { throw Error('PRIVATE'); } } as any;
+  }), { ...Object.fromEntries(Object.keys(all).map(k => [k, false])), certificate_parse: true });
+  assert.equal(created, 1);
+  const root = new X509Certificate(appleRootCertificates()[0]);
+  assert.equal(root.infoAccess, undefined, 'root has no AIA; successful undefined still proves the getter is implemented');
 });

@@ -4,9 +4,12 @@
 // only once its outcome is final. See docs/architecture/PURCHASES.md.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
-import { appleVerifier, MAX_SYNC_TRANSACTIONS, REJECTED_DATA, storeConfig, syncTransactions, type StoreVerifier } from '../_shared/app-store.ts';
+import { appleVerifier, MAX_SYNC_TRANSACTIONS, REJECTED_DATA, storeConfig, storeRecordingCode, storeRuntimeDiagnostic, storeCryptoCapabilities, syncTransactions, type StoreVerifier } from '../_shared/app-store.ts';
 
 let verifier: StoreVerifier | null = null;
+try {
+  console.log(JSON.stringify({ function: 'store-sync', event: 'runtime', ...storeRuntimeDiagnostic(Deno.version.deno), ...storeCryptoCapabilities() }));
+} catch { /* Observability must never prevent a purchase from being verified. */ }
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -25,9 +28,10 @@ Deno.serve(async request => {
     verifier ??= appleVerifier(config);
     const results = await syncTransactions({
       verifier,
+      observeVerification(observation) { console.log(JSON.stringify({ function: 'store-sync', event: 'verification', ...observation })); },
       async recordTransaction(account, record) {
         const { data, error } = await service.rpc('worker_record_store_transaction', { p_account_id: account, p_transaction: record });
-        if (error) { if (REJECTED_DATA.test(error.message)) return { outcome: 'invalid' }; throw new PublicError(503, 'service_unavailable'); }
+        if (error) { if (REJECTED_DATA.test(error.message)) return { outcome: 'invalid', recordingCode: storeRecordingCode(error.message) }; throw new PublicError(503, 'service_unavailable'); }
         return data;
       },
       recordNotification: () => { throw new Error('unused'); },
