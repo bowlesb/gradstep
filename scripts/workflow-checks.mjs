@@ -705,6 +705,24 @@ check('admin.accounts-gate', { title: 'Admin accounts refuses callers who are no
   return pass('anonymous 401, customer 403 owner_mfa_required, balance unchanged');
 });
 
+check('admin.spending-gate', { title: 'Spending evidence requires the caller’s owner/MFA session', suites: ALL, timeout: 60 }, async ({ signal }) => {
+  const acct = await account('spending-gate', 0);
+  const before = await acct.balance();
+  const body = { request_id: randomUUID(), component: 'tavily_subscription', period: new Date().toISOString().slice(0, 7) + '-01',
+    measure: 'invoice', amount_microusd: 0, complete: false, observed_at: new Date().toISOString(),
+    evidence_reference: 'workflow-check-must-be-refused' };
+  const anonymous = await http(`${env.SUPABASE_URL}/functions/v1/admin-spending`, { method: 'POST', headers: { apikey: env.SUPABASE_ANON_KEY }, body, signal });
+  if (anonymous.status !== 401) return fail(`without sign-in: HTTP ${anonymous.status}`);
+  const customer = await acct.fn('admin-spending', { method: 'POST', body, signal });
+  if (customer.status !== 403 || customer.json?.code !== 'owner_mfa_required') return fail(`a customer: HTTP ${customer.status} ${customer.json?.code ?? ''}`);
+  const after = await acct.balance();
+  if (after.available !== before.available || after.held !== before.held) return fail('a refused observation changed customer credits');
+  if (!management) return warn('anonymous/customer refused and credits unchanged; management evidence for no observation row is unavailable');
+  const [proof] = await management.sql(`select count(*)::int as count from app_private.spending_cost_observations where id='${body.request_id}'`);
+  if (Number(proof?.count) !== 0) return fail('a refused caller recorded a spending observation');
+  return pass('anonymous 401, customer 403 owner_mfa_required; no observation recorded, zero-credit balance unchanged');
+});
+
 check('chat.smoke', { title: 'General chat streams an answer and settles', suites: SCHEDULED, timeout: 120, costUSD: 0.005 }, async ({ signal }) => {
   const acct = await account('chat', 200);
   const r = await chat(acct, { mode: 'general', messages: [{ role: 'user', text: 'Reply with the single word OK.' }] }, { signal });

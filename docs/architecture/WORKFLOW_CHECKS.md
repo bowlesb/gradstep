@@ -39,6 +39,7 @@ one-line reason a person can act on.
 | `library.v5-commands` | upload-capable baseline → cached-paper Add → archive/unarchive, tags, remove/re-add, matching v5 deltas and idempotent receipts; another dataset is refused | missing migration 042 or a broken v5 write contract (build 18 regression); native button journeys remain separate | all | 0; synthetic account gets no credits |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
 | `admin.accounts-gate` | `admin-accounts` refuses an anonymous caller (401) and a customer (403 `owner_mfa_required`); the refused grant changes nothing | admin function missing or its owner gate broken | all | 0 |
+| `admin.spending-gate` | `admin-spending` refuses anonymous/customer writes; a read-only lookup confirms no observation exists and the zero-credit account stays unchanged | spending entry missing or its owner/MFA gate broken | all | 0 |
 | `chat.smoke` | general answer streams, ends with `done`, settles | chat down | daily, weekly (+deploy when `chat` is deployed) | ≈ $0.005 |
 | `chat.paper` | paper answer (Mistral 7B, 9 pages, shared; `--paper=<arXiv id>` to change) streams and ends with `done`; first-text and total time | paper context broken | daily, weekly | ≈ $0.04 |
 | `chat.related` | Related answer has ≥ 2 links (Sources) | web search returning 0 sources | daily, weekly | ≤ $0.18 (35 credits; Tavily is prepaid) |
