@@ -421,7 +421,131 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 Listening position and history are **device-local in v1** (see "Listening history" below): no podcast events enter
 the encrypted history stream, so older clients' chat/history replay is unaffected.
 
+### Client API reference (for any client, including the Codex web player)
+
+**Transport.** Base URL `${SUPABASE_URL}/functions/v1/podcast?action=<name>` (staging `https://coxhjvqpflgxkleydati.supabase.co`).
+Every call sends `Authorization: Bearer <the signed-in user's access token>` and `apikey: <anon key>` (the Supabase
+gateway), `Content-Type: application/json` on POST. Browser origins must be in the Edge `ADMIN_ORIGINS` list (staging:
+`https://app.gradstep.ai`, `http://127.0.0.1:5173`, `http://localhost:5173`); methods `GET, POST, OPTIONS`. POST bodies
+are JSON objects ≤ 8 KiB. Every response is `Cache-Control: no-store`. The same functions are callable as PostgREST
+RPCs (`v1_podcast_catalog`, `v1_podcast_paper`, `v1_podcast_quote`, `v1_podcast_start`, `v1_podcast_status`,
+`v1_podcast_cancel`, `v1_podcast_states`, `v1_podcast_capabilities`), but `episode` and `download` exist only in
+the Edge function because they read Storage with the service role after verifying the caller.
+
+**Rate and transfer limits.** `podcast-read` (catalog, paper, episode, status, states, capabilities): 600/account/hour,
+6,000/environment/hour. `podcast-generate` (quote, start, cancel): 20/account/hour. `podcast-download`: 60/account/hour.
+Audio transfer: 100 MiB/account/month (512 MiB with an active subscription), 2 GiB/environment, also counted against
+the reader's shared environment transfer. `episode` charges the transcript bytes before reading Storage; `download`
+reserves the audio bytes; redemption converts the reservation into authorized bytes. `capabilities.transfer` reports
+the caller's remaining bytes. Exhaustion is `podcast_transfer_limit` (429); already downloaded audio keeps playing.
+
+**Errors.** `{ "code": … }` with these statuses; any other database text becomes `service_unavailable` (503).
+
+| Code | HTTP | Meaning / client behaviour |
+|---|---|---|
+| `authentication_required` | 401 | Sign in again |
+| `account_unavailable`, `spending_suspended` | 403 | Account closed or paid work suspended |
+| `request_rate_limit`, `podcast_transfer_limit` | 429 | Wait; say which limit |
+| `podcast_unavailable`, `podcast_paused` | 503 | Feature (or private generation after quality losses) switched off: hide/disable, keep reading |
+| `podcast_release_unavailable`, `podcast_request_unavailable` | 404 | Not visible to this account (no existence oracle) |
+| `source_unavailable` / `source_too_large` | 404 / 413 | Paper not converted (or its text over the profile bound): no generation offered |
+| `quote_unavailable` / `quote_expired` | 404 / 410 | Ask for a new quote (expires after 15 minutes or when the source changes) |
+| `consent_required` | 400 | `consent_version` must be exactly `podcast-private-v1` |
+| `insufficient_credits` | 402 | Show the credit store; nothing was held |
+| `active_generation_limit`, `podcast_busy`, `podcast_daily_limit`, `too_many_active_operations` | 429 | One private job per account, two in the environment, twenty per day |
+| `storage_full` | 507 | Store full; nothing was held |
+| `platform_budget_exhausted` | 503 | Platform paused paid work |
+| `podcast_request_conflict` | 409 | Same `request_id` reused for a different quote/item |
+| `podcast_grant_unavailable` / `podcast_grant_consumed` | 403 / 409 | Grant expired, revoked or already used: request a new `download` |
+| `podcast_range_unavailable` | 416 | `Range` headers are refused |
+| `podcast_integrity_failed` | 503 | Server-side digest mismatch; do not cache anything |
+| `invalid_podcast_request`, `invalid_podcast_cursor`, `invalid_podcast_grant`, `invalid_id` | 400 | Client bug |
+
+**Catalog** `GET ?action=catalog&limit=20[&after=<next>]` → ready shared episodes, newest publication first; `next`
+is an opaque decimal string (pass it back unchanged) or `null`. A disabled catalog returns `episodes: []` with
+`capabilities.catalog=false`. Private episodes never appear here.
+
+```json
+{ "episodes": [{ "release_id": "6c1e…", "scope": "shared", "state": "ready", "fixture": false, "ai_audio": true,
+    "language": "en", "title": "Sparse Mixture Routing", "year": 2024, "authors": ["Ada Example"], "topic": "Mixture of experts",
+    "duration_ms": 301000, "published_at": "2026-10-09T18:02:11Z", "document_id": "0f2a…",
+    "source": { "arxiv_id": "2410.04601", "version": 1, "url": "https://arxiv.org/abs/2410.04601v1",
+      "license": "https://creativecommons.org/licenses/by/4.0/" },
+    "audio": { "bytes": 2412044, "sha256": "9b1f…", "media_type": "audio/mp4" }, "replacement_id": null }],
+  "next": null,
+  "capabilities": { "catalog": true, "delivery": true, "generation": false, "max_credits": 150, "target_seconds": 300,
+    "transfer": { "limit_bytes": 104857600, "remaining_bytes": 101245000 } } }
+```
+
+`title`, `year`, `authors`, `topic` and `source` are always present for shared episodes; for **private** episodes they
+are `null`/empty because private titles are not server-visible — use the library item's own title.
+
+**Episode** `GET ?action=episode&release_id=…` returns the Episode plus `chapters` and `transcript`. Use it as the
+pre-download state check: play only if `state` is `ready` and `audio.sha256`/`audio.bytes` equal what you will verify.
+
+```json
+{ "episode": { "release_id": "6c1e…", "…": "Episode fields as above",
+  "chapters": [{ "id": "c1", "title": "The question", "start_ms": 0 }, { "id": "c2", "title": "The method", "start_ms": 61240 }],
+  "transcript": { "speakers": { "explainer": "Host 1 · explainer", "skeptic": "Host 2 · skeptical reader" },
+    "disclosure": "AI-generated audio made from the paper’s converted text by Gradstep. …", "timing": "approximate",
+    "segments": [{ "id": "s4", "speaker": "explainer", "chapter": "c2", "start_ms": 61240, "end_ms": 74980,
+      "text": "Each token goes to the top 2 of 64 experts, chosen by a learned gate.", "claim_type": "paper_result",
+      "evidence": [{ "id": "e2", "quote": "Each token is routed to the top 2 of 64 experts by a learned gate", "section": "3 Method" }],
+      "math": [{ "latex": "g(x)=\\operatorname{softmax}(W x)", "spoken": "a softmax gate" }] }] } } }
+```
+
+Chapters are ordered by `start_ms` (the first is 0); every segment names one chapter; segments are ordered and
+`end_ms ≥ start_ms`. Timing is **approximate** (one multi-speaker take, boundaries snapped to pauses): use it to seek
+and highlight, not as word alignment. `evidence[].quote` is whitespace-normalized verbatim text of the pinned
+converted paper (`document_id`): find it with the passage finder (exact, then collapsed whitespace). Segments with
+`claim_type` `context` or `explainer_analogy` may have no evidence. Unknown future `claim_type` values should render
+as `context`. `math[].latex` is display-only; never feed it to speech.
+
+**Paper detail** `GET ?action=paper&item_id=<library item id>` → `{ episode, job, capabilities }`: the account's own
+ready private release for that paper, otherwise the newest ready shared release of the exact same document bytes,
+and the account's unfinished private job (with its `request_id`) if any.
+
+**Private generation.** (1) `POST quote {item_id, request_id}` with a fresh UUID → `quote` (show `estimate`,
+`max_credits`, `providers` and ask for consent), or `reuse.release_id` (an identical private episode exists: play it,
+nothing is charged) or `join.request_id` (this account is already generating it on another device: poll that request).
+(2) `POST start {quote_id, request_id, consent_version: "podcast-private-v1"}` — use the **same** `request_id`; a
+lost reply is safe to resend (same response, no second hold). Returns `job` with `held_credits: 150`.
+(3) Poll `GET status&request_id=` every 5 s for the first minute, then every 15 s; each poll of a queued or stalled job
+also wakes the worker (at most once a minute). Typical completion is a few minutes; show `state`, never a fake
+percentage. (4) On `ready`, `job.release_id` is playable; `charged_credits` and `released_credits` give the actual
+charge (actual usage, ≤ 150). `failed` with a quality reason charges 0; `unknown_provider` charges 0 to the customer
+(the platform keeps the provider liability). (5) `POST cancel {request_id}` releases the whole hold before the job
+starts; once running it stops future paid calls and charges known usage (≤ 150).
+
+**Delivery (audio).** `POST download {release_id}` → `{ grant: { expires_at, members: [{ role: "audio", url, bytes,
+sha256, media_type: "audio/mp4" }] } }`. `url` is `…/functions/v1/podcast-member?grant=<64 hex>&member=<uuid>` and must
+be fetched **once**, as given, with the same `Authorization` and `apikey` headers, **without `Range`** (416) and
+without query changes; it expires after 15 minutes. The body is the exact object (`Content-Length` = `bytes`,
+`Accept-Ranges: none`, `Cache-Control: private, no-store`). Verify `bytes` and SHA-256 before use; on any failure
+discard the bytes and request a new grant (each grant consumes transfer allowance). No progressive or range playback
+in v1: download the whole file (≈ 2.4 MB for five minutes at 64 kbit/s AAC in MP4/M4A), then play from local
+storage. Never put the member URL or token in logs, analytics or shareable links; the token is account-bound.
+
+**Revocation.** Before a new download and on reconnect, `POST states {release_ids: [≤ 100]}` →
+`states[id].state` ∈ `ready | quarantined | withdrawn | superseded | unavailable` (+ `replacement_id`). Remove local
+audio and positions for anything not `ready`; offer the replacement when present. Offline devices learn this only
+when they reconnect.
+
+**Listening history (v1, device-local; canonical record for a later encrypted stream).** One record per release:
+`{ release_id, position_ms, duration_ms, completed, session_id, session_started_at, sequence, device_id, updated_at,
+removed }`. A session starts when playback of a release starts on a device; each saved update takes the next
+`sequence`. Merge: the record whose session started later wins; equal starts order by `session_id`; within a session
+the higher `sequence` wins; on an exact duplicate a `removed` tombstone wins. Never `max(position)`: a backwards seek
+is a real update. Save at pause, background/page hide, chapter change, Stop and at most every 15 s while playing.
+Another device's or tab's record never moves an already playing player; it is offered as "resume" on next open.
+Scope storage per account and clear it at sign-out/account switch. Native seals it with the device-held local key;
+the browser keeps it in per-account `localStorage`. Nothing is sent to the server in v1.
+
 ### Browser client (apps/web, 2026-10-08, local fixture verification only)
+
+**Ownership:** the owner moved web (and Mac-only) work to Codex on 2026-10-08, after this first version was built and
+tested on the `podcast-v1` branch (commits `72e04ff`, `947afe3`). Codex can adopt or replace it; the contract above is
+the interface either way.
 
 - **Listen filter:** an additive chip (or rail item when the topic rail is shown) before the Feed's topics
   (`ui/Feed.tsx` `ListenFilter`); episode cards show title, authors, year, duration, topic, the AI-audio badge and
