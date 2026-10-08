@@ -356,7 +356,8 @@ def install_caller_secret(directory):
         raise OpsError('store_ops_secret_readback')
     for expected in secrets:
         matches = [entry for entry in observed if entry.get('name') == expected['name']]
-        if len(matches) != 1 or matches[0].get('digest') != sha(expected['value'].encode()):
+        # The Management API lists each secret's SHA-256 hex digest in `value` (never the secret itself).
+        if len(matches) != 1 or matches[0].get('value') != sha(expected['value'].encode()):
             raise OpsError('store_ops_secret_readback')
     state.update(phase='installed', installed_at=now())
     private_write(state_path, state)
@@ -743,8 +744,12 @@ def function_readback(function, token):
        or not isinstance(metadata.get('version'), int) or metadata.get('verify_jwt') is not False:
         raise OpsError('store_ops_function_metadata')
     proof = compare_eszip(download_function(function, token), function, ROOT)
-    if metadata.get('ezbr_sha256') not in (None, proof['bundle_sha256']):
+    # `ezbr_sha256` hashes Supabase's compressed (EZBR) bundle; the body endpoint serves the decompressed ESZIP,
+    # so the two digests differ by design. compare_eszip already proves every module's source; record both.
+    ezbr = metadata.get('ezbr_sha256')
+    if ezbr is not None and not re.fullmatch(r'[0-9a-f]{64}', ezbr):
         raise OpsError('store_ops_function_bundle_digest')
+    proof = {**proof, 'ezbr_sha256': ezbr}
     after = json_request(f'https://api.supabase.com/v1/projects/{SUPABASE}/functions/{function}', token=token)
     if any(after.get(key) != metadata.get(key) for key in ('id', 'slug', 'version', 'status', 'verify_jwt', 'ezbr_sha256')):
         raise OpsError('store_ops_function_changed_during_readback')
@@ -812,7 +817,12 @@ def staging_service_role():
     if values.get('SUPABASE_PROJECT_REF') != SUPABASE or values.get('SUPABASE_URL', '').rstrip('/') != f'https://{SUPABASE}.supabase.co' \
        or not values.get('SUPABASE_SERVICE_ROLE_KEY'):
         raise OpsError('store_ops_staging_credential_identity')
-    return values['SUPABASE_SERVICE_ROLE_KEY']
+    # Hosted Edge functions receive the project's current secret API key as SUPABASE_SERVICE_ROLE_KEY once
+    # new-style keys exist; the legacy JWT still works for PostgREST but not for the health handler's comparison.
+    secret = values.get('SUPABASE_SECRET_KEY', '')
+    if secret and not secret.startswith('sb_secret_'):
+        raise OpsError('store_ops_staging_credential_format')
+    return secret or values['SUPABASE_SERVICE_ROLE_KEY']
 
 
 def invoke_health_probe(probe_id, service_role):
@@ -880,7 +890,10 @@ def database_readiness(token):
     supabase_identity(token)
     verify_admission_migration(token)
     rows = json_request(f'https://api.supabase.com/v1/projects/{SUPABASE}/database/query', token=token,
-        body={'query': 'select public.worker_store_verifier_readiness() as state', 'read_only': True}, method='POST')
+        # Readiness is service-role-only; the Management API's read-only role can't execute it, so run it as
+        # service_role inside an explicitly read-only transaction (the API's read_only mode uses another role).
+        body={'query': 'begin transaction read only; set local role service_role; '
+                       'select public.worker_store_verifier_readiness() as state; commit;', 'read_only': False}, method='POST')
     if not isinstance(rows, list) or len(rows) != 1 or set(rows[0]) != {'state'}:
         raise OpsError('store_ops_admission_readiness')
     value = rows[0]['state']

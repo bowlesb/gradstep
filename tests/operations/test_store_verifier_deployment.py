@@ -248,7 +248,7 @@ class CallerKeyTests(unittest.TestCase):
             events.append(kwargs.get('method', 'GET'))
             if kwargs.get('body'):
                 stored[:] = kwargs['body']; return None
-            return [{'name': row['name'], 'digest': D.sha(row['value'].encode())} for row in stored]
+            return [{'name': row['name'], 'value': D.sha(row['value'].encode())} for row in stored]
         with mock.patch.object(D, 'key_ids', return_value=[KEY_ID]), mock.patch.object(D, 'management_token', return_value='private-fixture'), \
              mock.patch.object(D, 'supabase_identity'), mock.patch.object(D, 'json_request', side_effect=request), mock.patch.object(D, 'gcloud') as cloud:
             result = D.install_caller_secret(directory)
@@ -288,7 +288,10 @@ class ReadbackAndActivationTests(unittest.TestCase):
         with mock.patch.object(D, 'supabase_identity'), mock.patch.object(D, 'verify_admission_migration'), \
              mock.patch.object(D, 'json_request', return_value=[{'state': db()}]) as request:
             self.assertEqual(D.database_readiness('fixture'), db())
-            self.assertTrue(request.call_args.kwargs['body']['read_only'])
+            query = request.call_args.kwargs['body']['query']
+            # Service-role-only readiness runs as service_role inside an explicitly read-only transaction.
+            self.assertTrue(query.startswith('begin transaction read only; set local role service_role; '))
+            self.assertIn('select public.worker_store_verifier_readiness() as state;', query)
         for change in [lambda v: v['channels'][0].update(enabled=True), lambda v: v['channels'][1].update(enabled=True),
                        lambda v: v['channels'][0]['limits'].update(month=1_000_000), lambda v: v['channels'].reverse(),
                        lambda v: v['channels'][0]['usage']['month'].update(starts=-1)]:

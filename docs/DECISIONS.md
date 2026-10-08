@@ -731,3 +731,16 @@ Owner: conversations linked to the passage they came from — the paper ↔ chat
 | Setting | Settings › Reading › **Underline passages with chats** (on by default; this device only). Cheap, so included. |
 | All chats | With the Paper column shown (iPhone landscape, iPad), an anchored row's muted second line is the passage in quotes (math readable) instead of the newest answer; in iPhone portrait the second line stays the paper's title. The title still reads "Explain · ‹passage›". |
 | Not done | Marks aren't announced by VoiceOver (Go to passage is reachable); the browser reader doesn't show marks yet, and the Mac app shares this code but was only compiled, not run; passages are found again by text only, not by position within a re-rendered artifact. |
+
+## Purchase verification runtime deployed (owner approved 2026-10-07 evening)
+
+Supabase's hosted Edge runtime lacks certificate primitives Apple's verifier needs, so no Sandbox purchase had ever
+been recorded. Apple verification now runs in a private Node 24 Cloud Run service `gradstep-store-verifier`
+(revision 00002-qqz; IAM-only, one invoker `gradstep-store-caller`; request billing, max 1 instance, scale to zero;
+design cap $6/month of the $100 budget). Supabase still authenticates, admits (migration 033, one-use attempts,
+app 50/account-hour, 500/hour, 300/day, 3,000/month; notifications 60/200/1,000) and records credits. Apple
+signature, chain, bundle/environment and online revocation checks stay on, with the reviewed OCSP-freshness patch.
+Deploy-tool fixes made during rollout: readiness runs as service_role in a read-only transaction; secret readback uses
+the API's digest field (`value`); function readback records `ezbr_sha256` (compressed) instead of comparing it to the
+decompressed bundle (module sources are compared exactly); the health probe uses the project's `sb_secret_` key.
+Rollback: `worker_set_store_verifier_enabled(channel, revision, false)`, then roll the service back; never skip checks.
