@@ -300,6 +300,9 @@ choice shown when Send is pressed; a retry asks with the same.
 - Settlement is unchanged: actual usage of every attempt (answer rounds, fallbacks and the title) priced per serving
   model, rounded to credits once, never above the hold; no re-quote, no automatic escalation, no extra paid fallback.
 - Logs add `profile` (ID) and `title` (`written`, `unusable`, `failed`, `not_requested`) to `chat_answer`; never text.
+- Not changed: `worker_provider_attempt_begin`'s per-attempt `pricing_snapshot` (migration 034) still records the
+  2026-10-07 Sonnet/Haiku 4.5/fallback card as evidence; the authoritative tariff for a chat is the quote's `tariff`
+  and the function's rate card. Updating the snapshot needs a function redefinition and is left for a later migration.
 
 ### Prompt caching
 

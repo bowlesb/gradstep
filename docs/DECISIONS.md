@@ -903,3 +903,23 @@ and backend contracts stay unchanged. Markdown/math and Mermaid load only when d
 remain tab-memory only and are described that way; durable offline chat requires a separate encrypted local-journal
 review. No Safari fallback, plaintext persistence, provider call or hosted deployment accompanies this branch.
 Detailed bounds, behavior and evidence: [Browser reader › Chat](architecture/BROWSER_READER.md#chat-milestone-2).
+
+## Chat model, effort and length; topic titles (owner asked 2026-10-08; agent decisions, reversible)
+
+Owner: "chats should have the ability to customize the length and effort and model right there in the chat in a clear
+UX", and (TestFlight build 21) "Each chat should have a labeled title on the topic of the chat in the same way that
+ChatGPT does … embedded everywhere in the app". Built on branch `chat-controls-titles`; not deployed, migration 047
+not applied, no paid request made. Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-10-08).
+
+| Decision | Choice |
+|---|---|
+| Models | Haiku `claude-haiku-5-5` (exists: `GET /v1/models`, official price list; replaces Haiku 4.5 for chat), Sonnet `claude-sonnet-5-5` (default), Opus `claude-opus-5-5`. Haiku 5.5 should pass factual/equation checks before it is marketed as the cheap option. |
+| Effort | Low / Medium / High = the API's `output_config.effort` with adaptive thinking on every model; Low is today's. Labels are the API's words, served by the server so they can change without a build. |
+| Length | Brief / Standard / Detailed: output allowance (answer + effort's thinking allowance) and an instruction after the cached paper; Standard is today's 8,000 tokens and prompt. |
+| Server enforcement | Versioned table `chat-profiles-v1` in the chat function; only its combinations accepted; holds at the chosen model's rates; quote frozen with the reservation (migration 047); settled once; requests without a choice are byte-for-byte today's. |
+| Estimates | Published by `GET functions/v1/chat` for a 25-page reference paper ("Usually 4–24 credits · up to 37"); planning assumptions until measured. |
+| Rate card | Corrected to the price list: Sonnet 5.5 cache reads $0.10/MTok (were charged at $0.20); unknown models at the Opus 5 card. |
+| UX | iOS/iPad: a capsule in the message box under the text, beside Send (Gemini's arrangement), opening "Answers in this chat"; Settings › Chat defaults; a quiet "Sonnet · Low · Standard" under answers. A chat keeps its newest answer's choice; selection actions carry the visible choice. |
+| Titles | Haiku 5.5 writes a 3–7 word topic title in parallel with the first answer, inside the same metered operation (≈ 0.02 credit), sent as an SSE `title` event, stored by the device as an encrypted conversation revision (`titleSource`). Untitled chats get one on their next question; no bulk generation. Rename everywhere; a generated title never replaces a renamed one. |
+| Web | Contract documented for Codex (owner moved web and Mac-only work to Codex on 2026-10-08); a first web implementation is on the branch. |
+
