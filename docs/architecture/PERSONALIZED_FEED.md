@@ -180,7 +180,7 @@ Voyage `voyage-3.5-lite`; third-party price listings — confirm on the vendor p
 | Serving | `feed_policy.serving`: `off` (default) / `staff` / `all` | `worker_feed_candidates`, `worker_feed_category`, `v1_feed_feedback` | Off: `404 feed_unavailable`; the app hides For you and shows the chips as today; chips use live RSS |
 | Refreshing | `feed_policy.refresh_enabled` (default off); interval 120 min (30–1,440); 5-min lease | `feed_refresh_kick`, `worker_feed_refresh_claim` | The pool ages; For you keeps serving it until the 14-day window is empty, then `feed_unavailable` |
 | arXiv | One conditional request per due refresh; shared 3 s slot (≤ 20 s wait); 16 MB and 3,000 items per response | `feed-refresh`, `worker_pipeline_arxiv_slot` | Busy: retry in 10 min. Failure or oversize: back off 15 min → 6 h; the pool is unchanged |
-| Pool size | 30 days, 60,000 rows | `worker_feed_refresh_finish` prunes | Oldest papers dropped |
+| Pool size | 30 days, 60,000 rows | `worker_feed_upsert` prunes in every committed batch; finish also prunes | Oldest papers dropped |
 | For you requests | Existing `discover` rate: 60/account/h, 600/environment/h | `worker_consume_request` | 429; the app shows its usual failure with Try again |
 | Feedback | 120/account/h, 3,000/environment/h; 1,000 rows/account | `v1_feed_feedback` | 429; the oldest feedback is dropped past 1,000 |
 | Response | 50 papers, abstracts ≤ 700 characters | `discover` | — |
@@ -271,3 +271,16 @@ or causes a late write to fail; deleted feedback cannot be recreated by an in-fl
 4. **Category chips served from the shared pool** when the switch is on (stops per-user arXiv calls).
 5. **Later, separately**: option B with a $1/month allowance (or B′ in the worker); onboarding topic picks
    (follows); on-device re-ranking with reading activity.
+
+## Independent takeover review — 2026-10-08 UTC
+
+A separate reviewer reproduced a storage-cap bypass when a refresh committed batches but died before
+`worker_feed_refresh_finish`. The final implementation prunes retention and excess rows **inside every
+claim-fenced upsert transaction**, using the same helper at finish. The sole upstream claim row serializes
+pool writers; multiple upstream writers would require a reviewed common capacity lock. Real committed
+400-row batches at a 1,000-row cap, abandonment, expired-claim replacement, and another batch all preserve
+the cap and remove aged pool metadata. No reader library entries are pruned.
+
+Independent review found no further blocking account-isolation, closure-lock, eligibility or default-activation
+issues. Final focused SQL and true-session tests pass. Hosted query/Edge capacity and the proposed UI/privacy
+choices remain activation gates; no paid ranking or public rollout was performed.

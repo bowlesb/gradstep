@@ -90,6 +90,33 @@ def verify(bin_path, db, base):
     assert len(claimed) == 1, outcomes
     sql(f"set role service_role; select public.worker_feed_refresh_finish('{claimed[0]}','not_modified',null,null,null);")
 
+    # Each batch commits. A worker that never finishes, then loses its lease, still cannot
+    # grow storage beyond the cap. The next worker must obey the same bound immediately.
+    original_cap = sql('select max_rows from app_private.feed_policy;').stdout.strip()
+    sql("update app_private.feed_policy set max_rows=1000; update app_private.feed_sources set next_check_at=now()-interval '1 minute';")
+    try:
+        claim_id = sql("select public.worker_feed_refresh_claim()->>'claim_id';").stdout.strip()
+        for batch in range(4):
+            if batch == 3:
+                sql("update app_private.feed_sources set lease_until=now()-interval '1 second';")
+                replacement = sql("select public.worker_feed_refresh_claim()->>'claim_id';").stdout.strip()
+                assert replacement and replacement != claim_id
+                claim_id = replacement
+            # Simulate an aged retained row; pruning cannot depend on finish being called.
+            sql("insert into app_private.feed_papers(source_id,revision,title,authors,author_keys,categories,announced_on,announce_type) "
+                "values('2608.00001',1,'Old pool item','{}','{}','{cs.LG}',current_date-45,'new') on conflict do nothing;")
+            sql(f"select public.worker_feed_upsert('{claim_id}',(select jsonb_agg(jsonb_build_object("
+                f"'source_id','2610.'||({80000+batch*400}+n)::text,'revision',1,'title','Capacity fixture',"
+                "'authors','[]'::jsonb,'categories','[\"cs.LG\"]'::jsonb,'topics','[]'::jsonb,"
+                "'announced_on',current_date::text,'announce_type','new')) from generate_series(1,400) n),'feed-topics-v1');")
+            rows = int(sql('select count(*) from app_private.feed_papers;').stdout.strip())
+            assert rows == min((batch+1)*400,1000), rows
+            assert sql("select count(*) from app_private.feed_papers where source_id='2608.00001';").stdout.strip() == '0'
+    finally:
+        sql(f"update app_private.feed_policy set max_rows={original_cap}; delete from app_private.feed_papers "
+            "where source_id between '2610.80001' and '2610.81600' or source_id='2608.00001';")
+    print('PASS feed capacity and retention hold across committed batches, missing finish and a replacement claim', flush=True)
+
     account = str(uuid.uuid4())
     sql(f"insert into auth.users values('{account}');")
     reader = f"set role authenticated; select set_config('request.jwt.claim.sub','{account}',false);"

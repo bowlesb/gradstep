@@ -193,6 +193,26 @@ create function app_private.feed_valid_item(p jsonb) returns boolean language sq
   and jsonb_typeof(p->'announce_type')='string' and p->>'announce_type' in ('new','cross')
 $$;
 
+-- Called only while holding the sole upstream's claim row (all pool writers use that fence).
+-- Bound every committed batch, not only a successful finish: a dead/expired worker must not
+-- accumulate unpruned rows across later claims. This is pool metadata, never a reader's library.
+create function app_private.feed_prune_pool() returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare pol app_private.feed_policy; pruned integer; extra integer; n integer;
+begin
+ select * into strict pol from app_private.feed_policy where singleton;
+ delete from app_private.feed_papers where announced_on<(now() at time zone 'UTC')::date-pol.retention_days;
+ get diagnostics pruned=row_count;
+ select count(*) into n from app_private.feed_papers;
+ extra:=n-pol.max_rows;
+ if extra>0 then
+  delete from app_private.feed_papers where source_id in (select source_id from app_private.feed_papers
+   order by announced_on,first_seen_at,source_id limit extra);
+  pruned:=pruned+extra; n:=n-extra;
+ end if;
+ return jsonb_build_object('pruned',pruned,'pool',n);
+end $$;
+
 -- Refresh, step 2 (repeatable, batches of at most 500): upsert pool rows under a live claim.
 -- A paper seen again keeps its first-seen time and earliest announcement, gains categories, and
 -- is "new" if any listing announced it as new.
@@ -226,7 +246,7 @@ begin
    announce_type=case when 'new' in (f.announce_type,excluded.announce_type) then 'new' else 'cross' end,updated_at=now()
   returning (xmax=0) as fresh)
  select count(*) filter (where fresh),count(*) into inserted,total from written;
- return jsonb_build_object('inserted',inserted,'updated',total-inserted);
+ return jsonb_build_object('inserted',inserted,'updated',total-inserted)||app_private.feed_prune_pool();
 end $$;
 
 -- Refresh, step 3: record the outcome, schedule the next check, release the claim, prune the pool.
@@ -234,7 +254,7 @@ end $$;
 -- 6 h. busy (arXiv pacing slot taken): try again in 10 min without counting a failure.
 create function public.worker_feed_refresh_finish(p_claim_id uuid,p_status text,p_etag text,p_last_modified text,p_items integer) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare pol app_private.feed_policy; s app_private.feed_sources; pruned integer:=0; extra integer; n integer;
+declare pol app_private.feed_policy; s app_private.feed_sources;
 begin
  if p_status is null or p_status not in ('updated','not_modified','failed','busy') or (p_items is not null and p_items<0)
   or char_length(p_etag)>256 or char_length(p_last_modified)>64 then raise exception 'invalid_feed_refresh'; end if;
@@ -249,16 +269,7 @@ begin
   next_check_at=now()+case p_status when 'failed' then least(interval '6 hours',interval '15 minutes'*power(2,least(s.failures,10)))
    when 'busy' then interval '10 minutes' else make_interval(mins=>pol.refresh_minutes) end
   where name=s.name;
- delete from app_private.feed_papers where announced_on<(now() at time zone 'UTC')::date-pol.retention_days;
- get diagnostics pruned=row_count;
- select count(*) into n from app_private.feed_papers;
- extra:=n-pol.max_rows;
- if extra>0 then
-  delete from app_private.feed_papers where source_id in (select source_id from app_private.feed_papers
-   order by announced_on,first_seen_at,source_id limit extra);
-  pruned:=pruned+extra; n:=n-extra;
- end if;
- return jsonb_build_object('pruned',pruned,'pool',n);
+ return app_private.feed_prune_pool();
 end $$;
 
 -- pg_cron (every 30 min): wake the feed-refresh function only when refreshing is on and the
