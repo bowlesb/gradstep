@@ -415,6 +415,73 @@
   })();
   // END CITATION MATCHER
 
+  // BEGIN FIGURE REFERENCES
+  // Pure text logic, no DOM: the labels a caption gives its figure, table or algorithm ("Figure 3:", "Fig. 2.",
+  // "Table A. 1", "TABLE II", "Algorithm 1 Training") and the references to them in the text ("Fig. 1",
+  // "Figure 3(b)", "Figs. 2 and 3", "Tables 7–10", "Algorithm 1"), each number its own link. Kinds are read from
+  // the label's word, not the element (Mathpix prints some tables as images and some figures as tables).
+  // scripts/citation-harness.mjs evaluates this section unchanged in Node to measure it on real bundles.
+  const FigureReferences = (() => {
+    const NUMBER = String.raw`(?:[A-Z]\.?\s?\d{1,3}|\d{1,3}(?:\.\d{1,2})?|[IVX]{1,5}(?![\p{L}]))(?![\p{N}])(?!\.\d)`;
+    const KIND = {figure: 'Figure', table: 'Table', algorithm: 'Algorithm'};
+    const WORDS = {
+      figure: String.raw`[Ff]igures?|FIGURES?|[Ff]igs?\.|FIGS?\.|[Ff]ig(?=\s*\d)`,
+      table: String.raw`[Tt]ables?|TABLES?|[Tt]abs?\.|TABS?\.`,
+      algorithm: String.raw`[Aa]lgorithms?|ALGORITHMS?|[Aa]lgs?\.|[Aa]lgo\.`,
+    };
+    const WORD = String.raw`(?:(${WORDS.figure})|(${WORDS.table})|(${WORDS.algorithm}))`;
+    const kindOf = match => match[1] ? 'figure' : match[2] ? 'table' : 'algorithm';
+    // "A. 1" and "A.1" are "A1"; a Roman numeral is kept as printed.
+    const normal = number => number.replace(/\s/g, '').replace(/^([A-Z])\./, '$1');
+    const key = (kind, number) => kind + ' ' + normal(number);
+    // A caption's own label at its start (math is U+FFFC), and further labels with a colon inside it
+    // ("Figure 3: Church samples. ￼ Figure 4: Bedroom samples."). A label is followed by ":", ".", "|", the end, or
+    // a word that doesn't start in lower case ("Table 1 Parameter counts"; "Table 5 lists …" is prose); a paragraph
+    // that is a caption needs ":", "." or "|" ("Fig. 4 shows …", "Figure 2 The model" are prose).
+    const START = new RegExp(String.raw`^[\s⁣]*${WORD}[^\S\n]*(${NUMBER})[a-z]?(?:[^\S\n]*([:.|])|[^\S\n]*$|[^\S\n]*\n|[^\S\n]+(?=[^\s\p{Ll}])|(?=[\p{Lu}\uFFFC]))`, 'u');
+    const INNER = new RegExp(String.raw`(?<=[.;)\]￼][^\S\n]*|\n)${WORD}[^\S\n]*(${NUMBER})[^\S\n]*:`, 'gu');
+    const labels = (text, paragraph = false) => {
+      const found = [], first = START.exec(text);
+      if (first && (!paragraph || first[5])) found.push({kind: kindOf(first), number: normal(first[4]), primary: true});
+      if (paragraph) return found;
+      for (const match of text.matchAll(INNER)) {
+        const label = {kind: kindOf(match), number: normal(match[4]), primary: false};
+        if (!found.some(other => other.kind === label.kind && other.number === label.number)) found.push(label);
+      }
+      return found;
+    };
+    // References. A subfigure ("3(b)", "3b", "3a–c") belongs to its number's link; further numbers follow "and",
+    // "or", "&" or a range ("Figures 2–4" links 2 and 4), and after a plural word also a comma ("Figs. 2, 3, and 5").
+    const SUB = String.raw`(?:[^\S\n]?\([a-z](?:\s?[,\-–]\s?[a-z])*\)|[a-z](?:[\-–][a-z])?(?![\p{L}\p{N}]))?`;
+    const REFERENCE = new RegExp(String.raw`(?<![\p{L}\p{N}])${WORD}[^\S\n]?(?:~| )?\s{0,2}(${NUMBER})(${SUB})`, 'gu');
+    const MORE = new RegExp(String.raw`([^\S\n]*(?:,[^\S\n]*(?:(?:and|or|&)[^\S\n]+)?|(?:and|or|&)[^\S\n]+|[\-–—][^\S\n]*|to[^\S\n]+))(${NUMBER})(${SUB})`, 'uy');
+    const scan = text => {
+      const out = [];
+      REFERENCE.lastIndex = 0;
+      for (let match; (match = REFERENCE.exec(text));) {
+        const kind = kindOf(match), plural = /s\.?$|S$/.test(match[1] || match[2] || match[3]);
+        let previous = {start: match.index, end: match.index + match[0].length, kind, number: normal(match[4]),
+          label: `${KIND[kind]} ${normal(match[4])}${match[5].replace(/\s/g, '')}`};
+        out.push(previous);
+        for (let more; (MORE.lastIndex = previous.end, more = MORE.exec(text));) {
+          const joint = more[1].trim();
+          if (joint.startsWith(',') && !plural) break; // "In Table 2, 3 runs …"
+          if (/^(?:[\-–—]|to)$/.test(joint)) {
+            const from = Number(previous.number), to = Number(normal(more[2]));
+            if (!(from < to && to - from <= 20)) break;
+          }
+          const start = previous.end + more[1].length, number = normal(more[2]);
+          previous = {start, end: previous.end + more[0].length, kind, number, label: `${KIND[kind]} ${number}${more[3].replace(/\s/g, '')}`};
+          out.push(previous);
+        }
+        REFERENCE.lastIndex = previous.end;
+      }
+      return out;
+    };
+    return {labels, scan, key};
+  })();
+  // END FIGURE REFERENCES
+
   // A paragraph of references holds one entry per line; a line starting in
   // lower case continues the previous entry, unless it starts with a surname
   // ("van der Maaten, L. and …", "de Freitas, N., …").
@@ -520,7 +587,9 @@
         const span = document.createElement('span');
         // A citation split by an inline element is one link: only its first piece takes focus.
         span.className = 'sr-cite'; span.setAttribute('role', 'link'); span.tabIndex = first.has(link) ? -1 : 0;
-        span.setAttribute('data-sr-cite', link.entry.id);
+        // A figure, table or algorithm reference looks and behaves like a citation (FIGURE REFERENCES).
+        if (link.figure) { span.classList.add('sr-figref'); span.setAttribute('data-sr-figure', link.figure); }
+        else span.setAttribute('data-sr-cite', link.entry.id);
         if (link.label) span.setAttribute('aria-label', link.label);
         span.textContent = node.data.slice(from, to);
         fragment.append(span); cursor = to; first.add(link);
@@ -539,6 +608,98 @@
       const links = CitationMatcher.scan(text, references.index).filter(link => link.entry);
       if (links.length) wrapCitations(parts, links);
     }
+  };
+
+  // Figures, tables and algorithms the text refers to ("Fig. 1", "Table 2", "Algorithm 1"), found by the labels
+  // their own captions print. A label that two different elements carry links nowhere rather than to the wrong one.
+  // id → {element, label, detail}: `detail` targets (a figure, a table, an algorithm's code block) open in the app's
+  // figure view with "Go to figure"; a caption that is only a paragraph is jumped to directly, with Back.
+  const figureTargets = new Map();
+  // The figure views the app may open: the bundle's figures, tables and code blocks (fixtures: any such element).
+  const detailIDs = new Set(config ? [...figureIDs, ...config.blocks.filter(block => block.kind === 'table' || block.kind === 'code').map(block => block.id)] : []);
+  const DETAIL = 'figure,.reader-table,pre';
+  // A bibliography entry (or a list of them). Text after the references that the bibliography's walk took in (an
+  // appendix without its own heading) is still read for figures.
+  const bibliographyEntry = element => !!element.closest('[data-sr-reference]') || !!element.querySelector('[data-sr-reference]');
+  let figureLink = null; // {id, link}: the reference last tapped, flashed on Back after "Go to figure".
+  const captionText = node => node.nodeType === Node.TEXT_NODE ? node.data : node.nodeType !== Node.ELEMENT_NODE ? ''
+    : node.matches('[data-reader-equation],math') ? '￼' : node.tagName === 'BR' ? '\n' : [...node.childNodes].map(captionText).join('');
+  // The same figure printed twice (Mistral's Figure 4) is one target.
+  const sameCaption = list => list.every(item => item.caption.replace(/\s+/g, ' ').trim().slice(0, 160) === list[0].caption.replace(/\s+/g, ' ').trim().slice(0, 160));
+  const collectFigureTargets = () => {
+    const labelled = [];
+    const consider = (element, caption, paragraph = false) => {
+      if (!element?.id) return;
+      const detail = !paragraph && element.matches(DETAIL) && (!config || detailIDs.has(element.id));
+      for (const label of FigureReferences.labels(caption, paragraph)) {
+        labelled.push({element, caption, detail, rank: paragraph ? 2 : label.primary ? 0 : 1, key: FigureReferences.key(label.kind, label.number),
+          label: `${{figure: 'Figure', table: 'Table', algorithm: 'Algorithm'}[label.kind]} ${label.number}`});
+      }
+    };
+    const figures = config ? config.figures.map(figure => document.getElementById(figure.id)) : [...document.querySelectorAll('figure[id]')];
+    for (const figure of figures) {
+      const caption = figure?.querySelector('figcaption');
+      consider(figure, caption ? captionText(caption) : config?.figures.find(value => value.id === figure?.id)?.caption ?? '');
+    }
+    for (const table of document.querySelectorAll('.reader-table[id]')) {
+      consider(table, [...table.querySelectorAll('.reader-caption')].map(captionText).join('\n'));
+    }
+    // An algorithm is a code block whose first line is its label ("Algorithm 1 Training").
+    for (const code of document.querySelectorAll('pre[id]')) consider(code, captionText(code).trimStart().split('\n')[0]);
+    const unlabelled = element => element && element.matches(DETAIL) && !labelled.some(item => item.element === element)
+      && (!config || detailIDs.has(element.id));
+    // A caption Mathpix kept as its own paragraph ("Table 6: Ablations …"): its unlabelled neighbour when only one side
+    // has one (Mamba's Table 6), otherwise the paragraph itself.
+    for (const paragraph of document.querySelectorAll('p[data-reader-block]')) {
+      if (bibliographyEntry(paragraph) || paragraph.matches('.sr-toc,.reader-caption') || paragraph.closest(`${DETAIL},li,[${CHROME}]`)) continue;
+      const caption = captionText(paragraph);
+      if (!FigureReferences.labels(caption, true).length) continue;
+      const neighbours = [paragraph.previousElementSibling, paragraph.nextElementSibling].filter(unlabelled);
+      if (neighbours.length === 1) consider(neighbours[0], caption);
+      else consider(paragraph, caption, true);
+    }
+    // Each key: the elements whose caption starts with it, else those that name it after a colon inside a
+    // caption, else caption paragraphs. Several different ones → no link.
+    const byKey = new Map();
+    for (const item of labelled) byKey.set(item.key, [...(byKey.get(item.key) || []), item]);
+    const resolved = new Map();
+    for (const [key, items] of byKey) {
+      const best = items.filter(item => item.rank === Math.min(...items.map(other => other.rank)));
+      const distinct = [...new Set(best.map(item => item.element))];
+      if (distinct.length === 1 || sameCaption(best)) resolved.set(key, best[0]);
+    }
+    return resolved;
+  };
+  const linkFigureReferences = () => {
+    const targets = collectFigureTargets();
+    if (!targets.size) return;
+    for (const block of document.querySelectorAll('[data-reader-block]')) {
+      if (block.closest(SKIPPED) || block.matches('.sr-toc') || bibliographyEntry(block)) continue;
+      const {text, parts} = blockText(block);
+      if (!/[\dIVX]/.test(text)) continue;
+      const links = [];
+      for (const found of FigureReferences.scan(text)) {
+        const target = targets.get(FigureReferences.key(found.kind, found.number));
+        // A caption's own label, or a mention of the figure inside it, is not a link to itself.
+        if (!target || target.element === block || target.element.contains(block) || block.contains(target.element)) continue;
+        figureTargets.set(target.element.id, target);
+        links.push({...found, figure: target.element.id});
+      }
+      if (links.length) wrapCitations(parts, links);
+    }
+  };
+  // A tapped figure reference: the app shows the figure (or table, or algorithm) with its caption and "Go to figure";
+  // a caption that is only a paragraph is gone to directly, with Back.
+  const openFigureReference = link => {
+    const target = figureTargets.get(link.getAttribute('data-sr-figure'));
+    if (!target) return;
+    if (target.detail) {
+      figureLink = {id: target.element.id, link};
+      post({type: 'figureref', manifest_sha256: manifest, id: target.element.id, label: target.label});
+      return;
+    }
+    const range = document.createRange(); range.selectNodeContents(target.element);
+    jumpToReference({id: target.element.id, range}, link);
   };
   // BEGIN CONTENTS PARSER
   // Pure text logic, no DOM: a paper's own table of contents (or list of figures/tables), which
@@ -950,14 +1111,16 @@
 
   window.__scienceReaderReady = (async () => {
     if (!validDocument()) throw new Error('invalid_reader_index');
-    if (config && !config.figure_id) installLayout();
+    // A table or an algorithm shown on its own (a figure reference's view) keeps the page's table presentation.
+    if (config && !figureIDs.has(config.figure_id)) installLayout();
     if (!config?.figure_id) {
-      installCitationStyle(); collectReferences(); formatContents(); linkCitations();
+      installCitationStyle(); collectReferences(); formatContents(); linkCitations(); linkFigureReferences();
       installPaperLine(window.__readerPaperLine);
       installPaperTags(window.__readerPaperTags);
     }
     if (config?.figure_id) {
-      if (!figureIDs.has(config.figure_id)) throw new Error('invalid_reader_figure');
+      // A figure, or a table or code block a figure reference names (FIGURE REFERENCES).
+      if (!detailIDs.has(config.figure_id)) throw new Error('invalid_reader_figure');
       const figure = document.getElementById(config.figure_id);
       document.body.replaceChildren(figure);
       document.body.classList.add('reader-figure-detail');
@@ -1130,9 +1293,16 @@
     });
     return true;
   };
+  // Back stays offered until the reader scrolls two screens from where the jump landed, or comes back to the place
+  // left by scrolling there themselves (owner feedback, build 21: "a 'return to reading location' option").
+  const backOutlived = () => {
+    if (citationBack?.landing == null) return false;
+    if (Math.abs(window.scrollY - citationBack.landing) > 2 * window.innerHeight) return true;
+    const origin = locationY(citationBack.origin.location);
+    return Math.abs(citationBack.landing - origin) > window.innerHeight / 2 && Math.abs(window.scrollY - origin) < window.innerHeight / 4;
+  };
   window.addEventListener('scroll',() => {
-    // Scrolling a screen away from the reference ends the offer to go back.
-    if (citationBack?.landing != null && Math.abs(window.scrollY - citationBack.landing) > window.innerHeight) endCitation();
+    if (backOutlived()) endCitation();
     if (positionTimer || config?.figure_id) return;
     positionTimer = setTimeout(() => {positionTimer=null;postPosition();},120);
   },{passive:true});
@@ -1252,12 +1422,14 @@
     document.addEventListener('click',event => {
       const element = event.target instanceof Element ? event.target : event.target.parentElement;
       const cite = element?.closest('.sr-cite'), entry = cite && references.byID.get(cite.getAttribute('data-sr-cite'));
+      // A figure, table or algorithm reference opens it (or goes to its caption).
+      const figure = !entry && cite?.hasAttribute('data-sr-figure') && figureTargets.has(cite.getAttribute('data-sr-figure')) ? cite : null;
       // An entry of the paper's own contents goes to its section, with the same Back.
-      const row = !entry && element?.closest('.sr-toc-link'), section = row && contentsTargets.get(row);
-      if ((!entry && !section) || gesture?.moved || !window.getSelection()?.isCollapsed) return;
+      const row = !entry && !figure && element?.closest('.sr-toc-link'), section = row && contentsTargets.get(row);
+      if ((!entry && !figure && !section) || gesture?.moved || !window.getSelection()?.isCollapsed) return;
       gesture = null; event.preventDefault(); event.stopPropagation();
       if (selectedEquation) { clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}}); }
-      jumpToReference(entry || section, entry ? cite : row);
+      if (figure) openFigureReference(figure); else jumpToReference(entry || section, entry ? cite : row);
     },true);
     document.addEventListener('click',event => {
       const moved = gesture?.moved; gesture = null;
@@ -1288,6 +1460,7 @@
     document.addEventListener('keydown',event => {
       if (event.key !== 'Enter' && event.key !== ' ') return;
       const link = event.target instanceof Element && event.target.matches('.sr-cite,.sr-toc-link') ? event.target : null;
+      if (link?.hasAttribute('data-sr-figure')) { event.preventDefault(); event.stopPropagation(); openFigureReference(link); return; }
       const target = link && (link.matches('.sr-cite') ? references.byID.get(link.getAttribute('data-sr-cite')) : contentsTargets.get(link));
       if (target) { event.preventDefault(); event.stopPropagation(); jumpToReference(target, link); }
     },true);
@@ -1314,13 +1487,16 @@
 
   // Figure gallery, "Show in paper" (docs/LEGACY_GAP_AUDIT.md #6): the figure is centered (from the top
   // when taller than the page), highlighted like a citation's reference, and native Back returns to the
-  // place left; the saved reading position stays there until Back or a screen's scroll away.
-  window.__scienceReaderShowFigure = id => {
-    if (!config || config.figure_id || !figureIDs.has(id)) return false;
+  // place left; the saved reading position stays there until Back or two screens' scroll away. "Go to figure" from a
+  // figure reference (`fromReference`) does the same for a table or an algorithm, and Back flashes the reference tapped.
+  window.__scienceReaderShowFigure = (id, reduced, fromReference) => {
+    if (!config || config.figure_id || !detailIDs.has(id) || (!fromReference && !figureIDs.has(id))) return false;
     const element = document.getElementById(id);
     if (!element) return false;
     const range = document.createRange(); range.selectNode(element);
-    jumpToReference({id, range}, null);
+    const link = fromReference && figureLink?.id === id && figureLink.link.isConnected ? figureLink.link : null;
+    figureLink = null;
+    jumpToReference({id, range}, link);
     return true;
   };
 
