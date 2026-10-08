@@ -139,7 +139,7 @@ removed executor work) is retained below where useful and in git history.
 - **Workflow checks:** 16/16 pass, $0 provider cost.
 - **Live policy:** pool refresh is on (every 120 min via the existing 30-min cron) and Hugging Face popularity is on.
   **Serving is off.** For you and topic chips reach readers only after `worker_set_feed_policy('staff', true)`, which
-  waits for an iOS build containing the app change.
+  waits for an iOS build containing the app change. First refresh 19:30 UTC: 825 pool papers, 27 with Hugging Face upvotes, no failures.
 - **Local tests before deploy:** backend 413/413, database suite 226 PASS, Simulator build OK.
 
 ## Ownership split and browser durability handover — 2026-10-08
