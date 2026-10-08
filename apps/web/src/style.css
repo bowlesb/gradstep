@@ -430,7 +430,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 .podcast-dock { flex: none; border-top: 1px solid var(--line-strong); background: var(--surface); display: flex; flex-direction: column; min-height: 0;
   padding-bottom: env(safe-area-inset-bottom); z-index: 25; }
 .podcast-dock.expanded { max-height: min(46dvh, 460px); }
-.dock-bar { display: grid; grid-template-columns: auto minmax(120px, 1.2fr) minmax(160px, 2fr) auto; align-items: center; gap: 10px; padding: 6px 12px;
+.dock-bar { display: grid; grid-template-columns: auto minmax(120px, 1.2fr) minmax(160px, 2fr) auto auto; align-items: center; gap: 10px; padding: 6px 12px;
   padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
 .dock-controls, .dock-actions { display: flex; align-items: center; gap: 2px; }
 .dock-play { width: 38px; height: 38px; min-height: 38px; border-radius: 50%; background: var(--accent); color: var(--accent-text); }
@@ -438,7 +438,8 @@ progress.mini { height: 3px; margin-top: 4px; }
 .dock-play .spinner.small { border-color: rgba(255, 255, 255, .45); border-top-color: var(--accent-text); }
 .dock-title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .dock-title strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-sub { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); }
+.dock-sub { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; }
+.dock-sub .badge { flex: none; }
 .dock-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .dock-progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .dock-progress input[type=range] { flex: 1; min-width: 60px; min-height: 0; height: 24px; padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
@@ -457,7 +458,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 .dock-transcript ol { padding: 0 6px 8px; }
 .dock-transcript .rail-heading { position: sticky; top: 0; background: var(--surface); z-index: 1; gap: 8px; justify-content: flex-start; }
 .dock-timing { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--faint); }
-.dock-segment { border-radius: 8px; padding: 2px 4px; }
+.dock-segment { border-radius: 8px; padding: 2px 4px; scroll-margin-top: 36px; scroll-margin-bottom: 8px; }
 .dock-segment.on { background: var(--accent-muted); }
 .dock-segment-chapter { font-size: 11px; font-weight: 650; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; padding: 10px 8px 2px; }
 .dock-segment-text { display: block; width: 100%; text-align: left; min-height: 0; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; line-height: 1.5; }
@@ -472,8 +473,9 @@ progress.mini { height: 3px; margin-top: 4px; }
 .dock-notice .link { min-height: 0; padding: 0; }
 .dock-disclosure { padding: 4px 14px 12px; }
 @media (max-width: 760px) {
-  .dock-bar { grid-template-columns: auto 1fr auto; grid-template-areas: "controls title actions" "progress progress progress"; row-gap: 2px; }
+  .dock-bar { grid-template-columns: auto 1fr auto; grid-template-areas: "controls title actions" "progress progress speed"; row-gap: 2px; }
   .dock-controls { grid-area: controls; } .dock-title { grid-area: title; } .dock-actions { grid-area: actions; } .dock-progress { grid-area: progress; }
+  .dock-speed { grid-area: speed; justify-self: end; } .dock-sub .badge.fixture { display: none; }
   .dock-details { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .dock-chapters { max-height: 108px; border-right: 0; border-bottom: 1px solid var(--line); }
   .podcast-dock.expanded { max-height: 58dvh; }

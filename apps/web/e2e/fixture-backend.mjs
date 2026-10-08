@@ -221,6 +221,60 @@ const rpcs = {
   },
 };
 
+// ---------- Paper podcasts (labeled synthetic fixtures; docs/architecture/PAPER_PODCASTS.md) ----------
+// Audio is generated here at startup (no binary in the repository): 8 kHz mono 16-bit PCM WAV, a quiet tone per transcript
+// segment (the explainer lower, the skeptic higher) with short gaps between turns. Zero spend, no provider, no network.
+function synthWav(segments) {
+  const rate = 8000, total = Math.round(segments.at(-1).end_ms / 1000 * rate), data = Buffer.alloc(total * 2);
+  for (const s of segments) {
+    const from = Math.round(s.start_ms / 1000 * rate), to = Math.round(s.end_ms / 1000 * rate) - Math.round(0.25 * rate), hz = s.speaker === 'explainer' ? 220 : 330;
+    for (let i = from; i < to; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * hz * (i - from) / rate) * 2500 * Math.min(1, (i - from) / 400, (to - i) / 400)), i * 2);
+  }
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVE', 8); header.write('fmt ', 12); header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22); header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(data.length, 40);
+  return Buffer.concat([header, data]);
+}
+const SPEAKERS = { explainer: 'Host 1 — explainer', skeptic: 'Host 2 — skeptical reader' };
+const DISCLOSURE = 'Synthetic fixture for testing: labeled tones, not speech. Real episodes are AI-generated audio from the paper’s own text and may contain errors.';
+const seg = (id, speaker, start, end, chapter, text, evidence = [], claim = 'paper_result') => ({ id, speaker, text, start_ms: start, end_ms: end, chapter, claim_type: claim, evidence, math: [] });
+const PODCASTS = [
+  { release_id: 'e0000000-0000-4000-8000-000000000001', member: 'e1000000-0000-4000-8000-000000000001', libraryItem: 'aaaaaaaa-0000-4000-8000-000000000001',
+    title: 'Synthetic fixture: ' + DPO.title, year: 2023, authors: DPO.authors, topic: 'Alignment', arxiv: '2305.18290', version: 3,
+    chapters: [{ id: 'c1', title: 'The result', start_ms: 0 }, { id: 'c2', title: 'How the objective works', start_ms: 16_000 }, { id: 'c3', title: 'Limitations', start_ms: 32_000 }],
+    segments: [
+      seg('s1', 'explainer', 0, 8000, 'c1', 'The paper shows that the usual reinforcement-learning objective for preference tuning can be optimized directly.',
+        [{ id: 'e1', quote: 'can be optimized exactly with a simple binary cross-entropy objective', section: '1' }]),
+      seg('s2', 'skeptic', 8000, 16_000, 'c1', 'So what actually gets simpler, in their own words?', [{ id: 'e2', quote: 'greatly simplifying the preference learning pipeline', section: '1' }], 'author_interpretation'),
+      seg('s3', 'explainer', 16_000, 24_000, 'c2', 'Instead of fitting a separate reward model, the loss compares how much the policy and a reference model prefer each answer.', [], 'explainer_analogy'),
+      seg('s4', 'skeptic', 24_000, 32_000, 'c2', 'Comparisons only mean something against the same reference model, though.', [], 'context'),
+      seg('s5', 'explainer', 32_000, 40_000, 'c3', 'The authors evaluate on a handful of tasks and model sizes.', [], 'paper_result'),
+      seg('s6', 'skeptic', 40_000, 48_000, 'c3', 'Which leaves how it behaves at larger scale as an open question.', [], 'context'),
+    ] },
+  { release_id: 'e0000000-0000-4000-8000-000000000002', member: 'e1000000-0000-4000-8000-000000000002', documentID: 'd0000000-0000-4000-8000-0000000000a1',
+    title: 'Synthetic fixture: ' + ATTENTION.title, year: 2017, authors: ATTENTION.authors, topic: 'Transformers', arxiv: '1706.03762', version: 7,
+    chapters: [{ id: 'c1', title: 'Attention only', start_ms: 0 }, { id: 'c2', title: 'What to question', start_ms: 15_000 }],
+    segments: [
+      seg('s1', 'explainer', 0, 15_000, 'c1', 'The model drops recurrence and convolution entirely.',
+        [{ id: 'e1', quote: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks', section: 'Abstract' }]),
+      seg('s2', 'skeptic', 15_000, 30_000, 'c2', 'The comparison is to the strongest baselines of 2017.', [], 'context'),
+    ] },
+].map(p => { const audio = synthWav(p.segments); return { ...p, audio, sha256: sha(audio).toString('hex'), duration_ms: p.segments.at(-1).end_ms }; });
+
+function podcastState(a) { a.podcast ??= { grants: new Map(), redemptions: [], mode: 'enabled' }; return a.podcast; }
+const podcastCapabilities = a => {
+  const on = podcastState(a).mode === 'enabled';
+  return { catalog: on, generation: false, delivery: on, max_credits: 150, target_seconds: 300, transfer: { remaining_bytes: 104_857_600, limit_bytes: 104_857_600 } };
+};
+function podcastEpisode(a, p) {
+  const documentID = p.libraryItem ? a.entries.get('item:' + p.libraryItem)?.document_id ?? randomUUID() : p.documentID;
+  return { release_id: p.release_id, scope: 'shared', title: p.title, year: p.year, authors: p.authors, topic: p.topic, duration_ms: p.duration_ms, language: 'en', ai_audio: true,
+    fixture: true, document_id: documentID, published_at: '2026-10-08T00:00:00Z', state: 'ready',
+    source: { arxiv_id: p.arxiv, version: p.version, url: `https://arxiv.org/abs/${p.arxiv}v${p.version}`, license: 'https://creativecommons.org/licenses/by/4.0/' },
+    audio: { bytes: p.audio.length, sha256: p.sha256, media_type: 'audio/wav' } };
+}
+
 // ---------- HTTP ----------
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 function send(response, status, body, type = 'application/json') {
@@ -285,6 +339,15 @@ createServer(async (request, response) => {
     rpcs.v1_approve_enrollment(id, a, { p_request_id: r.id, p_epoch: 1, p_management_token: hex(a.phone.managementToken),
       p_expected_public_key: r.public_key, p_expected_challenge: r.challenge, p_envelope: hex(envelope) });
     return send(response, 200, { ok: true, code });
+  }
+  if (url.pathname === '/__podcast-fixture' && request.method === 'POST') {
+    const body = await read(request), state = podcastState(account(ACCOUNTS['returning@example.test']));
+    if (['enabled', 'disabled'].includes(body?.mode)) state.mode = body.mode;
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__podcast-evidence' && request.method === 'GET') {
+    const state = podcastState(account(ACCOUNTS['returning@example.test']));
+    return send(response, 200, { grants: state.grants.size, redemptions: state.redemptions });
   }
   if (url.pathname === '/__pending-requests' && request.method === 'GET') {
     const a = account(ACCOUNTS['returning@example.test']);
@@ -368,6 +431,41 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
       url: `http://127.0.0.1:${PORT}/storage/v1/object/sign/paper-assets/reader/${SAMPLE_SHA}/${m.path}?token=signed` }));
     return send(response, 200, { item_id: itemID, document_id: entry.document_id, artifact_id: entry.artifact_id, renderer_version: 'timestep-mathpix-mathml-v1',
       manifest_sha256: sha(manifest).toString('hex'), manifest: manifest.toString('base64'), members });
+  }
+  // Paper podcasts: the Edge `podcast` actions and the single-use, bounded `podcast-member` delivery (no Range).
+  if (url.pathname === '/functions/v1/podcast') {
+    const action = url.searchParams.get('action'), state = podcastState(a), enabled = state.mode === 'enabled';
+    const find = id => PODCASTS.find(p => p.release_id === id);
+    if (action === 'catalog' && request.method === 'GET') return send(response, 200, { episodes: enabled ? PODCASTS.map(p => podcastEpisode(a, p)) : [], next: null, capabilities: podcastCapabilities(a) });
+    if (!enabled) return send(response, 503, { code: 'podcast_unavailable' });
+    if (action === 'episode' && request.method === 'GET') {
+      const p = find(url.searchParams.get('release_id'));
+      if (!p) return send(response, 404, { code: 'podcast_release_unavailable' });
+      return send(response, 200, { episode: { ...podcastEpisode(a, p), chapters: p.chapters, transcript: { speakers: SPEAKERS, disclosure: DISCLOSURE, timing: 'approximate', segments: p.segments } } });
+    }
+    if (action === 'download' && request.method === 'POST') {
+      const body = await read(request), p = find(body?.release_id);
+      if (!p) return send(response, 404, { code: 'podcast_release_unavailable' });
+      const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+      state.grants.set(token, { release: p.release_id, redeemed: false });
+      return send(response, 200, { grant: { expires_at: new Date(Date.now() + 900_000).toISOString(), members: [{ role: 'audio',
+        url: `http://127.0.0.1:${PORT}/functions/v1/podcast-member?grant=${token}&member=${p.member}`, bytes: p.audio.length, sha256: p.sha256, media_type: 'audio/wav' }] } });
+    }
+    if (action === 'states' && request.method === 'POST') {
+      const body = await read(request);
+      if (!Array.isArray(body?.release_ids) || body.release_ids.length > 100) return send(response, 400, { code: 'podcast_invalid_request' });
+      return send(response, 200, { states: Object.fromEntries(body.release_ids.map(id => [id, { state: find(id) ? 'ready' : 'unavailable', replacement_id: null }])) });
+    }
+    return send(response, 400, { code: 'podcast_invalid_request' });
+  }
+  if (url.pathname === '/functions/v1/podcast-member' && request.method === 'GET') {
+    const state = podcastState(a), grant = state.grants.get(url.searchParams.get('grant') ?? ''), p = PODCASTS.find(x => x.member === url.searchParams.get('member'));
+    state.redemptions.push({ range: request.headers.range ?? null, authorized: true });
+    if (request.headers.range) return send(response, 416, { code: 'podcast_range_unavailable' });
+    if (!grant || !p || grant.release !== p.release_id) return send(response, 403, { code: 'podcast_grant_unavailable' });
+    if (grant.redeemed) return send(response, 409, { code: 'podcast_grant_consumed' });
+    grant.redeemed = true;
+    return send(response, 200, p.audio, 'audio/wav');
   }
   // Feed (discover?category=…): public sample metadata only.
   if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {

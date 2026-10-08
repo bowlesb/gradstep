@@ -289,10 +289,10 @@ export function PodcastDock({ player, onEvidence }: { player: PlayerModel; onEvi
             onChange={event => player.seek(Number(event.target.value))} />
           <span className="dock-time mono" aria-hidden="true">{clock(durationMs)}</span>
         </div>
+        <label className="dock-speed"><span className="visually-hidden">Playback speed</span>
+          <select value={rate} onChange={event => player.setRate(Number(event.target.value))} aria-label="Playback speed" data-testid="podcast-speed">
+            {SPEEDS.map(s => <option key={s} value={s}>{s}×</option>)}</select></label>
         <div className="dock-actions">
-          <label className="dock-speed"><span className="visually-hidden">Playback speed</span>
-            <select value={rate} onChange={event => player.setRate(Number(event.target.value))} aria-label="Playback speed" data-testid="podcast-speed">
-              {SPEEDS.map(s => <option key={s} value={s}>{s}×</option>)}</select></label>
           <button className={`icon-button${expanded ? ' on' : ''}`} onClick={() => setExpanded(e => !e)} aria-expanded={expanded} aria-controls="podcast-details"
             aria-label={expanded ? 'Hide transcript and chapters' : 'Show transcript and chapters'} title="Transcript and chapters" data-testid="podcast-expand"><Icon name="transcript" /></button>
           <button className="icon-button" onClick={player.stop} aria-label="Stop and close the player" title="Stop" data-testid="podcast-stop"><Icon name="close" /></button>
@@ -328,7 +328,10 @@ export function PodcastDock({ player, onEvidence }: { player: PlayerModel; onEvi
                         <span className="dock-line">{s.text}</span></button>
                       {s.evidence.length > 0 && (
                         <div className="dock-evidence">{s.evidence.map(ev => (
-                          <button key={ev.id} className="tag evidence" onClick={() => { if (!onEvidence(episode, ev)) setNotice(episode); }}
+                          <button key={ev.id} className="tag evidence" onClick={() => {
+                              // Jumping to the paper folds the dock back to its bar, so the passage gets the room.
+                              if (onEvidence(episode, ev)) setExpanded(false); else setNotice(episode);
+                            }}
                             title={`From the paper: “${ev.quote}”`} aria-label={`Open the cited passage${ev.section ? ` in section ${ev.section}` : ''}: ${ev.quote}`} data-testid="podcast-evidence">
                             “{ev.quote.length > 72 ? ev.quote.slice(0, 70) + '…' : ev.quote}”{ev.section ? ` · §${ev.section}` : ''}</button>))}</div>)}
                     </li>
