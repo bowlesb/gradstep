@@ -421,3 +421,16 @@ progress.mini { height: 3px; margin-top: 4px; }
 .diagram-frame { display: block; max-width: none; border: 0; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
+
+/* Reader reference actions stay beside the entry; the detail dialog keeps the paper visible around it. */
+.reader-reference-menu { position: fixed; margin: 0; width: min(280px, calc(100vw - 16px)); padding: 10px; }
+.reader-reference-menu[open] { display: flex; flex-direction: column; gap: 6px; }
+.reader-reference-menu::backdrop { background: rgba(10, 10, 20, .12); }
+.reader-reference-menu > a { text-align: center; text-decoration: none; }
+.reader-reference-menu .issue { margin: 6px 0 0; }
+.reader-reference-detail { display: flex; flex-direction: column; gap: 12px; }
+.reader-reference-detail .figure-frame { height: min(52dvh, 540px); }
+.reader-reference-notice { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--text); box-shadow: var(--pop); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.reader-reference-notice > span { flex: 1 1 180px; }
+@media (max-width: 600px) { .reader-reference-detail .figure-frame { height: 48dvh; } .reader-reference-detail .figure-head { flex-wrap: wrap; } }
