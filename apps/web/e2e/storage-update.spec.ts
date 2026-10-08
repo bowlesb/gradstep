@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { durableKeys } from './key-capability';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 
-const API = 'http://127.0.0.1:54329';
+import { fixtureOrigin as API, appOrigin } from './environment';
 const shots = '../../.artifacts/web-storage/';
 const evidence = async (request: any) => (await request.get(`${API}/__chat-evidence`)).json();
 test.beforeEach(async ({ request }) => { await request.post(`${API}/__reset`); });
@@ -51,7 +51,7 @@ const records = (tab: Page) => tab.evaluate(() => new Promise<{ version: number;
 
 test('an update during an answer stops it once, keeps unsent text copyable and lets the newer tab in promptly', async ({ page, request }, info) => {
   test.skip(info.project.name === 'webkit' || !await durableKeys(page), 'Requires durable non-extractable keys (WebKit 312279 gate).');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4317' });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: appOrigin });
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await request.post(`${API}/__chat-fixture`, { data: { mode: 'slow' } });
   await login(page); await openPaperChat(page);

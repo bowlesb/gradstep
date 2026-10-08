@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
+import { fixtureOrigin } from './environment';
 
 test('expanded feed preserves the complete title and abstract through its final sentence', async ({ page, request }, info) => {
   test.skip(info.project.name === 'webkit', 'The existing key persistence gate is tested separately.');
-  await request.post('http://127.0.0.1:54329/__reset');
+  await request.post(`${fixtureOrigin}/__reset`);
   const full = 'We evaluate an explicitly bounded scientific reading workflow. '.repeat(30) + 'The final limitation remains visible.';
   const title = 'A detailed study of reliable paper discovery, complete scientific abstracts, and mathematical Unicode on every screen size';
   await page.route('**/functions/v1/discover?**', async route => {
