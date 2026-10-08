@@ -15,8 +15,9 @@ enum Platform {
         #endif
     }
 
-    /// iPad or Mac: the layouts that put panes side by side and center scrolling columns. The Mac is
-    /// treated like a large iPad unless a Mac path is better.
+    /// iPad or Mac: the layouts that put panes side by side and center scrolling columns. The Mac
+    /// uses the same wide workspace as the browser (Library/Feed, Reader and Chat panes), while
+    /// reusing the iPad's SwiftUI surfaces and shared model for behavioral parity.
     @MainActor static var isLargeScreen: Bool {
         let idiom = UIDevice.current.userInterfaceIdiom
         return idiom == .pad || idiom == .mac

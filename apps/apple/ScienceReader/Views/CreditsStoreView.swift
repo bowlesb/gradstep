@@ -106,7 +106,7 @@ struct CreditsStoreView: View {
 
     private var footer: some View {
         VStack(spacing: 8) {
-            Text("Plans renew monthly until you cancel in Settings › Apple Account › Subscriptions. Plan credits are added each month and don’t carry over; purchased credits never expire.")
+            Text("Plans renew monthly until you cancel in \(subscriptionSettingsPath). Plan credits are added each month and don’t carry over; purchased credits never expire.")
                 .foregroundStyle(.secondary)
             HStack(spacing: 24) {
                 Button(restoring ? "Restoring…" : "Restore purchases") {
@@ -122,5 +122,13 @@ struct CreditsStoreView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16).padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private var subscriptionSettingsPath: String {
+        #if targetEnvironment(macCatalyst)
+        "System Settings › Apple Account › Subscriptions"
+        #else
+        "Settings › Apple Account › Subscriptions"
+        #endif
     }
 }
