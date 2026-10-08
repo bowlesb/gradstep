@@ -1,22 +1,42 @@
 # Reader CDN cutover
 
-Status at 09:03 UTC: **045 is applied and delivery is bounded-only; final CDN retirement proof is pending.**
+Status at 09:33 UTC: **045 is applied, delivery is bounded-only, and the scoped CDN retirement proof passed.**
 The reviewed, unchanged migration was promoted to `202610080045_reader_issuer_fence.sql` and applied at
 09:02:06 UTC after encrypted backup `20261008T080554Z-b827400c4a00`. SHA-256:
 `abf05fa9505cbf8fc7e395698f093939d04afd805e46e91f7088e2150e001d7e`. A guarded policy change retained
 enforcement and all allowances/counters. Hosted service-role old-RPC denial, legacy HTTP 426 and a two-request
 first-redemption race passed: exactly one download, one consumed refusal, one 2,259-byte charge.
-T0 is **09:03:24.331444 UTC**; no complete-scope purge is allowed before **09:25:34.331 UTC**.
-The live canary holds the two previously observed HIT URLs only in memory. The corrected capability probe
-observed exact-byte REVALIDATED responses for both after the explicit purge; that is not final retirement.
+T0 was **09:03:24.331444 UTC**; the full drain/expiry horizon ended **09:25:34.331 UTC**. At 09:26 the stable
+inventory/physical union contained **1,046 reader paths**, including five absent historical paths. All 1,046
+exact-object cache purges returned 200 on their first attempt; the final success was at 09:30:57 UTC. Scope
+fingerprint `f48de1b6d19dbd00ef12baa7975f4ed3` stayed unchanged. After the additional 75-second propagation
+window, both exact formerly HIT token variants returned **400 / expired token / BYPASS** at 09:32:40–41 UTC.
+A fresh bounded bundle then verified all **nine members / 764,635 bytes**, manifest identity and response
+protections. Those same verified bytes had passed the production-frame light/dark, MathML, figure and selection
+checks. The canary finished successfully at 09:32:55 UTC and discarded its in-memory bearer URLs.
+
+Independent readback at 09:33:39 UTC confirmed bounded mode, unchanged allowances, old-role denial, private
+Storage/RLS, enforcement on and zero inventory discrepancies. Legacy issuance remained frozen at **33**,
+last issued 08:59:43 UTC. Reader counters remained charged (8,618,998 authorized / 2,327,542 observed response
+bytes, zero reserved); no counters were reset. All **nine** accounts across five diagnostic runs have zero
+remaining Auth, sync, import, credit, operation, provider-attempt or open-account rows. No AI/OCR work was used.
+
+Canary cumulative accounting, including the four earlier runs: **2,887,860 payload bytes, 1,238 requests,
+11 descriptor attempts**, with a conservative 15,592,270-byte reader admission estimate below 15 MiB.
+Evidence: `.artifacts/reader-cutover/2026-10-08T08-58-23.526Z-da948e66-eb5f-4aa7-b7a6-e10d70031037/report.json`
+and `.artifacts/takeover-20261008/reader-cutover-final-readback.json`. Full purge coverage follows the documented
+Supabase contract; the two observed variants at this network location are not a measurement of every global
+edge. Original/Mathpix URLs, HTTP invocation overhead, browser copies and vendor invoices remain outside scope.
+Independent final evidence review matched every planned path to its successful purge, both expiry-denied URL
+hashes to their earlier HITs, the unchanged scope, renderer bytes, migration hash, cleanup and cumulative usage.
 Build **21** is available in internal iOS/Mac TestFlight and carries clearer quota/interruption errors.
 Earlier diagnostic failures and cumulative usage remain documented below; no stored object was changed.
 
 ## Issuer boundary
 
 Migration 035's `worker_reader_delivery_create` locks the delivery policy and refuses
-legacy transport in `bounded` mode. The older `worker_reader_descriptor` still has a
-service-role grant and bypasses that policy. The candidate removes only that grant
+legacy transport in `bounded` mode. Before 045, the older `worker_reader_descriptor` had a
+service-role grant and bypassed that policy. The applied migration removes only that grant
 (also explicitly denying PUBLIC, anon and authenticated). Both functions must have
 the same owner and be SECURITY DEFINER. The current entry point retains the owner's
 internal execute privilege; the old service caller loses direct access.
@@ -128,8 +148,9 @@ accounts through password login without sending email; customer sign-in UI is no
 tested. Its account IDs are recorded for cleanup, and every exit attempts the real
 self-delete endpoint. A hard kill can leave a synthetic ID for operator cleanup.
 
-After reviewing the cumulative evidence below, run in a persistent interactive session
-(Node 24, normal staging environment and Supabase CLI Keychain token):
+The completed run used the following command in a persistent interactive session
+(Node 24, normal staging environment and Supabase CLI Keychain token). **Historical command: do not rerun it
+with this now-stale prior-usage value, and do not switch the completed bounded rollout back to dual.**
 
 ```sh
 GRADSTEP_READER_CANARY_PRIOR_USAGE='{"bytes":912206,"requests":88,"descriptors":5}' \
@@ -139,7 +160,7 @@ node scripts/reader-cutover-canary.mjs staging --execute
 The explicit prior-usage value is required and must match that reviewed predecessor
 report. Missing, malformed, older or larger totals refuse before credentials or hosted
 requests. Another interrupted run needs its resulting totals reviewed before a rerun;
-do not reuse this command to reset accounting.
+do not reuse this command to reset accounting. The completed aggregate above supersedes that predecessor.
 
 Initial work checks private Storage/RLS, existing allowances, a shared verified
 bundle at most 1 MiB and current completed model tags. A zero-credit account alone
@@ -185,7 +206,7 @@ Enter each command only after the previous phase succeeds:
 105-minute process deadline ends the run and attempts cleanup. Signed URLs cannot
 be recovered after process loss; rerun evidence instead of claiming retirement.
 
-Hard bounds for the next controlled run: six **new** descriptor attempts (initial
+Hard bounds for the completed controlled run: six **new** descriptor attempts (initial
 bounded, two legacy, refused legacy, post-fence bounded, final bounded), eleven
 **aggregate** attempts including the five predecessors, 8 MiB cumulative response
 payloads across **all** HTTP calls and 5,500 cumulative requests including cleanup.

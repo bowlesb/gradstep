@@ -1,11 +1,14 @@
 # Paper storage and delivery spending
 
-Status, 2026-10-08 UTC: **035 storage accounting and 039 bounded PDF uploads are applied on staging** with the
-worker/Edge integration. The takeover policy snapshot records enforcement on, scope-2 inventory certification at
-**03:09:31.700048 UTC**, zero discrepancies and **delivery mode `legacy`**
-(`.artifacts/takeover-20261008/spending-policies.json`). Both `paper-assets` and `paper-uploads` are in the certified
-inventory. The upload policy was enabled after the scope-2 rollout. Reader signed-URL replay remains an open gap;
-none of this establishes a bounded-only delivery cutover, live mobile upload acceptance or invoice-level limits.
+Status, 2026-10-08 09:33 UTC: **035 storage accounting, 039 bounded PDF uploads and 045 issuer fencing are applied
+on staging** with worker/Edge integration. Enforcement is on, scope-2 inventory certification remains
+**03:09:31.700048 UTC**, discrepancies are zero and **delivery mode is `bounded`**. Both `paper-assets` and
+`paper-uploads` are certified; the upload policy is enabled. After the full issuer-drain/token-expiry horizon,
+all 1,046 historical/physical reader paths were cache-purged successfully, including five absent historical paths.
+Two previously HIT token variants now fail for expiry; a fresh complete bounded bundle and concurrent single-use
+redemption pass. Quotas and stored objects are unchanged; accrued counters are preserved. [Complete proof and observation
+limits](../reviews/READER_CDN_CUTOVER_20261008.md). This closes the scoped reader URL replay gap; it does not
+establish live mobile upload acceptance, bound original/Mathpix signed URLs, or cap every infrastructure invoice.
 
 Native descriptor/epoch/queue adoption subsequently shipped in the build-17/18 lineage; 042 repairs v5 library
 writes in build 19. The browser remains on its supported v3 library path and does not expose PDF upload. The
@@ -66,15 +69,15 @@ URLs are not included in telemetry. Offline installed bundles and their hash ver
 ## Compatibility and deployment
 
 Older installed native and web builds reject member URLs outside `/storage/v1/object/sign/`. Current native/browser
-source accepts the two reviewed paths and requests `bounded-v1`; the observed server mode still serves legacy
-descriptors. A server-only switch cannot
+source accepts the two reviewed paths and requests `bounded-v1`; current hosted mode serves bounded
+descriptors and refuses legacy requests. A server-only switch cannot
 both preserve those downloads and enforce a replay limit. Policy therefore explicitly distinguishes `legacy`, `dual`
 and `bounded` transport. The new-client contract accepts both known paths and requests bounded delivery. The legacy response remains
 available only during the declared transition and is counted separately as **unbounded replay exposure**. Bounded-only
 mode returns an explicit upgrade-required result for a legacy descriptor request. Already installed offline bundles
 continue to work. A new descriptor must never masquerade as a Storage signed URL to bypass a client's trust checks.
 
-Remaining cutover must preserve this rollout order (schema/inventory/worker gates already completed on staging):
+The completed staging rollout followed this order; future rollouts must preserve it:
 
 1. Apply the additive schema and deploy dual-transport clients/endpoints with the legacy mode explicitly visible.
 2. Pause/drain old worker invocations. They upload before recording and must not run alongside enforced admission.
@@ -92,8 +95,9 @@ Remaining cutover must preserve this rollout order (schema/inventory/worker gate
 servable after its token expires; token expiry does not purge the cache. The pipeline currently uploads with
 `cacheControl: '31536000'` (`pipeline-runtime.ts`), so no 15-minute retirement claim is justified. Observe the
 actual cached path and use a reviewed invalidation/cache plan; that option is not authorization to delete paper
-artifacts. Auth-key rotation does not revoke Storage signed URLs. No delivery-policy change, deletion or credential
-rotation accompanies this documentation correction. [Smart CDN](https://supabase.com/docs/guides/storage/cdn/smart-cdn),
+artifacts. Auth-key rotation does not revoke Storage signed URLs. The later reviewed cutover used exact-object
+cache purges after fencing and full expiry, without object deletion or credential rotation.
+[Smart CDN](https://supabase.com/docs/guides/storage/cdn/smart-cdn),
 [Storage signing keys](https://supabase.com/docs/guides/storage/serving/downloads#signing-urls).
 
 ## Investigation and verification

@@ -4,8 +4,11 @@ Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker control
 039 upload accounting is also applied. Read-only takeover evidence at
 `.artifacts/takeover-20261008/spending-policies.json` records provider admission enabled with coverage beginning
 **2026-10-08 02:40:51.785121 UTC**, asset enforcement on, scope-2 inventory verified at 03:09:31.700048 UTC with
-zero discrepancies, and **reader delivery still `legacy`**. Storage admission is enforced; the signed-URL replay
-exposure is not closed. This is a dated configuration observation, not a continuous monitor or vendor invoice.
+zero discrepancies. A subsequent **09:33 UTC** readback confirms **bounded-only reader delivery**, with 045
+fencing the old issuer and complete reader-scope CDN retirement proved after the full drain/expiry horizon.
+All 1,046 purge paths succeeded; two formerly HIT tokens now fail for expiry and fresh bounded reads pass.
+Quotas and counters were preserved. [Cutover evidence and scope limits](../reviews/READER_CDN_CUTOVER_20261008.md).
+These are dated observations, not a continuous monitor or a bound on original/Mathpix URLs and vendor invoices.
 
 The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) and transparent records for investigating unexpected costs. Customer credits, provider expense, unresolved liability, prepaid units and infrastructure bills remain distinct. The incremental beta budget stays $100/month.
 
@@ -29,8 +32,11 @@ The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST
 
 Provider attempt admission (034), complete asset accounting and bounded delivery (035), Sandbox identity allowances (036), and owner investigation APIs (037) are additive. Existing applied migrations stay immutable. Drain old workers before enabling new accounting: rejecting their final writes cannot undo already-sent provider calls or unregistered uploads. Verify vendor allowance baselines and reconcile the existing bucket inventory before enabling enforcement.
 
-Older installed Apple/web readers validate only Storage signed URLs. Current native and browser source accepts both authorized transports and requests `bounded-v1`, but the observed server policy still returns the legacy path. Complete the reviewed client/expiry cutover before retiring legacy issuance; existing downloaded bundles remain readable offline. The legacy path cannot be described as a hard replay cap, and a cutover needs explicit minimum-client handling, old/in-flight issuer fencing and verified CDN cache retirement.
-Nominal token expiry is insufficient: cached signed responses may outlive it. See the [CDN cutover boundary](ASSET_SPENDING.md#compatibility-and-deployment).
+Older installed Apple/web readers validate only Storage signed URLs and must update for fresh downloads.
+Current deployed native/browser clients request `bounded-v1`; hosted mode is now bounded-only. Existing native
+downloaded bundles remain readable offline. Migration 045 fences the old issuer, and the reviewed full-drain,
+expiry and exact-object CDN purge procedure completed successfully. Nominal token expiry alone would have been
+insufficient because cached signed responses can outlive it. See the [CDN cutover boundary](ASSET_SPENDING.md#compatibility-and-deployment).
 
 Cloud Run request-based billing requires a bounded awaited execution lifecycle. A parent request waits for its isolated worker to finish or terminate before replying, with its deadline below the platform request timeout. Confirm live flags and observed allocation after deployment; forecast amounts and measured instance allocation are not invoices.
 

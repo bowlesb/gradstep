@@ -77,12 +77,14 @@ Core reader-transport test, and three focused iPhone Simulator regressions (incl
 pass. The Simulator tests use fixture transport and normal encrypted local state, with ad-hoc signing for Keychain
 access. No hosted delivery run or policy change is part of this follow-up.
 
-Staging's last observed mode is still `legacy`. Existing signed URLs require issuer fencing, full origin-token
-expiry and verified CDN retirement before replay exposure can be called closed; 15 minutes alone is insufficient.
-Supabase documents a Pro [CDN purge API](https://supabase.com/docs/guides/storage/cdn/purge-cdn-cache) for exact objects
-or a whole bucket, with propagation up to 60 seconds and no browser-cache eviction. This provides a candidate for
-a reviewed, scoped cutover without changing immutable paper objects; it has not been exercised here. The issuer,
-cache and hosted redemption/quota/replay proofs remain in [asset spending](ASSET_SPENDING.md#compatibility-and-deployment).
+Staging is **bounded-only** after the completed 09:33 UTC cutover. The old issuer is fenced, the full in-flight
+and origin-token expiry horizon elapsed, and all 1,046 historical/physical reader paths received exact-object
+cache purges. After propagation, two formerly HIT URLs failed specifically for expired tokens; a fresh complete
+bundle verified with this helper. Concurrent/replay/wrong-account/range refusal also passed. This is separate
+hosted canary evidence, not a run of the newly refreshed scheduled image. Supabase's
+[CDN purge contract](https://supabase.com/docs/guides/storage/cdn/purge-cdn-cache) provides global propagation;
+the canary observed two variants at one network location. Immutable objects, Mathpix URLs and browser copies
+were untouched. [Full evidence and limits](../reviews/READER_CDN_CUTOVER_20261008.md).
 
 ## Suites, observed schedule and cost
 

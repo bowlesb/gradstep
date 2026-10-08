@@ -6,11 +6,23 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
-- **Reader issuer fence 045 applied at 09:02 UTC; bounded-only mode enabled at 09:03 UTC.** Old service RPC
-  and legacy HTTP issuance are denied; new bounded delivery and a concurrent single-use redemption pass.
-  Quotas, counters, inventory enforcement and stored objects are preserved. **CDN retirement is still pending**
-  the full in-flight/expiry horizon ending 09:25:34 UTC, complete reader-path purge and exact expired-token
-  denial. Compatible build 21 is already available. [Live cutover sequence](reviews/READER_CDN_CUTOVER_20261008.md).
+- **Reader cutover completed at 09:33 UTC.** Migration 045 fences the old issuer; delivery is bounded-only.
+  After the full in-flight/expiry horizon, all 1,046 historical/physical reader paths were cache-purged, including
+  five absent historical paths. Both formerly cached token variants then returned explicit expiry denial; a
+  fresh nine-member bundle passed exact size/hash/header checks. Replay, wrong-account, range and simultaneous
+  double redemption also passed. Quotas, charged counters, inventory enforcement and stored objects are preserved.
+  All nine diagnostic accounts are deleted with zero residual Auth/sync/import/provider/credit/operation rows.
+  No AI/OCR cost.
+  The proof relies on Supabase's global purge contract plus two locally observed variants, not every CDN edge;
+  Mathpix originals and infrastructure invoices remain separate. [Cutover evidence](reviews/READER_CDN_CUTOVER_20261008.md).
+- **Scheduled checks image updated at 09:21 UTC**, immutable digest `f02d8422…aeeb`, source `40cb237`.
+  Image-only guarded readback preserves runtime, secrets, IAM, alert settings and all three existing schedules.
+  The packaged reader verifier now authenticates bounded downloads. No manual job or notification was sent;
+  the next scheduled run and actual inbox delivery remain unverified. [Workflow checks](architecture/WORKFLOW_CHECKS.md).
+- **Next browser durability milestone reviewed, design only:** compatibility/update handling first, then an
+  encrypted draft/history journal, saved papers with complete v5 read/write parity, and cold offline startup.
+  Multi-tab retirement, key rotation, failed saves and legacy-tab activation barriers have independent review.
+  Current browser drafts remain tab-memory only. [Implementation gates](architecture/BROWSER_OFFLINE_STORAGE.md).
 - **iOS and Mac TestFlight build 21**, source `c10e54c`, both **VALID / IN_BETA_TESTING** at 08:49 UTC.
   iOS `26f12155-c57b-4bb4-9102-059134323c56`, Mac `71c46182-fbcc-4b2e-afa7-9223433576f8`;
   `.artifacts/takeover-20261008/build-21-processing.json`. Includes all build 20 fixes plus actionable reader
@@ -98,10 +110,11 @@ removed executor work) is retained below where useful and in git history.
   stale-epoch refusal pass with a zero-credit synthetic account, then cleanup: **2 pass, 0 fail, $0 spent/reserved**
   (`.artifacts/workflow-checks/2026-10-08T05-42-22-627Z.json`). Build 18's disabled-v5-write regression is addressed
   by the build 19 client plus 042; the ordinary hosted command test does not invoke OCR or chat.
-- **Spending controls 033–038 and uploads 039 are deployed.** Provider attempt coverage starts
+- **Spending controls 034–038 and uploads 039 are deployed.** Provider attempt coverage starts
   2026-10-08 02:40:51.785121 UTC; asset enforcement is on with complete scope-2 inventory and zero discrepancies.
-  Reader delivery is now **bounded-only**, with final cached legacy URL retirement still pending; token expiry alone does not retire CDN-cached responses. The 05:14 UTC provider
-  snapshot is **$13.677389 spent / $0 reserved / $25 limit**; it is not an invoice or total infrastructure cost.
+  Reader delivery is now **bounded-only**, with scoped cached legacy URL retirement proved at 09:33 UTC.
+  The 09:08 UTC provider snapshot is **$14.017212 spent / $0 reserved / $25 limit**, with no unresolved attempts;
+  it is not an invoice or total infrastructure cost.
   [Spending evidence and limits](architecture/SPENDING_CONTROLS.md).
 - **Purchases:** three observed real Sandbox packs granted 400 + 400 + 200 = 1,000, with replays recorded separately.
   Production subscriptions/renewals/refunds remain unverified. 044 fixes the prior-period-credit policy discrepancy;
@@ -525,14 +538,16 @@ sign-in; browser OAuth and current-release device acceptance remain separate.
 
 ## Spending (October 2026, staging)
 
-The October provider budget snapshot at **2026-10-08 05:14 UTC** is **$13.677389 spent, $0 reserved, $25 limit**
-(`.artifacts/takeover-20261008/budget.json`). This supersedes the earlier $9.80 cap/$5.32–$6.56 observations.
+The October provider budget snapshot at **2026-10-08 09:08 UTC** is **$14.017212 spent, $0 reserved, $25 limit**
+(`.artifacts/takeover-20261008/spend-current-readback.json`), with no unresolved provider attempts.
+This supersedes the earlier $9.80 cap/$5.32–$6.56 observations and the 05:14 UTC $13.677389 snapshot.
 Headroom at that moment is not a fresh authorization to spend. Fixed subscriptions, infrastructure allocations,
 prepaid search units and provider liability remain separate; keep the approved $100/month incremental beta ceiling.
 Supabase invoice attribution is incomplete; do not retain the old approximately-$35 guess as a verified bill.
 See [operations](architecture/OPERATIONS_AND_BILLING.md) and [spending controls](architecture/SPENDING_CONTROLS.md).
 Use the owner Spending/Processing views or `python3 scripts/pipeline-ops.py status` for current observations;
-legacy signed-URL delivery remains the explicit open replay/egress gap.
+the scoped reader signed-URL gap was closed through issuer fencing and verified CDN retirement at 09:33 UTC.
+Original/Mathpix delivery, general invocation traffic and actual infrastructure invoices remain separate boundaries.
 
 ## Sign-in on TestFlight (owner report 2026-10-06)
 
@@ -582,8 +597,9 @@ Email" relay address would create a separate account (no linking); testers shoul
   titles lead; arXiv's own search is the fallback. Checked live on staging for CNN, vision transformer, diffusion
   models, LoRA, RLHF, DPO, Mamba, GNNs, mixture of experts. Queries are sent from the server to OpenAlex and arXiv
   with no account or device data. Ambiguous short terms can still mix fields; no judged benchmark yet.
-- **Operations:** bound the remaining legacy reader-delivery exposure; re-audit scheduled checks/alerts and
-  invoice attribution; exercise owner/MFA admin flows against hosting; complete production provisioning only after
+- **Operations:** reader fencing/CDN retirement and the scheduled-check image refresh are complete. Verify the
+  next scheduled execution and actual alert delivery; reconcile invoice attribution and remaining original/Mathpix
+  delivery boundaries; exercise owner/MFA admin flows against hosting. Complete production provisioning only after
   review. Existing hold cleanup, storage admission and encrypted backup tooling must remain intact.
 - **Purchases:** Production subscription/renewal/refund acceptance and current product-metadata readiness.
   Prior-period-credit retention is now implemented in 044; the local lifecycle proof is not a real StoreKit
@@ -591,7 +607,7 @@ Email" relay address would create a separate account (no linking); testers shoul
   an In-App Purchase key; final review screenshots remain. Observed Sandbox pack grants are already verified
   through the private Node verifier, not unsupported Edge certificate primitives.
 - **Product:** browser OAuth/Safari secure-key persistence, durable encrypted browser drafts/offline support,
-  owner acceptance of build 20's screenshot fixes, accessibility on real papers and physical-device checks (paused).
+  owner acceptance of build 21's accumulated screenshot fixes, accessibility on real papers and physical-device checks (paused).
   Feed 043 activation, podcast scope/privacy/pilot and public-pricing changes remain owner decisions.
 - **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
   release a deleted account's App Store subscription binding, and expire deleted data from backups.

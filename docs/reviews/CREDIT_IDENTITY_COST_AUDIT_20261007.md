@@ -1,6 +1,11 @@
 # Independent credit, identity, and cost audit — 2026-10-07
 
-**Status: findings open; this audit does not fix, deploy, or configure monitoring.**
+**Historical baseline findings, 2026-10-07; the audit itself did not fix, deploy, or configure monitoring.**
+Subsequent controls and rollout evidence are recorded in [current implementation status](../IMPLEMENTATION_STATUS.md),
+[spending controls](../architecture/SPENDING_CONTROLS.md) and the [completed reader cutover](READER_CDN_CUTOVER_20261008.md).
+The findings below describe the original reviewed commit, not a claim that those exact gaps remain deployed.
+Current infrastructure invoice attribution, original/Mathpix URL boundaries and external alert acceptance remain
+separate from those fixes; no whole-system invoice cap is claimed.
 Reviewed main e2b9b95 through the library-v4 worktree. Migrations 031/032 being developed in that worktree are outside this audit's implementation scope.
 
 The credit ledger has substantial protections, including atomic reservations and purchase replay protection. It is **not yet an end-to-end limit on the application's expense**. The highest priorities are the deployed worker's billing mode, provider calls outside admission, and uncertain requests that can be billed without being fully accounted for. These should be addressed before broadening beta access or describing the product as having a hard whole-system spending cap.

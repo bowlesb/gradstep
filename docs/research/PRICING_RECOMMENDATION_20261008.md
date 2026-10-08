@@ -41,15 +41,16 @@ Read-only staging observations collected by the takeover lead in `.artifacts/tak
 
 | Evidence | Meaning |
 |---|---|
-| Provider budget $25; recorded spent $13.677389; reserved $0 | $11.322611 of recorded provider headroom at that instant; not total operating-budget headroom |
+| Provider budget $25; recorded spent $14.017212; reserved $0 at 09:08 UTC | $10.982788 of recorded provider headroom at that instant, no unresolved provider attempts; not total operating-budget headroom |
 | 12 recent chat attempts: mean $0.073520, median $0.068097, p95 $0.181499 | Tiny beta sample of transport attempts, **not complete answers or a representative user cohort** |
 | Eight tag calls: mean $0.00393 | Platform-funded classification expense, not customer chat credits |
 | Sandbox packs granted 400 + 400 + 200 | Verifier/grant proof up to the Sandbox cap, **not sales or revenue** |
 
 The financial baseline is stronger than the original podcast report: migrations034–038 and the private
-purchase verifier are deployed; Cloud Run is now request-billed. Storage inventory is deployed, but current
-reader delivery still has a legacy compatibility mode with replayable signed URLs. New podcast delivery
-must be bounded from its first release. See [spending controls](../architecture/SPENDING_CONTROLS.md),
+purchase verifier are deployed; Cloud Run is now request-billed. Storage inventory and bounded-only reader
+delivery are deployed. At 09:33 UTC the issuer fence and complete reader-scope cache purge passed formerly
+cached-token expiry denial and fresh bounded-download checks; original/Mathpix URLs remain outside that proof.
+New podcast delivery must be bounded from its first release. See [spending controls](../architecture/SPENDING_CONTROLS.md),
 [provider accounting](../architecture/PROVIDER_SPENDING.md) and
 [asset accounting](../architecture/ASSET_SPENDING.md). These controls do not include every infrastructure
 invoice, customer-support hour or exposure from free accounts.
