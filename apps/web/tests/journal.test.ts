@@ -1,5 +1,6 @@
 // Gate 1: real WebCrypto and spec IndexedDB. No hosted requests or provider calls.
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JournalDependencies, JournalScope, StoredDraft } from '../src/lib/journal';
 import type { PrivateEvent } from '../src/lib/events';
@@ -27,6 +28,7 @@ vi.mock('../src/lib/backend', async original => {
 const account = '11111111-2222-4333-8444-555555555555', deviceID = 'aaaaaaaa-0000-4000-8000-000000000001';
 const origin = 'https://fixture.invalid', environment = 'test', deviceKey = `${environment}:${account}`;
 const id = () => crypto.randomUUID();
+const published = JSON.parse(readFileSync(new URL('./fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 let idb: typeof import('../src/lib/idb').idb, access: typeof import('../src/lib/idb').journalAccess;
 let Journal: typeof import('../src/lib/journal').Journal, deps: JournalDependencies, scope: JournalScope;
 let ring: Awaited<ReturnType<typeof keyRing>>;
@@ -178,8 +180,9 @@ it('rebase rejects a plan after a concurrent descendant and remaps drafts/turns 
   const { journal } = await Journal.open(scope, deps), rootID = id(), conversation = id(), childID = id();
   const original = await sealEvent({ ...root(), entityID: conversation }, rootID, deviceID, ring);
   await journal.appendLocal([original]);
-  const d = { ...draft(), conversationID: conversation, head: rootID }; await journal.checkpointDraft(d);
-  const turn = { id: id(), entityID: id(), composerID: d.id, conversationID: conversation, documentID: null, questionID: rootID, operationID: id(), requestDigest: 'a'.repeat(64), text: 'partial', startedAt: 100, updatedAt: 200 };
+  const choice = { model: 'opus', effort: 'high', length: 'detailed' } as const;
+  const d = { ...draft(), conversationID: conversation, head: rootID, requestedAnswer: { questionID: rootID, choice } }; await journal.checkpointDraft(d);
+  const turn = { id: id(), entityID: id(), composerID: d.id, conversationID: conversation, documentID: null, questionID: rootID, operationID: id(), requestDigest: 'a'.repeat(64), requestedProfile: choice, text: 'partial', startedAt: 100, updatedAt: 200 };
   await journal.beginTurn(turn);
   const expected = journal.revision;
   const peer = (await Journal.open(await newScope(), deps)).journal;
@@ -193,6 +196,11 @@ it('rebase rejects a plan after a concurrent descendant and remaps drafts/turns 
   const saved = (await Journal.open(await newScope(), deps)).snapshot;
   expect(saved.outbox).toEqual([replacement.id, newChild.id]);
   expect(saved.drafts[0].head).toBe(replacement.id); expect(saved.turns[0].questionID).toBe(replacement.id);
+  expect(saved.drafts[0].requestedAnswer).toEqual({ questionID: replacement.id, choice }); expect(saved.turns[0].requestedProfile).toEqual(choice);
+  // A checkpoint captured before the mapping cannot restore retired references or change the captured choice.
+  await journal.checkpointDraft({ ...d, revision: 2, textRevision: id(), text: 'new typing with a pre-rebase snapshot' });
+  expect(await journal.draft(d.id)).toMatchObject({ head: replacement.id, requestedAnswer: { questionID: replacement.id, choice } });
+  await expect(journal.checkpointDraft({ ...d, revision: 3, requestedAnswer: { questionID: rootID, choice: { ...choice, model: 'haiku' } } })).rejects.toMatchObject({ code: 'journal_conflict' });
 });
 
 it('a direct refresh latches authenticated-history decoder failure and refuses further private writes', async () => {
@@ -215,7 +223,7 @@ function editorLocks() {
   return { hold: async (name: string) => { if (held.has(name)) throw new Error('already owned'); return acquire(name); },
     tryHold: async (name: string) => held.has(name) ? null : acquire(name) };
 }
-async function controller(options: { stream?: (...args: any[]) => AsyncIterable<any>; consent?: boolean; localLocks?: ReturnType<typeof editorLocks>; scope?: JournalScope } = {}) {
+async function controller(options: { stream?: (...args: any[]) => AsyncIterable<any>; consent?: boolean; localLocks?: ReturnType<typeof editorLocks>; scope?: JournalScope; profiles?: boolean } = {}) {
   const { History } = await import('../src/lib/history'), { ChatSession } = await import('../src/lib/chat-session');
   const owner = new AbortController(); controllers.push(owner);
   const opened = await Journal.open(options.scope ?? await newScope(), deps);
@@ -223,6 +231,7 @@ async function controller(options: { stream?: (...args: any[]) => AsyncIterable<
   await history.restore(opened.snapshot);
   const chat = new ChatSession(account, history, owner.signal, { journal: opened.journal, locks: options.localLocks ?? editorLocks(),
     readConsent: () => options.consent !== false, writeConsent: () => {},
+    fetchProfiles: async () => options.profiles ? published : null,
     stream: options.stream ?? async function* () { server.requests++; yield { type: 'delta', text: 'A saved answer' }; yield { type: 'done', stopReason: 'end_turn', credits: 3 }; } });
   await chat.restore(opened.snapshot.drafts, opened.snapshot.turns); await history.sync();
   return { ...opened, chat, history, owner };
@@ -230,17 +239,109 @@ async function controller(options: { stream?: (...args: any[]) => AsyncIterable<
 const gate = () => Promise.withResolvers<void>();
 
 it('Discuss retries the same failed device save without adding the selected quote twice or sending', async () => {
-  const { chat } = await controller(), documentID = id(), c = chat.current(documentID);
+  const { chat } = await controller(), documentID = id(), c = chat.current(documentID), anchor = { artifactID: id(), quote: 'selected passage', prefix: 'before', suffix: 'after', elementID: 'fig-2', page: 2 };
   chat.edit(c, 'my existing draft'); await chat.flushCheckpoints();
   const commit = access.commit;
   let fail = true;
   deps.access = { ...access, commit: async (...args) => { if (fail) { fail = false; throw new Error('storage_quota'); } return commit(...args); } };
-  expect(await chat.discuss(documentID, 'selected passage')).toBeNull();
+  expect(await chat.discuss(documentID, 'selected passage', anchor)).toBeNull();
   expect(c.draft).toBe('About “selected passage”: my existing draft');
-  expect(await chat.discuss(documentID, 'selected passage')).toBe(c);
+  expect(c.anchor).toEqual(anchor);
+  expect(await chat.discuss(documentID, 'selected passage', anchor)).toBe(c);
   expect(c.draft).toBe('About “selected passage”: my existing draft');
   expect(server.requests).toBe(0); expect(server.rows).toHaveLength(0);
-  expect((await Journal.open(await newScope(), deps)).snapshot.drafts[0].text).toBe(c.draft);
+  expect((await Journal.open(await newScope(), deps)).snapshot.drafts[0]).toMatchObject({ text: c.draft, anchor });
+});
+
+it('Discuss retains its passage across a cold restore and sends it only with the conversation root', async () => {
+  const first = await controller(), documentID = id(), anchor = { artifactID: id(), quote: 'figure caption', prefix: '', suffix: '', elementID: 'fig-2', page: 3 };
+  const prepared = await first.chat.discuss(documentID, anchor.quote, anchor);
+  expect(prepared?.draft).toBe('About “figure caption”: '); expect(server.requests).toBe(0);
+  first.owner.abort();
+  const next = await controller({ consent: false }), c = next.chat.current(documentID);
+  expect(c.anchor).toEqual(anchor); expect(c.draft).toBe(prepared!.draft);
+  next.chat.edit(c, `${c.draft}Why does this differ?`); await next.chat.send(c);
+  expect(next.history.state.conversationSummaries()[0].anchor).toEqual(anchor);
+  expect(next.history.state.conversationBranches(c.conversationID!)[0].messages[0].payload.anchor).toBeUndefined();
+  expect(server.requests).toBe(0);
+});
+
+it('a malformed Discuss anchor leaves the existing editable draft and saved checkpoint intact', async () => {
+  const { chat, journal } = await controller(), documentID = id(), c = chat.current(documentID);
+  chat.edit(c, 'keep my draft'); await chat.flushCheckpoints();
+  const before = await journal.draft(c.id);
+  expect(await chat.discuss(documentID, 'bad quote', { artifactID: id(), quote: 'bad quote', prefix: '', suffix: '', page: 251 })).toBeNull();
+  expect(c.draft).toBe('keep my draft'); expect(await journal.draft(c.id)).toEqual(before); expect(journal.active).toBe(true);
+});
+
+it.each(['anchor', 'requestedAnswer'] as const)('rejects malformed sealed draft %s fields without replacing the previous record', async field => {
+  const { journal } = await Journal.open(scope, deps), d = { ...draft(), documentID: id() };
+  await journal.checkpointDraft(d);
+  const before = await access.range(`${deviceKey}:`, `${deviceKey}:\uffff`);
+  const bad = field === 'anchor' ? { anchor: { artifactID: id(), quote: 'x', prefix: 'x'.repeat(1001), suffix: '' } }
+    : { requestedAnswer: { questionID: id(), choice: { model: 'unknown', effort: 'high', length: 'detailed' } } };
+  await expect(journal.checkpointDraft({ ...d, revision: 2, ...bad } as StoredDraft)).rejects.toMatchObject({ code: 'journal_damaged' });
+  expect(await access.range(`${deviceKey}:`, `${deviceKey}:\uffff`)).toEqual(before);
+  expect((await Journal.open(await newScope(), deps)).snapshot.drafts).toEqual([d]);
+});
+
+it('the local question binding survives a lost acknowledgement, newer edits and reload; explicit retry uses it', async () => {
+  const first = await controller({ profiles: true }), c = first.chat.current(null);
+  const choice = { model: 'opus', effort: 'high', length: 'detailed' } as const;
+  await first.chat.profiles.load(); first.chat.setProfile(c, choice); first.chat.edit(c, 'Keep these answer settings');
+  const started = gate(), release = gate(), commit = first.history.commit.bind(first.history);
+  vi.spyOn(first.history, 'commit').mockImplementationOnce(async (...args) => { started.resolve(); await release.promise; return commit(...args); });
+  server.loseAck = true; const sending = first.chat.send(c); await started.promise;
+  first.chat.setProfile(c, { model: 'haiku', effort: 'low', length: 'brief' }); first.chat.edit(c, 'A newer unsent question'); await first.chat.flushCheckpoints();
+  release.resolve(); await sending; await first.chat.flushCheckpoints();
+  const saved = (await Journal.open(await newScope(), deps)).snapshot.drafts[0];
+  expect(saved).toMatchObject({ text: 'A newer unsent question', requestedAnswer: { questionID: c.question!.id, choice } });
+  expect(first.history.state.events.get(c.question!.id)?.payload.profile).toBeUndefined(); expect(server.requests).toBe(0);
+  first.owner.abort();
+  const requests: any[] = [], next = await controller({ profiles: true, stream: async function* (_account, request) {
+    requests.push(request); server.requests++;
+    yield { type: 'delta', text: 'Explicit answer' }; yield { type: 'done', stopReason: 'end_turn', credits: 1 };
+  } });
+  const restored = next.chat.current(null), turn = vi.spyOn(next.journal, 'beginTurn');
+  expect(restored.draft).toBe('A newer unsent question'); expect(next.chat.retryProfile(restored)).toEqual(choice);
+  expect(server.requests).toBe(0); next.chat.setProfile(restored, { model: 'haiku', effort: 'low', length: 'brief' });
+  await next.chat.retry(restored);
+  expect(requests).toHaveLength(1); expect(requests[0].profile).toEqual(choice);
+  expect(turn.mock.calls[0][0].requestedProfile).toEqual(choice); expect(restored.draft).toBe('A newer unsent question');
+});
+
+it('discarding later unsent text atomically transfers the saved question choice to an owned empty composer', async () => {
+  const owned = editorLocks(), first = await controller({ profiles: true, consent: false, localLocks: owned });
+  const c = first.chat.current(null), choice = { model: 'opus', effort: 'high', length: 'detailed' } as const;
+  await first.chat.profiles.load(); first.chat.setProfile(c, choice); first.chat.edit(c, 'Saved question'); await first.chat.send(c); await first.chat.consent(c, false);
+  first.chat.edit(c, 'Later text to discard'); await first.chat.flushCheckpoints(); await first.chat.discardDraft(c.id);
+  const replacement = first.chat.current(null);
+  expect(replacement.id).not.toBe(c.id); expect(replacement.draft).toBe(''); expect(await owned.tryHold(`gradstep.composer.${replacement.id}`)).toBeNull();
+  const saved = (await Journal.open(await newScope(), deps)).snapshot.drafts;
+  expect(saved.find(d => d.id === c.id)?.discarded).toBe(true);
+  expect(saved.find(d => d.id === replacement.id)).toMatchObject({ text: '', requestedAnswer: { questionID: c.question!.id, choice } });
+  first.owner.abort(); const next = await controller({ profiles: true });
+  expect(next.chat.current(null).id).toBe(replacement.id); expect(next.chat.retryProfile(next.chat.current(null))).toEqual(choice); expect(server.requests).toBe(0);
+});
+
+it.each(['generated', 'renamed'] as const)('a delayed %s title replans after a peer revision, preserving a rename', async source => {
+  const first = await controller({ consent: false }), c = first.chat.current(null);
+  first.chat.edit(c, 'Untitled question'); await first.chat.send(c);
+  const peer = await controller({ consent: false }), peerSource = source === 'generated' ? 'renamed' : 'generated';
+  const peerID = id(), titleID = id(), answerID = id(), append = first.journal.appendLocal.bind(first.journal);
+  vi.spyOn(first.journal, 'appendLocal').mockImplementationOnce(async (...args) => {
+    await peer.history.commit([], { title: { id: peerID, conversationID: c.conversationID!, text: peerSource === 'renamed' ? 'My title' : 'Automatic title', source: peerSource } });
+    return append(...args);
+  });
+  await first.history.commit([{ id: answerID, event: { kind: 'message', entityID: id(), parents: [c.question!.id], conversationID: c.conversationID!, role: 'assistant', status: 'complete', text: 'saved answer' } }],
+    { title: { id: titleID, conversationID: c.conversationID!, text: source === 'renamed' ? 'My title' : 'Automatic title', source } });
+  await first.history.sync();
+  expect(first.history.state.conversationSummaries()[0]).toMatchObject({ title: 'My title', titleSource: 'renamed' });
+  if (source === 'generated') expect(first.history.state.events.has(titleID)).toBe(false);
+  else expect(first.history.state.events.get(titleID)?.payload.parents).toEqual([peerID]);
+  const opened = await Journal.open(await newScope(), deps), cold = await restorer(opened);
+  expect(cold.history.state.conversationSummaries()[0]).toMatchObject({ title: 'My title', titleSource: 'renamed' });
+  expect(opened.snapshot.outbox).toEqual([]); expect(server.requests).toBe(0);
 });
 
 it('typing committed while a captured Send waits survives both its receipt and controller restoration', async () => {
@@ -313,6 +414,9 @@ it('a failed refused-turn cleanup stays owned and its retry only erases the chec
   const commit = access.commit; let fail = true;
   deps.access = { ...access, commit: async (...args) => { if (fail && args[3].some(key => key.includes(':t:'))) { fail = false; throw new Error('storage_quota'); } return commit(...args); } };
   chat.edit(c, 'refused question'); await chat.send(c); expect(c.liveText).toBe(''); expect(c.issue).toBe('local_save');
+  chat.edit(c, 'later text while cleanup is pending'); await chat.flushCheckpoints();
+  await chat.discardDraft(c.id);
+  expect(chat.composers.has(c.id)).toBe(true); expect(c.draft).toBe('later text while cleanup is pending'); // the cleanup action stays reachable
   await controller({ localLocks: owned }); expect(server.rows).toHaveLength(2);
   await chat.retry(c); expect(server.requests).toBe(1); expect(server.rows).toHaveLength(2);
   expect((await Journal.open(await newScope(), deps)).snapshot.turns).toEqual([]);

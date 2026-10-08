@@ -1,7 +1,7 @@
 // Private events (the decrypted payload of wire format 1) and the state they build — a port of
 // ScienceReaderCore/PrivateState.swift and ConversationSummary.swift. Payloads are decoded and validated
 // as Swift does; unknown keys are ignored, UUIDs are compared lowercase and written uppercase (as Swift's
-// JSONEncoder writes them). Nothing here is persisted: the browser keeps history in memory only.
+// JSONEncoder writes them). History persists exact encrypted envelopes through the browser journal.
 import { isUUID } from './bytes';
 
 export type EventKind = 'conversation' | 'message' | 'note' | 'position' | 'diagram' | 'tombstone';
@@ -11,7 +11,14 @@ export interface TextAnchor { artifactID: string; quote: string; prefix: string;
 export interface PrivateEvent {
   kind: EventKind; entityID: string; parents: string[]; conversationID?: string; documentID?: string; text?: string;
   role?: Role; status?: TurnStatus; anchor?: TextAnchor; createdAt?: number;
+  /** A conversation revision's title origin (2026-10-08): `generated` or `renamed`; any string from a later build is kept. */
+  titleSource?: string;
+  /** An answer's serving model and chat profile (2026-10-08), shown under it. */
+  model?: string; profile?: string;
 }
+export const GENERATED_TITLE = 'generated', RENAMED_TITLE = 'renamed';
+/** Bound on titleSource/model/profile (UTF-8 bytes), on every kind, exactly as Swift checks (PrivateEvent.maximumLabelBytes). */
+export const MAX_LABEL_BYTES = 64;
 export interface AppliedEvent { id: string; deviceID: string; payload: PrivateEvent }
 
 export class EventError extends Error {}
@@ -31,6 +38,7 @@ export function validateEvent(e: PrivateEvent): void {
     || (e.status !== undefined && !['complete', 'interrupted'].includes(e.status))) fail();
   if (e.parents.length > 100 || new Set(e.parents).size !== e.parents.length || utf8Bytes(e.text ?? '') > 200_000) fail();
   if (e.createdAt !== undefined && !(Number.isSafeInteger(e.createdAt) && e.createdAt >= 0 && e.createdAt < MAX_CREATED_AT)) fail();
+  for (const label of [e.titleSource, e.model, e.profile]) if (label !== undefined && (typeof label !== 'string' || utf8Bytes(label) > MAX_LABEL_BYTES)) fail();
   if (e.kind === 'message' && (!e.conversationID || !e.role || !e.status || e.text === undefined)) fail();
   if ((e.kind === 'note' || e.kind === 'diagram' || e.kind === 'conversation') && e.text === undefined) fail();
   if (e.kind === 'position' && (!e.documentID || !e.anchor)) fail();
@@ -58,6 +66,7 @@ export function decodeEvent(value: unknown): PrivateEvent {
     role: optional(v.role, r => (r === 'user' || r === 'assistant' ? r : fail())),
     status: optional(v.status, s => (s === 'complete' || s === 'interrupted' ? s : fail())),
     anchor, createdAt: optional(v.createdAt, t => (Number.isSafeInteger(t) ? t as number : fail())),
+    titleSource: optional(v.titleSource, string), model: optional(v.model, string), profile: optional(v.profile, string),
   };
   validateEvent(event);
   return event;
@@ -80,6 +89,9 @@ export function encodeEvent(e: PrivateEvent): Record<string, unknown> {
     out.anchor = anchor;
   }
   if (e.createdAt !== undefined) out.createdAt = e.createdAt;
+  if (e.titleSource !== undefined) out.titleSource = e.titleSource;
+  if (e.model !== undefined) out.model = e.model;
+  if (e.profile !== undefined) out.profile = e.profile;
   return out;
 }
 const same = (a: AppliedEvent, b: AppliedEvent) => a.id === b.id && a.deviceID === b.deviceID && JSON.stringify(encodeEvent(a.payload)) === JSON.stringify(encodeEvent(b.payload));
@@ -88,6 +100,21 @@ export interface ConversationBranch { head: string; messages: AppliedEvent[]; co
 export interface ConversationSummary {
   id: string; title: string; documentID?: string; messageCount: number; startedAt?: number; lastUsedAt?: number;
   lastArrival: number; startArrival: number; latestAnswer?: string; questions: string; anchor?: TextAnchor;
+  /** Where `title` came from: absent for the first question, else `generated` (topic title) or `renamed`. */
+  titleSource?: string;
+}
+
+/** A topic title as one plain line of at most 80 characters (ChatTopicTitle.clean): control and bidirectional
+ * characters become spaces, whitespace collapses; null when nothing is left. */
+export const MAX_TITLE_CHARACTERS = 80;
+export function cleanTopicTitle(text: string): string | null {
+  // Swift's CharacterSet.controlCharacters is Cc and Cf (bidirectional controls included), plus the line separators.
+  const line = text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ').split(/\s+/).filter(Boolean).join(' ');
+  if (!line) return null;
+  // Swift counts Characters (grapheme clusters); a segmenter matches that where it exists.
+  const graphemes = typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(line)].map(s => s.segment) : [...line];
+  return graphemes.length > MAX_TITLE_CHARACTERS ? graphemes.slice(0, MAX_TITLE_CHARACTERS).join('').trim() : line;
 }
 
 /** Immutable revisions plus tombstones. Arrival order never chooses the winner of concurrent edits. */
@@ -249,6 +276,19 @@ export class PrivateState {
     return revisions.filter(e => !superseded.has(e.id)).sort((a, b) => (a.id < b.id ? -1 : 1));
   }
 
+  /** A conversation revision giving it a topic title (PrivateState.titledConversation): the current revision's paper,
+   * passage and start time are kept; its parents are every current revision, so concurrent titles resolve to this one. */
+  titledConversation(conversationID: string, title: string, source: string): PrivateEvent | null {
+    const current = this.revisions(conversationID).filter(e => e.payload.kind === 'conversation');
+    const base = current[0], text = cleanTopicTitle(title);
+    if (!base || !text) return null;
+    const event: PrivateEvent = { kind: 'conversation', entityID: conversationID, parents: current.map(e => e.id), text, titleSource: source };
+    if (base.payload.documentID) event.documentID = base.payload.documentID;
+    if (base.payload.anchor) event.anchor = base.payload.anchor;
+    if (base.payload.createdAt !== undefined) event.createdAt = base.payload.createdAt;
+    return event;
+  }
+
   /** Every saved, undeleted conversation (one pass over the events), as All chats lists them. */
   conversationSummaries(): ConversationSummary[] {
     const deleted = new Set<string>(), roots = new Map<string, AppliedEvent[]>(), messages = new Map<string, AppliedEvent[]>();
@@ -274,7 +314,7 @@ export class PrivateState {
         if (m.payload.role !== 'user' || questions.length >= 4000 || !m.payload.text) continue;
         questions += (questions ? '\n' : '') + m.payload.text.slice(0, 4000 - questions.length);
       }
-      out.push({ id, title: root.payload.text ?? '', documentID: root.payload.documentID, messageCount: new Set(surviving.map(e => e.payload.entityID)).size,
+      out.push({ id, title: root.payload.text ?? '', titleSource: root.payload.titleSource, documentID: root.payload.documentID, messageCount: new Set(surviving.map(e => e.payload.entityID)).size,
         startedAt: rootTime ?? (times.length ? Math.min(...times) : undefined), lastUsedAt: all.length ? Math.max(...all) : undefined,
         lastArrival: Math.max(-1, ...[...revisions, ...surviving].map(e => arrival(e.id))), startArrival: Math.min(...revisions.map(e => arrival(e.id))),
         latestAnswer: answer?.slice(0, 1000), questions, anchor: root.payload.anchor });

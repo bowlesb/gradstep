@@ -18,6 +18,8 @@
 // an empty account. Formats newer than this release are preserved and refused with an update instruction.
 import { type Bytes, concat, equal, fromUtf8, sha256, toHex, utf8 } from './bytes';
 import { type JournalAccess, type WriterFence, journalAccess, idb } from './idb';
+import { isProfileChoice, sameProfile, type ProfileChoice } from './chat-profiles';
+import { validateEvent, type TextAnchor } from './events';
 import { type EventEnvelope, open, seal } from './wire';
 
 export const JOURNAL_FORMAT = 1;
@@ -37,6 +39,9 @@ export interface StoredDraft {
   /** Monotonic per composer. Each edit also gets a fresh `textRevision`, even when the text repeats. */
   revision: number; textRevision: string; text: string; editedAt: number;
   branchRevision: string; acknowledgedSubmissionID: string | null;
+  /** Optional fields in the first shipped journal format; absent on early local development checkpoints. */
+  anchor?: TextAnchor;
+  requestedAnswer?: { questionID: string; choice: ProfileChoice };
   /** The last local submission: its user event is `submissionID`; it consumed text revision `textRevision`. */
   receipt: { submissionID: string; eventIDs: string[]; textRevision: string; revision: number; branchRevision: string } | null;
   discarded: boolean;
@@ -45,6 +50,8 @@ export interface StoredDraft {
 export interface StoredTurn {
   id: string; entityID: string; composerID: string; conversationID: string; documentID: string | null; questionID: string;
   operationID: string; requestDigest: string; text: string; startedAt: number; updatedAt: number;
+  /** The requested settings, not a claim about the model that actually served the answer. */
+  requestedProfile?: ProfileChoice;
 }
 export interface LoadedEvent { ordinal: number; envelope: EventEnvelope; local: boolean }
 export interface JournalSnapshot {
@@ -104,6 +111,20 @@ async function chainNext(previous: string, sealed: Bytes): Promise<string> {
 const digest = async (sealed: Bytes) => toHex(await sha256(sealed));
 const damaged = (): never => { throw new JournalError('journal_damaged'); };
 
+/** Queued checkpoints can predate another tab's rebase. Resolve every event reference under the writer lock. */
+function currentDraft(head: Head, draft: StoredDraft): StoredDraft {
+  if (!head.replaced.length) return draft;
+  const mapping = new Map(head.replaced);
+  const resolve = (id: string): string => {
+    const seen = new Set<string>();
+    while (mapping.has(id)) { if (seen.has(id)) damaged(); seen.add(id); id = mapping.get(id)!; }
+    return id;
+  };
+  return { ...draft, head: draft.head && resolve(draft.head), acknowledgedSubmissionID: draft.acknowledgedSubmissionID && resolve(draft.acknowledgedSubmissionID),
+    requestedAnswer: draft.requestedAnswer && { ...draft.requestedAnswer, questionID: resolve(draft.requestedAnswer.questionID) },
+    receipt: draft.receipt && { ...draft.receipt, submissionID: resolve(draft.receipt.submissionID), eventIDs: draft.receipt.eventIDs.map(resolve) } };
+}
+
 // Event record plaintext: u32 header length, header JSON, then the exact wire ciphertext (no base64 wrapping).
 function encodeEvent(event: LoadedEvent): Bytes {
   const header = utf8(JSON.stringify({ id: event.envelope.id, device: event.envelope.deviceID, epoch: event.envelope.epoch,
@@ -133,12 +154,18 @@ function validDraft(d: StoredDraft, id: string): StoredDraft {
       || r.eventIDs.at(-1) !== r.submissionID || !uuid(r.textRevision) || !uuid(r.branchRevision) || !Number.isSafeInteger(r.revision) || r.revision < 0 || r.revision > d.revision
       || (d.textRevision === r.textRevision && d.text !== '')) damaged();
   }
+  if (d.anchor !== undefined) {
+    try { if (!d.documentID) damaged(); validateEvent({ kind: 'position', entityID: d.id, parents: [], documentID: d.documentID!, anchor: d.anchor }); }
+    catch { return damaged(); }
+  }
+  if (d.requestedAnswer !== undefined && (!d.requestedAnswer || !uuid(d.requestedAnswer.questionID) || !isProfileChoice(d.requestedAnswer.choice))) damaged();
   return d;
 }
 function validTurn(t: StoredTurn, id: string): StoredTurn {
   if (!t || t.id !== id || !uuid(t.entityID) || !uuid(t.composerID) || !uuid(t.conversationID) || !(t.documentID === null || uuid(t.documentID))
     || !uuid(t.questionID) || !uuid(t.operationID) || typeof t.requestDigest !== 'string' || !/^[0-9a-f]{64}$/.test(t.requestDigest)
-    || typeof t.text !== 'string' || bytesOf(t.text) > JOURNAL_LIMITS.turnText || !Number.isFinite(t.startedAt) || !Number.isFinite(t.updatedAt)) damaged();
+    || typeof t.text !== 'string' || bytesOf(t.text) > JOURNAL_LIMITS.turnText || !Number.isFinite(t.startedAt) || !Number.isFinite(t.updatedAt)
+    || (t.requestedProfile !== undefined && !isProfileChoice(t.requestedProfile))) damaged();
   return t;
 }
 function validHead(h: Head, scope: JournalScope): Head {
@@ -385,6 +412,7 @@ export class Journal {
     return { put, next };
   }
   private async draftRecord(next: Head, draft: StoredDraft): Promise<[string, Bytes]> {
+    draft = currentDraft(next, draft);
     validDraft(draft, draft.id);
     const sealed = await seal(this.scope.localKey, utf8(JSON.stringify(draft)), aad.draft(this.scope.account, next.incarnation, draft.id));
     if (sealed.length > JOURNAL_LIMITS.recordBytes) throw new JournalError('journal_capacity');
@@ -409,12 +437,14 @@ export class Journal {
   }
   /** A submission consumes its captured edit only. Later text and a later explicit branch choice survive. */
   private async reconcileDraft(head: Head, incoming: StoredDraft, submitting = false): Promise<StoredDraft | null> {
+    incoming = currentDraft(head, incoming);
     const stored = await this.readDraft(head, incoming.id);
     if (stored?.discarded) throw new JournalError('journal_discarded');
     if (stored && stored.documentID !== incoming.documentID) throw new JournalError('journal_conflict');
     if (submitting) {
       const receipt = incoming.receipt;
       if (!receipt || receipt.submissionID !== incoming.head) throw new JournalError('journal_conflict');
+      if (incoming.requestedAnswer && incoming.requestedAnswer.questionID !== receipt.submissionID) throw new JournalError('journal_conflict');
       if (stored?.receipt?.submissionID === receipt.submissionID) {
         if (JSON.stringify(stored.receipt) !== JSON.stringify(receipt)) throw new JournalError('journal_conflict');
         return null; // exact submission replay; never replace later typing
@@ -424,16 +454,20 @@ export class Journal {
       const latest = stored && stored.revision > incoming.revision ? stored : incoming;
       return { ...latest, conversationID: incoming.conversationID,
         head: latest.branchRevision === receipt.branchRevision ? receipt.submissionID : latest.head,
-        text: latest.textRevision === receipt.textRevision ? '' : latest.text, receipt };
+        text: latest.textRevision === receipt.textRevision ? '' : latest.text, receipt, requestedAnswer: incoming.requestedAnswer };
     }
     if (stored && incoming.revision < stored.revision) return null;
     const receipt = stored?.receipt ?? null;
     const next = { ...incoming, conversationID: stored?.conversationID ?? incoming.conversationID, receipt,
       text: receipt?.textRevision === incoming.textRevision ? '' : incoming.text,
+      requestedAnswer: receipt && incoming.acknowledgedSubmissionID !== receipt.submissionID ? stored?.requestedAnswer : incoming.requestedAnswer ?? stored?.requestedAnswer,
       head: receipt && incoming.acknowledgedSubmissionID !== receipt.submissionID && incoming.branchRevision === receipt.branchRevision ? stored!.head : incoming.head };
+    if (stored?.requestedAnswer && next.requestedAnswer?.questionID === stored.requestedAnswer.questionID
+      && !sameProfile(next.requestedAnswer.choice, stored.requestedAnswer.choice)) throw new JournalError('journal_conflict');
     if (stored && incoming.revision === stored.revision) {
       // Canonical receipt/head promotion is permitted; a different same-revision edit is never silently accepted.
-      if (next.textRevision !== stored.textRevision || next.text !== stored.text || next.branchRevision !== stored.branchRevision) throw new JournalError('journal_conflict');
+      if (next.textRevision !== stored.textRevision || next.text !== stored.text || next.branchRevision !== stored.branchRevision
+        || JSON.stringify(next.anchor) !== JSON.stringify(stored.anchor) || JSON.stringify(next.requestedAnswer) !== JSON.stringify(stored.requestedAnswer)) throw new JournalError('journal_conflict');
       return null;
     }
     return next;
@@ -522,6 +556,7 @@ export class Journal {
       for (const id of Object.keys(head.drafts)) {
         const draft = (await this.readDraft(head, id))!;
         const updated = { ...draft, head: draft.head && resolve(draft.head), acknowledgedSubmissionID: draft.acknowledgedSubmissionID && resolve(draft.acknowledgedSubmissionID),
+          requestedAnswer: draft.requestedAnswer && { ...draft.requestedAnswer, questionID: resolve(draft.requestedAnswer.questionID) },
           receipt: draft.receipt && { ...draft.receipt, submissionID: resolve(draft.receipt.submissionID), eventIDs: draft.receipt.eventIDs.map(resolve) } };
         if (JSON.stringify(draft) !== JSON.stringify(updated)) put.push(await this.draftRecord(next, updated));
       }
@@ -544,7 +579,7 @@ export class Journal {
     });
   }
   /** Discard leaves an encrypted tombstone. A newer durable revision than the one observed refuses the discard. */
-  discardDraft(id: string, observedRevision: number, template: Omit<StoredDraft, 'text' | 'discarded' | 'revision' | 'receipt'>): Promise<void> {
+  discardDraft(id: string, observedRevision: number, template: Omit<StoredDraft, 'text' | 'discarded' | 'revision' | 'receipt'>, replacement?: StoredDraft): Promise<void> {
     return this.commit(async head => {
       const stored = await this.readDraft(head, id);
       if (stored?.discarded) return null;
@@ -553,6 +588,13 @@ export class Journal {
         receipt: stored?.receipt ?? null };
       const next = clone(head);
       const put = [await this.draftRecord(next, tombstone)];
+      if (replacement) {
+        // A discarded text draft can still own the exact choice for a saved question. Transfer that binding to a
+        // fresh, already-owned empty composer in the same transaction; a crash must not erase the question choice.
+        if (replacement.id === id || head.drafts[replacement.id] || replacement.text || replacement.receipt || replacement.discarded
+          || replacement.documentID !== template.documentID || replacement.conversationID !== template.conversationID) throw new JournalError('journal_conflict');
+        put.push(await this.draftRecord(next, { ...replacement, requestedAnswer: stored?.requestedAnswer ?? template.requestedAnswer }));
+      }
       return { next, put, remove: [] };
     });
   }
@@ -599,9 +641,10 @@ export class Journal {
       if (!creating) {
         const stored = await this.readTurn(head, turn.id);
         if (turn.updatedAt < stored.updatedAt) return null;
-        if (stored.operationID !== turn.operationID || stored.requestDigest !== turn.requestDigest) throw new JournalError('journal_conflict');
+        if (stored.operationID !== turn.operationID || stored.requestDigest !== turn.requestDigest
+          || (stored.requestedProfile && turn.requestedProfile && !sameProfile(stored.requestedProfile, turn.requestedProfile))) throw new JournalError('journal_conflict');
         // Rotation may have remapped the parent while this partial checkpoint was being coalesced.
-        turn = { ...turn, questionID: stored.questionID };
+        turn = { ...stored, text: turn.text, updatedAt: turn.updatedAt };
       }
       return { next, put: [await this.turnRecord(next, turn)], remove: [] };
     });

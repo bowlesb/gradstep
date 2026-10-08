@@ -7,7 +7,9 @@ import type { Episode, Evidence } from '../lib/podcast';
 import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
-import { ChatHistory, ChatPane, type PaperContext } from './ChatPane';
+import { ChatHistory, ChatPane, type PaperContext, useChatUpdates } from './ChatPane';
+import { ChatDefaultsDialog } from './ChatProfile';
+import type { ChatSession } from '../lib/chat-session';
 import { useChat } from './useChat';
 import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
@@ -106,6 +108,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
   const [help, setHelp] = useState(false);
+  const [chatDefaults, setChatDefaults] = useState(false);
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
@@ -256,14 +259,16 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
     if (!chat || chat.storageRetired || !item?.document_id) return; // the storage notice explains why nothing is sent
-    const composer = chat.newChat(item.document_id);
+    // The new conversation answers with the model, effort and length the chat pane shows right now.
+    const visible = chat.current(chatMode === 'paper' && paperContext ? paperContext.documentID : null);
+    const composer = chat.newChat(item.document_id, chat.profileFor(visible));
     chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
     void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
   };
-  const discuss = async (quote: string, _anchor: TextAnchor): Promise<boolean> => {
+  const discuss = async (quote: string, anchor: TextAnchor): Promise<boolean> => {
     if (!chat || chat.storageRetired || !item?.document_id) return false;
     const owner = auth.snapshot(), sourcePaper = item.id;
-    const composer = await chat.discuss(item.document_id, quote);
+    const composer = await chat.discuss(item.document_id, quote, anchor);
     if (!composer || owner.signal.aborted || latest.current.paperID !== sourcePaper) return false;
     setChatMode('paper'); latest.current.ws.show('right');
     // The reader closes its modal only after this promise resolves. Focus on the next paint, when
@@ -360,7 +365,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onSignOut={() => setSigningOut(true)} />
+          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onSignOut={() => setSigningOut(true)}
+            onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
       <StorageNotice />
@@ -374,6 +380,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
+      {chat && <ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} />}
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2>Keyboard shortcuts</h2>
         <dl className="shortcuts">
@@ -400,7 +407,13 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   );
 }
 
-function AccountMenu({ email, theme, setTheme, onHelp, onSignOut }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onSignOut: () => void }) {
+function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolean; onClose: () => void }) {
+  useChatUpdates(chat);
+  return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />;
+}
+
+function AccountMenu({ email, theme, setTheme, onHelp, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onSignOut: () => void;
+  onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -423,6 +436,7 @@ function AccountMenu({ email, theme, setTheme, onHelp, onSignOut }: { email: str
             {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
+          <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> Chat defaults…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
         </div>
