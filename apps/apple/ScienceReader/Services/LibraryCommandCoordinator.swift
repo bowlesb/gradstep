@@ -39,6 +39,8 @@ final class LibraryCommandCoordinator {
     @discardableResult
     func enqueue(_ mutation: LibraryMutation, display: String?) async throws -> LocalLibraryCommandHandle {
         try requireWritable()
+        guard await library.permitsLegacyCommands()
+        else { throw LibraryCommandError.contextMismatch }
         let scope = scope
         let (handle, snapshot) = try await persist { store in
             let handle = try await store.enqueueLibraryCommand(scope: scope, mutation: mutation, display: display)
@@ -54,6 +56,8 @@ final class LibraryCommandCoordinator {
     func editTags(documentID: UUID, tags: [String], hiddenTags: [String], observedRevision: Int64,
                   display: String?) async throws -> LocalLibraryCommandHandle {
         try requireWritable()
+        guard await library.permitsLegacyCommands()
+        else { throw LibraryCommandError.contextMismatch }
         let scope = scope
         let (handle, snapshot) = try await persist { store in
             let handle = try await store.editLibraryTags(scope: scope, documentID: documentID, tags: tags, hiddenTags: hiddenTags,
@@ -148,6 +152,21 @@ final class LibraryCommandCoordinator {
         }
         var attempted = Set<LocalLibraryCommandHandle>()
         do {
+            let queued = try await snapshot()
+            if queued.commands.contains(where: { $0.isUnfinished }) {
+                let context = try await library.commandReadContext()
+                try requireWritable()
+                let scope = scope
+                let reviewed = try await persist { store in
+                    try await store.reviewLibraryCommandContext(context, scope: scope)
+                }
+                try requireWritable()
+                publish(reviewed, nil)
+                if context != .legacyFull3 {
+                    report("Library changes are paused while this app finishes adopting the new sync version. Saved changes are preserved for review.")
+                    return
+                }
+            }
             while !closed && !paused && !halted {
                 try Task.checkCancellation()
                 var current = try await snapshot()
@@ -228,7 +247,8 @@ final class LibraryCommandCoordinator {
         let floor = waiting.compactMap { $0.receipt?.requiredCursor }.max() ?? 0
         // This call demands a newly observed boundary after these exact receipt
         // IDs, even when an older refresh/page was already in progress.
-        let observed = try await library.refreshAfterCommand(minimumCursor: floor)
+        let observed = try await library.refreshAfterCommand(minimumCursor: floor,
+            readContext: waiting.first?.libraryReadContext ?? .legacyFull3)
         try Task.checkCancellation()
         try requireWritable()
         guard observed.scope.accountID == scope.accountID else { throw ReaderError.wrongAccount }

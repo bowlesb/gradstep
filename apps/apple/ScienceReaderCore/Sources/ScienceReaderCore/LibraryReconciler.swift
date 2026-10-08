@@ -13,10 +13,11 @@ public struct LibraryPageRequest: Equatable, Sendable {
     public let requestID: UUID
     public let query: Query
     public let limit: Int
+    public let readContext: LibraryReadContext
 
-    fileprivate init(accountID: UUID, sessionID: UUID, query: Query, limit: Int) {
+    fileprivate init(accountID: UUID, sessionID: UUID, query: Query, limit: Int, readContext: LibraryReadContext) {
         self.accountID = accountID; self.sessionID = sessionID
-        requestID = UUID(); self.query = query; self.limit = limit
+        requestID = UUID(); self.query = query; self.limit = limit; self.readContext = readContext
     }
 }
 
@@ -37,9 +38,20 @@ public struct LibraryCompleteObservation: Equatable, Sendable {
     public let sessionID: UUID
     public let committedCursor: Int64
     public let entries: [LibraryEntryID: LibraryEntry]
-    fileprivate init(accountID: UUID, sessionID: UUID, committedCursor: Int64, entries: [LibraryEntryID: LibraryEntry]) {
+    public let readContext: LibraryReadContext
+    fileprivate init(accountID: UUID, sessionID: UUID, committedCursor: Int64, entries: [LibraryEntryID: LibraryEntry], readContext: LibraryReadContext) {
         self.accountID = accountID; self.sessionID = sessionID; self.committedCursor = committedCursor; self.entries = entries
+        self.readContext = readContext
     }
+}
+
+/// Created only from a completely authenticated local checkpoint. It conveys
+/// no live observation or command authority; resuming must first catch up.
+public struct LibraryReplicaSeed: Sendable {
+    public let scope: LibraryCommandScope
+    public let readContext: LibraryReadContext
+    public let committedCursor: Int64
+    public let entries: [LibraryEntryID: LibraryEntry]
 }
 
 public struct LibraryMergeResult: Equatable, Sendable {
@@ -70,6 +82,7 @@ public struct LibraryReconciler: Equatable, Sendable {
     public enum Phase: Equatable, Sendable { case baseline, catchingUp, ready }
 
     public private(set) var accountID: UUID
+    public private(set) var readContext: LibraryReadContext
     public private(set) var sessionID: UUID
     public private(set) var phase: Phase = .baseline
     public private(set) var entries: [LibraryEntryID: LibraryEntry] = [:]
@@ -81,16 +94,29 @@ public struct LibraryReconciler: Equatable, Sendable {
 
     private var baselineContinuation: LibraryBaselineCursor?
 
-    public init(accountID: UUID) {
-        self.accountID = accountID
+    public init(accountID: UUID, readContext: LibraryReadContext = .legacyFull3) {
+        self.accountID = accountID; self.readContext = readContext
         sessionID = UUID()
+    }
+
+    public init(resuming seed: LibraryReplicaSeed, scope: LibraryCommandScope) throws {
+        guard seed.scope == scope, seed.readContext.permitsUploads, seed.committedCursor >= 0 else {
+            throw LibraryProtocolError.invalidCursor
+        }
+        self.init(accountID: scope.accountID, readContext: seed.readContext)
+        _ = try merge(Array(seed.entries.values))
+        guard entries.values.allSatisfy({ $0.stateSequence <= seed.committedCursor }) else {
+            throw LibraryProtocolError.invalidCursor
+        }
+        committedCursor = seed.committedCursor
+        phase = .catchingUp
     }
 
     /// Reset is an explicit new session, including for a same-account resync.
     /// A caller may keep an old presentation separately, but may not reuse its
     /// request tickets, entries or cursor in the new protocol session.
-    public mutating func reset(accountID: UUID) {
-        self = Self(accountID: accountID)
+    public mutating func reset(accountID: UUID, readContext: LibraryReadContext = .legacyFull3) {
+        self = Self(accountID: accountID, readContext: readContext)
     }
 
     /// Return the same ticket for a transport retry until it is accepted/reset.
@@ -107,7 +133,7 @@ public struct LibraryReconciler: Equatable, Sendable {
             query = .changes(after: committedCursor, through: catchUpBoundary)
             phase = .catchingUp
         }
-        let request = LibraryPageRequest(accountID: accountID, sessionID: sessionID, query: query, limit: limit)
+        let request = LibraryPageRequest(accountID: accountID, sessionID: sessionID, query: query, limit: limit, readContext: readContext)
         inFlightRequest = request
         return request
     }
@@ -124,14 +150,14 @@ public struct LibraryReconciler: Equatable, Sendable {
             guard case .item(let item) = entries[.init(kind: .item, entityID: id)],
                   item.documentID == value.documentID else { throw LibraryCommandError.incompleteObservation }
         }
-        return LibraryCompleteObservation(accountID: accountID, sessionID: sessionID, committedCursor: cursor, entries: entries)
+        return LibraryCompleteObservation(accountID: accountID, sessionID: sessionID, committedCursor: cursor, entries: entries, readContext: readContext)
     }
 
     /// Only a resync error belonging to the active pull can clear this session.
     @discardableResult
     public mutating func requireResync(for request: LibraryPageRequest) -> Bool {
         guard owns(request) else { return false }
-        reset(accountID: accountID)
+        reset(accountID: accountID, readContext: readContext)
         return true
     }
 
@@ -143,6 +169,7 @@ public struct LibraryReconciler: Equatable, Sendable {
         }
         try page.validate()
         guard page.accountID == accountID else { throw LibraryProtocolError.accountMismatch }
+        guard page.readContext == readContext else { throw LibraryProtocolError.contextMismatch }
         guard page.entries.count <= request.limit else { throw LibraryProtocolError.invalidPage }
         if let boundary = baselineBoundary {
             guard page.baselineCursor == boundary else { throw LibraryProtocolError.invalidCursor }
@@ -178,6 +205,7 @@ public struct LibraryReconciler: Equatable, Sendable {
               committedCursor == after else { throw LibraryProtocolError.invalidPage }
         try page.validate()
         guard page.accountID == accountID else { throw LibraryProtocolError.accountMismatch }
+        guard page.readContext == readContext else { throw LibraryProtocolError.contextMismatch }
         guard page.retainedAfter <= after else { throw LibraryProtocolError.resyncRequired }
         guard page.through >= after, through.map({ $0 == page.through }) ?? true,
               catchUpBoundary == through, page.changes.count <= request.limit,
@@ -204,6 +232,10 @@ public struct LibraryReconciler: Equatable, Sendable {
     public mutating func accept(_ response: LibraryCommandResponse, for ticket: LibraryCommandTicket) throws -> LibraryMergeResult {
         guard ticket.accountID == accountID, ticket.sessionID == sessionID else { return .stale }
         try response.validate()
+        // v5 descriptors are absent from legacy-shaped command acknowledgments.
+        // Such replies are observation floors, not a canonical replica update.
+        // Only the complete journal pull may publish that grouped state.
+        if readContext.permitsUploads { return .empty }
         guard let entry = response.entry else { return .empty }
         var candidate = self
         let result = try candidate.merge([entry])
@@ -268,6 +300,11 @@ public struct LibraryReconciler: Equatable, Sendable {
 
 func validateLibraryIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
     guard old.createdSequence == new.createdSequence else { throw LibraryProtocolError.identityConflict(new.id) }
+    if new.stateSequence > old.stateSequence, let prior = old.descriptorReference {
+        guard let next = new.descriptorReference, prior.descriptorID == next.descriptorID,
+              next.revision >= prior.revision, next.epoch >= prior.epoch,
+              next.revision != prior.revision || next == prior else { throw LibraryProtocolError.identityConflict(new.id) }
+    }
     switch (old, new) {
     case (.item(let lhs), .item(let rhs)):
         guard lhs.documentID == rhs.documentID, lhs.scope == rhs.scope, lhs.pageCount == rhs.pageCount,
@@ -287,16 +324,20 @@ func validateLibraryIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
             }
         }
     case (.import(let lhs), .import(let rhs)):
-        guard lhs.source == rhs.source, lhs.sourceID == rhs.sourceID, lhs.requestedRevision == rhs.requestedRevision,
+        guard (lhs.source == rhs.source && lhs.sourceID == rhs.sourceID) || rhs.omitsTombstoneSource || lhs.omitsTombstoneSource
+        else { throw LibraryProtocolError.identityConflict(new.id) }
+        guard lhs.requestedRevision == rhs.requestedRevision,
               lhs.libraryItemID == nil || rhs.libraryItemID == nil || lhs.libraryItemID == rhs.libraryItemID,
               lhs.documentID == nil || rhs.documentID == nil || lhs.documentID == rhs.documentID else {
             throw LibraryProtocolError.identityConflict(new.id)
         }
         if rhs.stateSequence > lhs.stateSequence {
             guard rhs.intentRevision >= lhs.intentRevision,
-                  preserves(lhs.metadataID, rhs.metadataID), preserves(lhs.versionID, rhs.versionID),
-                  preserves(lhs.sourceRevision, rhs.sourceRevision), preserves(lhs.metadata, rhs.metadata),
-                  preserves(lhs.metadataRecordedAt, rhs.metadataRecordedAt),
+                  preserves(lhs.metadataID, rhs.metadataID, allowsOmission: rhs.omitsTombstoneSource),
+                  preserves(lhs.versionID, rhs.versionID, allowsOmission: rhs.omitsTombstoneSource),
+                  preserves(lhs.sourceRevision, rhs.sourceRevision, allowsOmission: rhs.omitsTombstoneSource),
+                  preserves(lhs.metadata, rhs.metadata, allowsOmission: rhs.omitsTombstoneSource),
+                  preserves(lhs.metadataRecordedAt, rhs.metadataRecordedAt, allowsOmission: rhs.omitsTombstoneSource),
                   preserves(lhs.libraryItemID, rhs.libraryItemID), preserves(lhs.documentID, rhs.documentID) else {
                 throw LibraryProtocolError.identityConflict(new.id)
             }
@@ -307,8 +348,8 @@ func validateLibraryIdentity(_ old: LibraryEntry, _ new: LibraryEntry) throws {
 
 /// Established pins survive removal and availability changes. These checks
 /// only apply to forward revisions; an older row may predate its first pin.
-private func preserves<Value: Equatable>(_ old: Value?, _ new: Value?) -> Bool {
-    old == nil || old == new
+private func preserves<Value: Equatable>(_ old: Value?, _ new: Value?, allowsOmission: Bool = false) -> Bool {
+    old == nil || old == new || (allowsOmission && new == nil)
 }
 
 private func advances(_ old: Int64?, _ new: Int64?) -> Bool {

@@ -144,12 +144,16 @@ private final class AuthenticationWorkflowProtocol: URLProtocol, @unchecked Send
                 // is intentionally no enrollment/bootstrap route in this fixture.
                 try respond(["epoch": 1, "recovery_package": "\\x00", "device_envelope": NSNull()])
 
-            case "/rest/v1/rpc/v5_library_page":
+            case "/rest/v1/rpc/v1_reader_capabilities":
+                try requireSession()
+                try respond(["code": "PGRST202", "message": "Could not find the function public.v1_reader_capabilities without parameters in the schema cache"], status: 404)
+
+            case "/rest/v1/rpc/v3_library_page":
                 try requireSession()
                 try respond(["format": 2, "account_id": AuthenticationWorkflowFixture.accountID.wire,
                     "baseline_cursor": 0, "retained_after": 0, "entries": [], "next_cursor": NSNull(), "has_more": false])
 
-            case "/rest/v1/rpc/v5_library_changes":
+            case "/rest/v1/rpc/v3_library_changes":
                 try requireSession()
                 try respond(["format": 2, "account_id": AuthenticationWorkflowFixture.accountID.wire,
                     "through": 0, "retained_after": 0, "changes": [], "next_cursor": 0, "has_more": false])

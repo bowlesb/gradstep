@@ -1,6 +1,32 @@
 import CryptoKit
 import Foundation
 
+/// Mutable private-display state, separate from immutable catalog metadata.
+public struct LibraryDescriptorReference: Codable, Equatable, Hashable, Sendable {
+    public let descriptorID: UUID
+    public let revision: Int
+    public let epoch: Int
+    public let sha256: String
+    private enum CodingKeys: String, CodingKey { case descriptorID = "descriptor_id", revision, epoch, sha256 }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try values.decode(String.self, forKey: .descriptorID)
+        guard let descriptorID = UUID(uuidString: id), descriptorID.wire == id else { throw ReaderError.corruptData }
+        self.descriptorID = descriptorID
+        revision = try values.decode(Int.self, forKey: .revision)
+        epoch = try values.decode(Int.self, forKey: .epoch)
+        sha256 = try values.decode(String.self, forKey: .sha256)
+        guard (1...Int(Int32.max)).contains(revision), (1...Int(Int32.max)).contains(epoch), sha256.utf8.count == 64,
+              sha256.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { throw ReaderError.corruptData }
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(descriptorID.wire, forKey: .descriptorID)
+        try values.encode(revision, forKey: .revision); try values.encode(epoch, forKey: .epoch)
+        try values.encode(sha256, forKey: .sha256)
+    }
+}
+
 /// Private display text for a library source. It is neither public catalog metadata nor a filesystem path.
 public struct LibraryDescriptorPayload: Codable, Equatable, Sendable {
     public let displayName: String

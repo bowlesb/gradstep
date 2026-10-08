@@ -63,6 +63,8 @@ set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
 select public.v5_library_page(null,1) as full5,public.v5_library_compact_page(null,1) as compact5,
  public.v3_library_page(null,1) as full3,public.v4_library_page(null,1) as compact4 \gset
+select public.v5_library_page(:'full5'::jsonb->'next_cursor',100) as full5_tail,
+ public.v1_reader_capabilities() as native_capabilities \gset
 select test.assert(:'full5'::jsonb->>'format'='2' and :'full5'::jsonb->>'dataset_epoch'=:'epoch'
  and :'full5'::jsonb->'next_cursor'->>'read_level'='4' and :'full5'::jsonb->'next_cursor'->>'dataset_epoch'=:'epoch'
  and :'full5'::jsonb->'entries'->0->>'id'=:'U' and :'full5'::jsonb->'entries'->0 ? 'descriptor_ref','full v5 binds capability and epoch');
@@ -193,6 +195,12 @@ begin
   'library_source_identity_conflict');
 end $$;
 select 'LEGACY_MIXED_FIXTURE '||app_private.library_delta_at(:'A',5,6,1,3)::text;
+set role authenticated;
+select 'NATIVE_V5_FIXTURE '||jsonb_build_object(
+ 'capabilities',:'native_capabilities'::jsonb,
+ 'baselines',jsonb_build_array(:'full5'::jsonb,:'full5_tail'::jsonb),
+ 'changes',jsonb_build_array(public.v5_library_changes(:'epoch',4,5,100),public.v5_library_changes(:'epoch',5,6,1)))::text;
+reset role;
 
 -- A long hidden history cannot consume legacy page slots or change completion.
 -- Direct fixture inserts retain the real stamping/projection triggers; no

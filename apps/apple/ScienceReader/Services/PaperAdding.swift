@@ -153,13 +153,17 @@ struct BackendPaperAdding: PaperAddingService {
 
 extension LibraryImportRecord {
     /// A web paper or a reader's own upload can take a PDF from this device; arXiv papers always come from arXiv.
-    var canTakeUpload: Bool { LibrarySource.isWebSourceID(sourceID) || LibrarySource.isUploadSourceID(sourceID) }
+    var canTakeUpload: Bool {
+        guard visible, let sourceID else { return false }
+        return LibrarySource.isWebSourceID(sourceID) || LibrarySource.isUploadSourceID(sourceID)
+    }
 }
 
 extension LibraryImportRecord {
     /// Our servers couldn't fetch this web paper's PDF, but a link is known: this device may (device fallback).
     var canDownloadOnDevice: Bool {
-        LibrarySource.isWebSourceID(sourceID) && phase == .failed
+        guard visible, let sourceID else { return false }
+        return LibrarySource.isWebSourceID(sourceID) && phase == .failed
             && [.sourceBlocked, .pdfRestricted, .sourceUnavailable, .downloadFailed, .notPDF, .rateLimited, .downloadRetrying].contains(errorCode)
     }
 }

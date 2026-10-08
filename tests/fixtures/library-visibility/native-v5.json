@@ -1,0 +1,341 @@
+{
+  "changes": [
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 5,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000011",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "upload",
+              "visible": true,
+              "metadata": {
+                "title": "Uploaded PDF",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "upload:39500000-0000-0000-0000-000000000011",
+              "state_seq": 5,
+              "error_code": null,
+              "source_url": null,
+              "version_id": "6f6d6506-0b7f-4cc3-9b26-13f0b0ef4388",
+              "created_seq": 1,
+              "document_id": null,
+              "metadata_id": "34692e2f-36ee-453c-9f2e-fd5d807bf3ed",
+              "descriptor_ref": {
+                "epoch": 1,
+                "sha256": "d7c47fc2c5e31c4d9a75a4458c3f283ffc2bbdebc283444373c7d7d2fb77aed7",
+                "revision": 2,
+                "descriptor_id": "5d7c0bb0-99a0-4d86-9971-beca31f20e13"
+              },
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "downloading",
+                "percent": 10,
+                "eta_seconds": 42
+              },
+              "source_revision": 1,
+              "requested_revision": null,
+              "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+            }
+          ]
+        }
+      ],
+      "through": 5,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 5,
+      "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3",
+      "retained_after": 0
+    },
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 6,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000011",
+              "kind": "import",
+              "phase": "accepted",
+              "visible": false,
+              "progress": "finding",
+              "retryable": false,
+              "state_seq": 6,
+              "error_code": null,
+              "source_url": null,
+              "version_id": "6f6d6506-0b7f-4cc3-9b26-13f0b0ef4388",
+              "created_seq": 1,
+              "document_id": null,
+              "metadata_id": null,
+              "descriptor_ref": {
+                "epoch": 1,
+                "sha256": "d7c47fc2c5e31c4d9a75a4458c3f283ffc2bbdebc283444373c7d7d2fb77aed7",
+                "revision": 2,
+                "descriptor_id": "5d7c0bb0-99a0-4d86-9971-beca31f20e13"
+              },
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "downloading",
+                "percent": 10,
+                "eta_seconds": 42
+              },
+              "source_revision": 1,
+              "requested_revision": null,
+              "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+            },
+            {
+              "id": "39500000-0000-0000-0000-000000000012",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "arxiv",
+              "visible": false,
+              "metadata": {
+                "title": "Arxiv visible paper",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "2410.03951",
+              "state_seq": 6,
+              "error_code": null,
+              "source_url": "https://arxiv.org/abs/2410.03951v1",
+              "version_id": "8db73993-46c7-4a58-a841-a2e7ba82f2c9",
+              "created_seq": 2,
+              "document_id": null,
+              "metadata_id": "d6c8e516-d6d5-4885-926a-1e641077d8ad",
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "finding",
+                "percent": 0,
+                "eta_seconds": 47
+              },
+              "source_revision": 1,
+              "requested_revision": 1,
+              "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+            }
+          ]
+        }
+      ],
+      "through": 6,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 6,
+      "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3",
+      "retained_after": 0
+    }
+  ],
+  "baselines": [
+    {
+      "format": 2,
+      "entries": [
+        {
+          "id": "39500000-0000-0000-0000-000000000011",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "upload",
+          "visible": true,
+          "metadata": {
+            "title": "Uploaded PDF",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "upload:39500000-0000-0000-0000-000000000011",
+          "state_seq": 1,
+          "error_code": null,
+          "source_url": null,
+          "version_id": "6f6d6506-0b7f-4cc3-9b26-13f0b0ef4388",
+          "created_seq": 1,
+          "document_id": null,
+          "metadata_id": "34692e2f-36ee-453c-9f2e-fd5d807bf3ed",
+          "descriptor_ref": {
+            "epoch": 1,
+            "sha256": "5daabf91d193040df16373ba664ea13af8043387d80deb4dc606fb49f953e2e6",
+            "revision": 1,
+            "descriptor_id": "5d7c0bb0-99a0-4d86-9971-beca31f20e13"
+          },
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": null,
+          "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+        }
+      ],
+      "has_more": true,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": {
+        "id": "39500000-0000-0000-0000-000000000011",
+        "kind": "import",
+        "format": 2,
+        "through": 4,
+        "account_id": "39500000-0000-0000-0000-000000000001",
+        "read_level": 4,
+        "created_seq": 1,
+        "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3"
+      },
+      "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3",
+      "retained_after": 0,
+      "baseline_cursor": 4
+    },
+    {
+      "format": 2,
+      "entries": [
+        {
+          "id": "39500000-0000-0000-0000-000000000012",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "arxiv",
+          "visible": true,
+          "metadata": {
+            "title": "Arxiv visible paper",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "2410.03951",
+          "state_seq": 2,
+          "error_code": null,
+          "source_url": "https://arxiv.org/abs/2410.03951v1",
+          "version_id": "8db73993-46c7-4a58-a841-a2e7ba82f2c9",
+          "created_seq": 2,
+          "document_id": null,
+          "metadata_id": "d6c8e516-d6d5-4885-926a-1e641077d8ad",
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": 1,
+          "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+        },
+        {
+          "id": "39500000-0000-0000-0000-000000000013",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "upload",
+          "visible": true,
+          "metadata": {
+            "title": "Uploaded PDF",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "upload:39500000-0000-0000-0000-000000000013",
+          "state_seq": 3,
+          "error_code": null,
+          "source_url": null,
+          "version_id": "ac8497c8-6020-4cf8-948f-cd030c615ff0",
+          "created_seq": 3,
+          "document_id": null,
+          "metadata_id": "2a956044-6ac6-42aa-bae7-01a382b6d826",
+          "descriptor_ref": {
+            "epoch": 1,
+            "sha256": "5daabf91d193040df16373ba664ea13af8043387d80deb4dc606fb49f953e2e6",
+            "revision": 1,
+            "descriptor_id": "d3b79352-fca1-43e5-87ee-84a7cef8e23f"
+          },
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": null,
+          "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+        },
+        {
+          "id": "39500000-0000-0000-0000-000000000014",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "web",
+          "visible": true,
+          "metadata": {
+            "title": "Web visible paper",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "openalex:W395001",
+          "state_seq": 4,
+          "error_code": null,
+          "source_url": "https://openalex.org/works/W395001",
+          "version_id": "8bcbbd4b-9892-485d-b0f2-3ab49ea0ffcc",
+          "created_seq": 4,
+          "document_id": null,
+          "metadata_id": "7345a794-a8fe-4b28-a0f9-93f547ba66ef",
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": null,
+          "metadata_recorded_at": "2026-10-07T18:35:16.311775-07:00"
+        }
+      ],
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": {
+        "id": "39500000-0000-0000-0000-000000000014",
+        "kind": "import",
+        "format": 2,
+        "through": 4,
+        "account_id": "39500000-0000-0000-0000-000000000001",
+        "read_level": 4,
+        "created_seq": 4,
+        "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3"
+      },
+      "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3",
+      "retained_after": 0,
+      "baseline_cursor": 4
+    }
+  ],
+  "capabilities": {
+    "format": 1,
+    "library": {
+      "wire_format": 2,
+      "source_level": 4,
+      "dataset_epoch": "1d97e9a9-0ba1-4c83-a3a7-b1e3cab547e3",
+      "endpoint_family": "full-v5"
+    },
+    "uploads": {
+      "enabled": false,
+      "protocol": "upload-chunks-v1",
+      "chunk_bytes": 4194304,
+      "maximum_bytes": 67108864,
+      "maximum_parts": 16,
+      "part_attempts": 3
+    },
+    "account_id": "39500000-0000-0000-0000-000000000001",
+    "descriptors": {
+      "format": 1,
+      "maximum_batch": 24
+    }
+  }
+}

@@ -126,6 +126,7 @@ final class ReaderModel {
     private(set) var libraryIssue: String?
     private(set) var libraryHasSnapshot = false
     private var libraryService: LibraryService?
+    private var libraryContextAuthenticated = false
     private var libraryPublicationGeneration: UInt64 = 0
     private var libraryRefreshAttempt: UUID?
     private var libraryCreationSequences: [UUID: Int64] = [:] { didSet { if libraryCreationSequences != oldValue { librarySearchSourceChanged() } } }
@@ -167,7 +168,7 @@ final class ReaderModel {
     /// The Edit tags sheet (paper options, the library row's long-press menu, the reader's tag chips).
     var tagEditor: TagEditorRequest?
     var librarySignInRequired: Bool { accountID == nil }
-    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary != nil && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
+    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary?.observation.readContext == .legacyFull3 && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
     var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
     var selectedPaper: Paper? {
         didSet {
@@ -598,7 +599,7 @@ final class ReaderModel {
         for item in libraryImports {
             let tags = LibraryTags.tags(for: item)
             guard filter.includesImport(item.phase, retryingAutomatically: item.isRetryingAutomatically), tagged(tags) else { continue }
-            let reference = item.sourceID + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
+            let reference = (item.sourceID ?? "") + ((item.sourceRevision ?? item.requestedRevision).map { "v\($0)" } ?? "")
             let keys = LibrarySortKeys(authors: item.metadata?.authors.first.map(LibraryFormat.familyName),
                                        year: item.metadata?.publishedAt.flatMap { Int($0.prefix(4)) }, tag: tags.first,
                                        source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil))
@@ -1345,7 +1346,7 @@ final class ReaderModel {
         let oldBundles = readerBundles; readerBundles = nil
         oldBundles?.close()
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
-        let oldLibrary = libraryService; libraryService = nil
+        let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
         libraryRefreshAttempt = nil; libraryRefreshing = false; libraryHasSnapshot = false; libraryIssue = nil
@@ -1414,8 +1415,7 @@ final class ReaderModel {
     private func prepareLibraryCommands(accountID: UUID, scope: UUID) async throws {
         guard sessionID == scope, self.accountID == accountID, let configuration, let backend else { throw CancellationError() }
         if libraryCommandCoordinator != nil { return }
-        let library = libraryService ?? LibraryService(scope: .init(accountID: accountID, readerSessionID: scope), transport: backend)
-        libraryService = library
+        let library = try await scopedLibraryService(accountID: accountID, scope: scope)
         let commandScope = try LibraryCommandScope(accountID: accountID, deploymentID: configuration.url.absoluteString)
         let coordinator = LibraryCommandCoordinator(scope: commandScope, persistence: localPersistence, library: library, transport: backend,
             publish: { [weak self] commands, snapshot in
@@ -1439,6 +1439,19 @@ final class ReaderModel {
         guard sessionID == scope, self.accountID == accountID, workOwnership.owns(activation) else { return }
         do {
             let cacheScope = try LibraryCommandScope(accountID: accountID, deploymentID: deploymentID)
+            // Before recovery, public rows are provisional presentation. Check
+            // the sealed protocol root before they can update any offline policy.
+            if backend != nil, let configuration,
+               try LibraryCommandScope(accountID: accountID, deploymentID: configuration.url.absoluteString) == cacheScope {
+                _ = try await scopedLibraryService(accountID: accountID, scope: scope)
+            } else {
+                // Offline-only fixture readers have no associated transport.
+                // They still authenticate this exact cache scope before opening.
+                guard libraryService == nil, let store else { throw ReaderError.storageUnavailable }
+                _ = try await store.rememberedLibraryReadContext(scope: cacheScope)
+                libraryContextAuthenticated = true
+            }
+            guard workOwnership.owns(activation) else { throw CancellationError() }
             let coordinator: ReaderBundleCoordinator
             if let existing = readerBundles {
                 guard existing.scope == cacheScope else { throw LibraryCommandError.invalidScope }
@@ -1568,7 +1581,7 @@ final class ReaderModel {
 
     /// arXiv identifiers already in the library or being added.
     var librarySourceIDs: Set<String> {
-        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.map(\.sourceID))
+        Set(papers.compactMap(\.sourceID) + libraryImports.filter { $0.visible }.compactMap(\.sourceID))
     }
 
     func addDiscovered(_ result: DiscoveryResult) async throws {
@@ -1724,10 +1737,11 @@ final class ReaderModel {
               !libraryRefreshing, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let libraryScope = LibraryScope(accountID: accountID, readerSessionID: scope)
         let service: LibraryService
-        if let existing = libraryService { service = existing }
-        else {
-            service = LibraryService(scope: libraryScope, transport: backend)
-            libraryService = service
+        do { service = try await scopedLibraryService(accountID: accountID, scope: scope) }
+        catch {
+            guard sessionID == scope, self.accountID == accountID, !(error is CancellationError) else { return }
+            libraryIssue = "Your saved library is preserved. Unlock this device’s library before refreshing."
+            return
         }
         let attempt = UUID()
         libraryRefreshAttempt = attempt; libraryRefreshing = true
@@ -1745,6 +1759,45 @@ final class ReaderModel {
                   libraryRefreshAttempt == attempt, !(error is CancellationError) else { return }
             libraryIssue = libraryHasSnapshot ? "Couldn’t refresh your library. Showing the last complete update." : "Couldn’t load your library."
         }
+    }
+
+    private func scopedLibraryService(accountID: UUID, scope: UUID) async throws -> LibraryService {
+        guard sessionID == scope, self.accountID == accountID, let backend, let configuration
+        else { throw ReaderError.storageUnavailable }
+        if let existing = libraryService, libraryContextAuthenticated || store == nil { return existing }
+        guard let store else {
+            let provisional = LibraryService(scope: .init(accountID: accountID, readerSessionID: scope), transport: backend)
+            libraryService = provisional
+            return provisional
+        }
+        let cacheScope = try LibraryCommandScope(accountID: accountID, deploymentID: configuration.url.absoluteString)
+        // Read the authenticated root separately. A corrupt child is not proof
+        // that this account/deployment has never adopted the upload protocol.
+        let context = try await store.rememberedLibraryReadContext(scope: cacheScope)
+        let seed: LibraryReplicaSeed?
+        do { seed = try await store.cachedLibraryReplicaSeed(scope: cacheScope) }
+        catch let error as OfflineCacheError where error == .corruptCache {
+            seed = nil
+            offlineCacheIssue = "Your saved library couldn’t be opened. Your saved data has been preserved."
+        }
+        guard sessionID == scope, self.accountID == accountID, self.store === store else { throw CancellationError() }
+        if let existing = libraryService {
+            let legacy = await existing.permitsLegacyCommands()
+            let requiresReplacement = context?.permitsUploads == true && legacy
+            guard sessionID == scope, self.accountID == accountID, self.store === store else { throw CancellationError() }
+            if !requiresReplacement { libraryContextAuthenticated = true; return existing }
+            // The old callback may ignore cancellation. Identity checks on
+            // publication reject it after replacement; no legacy observation
+            // reaches the newly authenticated v5 cache or command queue.
+            libraryService = nil
+            await existing.invalidate()
+            completeLibrary = nil; deferredLibraryObservation = nil; libraryPublicationGeneration = 0
+            libraryRefreshAttempt = nil; libraryRefreshing = false
+        }
+        let created = LibraryService(scope: .init(accountID: accountID, readerSessionID: scope), transport: backend,
+            rememberedContext: context, resume: seed)
+        libraryService = created; libraryContextAuthenticated = true
+        return created
     }
 
     private func publishLibrary(_ snapshot: LibrarySnapshot) {
@@ -1959,7 +2012,7 @@ final class ReaderModel {
     /// then the normal open path runs.
     private func downloadReaderIfNeeded(_ paper: Paper, coordinator: ReaderBundleCoordinator) {
         if readerDownloadAttempt?.documentID == paper.id { openingPaperID = paper.id; return }
-        guard backend != nil, accountID != nil, let artifactID = paper.artifactID,
+        guard libraryContextAuthenticated, backend != nil, accountID != nil, let artifactID = paper.artifactID,
               let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
               item.artifactID == artifactID, !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let attempt = UUID(), scope = sessionID
@@ -1988,7 +2041,7 @@ final class ReaderModel {
     /// same paper (an open during a prefetch) share one download.
     private func downloadReader(_ paper: Paper, coordinator: ReaderBundleCoordinator) async throws {
         if let running = readerDownloads[paper.id] { return try await running.value }
-        guard let backend, let accountID, let artifactID = paper.artifactID,
+        guard libraryContextAuthenticated, let backend, let accountID, let artifactID = paper.artifactID,
               let item = completeLibrary?.items.first(where: { $0.documentID == paper.id && $0.visible }), item.canReadStructured,
               item.artifactID == artifactID else { throw ReaderError.corruptData }
         let scope = sessionID
@@ -2018,7 +2071,7 @@ final class ReaderModel {
     /// Converted papers download in the background, newest first, so opening one
     /// is local (owner feedback 2026-10-05: opening should be instant).
     private func prefetchReaders() {
-        guard readerPrefetch == nil, let coordinator = readerBundles, let library = completeLibrary, accountID != nil,
+        guard libraryContextAuthenticated, readerPrefetch == nil, let coordinator = readerBundles, let library = completeLibrary, accountID != nil,
               !workOwnership.isActivating, !libraryPublicationDeferred else { return }
         let scope = sessionID
         let pending = library.items.filter { $0.visible && $0.canReadStructured }

@@ -119,7 +119,6 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     private var authGeneration: UInt64 = 0
     private let network: URLSession
     /// Library read version: 5 (full entries with uploads), or 3 on a server that doesn't have v5 yet.
-    private var libraryReadVersion = 5
     private let authNetwork: URLSession
     private let credentials: any AuthenticationCredentialStore
     private var credentialCleanupAttempt: UUID?
@@ -355,29 +354,23 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
     /// Library pages use their bounded wire decoder and keep the reconciler's
     /// original account/session/request ticket through the transport boundary.
-    /// v5 reads (v3's full entries) include the reader's uploads (migration 039), and v3 web papers (v2, for
-    /// older builds, leaves both out; v4 is the compact format with separate metadata, not used here yet). A
-    /// server without v5 yet is read at v3 (no uploads exist there) for this client's life.
+    /// The immutable ticket chooses the full-read family. A failed v5 request is
+    /// never replayed as a legacy request, nor as a compact-format request.
     func libraryPage(_ request: LibraryPageRequest) async throws -> LibraryPageDelivery {
         let function: String, body: Data
         switch request.query {
         case .baseline(let cursor):
             struct Parameters: Encodable { let p_cursor: LibraryBaselineCursor?; let p_limit: Int }
-            function = "v\(libraryReadVersion)_library_page"
+            function = "v\(request.readContext.endpointVersion)_library_page"
             body = try ReaderCrypto.encode(Parameters(p_cursor: cursor, p_limit: request.limit))
         case .changes(let after, let through):
-            struct Parameters: Encodable { let p_after: Int64; let p_through: Int64?; let p_limit: Int }
-            function = "v\(libraryReadVersion)_library_changes"
-            body = try ReaderCrypto.encode(Parameters(p_after: after, p_through: through, p_limit: request.limit))
+            struct Parameters: Encodable { let p_after: Int64; let p_through: Int64?; let p_limit: Int; let p_dataset_epoch: String? }
+            function = "v\(request.readContext.endpointVersion)_library_changes"
+            body = try ReaderCrypto.encode(Parameters(p_after: after, p_through: through, p_limit: request.limit,
+                p_dataset_epoch: request.readContext.datasetEpoch?.uuidString.lowercased()))
         }
-        let data: Data
-        do {
-            data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
+        let data = try await authorized(path: "rest/v1/rpc/\(function)", body: body, accountID: request.accountID,
                                         maximumResponseBytes: LibraryWire.maximumPageBytes, libraryErrors: true)
-        } catch is LibraryReadVersionMissing where libraryReadVersion == 5 {
-            libraryReadVersion = 3
-            return try await libraryPage(request)
-        }
         let page: LibraryPageDelivery.Page
         switch request.query {
         case .baseline: page = .baseline(try LibraryWire.decodeBaseline(data))
@@ -386,7 +379,19 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return LibraryPageDelivery(request: request, page: page)
     }
 
+    func readerCapabilities(accountID: UUID) async throws -> ReaderCapabilities? {
+        do {
+            let data = try await authorized(path: "rest/v1/rpc/v1_reader_capabilities", body: Data("{}".utf8),
+                accountID: accountID, maximumResponseBytes: 16_384)
+            return try ReaderCapabilities.decode(data, accountID: accountID)
+        } catch is ReaderCapabilityMissing { return nil }
+    }
+
     func libraryCommand(_ attempt: LibraryCommandAttempt) async throws -> LibraryCommandDelivery {
+        // v2 writes have no atomic dataset-epoch precondition. Read negotiation
+        // cannot close restore-between-read-and-POST; v5 dispatch stays disabled
+        // until a separately reviewed epoch-aware facade is available.
+        guard attempt.readContext == .legacyFull3 else { throw LibraryCommandError.contextMismatch }
         let deployment = try LibraryCommandScope(accountID: attempt.scope.accountID, deploymentID: config.url.absoluteString)
         guard attempt.scope == deployment else { throw LibraryCommandError.invalidScope }
         let request = attempt.request
@@ -940,8 +945,13 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             if libraryErrors, response.statusCode == 400, failure?.code == "P0001", failure?.message == "library_resync_required" {
                 throw LibraryTransportError.resyncRequired
             }
-            // PostgREST: no such function (a server before migration 039 has no v5 reads).
-            if libraryErrors, response.statusCode == 404, failure?.code == "PGRST202" { throw LibraryReadVersionMissing() }
+            // Only exact discovery absence permits the service to consider legacy
+            // mode. Missing dependencies/pages and schema-cache errors do not.
+            if path == "rest/v1/rpc/v1_reader_capabilities", response.statusCode == 404,
+               failure?.code == "PGRST202",
+               failure?.message == "Could not find the function public.v1_reader_capabilities without parameters in the schema cache" {
+                throw ReaderCapabilityMissing()
+            }
             if libraryCommandErrors {
                 if response.statusCode == 401 { throw BackendError.signInRequired }
                 let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit",
@@ -986,7 +996,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
 
 /// Library and auth requests stay on their configured origin. Never follow a
 /// redirect before parsing an error or forward credentials to its target.
-private struct LibraryReadVersionMissing: Error {}
+private struct ReaderCapabilityMissing: Error {}
 
 /// Bytes sent of a PDF upload, as a fraction.
 private final class UploadProgress: NSObject, URLSessionTaskDelegate, Sendable {

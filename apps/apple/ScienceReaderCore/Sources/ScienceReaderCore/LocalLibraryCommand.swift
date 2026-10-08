@@ -3,7 +3,7 @@ import Foundation
 
 public enum LibraryCommandError: Error, Equatable, Sendable {
     case invalidScope, invalidMutation, targetBusy, staleHandle, staleAttempt
-    case invalidTransition, invalidReceipt, incompleteObservation, capacityExceeded
+    case invalidTransition, invalidReceipt, incompleteObservation, capacityExceeded, contextMismatch
 }
 
 /// The origin is deployment authority, independent of a display label such as staging.
@@ -125,7 +125,7 @@ public enum LibraryCommandPhase: String, Codable, Sendable {
 
 /// Typed reasons only. Do not persist arbitrary transport/provider response bodies.
 public enum LibraryCommandFailure: String, Codable, Sendable {
-    case connection, authentication, rateLimited, capacity, serverRejected, invalidResponse, operationConflict, suspended
+    case connection, authentication, rateLimited, capacity, serverRejected, invalidResponse, operationConflict, suspended, datasetChanged
 }
 
 public struct LocalLibraryReceipt: Codable, Equatable, Sendable {
@@ -139,6 +139,7 @@ public struct LocalLibraryCommand: Codable, Equatable, Sendable, Identifiable {
     public let handle: LocalLibraryCommandHandle
     public let laneID: UUID
     public let scope: LibraryCommandScope
+    public internal(set) var readContext: LibraryReadContext?
     public let display: String?
     public internal(set) var revision: Int64 = 1
     public internal(set) var mutation: LibraryMutation?
@@ -153,6 +154,7 @@ public struct LocalLibraryCommand: Codable, Equatable, Sendable, Identifiable {
     public internal(set) var receipt: LocalLibraryReceipt?
 
     public var isUnfinished: Bool { ![.finished, .cancelled, .needsReview].contains(phase) }
+    public var libraryReadContext: LibraryReadContext { readContext ?? .legacyFull3 }
     public var canAttempt: Bool {
         // An interrupted local acknowledgement may leave an attempt marker.
         // The coordinator serializes transport; a new exact retry fences that
@@ -165,6 +167,7 @@ public struct LocalLibraryCommand: Codable, Equatable, Sendable, Identifiable {
 /// This attempt owns one actor lifetime as well as one durable command.
 public struct LibraryCommandAttempt: Equatable, Sendable {
     public let scope: LibraryCommandScope
+    public let readContext: LibraryReadContext
     public let handle: LocalLibraryCommandHandle
     public let attemptID: UUID
     public let request: FrozenLibraryRequest
@@ -197,16 +200,18 @@ struct LibraryCommandJournal: Equatable {
         guard scope == nil || scope == expected else { throw LibraryCommandError.invalidScope }
     }
 
-    mutating func enqueue(_ mutation: LibraryMutation, scope: LibraryCommandScope, display: String?) throws -> LocalLibraryCommandHandle {
+    mutating func enqueue(_ mutation: LibraryMutation, scope: LibraryCommandScope, display: String?,
+                          readContext: LibraryReadContext = .legacyFull3) throws -> LocalLibraryCommandHandle {
         try mutation.validate(); try validateDisplay(display)
         for row in rows.values where row.isUnfinished && sameTarget(row, mutation) {
+            guard row.libraryReadContext == readContext else { throw LibraryCommandError.contextMismatch }
             if row.mutation == mutation { return row.handle }
             throw LibraryCommandError.targetBusy
         }
         let handle = try nextHandle(), request = try mutation.request(operationID: handle.intentID, scope: scope)
         self.scope = scope
         rows[handle.intentID] = LocalLibraryCommand(handle: handle, laneID: handle.intentID, scope: scope,
-                                                   display: display, mutation: mutation, request: request, phase: .prepared)
+                                                   readContext: readContext, display: display, mutation: mutation, request: request, phase: .prepared)
         try validate()
         return handle
     }
@@ -224,7 +229,7 @@ struct LibraryCommandJournal: Equatable {
         guard !rows.values.contains(where: { $0.laneID == parent.laneID && $0.isUnfinished && $0.id != parent.id }) else { throw LibraryCommandError.targetBusy }
         let childHandle = try nextHandle()
         var child = LocalLibraryCommand(handle: childHandle, laneID: parent.laneID, scope: parent.scope,
-                                        display: display, predecessor: handle, successor: successor, phase: .held)
+                                        readContext: parent.readContext, display: display, predecessor: handle, successor: successor, phase: .held)
         if let receipt = parent.receipt {
             if receipt.result.status == .applied { try freeze(&child, parent: parent, receipt: receipt) }
             else { child.phase = .needsReview }
@@ -255,14 +260,15 @@ struct LibraryCommandJournal: Equatable {
     /// its held successor (frozen from its receipt's revision), replacing an unissued successor. Another
     /// pending change to the same paper (archive, removal) must finish first.
     mutating func editTags(documentID: UUID, tags: [String], hiddenTags: [String], observedRevision: Int64,
-                           scope: LibraryCommandScope, display: String?) throws -> LocalLibraryCommandHandle {
+                           scope: LibraryCommandScope, display: String?, readContext: LibraryReadContext = .legacyFull3) throws -> LocalLibraryCommandHandle {
         let mutation = LibraryMutation.setTags(documentID: documentID, tags: tags, hiddenTags: hiddenTags, expectedRevision: observedRevision)
         try mutation.validate()
         guard let target = rows.values.first(where: { $0.isUnfinished && sameTarget($0, mutation) }) else {
-            return try enqueue(mutation, scope: scope, display: display)
+            return try enqueue(mutation, scope: scope, display: display, readContext: readContext)
         }
         let lane = rows.values.filter { $0.laneID == target.laneID && $0.isUnfinished }.sorted { $0.handle.localSequence < $1.handle.localSequence }
         guard let latest = lane.last else { throw LibraryCommandError.targetBusy }
+        guard latest.libraryReadContext == readContext else { throw LibraryCommandError.contextMismatch }
         let isTags: Bool
         switch (latest.mutation, latest.successor) {
         case (.setTags?, _), (nil, .setTags?): isTags = true
@@ -274,18 +280,20 @@ struct LibraryCommandJournal: Equatable {
         if !latest.everSubmitted, latest.receipt == nil {
             try discard(latest.handle, revision: latest.revision)
             if let parent = latest.predecessor { return try hold(successor, after: parent, display: display) }
-            return try enqueue(mutation, scope: scope, display: display)
+            return try enqueue(mutation, scope: scope, display: display, readContext: readContext)
         }
         return try hold(successor, after: latest.handle, display: display)
     }
 
-    mutating func begin(_ handle: LocalLibraryCommandHandle, writerID: UUID) throws -> LibraryCommandAttempt {
+    mutating func begin(_ handle: LocalLibraryCommandHandle, writerID: UUID,
+                        readContext: LibraryReadContext = .legacyFull3) throws -> LibraryCommandAttempt {
         var value = try row(handle)
+        guard value.libraryReadContext == readContext else { throw LibraryCommandError.contextMismatch }
         guard value.canAttempt, let request = value.request, value.attemptCount < Int64.max else { throw LibraryCommandError.invalidTransition }
         value.attemptID = UUID(); value.attemptCount += 1; value.everSubmitted = true
         value.phase = .submittedUnknown; value.failure = nil
         try bump(&value); rows[value.id] = value
-        return LibraryCommandAttempt(scope: value.scope, handle: handle, attemptID: value.attemptID!, request: request, writerID: writerID)
+        return LibraryCommandAttempt(scope: value.scope, readContext: readContext, handle: handle, attemptID: value.attemptID!, request: request, writerID: writerID)
     }
 
     mutating func receive(_ response: LibraryCommandResponse, for attempt: LibraryCommandAttempt, writerID: UUID) throws {
@@ -346,6 +354,13 @@ struct LibraryCommandJournal: Equatable {
             var value = try row(reference.handle)
             guard let receipt = value.receipt, receipt.id == reference.receiptID,
                   [.receiptAwaitingCatchup, .finished, .needsReview].contains(value.phase) else { throw LibraryCommandError.staleHandle }
+            if value.libraryReadContext != observation.readContext || value.failure == .datasetChanged {
+                if value.isUnfinished {
+                    value.phase = .needsReview; value.failure = .datasetChanged; value.attemptID = nil
+                    try bump(&value); rows[value.id] = value
+                }
+                continue
+            }
             guard observation.committedCursor >= receipt.requiredCursor else { throw LibraryCommandError.incompleteObservation }
             if let id = receipt.result.id {
                 let entry = observation.entries[LibraryEntryID(kind: receipt.result.kind, entityID: id)]
@@ -354,6 +369,16 @@ struct LibraryCommandJournal: Equatable {
             let phase: LibraryCommandPhase = receipt.result.status == .applied ? .finished : .needsReview
             if value.phase != phase { value.phase = phase; value.attemptID = nil; try bump(&value); rows[value.id] = value }
         }
+    }
+
+    /// Committed together with the complete new-domain checkpoint. Preserve
+    /// exact requests/receipts for review; no rebasing or automatic reversal.
+    mutating func reviewChangedContext(_ context: LibraryReadContext) throws {
+        for var value in rows.values where value.isUnfinished && value.libraryReadContext != context {
+            value.phase = .needsReview; value.failure = .datasetChanged; value.attemptID = nil
+            try bump(&value); rows[value.id] = value
+        }
+        try validate()
     }
 
     mutating func dismiss(_ handle: LocalLibraryCommandHandle, revision: Int64) throws {
@@ -423,7 +448,7 @@ struct LibraryCommandJournal: Equatable {
     private func owns(_ attempt: LibraryCommandAttempt, writerID: UUID) throws -> LocalLibraryCommand {
         let value = try row(attempt.handle)
         guard attempt.writerID == writerID, value.scope == attempt.scope, value.attemptID == attempt.attemptID,
-              value.request == attempt.request else { throw LibraryCommandError.staleAttempt }
+              value.request == attempt.request, value.libraryReadContext == attempt.readContext else { throw LibraryCommandError.staleAttempt }
         return value
     }
     private func bump(_ value: inout LocalLibraryCommand) throws {

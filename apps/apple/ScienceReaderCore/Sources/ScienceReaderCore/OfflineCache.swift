@@ -19,7 +19,10 @@ public enum OfflineCacheLimits {
     public static let installedBundles = 100
     public static let presentationBytes = 256 * 1024 * 1024
     public static let presentationRowBytes = 65_536
-    public static let presentationCheckpointBytes = 1_048_576
+    // 4,000 row references + 4,000 retained safety bindings exceed 1 MiB;
+    // this envelope remains part of the unchanged total presentation allowance.
+    public static let presentationCheckpointBytes = 2_097_152
+    public static let retainedReaderBlocks = 4_000
     public static let bundleIndexBytes = 131_072
     public static let bundleHeaderBytes = 524_288
     static let memberBytes = 16_777_216 + 28
@@ -49,6 +52,7 @@ public struct ReaderArtifactBinding: Codable, Equatable, Sendable {
 /// resume a reconciler session, even when its cursor matches a server receipt.
 public struct CachedLibraryPresentation: Equatable, Sendable {
     public let scope: LibraryCommandScope
+    public let readContext: LibraryReadContext
     public let committedCursor: Int64
     public let capturedAt: Date
     public let entries: [LibraryEntryID: LibraryEntry]
@@ -60,6 +64,7 @@ public struct CachedLibraryPresentation: Equatable, Sendable {
 /// The caller's projector may retain data; only decoding is bounded per row.
 public struct CachedLibraryProjection<Row: Sendable>: Sendable {
     public let scope: LibraryCommandScope
+    public let readContext: LibraryReadContext
     public let committedCursor: Int64
     public let capturedAt: Date
     public let validatedEntryCount: Int
@@ -69,7 +74,7 @@ public struct CachedLibraryProjection<Row: Sendable>: Sendable {
 }
 
 public enum ReaderBundleBlock: String, Codable, Sendable {
-    case quarantined, incompatible, artifactChanged
+    case quarantined, incompatible, artifactChanged, datasetChanged
 }
 
 public struct InstalledReaderBundle: Equatable, Sendable, Identifiable {
@@ -93,10 +98,12 @@ public struct ReaderBundleEligibility: Codable, Equatable, Sendable {
     public private(set) var availabilityRevision: Int64?
     public private(set) var membershipVisible: Bool?
     public private(set) var block: ReaderBundleBlock?
+    public private(set) var readContext: LibraryReadContext?
     private var targetDocumentID: UUID?
     private var targetArtifactID: UUID?
     private var explicitBlock: ReaderBundleBlock?
     private var observedArtifactID: UUID?
+    private var continuityBlocked: Bool?
     public var canOpen: Bool { block == nil && membershipVisible != false }
     public init() {}
 
@@ -108,40 +115,65 @@ public struct ReaderBundleEligibility: Codable, Equatable, Sendable {
         }
         guard items.count <= 1 else { throw OfflineCacheError.invalidObservation }
         return try applying(cursor: observation.committedCursor, item: items.first,
-                            documentID: binding.documentID, artifactID: binding.artifactID)
+                            documentID: binding.documentID, artifactID: binding.artifactID,
+                            readContext: observation.readContext)
     }
 
-    public func applying(cursor: Int64, item: LibraryItemRecord?, documentID: UUID, artifactID: UUID) throws -> Self {
-        guard cursor >= self.cursor else { throw OfflineCacheError.staleObservation }
+    public func applying(cursor: Int64, item: LibraryItemRecord?, documentID: UUID, artifactID: UUID,
+                         readContext: LibraryReadContext = .legacyFull3) throws -> Self {
         guard targetDocumentID == nil || targetDocumentID == documentID,
               targetArtifactID == nil || targetArtifactID == artifactID else { throw OfflineCacheError.invalidBinding }
-        var next = self
+        let changedContext = hasObservation && (self.readContext ?? .legacyFull3) != readContext
+        var prior = self
+        if changedContext {
+            // Ordinary reader-artifact responses are not bound to the dataset epoch.
+            // They cannot clear an earlier domain's removal or unsafe-artifact policy.
+            if !canOpen { prior.continuityBlocked = true }
+            prior.cursor = 0; prior.itemState = 0; prior.availabilityRevision = nil
+        }
+        guard cursor >= prior.cursor else { throw OfflineCacheError.staleObservation }
+        var next = prior
+        next.readContext = readContext
         next.hasObservation = true; next.cursor = cursor
         next.targetDocumentID = documentID; next.targetArtifactID = artifactID
         if let item {
             try item.validate()
             guard item.documentID == documentID, item.stateSequence <= cursor,
-                  item.stateSequence >= itemState else { throw OfflineCacheError.staleObservation }
+                  item.stateSequence >= prior.itemState else { throw OfflineCacheError.staleObservation }
             next.itemState = item.stateSequence; next.membershipVisible = item.visible
             next.observedArtifactID = item.artifactID
             if item.artifactID == artifactID {
-                guard item.renderAvailabilityRevision.map({ $0 >= (availabilityRevision ?? 0) }) ?? true
+                guard item.renderAvailabilityRevision.map({ $0 >= (prior.availabilityRevision ?? 0) }) ?? true
                 else { throw OfflineCacheError.staleObservation }
                 if item.renderAvailability == .quarantined { next.explicitBlock = .quarantined }
                 else if item.renderAvailability == .unknown("incompatible") || item.readiness == .unknown("incompatible") {
                     next.explicitBlock = .incompatible
                 } else if item.canReadStructured, item.renderAvailability == .available,
-                          explicitBlock == nil || (item.renderAvailabilityRevision ?? -1) > (availabilityRevision ?? -1) ||
-                            (availabilityRevision == nil && item.stateSequence > itemState) {
+                          prior.explicitBlock == nil || (item.renderAvailabilityRevision ?? -1) > (prior.availabilityRevision ?? -1) ||
+                            (prior.availabilityRevision == nil && item.stateSequence > prior.itemState) {
                     next.explicitBlock = nil
                 }
                 if let revision = item.renderAvailabilityRevision { next.availabilityRevision = revision }
             }
-            next.block = next.explicitBlock ?? (item.artifactID.map { $0 != artifactID } == true ? .artifactChanged : nil)
+            next.block = next.explicitBlock ?? (next.continuityBlocked == true ? .datasetChanged :
+                (item.artifactID.map { $0 != artifactID } == true ? .artifactChanged : nil))
         } else {
             next.membershipVisible = false
         }
-        if hasObservation, cursor == self.cursor, next != self { throw OfflineCacheError.conflictingObservation }
+        if hasObservation, !changedContext, cursor == self.cursor {
+            var comparable = self
+            comparable.readContext = readContext // absent means the legacy context in old sealed rows
+            guard next == comparable else { throw OfflineCacheError.conflictingObservation }
+        }
+        return next
+    }
+
+    /// A separately retained block survives row replacement and deleting the local copy.
+    /// This slice intentionally offers no API that clears it.
+    func retainingDomainBlock() -> Self {
+        var next = self
+        next.continuityBlocked = true
+        next.block = explicitBlock ?? .datasetChanged
         return next
     }
 
@@ -150,8 +182,10 @@ public struct ReaderBundleEligibility: Codable, Equatable, Sendable {
               availabilityRevision.map({ $0 >= 0 }) ?? true,
               targetDocumentID == nil || targetDocumentID == documentID,
               targetArtifactID == nil || targetArtifactID == artifactID,
-              explicitBlock != .artifactChanged,
-              block == explicitBlock || (explicitBlock == nil && block == .artifactChanged && observedArtifactID != artifactID),
+              explicitBlock != .artifactChanged, explicitBlock != .datasetChanged,
+              block == explicitBlock || (explicitBlock == nil &&
+                ((continuityBlocked == true && block == .datasetChanged) ||
+                 (continuityBlocked != true && block == .artifactChanged && observedArtifactID != artifactID))),
               hasObservation || (cursor == 0 && itemState == 0 && membershipVisible == nil && block == nil)
         else { throw OfflineCacheError.corruptCache }
     }
@@ -194,12 +228,13 @@ struct OfflineCacheRoots: Codable, Equatable {
     var scope: LibraryCommandScope?
     var presentation: Data?
     var bundles: Data?
+    var readContext: LibraryReadContext?
 
     func validate(accountID: UUID) throws {
         if let scope { try scope.validate(); guard scope.accountID == accountID else { throw ReaderError.wrongAccount } }
         guard presentation.map({ $0.count == 32 }) ?? true,
               bundles.map({ $0.count == 32 }) ?? true,
-              scope != nil || (presentation == nil && bundles == nil) else { throw ReaderError.corruptData }
+              scope != nil || (presentation == nil && bundles == nil && readContext == nil) else { throw ReaderError.corruptData }
     }
 }
 
@@ -221,12 +256,34 @@ struct CachePresentationCheckpoint: Codable {
     /// 2: v3 library reads, which include web papers. 1: v2 reads (web papers left out).
     /// Bump it whenever `LibraryItemRecord` or `LibraryImportRecord` decodes a new field
     /// (`OfflineCacheTests.snapshotFormatCoversEveryDecodedEntryField` pins the field list).
-    static let currentFormat = 3
+    /// 4: descriptor references, dataset-bound resume and retained offline safety policy.
+    static let currentFormat = 4
     let format: Int
     let scope: LibraryCommandScope
     let cursor: Int64
     let capturedAt: Date
     let rows: [String: CacheEntryReference]
+    var readContext: LibraryReadContext? = nil
+    var retainedBlocks: [String: CacheRetainedReaderBlock]? = nil
+}
+
+/// Compact immutable evidence only; old cursor numbers have no authority in a new domain.
+/// Keys in the enclosing map are canonical artifact UUIDs. Entries are never evicted to fit.
+struct CacheRetainedReaderBlock: Codable, Equatable {
+    enum Reason: String, Codable { case removed, quarantined, incompatible, artifactChanged, datasetChanged }
+    let documentID: UUID
+    let reason: Reason
+    enum CodingKeys: String, CodingKey { case documentID = "d", reason = "r" }
+    init(documentID: UUID, eligibility: ReaderBundleEligibility) {
+        self.documentID = documentID
+        switch eligibility.block {
+        case .quarantined: reason = .quarantined
+        case .incompatible: reason = .incompatible
+        case .artifactChanged: reason = .artifactChanged
+        case .datasetChanged: reason = .datasetChanged
+        case nil: reason = .removed
+        }
+    }
 }
 
 struct CacheLibraryRow: Codable {
