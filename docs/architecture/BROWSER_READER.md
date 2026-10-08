@@ -30,6 +30,24 @@ Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general
 Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
 Apple/Google web sign-in, device list and revocation, offline reading and purchases.
 
+### Integrated draft and reader parity — local candidate, 2026-10-08
+
+The integration branch now includes the independently reviewed [gate-1 encrypted journal](../verification/2026-10-08-browser-journal-gate1.md)
+and the verified reference/figure actions. **Not deployed.** App navigation first drains accepted draft checkpoints;
+a failed save still honors the navigation, keeps the account-owned composer alive and offers Review drafts with
+a keep-this-tab-open notice. Later clicks, browser Back/Forward and authentication retirement supersede delayed
+navigation. Discuss in chat prepares an unsent paper draft, keeps the reader's earlier text, and focuses the composer
+after the figure/reference modal closes. The dialog remains recoverable if its draft cannot be saved. No model call
+is made until an explicit Send. A successful reference Add refreshes the complete library.
+
+Integrated production-CSP journeys: six pass on desktop and a 390 px viewport, covering figure Discuss/focus/reload,
+zero model requests, immediate navigation while typing's checkpoint timer is deliberately deferred, a quota failure
+with accessible unsaved text, and reference Add's exact operation replay. Four dev-only callback/forward-bridge
+journeys are deliberately excluded from that production run. Source: `e2e/reader-drafts.spec.ts` and
+`e2e/reader-reference.spec.ts`. New shared figure-reference link events still require Claude's bridge merge;
+the current gallery and bibliography actions work with the existing bridge. Persisting a Discuss passage anchor
+alongside the draft is the remaining integration follow-up. Safari, saved PDFs and cold offline startup are separate gates.
+
 ### Native Feed parity — local candidate, 2026-10-08
 
 Built on `codex/mac-web-integration-20261008`; **not deployed**. The browser now follows the native Feed contract

@@ -72,7 +72,29 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
   const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
   const [passage, setPassage] = useState<{ id: string; documentID: string; anchor: TextAnchor; at: number } | null>(null);
-  const [path, navigate] = usePath();
+  const [path, moveTo] = usePath();
+  const [navigationIssue, setNavigationIssue] = useState(false);
+  const navigationIntent = useRef(0);
+  const navigate = useCallback((next: string) => {
+    const intent = ++navigationIntent.current, owner = auth.snapshot();
+    void (async () => {
+      let failed = false;
+      try { await chat?.flushCheckpoints(); } catch { failed = true; }
+      if (owner.signal.aborted || navigationIntent.current !== intent) return;
+      // A failed local save stays in the account-owned controller and All chats; navigation still
+      // honors the click. A later click or sign-out supersedes this continuation.
+      setNavigationIssue(failed); moveTo(next);
+    })();
+  }, [chat, moveTo]);
+  useEffect(() => {
+    const pop = () => {
+      ++navigationIntent.current; // browser Back/Forward wins over a pending app navigation
+      const owner = auth.snapshot();
+      void chat?.flushCheckpoints().catch(() => { if (!owner.signal.aborted) setNavigationIssue(true); });
+    };
+    addEventListener('popstate', pop);
+    return () => { ++navigationIntent.current; removeEventListener('popstate', pop); };
+  }, [chat]);
   const [device, setDevice] = useState<DeviceRecord | null>(null);
   const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
   const [activityLoaded, setActivityLoaded] = useState(false);
@@ -131,8 +153,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
 
   const ws = useWorkspace(route);
-  const latest = useRef({ ws, route });
-  latest.current = { ws, route };
+  const latest = useRef({ ws, route, paperID });
+  latest.current = { ws, route, paperID };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
   const feed = useFeed(account, library.entries);
 
@@ -182,7 +204,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       else if (device && ready.local) await saveActivity(device, activity, ready.local).catch(() => {});
       if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
-      navigate('/');
+      ++navigationIntent.current;
+      moveTo('/'); // settleBeforeSignOut already drained; the journal is now retired
       await auth.signOut(owner.generation);
     } catch (error) {
       if (!owner.signal.aborted) {
@@ -226,6 +249,21 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
     void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
   };
+  const discuss = async (quote: string, _anchor: TextAnchor): Promise<boolean> => {
+    if (!chat || chat.storageRetired || !item?.document_id) return false;
+    const owner = auth.snapshot(), sourcePaper = item.id;
+    const composer = await chat.discuss(item.document_id, quote);
+    if (!composer || owner.signal.aborted || latest.current.paperID !== sourcePaper) return false;
+    setChatMode('paper'); latest.current.ws.show('right');
+    // The reader closes its modal only after this promise resolves. Focus on the next paint, when
+    // the composer is no longer inert; never submit a provider request from Discuss.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!owner.signal.aborted && latest.current.paperID === sourcePaper && chat.current(item.document_id).id === composer.id) {
+        document.querySelector<HTMLTextAreaElement>('.chat-composer textarea')?.focus();
+      }
+    }));
+    return true;
+  };
   const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === item?.document_id && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, item?.document_id]);
 
 
@@ -255,6 +293,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
+        onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }}
         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
@@ -304,6 +343,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </div>
       </header>
       <StorageNotice />
+      {navigationIssue && <div className="storage-notice" role="alert" data-testid="navigation-save-issue">
+        <span>Some chat edits couldn’t be saved on this device. They’re still available in All chats. Keep this tab open.</span>
+        <button className="secondary small" onClick={() => setChats(true)}>Review drafts</button>
+        <button className="icon-button" aria-label="Dismiss save notice" onClick={() => setNavigationIssue(false)}><Icon name="close" size={16} /></button>
+      </div>}
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
