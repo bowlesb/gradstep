@@ -147,11 +147,13 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     const transcript = new TextEncoder().encode(JSON.stringify(transcriptDocument(claim, script, timings, chapters, fixture)));
     if (transcript.byteLength > spec.storage.transcript_bytes) throw new Failure('transcript_too_large', true);
     const audioDigest = await deps.sha256Hex(encoded.bytes), transcriptDigest = await deps.sha256Hex(transcript);
-    const releaseKey = await deps.sha256Hex(new TextEncoder().encode(`gradstep/podcast-release/v1:${audioDigest}:${transcriptDigest}`));
+    // Bound to the job: identical bytes from two jobs (deterministic fixtures, a re-run) remain distinct releases.
+    const releaseKey = await deps.sha256Hex(new TextEncoder().encode(`gradstep/podcast-release/v1:${claim.job_id}:${audioDigest}:${transcriptDigest}`));
     const identity = { profile: `${spec.id}:${spec.version}`, origin: claim.origin, script_model: fixture ? 'fixture' : models.podcast_script ?? null,
       review_model: fixture ? 'fixture' : models.podcast_review ?? null, speech_model: fixture ? 'fixture-tones-v1' : models.speech ?? null,
       voices: fixture ? { explainer: 'tone-220hz', skeptic: 'tone-330hz' } : spec.speech.voices, encoder: encoded.encoder, checker: CHECKER_VERSION };
     const manifest = new TextEncoder().encode(JSON.stringify({ format: 1, kind: 'gradstep-podcast-release', release_key: releaseKey,
+      job_id: claim.job_id, episode_id: claim.episode_id, scope: claim.scope,
       members: [{ role: 'audio', path: 'audio.m4a', sha256: audioDigest, bytes: encoded.bytes.byteLength, media_type: encoded.mediaType },
         { role: 'transcript', path: 'transcript.json', sha256: transcriptDigest, bytes: transcript.byteLength, media_type: 'application/json' }],
       script_sha256: scriptDigest, draft_sha256: draftDigest, duration_ms: pcm.durationMs, identity,
