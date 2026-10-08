@@ -274,11 +274,12 @@ export class ReaderCutoverCanary {
     fail('cached_import_timeout');
   }
   async fullBundle(label) {
-    let captured; const observed = [];
+    let captured; const observed = [], bodies = new Map();
     const fetcher = async (url, init) => {
       const r = await this.http(url, { headers: init.headers, maximum: MiB });
       if (new URL(url).pathname === '/functions/v1/reader-artifact' && r.response.status === 200) captured = json(r.bytes);
       else if (r.response.status === 200) {
+        bodies.set(url, r.bytes);
         const type = r.response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
         observed.push({ url_sha256: sha(url), bytes: r.bytes.length,
           media_type: ['text/html', 'text/plain', 'text/css', 'application/json', 'image/png', 'image/jpeg'].includes(type) ? type : 'unexpected',
@@ -294,6 +295,12 @@ export class ReaderCutoverCanary {
     const checked = validateReaderDescriptor(captured, this.item, ORIGIN);
     if (result.transport !== 'bounded-v1' || result.bytes !== integer(this.paper.bundle_bytes)
       || captured.manifest_sha256 !== this.paper.manifest_sha256) fail('bounded_bundle_identity');
+    // Retain only the fully verified bytes (<=1 MiB + manifest) for an optional
+    // local renderer check. No delivery URL, grant or account token crosses that
+    // boundary. This can be inspected after initial proof without another GET.
+    this.renderBundle = { manifestSHA256: captured.manifest_sha256,
+      manifestBytes: Buffer.from(captured.manifest, 'base64'),
+      contents: new Map(checked.members.map(member => [member.path, bodies.get(member.url.href)])) };
     this.report(label, { ...result, response_headers: observed }); return checked;
   }
   async descriptor(transport) {
@@ -323,6 +330,29 @@ export class ReaderCutoverCanary {
     }
     const after = await this.redemptionSnapshot();
     if (JSON.stringify(before) !== JSON.stringify(after)) fail('negative_probe_consumed_storage');
+  }
+  async raceMember(member) {
+    const before = await this.redemptionSnapshot(), maximum = Math.max(member.bytes, 4096);
+    if (maximum * 2 > this.budget.remaining()) fail('payload_budget_before_request');
+    const headers = this.headers(await this.token(this.owner));
+    const settled = await Promise.allSettled([
+      this.http(member.url.href, { headers, maximum }),
+      this.http(member.url.href, { headers, maximum }),
+    ]);
+    if (settled.some(result => result.status !== 'fulfilled')) fail('first_redemption_race_transport');
+    const replies = settled.map(result => result.value);
+    const success = replies.filter(r => r.response.status === 200), consumed = replies.filter(r => r.response.status === 409);
+    if (success.length !== 1 || consumed.length !== 1 || json(consumed[0].bytes)?.code !== 'reader_grant_consumed') fail('first_redemption_race_outcome');
+    const fresh = success[0];
+    if (sha(fresh.bytes) !== member.sha256 || fresh.bytes.length !== member.bytes
+      || fresh.response.headers.get('content-length') !== String(member.bytes)
+      || fresh.response.headers.get('cache-control') !== 'private, no-store'
+      || fresh.response.headers.get('x-content-type-options') !== 'nosniff'
+      || fresh.response.headers.get('referrer-policy') !== 'no-referrer') fail('fresh_bounded_probe_failed');
+    const after = await this.redemptionSnapshot();
+    if (integer(after.n) - integer(before.n) !== 1 || integer(after.bytes) - integer(before.bytes) !== member.bytes) fail('first_redemption_race_accounting');
+    this.report('first_redemption_race', { successful_downloads: 1, consumed_refusals: 1,
+      new_redemptions: 1, authorized_byte_delta: member.bytes, url_sha256: sha(member.url.href) });
   }
   async legacyPair() {
     for (let index = 0; index < 2; index++) {
@@ -414,10 +444,8 @@ export class ReaderCutoverCanary {
       headers: this.headers(await this.token(this.owner)), maximum: 4096 });
     if (legacy.response.status !== 426 || json(legacy.bytes)?.code !== 'reader_upgrade_required') fail('legacy_http_not_denied');
     const checked = await this.descriptor('bounded-v1'), member = checked.members.filter(m => m.bytes <= MAX_TINY).sort((a, b) => a.bytes - b.bytes)[0];
-    const fresh = await this.http(member.url.href, { headers: this.headers(await this.token(this.owner)), maximum: member.bytes });
-    if (fresh.response.status !== 200 || sha(fresh.bytes) !== member.sha256 || fresh.bytes.length !== member.bytes
-      || fresh.response.headers.get('cache-control') !== 'private, no-store'
-      || fresh.response.headers.get('x-content-type-options') !== 'nosniff') fail('fresh_bounded_probe_failed');
+    if (!member) fail('tiny_member_missing');
+    await this.raceMember(member);
     // Take T0 after both commits AND their proofs. The legacy counter admission occurs
     // before Edge signs: never shorten 400+900 seconds based on its timestamp.
     this.fenced = await this.snapshot('bounded'); this.retireAt = time(this.fenced.at) + LIMITS.drainMs;
@@ -516,6 +544,7 @@ export class ReaderCutoverCanary {
       delete account.password; delete account.access;
     }
     this.urls.length = 0;
+    delete this.renderBundle;
   }
   async command(line) {
     const parts = line.trim().split(/\s+/), action = parts[0];
