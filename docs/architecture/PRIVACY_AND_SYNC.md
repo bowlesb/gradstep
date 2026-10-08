@@ -124,7 +124,7 @@ Retained device keys allow offline reading before the server is reachable. Netwo
 - Keep device private keys and the active key bundle in the non-synchronizing Data Protection Keychain. Use key accessibility appropriate to explicitly supported foreground/background behavior; never permit plaintext fallback when the device is locked or a key is unavailable.
 - The server stores device public keys, recipient-bound encrypted envelopes, and a recovery-code-wrapped package. It never receives the library key or recovery code.
 - The person may save the recovery code in Apple Passwords (`gradstep.ai`, through system UI) and fill it from there on a new device. That copy is held and synced by Apple, not by Gradstep; saving it is optional.
-- Add a device through an authenticated request approved by a retained device, with a compared phrase/QR binding the exact recipient key. An account login must not be sufficient to substitute a new decryption key.
+- Add a device through an authenticated request approved by a retained device, with a compared phrase/QR binding the exact recipient key. An account login must not be sufficient to substitute a new decryption key. Built for browsers: [Approving a new device (QR)](#approving-a-new-device-qr).
 - Bootstrap is atomic: two first devices cannot independently create competing account keyrings. A losing device must join/recover the existing keyring.
 - Device revocation rotates the future-write encryption epoch and write-management authority. Reject stale epochs even if an old account session remains valid. Retain historical keys only for authorized historical reads.
 - Revocation cannot erase copies a previously authorized device already decrypted. Recovery packages and device envelopes need explicit replacement and deletion lifecycle rules.
@@ -138,6 +138,45 @@ Persist an enrollment candidate's private key, device ID, challenge, local-store
 Use the server's unexpired-request list to decide whether a request needs renewal. A local timestamp is informational only: clock skew, suspension, and delayed submission cannot establish server expiry. Check the candidate's current device envelope before renewal and after an ambiguous approval, then authenticate the server envelope before activating it. A missing envelope or transport failure preserves pending keys. A duplicate-device conflict caused by an older request winning the race is resolved through that same recipient's envelope.
 
 Serialize key-changing operations in each account's manager across suspension points. An overlapping prepare/bootstrap/recovery attempt returns a retryable busy state rather than mutating the same pending candidate. Check cancellation before durable writes. Persist the active device before removing its pending record; a crash between these writes is recoverable. This uses the existing versioned enrollment/device RPCs and does not change encrypted formats or database identities.
+
+### Approving a new device (QR)
+
+Status 2026-10-07: built for a **new browser** approved by an **iPhone/iPad (or a Mac with a camera)**; verified with
+local fixtures, cross-runtime tests and Simulator UI tests only. Not yet run against staging or on a physical phone, and
+not deployed. A new native Mac/iPad still restores with the recovery code.
+
+1. **New device** (browser, `apps/web/src/lib/keys.ts` `requestApproval`): creates or resumes the pending recipient
+   (non-extractable X25519 key, device ID, 32-byte challenge, persisted before any request), sends
+   `v1_request_enrollment`, and shows a QR code of `GSDA1.<request id>.<account tag>.<fingerprint>.<kind>`
+   ([wire format](ENCRYPTED_WIRE_FORMAT.md#device-approval-payload)) plus the six-digit comparison number. It polls
+   `v1_key_state(its device)` with backoff (2 s × 1.5 to 10 s; re-checks the request each minute; stops after 30 min with a
+   "Show a new code" action). The server's unexpired-request list decides renewal, under a new request ID for the same
+   recipient, so the fingerprint and number never change and a late approval of the old request still opens.
+2. **Approving device** (`DeviceApprover`, `ScienceReaderCore/DeviceApproval.swift`): parses the scanned text strictly,
+   refuses another account's code before any lookup, reads `v1_enrollment_requests`, and takes the named request (or a
+   renewal with the same fingerprint). It **recomputes the fingerprint from the server's account, device ID, public key
+   and challenge and refuses any mismatch**; nothing is wrapped or sent for a mismatched request. After the person
+   confirms the number, it wraps its current key bundle with the existing device envelope for exactly that recipient and
+   calls `v1_approve_enrollment` with its management token and the verified public key/challenge as expectations. On
+   `key_authority_required` it refreshes keys once (a rotation elsewhere); unchanged keys mean this device lost authority,
+   and it says so.
+3. **New device again**: the envelope from `v1_key_state` is opened with its private key; account, device, epoch and
+   challenge are authenticated, the bundle is validated, and the active device is persisted before the pending record is
+   removed. An envelope wrapped for any other key fails and leaves the pending recipient waiting.
+
+What this protects: a server (or attacker with database access) that substitutes its own public key for the request
+cannot get the key bundle wrapped to it when the QR is scanned, because the 256-bit fingerprint in the QR binds the
+recipient. Limits, stated plainly:
+
+- **Banner path without a camera.** "A new device is waiting · Review" compares only the six-digit number computed from
+  the server's request. That catches mistakes and an unrelated request, but a malicious server could grind about 10⁶
+  candidate keys to match six digits. Scan the QR whenever a camera is available.
+- **Sender authenticity.** As with recovery and every `prepare`, the new device cannot prove that the envelope it
+  receives came from an approved device rather than from the server wrapping keys of its own choosing to the (public)
+  recipient key. That is a pre-existing property of format 1 envelopes, not introduced here.
+- Approving shares the whole key bundle (all retained epochs and the management token), exactly as a recovery-code
+  self-approval does. The QR holds no secret; a photo of it lets someone else's approved device approve that browser for
+  *this* account only, which still requires that device to hold this account's keys.
 
 ## Cloud AI boundary
 

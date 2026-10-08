@@ -797,3 +797,18 @@ Private upload titles use the encrypted library descriptors (Codex), so they are
 - Mac TestFlight uses its own build-number train (Mac build 17 alongside iOS build 17), internal testing only; no
   macOS App Store version was created because the upload did not require one.
 
+## QR device approval (owner asked 2026-10-07: "a way to avoid the recovery code, maybe QR"; agent decisions, reversible)
+
+A new browser is approved from the owner's phone instead of typing the recovery code. Design and limits:
+[PRIVACY_AND_SYNC.md](architecture/PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
+
+| Decision | Choice |
+|---|---|
+| Primary path | The browser's restore screen leads with **Approve from your phone** (QR + six-digit number); **Use recovery code instead** is one tap away and reuses the same pending request. |
+| QR contents | `GSDA1.<request id>.<account tag>.<fingerprint>.<kind>` (97 ASCII characters): the existing 32-byte enrollment fingerprint (account, recipient device, public key, challenge), a 16-byte hash naming the account, and the device kind for display. No secret, no account ID, no URL. |
+| What stops a key swap | The approving device recomputes the fingerprint from the server's request and refuses any mismatch before wrapping anything. The six-digit number (derived from the fingerprint) is for people; the QR carries the full 256 bits. |
+| Without a camera | Banner "A new device is waiting · Review" on an approved device, comparing the six-digit number only. Documented as weaker (a server able to grind ~10⁶ keys could match six digits); scanning is preferred. |
+| Backend | No migration: `v1_request_enrollment`, `v1_enrollment_requests`, `v1_approve_enrollment` and `v1_key_state` (002) already suffice. Expiry stays server-side (15 minutes); the browser renews for the same recipient, so the number never changes. |
+| QR drawing | `uqr` 0.1.3 (MIT, a port of Nayuki's QR generator, zero dependencies), as an inline SVG; no network or CSP change. |
+| Camera | AVFoundation (works on iPhone, iPad and Mac Catalyst); `NSCameraUsageDescription` and the Mac sandbox `com.apple.security.device.camera` entitlement added. No prompt on a device without a camera. |
+| Not done | A new **Mac or iPad** showing its own QR (the native restore screen still uses the recovery code); approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. |
