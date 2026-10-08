@@ -395,6 +395,8 @@ async function stageFund(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy
   const entry = await deps.rpc<PaperEntry & { funding: string }>('worker_pipeline_fund', { ...claim, p_page_limit: pageLimit,
     p_options_sha256: hex(identity.optionsSHA256), p_request_sha256: hex(identity.requestSHA256) });
   deps.log('fund', { paper: e.id, funding: entry.funding, page_limit: pageLimit });
+  // A budget or active-operation pause (retried every 5 min) reads as waiting at once (migration 043).
+  if (entry.funding === 'paused') await projectWait(deps, e.id);
   return { entry, stop: entry.funding === 'waiting' || entry.funding === 'paused' ? 'release' : undefined };
 }
 
@@ -685,6 +687,12 @@ export async function runPipeline(deps: PipelineDeps, deadline: number): Promise
   await deps.rpc<{ resumed?: number; limited?: number } | null>('worker_pipeline_resume_credits', { p_min_interval_seconds: 10 })
     .then(r => { if (r && (r.resumed || r.limited)) deps.log('credit_resume', { resumed: r.resumed ?? 0, limited: r.limited ?? 0 }); })
     .catch(() => deps.log('credit_resume_failed'));
+  // Maintenance (migration 043): every retryable failure gets its bounded automatic retries, and a paper that
+  // has sat in a non-paid stage for hours while someone waits is failed with its reason and retried. At most
+  // once a minute; never blocks the pipeline.
+  await deps.rpc<{ scheduled?: number; stalled?: number } | null>('worker_pipeline_heal', { p_min_interval_seconds: 60 })
+    .then(r => { if (r && (r.scheduled || r.stalled)) deps.log('heal', { scheduled: r.scheduled ?? 0, stalled: r.stalled ?? 0 }); })
+    .catch(() => deps.log('heal_failed'));
   const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
   if (!claimed) return { processed: 0 };
   await processPaper(deps, claimed, policy, deadline);

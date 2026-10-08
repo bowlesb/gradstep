@@ -1,4 +1,5 @@
-"""Credit resume (migration 040) against concurrent grants, reservations, the policy row and itself, on real sessions."""
+"""Import maintenance on real sessions: credit resume (migration 040) against concurrent grants, reservations, the
+policy row and itself; the heal sweep (043) against a claim in progress."""
 import json
 import os
 import select
@@ -89,7 +90,7 @@ def verify(bin_path, db, base):
     budget = sql(f"select coalesce((select json_build_array(limit_microusd,work_enabled)::text from app_private.platform_budgets where period={period}),'null');")
     try:
         sql(f"select public.worker_set_pipeline_enabled(true); select public.worker_set_platform_budget({period},10000000,true);"
-            " update app_private.pipeline_policy set credit_resume_swept_at='-infinity';"
+            " update app_private.pipeline_policy set credit_resume_swept_at='-infinity',heal_swept_at='-infinity';"
             " update app_private.library_policy set account_active_imports=1000,environment_active_imports=100000; select 1;")
 
         # A reservation holding the account commits while the sweep waits for it: the sweep decides on the
@@ -147,11 +148,33 @@ def verify(bin_path, db, base):
         sweep.until(pending)
         assert sql(f"select count(*) from app_private.import_requests where account_id='{owner}' and phase<>'failed';") == '0'
         print('PASS a sweep rechecks closure after waiting for the account', flush=True)
+
+        # The heal sweep never waits for a paper a worker holds (claims lock it the same way); it fails a
+        # stalled paper once it is free, and only once.
+        owner, item = waiting_import(0, 10, '2501.00005')
+        paper = sql(f"select paper_id from app_private.pipeline_imports where account_id='{owner}' and import_id='{item}';")
+        sql(f"update app_private.import_requests set phase='acquiring',error_code=null,retryable=false where account_id='{owner}' and id='{item}';"
+            f" update app_private.pipeline_papers set stage='download',resume_stage=null,error_code=null where id='{paper}';"
+            f" update app_private.pipeline_papers set stage_entered_at=clock_timestamp()-interval '7 hours' where id='{paper}'; select 1;")
+        worker, healer, other = Session(), Session(), Session()
+        worker.complete(f"begin; select id from app_private.pipeline_papers where id='{paper}' for no key update;")
+        started = time.monotonic()
+        healer.complete('select public.worker_pipeline_heal(0,100);')
+        assert time.monotonic() - started < 2, 'the heal sweep skipped the held paper instead of waiting'
+        assert sql(f"select stage from app_private.pipeline_papers where id='{paper}';") == 'download'
+        worker.complete('commit;')
+        first = other.send('select public.worker_pipeline_heal(0,100);')
+        second = healer.send('select public.worker_pipeline_heal(0,100);')
+        results = [json.loads(other.until(first)[-1]), json.loads(healer.until(second)[-1])]
+        assert sql(f"select stage||':'||error_code from app_private.pipeline_papers where id='{paper}';") == 'failed:download_failed', results
+        assert sql(f"select count(*) from app_private.pipeline_events where paper_id='{paper}' and kind='stage' and error_code='download_failed';") == '1'
+        print('PASS the heal sweep skips a held paper and fails a stalled one exactly once', flush=True)
     finally:
         for session in sessions: session.close()
         enabled = 'true' if original['enabled'] else 'false'
         swept = original['credit_resume_swept_at'].replace("'", "''")
-        sql(f"update app_private.pipeline_policy set enabled={enabled},credit_resume_swept_at='{swept}'; select 1;")
+        healed = original['heal_swept_at'].replace("'", "''")
+        sql(f"update app_private.pipeline_policy set enabled={enabled},credit_resume_swept_at='{swept}',heal_swept_at='{healed}'; select 1;")
         sql(f'update app_private.library_policy set account_active_imports={limits[0]},environment_active_imports={limits[1]}; select 1;')
         if budget != 'null':
             limit, work = json.loads(budget)

@@ -435,3 +435,13 @@ test('Retry-After is read as seconds or an HTTP date, bounded to an hour', () =>
   assert.equal(retryAfterSeconds('Wed, 08 Oct 2026 03:30:00 GMT', now), null);
   assert.equal(retryAfterSeconds(null, now), null);
 });
+
+test('a paused funding (budget or active-operation limit) is shown as waiting at once and retried by the next claim', async () => {
+  const { deps, calls } = harness({
+    worker_pipeline_fund: () => ({ ...entry('ocr_fund', { error_code: 'service_paused' } as Partial<PaperEntry>), funding: 'paused' }),
+  });
+  await processPaper(deps, entry('ocr_fund', { document_sha256: 'd'.repeat(64), page_count: 13 }), policy, deadline);
+  assert.deepEqual(names(calls), ['worker_pipeline_sync_imports', 'worker_pipeline_admit_processing', 'worker_pipeline_fund',
+    'worker_pipeline_project_progress', 'worker_pipeline_sync_imports', 'worker_pipeline_release']);
+  assert.ok(!names(calls).includes('worker_pipeline_defer'), 'the paper keeps the 5 min wait funding set; no failure is counted');
+});

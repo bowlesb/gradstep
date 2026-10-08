@@ -166,8 +166,8 @@ def verify(bin_path, db, base):
         assert sql(f"select count(*) from app_private.import_requests where account_id='{owner}';") == '0'
         print('PASS deploy retry rechecks closed accounts after the captured-account lock wait', flush=True)
 
-        #201 wanted metadata failures exceed the200-candidate snapshot. No
-        # automatic download timer will rescue the final deferred paper.
+        #201 wanted metadata failures exceed the200-candidate snapshot. The final deferred paper keeps its
+        # same-deploy retry (since 043 it also has its own automatic-retry timer; this checks the deploy path).
         owner = account()
         sql('update app_private.library_policy set account_active_imports=1000,environment_active_imports=10000; select 1;')
         sql(f"""select set_config('request.jwt.claim.sub','{owner}',false);
@@ -183,11 +183,11 @@ def verify(bin_path, db, base):
         first_pass = json.loads(sql("select public.worker_pipeline_retry_failed('candidate-cap-v1',1000);"))
         assert first_pass['retried'] == 200 and first_pass['deferred'] == 1, first_pass
         assert sql(f"select count(*) from app_private.pipeline_imports pi join app_private.pipeline_papers pp on pp.id=pi.paper_id"
-                   f" where pi.account_id='{owner}' and pp.deploy_retry is distinct from 'candidate-cap-v1' and pp.auto_retry_at is null;") == '1'
+                   f" where pi.account_id='{owner}' and pp.deploy_retry is distinct from 'candidate-cap-v1' and pp.stage='failed';") == '1'
         second_pass = json.loads(sql("select public.worker_pipeline_retry_failed('candidate-cap-v1',1000);"))
         assert second_pass['retried'] == 1 and second_pass['deferred'] == 0, second_pass
         assert sql(f"select count(*) from app_private.import_requests where account_id='{owner}' and phase='accepted';") == '201'
-        print('PASS candidate-cap deferral preserves a same-deploy retry for metadata failures without timers', flush=True)
+        print('PASS candidate-cap deferral preserves a same-deploy retry for metadata failures', flush=True)
     finally:
         for session in sessions: session.close()
         enabled = 'true' if original_policy['enabled'] else 'false'
