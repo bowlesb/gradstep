@@ -15,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUCKET = 'paper-assets'
+# Migration 039 widens the reconciliation to the private upload bucket (inventory scope 2).
+BUCKETS = ('paper-assets', 'paper-uploads')
 
 
 def env_values():
@@ -60,8 +62,9 @@ def sql(query):
 
 
 def storage_objects():
-    rows = sql(f"select name, (metadata->>'size')::bigint size, metadata->>'mimetype' mimetype from storage.objects where bucket_id='{BUCKET}'")
-    return {row['name']: row for row in rows}
+    names = ','.join(f"'{b}'" for b in BUCKETS)
+    rows = sql(f"select bucket_id, name, (metadata->>'size')::bigint size, metadata->>'mimetype' mimetype from storage.objects where bucket_id in ({names})")
+    return {row['bucket_id'] + '/' + row['name']: row for row in rows}
 
 
 def tracked(scan_id):
@@ -75,15 +78,16 @@ def tracked(scan_id):
 
 
 def tracked_now():
-    return sql(f"select o.id,o.path,o.state,o.byte_count bytes,o.media_type from app_private.stored_objects o "
-               f"where o.bucket='{BUCKET}' and o.state<>'deleted'")
+    names = ','.join(f"'{b}'" for b in BUCKETS)
+    return sql(f"select o.id,o.bucket,o.path,o.state,o.byte_count bytes,o.media_type from app_private.stored_objects o "
+               f"where o.bucket in ({names}) and o.state<>'deleted'")
 
 
 def manifest_members(path, physical):
     manifest = json.loads(request(f'{BASE}/storage/v1/object/{BUCKET}/{urllib.parse.quote(path)}', raw=True))
     members = manifest.get('members')
     entries = members.items() if isinstance(members, dict) else ((m['path'], m) for m in members)
-    folder = path.rsplit('/', 1)[0] + '/'
+    folder = BUCKET + '/' + path.rsplit('/', 1)[0] + '/'
     result = []
     for relative, member in entries:
         stored = physical.get(folder + relative, {})
@@ -93,7 +97,7 @@ def manifest_members(path, physical):
 
 
 def discrepancies(physical, objects):
-    by_path = {o['path']: o for o in objects}
+    by_path = {o.get('bucket', BUCKET) + '/' + o['path']: o for o in objects}
     report = {'untracked': sorted(p for p in physical if p not in by_path),
               'missing_verified': sorted(p for p, o in by_path.items() if o['state'] == 'verified' and p not in physical),
               'mismatched': sorted(p for p, o in by_path.items() if p in physical and int(o['bytes']) != int(physical[p]['size'] or -1)),
@@ -111,10 +115,10 @@ def main():
     physical = storage_objects()
     if not args.apply:
         objects = tracked_now()
-        manifests = [o['path'] for o in objects if o['path'].endswith('manifest.json') and o['state'] == 'verified']
-        planned = {o['path'] for o in objects}
+        manifests = [o['path'] for o in objects if o['bucket'] == BUCKET and o['path'].endswith('manifest.json') and o['state'] == 'verified']
+        planned = {o['bucket'] + '/' + o['path'] for o in objects}
         for path in manifests:
-            folder = path.rsplit('/', 1)[0] + '/'
+            folder = BUCKET + '/' + path.rsplit('/', 1)[0] + '/'
             planned |= {folder + m['relative_path'] for m in manifest_members(path, physical)}
         missing = sorted(p for p in physical if p not in planned)
         print(json.dumps({'storage_objects': len(physical), 'tracked': len(objects), 'manifests': len(manifests),
@@ -124,12 +128,12 @@ def main():
     scan_id = str(uuid.uuid4())
     print(json.dumps(rpc('worker_asset_inventory_begin', {'p_scan_id': scan_id})))
     objects = tracked(scan_id)
-    for manifest in [o for o in objects if o['path'].endswith('manifest.json') and o['state'] == 'verified']:
+    for manifest in [o for o in objects if o.get('bucket', BUCKET) == BUCKET and o['path'].endswith('manifest.json') and o['state'] == 'verified']:
         rpc('worker_asset_inventory_manifest', {'p_scan_id': scan_id, 'p_manifest_id': manifest['id'],
                                                  'p_members': manifest_members(manifest['path'], physical)})
     objects = tracked(scan_id)
     found = discrepancies(physical, objects)
-    report = {'scan_id': scan_id, 'bucket': BUCKET, 'objects': len(objects), 'bytes': sum(int(o['bytes']) for o in objects),
+    report = {'scan_id': scan_id, 'buckets': list(BUCKETS), 'objects': len(objects), 'bytes': sum(int(o['bytes']) for o in objects),
               'storage_objects': len(physical), 'discrepancies': found, 'method': 'paths and Storage byte sizes; bytes not re-hashed'}
     out = ROOT / '.artifacts/asset-inventory'; out.mkdir(parents=True, exist_ok=True)
     raw = json.dumps(report, indent=1, sort_keys=True).encode()

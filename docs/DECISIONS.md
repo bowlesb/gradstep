@@ -777,3 +777,10 @@ evidence verified) → activated revision **gradstep-pipeline-00009-ncq**, then 
 - Drain evidence: `.artifacts/rollout-evidence/20261008-spending/` (Cloud Run instance metrics, Edge deploy ages
   > 400 s, function readback, zero open liabilities), manifest is an operator attestation by the lead agent.
 - Tooling fix: `scripts/pipeline_readiness.py` reads service-role-only readiness in an explicit read-only transaction.
+
+## Uploads deployed to staging (owner: "integrate, velocity first", 2026-10-07)
+
+Migration 039 applied (backup first); functions `add-paper` and `upload-pdf` deployed with the private
+`paper-uploads` bucket (4 MiB authenticated chunks); worker revision gradstep-pipeline-00010 reads uploads. A
+scope-2 asset inventory (both buckets, 0 discrepancies) satisfied 039's gate and the PDF upload policy is enabled.
+Private upload titles use the encrypted library descriptors (Codex), so they are not server-visible.
