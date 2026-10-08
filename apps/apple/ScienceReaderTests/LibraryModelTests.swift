@@ -33,9 +33,15 @@ private final class LibraryModelServer: @unchecked Sendable {
 
     /// The baseline import failed to download (retryable), with its paper's details known.
     private let pendingFailed: Bool
+    /// An upload-capable (full-v5) server's dataset epoch; nil models a legacy (v3) server.
+    private var epoch: UUID?
+    /// Capability answers still naming the previous epoch after a rotation (a read racing a restore).
+    private var staleCapabilities = 0
+    private var previousEpoch: UUID?
+    private var capturedPages: [(endpoint: String, epoch: String?)] = []
 
-    init(activated: Bool = false, pendingFailed: Bool = false) {
-        self.pendingFailed = pendingFailed
+    init(activated: Bool = false, pendingFailed: Bool = false, uploadEpoch: UUID? = nil) {
+        self.pendingFailed = pendingFailed; self.epoch = uploadEpoch
         if activated {
             var device = LocalDevice.create(accountID: account)
             device.bundle = KeyBundle.generate(accountID: account)
@@ -56,6 +62,12 @@ private final class LibraryModelServer: @unchecked Sendable {
     func enqueueCommand(_ step: CommandStep) { lock.withLock { commandSteps.append(step) } }
     func holdNextChanges(_ expectation: XCTestExpectation) { lock.withLock { holdChanges = expectation } }
     func commands() -> [CapturedCommand] { lock.withLock { capturedCommands } }
+    func pages() -> [(endpoint: String, epoch: String?)] { lock.withLock { capturedPages } }
+    var currentEpoch: UUID? { lock.withLock { epoch } }
+    /// Restore quarantine: a new dataset identity. The next `stale` capability reads still name the old one.
+    func rotateEpoch(stale: Int = 0) {
+        lock.withLock { previousEpoch = epoch; epoch = UUID(); staleCapabilities = stale }
+    }
     func privateRequests() -> [String] { lock.withLock { privateCalls } }
     func releaseCommand() {
         lock.withLock {
@@ -72,21 +84,43 @@ private final class LibraryModelServer: @unchecked Sendable {
         lock.withLock {
             switch request.request.url!.lastPathComponent {
             case "v1_reader_capabilities":
-                request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
-            case "v3_library_page":
+                if var advertised = epoch {
+                    if staleCapabilities > 0, let previousEpoch { staleCapabilities -= 1; advertised = previousEpoch }
+                    request.respond(bytes(["format": 1, "account_id": account.wire,
+                        "library": ["endpoint_family": "full-v5", "wire_format": 2, "source_level": 4, "dataset_epoch": advertised.wire],
+                        "descriptors": ["format": 1, "maximum_batch": 24],
+                        "uploads": ["protocol": "upload-chunks-v1", "enabled": false, "chunk_bytes": 4_194_304,
+                                    "maximum_bytes": 67_108_864, "maximum_parts": 16, "part_attempts": 2]]))
+                } else {
+                    request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
+                }
+            case "v3_library_page" where epoch == nil, "v5_library_page" where epoch != nil:
+                capturedPages.append((request.request.url!.lastPathComponent, nil))
                 if failBaseline { failBaseline = false; request.respond(Data("{}".utf8), status: 503) }
                 else { request.respond(baseline()) }
-            case "v3_library_changes":
+            case "v3_library_changes" where epoch == nil, "v5_library_changes" where epoch != nil:
                 let body = fields(request.request)
+                capturedPages.append((request.request.url!.lastPathComponent, body["p_dataset_epoch"] as? String))
+                if let epoch, body["p_dataset_epoch"] as? String != epoch.wire { resync(request); return }
                 let after = body["p_after"] as? Int ?? 0, through = body["p_through"] as? Int ?? cursor
                 let rows = libraryChanges.filter { $0.0 > after && $0.0 <= through }
-                let current = bytes(["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
-                    "changes": rows.map { ["seq": $0.0, "entries": $0.1] as [String: Any] }, "next_cursor": through, "has_more": false])
+                var page: [String: Any] = ["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
+                    "changes": rows.map { ["seq": $0.0, "entries": $0.1] as [String: Any] }, "next_cursor": through, "has_more": false]
+                if let epoch { page["dataset_epoch"] = epoch.wire }
+                let current = bytes(page)
                 let response = next ?? (current, 200); next = nil
                 if let arrival = holdChanges {
                     holdChanges = nil; heldChanges = (request, response.0); arrival.fulfill()
                 } else { request.respond(response.0, status: response.1) }
             case "v2_begin_import", "v2_cancel_import", "v2_retry_import", "v2_set_library_item", "v2_set_item_tags": handleCommand(request)
+            case "v5_begin_import", "v5_cancel_import", "v5_retry_import", "v5_set_library_item", "v5_set_item_tags":
+                // Migration 042: the v2 command plus its observed dataset, checked in the same transaction.
+                guard let epoch else { request.respond(Data("{}".utf8), status: 404); return }
+                guard fields(request.request)["p_dataset_epoch"] as? String == epoch.wire else {
+                    capturedCommands.append(.init(endpoint: request.request.url!.lastPathComponent, body: body(request.request)))
+                    resync(request); return
+                }
+                handleCommand(request)
             case "v1_key_state":
                 privateCalls.append("key_state"); request.respond(keyState ?? Data("null".utf8))
             case "v2_pull_events":
@@ -127,9 +161,13 @@ private final class LibraryModelServer: @unchecked Sendable {
     private func fields(_ request: URLRequest) -> [String: Any] {
         (try? JSONSerialization.jsonObject(with: body(request))) as? [String: Any] ?? [:]
     }
+    private func resync(_ request: StubProtocol) {
+        request.respond(bytes(["code": "P0001", "message": "library_resync_required"]), status: 400)
+    }
     private func handleCommand(_ request: StubProtocol) {
-        let endpoint = request.request.url!.lastPathComponent, data = body(request.request)
-        capturedCommands.append(.init(endpoint: endpoint, body: data))
+        let sent = request.request.url!.lastPathComponent, data = body(request.request)
+        let endpoint = sent.replacingOccurrences(of: "v5_", with: "v2_")
+        capturedCommands.append(.init(endpoint: sent, body: data))
         guard let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let operation = (input["p_operation_id"] as? String).flatMap(UUID.init(uuidString:)) else {
             request.respond(Data("{}".utf8), status: 400); return
@@ -194,8 +232,9 @@ private final class LibraryModelServer: @unchecked Sendable {
             }
             changedEntries[entry["id"] as! String] = entry
             libraryChanges.append((cursor, [entry]))
-            let value: [String: Any] = ["result": ["status": "applied", "kind": entry["kind"]!, "id": entry["id"]!,
+            var value: [String: Any] = ["result": ["status": "applied", "kind": entry["kind"]!, "id": entry["id"]!,
                 "seq": cursor, "revision": revision], "entry": entry, "replayed": false]
+            if sent.hasPrefix("v5_"), let epoch { value["dataset_epoch"] = epoch.wire }
             receipts[operation] = (data, value); response = bytes(value)
         }
         let step = commandSteps.isEmpty ? nil : commandSteps.removeFirst()
@@ -246,10 +285,13 @@ private final class LibraryModelServer: @unchecked Sendable {
         byID.merge(changedEntries) { _, next in next }
         let entries = byID.values.sorted { ($0["created_seq"] as! Int) < ($1["created_seq"] as! Int) }
         let last = entries.last!
-        return bytes(["format": 2, "account_id": account.wire, "baseline_cursor": cursor, "retained_after": 0,
-               "entries": entries, "has_more": false,
-               "next_cursor": ["format": 2, "account_id": account.wire, "through": cursor,
-                   "created_seq": last["created_seq"]!, "id": last["id"]!, "kind": last["kind"]!]])
+        var next: [String: Any] = ["format": 2, "account_id": account.wire, "through": cursor,
+                                   "created_seq": last["created_seq"]!, "id": last["id"]!, "kind": last["kind"]!]
+        var page: [String: Any] = ["format": 2, "account_id": account.wire, "baseline_cursor": cursor, "retained_after": 0,
+                                   "entries": entries, "has_more": false]
+        if let epoch { next["read_level"] = 4; next["dataset_epoch"] = epoch.wire; page["dataset_epoch"] = epoch.wire }
+        page["next_cursor"] = next
+        return bytes(page)
     }
     func changes(_ rows: [[String: Any]], through: Int) -> Data {
         bytes(["format": 2, "account_id": account.wire, "through": through, "retained_after": 0,
@@ -664,6 +706,89 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(try fixture.savedCommandCount(), 0)
         XCTAssertEqual(server.commands().map(\.endpoint), ["v2_set_library_item"])
         XCTAssertNil(model.error)
+    }
+
+    // MARK: Upload-capable (v5) library, migration 042 (owner feedback, build 17: "The Add is all greyed out?")
+
+    private func feedResult(_ sourceID: String) throws -> DiscoveryResult {
+        try JSONDecoder().decode(DiscoveryResult.self, from: Data("""
+            {"source_id":"\(sourceID)","revision":1,"title":"Sparse Mixture-of-Experts Scaling","authors":["Mei Lin"],
+             "year":2026,"abstract":null,"categories":["cs.LG"]}
+            """.utf8))
+    }
+
+    func testFeedAddWorksUnderTheUploadCapableLibraryAndShowsTheImport() async throws {
+        let epoch = UUID(), server = LibraryModelServer(activated: true, uploadEpoch: epoch), fixture = try fixture(server)
+        let model = fixture.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        XCTAssertTrue(server.pages().contains { $0.endpoint == "v5_library_changes" && $0.epoch == epoch.wire },
+                      "The fixture library is read through the v5 protocol")
+        XCTAssertTrue(model.canChangeLibrary, "Library writes are available once v5 is adopted")
+        XCTAssertTrue(model.canBeginImport, "Feed Add is enabled under v5")
+        let result = try feedResult("2610.01234")
+        XCTAssertFalse(model.librarySourceIDs.contains(result.sourceID))
+        try await model.addDiscovered(result)
+        try await observe("The Feed's paper is in the library after catch-up") {
+            model.libraryCommands.isEmpty && model.libraryImports.contains { $0.sourceID == "2610.01234" }
+        }
+        XCTAssertTrue(model.librarySourceIDs.contains(result.sourceID), "The Feed row now shows In library")
+        let sent = server.commands()
+        XCTAssertEqual(sent.map(\.endpoint), ["v5_begin_import"])
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(sent.first).body) as? [String: Any])
+        XCTAssertEqual(body["p_dataset_epoch"] as? String, epoch.wire)
+        XCTAssertEqual(body["p_source_id"] as? String, "2610.01234")
+        XCTAssertNil(model.libraryCommandIssue); XCTAssertNil(model.error)
+        // Other library writes follow the same family: Remove of the saved paper.
+        let paper = try XCTUnwrap(model.papers.first { $0.id == server.documentID })
+        await model.removePaper(paper)
+        try await observe("Remove reconciled") { model.libraryCommands.isEmpty && !model.papers.contains { $0.id == server.documentID } }
+        XCTAssertEqual(server.commands().map(\.endpoint), ["v5_begin_import", "v5_set_library_item"])
+    }
+
+    func testRestoredDatasetSetsTheChangeAsideAndRefreshesTheLibrary() async throws {
+        let server = LibraryModelServer(activated: true, uploadEpoch: UUID()), fixture = try fixture(server)
+        let model = fixture.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        XCTAssertTrue(model.canBeginImport)
+        // A restore rotates the dataset; the drain's capability read races it and still sees the old epoch,
+        // so only the server's in-transaction check can refuse the old preconditions.
+        server.rotateEpoch(stale: 1)
+        let rotated = try XCTUnwrap(server.currentEpoch)
+        try await model.importPaper("2404.00002")
+        try await observe("The refused change is kept for review") {
+            model.libraryCommands.first?.phase == .needsReview && model.libraryCommandIssue != nil
+        }
+        let kept = try XCTUnwrap(model.libraryCommands.first)
+        XCTAssertEqual(model.libraryCommands.count, 1, "Never silently dropped")
+        XCTAssertEqual(kept.failure, .datasetChanged); XCTAssertFalse(kept.canAttempt)
+        XCTAssertEqual(kept.mutation, .beginImport(sourceID: "2404.00002", requestedRevision: nil, observedCursor: 2))
+        XCTAssertEqual(model.libraryCommandIssue, "Your library was updated on the server. Review your saved change before trying it again.")
+        XCTAssertEqual(server.commands().map(\.endpoint), ["v5_begin_import"])
+        // Server-side evidence is not observable model state: poll it, bounded.
+        var refreshed = false
+        for _ in 0..<50 where !refreshed {
+            refreshed = server.pages().last.map { $0.endpoint == "v5_library_changes" && $0.epoch == rotated.wire } ?? false
+            if !refreshed { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        XCTAssertTrue(refreshed, "A fresh baseline in the restored dataset")
+        XCTAssertEqual(try fixture.savedCommandCount(), 1)
+        // The reader can repeat the action from the fresh observation; it is a new operation in the new dataset.
+        var accepted = false
+        for _ in 0..<50 where !accepted {
+            do { try await model.importPaper("2404.00002"); accepted = true }
+            catch LibraryCommandError.contextMismatch { try await Task.sleep(for: .milliseconds(100)) }
+        }
+        XCTAssertTrue(accepted)
+        try await observe("The repeated Add is reconciled") {
+            model.libraryImports.contains { $0.sourceID == "2404.00002" } && !model.libraryCommands.contains { $0.isUnfinished }
+        }
+        let repeated = try XCTUnwrap(server.commands().last)
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: repeated.body) as? [String: Any])
+        XCTAssertEqual(body["p_dataset_epoch"] as? String, rotated.wire)
+        XCTAssertNotEqual(body["p_operation_id"] as? String, kept.id.wire)
+        XCTAssertEqual(model.libraryCommands.map(\.id), [kept.id], "The refused change stays for review until dismissed")
     }
 
     @MainActor private final class Fixture {

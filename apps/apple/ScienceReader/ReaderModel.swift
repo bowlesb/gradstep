@@ -168,7 +168,9 @@ final class ReaderModel {
     /// The Edit tags sheet (paper options, the library row's long-press menu, the reader's tag chips).
     var tagEditor: TagEditorRequest?
     var librarySignInRequired: Bool { accountID == nil }
-    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary?.observation.readContext == .legacyFull3 && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
+    /// Writes follow the complete observation's read context: v2 for a legacy library, v5 (bound to
+    /// its dataset epoch, migration 042) once the upload-capable library is adopted.
+    var canChangeLibrary: Bool { libraryCommandCoordinator != nil && completeLibrary != nil && !workOwnership.isActivating && !libraryPublicationDeferred && !needsRecovery }
     var canBeginImport: Bool { canChangeLibrary && completeLibrary != nil }
     var selectedPaper: Paper? {
         didSet {
@@ -1593,7 +1595,8 @@ final class ReaderModel {
         guard canBeginImport, let snapshot = completeLibrary, let commands = libraryCommandCoordinator else { throw ReaderError.storageUnavailable }
         let scope = sessionID
         _ = try await commands.enqueue(.beginImport(sourceID: reference.sourceID, requestedRevision: reference.revision,
-                                                    observedCursor: snapshot.committedCursor), display: "arXiv \(reference.identifier)")
+                                                    observedCursor: snapshot.committedCursor), display: "arXiv \(reference.identifier)",
+                                       observedIn: snapshot.observation.readContext)
         guard sessionID == scope else { throw CancellationError() }
         if !stayInSearch { searchExternal = false; libraryQuery = "" }
     }
@@ -1606,7 +1609,7 @@ final class ReaderModel {
         do {
             _ = try await commands.enqueue(.setMembership(documentID: item.documentID, present: false,
                                                          expectedRevision: item.membershipRevision, approvalID: item.approvalID),
-                                           display: String(paper.title.unicodeScalars.prefix(200)))
+                                           display: String(paper.title.unicodeScalars.prefix(200)), observedIn: snapshot.observation.readContext)
         } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 
@@ -1618,7 +1621,7 @@ final class ReaderModel {
         let scope = sessionID
         do {
             _ = try await commands.enqueue(.setArchived(documentID: item.documentID, archived: archived, expectedRevision: item.membershipRevision),
-                                           display: String(paper.title.unicodeScalars.prefix(200)))
+                                           display: String(paper.title.unicodeScalars.prefix(200)), observedIn: snapshot.observation.readContext)
         } catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 
@@ -1683,7 +1686,8 @@ final class ReaderModel {
         let scope = sessionID
         do {
             try await commands.editTags(documentID: item.documentID, tags: edit.own, hiddenTags: edit.hidden,
-                                        observedRevision: item.membershipRevision, display: String(paper.title.unicodeScalars.prefix(200)))
+                                        observedRevision: item.membershipRevision, display: String(paper.title.unicodeScalars.prefix(200)),
+                                        observedIn: snapshot.observation.readContext)
             return nil
         } catch LibraryCommandError.targetBusy {
             return "This paper has another change waiting to sync. Try again in a moment."
@@ -1710,13 +1714,14 @@ final class ReaderModel {
             return
         }
         #endif
-        guard canChangeLibrary, let commands = libraryCommandCoordinator,
-              completeLibrary?.imports.contains(where: { $0.id == item.id && $0.intentRevision == item.intentRevision }) == true,
+        guard canChangeLibrary, let commands = libraryCommandCoordinator, let snapshot = completeLibrary,
+              snapshot.imports.contains(where: { $0.id == item.id && $0.intentRevision == item.intentRevision }),
               !retry || (item.phase == .failed && item.retryable) else { return }
         let scope = sessionID
         let mutation: LibraryMutation = retry ? .retryImport(importID: item.id, expectedRevision: item.intentRevision)
             : .cancelImport(importID: item.id, expectedRevision: item.intentRevision)
-        do { _ = try await commands.enqueue(mutation, display: String((item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)).unicodeScalars.prefix(200))) }
+        do { _ = try await commands.enqueue(mutation, display: String((item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: item.sourceID)).unicodeScalars.prefix(200)),
+                                            observedIn: snapshot.observation.readContext) }
         catch { if sessionID == scope, !(error is CancellationError) { show(error) } }
     }
 
