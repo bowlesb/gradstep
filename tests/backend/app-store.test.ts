@@ -6,7 +6,8 @@ import { once } from 'node:events';
 import jsrsasign from 'jsrsasign';
 import {
   appleRootCertificates, appleVerifier, claimedEnvironment, FINAL_OUTCOMES, handleNotification, StoreVerificationError, storeConfig,
-  storeSubmissionReference, syncTransactions, transactionRecord, verificationError, type StoreDeps, type StoreTransactionRecord,
+  storeSubmissionReference, syncTransactions, transactionRecord, verificationError, storeVerificationObservation, storeRuntimeDiagnostic, storeCryptoCapabilities,
+  storeRecordingCode, type StoreDeps, type StoreTransactionRecord, type StoreVerificationObservation,
 } from '../../supabase/functions/_shared/app-store.ts';
 import { VerificationException, VerificationStatus } from '@apple/app-store-server-library';
 
@@ -118,7 +119,7 @@ test('sync records each verified transaction for the caller and reports the rest
   assert.deepEqual(results.map(({ support_reference, diagnostic, ...result }) => result),
     [{ transaction_id: '2000000123456789', outcome: 'recorded', credits: 800 }, { outcome: 'invalid' }, { outcome: 'environment_unavailable' }]);
   assert.deepEqual(results.map(r => r.support_reference), signed.map(s => storeSubmissionReference(ACCOUNT, s)));
-  assert.deepEqual(results[1].diagnostic, { stage: 'signature_or_payload', apple_status: 'verification_failure' });
+  assert.deepEqual(results[1].diagnostic, { stage: 'signature_or_payload', apple_status: 'verification_failure', transport_code: 'other' });
   assert.equal(d.transactions.length, 1);
   assert.equal(d.transactions[0].accountID, ACCOUNT);
   assert.ok(FINAL_OUTCOMES.has('recorded') && FINAL_OUTCOMES.has('already_recorded') && !FINAL_OUTCOMES.has('linked_to_another_account'));
@@ -239,4 +240,176 @@ test('database and observation failures remain retryable without becoming invali
     async finishVerification() { throw Error('observation_ack_unknown'); } }, ACCOUNT, { transactions: [pki.sign(transaction())] }), /observation_ack_unknown/);
   assert.equal(verifies, 2, 'one verification per invocation, no hidden verification retry');
   assert.equal(d.transactions.length, 1, 'the second invocation reached the authoritative ledger once');
+});
+
+
+test('diagnostics separate chain, signature, application, input and environment without changing outcomes', async () => {
+  const observations: StoreVerificationObservation[] = [];
+  const d = deps();
+  const observed = { ...d.value, observeVerification: (value: StoreVerificationObservation) => observations.push(value) };
+  const results = await syncTransactions(observed, ACCOUNT, { transactions: [pki.sign(transaction()), pki.sign(transaction(), true),
+    pki.sign(transaction({ bundleId: 'com.example.other' })), pki.sign(transaction({ environment: 'Production' })), 'not-a-receipt'] });
+  assert.deepEqual(results.map(r => r.outcome), ['recorded', 'invalid', 'invalid', 'environment_unavailable', 'invalid']);
+  assert.deepEqual(observations.map(o => o.stage), ['recording', 'signature_or_payload', 'application', 'environment', 'input']);
+  assert.equal(observations[1].apple_status, 'verification_failure');
+  assert.equal(observations[2].apple_status, 'invalid_app_identifier');
+  observations.length = 0;
+  const rejectedSigned = pki.sign(transaction());
+  const rejected = await syncTransactions({ ...observed, verifier: appleVerifier(config) }, ACCOUNT, { transactions: [rejectedSigned] });
+  assert.deepEqual(rejected, [{ outcome: 'invalid', support_reference: storeSubmissionReference(ACCOUNT, rejectedSigned),
+    diagnostic: { stage: 'certificate_chain', apple_status: 'verification_failure' } }]);
+  assert.deepEqual(observations, [{ outcome: 'invalid', stage: 'certificate_chain', apple_status: 'verification_failure' }]);
+  assert.equal(d.transactions.length, 1, 'only the valid purchase reaches the money path');
+  assert.ok(!JSON.stringify(observations).includes(ACCOUNT));
+});
+
+test('normalization, SQL refusals and recording outages retain distinct finite stages', async () => {
+  const observations: StoreVerificationObservation[] = [];
+  const d = deps();
+  const observed: StoreDeps = { ...d.value, observeVerification: value => observations.push(value) };
+  const normalize = await syncTransactions({ ...observed, verifier: { ...d.value.verifier, async transaction() { return transaction({ purchaseDate: 1.25 }) as any; } } }, ACCOUNT, { transactions: ['synthetic'] });
+  assert.deepEqual(normalize, [{ outcome: 'invalid', diagnostic: { stage: 'transaction_fields' }, support_reference: storeSubmissionReference(ACCOUNT, 'synthetic') }]);
+  assert.deepEqual(observations.pop(), { outcome: 'invalid', stage: 'transaction_fields' });
+  for (const code of ['invalid_store_transaction', 'store_transaction_conflict', 'invalid_store_notification'] as const) {
+    assert.equal(storeRecordingCode('private SQL body: ' + code), code);
+    const signed = pki.sign(transaction());
+    const result = await syncTransactions({ ...observed, async recordTransaction() { return { outcome: 'invalid', recordingCode: code }; } }, ACCOUNT, { transactions: [signed] });
+    assert.deepEqual(result, [{ transaction_id: '2000000123456789', outcome: 'invalid', diagnostic: { stage: 'recording' },
+      support_reference: storeSubmissionReference(ACCOUNT, signed) }]);
+    assert.deepEqual(observations.pop(), { outcome: 'invalid', stage: 'recording', recording_code: code });
+  }
+  assert.equal(storeRecordingCode('private unrecognized SQL refusal'), undefined);
+  const outage = new Error('private database body never emitted');
+  await assert.rejects(syncTransactions({ ...observed, async recordTransaction() { throw outage; } }, ACCOUNT, { transactions: [pki.sign(transaction())] }), error => error === outage);
+  assert.deepEqual(observations.pop(), { outcome: 'recording_unavailable', stage: 'recording' });
+  assert.equal(d.transactions.length, 0);
+});
+
+test('observer failures and malformed observer values never change results or leak arbitrary data', async () => {
+  const d = deps();
+  const throwing: StoreDeps = { ...d.value, observeVerification() { throw new Error('logging failed with private body'); } };
+  const signed = pki.sign(transaction());
+  const results = await syncTransactions(throwing, ACCOUNT, { transactions: [signed, 'bad'] });
+  assert.deepEqual(results, [{ transaction_id: '2000000123456789', outcome: 'recorded', credits: 800, support_reference: storeSubmissionReference(ACCOUNT, signed) },
+    { outcome: 'invalid', diagnostic: { stage: 'input' }, support_reference: storeSubmissionReference(ACCOUNT, 'bad') }]);
+  assert.equal(d.transactions.length, 1);
+  const privateValue = { message: 'PRIVATE_JWS', toString() { throw Error('must not coerce private values'); } };
+  const expected = { outcome: 'unrecognized', stage: 'signature_or_payload' };
+  for (const value of [null, undefined, 5, 'PRIVATE_JWS', privateValue, { stage: privateValue, apple_status: privateValue, transport_code: privateValue },
+    { stage: 'PRIVATE_JWS', apple_status: 'PRIVATE_CERTIFICATE', transport_code: 'PRIVATE_URL', signed: 'PRIVATE_JWS' }]) {
+    assert.deepEqual(storeVerificationObservation(privateValue, value, privateValue), expected);
+  }
+  assert.deepEqual(storeVerificationObservation('invalid', { stage: 'input', signed: 'PRIVATE_JWS', account: ACCOUNT }), { outcome: 'invalid', stage: 'input' });
+  const observations: StoreVerificationObservation[] = [];
+  await syncTransactions({ ...d.value, observeVerification: value => observations.push(value), verifier: { ...d.value.verifier,
+    async transaction() { throw new StoreVerificationError('invalid', { stage: 'PRIVATE_JWS', apple_status: privateValue, transport_code: privateValue } as any); } } }, ACCOUNT, { transactions: ['private-signed-input'] });
+  assert.deepEqual(observations, [{ outcome: 'invalid', stage: 'signature_or_payload' }]);
+});
+
+test('online verification uses the real SDK and remains retryable on a local OCSP outage', async () => {
+  let requests = 0;
+  const server = createServer((request, response) => {
+    requests++; assert.equal(request.method, 'POST'); assert.equal(request.headers['content-type'], 'application/ocsp-request');
+    request.resume(); response.writeHead(503).end('private-provider-body-never-logged');
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const chain = testPKI(`http://127.0.0.1:${(server.address() as { port: number }).port}/ocsp`);
+    const d = deps(); const observations: StoreVerificationObservation[] = [];
+    const signed = chain.sign(transaction());
+    const results = await syncTransactions({ ...d.value, verifier: appleVerifier({ ...config, onlineChecks: true }, [chain.root]),
+      observeVerification: value => observations.push(value) }, ACCOUNT, { transactions: [signed] });
+    assert.deepEqual(results, [{ outcome: 'verification_unavailable', support_reference: storeSubmissionReference(ACCOUNT, signed),
+      diagnostic: { stage: 'revocation', apple_status: 'retryable_verification_failure' } }]);
+    assert.deepEqual(observations, [{ outcome: 'verification_unavailable', stage: 'revocation', apple_status: 'retryable_verification_failure' }]);
+    assert.equal(d.transactions.length, 0, 'no offline fallback or invented grant');
+    assert.ok(requests >= 1 && requests <= 2, 'only the leaf/intermediate checks, with no extra verification attempt');
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('transport observations use a closed vocabulary even for nested or cyclic causes', () => {
+  const cause = Object.assign(new Error('PRIVATE_JWS and PRIVATE_URL'), { code: 'ECONNRESET' });
+  assert.deepEqual(verificationError(new VerificationException(VerificationStatus.RETRYABLE_VERIFICATION_FAILURE, cause)).diagnostic,
+    { stage: 'signature_or_payload', apple_status: 'retryable_verification_failure', transport_code: 'connection' });
+  const runtime = Object.assign(new Error('PRIVATE_RUNTIME_MESSAGE'), { code: 'ERR_NOT_IMPLEMENTED' });
+  assert.deepEqual(verificationError(new VerificationException(VerificationStatus.VERIFICATION_FAILURE, runtime)).diagnostic,
+    { stage: 'signature_or_payload', apple_status: 'verification_failure', transport_code: 'runtime' });
+  const cycle: any = new Error('PRIVATE'); cycle.cause = cycle;
+  assert.deepEqual(verificationError(cycle).diagnostic, { stage: 'signature_or_payload' });
+  const unsafe = Object.assign(new Error('PRIVATE'), { code: { toString() { throw Error('do not coerce'); } } });
+  assert.deepEqual(verificationError(unsafe).diagnostic, { stage: 'signature_or_payload' });
+});
+
+test('runtime probe is public-only, bounded and survives unimplemented certificate primitives', () => {
+  assert.deepEqual(storeRuntimeDiagnostic('2.9.6'), { release: 'purchase-diagnostics-v1', apple_library: '3.1.0', deno: '2.9.6' });
+  for (const value of ['2.9.6\nPRIVATE', 'PRIVATE', { version: 'PRIVATE' }, null]) assert.equal(storeRuntimeDiagnostic(value).deno, 'unknown');
+  const all = { certificate_parse: true, certificate_string: true, certificate_raw: true, public_key_export: true,
+    certificate_verify: true, certificate_info_access: true };
+  assert.deepEqual(storeCryptoCapabilities(), all);
+  assert.deepEqual(storeCryptoCapabilities(() => { throw Error('PRIVATE runtime error'); }), Object.fromEntries(Object.keys(all).map(k => [k, false])));
+  let created = 0;
+  assert.deepEqual(storeCryptoCapabilities(der => {
+    created++; assert.deepEqual(der, appleRootCertificates()[0], 'the sole input is the bundled public root');
+    return { toString() { throw Error('PRIVATE'); }, get raw() { throw Error('PRIVATE'); },
+      get publicKey() { throw Error('PRIVATE'); }, verify() { throw Error('PRIVATE'); },
+      get infoAccess() { throw Error('PRIVATE'); } } as any;
+  }), { ...Object.fromEntries(Object.keys(all).map(k => [k, false])), certificate_parse: true });
+  assert.equal(created, 1);
+  const root = new X509Certificate(appleRootCertificates()[0]);
+  assert.equal(root.infoAccess, undefined, 'root has no AIA; successful undefined still proves the getter is implemented');
+});
+
+
+test('merged durable admission and console diagnostics finish and observe each actual attempt once', async () => {
+  const d = deps(); const events: string[] = []; const attempts: string[] = [];
+  const signed = pki.sign(transaction());
+  const combined: StoreDeps = { ...d.value,
+    async beginVerification(_account, attempt) { events.push('begin'); attempts.push(attempt); return true; },
+    async finishVerification(_account, attempt, outcome) { assert.equal(attempt, attempts.at(-1)); events.push('finish:' + outcome); },
+    observeVerification(observation) { events.push('observe:' + observation.outcome); throw Error('logger unavailable'); },
+    verifier: { ...d.value.verifier, async transaction(value) {
+      events.push('verify');
+      if (value === 'outage') throw new StoreVerificationError('verification_unavailable', { stage: 'revocation' });
+      return d.value.verifier.transaction(value);
+    } },
+    async recordTransaction(account, record) { events.push('record'); return d.value.recordTransaction(account, record); },
+  };
+  const results = await syncTransactions(combined, ACCOUNT, { transactions: [signed, 'outage', 'unattempted'] });
+  assert.deepEqual(events, ['begin', 'verify', 'record', 'finish:recorded', 'observe:recorded',
+    'begin', 'verify', 'finish:verification_unavailable', 'observe:verification_unavailable']);
+  assert.equal(d.transactions.length, 1); assert.equal(new Set(attempts).size, 2);
+  assert.deepEqual(results.map(r => r.outcome), ['recorded', 'verification_unavailable', 'verification_unavailable']);
+  assert.equal(results[2].diagnostic?.stage, 'deferred');
+  assert.deepEqual(results.map(r => r.support_reference), [signed, 'outage', 'unattempted'].map(value => storeSubmissionReference(ACCOUNT, value)));
+  events.length = 0;
+  const refused = await syncTransactions({ ...combined, async beginVerification() { events.push('refused'); return false; } }, ACCOUNT, { transactions: [signed, signed] });
+  assert.deepEqual(events, ['refused'], 'no finish or console attempt for an unadmitted/unattempted receipt');
+  assert.deepEqual(refused.map(r => r.diagnostic?.stage), ['admission', 'deferred']);
+  events.length = 0;
+  const unavailable = await syncTransactions({ ...combined, async recordTransaction() { events.push('record'); return { outcome: 'verification_unavailable' }; } },
+    ACCOUNT, { transactions: [signed, signed] });
+  assert.deepEqual(unavailable.map(r => r.diagnostic?.stage), ['recording', 'deferred']);
+  assert.deepEqual(events, ['begin', 'verify', 'record', 'finish:verification_unavailable', 'observe:verification_unavailable'],
+    'a transient recorded outcome preserves the same batch deferral rule');
+});
+
+test('merged finish failures and recorder errors never duplicate a financial write or diagnostic finish', async () => {
+  const d = deps(); let finishes = 0; let observations = 0;
+  const signed = pki.sign(transaction());
+  const combined: StoreDeps = { ...d.value, async beginVerification() { return true; },
+    async finishVerification() { finishes++; throw Error('finish_ack_unknown'); },
+    observeVerification() { observations++; } };
+  await assert.rejects(syncTransactions(combined, ACCOUNT, { transactions: [signed] }), /finish_ack_unknown/);
+  assert.equal(d.transactions.length, 1); assert.equal(finishes, 1); assert.equal(observations, 0);
+  finishes = 0;
+  const recorderError = new StoreVerificationError('invalid', { stage: 'input' });
+  const outcomes: string[] = [];
+  await assert.rejects(syncTransactions({ ...combined,
+    async recordTransaction() { throw recorderError; },
+    async finishVerification(_account, _attempt, outcome, diagnostic) {
+      finishes++; outcomes.push(outcome); assert.deepEqual(diagnostic, { stage: 'recording' });
+    },
+  }, ACCOUNT, { transactions: [signed] }), error => error === recorderError);
+  assert.deepEqual(outcomes, ['recording_unavailable']); assert.equal(finishes, 1); assert.equal(observations, 1);
+  assert.equal(d.transactions.length, 1, 'no second transaction recorded or granted by either failure');
 });

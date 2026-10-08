@@ -2,12 +2,17 @@
 
 Status: implemented and tested locally (migration `202610050018_app_store_purchases.sql`, Edge functions `store-sync` and
 `app-store-notifications`, Settings › Get credits); App Store Connect products created. An independent review's findings were
-fixed. Not yet verified with a real sandbox purchase.
+fixed. **Hosted purchases currently fail verification:** the v36 diagnostic probe on 2026-10-07
+confirmed missing hosted certificate primitives required by Apple's SDK. Standalone Node/Deno tests
+had not exposed this runtime difference. No successful staging App Store transaction has been recorded.
+See the [incident evidence and runtime repair](../reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
+Not yet verified with a real sandbox purchase.
 
 **2026-10-07 spending-controls branch:** migration036 closes the concurrent Sandbox identity allowance gap and
 requires a current or previously verified app-transaction identity for new free grants. This addition is not yet
 deployed. See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036). The historical upgrade
 behavior below still conflicts with the owner's decision to retain earlier period credits;036 does not change it.
+
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
 pack = 400 credits that never expire; TestFlight testers get 1,000 credits by operator grant.
 
@@ -137,7 +142,11 @@ both temporary verification outages and permanently refused data, so it does **n
 OCSP as the cause. A public, real Apple signing-certificate chain from Apple's library tests
 passes the pinned library's online checks locally in Node 24 and Deno 2.9.6. This is evidence
 about those local runtimes, not the deployed Edge runtime or the owner's signed transaction.
-Sandbox revocation checks stay enabled. Production configuration must never disable them.
+The hosted v36 public-root probe subsequently proved missing certificate primitives; see the incident linked above.
+This branch preserves its finite runtime/console probes alongside the durable admission and observation records
+below. Console failures cannot alter the durable finish or credit recording, and each admitted attempt has at most
+one finish and one console observation. Sandbox revocation checks stay enabled. Production configuration must
+never disable them.
 
 Migration `202610070038_purchase_verification_observations.sql` adds a separate, bounded
 diagnostic record; it does not alter credit grants, StoreKit transaction ownership, or refunds.
@@ -222,3 +231,14 @@ database. Each owner ledger page adds one read-only RPC; its two indexes add dat
 to the existing financial tables. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
 to the existing database allocation. Review actual database growth after deployment. The
 existing $100/month operating budget is unchanged.
+
+
+Integration checkpoint, 2026-10-07: main `8d716ba` (the deployed v36 finite console/runtime probes and updated
+purchase refusal wording) is merged into the local spending-controls branch. The durable 038 admission and
+finish calls, opaque support references, batch deferral and owner ledger remain intact. Console observation is
+separate and nonfatal; recording errors cannot be recategorized as signature refusals or finish one attempt twice.
+Migrations 034–038, grant/refund rules and admin ledger queries are unchanged; uploads 039 are not included.
+Combined checks pass: 275 backend tests, 20 focused purchase tests in Node and Deno, production type-checks for
+both purchase Edge entry points, the complete disposable database suite with purchase/allowance/observation
+races, and six native purchase tests with a compiled empty backend URL/key. Evidence is under
+`.artifacts/purchase-main-merge/`. This merge is local and does not repair the incompatible hosted runtime.

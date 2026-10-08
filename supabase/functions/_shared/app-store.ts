@@ -6,7 +6,7 @@
 import { Environment, SignedDataVerifier, VerificationException, VerificationStatus } from '@apple/app-store-server-library';
 import type { JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload } from '@apple/app-store-server-library';
 import { Buffer } from 'node:buffer';
-import { createHash, randomUUID, type KeyObject, type X509Certificate } from 'node:crypto';
+import { createHash, randomUUID, type KeyObject, X509Certificate } from 'node:crypto';
 
 /** Apple Root CA - G3 (DER, base64), from https://www.apple.com/certificateauthority/. */
 const APPLE_ROOT_CA_G3 = 'MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQL'
@@ -114,11 +114,12 @@ function transportCode(error: unknown): VerificationTransportCode | undefined {
   for (let i = 0; value && typeof value === 'object' && i < 8 && !seen.has(value); i++) {
     seen.add(value);
     const cause = value as { code?: unknown; type?: unknown; name?: unknown; cause?: unknown };
-    if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(String(cause.code)) || ['request-timeout', 'body-timeout'].includes(String(cause.type))) return 'timeout';
-    if (['ENOTFOUND', 'EAI_AGAIN'].includes(String(cause.code))) return 'dns';
-    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH'].includes(String(cause.code))) return 'connection';
-    if (['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(String(cause.code))) return 'tls';
-    if (['NotSupportedError', 'NotCapable'].includes(String(cause.name))) return 'runtime';
+    if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(typeof cause.code === 'string' ? cause.code : '') || ['request-timeout', 'body-timeout'].includes(typeof cause.type === 'string' ? cause.type : '')) return 'timeout';
+    if (['ENOTFOUND', 'EAI_AGAIN'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'dns';
+    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'connection';
+    if (['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'tls';
+    if (['NotSupportedError', 'NotCapable'].includes(typeof cause.name === 'string' ? cause.name : '')
+      || cause.code === 'ERR_NOT_IMPLEMENTED') return 'runtime';
     if (!cause.cause) return cause.name === 'FetchError' ? 'network' : i > 0 && !(value instanceof VerificationException) ? 'other' : undefined;
     value = cause.cause;
   }
@@ -132,7 +133,7 @@ export function verificationError(error: unknown): StoreVerificationError {
   const stage = error instanceof StageVerificationException ? error.stage
     : status === VerificationStatus.INVALID_APP_IDENTIFIER ? 'application'
     : status === VerificationStatus.INVALID_ENVIRONMENT ? 'environment' : 'signature_or_payload';
-  const transport = stage === 'revocation' || status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? transportCode(error) : undefined;
+  const transport = transportCode(error);
   return new StoreVerificationError(status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? 'verification_unavailable' : 'invalid',
     { stage, ...(appleStatus ? { apple_status: appleStatus } : {}), ...(transport ? { transport_code: transport } : {}) });
 }
@@ -222,12 +223,66 @@ export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; cre
 export const FINAL_OUTCOMES: ReadonlySet<SyncOutcome> = new Set(['recorded', 'updated', 'already_recorded']);
 export const MAX_SYNC_TRANSACTIONS = 25;
 
+export type StoreRecordingCode = 'invalid_store_transaction' | 'store_transaction_conflict' | 'invalid_store_notification';
+export interface StoreVerificationObservation extends VerificationDiagnostic {
+  outcome: SyncOutcome | 'recording_unavailable' | 'unrecognized';
+  recording_code?: StoreRecordingCode;
+}
+
+/** Finite SQL refusal categories only; the private database message stays local. */
+export function storeRecordingCode(message: string): StoreRecordingCode | undefined {
+  return message.match(REJECTED_DATA)?.[0] as StoreRecordingCode | undefined;
+}
+
+/** A closed output schema, even if a runtime dependency returns extra properties. */
+export function storeVerificationObservation(outcome: unknown, value: unknown,
+  recordingCode?: unknown): StoreVerificationObservation {
+  const outcomes: ReadonlySet<string> = new Set(['recorded', 'updated', 'already_recorded', 'linked_to_another_account',
+    'account_closed', 'unknown_product', 'unsupported', 'unattributed', 'invalid', 'environment_unavailable',
+    'verification_unavailable', 'recording_unavailable']);
+  const stages: ReadonlySet<string> = new Set(['input', 'environment', 'certificate_chain', 'revocation', 'signature_or_payload',
+    'application', 'transaction_fields', 'recording', 'admission', 'deferred']);
+  const transports: ReadonlySet<string> = new Set(['timeout', 'dns', 'connection', 'tls', 'network', 'runtime', 'other']);
+  const diagnostic = (value && typeof value === 'object' ? value : {}) as Partial<VerificationDiagnostic>;
+  const observation: StoreVerificationObservation = { outcome: typeof outcome === 'string' && outcomes.has(outcome) ? outcome as StoreVerificationObservation['outcome'] : 'unrecognized',
+    stage: typeof diagnostic.stage === 'string' && stages.has(diagnostic.stage) ? diagnostic.stage : 'signature_or_payload' };
+  if (diagnostic.apple_status && Object.values(APPLE_STATUSES).includes(diagnostic.apple_status)) observation.apple_status = diagnostic.apple_status;
+  if (diagnostic.transport_code && transports.has(diagnostic.transport_code)) observation.transport_code = diagnostic.transport_code;
+  if (typeof recordingCode === 'string' && ['invalid_store_transaction', 'store_transaction_conflict', 'invalid_store_notification'].includes(recordingCode)) observation.recording_code = recordingCode as StoreRecordingCode;
+  return observation;
+}
+
+/** Identifies the actual runtime without echoing an arbitrary environment value. */
+export function storeRuntimeDiagnostic(denoVersion: unknown) {
+  return { release: 'purchase-diagnostics-v1', apple_library: '3.1.0',
+    deno: typeof denoVersion === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(denoVersion) ? denoVersion : 'unknown' };
+}
+
+/** Once-per-isolate, zero-network probe of public-certificate primitives used by
+ * Apple's SDK. Standalone Deno can support APIs absent from hosted Edge runtimes.
+ * Nothing from a customer transaction is accepted or returned here. */
+export function storeCryptoCapabilities(createCertificate: (der: Buffer) => X509Certificate = der => new X509Certificate(der)) {
+  const capabilities = { certificate_parse: false, certificate_string: false, certificate_raw: false,
+    public_key_export: false, certificate_verify: false, certificate_info_access: false };
+  let root: X509Certificate;
+  try { root = createCertificate(appleRootCertificates()[0]); capabilities.certificate_parse = true; }
+  catch { return capabilities; }
+  try { capabilities.certificate_string = typeof root.toString() === 'string'; } catch { /* fixed boolean only */ }
+  try { capabilities.certificate_raw = Buffer.isBuffer(root.raw) && root.raw.length > 0; } catch { /* fixed boolean only */ }
+  try { capabilities.public_key_export = typeof root.publicKey.export({ type: 'spki', format: 'pem' }) === 'string'; } catch { /* fixed boolean only */ }
+  try { capabilities.certificate_verify = root.verify(root.publicKey); } catch { /* fixed boolean only */ }
+  try { void root.infoAccess; capabilities.certificate_info_access = true; } catch { /* fixed boolean only */ }
+  return capabilities;
+}
+
 export interface StoreDeps {
+  /** Content-free console observability; failure must never alter purchase processing. */
+  observeVerification?(observation: StoreVerificationObservation): void;
   verifier: StoreVerifier;
   /** Required together by the production store-sync adapter. Optional for standalone verification tests. */
   beginVerification?(accountID: string, attemptID: string, submissionSHA256: string): Promise<boolean>;
   finishVerification?(accountID: string, attemptID: string, outcome: SyncOutcome | 'recording_unavailable', diagnostic?: VerificationDiagnostic): Promise<void>;
-  recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number }>;
+  recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number; recordingCode?: StoreRecordingCode }>;
   recordNotification(input: { environment: string; notification_uuid: string; type: string; subtype: string | null;
     signed_at: string; transaction: StoreTransactionRecord | null }): Promise<{ outcome: string; duplicate?: boolean }>;
 }
@@ -243,6 +298,11 @@ export async function syncTransactions(deps: StoreDeps, accountID: string, body:
   const list = (body as { transactions?: unknown })?.transactions;
   if (!Array.isArray(list) || list.length === 0 || list.length > MAX_SYNC_TRANSACTIONS || list.some(s => typeof s !== 'string')) throw new Error('invalid_request');
   if (!!deps.beginVerification !== !!deps.finishVerification) throw new Error('verification_observation_configuration');
+  // Durable admission/finish is mandatory in production; console observations
+  // are separate and may never turn a confirmed database write into a failure.
+  const observe = (outcome: string, diagnostic: VerificationDiagnostic, recordingCode?: StoreRecordingCode) => {
+    try { deps.observeVerification?.(storeVerificationObservation(outcome, diagnostic, recordingCode)); } catch { /* observability is nonfinancial */ }
+  };
   const results: SyncResult[] = [];
   let deferred = false;
   for (const signed of list as string[]) {
@@ -255,30 +315,35 @@ export async function syncTransactions(deps: StoreDeps, accountID: string, body:
       results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'admission' } });
       deferred = true; continue;
     }
-    let result: SyncResult;
-    try {
-      const decoded = await deps.verifier.transaction(signed);
-      const record = transactionRecord(decoded);
-      if (!record) result = { outcome: 'invalid', diagnostic: { stage: 'transaction_fields' } };
-      else {
-        let recorded: { outcome: string; credits?: number };
-        try { recorded = await deps.recordTransaction(accountID, record); }
-        catch (error) {
-          await deps.finishVerification?.(accountID, attemptID, 'recording_unavailable', { stage: 'recording' });
-          throw error;
-        }
-        result = { transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
-          ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
-          ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) };
-      }
-    } catch (error) {
-      // Database/observation failures propagate (HTTP 503); they are not mislabeled invalid JWS.
+    const complete = async (result: SyncResult, recordingCode?: StoreRecordingCode) => {
+      await deps.finishVerification?.(accountID, attemptID, result.outcome, result.diagnostic);
+      observe(result.outcome, result.diagnostic ?? { stage: 'recording' }, recordingCode);
+      results.push({ ...result, support_reference: reference });
+      if (result.outcome === 'verification_unavailable') deferred = true;
+    };
+    let decoded: JWSTransactionDecodedPayload;
+    try { decoded = await deps.verifier.transaction(signed); }
+    catch (error) {
+      // Unexpected verifier failures remain HTTP 503/unconfirmed; only the
+      // verifier's finite refusals become a completed diagnostic attempt.
       if (!(error instanceof StoreVerificationError)) throw error;
-      result = { outcome: error.code, diagnostic: error.diagnostic };
+      await complete({ outcome: error.code, diagnostic: error.diagnostic });
+      continue;
     }
-    await deps.finishVerification?.(accountID, attemptID, result.outcome, result.diagnostic);
-    results.push({ ...result, support_reference: reference });
-    if (result.outcome === 'verification_unavailable') deferred = true;
+    const record = transactionRecord(decoded);
+    if (!record) { await complete({ outcome: 'invalid', diagnostic: { stage: 'transaction_fields' } }); continue; }
+    let recorded: Awaited<ReturnType<StoreDeps['recordTransaction']>>;
+    try { recorded = await deps.recordTransaction(accountID, record); }
+    catch (error) {
+      // Keep recorder errors outside the verifier catch: a shared error class
+      // must not relabel a database outage or finish the same attempt twice.
+      await deps.finishVerification?.(accountID, attemptID, 'recording_unavailable', { stage: 'recording' });
+      observe('recording_unavailable', { stage: 'recording' });
+      throw error;
+    }
+    await complete({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
+      ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
+      ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) }, recorded.recordingCode);
   }
   return results;
 }

@@ -12,13 +12,17 @@ The screenshot shows **17 credits available** and the purchase alert:
 “Your purchase went through, but we couldn’t add the credits yet. The app will try again automatically.”
 The owner reported the same failed-credit experience again during the Codex takeover.
 
-**Investigating; not fixed or verified.** This is TestFlight feedback, not an in-app
+**Hosted runtime incompatibility found; not fixed or verified end to end.** This is TestFlight feedback, not an in-app
 support report. The screenshot was downloaded and inspected; its private local copy is
 `.artifacts/feedback/credits-APgSDbWf0gMbTamRckWVdHs.png`. The generic alert does not identify
-which verification/recording step failed. Trace the actual server outcomes, preserve Apple
-signature/revocation verification, and verify a real Sandbox purchase reaches its once-only
-credit grant before marking this resolved. Local purchase observations/admin ledger work is
-reviewed but not deployed; receipt recorded and credits granted must remain distinct states.
+which verification/recording step failed. Eight `invalid` server outcomes surround that attempt;
+staging had recorded no App Store transactions. A separately reviewed diagnostic-only deployment
+(`store-sync` v36,17:50 PDT) proved the hosted runtime lacks certificate operations required by
+Apple's library. [Evidence and repair boundary](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
+Preserve signature/revocation verification and verify a real Sandbox purchase reaches its once-only
+credit grant after the runtime repair before marking this resolved. Native refusal wording is
+corrected in main `64c0873` for the next build, not build16. Durable purchase observations/admin
+ledger work remains local; receipt recorded and credits granted are distinct states.
 
 ## Build 14, 2026-10-07 (iPhone, 11 items)
 
