@@ -75,13 +75,25 @@ export async function open(key: CryptoKey, combined: Bytes, aad: Bytes): Promise
 export const eventAAD = (account: string, event: string, device: string, epoch: number, format = 1): Bytes =>
   utf8(`science-reader/event/v1\n${wireUUID(account)}\n${wireUUID(event)}\n${wireUUID(device)}\n${epoch}\n${format}\n`);
 
-/** Content keys imported for use only: page code can encrypt/decrypt with them but never read them back. */
-export interface KeyRing { accountID: string; epoch: number; keys: Map<number, CryptoKey>; managementToken: Bytes }
+/** The ring retains nonextractable event and domain-separated descriptor keys, not their raw content bytes. */
+export interface KeyRing {
+  accountID: string;
+  epoch: number;
+  keys: Map<number, CryptoKey>;
+  descriptorKeys: Map<number, CryptoKey>;
+  managementToken: Bytes;
+}
 export async function keyRing(bundle: KeyBundle): Promise<KeyRing> {
   validateBundle(bundle, bundle.accountID);
-  const keys = new Map<number, CryptoKey>();
-  for (const [epoch, raw] of Object.entries(bundle.contentKeys)) keys.set(Number(epoch), await aesKey(raw));
-  return { accountID: wireUUID(bundle.accountID), epoch: bundle.epoch, keys, managementToken: bundle.managementToken.slice() };
+  const accountID = wireUUID(bundle.accountID);
+  const keys = new Map<number, CryptoKey>(), descriptorKeys = new Map<number, CryptoKey>();
+  for (const [epoch, raw] of Object.entries(bundle.contentKeys)) {
+    keys.set(Number(epoch), await aesKey(raw));
+    // Derive while the bundle's raw key is available. Event keys above remain
+    // nonextractable and must never be exported to create this separate domain.
+    descriptorKeys.set(Number(epoch), await hkdfAES(raw, utf8(accountID), utf8('science-reader/library-descriptor/key/v1')));
+  }
+  return { accountID, epoch: bundle.epoch, keys, descriptorKeys, managementToken: bundle.managementToken.slice() };
 }
 
 export interface EventEnvelope { id: string; deviceID: string; epoch: number; format: number; ciphertext: Bytes }
