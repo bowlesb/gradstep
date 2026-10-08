@@ -287,7 +287,8 @@ async function chat(acct, body, { signal, timeoutMs = 180_000 } = {}) {
     body: JSON.stringify({ operation_id: operation, consent_version: CONSENT, ...body }),
     signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) });
   acct.touched = true;
-  const result = { operation, status: response.status, answer: '', done: null, error: null, diagram: null, firstTokenMs: null, ms: 0 };
+  const result = { operation, status: response.status, answer: '', done: null, error: null, diagram: null, firstTokenMs: null, firstStatusMs: null,
+    headersMs: Date.now() - started, statuses: [], ms: 0 };
   if (response.status !== 200) { result.error = { code: (await response.json().catch(() => ({}))).code ?? `http_${response.status}` }; return result; }
   const decoder = new TextDecoder(); let buffer = '';
   for await (const chunk of response.body) {
@@ -299,6 +300,8 @@ async function chat(acct, body, { signal, timeoutMs = 180_000 } = {}) {
       if (!event || !data) continue;
       const value = JSON.parse(data);
       if (event === 'delta') { result.firstTokenMs ??= Date.now() - started; result.answer += value.text; }
+      // Progress lines (kinds only, never the query): when the reader first sees that work started.
+      else if (event === 'status') { result.firstStatusMs ??= Date.now() - started; if (result.statuses.length < 16) result.statuses.push([value.kind, Date.now() - started]); }
       else if (event === 'done') result.done = value; else if (event === 'error') result.error = value; else if (event === 'diagram') result.diagram = value;
     }
   }
@@ -684,10 +687,14 @@ check('chat.related', { title: 'Related (web search) answer lists linked sources
   const r = await chat(acct, { mode: 'paper', document_id: (await chatDocument(acct, signal)).document_id, selection: { quote }, action: 'related',
     messages: [{ role: 'user', text: `Find related papers, earlier and recent, with links: ${quote}` }] }, { signal, timeoutMs: 280_000 });
   const links = [...new Set(r.answer.match(/https:\/\/[^\s)\]>"]+/g) ?? [])];
-  const metrics = { credits: r.done?.credits ?? 0, links: links.length, total_s: r.ms / 1000 };
+  const seconds = ms => ms === null ? null : Math.round(ms / 100) / 10;
+  const metrics = { credits: r.done?.credits ?? 0, links: links.length, total_s: r.ms / 1000,
+    // Time to first feedback (owner feedback build 16 #8): the first status line and the first answer text.
+    first_status_s: seconds(r.firstStatusMs), first_token_s: seconds(r.firstTokenMs) };
   if (r.error || !r.done) return fail(`${chatSummary(r)} after ${(r.ms / 1000).toFixed(1)} s`, metrics);
   if (links.length < 2) return fail(`only ${links.length} link(s) in the answer: web search returned no sources`, metrics);
-  return pass(`${links.length} links${/\n\nSources:\n/.test(r.answer) ? ' and a Sources list' : ''}; ${chatSummary(r)} in ${(r.ms / 1000).toFixed(0)} s`, metrics);
+  return pass(`${links.length} links${/\n\nSources:\n/.test(r.answer) ? ' and a Sources list' : ''}; ${chatSummary(r)}; first status ${seconds(r.firstStatusMs) ?? '–'} s,`
+    + ` first text ${seconds(r.firstTokenMs) ?? '–'} s, total ${(r.ms / 1000).toFixed(0)} s`, metrics);
 });
 
 // The Add paper (Ingest) corpus. `after`: what a queued import must do in this suite —
