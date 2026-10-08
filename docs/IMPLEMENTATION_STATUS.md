@@ -1,16 +1,16 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `4ebd7690`, and the admin site is deployed.**
+Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `fc0771bb`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is candidate commit `89977e6` on main; Pages deployment
-  `4ebd7690` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is commit `052f2cc` on main; Pages deployment
+  `fc0771bb` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
-  paper-actions bundle. No account, provider, OCR or paid request was made by these checks.
+  paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
   Local main now also contains the encrypted
   library checkpoint codec in `3602c7d`; it is covered by the updated unit suite but remains behind the Gate-2
   descriptor contract and is not part of that deployed Pages build.
@@ -21,7 +21,8 @@ removed executor work) is retained below where useful and in git history.
   interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
   The deployed reader also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
   remove) from the paper toolbar. The prior full production-CSP Playwright run remains 146 passed / 103 expected
-  skips; the new reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip.
+  skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
+  journey passes on desktop (answer and Mermaid source copy controls).
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
