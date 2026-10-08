@@ -13,6 +13,9 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 - **Chat function** deployed. Its checks passed 15 of 16 (`chat.smoke` 2.6 s, `ingest.not-found`; $0.007 settled).
   `pipeline.stuck` failed on that same resumed import: it counts age from the original Add, and the import was then
   waiting out an OCR funding pause. Fixed by the self-healing work (041).
+- **Migration 041** (self-healing imports) applied the same night, then worker `gradstep-pipeline-00012-9xj`
+  (checks 13/13, one warning: 7 imports waiting on credits). The owner's stray import 2610.07426 ("Details
+  unavailable") is now `done`.
 - **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
   build are in progress).
 
