@@ -124,8 +124,12 @@ class PipelineReadinessTests(unittest.TestCase):
             body = kwargs.get('payload')
             if body is None:
                 return {'organization_id': READY.ORGANIZATION, 'name': 'science-reader-staging'}
+            state_query = 'begin transaction read only; ' + READY.STATE_SQL.rstrip().rstrip(';') + '; commit;'
+            if body['query'] == state_query:
+                # Service-role-only readiness functions run inside an explicitly read-only transaction.
+                self.assertIs(body['read_only'], False)
+                return [{'state': database()['state']}]
             self.assertIs(body['read_only'], True)
-            if body['query'] == READY.STATE_SQL: return [{'state': database()['state']}]
             return [{'version': key, 'sha256': value} for key, value in sources.items()]
         with mock.patch.object(READY, 'json_request', side_effect=request), \
              mock.patch.object(READY.LEDGER, 'source_ledger', return_value=sources), \

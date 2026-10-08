@@ -144,9 +144,8 @@
 		A2103D4B5129E2E105847B22 /* ScienceReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 843516A8DA0392A9FB1920D3 /* ScienceReaderApp.swift */; };
 		A61F0E125DAF829B17493F71 /* AuthenticationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75DDCC2B7B9C8AD8C39EC24E /* AuthenticationBackend.swift */; };
 		A6BB44F761C01BB08AC74553 /* mermaid.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 12D61D9D4705606671656C1A /* mermaid.min.js */; };
-		A8F4D610BC3F49B09DECF111 /* DevicePDFFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034A41C47C7F9BD10076A3D1 /* DevicePDFFetcher.swift */; };
-
 		A786E485E3FC0D9E6BC4447B /* PassageJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DCACE306F3B111C9FA0B7B /* PassageJourneyTests.swift */; };
+		A8F4D610BC3F49B09DECF111 /* DevicePDFFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 034A41C47C7F9BD10076A3D1 /* DevicePDFFetcher.swift */; };
 		A97CC2B0617F36ACBD086534 /* LibraryCommandCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3430D83196F41AA2E276D7B6 /* LibraryCommandCoordinatorTests.swift */; };
 		AABE57754E8B527961ECE92B /* ChatTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 559587C8055C36005CF1A542 /* ChatTitle.swift */; };
 		AB0AB94E5391C7CD99B0840E /* OfflineReaderFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81EDCF1A4A755DD360577485 /* OfflineReaderFixture.swift */; };
@@ -612,7 +611,6 @@
 				39FCEB742527F9BFC5998184 /* OAuthSafetyTests.swift */,
 				886420F874B0D50DA6109672 /* OfflineModelTests.swift */,
 				75729735EA770090155ACE43 /* PaperAddingTests.swift */,
-
 				B4728A35EC97B0AF1A7A5EE5 /* PaperPassageTests.swift */,
 				DDAE04EA89A6EF880D4D0135 /* PaperTableTests.swift */,
 				60C694B2CD62717FF200D090 /* PaperWebViewTests.swift */,
@@ -966,7 +964,6 @@
 				1D9E9B97B56F0C891B79F6F9 /* PDFUploadQueue.swift in Sources */,
 				014694C37E38CC57B3BECA43 /* PDFUploadViews.swift in Sources */,
 				8DC7FA28682356BA0EF13715 /* PaperAdding.swift in Sources */,
-
 				CB98962F65ED7082C19B9A2E /* PaperPassages.swift in Sources */,
 				15E1428855840D0B956EF063 /* PaperTable.swift in Sources */,
 				5A1E7A0EA3F810C09C0ED08D /* PaperView.swift in Sources */,
@@ -1044,7 +1041,6 @@
 				88E57253CF742E3D4236D3F6 /* OfflineModelTests.swift in Sources */,
 				F05937844DF060AACDC77C92 /* PDFUploadTests.swift in Sources */,
 				479096BFFBAF92B512ACEDFC /* PaperAddingTests.swift in Sources */,
-
 				C14607251A246A90286C60E0 /* PaperPassageTests.swift in Sources */,
 				1FCA61999DA74A338DB3B20D /* PaperTableTests.swift in Sources */,
 				6E79A84877F64CFD3D7DA853 /* PaperWebViewTests.swift in Sources */,
@@ -1129,7 +1125,6 @@
 				F94B3D695F611FA571383F3F /* PDFUploadQueue.swift in Sources */,
 				C9D61116337A5E07AE1C533D /* PDFUploadViews.swift in Sources */,
 				E35409B595DA7073E9623186 /* PaperAdding.swift in Sources */,
-
 				F561775929950966E15A84B1 /* PaperPassages.swift in Sources */,
 				5A6586B219A3FD3351E21639 /* PaperTable.swift in Sources */,
 				4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */,
