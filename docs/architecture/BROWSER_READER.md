@@ -27,8 +27,9 @@ find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-pape
 
 Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
 
-Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
-Apple/Google web sign-in, device list and revocation, offline reading and purchases.
+Remaining browser work (shown as unavailable where applicable): PDF upload, Apple/Google web sign-in,
+device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
+and tag editing are implemented in the local integration candidate described below.
 
 ### Integrated draft and reader parity — local candidate, 2026-10-08
 
@@ -45,8 +46,15 @@ zero model requests, immediate navigation while typing's checkpoint timer is del
 with accessible unsaved text, and reference Add's exact operation replay. Four dev-only callback/forward-bridge
 journeys are deliberately excluded from that production run. Source: `e2e/reader-drafts.spec.ts` and
 `e2e/reader-reference.spec.ts`. New shared figure-reference link events still require Claude's bridge merge;
-the current gallery and bibliography actions work with the existing bridge. Persisting a Discuss passage anchor
-alongside the draft is the remaining integration follow-up. Safari, saved PDFs and cold offline startup are separate gates.
+the current gallery and bibliography actions work with the existing bridge. Discuss now seals its passage anchor
+with the draft, restores it after reload and attaches it to the conversation created by explicit Send. The combined
+desktop/390 px journey verifies that Go to passage returns to the selected figure without a model request during
+draft preparation. Safari, saved PDFs and cold offline startup are separate gates.
+
+The integrated podcast dock occupies its own row below the workspace, so the composer remains above it at narrow
+widths. Listen, reader and chat navigation await accepted draft checkpoints. A delayed podcast evidence jump
+cannot replace a newer navigation choice; its callback reports success only after the winning paper opens.
+All chats also offers **New general chat**, including when the compact toolbar has no chat-pane toggle.
 
 ### Native Feed parity — local candidate, 2026-10-08
 

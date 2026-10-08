@@ -428,8 +428,9 @@ automatic answer request is introduced.
 
 Local unit/controller and persistent Chromium evidence, known skips and failed-write limitations
 are recorded in the [verification record](../verification/2026-10-08-browser-journal-gate1.md).
-App navigation integration still needs to invoke the provided `flushCheckpoints()` boundary while
-keeping failed edits reachable; this worktree retains the existing mounted-session navigation.
+The integration candidate invokes `flushCheckpoints()` before app-controlled navigation while keeping
+failed edits reachable. Navigation, browser Back/Forward and authentication changes fence delayed results;
+the newest intent wins. Integrated reload, lost-write and reader/Listen/Feed journeys exercise that boundary.
 This gate does not provide a durable library, downloaded reader copies, cached cold-start key
 authority or a service worker, and makes no cold offline-startup promise.
 

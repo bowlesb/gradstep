@@ -18,7 +18,25 @@ Open verified releases check `states` before every new download, then every 60 s
 
 A visible private-generation sheet polls every 5 seconds during its first minute, then every 15 seconds; only one status read at a time, no reads while hidden/offline, stops at terminal state, pauses after an error or 30 minutes, and offers explicit Refresh. Closing stops polling. There is no automatic paid retry, progress percentage inferred from time, or generation on mounting/opening a paper.
 
-## Integration handoff (unapplied)
+## Integration status
+
+Root integrated the client into the real App, Feed and Reader in `914ab0e`, then included the reviewed
+unresolved-start/reuse corrections from `22e7388` in `815d61d`. The separate dock keeps chat above the player.
+The evidence callback is asynchronous and returns `true` for a completed winning navigation, `false` for
+an absent paper and `null` when superseded. Integrated desktop/390 px journeys cover draft recovery, passage
+return, navigation supersession and cached Feed refresh cancellation. This is still local evidence;
+deployment and backend capability must be recorded separately.
+
+Unresolved generation requests now retain only bounded opaque request/quote/item identifiers in scoped
+sessionStorage before Start, including through sheet closure and reload. A lost response, `job: null`,
+or expired quote after an uncertain start cannot discard that identity or silently issue a new request.
+Explicit status and retry use the same identity. Positive reuse resolves and verifies the exact release.
+Private audio/transcripts remain in memory, and this does not provide offline podcast downloads.
+
+## Historical integration handoff (superseded)
+
+The following patch is retained as review history. **Do not apply it to current code.** The root integration
+above supersedes it, including the asynchronous evidence result and unresolved-request persistence.
 
 `integration.patch` is an **unapplied** review artifact against root's `e67309d`; it touches only root-owned `App.tsx`, `Feed.tsx`, and the Reader toolbar slot. It preserves the newer `FeedSelection`/`select` API and For you/topic/category choice. Root/Reader owners must apply or adapt it, review, and run integrated journeys. Those files are unchanged on this branch. The patch was applied and TypeScript-checked only in an ignored, frozen artifact copy of e67309d; the real shared files were not edited.
 
