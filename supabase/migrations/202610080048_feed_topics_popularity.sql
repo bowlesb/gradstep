@@ -244,7 +244,9 @@ begin
    where cm.source_id in (select source_id from chosen) and li.removed_at is null and li.account_id<>p_account_id
     and li.added_at>now()-interval '14 days'
    group by cm.source_id having count(distinct li.account_id)>=3),
-  tag_counts as (select t,count(*)::integer n from win cross join lateral unnest(win.topics) t where t=any(t_topics) group by t),
+  -- Case-insensitive: a reader's own tag "tokenization" counts the pool's "Tokenization".
+  tag_counts as (select t,count(*)::integer n from win cross join lateral unnest(win.topics) t
+   where lower(t)=any(array(select lower(x) from unnest(t_topics) x)) group by t),
   own_counts as (
    select h.t,count(*)::integer n from own_hits h where not exists(select 1 from excluded x where x.source_id=h.source_id) group by h.t),
   compound_counts as (

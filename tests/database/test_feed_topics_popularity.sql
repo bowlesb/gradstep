@@ -151,7 +151,7 @@ set role authenticated;
 select set_config('request.jwt.claim.sub','48000000-0000-0000-0000-00000000000a',false);
 select public.v2_set_library_item(gen_random_uuid(),:'own_doc',true,0,:'own_approval');
 reset role;
-update app_private.library_items set catalog_tags='{Reasoning,"Policy optimization","Large language models"}',user_tags='{"circuit tracing","to read"}'
+update app_private.library_items set catalog_tags='{Reasoning,"Policy optimization","Large language models"}',user_tags='{"circuit tracing","to read",tokenization}'
  where account_id='48000000-0000-0000-0000-00000000000a';
 set role service_role;
 select public.worker_set_feed_policy('all',true);
@@ -174,9 +174,9 @@ select test.assert((select c->'upvotes'='null'::jsonb from jsonb_array_elements(
  'unknown upvotes are null');
 select test.assert((select c->'matched_tags'='["circuit tracing"]'::jsonb from jsonb_array_elements(:'fy'::jsonb->'candidates') c
  where c->>'source_id'='2610.10009'),'an own tag still matches as a phrase');
-select test.assert(:'fy'::jsonb->'topics'->'tags'='{"Reasoning":3,"Policy optimization":1}'::jsonb,
+select test.assert(:'fy'::jsonb->'topics'->'tags'='{"Reasoning":3,"Policy optimization":1,"Tokenization":2}'::jsonb,
  'tag counts over eligible window papers: '||(:'fy'::jsonb->'topics'->'tags')::text);
-select test.assert(:'fy'::jsonb->'topics'->'own'='{"circuit tracing":2}'::jsonb,'own phrase counts; organizational tags left out: '||(:'fy'::jsonb->'topics'->'own')::text);
+select test.assert(:'fy'::jsonb->'topics'->'own'='{"circuit tracing":2,"tokenization":2}'::jsonb,'own phrase counts; organizational tags left out: '||(:'fy'::jsonb->'topics'->'own')::text);
 select test.assert(:'fy'::jsonb->'topics'->'compounds'='{"RL for reasoning":2,"Byte-level models":1}'::jsonb,
  'combination counts: '||(:'fy'::jsonb->'topics'->'compounds')::text);
 select test.assert(jsonb_array_length(:'fy'::jsonb->'profile')=1 and (:'fy'::jsonb->>'pool')::integer=10,'profile and pool');
