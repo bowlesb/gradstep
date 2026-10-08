@@ -94,7 +94,9 @@ final class PodcastTransportTests: XCTestCase {
     func testStartSendsTheQuoteRequestAndConsent() async throws {
         let quoteID = UUID(), requestID = UUID()
         let transport = try transport(["/functions/v1/podcast?start": .init(body: Data(#"{"job":{"request_id":"\#(requestID.wire)","state":"queued","held_credits":150}}"#.utf8))])
-        let job = try await transport.start(quoteID: quoteID, requestID: requestID, consentVersion: "podcast-private-v1")
+        guard case .job(let job) = try await transport.start(quoteID: quoteID, requestID: requestID, consentVersion: "podcast-private-v1") else {
+            return XCTFail("A job")
+        }
         XCTAssertEqual(job.state, .queued); XCTAssertEqual(job.heldCredits, 150)
         let (request, body) = try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first)
         XCTAssertEqual(request.httpMethod, "POST")

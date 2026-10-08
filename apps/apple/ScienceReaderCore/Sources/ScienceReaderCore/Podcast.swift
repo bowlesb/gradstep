@@ -42,6 +42,20 @@ public struct PodcastEvidence: Codable, Equatable, Sendable, Identifiable {
     public let quote: String
     public let section: String?
     public init(id: String, quote: String, section: String?) { self.id = id; self.quote = quote; self.section = section }
+
+    /// What to look for in the rendered paper. Quotes come from the converted text, which can carry Markdown heading
+    /// and emphasis marks and run across a heading into the next block ("# Title ## Abstract We study …"); the page
+    /// shows neither the marks nor one block. Search for the longest single-block piece, marks removed.
+    public var searchText: String {
+        let pieces = quote.components(separatedBy: "\n").flatMap {
+            $0.replacingOccurrences(of: #"(^|\s)#{1,6}(?=\s)"#, with: "\u{1F}", options: .regularExpression).components(separatedBy: "\u{1F}")
+        }
+        let cleaned = pieces.map { piece in
+            piece.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "__", with: "")
+                .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        return cleaned.max { $0.count < $1.count } ?? quote
+    }
 }
 
 /// The paper's own notation (displayed) beside how the hosts say it (heard).
@@ -404,15 +418,19 @@ public struct PodcastJob: Codable, Equatable, Sendable {
     public let chargedCredits: Int?
     public let releasedCredits: Int?
     public let failure: String?
+    /// Cancel was asked for and the server is stopping further work (a provider call may still be finishing).
+    public let cancelRequested: Bool
     public init(requestID: UUID, state: PodcastJobState, stageEnteredAt: String?, releaseID: UUID?, heldCredits: Int,
-                chargedCredits: Int?, releasedCredits: Int?, failure: String?) {
+                chargedCredits: Int?, releasedCredits: Int?, failure: String?, cancelRequested: Bool = false) {
         self.requestID = requestID; self.state = state; self.stageEnteredAt = stageEnteredAt; self.releaseID = releaseID
         self.heldCredits = heldCredits; self.chargedCredits = chargedCredits; self.releasedCredits = releasedCredits; self.failure = failure
+        self.cancelRequested = cancelRequested
     }
     private enum CodingKeys: String, CodingKey {
         case state, failure
         case requestID = "request_id", stageEnteredAt = "stage_entered_at", releaseID = "release_id"
         case heldCredits = "held_credits", chargedCredits = "charged_credits", releasedCredits = "released_credits"
+        case cancelRequested = "cancel_requested"
     }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -423,11 +441,31 @@ public struct PodcastJob: Codable, Equatable, Sendable {
         chargedCredits = try c.decodeIfPresent(Int.self, forKey: .chargedCredits)
         releasedCredits = try c.decodeIfPresent(Int.self, forKey: .releasedCredits)
         failure = try c.decodeIfPresent(String.self, forKey: .failure)
+        cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
         let credits = { (value: Int?) in value.map { (0...10_000).contains($0) } ?? true }
         guard (0...10_000).contains(heldCredits), credits(chargedCredits), credits(releasedCredits),
               (stageEnteredAt?.utf8.count ?? 0) <= 64,
               failure.map({ $0.range(of: "^[a-z][a-z0-9_]{0,63}$", options: .regularExpression) != nil }) ?? true,
               state != .ready || releaseID != nil else { throw ReaderError.corruptData }
+    }
+}
+
+/// What start, status and cancel return: the job, or — when an identical episode became ready for this account
+/// meanwhile (another device, an earlier request) — that release to play with no new charge.
+public enum PodcastJobOutcome: Equatable, Sendable, Decodable {
+    case job(PodcastJob)
+    case reuse(releaseID: UUID)
+
+    private enum CodingKeys: String, CodingKey { case job, reuse }
+    private struct Reuse: Decodable { let release_id: UUID }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let job = try c.decodeIfPresent(PodcastJob.self, forKey: .job), reuse = try c.decodeIfPresent(Reuse.self, forKey: .reuse)
+        switch (job, reuse) {
+        case (let job?, nil): self = .job(job)
+        case (nil, let reuse?): self = .reuse(releaseID: reuse.release_id)
+        default: throw ReaderError.corruptData
+        }
     }
 }
 

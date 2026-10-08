@@ -58,14 +58,14 @@ actor PodcastFixtureTransport: PodcastTransport {
                                    providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consentVersion: "podcast-private-v1", targetSeconds: 300))
     }
 
-    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJob {
+    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
         guard consentVersion == "podcast-private-v1" else { throw BackendError.rejected("consent_required") }
         guard let itemID = quotes.removeValue(forKey: quoteID) else { throw BackendError.rejected("quote_expired") }
         jobs[requestID] = (itemID, 0, nil)
-        return Self.job(requestID, steps: 0, mode: generation)
+        return .job(Self.job(requestID, steps: 0, mode: generation))
     }
 
-    func status(requestID: UUID) async throws -> PodcastJob {
+    func status(requestID: UUID) async throws -> PodcastJobOutcome {
         guard var job = jobs[requestID] else { throw BackendError.rejected("job_unavailable") }
         if job.steps < 7, job.releaseID == nil { job.steps += 1 }
         if job.steps >= 7, generation == .succeeds, job.releaseID == nil {
@@ -73,14 +73,14 @@ actor PodcastFixtureTransport: PodcastTransport {
             episodes[built.episode.id] = built; job.releaseID = built.episode.id
         }
         jobs[requestID] = job
-        return Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID)
+        return .job(Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID))
     }
 
-    func cancel(requestID: UUID) async throws -> PodcastJob {
+    func cancel(requestID: UUID) async throws -> PodcastJobOutcome {
         guard jobs[requestID] != nil else { throw BackendError.rejected("job_unavailable") }
         jobs[requestID]?.steps = -1
-        return PodcastJob(requestID: requestID, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: 150,
-                          chargedCredits: 0, releasedCredits: 150, failure: nil)
+        return .job(PodcastJob(requestID: requestID, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: 150,
+                          chargedCredits: 0, releasedCredits: 150, failure: nil))
     }
 
     func download(_ releaseID: UUID) async throws -> PodcastGrant {

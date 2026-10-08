@@ -10,9 +10,9 @@ protocol PodcastTransport: Sendable {
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode
     func paper(itemID: UUID) async throws -> PodcastPaperLookup
     func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome
-    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJob
-    func status(requestID: UUID) async throws -> PodcastJob
-    func cancel(requestID: UUID) async throws -> PodcastJob
+    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome
+    func status(requestID: UUID) async throws -> PodcastJobOutcome
+    func cancel(requestID: UUID) async throws -> PodcastJobOutcome
     func download(_ releaseID: UUID) async throws -> PodcastGrant
     func states(_ releaseIDs: [UUID]) async throws -> [UUID: PodcastReleaseStatus]
     func member(_ member: PodcastMember, progress: @escaping @Sendable (Int) -> Void) async throws -> Data
@@ -31,7 +31,6 @@ struct BackendPodcastTransport: PodcastTransport {
         return try JSONDecoder().decode(T.self, from: await client.podcastCall("action=\(action)", body: data, accountID: accountID, maximumResponseBytes: limit))
     }
     private struct EpisodeBody: Decodable { let episode: PodcastEpisode }
-    private struct JobBody: Decodable { let job: PodcastJob }
     private struct GrantBody: Decodable { let grant: PodcastGrant }
     private struct StatesBody: Decodable { let states: [String: PodcastReleaseStatus] }
 
@@ -52,14 +51,14 @@ struct BackendPodcastTransport: PodcastTransport {
     func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome {
         try await post("quote", ["item_id": itemID.wire, "request_id": requestID.wire], PodcastQuoteOutcome.self)
     }
-    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJob {
-        try await post("start", ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": consentVersion], JobBody.self).job
+    func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
+        try await post("start", ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": consentVersion], PodcastJobOutcome.self)
     }
-    func status(requestID: UUID) async throws -> PodcastJob {
-        try await get("action=status&request_id=\(requestID.wire)", JobBody.self).job
+    func status(requestID: UUID) async throws -> PodcastJobOutcome {
+        try await get("action=status&request_id=\(requestID.wire)", PodcastJobOutcome.self)
     }
-    func cancel(requestID: UUID) async throws -> PodcastJob {
-        try await post("cancel", ["request_id": requestID.wire], JobBody.self).job
+    func cancel(requestID: UUID) async throws -> PodcastJobOutcome {
+        try await post("cancel", ["request_id": requestID.wire], PodcastJobOutcome.self)
     }
     func download(_ releaseID: UUID) async throws -> PodcastGrant {
         try await post("download", ["release_id": releaseID.wire], GrantBody.self).grant

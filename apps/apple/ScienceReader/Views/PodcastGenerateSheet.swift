@@ -115,7 +115,10 @@ struct PodcastGenerateSheet: View {
             Text("Holding up to \(job.heldCredits) credits. You can close this; it keeps going, and Listen on this paper shows its progress.")
                 .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("podcast.generate.held")
-            if job.state.canCancel {
+            if job.cancelRequested {
+                Text("Canceling: no further work starts. Work already done is charged, within the maximum.")
+                    .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else if job.state.canCancel {
                 Button("Cancel episode", role: .destructive) { center.cancelGeneration() }.accessibilityIdentifier("podcast.generate.cancel")
                 Text("Canceling stops further work; work already done is charged, within the maximum.")
                     .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -74,7 +74,7 @@ struct PodcastPlayerSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(episode.displayTitle).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("podcast.player.title")
-            let line = ([episode.year.map(String.init)] + [authorsLine(episode)] + [episode.topic]).compactMap { $0 }.filter { !$0.isEmpty }
+            let line = ([episode.year.map(String.init)] + [authorsLine(episode)] + [episode.topicName]).compactMap { $0 }.filter { !$0.isEmpty }
             if !line.isEmpty { Text(line.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary) }
             PodcastBadges(episode: episode, kept: center.isKept(episode.id))
         }

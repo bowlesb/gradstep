@@ -5,19 +5,31 @@ import ScienceReaderCore
 // Feed's topics shows ready shared episodes. The Feed's own arrangement is unchanged; Listen is one more chip, and
 // choosing a topic chip returns to the topic's papers.
 
-/// The Listen chip at the start of the Feed's topic row.
+extension PodcastEpisode {
+    /// The topic as the Feed names it: a catalog tag as is, an arXiv category code ("cs.LG") by its name.
+    var topicName: String? { topic.map(ArxivTopics.name(for:)) }
+}
+
+/// The Listen chip at the start of the Feed's topic row. Shown once the server says the catalog is available for this
+/// account (or in the fixture); until then the Feed looks as it did.
 struct PodcastListenChip: View {
     @Bindable var model: ReaderModel
     var body: some View {
-        if model.podcasts.listenAvailable {
-            Button { model.podcasts.listenSelected = true } label: {
-                ChipLabel(title: "Listen", selected: model.podcasts.listenSelected, systemImage: "headphones")
+        Group {
+            if model.podcasts.listenAvailable {
+                Button { model.podcasts.listenSelected = true } label: {
+                    ChipLabel(title: "Listen", selected: model.podcasts.listenSelected, systemImage: "headphones")
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(model.podcasts.listenSelected ? .isSelected : [])
+                .accessibilityHint("Shows paper episodes to listen to")
+                .accessibilityIdentifier("feed.listen")
+            } else {
+                Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityAddTraits(model.podcasts.listenSelected ? .isSelected : [])
-            .accessibilityHint("Shows paper episodes to listen to")
-            .accessibilityIdentifier("feed.listen")
         }
+        // One capabilities check per account (the catalog call carries them).
+        .task(id: model.podcastAccount?.id) { model.podcasts.prepareListen() }
     }
 }
 
@@ -171,7 +183,7 @@ struct PodcastEpisodeRow: View {
     private func toggleDownload() { center.isKept(episode.id) ? center.removeDownload(episode.id) : center.download(episode) }
 
     private var metadata: String {
-        ([episode.year.map(String.init), PodcastDuration.short(milliseconds: episode.durationMS)].compactMap { $0 } + [episode.topic].compactMap { $0 })
+        ([episode.year.map(String.init), PodcastDuration.short(milliseconds: episode.durationMS)].compactMap { $0 } + [episode.topicName].compactMap { $0 })
             .joined(separator: " · ")
     }
 
@@ -179,7 +191,7 @@ struct PodcastEpisodeRow: View {
         var parts = [episode.displayTitle]
         if let year = episode.year { parts.append(String(year)) }
         parts.append(PodcastDuration.spoken(milliseconds: episode.durationMS))
-        if let topic = episode.topic { parts.append(topic) }
+        if let topic = episode.topicName { parts.append(topic) }
         parts.append("AI audio")
         if episode.fixture { parts.append("synthetic fixture") }
         if episode.scope == .private { parts.append("private") }

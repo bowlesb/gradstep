@@ -102,6 +102,10 @@ final class PodcastCenter {
         guard PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-autoplay"),
               nowPlaying == nil, let episode = catalog.first(where: { $0.id == PodcastFixtureTransport.sampleRelease }) else { return }
         play(episode, at: 9_000)
+        // `--podcast-autoplay-mini`: then close the sheet, to see the mini-player (iPad visual checks).
+        if ProcessInfo.processInfo.arguments.contains("--podcast-autoplay-mini") {
+            Task { try? await Task.sleep(for: .seconds(2)); showPlayer = false }
+        }
     }
     #endif
 
@@ -110,7 +114,22 @@ final class PodcastCenter {
         #if DEBUG && FIXTURE_HOST
         if PodcastFixtureTransport.isEnabled { return true }
         #endif
-        return host?.podcastAccount != nil && capabilities?.catalog != false
+        // Absent capabilities mean unavailable: a server without podcasts keeps the Feed exactly as it was.
+        return host?.podcastAccount != nil && capabilities?.catalog == true
+    }
+
+    /// Learns this account's capabilities once (from the catalog call) so the Listen chip can appear.
+    func prepareListen() {
+        guard capabilities == nil, catalogState == .idle, host?.podcastAccount != nil || fixtureEnabled else { return }
+        loadCatalog()
+    }
+
+    private var fixtureEnabled: Bool {
+        #if DEBUG && FIXTURE_HOST
+        return PodcastFixtureTransport.isEnabled
+        #else
+        return false
+        #endif
     }
 
     var nowPlaying: PodcastEpisode? { player.episode }
@@ -120,7 +139,8 @@ final class PodcastCenter {
         #if DEBUG && FIXTURE_HOST
         if PodcastFixtureTransport.isEnabled { return true }
         #endif
-        return !paper.isSample && host?.podcastAccount != nil
+        // Unknown capabilities still offer Listen (the paper call reports them); known-off hides it.
+        return !paper.isSample && host?.podcastAccount != nil && (capabilities.map { $0.delivery || $0.generation } ?? true)
     }
     func isKept(_ releaseID: UUID) -> Bool { downloads[releaseID]?.kept == true }
     var keptDownloads: [PodcastDownloadRecord] { downloads.values.filter(\.kept).sorted { $0.lastUsedAt > $1.lastUsedAt } }
@@ -462,16 +482,8 @@ final class PodcastCenter {
                 guard generation?.id == current.id else { return }
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)
-                case .reuse(let releaseID):
-                    let episode = try await account.transport.episode(releaseID)
-                    generation = nil
-                    // After the sheet has gone: one sheet presents at a time.
-                    try? await Task.sleep(for: .milliseconds(600))
-                    play(resolve(episode, fallback: current.paperTitle))
-                case .join(let requestID):
-                    let job = try await account.transport.status(requestID: requestID)
-                    generation?.phase = job.state.isActive ? .running(job) : .finished(job)
-                    if job.state.isActive { poll(requestID) }
+                case .reuse(let releaseID): try await playReady(releaseID, title: current.paperTitle, account: account)
+                case .join(let requestID): try await follow(account.transport.status(requestID: requestID), current, account: account)
                 }
             } catch {
                 guard generation?.id == current.id else { return }
@@ -486,10 +498,8 @@ final class PodcastCenter {
         generation?.phase = .starting
         Task {
             do {
-                let job = try await account.transport.start(quoteID: quote.id, requestID: current.startRequestID, consentVersion: quote.consentVersion)
-                guard generation?.id == current.id else { return }
-                generation?.phase = job.state.isActive ? .running(job) : .finished(job)
-                if job.state.isActive { poll(job.requestID) }
+                let outcome = try await account.transport.start(quoteID: quote.id, requestID: current.startRequestID, consentVersion: quote.consentVersion)
+                try await follow(outcome, current, account: account)
             } catch {
                 guard generation?.id == current.id else { return }
                 generation?.phase = .failed(error.podcastMessage)
@@ -501,9 +511,7 @@ final class PodcastCenter {
         guard let current = generation, case .running(let job) = current.phase, job.state.canCancel, let account else { return }
         Task {
             do {
-                let updated = try await account.transport.cancel(requestID: job.requestID)
-                guard generation?.id == current.id else { return }
-                generation?.phase = updated.state.isActive ? .running(updated) : .finished(updated)
+                try await follow(account.transport.cancel(requestID: job.requestID), current, account: account)
             } catch {
                 guard generation?.id == current.id else { return }
                 notice = error.podcastMessage
@@ -527,11 +535,37 @@ final class PodcastCenter {
                 #endif
                 try? await Task.sleep(for: .seconds(interval))
                 guard !Task.isCancelled, generationCounter == counter, elapsed < 1_800 else { return }
-                guard let job = try? await account.transport.status(requestID: requestID), self.account?.id == account.id else { continue }
+                guard let outcome = try? await account.transport.status(requestID: requestID), self.account?.id == account.id else { continue }
+                guard case .job(let job) = outcome else {
+                    // Ready already (another request for the same episode): play it, no new charge.
+                    if case .reuse(let releaseID) = outcome, let current = generation { try? await playReady(releaseID, title: current.paperTitle, account: account) }
+                    return
+                }
                 if generation != nil, generation?.phase != .offer { generation?.phase = job.state.isActive ? .running(job) : .finished(job) }
                 if !job.state.isActive { return }
             }
         }
+    }
+
+    /// A job to show (and poll while active), or a release that is already ready for this account.
+    private func follow(_ outcome: PodcastJobOutcome, _ current: PodcastGeneration, account: PodcastAccount) async throws {
+        guard generation?.id == current.id else { return }
+        switch outcome {
+        case .job(let job):
+            generation?.phase = job.state.isActive ? .running(job) : .finished(job)
+            if job.state.isActive { poll(job.requestID) }
+        case .reuse(let releaseID):
+            try await playReady(releaseID, title: current.paperTitle, account: account)
+        }
+    }
+
+    /// Closes the generation sheet and plays a ready release (no new charge).
+    private func playReady(_ releaseID: UUID, title: String, account: PodcastAccount) async throws {
+        let episode = try await account.transport.episode(releaseID)
+        generation = nil
+        // After the sheet has gone: one sheet presents at a time.
+        try? await Task.sleep(for: .milliseconds(600))
+        play(resolve(episode, fallback: title))
     }
 
     func playGenerated(_ job: PodcastJob) {
@@ -556,7 +590,7 @@ final class PodcastCenter {
             evidenceElsewhere = PodcastEvidenceElsewhere(quote: evidence.quote, episode: episode); return
         }
         showPlayer = false
-        host.showEvidence(evidence.quote, in: paper)
+        host.showEvidence(evidence.searchText, in: paper)
     }
 }
 
