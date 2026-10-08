@@ -807,7 +807,9 @@ to date and changing but have cost under control". Design and cost table: [Perso
   from one conditional RSS request every 2 hours (pg_cron waking an Edge function only when due), heuristic ranking
   from server-visible signals (library papers, their categories/authors/catalog tags, personal tags, imports in
   flight, Not interested / More like this), freshness decay, diversity, daily exploration, and a reason per paper.
-  Migration 043 (renumbered from the never-applied 044, after 042). Native/web For you UI remains a proposal. Not applied or deployed.
+  Migration 043 (renumbered from the never-applied 044, after 042). It was subsequently applied **disabled** on
+  2026-10-08 as the ledger prerequisite to subscription fix 044. Serving and refresh stay off; no refresh function
+  or native/web For you UI is deployed. Those product and privacy choices remain a proposal.
 - **Awaiting the owner:** rollout of A; "For you" as the first, default chip with a why line and More like this /
   Not interested actions; keeping Feed feedback on the server (like tags) with the proposed privacy text; serving the
   category chips from the pool; later, option B (shared embeddings, $1/month cap). An LLM in the loop (option C) is
@@ -832,9 +834,9 @@ to date and changing but have cost under control". Design and cost table: [Perso
   unchanged for 6 h while someone waits is failed with its reason (then retried). **Terminal failures stay in the
   library indefinitely** with their reason and actions (Retry when retryable, supply the PDF when not open, Remove);
   nothing is deleted on the reader's behalf. Budget pauses and a full store are deliberate waits, shown as waiting.
-- **App follow-up (not done here):** the app ignores `auto_retry_at` on non-download failures, so a metadata
-  failure being retried reads "Details unavailable · Retry" until it succeeds; showing "Trying again automatically"
-  for any failed import with `auto_retry_at` is display-only app work.
+- **App follow-up (subsequently shipped in builds 19/20):** non-download failures with `auto_retry_at`
+  now say "Trying again automatically". This is display-only; the backend's retry schedule and reasons remain
+  authoritative.
 
 ## QR device approval (owner asked 2026-10-07: "a way to avoid the recovery code, maybe QR"; agent decisions, reversible)
 

@@ -6,6 +6,17 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **Spending evidence API deployed**, `admin-spending` v1 from reviewed `31bcf1b`; all six deployed modules
+  match source. Anonymous callers receive 401 and customers 403; a hosted lookup verifies no observation was
+  recorded, zero-credit balances stayed unchanged and the disposable account was deleted. No provider cost
+  or holds. The owner/MFA form passed local desktop/phone/dark, lost-response/reload, invoice-versus-allocation
+  and SQL checks. Static admin hosting and the owner's authenticator enrollment are being completed; no
+  invoice was entered and no real owner/MFA journey is claimed. `admin-spending-source-proof.json` and
+  `admin-spending-postdeploy-verified.log` contain the redacted deployment evidence.
+- **Interrupted-worktree audit completed:** ten apparently unmerged commits on the library-descriptor,
+  upload-visibility and purchase-runtime branches are patch-equivalent to main. The 23 remaining source files
+  in the two dormant runtime worktrees are byte-identical to merged `a2b4a38`; later main changes explain
+  their differences. No abandoned implementation was found. Worktrees and artifacts were preserved.
 - **Subscription credit retention 044 is live on staging** (07:42 UTC, reviewed source `1a10051`). Upgrades
   retain each period's credits until its original expiry; malformed copied receipts cannot create perpetual
   subscription credits or fill identity after refusal. Full database/lifecycle/concurrency and independent
