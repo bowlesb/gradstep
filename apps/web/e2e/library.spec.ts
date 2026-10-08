@@ -53,9 +53,14 @@ test('a full library stays searchable while an import progresses', async ({ page
   await expect(rows.first()).toContainText('Research paper 3997');
   await expect(page.getByTestId('search')).toBeFocused();
   await page.getByTestId('search').fill('');
-  await page.getByRole('combobox', { name: 'Filter by tag' }).selectOption('Self-supervised learning');
+  // Wide windows filter from the side panel's tag list; narrow ones from the chips' tag menu.
+  const rail = page.getByRole('navigation', { name: 'Library filters' });
+  const tag = async (name: string) => (await rail.isVisible())
+    ? rail.getByRole('button', { name: new RegExp(name || 'Self-supervised learning') }).click()
+    : page.getByRole('combobox', { name: 'Filter by tag' }).selectOption(name);
+  await tag('Self-supervised learning');
   await expect(rows).toHaveCount(1998);
-  await page.getByRole('combobox', { name: 'Filter by tag' }).selectOption('');
+  await tag(''); // a second press clears the rail's tag
   await page.getByRole('button', { name: /^Year/ }).click();
   await expect(rows.first().locator('.col-year')).toHaveText('2025');
   await page.getByTestId('search').fill('Research paper 3997');

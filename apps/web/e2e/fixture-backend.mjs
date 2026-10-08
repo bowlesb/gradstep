@@ -299,5 +299,32 @@ createServer(async (request, response) => {
     return send(response, 200, { item_id: itemID, document_id: entry.document_id, artifact_id: entry.artifact_id, renderer_version: 'timestep-mathpix-mathml-v1',
       manifest_sha256: sha(manifest).toString('hex'), manifest: manifest.toString('base64'), members });
   }
+  // Feed (discover?category=…): public sample metadata only.
+  if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
+    const category = url.searchParams.get('category') ?? '';
+    if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
+    return send(response, 200, { results: [
+      { source_id: '2305.18290', revision: 3, title: DPO.title, authors: DPO.authors, year: 2023, abstract: DPO.abstract, categories: DPO.categories },
+      { source_id: '2604.01001', revision: 1, title: `New in ${category}: scaling sparse attention`, authors: ['Ada Example', 'Grace Sample'], year: 2026,
+        abstract: 'We study how sparse attention patterns scale with context length and compute budget, and find a simple recipe that matches dense attention.', categories: [category] },
+      { source_id: '2604.01002', revision: 1, title: `New in ${category}: evaluation under distribution shift`, authors: ['Alan Fixture'], year: 2026, abstract: null, categories: [category] },
+    ] });
+  }
+  // Add by DOI or link (add-paper): a DOI is identified and queued as an arXiv import; a publisher link is blocked.
+  if (url.pathname === '/functions/v1/add-paper' && request.method === 'POST') {
+    const body = await read(request), query = typeof body?.query === 'string' ? body.query.trim() : '';
+    if (!/^[0-9a-f-]{36}$/.test(body?.operation_id ?? '') || !query) return send(response, 400, { code: 'invalid_request' });
+    const base = { link: null, reason: null, title: null };
+    if (/^(doi:|https:\/\/doi\.org\/)?10\.48550\/arxiv\.1706\.03762$/i.test(query)) {
+      if (![...a.entries.values()].some(e => e.source_id === '1706.03762' && e.visible)) {
+        const imp = { kind: 'import', id: randomUUID(), intent_revision: 1, visible: true, phase: 'accepted', source: 'arxiv', source_id: '1706.03762', requested_revision: null,
+          source_url: 'https://arxiv.org/abs/1706.03762', retryable: false, progress: 'finding', progress_detail: { step: 'finding', percent: 2, eta_seconds: 50 } };
+        emit(a, [imp]); scheduleImport(a, a.entries.get('import:' + imp.id), ATTENTION);
+      }
+      return send(response, 200, { status: 'added', route: 'doi', paper: { title: ATTENTION.title, year: 2017, source_id: '1706.03762', kind: 'arxiv', host: null, link: null }, ...base });
+    }
+    if (/^https:\/\/publisher\.example\//.test(query)) return send(response, 200, { status: 'blocked', route: 'link', paper: null, link: query, reason: 'pdf_restricted', title: null });
+    return send(response, 200, { status: 'not_found', route: 'reference', paper: null, ...base });
+  }
   send(response, 404, { message: 'unknown fixture route' });
 }).listen(PORT, '127.0.0.1', () => { seedReturning(); console.log(`fixture backend on ${PORT}; recovery code for returning@example.test: ${RECOVERY_CODE}`); });
