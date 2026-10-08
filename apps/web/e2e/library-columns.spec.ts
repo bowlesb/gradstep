@@ -3,7 +3,7 @@ import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 const COLUMNS = ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress'];
 const KEY = 'gradstep.library.columns.v1';
 async function signIn(page: Page) {
