@@ -76,7 +76,7 @@ select test.assert(:'stage'='render','collection moves to render');
 reset role;
 select test.assert((select balance from app_private.credit_buckets where external_key='pipeline-test-a')=73
  and (select reserved from app_private.credit_buckets where external_key='pipeline-test-a')=0,'settled 27 credits, hold released');
-select test.assert(exists(select 1 from app_private.provider_usage_events where provider='mathpix' and provider_event_id='cc092181-9d12-4eb3-b5de-d2ca288fc556' and estimated_microusd=135000),'provider usage recorded');
+select test.assert(exists(select 1 from app_private.provider_usage_events where provider='mathpix' and provider_event_id='attempt:'||:'attempt' and estimated_microusd=135000),'provider usage recorded');
 set role service_role;
 select test.reject(format('select public.worker_pipeline_published(%L,%L,%s,%L::bytea,2048,%L)',:'paper',:'claim',:'gen','\x'||repeat('7b',32),'other-renderer'),'invalid_publication');
 select public.worker_pipeline_published(:'paper',:'claim',:'gen',('\x'||repeat('7b',32))::bytea,2048,'timestep-mathpix-mathml-v1')->>'stage' as stage \gset
@@ -189,12 +189,15 @@ select test.assert((select reserved from app_private.credit_buckets where extern
 set role service_role;
 -- The original POST's result arrives late (its worker outlived its lease).
 select test.assert(public.worker_pipeline_submitted(:'attempt4','late-job-d')->>'stage'='ocr_wait','late job id recovers an unrecorded submission');
-select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,%L,null)',:'attempt4','other-job'),'invalid_resolution');
+select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,%L,null)',:'attempt4','other-job'),'provider_job_conflict');
 reset role;
--- Operator resolution of a genuinely uncertain attempt releases the hold.
+-- Operator resolution needs separate accounting evidence before releasing a hold.
+insert into app_private.app_roles(account_id,role) values('14000000-0000-0000-0000-00000000000a','owner');
 update app_private.ocr_attempts set state='uncertain',provider_job_id=null,error_code='provider_http_failure' where id=:'attempt4';
 update app_private.pipeline_papers set stage='ocr_uncertain' where id=:'paper4';
 set role service_role;
+select test.reject(format('select public.worker_pipeline_resolve_uncertain(%L,null,0)',:'attempt4'),'provider_reconciliation_required');
+select public.worker_provider_attempt_reconcile('14000000-0000-0000-0000-00000000000a',gen_random_uuid(),:'attempt4',0,'{"pages":0}','provider-support-fixture','Provider confirmed no bill');
 select test.assert(public.worker_pipeline_resolve_uncertain(:'attempt4',null,0)->>'stage'='failed','resolved uncertain fails resumably');
 reset role;
 select test.assert((select reserved from app_private.credit_buckets where external_key='pipeline-test-d')=0

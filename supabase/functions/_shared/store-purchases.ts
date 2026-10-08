@@ -1,6 +1,7 @@
 // Portable App Store purchase rules and normalized records. No runtime Apple SDK
 // or X509 import: hosted Edge callers use a trusted StoreRecordVerifier transport.
 // Verification and SQL recording are distinct; only the recorder changes money.
+import { createHash, randomUUID } from 'node:crypto';
 import type { JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload } from '@apple/app-store-server-library';
 
 export type StoreEnvironment = 'Sandbox' | 'Production';
@@ -20,7 +21,9 @@ export function storeConfig(env: (name: string) => string | undefined): StoreCon
   if (!bundleID || !environments.length || environments.some(e => e !== 'Sandbox' && e !== 'Production')) return null;
   const appAppleID = env('APP_STORE_APP_APPLE_ID') ? Number(env('APP_STORE_APP_APPLE_ID')) : undefined;
   if (environments.includes('Production') && !(appAppleID && Number.isSafeInteger(appAppleID))) return null;
-  return { bundleID, environments: environments as StoreEnvironment[], appAppleID, onlineChecks: env('APP_STORE_ONLINE_CHECKS') !== 'false' };
+  const onlineChecks = env('APP_STORE_ONLINE_CHECKS') !== 'false';
+  if (environments.includes('Production') && !onlineChecks) return null;
+  return { bundleID, environments: environments as StoreEnvironment[], appAppleID, onlineChecks };
 }
 
 export interface StoreVerifier {
@@ -32,7 +35,7 @@ export interface StoreVerifier {
  * (retry later); the others are permanent for that data. */
 export type VerificationCode = 'invalid' | 'environment_unavailable' | 'verification_unavailable';
 export type VerificationStage = 'input' | 'environment' | 'certificate_chain' | 'revocation' | 'signature_or_payload'
-  | 'application' | 'transaction_fields' | 'recording';
+  | 'application' | 'transaction_fields' | 'recording' | 'admission' | 'deferred';
 export type AppleVerificationStatus = 'verification_failure' | 'retryable_verification_failure' | 'invalid_app_identifier'
   | 'invalid_environment' | 'invalid_chain_length' | 'invalid_certificate' | 'failure';
 export type VerificationTransportCode = 'timeout' | 'dns' | 'connection' | 'tls' | 'network' | 'runtime' | 'other';
@@ -93,7 +96,7 @@ export function transactionRecord(t: JWSTransactionDecodedPayload): StoreTransac
 
 export type SyncOutcome = 'recorded' | 'updated' | 'already_recorded' | 'linked_to_another_account' | 'account_closed'
   | 'unknown_product' | 'unsupported' | 'unattributed' | VerificationCode;
-export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number }
+export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number; support_reference?: string; diagnostic?: VerificationDiagnostic }
 /** Outcomes after which the app finishes the StoreKit transaction. */
 export const FINAL_OUTCOMES: ReadonlySet<SyncOutcome> = new Set(['recorded', 'updated', 'already_recorded']);
 export const MAX_SYNC_TRANSACTIONS = 25;
@@ -116,7 +119,7 @@ export function storeVerificationObservation(outcome: unknown, value: unknown,
     'account_closed', 'unknown_product', 'unsupported', 'unattributed', 'invalid', 'environment_unavailable',
     'verification_unavailable', 'recording_unavailable']);
   const stages: ReadonlySet<string> = new Set(['input', 'environment', 'certificate_chain', 'revocation', 'signature_or_payload',
-    'application', 'transaction_fields', 'recording']);
+    'application', 'transaction_fields', 'recording', 'admission', 'deferred']);
   const transports: ReadonlySet<string> = new Set(['timeout', 'dns', 'connection', 'tls', 'network', 'runtime', 'other']);
   const diagnostic = (value && typeof value === 'object' ? value : {}) as Partial<VerificationDiagnostic>;
   const observation: StoreVerificationObservation = { outcome: typeof outcome === 'string' && outcomes.has(outcome) ? outcome as StoreVerificationObservation['outcome'] : 'unrecognized',
@@ -181,8 +184,12 @@ export async function verifyNotificationRecord(verifier: StoreVerifier, signed: 
 }
 
 interface StoreRecorders {
-  /** Content-free observability only; it must never change the purchase outcome. */
+  /** Content-free console observability; failure must never alter purchase processing. */
   observeVerification?(observation: StoreVerificationObservation): void;
+  /** Durable per-account attempt records (migration 038), required together by the production store-sync
+   * adapter; optional for standalone verification tests. Separate from 033's transport admission. */
+  beginVerification?(accountID: string, attemptID: string, submissionSHA256: string): Promise<boolean>;
+  finishVerification?(accountID: string, attemptID: string, outcome: SyncOutcome | 'recording_unavailable', diagnostic?: VerificationDiagnostic): Promise<void>;
   recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number; recordingCode?: StoreRecordingCode }>;
   recordNotification(input: StoreNotificationRecord): Promise<{ outcome: string; duplicate?: boolean }>;
 }
@@ -198,37 +205,69 @@ function recordVerifier(deps: StoreDeps): StoreRecordVerifier {
   };
 }
 
+/** Stable correlation for this account's exact submission, without exposing Apple identity. */
+export function storeSubmissionReference(accountID: string, signed: string): string {
+  return createHash('sha256').update('science-reader:store-verification:v1\0').update(accountID.toLowerCase()).update('\0').update(signed).digest('hex');
+}
+
 /** Records the caller's transactions (purchases from this device, renewals and
  * restores StoreKit reports). Database errors propagate (the app retries). */
 export async function syncTransactions(deps: StoreDeps, accountID: string, body: unknown): Promise<SyncResult[]> {
   const verifier = recordVerifier(deps);
   const list = (body as { transactions?: unknown })?.transactions;
   if (!Array.isArray(list) || list.length === 0 || list.length > MAX_SYNC_TRANSACTIONS || list.some(s => typeof s !== 'string')) throw new Error('invalid_request');
+  if (!!deps.beginVerification !== !!deps.finishVerification) throw new Error('verification_observation_configuration');
+  // Durable begin/finish is mandatory in production; console observations
+  // are separate and may never turn a confirmed database write into a failure.
   const observe = (outcome: string, diagnostic: VerificationDiagnostic, recordingCode?: StoreRecordingCode) => {
     try { deps.observeVerification?.(storeVerificationObservation(outcome, diagnostic, recordingCode)); } catch { /* observability is nonfinancial */ }
   };
   const results: SyncResult[] = [];
+  let deferred = false;
   for (const signed of list as string[]) {
+    const reference = storeSubmissionReference(accountID, signed);
+    if (deferred) {
+      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'deferred' } }); continue;
+    }
+    const attemptID = randomUUID();
+    if (deps.beginVerification && !await deps.beginVerification(accountID, attemptID, reference)) {
+      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'admission' } });
+      deferred = true; continue;
+    }
+    const complete = async (result: SyncResult, recordingCode?: StoreRecordingCode) => {
+      await deps.finishVerification?.(accountID, attemptID, result.outcome, result.diagnostic);
+      observe(result.outcome, result.diagnostic ?? { stage: 'recording' }, recordingCode);
+      results.push({ ...result, support_reference: reference });
+      if (result.outcome === 'verification_unavailable') deferred = true;
+    };
     let record: StoreTransactionRecord;
     try { record = await verifier.transaction(signed); }
     catch (error) {
-      const failure = finiteVerificationError(error);
-      observe(failure.code, failure.diagnostic);
-      results.push({ outcome: failure.code }); continue;
+      // Unexpected verifier/transport failures remain HTTP 503/unconfirmed; only
+      // the verifier's finite refusals become a completed diagnostic attempt.
+      if (!(error instanceof StoreVerificationError)) throw error;
+      await complete({ outcome: error.code, diagnostic: error.diagnostic });
+      continue;
     }
     let recorded: Awaited<ReturnType<StoreDeps['recordTransaction']>>;
     try { recorded = await deps.recordTransaction(accountID, record); }
-    catch (error) { observe('recording_unavailable', { stage: 'recording' }); throw error; }
-    observe(recorded.outcome, { stage: 'recording' }, recorded.recordingCode);
-    results.push({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
-      ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}) });
+    catch (error) {
+      // Keep recorder errors outside the verifier catch: a shared error class
+      // must not relabel a database outage or finish the same attempt twice.
+      await deps.finishVerification?.(accountID, attemptID, 'recording_unavailable', { stage: 'recording' });
+      observe('recording_unavailable', { stage: 'recording' });
+      throw error;
+    }
+    await complete({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
+      ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
+      ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) }, recorded.recordingCode);
   }
   return results;
 }
 
 /** Acknowledges Apple only after recording. Verification outages return 503;
  * recorder errors propagate so the HTTP entrypoint also returns 503. */
-export async function handleNotification(deps: StoreDeps, body: unknown): Promise<{ status: number; outcome: string }> {
+export async function handleNotification(deps: StoreDeps, body: unknown): Promise<{ status: number; outcome: string; diagnostic?: VerificationDiagnostic }> {
   const verifier = recordVerifier(deps);
   const signedPayload = (body as { signedPayload?: unknown })?.signedPayload;
   if (typeof signedPayload !== 'string') return { status: 400, outcome: 'invalid' };
@@ -237,8 +276,8 @@ export async function handleNotification(deps: StoreDeps, body: unknown): Promis
   catch (error) {
     // Preserve the original normalizer's out-of-range-date failure behavior.
     if (error instanceof RangeError) throw error;
-    const code = finiteVerificationError(error).code;
-    return { status: code === 'verification_unavailable' ? 503 : 400, outcome: code };
+    const failure = finiteVerificationError(error);
+    return { status: failure.code === 'verification_unavailable' ? 503 : 400, outcome: failure.code, diagnostic: failure.diagnostic };
   }
   const recorded = await deps.recordNotification(record);
   return { status: 200, outcome: recorded.outcome };

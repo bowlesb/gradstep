@@ -75,8 +75,10 @@ test('a verified transaction follows one admitted send and financial recording r
   }, recordNotification: async () => { throw new Error('unused'); } };
   const first = await syncTransactions(deps, account, { transactions: [signed] });
   const retry = await syncTransactions(deps, account, { transactions: [signed] });
-  assert.deepEqual(first, [{ transaction_id: '123', outcome: 'recorded', credits: 400 }]);
-  assert.deepEqual(retry, [{ transaction_id: '123', outcome: 'already_recorded' }]);
+  // Each result also carries its submission's support reference (merged from the spending controls).
+  assert.match(first[0].support_reference ?? '', /^[0-9a-f]{64}$/);
+  assert.deepEqual(first.map(({ support_reference: _, ...rest }) => rest), [{ transaction_id: '123', outcome: 'recorded', credits: 400 }]);
+  assert.deepEqual(retry.map(({ support_reference: _, ...rest }) => rest), [{ transaction_id: '123', outcome: 'already_recorded' }]);
   assert.equal(grants, 1);
   assert.equal(h.starts.length, 2); assert.equal(h.requests.length, 2); assert.equal(h.finishes.length, 2);
   assert.notEqual(h.starts[0].p_attempt_id, h.starts[1].p_attempt_id);
@@ -190,7 +192,9 @@ test('batch deadline keeps earlier final results and defers the rest without fan
     recordTransaction: async () => ({ outcome: 'recorded', credits: 400 }), recordNotification: async () => { throw new Error('unused'); },
   }, account, { transactions: Array(25).fill(signed) });
   assert.equal(result.length, 25);
-  assert.deepEqual(result[0], { transaction_id: '123', outcome: 'recorded', credits: 400 });
+  const { support_reference, ...earlier } = result[0];
+  assert.match(support_reference ?? '', /^[0-9a-f]{64}$/);
+  assert.deepEqual(earlier, { transaction_id: '123', outcome: 'recorded', credits: 400 });
   assert.ok(result.slice(1).every(value => value.outcome === 'verification_unavailable'));
   assert.equal(h.starts.length, 1); assert.equal(h.requests.length, 1);
 });

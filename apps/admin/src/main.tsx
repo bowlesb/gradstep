@@ -4,13 +4,20 @@ import type { Session } from '@supabase/supabase-js';
 import { attachmentImage, backend, environment, rpc, type AccountContext, type Overview, type Pipeline, type PipelineMetrics, type Report, type Thread } from './backend';
 import { mutate } from './mutations';
 import { Reliability } from './reliability';
+import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
+import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
 import './style.css';
 
 const loadMetrics = (days: number) => rpc<PipelineMetrics>('v1_admin_pipeline_metrics', { p_days: days });
 const loadChecks = () => rpc<WorkflowChecks>('v1_admin_workflow_checks', { p_days: 14 });
+const purchasesApi: PurchasesApi = {
+  list: (filter, reference) => rpc<PurchaseObservations>('v1_admin_store_verifications', { p_filter: filter, p_reference: reference }),
+  attempts: (accountID, reference) => rpc<PurchaseObservation[]>('v1_admin_store_verification_attempts', { p_account_id: accountID, p_reference: reference }),
+  transactions: (accountID, cursor) => rpc<PurchaseLedgerPage>('v1_admin_store_account_transactions', { p_account_id: accountID, p_cursor: cursor, p_limit: 25 }),
+};
 
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);
 const date = (value: string) => new Date(value).toLocaleString();
@@ -76,7 +83,7 @@ function App() {
   }
   if (account && !account.operator_verified) return <TwoFactor onVerified={refresh} />;
   const owner = account.roles.includes('owner');
-  return <Shell tabs={owner ? ['Overview', 'Usage', 'Processing', 'Reliability', 'Accounts', 'Support'] : ['Support']} tab={tab} onTab={setTab}
+  return <Shell tabs={owner ? ['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Purchases', 'Support'] : ['Support']} tab={tab} onTab={setTab}
     counts={{ Support: overview?.open_reports }} email={session.user.email ?? ''} onSignOut={() => void backend?.auth.signOut()}
     loading={loading} onRefresh={() => { setReloads(n => n + 1); void refresh(); }}>
       {error && <div className="error" role="alert">{error}</div>}
@@ -88,12 +95,11 @@ function App() {
         <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
-      {tab === 'Usage' && overview && <section className="panel"><h2>Provider usage this month</h2><p className="muted">Recorded provider estimates; reconciliation can adjust final expense. Customer credits are accounted for separately.</p>
-        <table><thead><tr><th>Provider</th><th>Model</th><th>Calls</th><th>Estimated expense</th></tr></thead><tbody>{overview.usage.map(row => <tr key={row.provider + row.model}><td>{row.provider}</td><td>{row.model || '—'}</td><td>{row.calls}</td><td>{dollars(row.estimated_microusd)}</td></tr>)}</tbody></table>
-        {!overview.usage.length && <Empty text="No paid provider usage has been recorded." />}</section>}
+      {tab === 'Spending' && owner && <Spending key={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
       {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
+      {tab === 'Purchases' && owner && <Purchases key={account.account_id} api={purchasesApi} reloadKey={reloads} />}
       {tab === 'Support' && <Support key={account.account_id} accountID={account.account_id} reports={reports} refresh={refresh} />}
   </Shell>;
 }
@@ -245,10 +251,13 @@ function PrivateAttachment({ id }: { id: string }) {
 }
 
 const root = createRoot(document.getElementById('root')!);
-// Development-only screenshot fixtures (`?fixture=reliability`, `?fixture=accounts`); production builds drop this branch and its module.
-if (import.meta.env.DEV && ['reliability', 'accounts'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
-  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture }) => root.render(<React.StrictMode>
-    {new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture /> : <ReliabilityFixture />}</React.StrictMode>));
+// Development-only screenshot fixtures; production builds drop these branches and their modules.
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('fixture') === 'spending') {
+  void import('./spending-fixture').then(({ SpendingFixture }) => root.render(<React.StrictMode><SpendingFixture /></React.StrictMode>));
+} else if (import.meta.env.DEV && ['reliability', 'accounts', 'purchases'].includes(new URLSearchParams(location.search).get('fixture') ?? '')) {
+  void import('./fixtures').then(({ ReliabilityFixture, AccountsFixture, PurchasesFixture }) => root.render(<React.StrictMode>
+    {new URLSearchParams(location.search).get('fixture') === 'accounts' ? <AccountsFixture />
+      : new URLSearchParams(location.search).get('fixture') === 'purchases' ? <PurchasesFixture /> : <ReliabilityFixture />}</React.StrictMode>));
 } else {
   root.render(<React.StrictMode><App /></React.StrictMode>);
 }

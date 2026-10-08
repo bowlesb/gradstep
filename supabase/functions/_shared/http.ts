@@ -44,6 +44,8 @@ export function exposedDatabaseError(message: string): PublicError {
     attachment_id_conflict: 409, attachment_expired: 410, invalid_attachment: 400,
     attachment_count_limit: 422, attachment_storage_limit: 429, request_rate_limit: 429,
     attachment_verification_failed: 409, reader_unavailable: 403, document_unavailable: 403, route_unavailable: 503,
+    reader_upgrade_required: 426, reader_transfer_limit: 429, reader_grant_unavailable: 403, reader_grant_consumed: 409,
+    asset_inventory_incomplete: 503, invalid_reader_transport: 400,
   };
   return new PublicError(states[message] ?? 503, states[message] ? message : 'service_unavailable');
 }

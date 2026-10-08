@@ -1995,7 +1995,7 @@ final class ReaderModel {
             // Four members at a time (they were fetched one by one: ~0.4–1 s each).
             let members = try await withThrowingTaskGroup(of: (String, Data).self) { group in
                 var fetched: [String: Data] = [:], queue = descriptor.members[...]
-                func next() { if let member = queue.popFirst() { group.addTask { (member.path, try await backend.readerMember(member)) } } }
+                func next() { if let member = queue.popFirst() { group.addTask { (member.path, try await backend.readerMember(member, accountID: accountID)) } } }
                 for _ in 0..<4 { next() }
                 while let (path, data) = try await group.next() { fetched[path] = data; next() }
                 return fetched
@@ -2588,7 +2588,7 @@ final class ReaderModel {
         chatGenerations = [:]; chatStreamingText = [:]; chatStreamBuffer = [:]; chatStreamFlushes = []; chatStreamProgress = [:]
         chatAnswerIssues = [:]; chatConsentPrompt = nil; pendingSelection = nil
         creditBalance = nil; creditBalanceIssue = nil
-        storeSummary = nil; storeNotice = nil; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
+        storeSummary = nil; storeNotice = nil; lastStoreSyncResults = []; showStore = false; planOwnedElsewhere = false; storeOwnershipKnown = false
         storeRetry?.cancel(); storeRetry = nil; storeRetryAttempt = 0
         readerPrefetch?.cancel(); readerPrefetch = nil; readerDownloads = [:]
         for generation in retiring {
@@ -2644,6 +2644,7 @@ final class ReaderModel {
         if let issue = creditBalanceIssue { state["credits_issue"] = issue }
         if let issue = accountPreparationIssue { state["account_issue"] = issue }
         if let notice = storeNotice { state["store_notice"] = notice }
+        if !lastStoreSyncResults.isEmpty { state["store_results"] = lastStoreSyncResults.prefix(5).map(\.supportLine).joined(separator: "\n") }
         if let balance = creditBalance { state["credits"] = String(balance.available) }
         return state
     }
@@ -2662,6 +2663,11 @@ final class ReaderModel {
     /// Set once this session's first purchase sync has checked plan ownership.
     private(set) var storeOwnershipKnown = false
     var storeNotice: String?
+    private(set) var lastStoreSyncResults: [StoreSyncResult] = []
+    var purchaseSupportDiagnostics: String? {
+        let unconfirmed = lastStoreSyncResults.filter { !$0.isFinal }.prefix(5)
+        return unconfirmed.isEmpty ? nil : "Purchase verification\n" + unconfirmed.map(\.supportLine).joined(separator: "\n")
+    }
     @ObservationIgnored private var storeUpdates: Task<Void, Never>?
     @ObservationIgnored private var readerPrefetch: Task<Void, Never>?
     @ObservationIgnored private var readerDownloads: [UUID: Task<Void, Error>] = [:]
@@ -2705,6 +2711,7 @@ final class ReaderModel {
             if includeCurrent || foreign, let transaction = await pendingTransaction(item) { pending.append(transaction) }
         }
         if !pending.isEmpty { await reportStoreTransactions(pending) }
+        else if self.accountID == accountID { lastStoreSyncResults = [] }
         await refreshStoreSummary()
         guard self.accountID == accountID else { return }
         // A deleted account's plan moves to this one when reported, so it shows here.
@@ -2720,6 +2727,7 @@ final class ReaderModel {
         let scope = sessionID
         let results = try? await StoreSync.report(pending, accountID: accountID, transport: backend)
         guard sessionID == scope else { return results }
+        lastStoreSyncResults = Array((results ?? [StoreSyncResult(outcome: "verification_unavailable", credits: nil)]).prefix(StoreSync.batchSize))
         if results?.contains(where: \.isFinal) == true { await refreshCreditBalance(); await refreshStoreSummary() }
         if results == nil || results?.contains(where: { $0.outcome == "verification_unavailable" }) == true { scheduleStoreRetry() }
         else { storeRetryAttempt = 0 }
@@ -2761,6 +2769,7 @@ final class ReaderModel {
         do { try await AppStore.sync() } catch { storeNotice = "Couldn’t reach the App Store. Try again later."; return }
         await syncStoreTransactions(includeCurrent: true)
         if planOwnedElsewhere { storeNotice = "The plan on this Apple Account belongs to another account. Sign in to that account to use it." }
+        else if let unconfirmed = lastStoreSyncResults.first(where: { !$0.isFinal }) { storeNotice = StoreSync.message(for: unconfirmed) }
         else { storeNotice = storeSummary?.planName.map { "Your \($0) plan is active." } ?? "No active plan was found for this Apple Account." }
     }
 

@@ -28,6 +28,10 @@ function failure(error: unknown): string {
     if (error.code === 'connection') return 'Couldn’t reach Gradstep. Check your connection and try again.';
     if (error.code === 'reader_not_ready' || error.code === 'item_unavailable' || error.code === 'reader_unavailable') return 'This paper isn’t ready to read yet.';
     if (error.code === 'origin_unavailable') return 'The reader service isn’t available to this website yet.';
+    if (error.code === 'reader_transfer_limit') return 'Paper downloads are temporarily limited. Saved papers remain available.';
+    if (error.code === 'reader_upgrade_required') return 'Reload Gradstep to update the reader. Saved papers remain available.';
+    if (error.code === 'reader_grant_unavailable' || error.code === 'reader_grant_consumed') return 'The download needs to restart. Open the paper again.';
+    if (error.code === 'asset_inventory_incomplete') return 'This paper is temporarily unavailable. Saved papers remain available.';
   }
   if (error instanceof BundleError) return 'This paper’s files didn’t pass verification, so it isn’t shown.';
   return 'Couldn’t open this paper. Try again.';

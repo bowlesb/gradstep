@@ -100,13 +100,13 @@ update app_private.catalog_tags set next_attempt_at=now() where version_id=:'v1'
 set role service_role;
 select test.assert(jsonb_array_length(public.worker_tags_claim(gen_random_uuid(),5,false,'gradstep-tags-v1'))=0,'without the model, fallbacks are not re-claimed');
 select public.worker_tags_claim('28000000-0000-0000-0000-00000000c002',5,true,'gradstep-tags-v1') as claim2 \gset
-select test.assert(jsonb_array_length(:'claim2'::jsonb)=1 and (:'claim2'::jsonb->0->>'model')::boolean and (:'claim2'::jsonb->0->>'hold_microusd')::int=10000
+select test.assert(jsonb_array_length(:'claim2'::jsonb)=1 and (:'claim2'::jsonb->0->>'model')::boolean and (:'claim2'::jsonb->0->>'hold_microusd')::int=40000
  and :'claim2'::jsonb->0->>'method'='categories','claimed for the model with a hold');
 reset role;
-select test.assert((select o.kind='metadata' and o.credit_ceiling=0 and o.spend_ceiling_microusd=10000 and o.state='reserved' and o.account_id='28000000-0000-0000-0000-00000000000a'
+select test.assert((select o.kind='metadata' and o.credit_ceiling=0 and o.spend_ceiling_microusd=40000 and o.state='reserved' and o.account_id='28000000-0000-0000-0000-00000000000a'
  from app_private.catalog_tags t join app_private.metered_operations o on (o.account_id,o.id)=(t.operation_account_id,t.operation_id) where t.version_id=:'v1'),
  'hold: platform-funded, first reader of record, no credits');
-select test.assert((select reserved_microusd=:reserved0+10000 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'budget reserved');
+select test.assert((select reserved_microusd=:reserved0+40000 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'budget reserved');
 set role service_role;
 select public.worker_tags_record(:'v1','28000000-0000-0000-0000-00000000c002',:'meta1',array['Natural language processing','Transformers','Long context'],'model','gradstep-tags-v1',
  'claude-haiku-4-5-20251001',decode(repeat('03',32),'hex'),'msg_tags_test_1','{"input_tokens":2900,"output_tokens":40}',3100,true) as rec3 \gset
@@ -115,7 +115,7 @@ reset role;
 select test.assert((select spent_microusd=:spent0+3100 and reserved_microusd=:reserved0 and work_enabled from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'settled at the actual cost');
 select test.assert((select actual_credits=0 and actual_microusd=3100 from app_private.metered_operations where account_id='28000000-0000-0000-0000-00000000000a' and kind='metadata'),'reader not charged');
 select test.assert((select provider='anthropic' and model='claude-haiku-4-5-20251001' and estimated_microusd=3100 and (units->>'input_tokens')::int=2900
- from app_private.provider_usage_events where provider_event_id='msg_tags_test_1'),'provider usage recorded');
+ from app_private.provider_usage_events where provider_event_id=(select 'attempt:'||id from app_private.provider_attempts where provider_request_id='msg_tags_test_1')),'provider usage recorded');
 select test.assert((select operation_id is null and claim_id is null and attempts=0 and model='claude-haiku-4-5-20251001' from app_private.catalog_tags where version_id=:'v1'),'claim cleared');
 
 -- A later model failure (e.g. a vocabulary change) never downgrades model tags.
@@ -128,7 +128,7 @@ select test.assert(not (:'rec4'::jsonb->>'changed')::boolean and :'rec4'::jsonb-
 reset role;
 select test.assert((select attempts=1 and next_attempt_at>now()+interval '9 minutes' and vocabulary='gradstep-tags-v1' from app_private.catalog_tags where version_id=:'v1'),'retry backs off');
 
--- A worker that died mid-claim: the hold is spent at its ceiling and the claim released.
+-- A worker that died mid-claim: customer settlement retains the entire unknown provider liability.
 update app_private.catalog_tags set next_attempt_at=now() where version_id=:'v1';
 set role service_role;
 select test.assert(jsonb_array_length(public.worker_tags_claim('28000000-0000-0000-0000-00000000c004',5,true,'gradstep-tags-v2'))=1,'claimed again');
@@ -138,7 +138,7 @@ set role service_role;
 select public.worker_tags_claim(gen_random_uuid(),5,false,'gradstep-tags-v2');
 reset role;
 select test.assert((select claim_id is null and attempts=2 from app_private.catalog_tags where version_id=:'v1'),'expired claim released');
-select test.assert((select spent_microusd=:spent0+13100 and reserved_microusd=:reserved0 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'hold spent at its ceiling');
+select test.assert((select spent_microusd=:spent0+3100 and reserved_microusd=:reserved0+40000 from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),'unknown hold remains reserved at its ceiling');
 select test.assert(not exists(select 1 from app_private.metered_operations where kind='metadata' and state<>'settled'),'no open holds');
 
 -- Projection of the model tags, then personal tags.

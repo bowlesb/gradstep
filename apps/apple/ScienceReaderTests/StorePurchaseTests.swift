@@ -30,11 +30,11 @@ final class StorePurchaseTests: XCTestCase {
 
     func testOnlyFinalOutcomesFinishTheirTransactions() async throws {
         let outcomes = ["jws-1": "recorded", "jws-2": "already_recorded", "jws-3": "linked_to_another_account", "jws-4": "invalid",
-                        "jws-5": "updated", "jws-6": "environment_unavailable", "jws-7": "account_closed"]
+                        "jws-5": "updated", "jws-6": "environment_unavailable", "jws-7": "account_closed", "jws-8": "verification_unavailable"]
         let transport = RecordingStoreTransport { StoreSyncResult(outcome: outcomes[$0]!, credits: nil) }
         let log = FinishLog()
-        let results = try await StoreSync.report((1...7).map(log.pending), accountID: account, transport: transport)
-        XCTAssertEqual(results.map(\.outcome), (1...7).map { outcomes["jws-\($0)"]! })
+        let results = try await StoreSync.report((1...8).map(log.pending), accountID: account, transport: transport)
+        XCTAssertEqual(results.map(\.outcome), (1...8).map { outcomes["jws-\($0)"]! })
         XCTAssertEqual(log.finished, [1, 2, 5], "Unconfirmed purchases stay unfinished so StoreKit offers them again")
     }
 
@@ -83,5 +83,30 @@ final class StorePurchaseTests: XCTestCase {
         XCTAssertEqual(summary.planName, "Pro")
         XCTAssertEqual(summary.expiresAt, ISO8601DateFormatter().date(from: "2026-11-05T16:12:03Z"))
         XCTAssertNil(try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":null}"#.utf8)).planName)
+    }
+
+    func testOnlySafePurchaseDiagnosticsReachReports() throws {
+        let reference = String(repeating: "38", count: 32)
+        let data = Data("""
+        {"outcome":"verification_unavailable","support_reference":"\(reference)",
+         "diagnostic":{"stage":"revocation","apple_status":"retryable_verification_failure","transport_code":"timeout", "message":"private raw failure"},
+         "transaction_id":"private transaction identity"}
+        """.utf8)
+        let result = try JSONDecoder().decode(StoreSyncResult.self, from: data)
+        XCTAssertEqual(result.supportReference, reference)
+        XCTAssertEqual(result.supportLine, "verification_unavailable · revocation · retryable_verification_failure · timeout · reference \(reference)")
+        XCTAssertFalse(result.supportLine.contains("private"))
+        XCTAssertTrue(StoreSync.message(for: result).contains(String(reference.prefix(16))))
+        let refused = StoreSyncResult(outcome: "invalid", credits: nil, supportReference: reference)
+        XCTAssertTrue(StoreSync.message(for: refused).contains("Restore purchases"))
+        XCTAssertTrue(StoreSync.message(for: refused).contains(String(reference.prefix(16))))
+        XCTAssertFalse(StoreSync.message(for: refused).contains("automatically"))
+        let unknown = try JSONDecoder().decode(StoreSyncResult.self, from: Data(#"{"outcome":"private-raw-error","support_reference":"jwt.secret.token","diagnostic":{"stage":"private-message","transport_code":"http://private.example"}}"#.utf8))
+        XCTAssertEqual(unknown.supportLine, "unknown")
+        XCTAssertNil(unknown.supportReference)
+        XCTAssertFalse(unknown.isFinal)
+        let legacy = try JSONDecoder().decode(StoreSyncResult.self, from: Data(#"{"outcome":"recorded","credits":800}"#.utf8))
+        XCTAssertTrue(legacy.isFinal)
+        XCTAssertNil(legacy.diagnostic)
     }
 }

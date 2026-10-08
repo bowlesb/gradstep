@@ -50,7 +50,9 @@ test('local and remote record verifiers use identical financial flow once, with 
       recordTransaction: async (account, record) => { calls.push({ account, record }); return { outcome: 'recorded', credits: 400 }; },
       recordNotification: async record => { calls.push(record); return { outcome: 'recorded' }; },
     };
-    assert.deepEqual(await syncTransactions(deps, 'ACCOUNT', { transactions: ['signed'] }), [{ transaction_id: '2001', outcome: 'recorded', credits: 400 }]);
+    const synced = await syncTransactions(deps, 'ACCOUNT', { transactions: ['signed'] });
+    assert.match(synced[0].support_reference ?? '', /^[0-9a-f]{64}$/);
+    assert.deepEqual(synced.map(({ support_reference: _, ...rest }) => rest), [{ transaction_id: '2001', outcome: 'recorded', credits: 400 }]);
     assert.deepEqual(await handleNotification(deps, { signedPayload: 'signed' }), { status: 200, outcome: 'recorded' });
     assert.equal(calls.length, 2);
     const recordingFailure = new StoreVerificationError('invalid');

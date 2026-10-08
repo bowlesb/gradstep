@@ -105,6 +105,8 @@ export function claimedEnvironment(signed: string, notification: boolean): strin
 }
 
 export function appleVerifier(config: StoreConfig, roots: Buffer[] = appleRootCertificates()): StoreVerifier {
+  // Defense in depth for callers that construct StoreConfig without storeConfig().
+  if (config.environments.includes('Production') && !config.onlineChecks) throw new Error('production_online_checks_required');
   const verifiers = new Map(config.environments.map(e => [e, new DiagnosticSignedDataVerifier(roots, config.onlineChecks,
     e === 'Production' ? Environment.PRODUCTION : Environment.SANDBOX, config.bundleID, e === 'Production' ? config.appAppleID : undefined)]));
   const pick = (signed: string, notification: boolean) => {

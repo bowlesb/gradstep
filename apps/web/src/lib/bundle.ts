@@ -193,7 +193,7 @@ export async function loadBundle(account: string, itemID: string, signal?: Abort
 }
 
 async function downloadBundle(account: string, itemID: string, signal: AbortSignal, onProgress?: (fraction: number) => void): Promise<VerifiedBundle> {
-  const d = await functionGet<Descriptor>(`reader-artifact?item_id=${itemID}`, { maximum: 1_048_576, account, signal });
+  const d = await functionGet<Descriptor>(`reader-artifact?item_id=${itemID}&transport=bounded-v1`, { maximum: 1_048_576, account, signal });
   const origin = new URL(config.url).origin;
   if (!d || !isUUID(d.item_id) || d.item_id.toLowerCase() !== itemID || !isDigest(d.manifest_sha256) || typeof d.renderer_version !== 'string' || d.renderer_version.length > 64
     || !Array.isArray(d.members) || d.members.length < 1 || d.members.length > 512 || new Set(d.members.map(m => m.path)).size !== d.members.length) fail('descriptor');
@@ -211,7 +211,7 @@ async function downloadBundle(account: string, itemID: string, signal: AbortSign
   const queue = [...d.members];
   const worker = async () => {
     for (let m = queue.shift(); m; m = queue.shift()) {
-      const bytes = await signedMember(m.url, m.bytes, signal);
+      const bytes = await signedMember(m.url, m.bytes, signal, account);
       if (await sha256Hex(bytes) !== m.sha256) throw new BundleError('integrity');
       members.set(m.path, bytes);
       done++; received += bytes.length; onProgress?.(received / total);

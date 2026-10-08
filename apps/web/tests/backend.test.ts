@@ -167,6 +167,24 @@ describe('authentication lifetimes', () => {
 });
 
 describe('request lifetime', () => {
+  it('bounded members carry the captured account token; legacy URLs do not', async () => {
+    const { signedMember } = await setup();
+    const calls: RequestInit[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => { calls.push(init); return new Response(new Uint8Array([1, 2, 3])); }));
+    const target = `https://fixture.invalid/functions/v1/reader-member?grant=${'a'.repeat(64)}&member=${first}`;
+    expect(await signedMember(target, 3, undefined, first)).toEqual(new Uint8Array([1, 2, 3]));
+    expect(new Headers(calls[0].headers).get('Authorization')).toBe('Bearer old-access');
+    expect(calls[0].redirect).toBe('error');
+    await signedMember('https://fixture.invalid/storage/v1/object/sign/paper/file?token=legacy', 3);
+    expect(new Headers(calls[1].headers).has('Authorization')).toBe(false);
+    for (const invalid of [target.replace('fixture.invalid', 'evil.invalid'), target + '&grant=duplicate',
+      target.replace('/reader-member?', '/anything?'), target + '#fragment']) {
+      await expect(signedMember(invalid, 3, undefined, first)).rejects.toMatchObject({ code: 'reader_integrity_failed' });
+    }
+    await expect(signedMember(target, 3, undefined, second)).rejects.toMatchObject({ code: 'sign_in_required' });
+    expect(calls).toHaveLength(2);
+  });
+
   it.each(['rpc', 'storage'])('%s retains its deadline while a caller signal and a stalled body are present', async kind => {
     vi.useFakeTimers();
     const { rpc, signedMember } = await setup();

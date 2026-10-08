@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY supabase/functions/_shared ./supabase/functions/_shared
-COPY server.ts ./services/pipeline-worker/server.ts
+COPY server.ts run.ts ./services/pipeline-worker/
 ENV NODE_ENV=production
 USER node
 EXPOSE 8080

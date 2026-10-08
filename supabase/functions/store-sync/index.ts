@@ -2,7 +2,7 @@
 // renewals and restores StoreKit delivers). Each is verified against Apple's
 // root and recorded for the signed-in account; the app finishes a transaction
 // only once its outcome is final. See docs/architecture/PURCHASES.md.
-import { cors, serviceClient, userClient } from '../_shared/backend.ts';
+import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError, readBounded } from '../_shared/http.ts';
 import { MAX_SYNC_TRANSACTIONS, REJECTED_DATA, storeConfig, storeRecordingCode, syncTransactions } from '../_shared/store-purchases.ts';
 import { configuredStoreGoogleIdentity } from '../_shared/store-google-auth.ts';
@@ -46,6 +46,20 @@ Deno.serve(async request => {
     });
     const results = await syncTransactions({
       recordVerifier,
+      // Durable per-account attempt records (migration 038); 033's transport admission is separate.
+      async beginVerification(account, attempt, digest) {
+        const admission = await rpc<{ granted: boolean }>(service, 'worker_store_verification_begin', {
+          p_account_id: account, p_attempt_id: attempt, p_submission_sha256: '\\x' + digest,
+        });
+        return admission.granted === true;
+      },
+      async finishVerification(account, attempt, outcome, diagnostic) {
+        await rpc(service, 'worker_store_verification_finish', {
+          p_account_id: account, p_attempt_id: attempt, p_outcome: outcome,
+          p_stage: diagnostic?.stage ?? null, p_apple_status: diagnostic?.apple_status ?? null,
+          p_transport_code: diagnostic?.transport_code ?? null,
+        });
+      },
       observeVerification(observation) { console.log(JSON.stringify({ function: 'store-sync', event: 'verification', ...observation })); },
       async recordTransaction(account, record) {
         const { data, error } = await service.rpc('worker_record_store_transaction', { p_account_id: account, p_transaction: record })
