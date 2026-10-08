@@ -619,3 +619,201 @@ The original native upload queue and optimistic `libraryReadVersion = 5` transpo
 this server contract. They must not ship against039 until durable epoch/capability adoption, chunk/resume state,
 encrypted descriptor outbox/hydration, busy-finalize retries, usage totals and custom-title local search are complete.
 An upload feature flag alone is not evidence that those original branch clients implement the new protocol.
+
+## Native adoption implementation design — awaiting lead review, 2026-10-07
+
+This is the next local implementation stage after `5fdd261`. It covers Swift/Core, the Apple app and fixture-only
+tests. It does not enable 039, create Apple identifiers/profiles, deploy functions or change the browser. The existing
+Add sheet, file picker/drop/share entry points, Library upload banners and paper navigation remain in place.
+
+### Capability and replicated-library boundary
+
+Use an explicit `LibraryReadContext` bound to deployment, account, endpoint family, body format, source level and
+optional dataset epoch. Distinguish **v3 full** (body format 2, source level 3, no epoch) from **v5 full** (body format 2,
+source level 4, required upload epoch). V4 compact has body format 4 and v5 compact has body format 5; neither may be
+decoded as a full page or reuse a full continuation. This stage keeps the native full-replication path and the existing
+4,000-entry ceiling. It does not silently adopt server query pagination or raise library capacity.
+
+The initial native branch optimistically tries v5 and resends the same failed request against v3. Replace this with
+account-session capability negotiation followed by a reconciler reset when the selected family changes. A v5 request
+carries its immutable context; its baseline cursor preserves `read_level=4` and `dataset_epoch`, and every delta
+request sends `p_dataset_epoch`. Validate context on every page before accepting any row/cursor. A capability/epoch
+change invalidates pending page tickets; a late response cannot choose the next account's mode.
+
+**Server join point for separate review:** 039 has no authenticated capability advertisement today. Add a small,
+account-bound read RPC, proposed `v1_reader_capabilities()`, returning format/account plus supported full-read version,
+wire format/source level, upload dataset epoch, descriptor format and ingress protocol/limits/enabled state. The
+upload flag reflects policy, required inventory scope and current account admission, but remains advisory: every real
+admission still checks authoritative policy. No Storage paths, credentials, management token, budget details or
+provider secrets belong in this response. A disabled ingress must not hide already-synced upload papers/descriptors.
+Root should own/approve this small server addition while this subtask owns its native consumer and fixtures.
+
+Only an exact missing-RPC response for that endpoint permits a legacy v3 baseline, and only when this account/deployment
+has never durably adopted v5. A transient error, unauthorized response, malformed capability, missing v5 dependency or
+schema-cache inconsistency must not downgrade a v5 replica. Keep its last encrypted presentation, pause new uploads
+and retry negotiation. After a server upgrades from a remembered v3 session, the next foreground/session negotiation
+starts a fresh v5 baseline; it never sends an old v3 `after` or continuation to v5. A rollout reversal from already
+adopted v5 to a genuinely older server is an explicit unavailable state, preserving upload rows and pending work.
+
+### Durable cache, restore epochs and offline eligibility
+
+Bump the sealed local presentation format for the descriptor field and read context. Persist its context, complete
+cursor and row manifest in the same authenticated SQLite transaction as the rows. Existing format 1–3 snapshots stay
+readable for offline presentation but require a fresh baseline; they do not acquire a fabricated epoch. Retain their
+reader bundles and queued library mutations. No partial baseline/page advances the durable complete checkpoint.
+
+A fully validated same-context v5 checkpoint can seed a new reconciler in **catching-up**, never ready: a fresh
+authenticated server delta must complete before producing a `LibraryCompleteObservation`, settling a command or
+authorizing a new reader download. Keep `CachedLibraryPresentation` as a presentation-only type; add a separate
+validated resume seed produced by the encrypted store, with scope/context/row checks. V3 continues to baseline on
+launch because its epochless protocol cannot prove continuity after a restore. A corrupt seed preserves the cache
+for diagnosis and starts a bounded fresh pull; it never silently deletes pending work or reader policy.
+
+On a changed v5 epoch, stage a fresh complete baseline plus its fixed-boundary catch-up. Only then atomically replace
+the old replica, including lower cursors and absent old rows. Monotonic sequence/identity comparisons apply within
+one dataset context; removing their guards globally would permit stale-state overwrite. Same-context compaction
+still uses the existing bounded reset and strict identity rules. The authenticated checkpoint records the new context
+with its rows, so a crash cannot pair a new epoch with the old high-water mark.
+
+Reader-bundle eligibility needs the same context boundary; its current global cursor/item-state comparison would
+reject a restored lower baseline. Preserve installed ciphertext and exact document/artifact/manifest bindings. During
+transition ordinary previously readable bundles remain available offline. When the new complete observation arrives,
+missing/removed items become unavailable and changed artifacts stay blocked. Carry explicit quarantine/incompatibility
+and previously removed membership across domains; a lower restored revision alone cannot clear them. A previously
+blocked/removed installation needs a fresh current-domain artifact authorization and exact manifest validation before
+it can become readable again. Context changes do not discard sticky policy or treat cache repair as authorization.
+This is an explicit eligibility transition to review, not a `cursor >= old` exception sprinkled through the cache.
+
+Pending command receipts also carry their observation context. After an epoch change, an old numerical receipt floor
+cannot be compared with a new cursor. Retain the encrypted intent in needs-review rather than automatically replaying
+a mutating RPC whose receipt may have been lost in the restore. A fresh current-domain observation alone is not proof
+of that command's outcome. The current server has no read-only receipt resolver; automatic recovery across this
+boundary must wait for a separately reviewed resolver, or use the existing explicit review/retry flow with fresh
+preconditions. Same-domain lost replies still replay their exact operation identity normally. Never invent a new
+operation ID or silently mark an old-domain command complete.
+
+### Descriptor hydration, journal and local title index
+
+Add optional `descriptor_ref` to full item/import DTOs without changing `PrivateEvent.Kind`. Public metadata remains
+immutable and neutral. Descriptor reference changes are mutable state changes, not new catalog identity. Apply every
+grouped journal batch atomically, including import/item pairs and tombstones, and publish only complete observations.
+Treat an omitted descriptor in an old-shaped command acknowledgment as **not observed**, not an instruction to clear
+a cached reference. Native commands continue to use acknowledgments as observation floors, then read the canonical
+journal. If the general reconciler accepts a command entry, its explicitly tagged acknowledgment merge may ignore only
+that omitted additive field; all other identity/state equality checks remain strict. Two canonical observations at the
+same revision with different descriptor references are still a conflict.
+
+Use a separate bounded descriptor coordinator/store, scoped to deployment/account/source. Hydrate at most 24 exact
+ID/revision references per request. Validate response format/account/source, reference identity/revision/epoch/digest
+and envelope bounds before decrypting with the existing reviewed codec. A stale-reference response triggers bounded
+library catch-up; it cannot replace ciphertext under the requested old cache key. Cache ciphertext/reference with
+an authenticated local manifest. Unknown formats, missing historical keys or corrupt envelopes retain bounded opaque
+evidence and expose a neutral `Uploaded PDF`/locked-title state; they do not fail the whole library pull, erase a title
+revision, fall back to plaintext or repeat hydration on every render.
+
+Persist descriptor writes in a dedicated encrypted outbox, not the history event stream or the existing item/import
+receipt enum. Its record contains source, expected revision, exact immutable envelope, mutation ID, local intent,
+phase and recorded result. Seal once and durably commit before sending; retries reuse the exact envelope. Current
+management token and caller device are supplied at dispatch and are not part of the immutable request identity.
+After rotation/recovery, the currently authorized surviving device can replay a historically authored envelope.
+An unaccepted stale-epoch mutation is replaced only after authoritative rejection/catch-up proves its state, using a
+new mutation and current keys. Revision conflicts preserve the local edit and current remote reference for review;
+the server cannot merge ciphertext and the client must not silently overwrite the other device's title.
+
+Descriptor create happens after begin has established source ownership and before freezing a new-paper session.
+The applied descriptor result is checked against the persisted expected envelope/reference; a subsequent status/read
+confirms the current source reference. An attached paper's rename is complete only after a fresh library observation
+and exact descriptor hydration. Creating a descriptor for a not-yet-attached session has no library row yet, so it
+uses its authoritative receipt plus upload status rather than waiting for a nonexistent journal member.
+
+Use the current complete native library as the title-index population; hydrate every distinct referenced descriptor
+for visible/archived items and displayed imports, not only rows on screen. Decrypt off the main actor and combine the
+private display name with existing public search fields for the whole account. A descriptor/key/context generation
+change invalidates in-flight searches and rebuilds title sort/search over all candidates. Never send private names or
+filenames to server-title queries or provider prompts. Pending or locked titles are explicitly incomplete (`Updating
+titles`/`Some titles are locked`), with deterministic placeholder ordering; do not present a partial private-title
+search as a complete no-results result. An actual journey will place a matching private title beyond the first page,
+rename it from another device, and verify filter/order, offline reopening and account switch.
+
+### Durable bounded PDF queue and recovery
+
+Replace signed token/path fields and plaintext `job.json` with a versioned encrypted job plus encrypted 4 MiB chunk
+records in the existing account-scoped local SQLite store. Each record is bound by AAD to deployment/account/job/
+part and is authenticated by the job manifest; the whole-file and per-part hashes are computed while adopting the
+selected file. A transaction publishes the job only after every bounded chunk is durable. Use opaque IDs, preserve
+the user's original file, and retain no private title/filename in local SQL columns, URLs, logs or unencrypted queue
+metadata. Intake reads one chunk at a time; it must not buffer every queued PDF. Local queue limits are separate
+device-disk safeguards (proposed 10 jobs and 512 MiB ciphertext), never representations of server storage allowance.
+
+Extend the existing local store format transactionally with encrypted descriptor/outbox/upload manifests and tables;
+all current history/draft/library/cache records survive. Unknown/corrupt rows are preserved and stop affected work,
+not silently removed by the old directory loader. Legacy local upload jobs are imported once under the authenticated
+account, rechecking their files and sealing their title and protocol state before deleting the old `job.json`/copy.
+They receive no automatic new server identity or signed-token fallback; conflicts remain visible for review.
+
+The share extension has no account keys and must keep that separation. It cannot persist a PDF's supplied filename or
+private title in plaintext `item.json`. Use an opaque temporary PDF name and omit optional PDF title/origin strings
+until main-app adoption; derive PDF metadata locally in memory and seal the descriptor then. File/drop intake carries
+any suggested filename in memory into the encrypted job. Protect/exclude temporary files from backup and delete owned
+temporary copies after durable adoption. Do not create new app-group identifiers or provisioning profiles. Original
+external files and temporary PDF contents themselves are not claimed to be end-to-end encrypted by this descriptor.
+
+One account-session-owned queue sends one part at a time. Persist an attempt UUID before the first PUT and send only
+to this configured project's authenticated `upload-pdf` endpoint, with exact bytes/type and no redirects. Status is
+database-only. After a disconnect/relaunch, query status and replay the same part/attempt identity if needed; server
+single-send admission makes replay safe. Verified parts are never resent. Unknown attempts stay visible and charged;
+a paced replacement uses a new persisted attempt ID and fresh server capacity, up to the declared per-part ceiling.
+Exhaustion stops with a useful action; it never creates a new session automatically. Progress distinguishes verified
+bytes from in-flight bytes so an uncertain response is not reported as a completed upload.
+
+Freeze persists the exact session generation, latest verified revision, original target/import revision and observed
+library cursor before the request. Lost finalize responses replay that tuple; a status of frozen/checking/consumed
+resumes the same selection. `upload_target_busy` keeps the frozen session, encrypted descriptor and chunks, and retries
+with paced backoff after the existing download can finish. It is neither an invalid-PDF error nor a reason to create
+a fresh upload. A terminal stale target preserves a retryable local copy and offers the existing new-paper action
+only as an explicit new user intent, never by silently retargeting.
+
+Cancel is itself a durable intent. Stop new local part starts immediately, retain an exact cancellation request and
+retry it after reconnection. Only a positive abandoned response permits dropping the server-cancellation record;
+unknown PUT liability remains the server's ledger responsibility. If attach already won (`upload_already_attached`),
+refresh the canonical import and route an explicit withdrawal through the existing import cancellation command with
+its current revision. A frozen cancellation cannot resurrect an import. Sign-out stops dispatch and retires callback
+ownership, but keeps encrypted unfinished work for that same account; account deletion erases local jobs/parts/titles
+after the normal server deletion confirmation. A different account or a newly opened same-account session cannot
+accept stale progress, erase a new job or inherit the prior caller's token.
+
+An expired receiving session is not an automatic restart loop. Resolve cancellation/terminal status first, retain the
+old record until its outcome is known, and require explicit retry to create a new upload/source identity and descriptor.
+Reopening or pressing Retry cannot reset part/session lifetime limits. Every persistence failure pauses dispatch;
+there is no `try? save` followed by a network side effect.
+
+### Usage presentation, checkpoints and acceptance
+
+Add a compact encrypted-storage line to the existing Account/Sync area. Use `accounted_storage_bytes` against
+`storage_limit_bytes`, with optional detail for history and descriptors; legacy responses without descriptor fields
+are history-only, never assumed to be zero descriptor usage on a v5 account. PDF staging/processed assets and local
+downloads are different allowances; do not label the encrypted-content number as all cloud storage. Show server
+storage/receipt/attempt/rate rejections in the existing upload banner without guessing a credit refund or free space.
+Keep pending cancellation/reconciliation possible while new-admission limits are exhausted.
+
+Implement and commit in reviewable slices:
+
+1. Context-bound full wire/reconciler, durable epoch checkpoint/resume, receipt compatibility and offline eligibility
+   transition. Frozen actual SQL legacy fixtures remain unchanged and gain v5 response fixtures.
+2. Descriptor cache/hydration/outbox, account/key recovery and complete local title-index projection.
+3. Encrypted chunk/job storage, exact bounded transport, resumable/frozen/busy/cancel lifecycle and legacy queue intake.
+4. Existing Add/Library/Account integration and fixture-only workflow/UI verification; keep live ingress disabled.
+
+Acceptance includes process-stop/reopen after every durable/network boundary; missing RPC vs transient failure;
+v3→v5 and restore with a lower cursor; v5 full/compact cursor swaps; mixed grouped changes; omitted-ack vs observed
+descriptor; accepted write with lost reply across author revocation/recovery; stale hydration and corrupt ciphertext;
+same/different-account callback races; partial chunks, same-attempt replay, uncertain replacement, limit exhaustion,
+busy finalize, attach/cancel ordering and failed persistence. Scan SQLite/WAL and app-owned queue metadata for synthetic
+private titles/filenames. Retain existing offline removal/quarantine/repair tests. Run targeted Core/native tests after
+each slice, then full relevant suites and complete native journeys. Simulator UDID must be reserved with root before
+boot/install; generic fixture-only builds need no physical phone. Browser follow-up must implement the same capability,
+epoch, descriptor outbox/hydration and complete private-title index contracts using its compact v5 wire and IndexedDB.
+
+**Review requested before code:** capability RPC ownership/shape; authenticated cached-seed resume; cross-epoch reader
+eligibility and old receipt handling; encrypted SQLite chunk storage/limits; and omission of plaintext PDF-share title
+metadata while preserving the share entry point. The crypto envelope and server ingress lifecycle remain unchanged.
