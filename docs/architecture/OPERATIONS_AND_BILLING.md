@@ -50,7 +50,7 @@ while the audited provider/storage gaps remain deployed. New controls are locall
 | Tavily Project, 4,000 search credits | 2026-10-06 | $30 | Owner supplied the paid October 6 invoice and November 6 renewal for November 6–December 6. Owner confirmed turning pay-as-you-go **off** on October 7 |
 | gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 amortized | One-off $181.14 already purchased by the owner; amortization is not a new monthly cash charge |
 | Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | Request billing live on revision `gradstep-pipeline-00007-j5l`, 1 vCPU / 2 GiB. At 23:40 UTC, the preceding complete hour reported 43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests. These are metrics, not an invoice or a monthly guarantee |
-| Cloudflare static reader/admin hosting | — | $0 hosting plan in current design | Verify actual deployment and usage; this does not price other providers |
+| Cloudflare Pages: `gradstep-site` (gradstep.ai) and `gradstep-app` (app.gradstep.ai, browser reader) | 2026-10-07 (reader) | $0 | Free tier, static assets only (no Functions); deployed 2026-10-07 21:00 PDT with `scripts/deploy-web.mjs`. Admin hosting not deployed. This does not price other providers |
 
 Cloud Run's earlier instance-billed idle estimate of roughly $54/month described the previous revision and must
 not be presented as current. The request-based configuration was deployed by Claude with owner approval. Read-only

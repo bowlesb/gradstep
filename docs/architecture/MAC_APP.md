@@ -3,7 +3,8 @@
 Status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
 keyboard/UI runtime attempt reached no assertions and was interrupted, so those interaction checks remain open.
-Mac sign-in, sync, purchases and distribution remain unverified. See the validation checkpoints below.
+Mac sign-in, sync and purchases remain unverified. **TestFlight: Mac build 17 uploaded 2026-10-07 and processed VALID,
+available to the internal "Owner" group** (see [TestFlight](#testflight--2026-10-07)). See the validation checkpoints below.
 
 **Merge validation, 2026-10-07:** integration with `main` through `5f95c97` passed a fresh unsigned Catalyst
 `build-for-testing` in 60.1 seconds. The app, unit-test bundle and UI-test bundle each contain arm64 and x86_64.
@@ -141,15 +142,24 @@ These are compiled assertions, with no runtime pass yet. Busy-report and nested 
 actual ⌘F navigation, table keys while editing search text, and pointer behavior need additional Mac checks.
 No current signing, provisioning, live-account, sync, purchase, or distribution result follows from this build.
 
+## TestFlight — 2026-10-07
+
+`BUILD_NUMBER=17 scripts/upload-testflight-mac.sh` from main `937ef34` (App Group removed from the iOS entitlements,
+Share extension not embedded): Internal configuration (staging), archived with automatic signing, exported with the
+Apple Distribution identity, the "Gradstep Mac App Store" profile (OSX, expires 2027-07-08; carries Sign in with
+Apple and Associated Domains, which with sandbox/network/user-selected files are all the Mac entitlements need) and the
+"3rd Party Mac Developer Installer" identity. Upload succeeded 20:55 PDT; App Store Connect build
+`679e44e7-da2b-4e4d-85bb-0270fd560bab`: platform MAC_OS, version 0.1.0 (17), minimum macOS 14.0, processing
+**VALID**, `INTERNAL_ONLY`, internal state `IN_BETA_TESTING`, no export-compliance question. The internal group
+"Owner" has access to all builds, so no extra step was needed. No macOS App Store version was required or created
+for TestFlight (the upload created the MAC_OS pre-release train itself); nothing was submitted for review. Mac
+builds have their own build-number train, separate from iOS. Logs: `.artifacts/archive-mac-17.log`,
+`.artifacts/export-mac-17.log` in the deploying worktree.
+
 ## Not yet done or verified
 
-- **TestFlight upload** — the inherited build-15 checkpoint recorded a development-signed archive, with no
-  Mac TestFlight upload. Current changes have only the unsigned compile validation above; signing and
-  provisioning have not been revalidated. The recorded prerequisites for `scripts/upload-testflight-mac.sh`
-  are (1) a "3rd Party Mac Developer Installer" identity in the login keychain (the prior checkpoint identified
-  team certificate RBR2V4DM5C but did not have its private key in this project), and (2) a
-  MAC_CATALYST_APP_STORE profile named "Gradstep Mac App Store" for com.sciencereader.ios with the Apple
-  Distribution certificate. App Store Connect may also ask to add the macOS platform to the Gradstep record.
+- **Running the TestFlight build** — installing build 17 from TestFlight on a Mac and signing in against staging
+  has not been done.
 - Sign in with Apple/Google, email codes, Keychain device keys, sync and StoreKit purchases are the iOS code
   paths unchanged; none has been run on a Mac yet (a signed-in staging test is next).
 - Library list rows have hover but no arrow-key selection. The table implementation is described above;
