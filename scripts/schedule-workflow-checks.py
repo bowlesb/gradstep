@@ -46,6 +46,7 @@ def context():
     (target / 'scripts').mkdir(); (target / 'infra').mkdir()
     shutil.copy(ROOT / 'services/workflow-checks/Dockerfile', target / 'Dockerfile')
     shutil.copy(ROOT / 'scripts/workflow-checks.mjs', target / 'scripts/workflow-checks.mjs')
+    shutil.copy(ROOT / 'scripts/reader-workflow.mjs', target / 'scripts/reader-workflow.mjs')
     # downloads.corpus runs the pipeline's own download code (dependency-free TypeScript; Node 24 strips types).
     (target / 'supabase/functions/_shared').mkdir(parents=True)
     shutil.copy(ROOT / 'supabase/functions/_shared/web-source.ts', target / 'supabase/functions/_shared/web-source.ts')
@@ -97,25 +98,29 @@ def ensure_secrets(project):
             subprocess.run(['gcloud', 'secrets', 'versions', 'add', secret, '--project', project, '--data-file=-'], input=values[env], text=True, check=True, capture_output=True)
             print('Created secret', secret)
 
-parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('command', nargs='?', choices=['plan', 'apply'], default='plan')
-parser.add_argument('--project', default='gradstep'); parser.add_argument('--region', default='us-west1')
-parser.add_argument('--alert-email', help='Where failures are emailed (WORKFLOW_ALERT_EMAIL); omit for none')
-parser.add_argument('--daily-days', default='1-6', help='Cron day-of-week field for the paid daily suite (default Monday-Saturday; e.g. 1,3,5)')
-args = parser.parse_args()
-plan = steps(args.project, args.region, args.alert_email, args.daily_days)
-if args.command == 'plan':
-    print('Plan (nothing is changed; run with apply to create):')
-    print('  0. Secrets gradstep-supabase-anon-key and gradstep-resend-api-key from .env.staging / .env.providers (values via stdin)')
-    for index, (title, command) in enumerate(plan, 1):
-        print(f'  {index}. {title}\n     ' + ' '.join(command))
-    sys.exit(0)
-ensure_secrets(args.project)
-build = context()
-for title, command in plan:
-    command = [str(build) if part == '<context>' else part for part in command]
-    print('→', title, flush=True)
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0 and 'already exists' not in (result.stderr or ''):
-        raise SystemExit(f'{title} failed: {(result.stderr or "").strip()[-400:]}')
-print('Scheduled. Run once now: gcloud run jobs execute', JOB, '--project', args.project, '--region', args.region)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('command', nargs='?', choices=['plan', 'apply'], default='plan')
+    parser.add_argument('--project', default='gradstep'); parser.add_argument('--region', default='us-west1')
+    parser.add_argument('--alert-email', help='Where failures are emailed (WORKFLOW_ALERT_EMAIL); omit for none')
+    parser.add_argument('--daily-days', default='1-6', help='Cron day-of-week field for the paid daily suite (default Monday-Saturday; e.g. 1,3,5)')
+    args = parser.parse_args()
+    plan = steps(args.project, args.region, args.alert_email, args.daily_days)
+    if args.command == 'plan':
+        print('Plan (nothing is changed; run with apply to create):')
+        print('  0. Secrets gradstep-supabase-anon-key and gradstep-resend-api-key from .env.staging / .env.providers (values via stdin)')
+        for index, (title, command) in enumerate(plan, 1):
+            print(f'  {index}. {title}\n     ' + ' '.join(command))
+        sys.exit(0)
+    ensure_secrets(args.project)
+    build = context()
+    for title, command in plan:
+        command = [str(build) if part == '<context>' else part for part in command]
+        print('→', title, flush=True)
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0 and 'already exists' not in (result.stderr or ''):
+            raise SystemExit(f'{title} failed: {(result.stderr or "").strip()[-400:]}')
+    print('Scheduled. Run once now: gcloud run jobs execute', JOB, '--project', args.project, '--region', args.region)
+
+if __name__ == "__main__":
+    main()

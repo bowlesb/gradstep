@@ -34,7 +34,7 @@ one-line reason a person can act on.
 | `downloads.corpus` | 12 real open-access locations (Zenodo record/DOI, EPrints, HAL, DSpace 7, PubMed Central, PMLR, JMLR, ACL Anthology, CVF; OpenReview → `source_blocked`; arXiv refused on the web path) download through the pipeline's `fetchFirstWebPDF` (DNS checks on; nothing stored), plus one arXiv-path PDF; a deterministic change fails, a busy host warns (2026-10-07: 13/13, 28 s) | landing-page and host-pattern regressions (the Zenodo 406, http/unquoted `citation_pdf_url`) | all | 0 |
 | `auth.providers` / `auth.google` / `auth.email-delivery` | Apple and email on; Google on (the app shows "Continue with Google"); sender domain verified in Resend, signups state | Google never enabled; test sender; invite-only codes | daily, weekly | 0 |
 | `store.app-price` / `store.products` | app price schedule and availability; the three products at READY_TO_SUBMIT or later | Get credits empty (no price; MISSING_METADATA) | daily, weekly | 0 |
-| `import.arxiv` | add DPO (shared conversion) → ready; reader bundle downloaded and every member's SHA-256 verified; time to ready | worker/trigger/sync broken | all | 0 |
+| `import.arxiv` | add DPO (shared conversion) → ready; request bounded delivery, record actual transport, authenticate bounded members and verify identity, response limits and every member's SHA-256; time to ready | worker/trigger/sync or delivery contract broken | all | 0 |
 | `library.sync` | archive, unarchive, remove, re-add each applied once (replays identical) and visible in `v3_library_changes`; stale revision → `revision_conflict` | sync regressions | all | 0 |
 | `library.v5-commands` | upload-capable baseline → cached-paper Add → archive/unarchive, tags, remove/re-add, matching v5 deltas and idempotent receipts; another dataset is refused | missing migration 042 or a broken v5 write contract (build 18 regression); native button journeys remain separate | all | 0; synthetic account gets no credits |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
@@ -55,6 +55,31 @@ run in paper chat. Private OCR (Adam 15 pages, Dropout 30) is cancelled at once 
 While an import is awaited, a step that does not move for 7 min (20 min while converting) fails immediately as
 "stuck in <step>", and a `crash` event for that paper fails it as "the worker died in <stage>" — the loop shows up
 in minutes, not at the timeout.
+
+### Reader delivery readiness (local follow-up, 2026-10-08)
+
+`scripts/reader-workflow.mjs` requests `bounded-v1` and reports the actual descriptor transport; a legacy result
+remains legacy evidence. Before any member request, it checks the item/document/artifact binding, manifest hash,
+exact manifest membership and every URL against the configured Supabase origin and reviewed endpoint/query shape.
+Bounded member requests carry only the synthetic account's bearer and anon key; legacy Storage requests carry
+neither. Redirects, partial replies, ambiguous URLs, overlength bodies, incorrect lengths/hashes and missing bounded
+response protections fail with finite reasons. There are no automatic retries of consumed grants. The helper is
+included in both the local runner and the allowlisted scheduled-job image context. This validates delivery; native
+and browser renderer admission remain separate checks.
+
+Native download errors now preserve the finite quota, update-required and restart messages through BackendClient
+and ReaderModel. A tiny member retains its exact success-byte ceiling while allowing a separately bounded 4 KiB
+error response; raw server prose never becomes reader UI. Local evidence: 13 transport/packaging Node tests, the
+Core reader-transport test, and three focused iPhone Simulator regressions (including five real-model error cases)
+pass. The Simulator tests use fixture transport and normal encrypted local state, with ad-hoc signing for Keychain
+access. No hosted delivery run or policy change is part of this follow-up.
+
+Staging's last observed mode is still `legacy`. Existing signed URLs require issuer fencing, full origin-token
+expiry and verified CDN retirement before replay exposure can be called closed; 15 minutes alone is insufficient.
+Supabase documents a Pro [CDN purge API](https://supabase.com/docs/guides/storage/cdn/purge-cdn-cache) for exact objects
+or a whole bucket, with propagation up to 60 seconds and no browser-cache eviction. This provides a candidate for
+a reviewed, scoped cutover without changing immutable paper objects; it has not been exercised here. The issuer,
+cache and hosted redemption/quota/replay proofs remain in [asset spending](ASSET_SPENDING.md#compatibility-and-deployment).
 
 ## Suites, configured schedule options and cost
 
