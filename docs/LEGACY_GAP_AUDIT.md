@@ -1,9 +1,10 @@
 # Legacy gap audit: Science Reader web app → Gradstep
 
-Status: read-only source audit, 2026-10-06. Compared `reference/web/` (archival Next.js app, every page, component, API
-route, `lib/`, worker, docs and README) with `apps/apple/`, `supabase/`, `apps/admin/` and `docs/`. Nothing was built,
-run or deployed, so every Gradstep finding below comes from reading the source, not from watching the app run. Some
-gaps are deliberate design choices; those are listed separately so nobody re-adds them.
+Original audit: read-only source review, 2026-10-06. Compared `reference/web/` (archival Next.js app, every page,
+component, API route, `lib/`, worker, docs and README) with `apps/apple/`, `supabase/`, `apps/admin/` and `docs/`.
+The original findings came from source review. Dated follow-ups below record later implementation and verification;
+the initial gap descriptions are retained as historical context. Some gaps are deliberate design choices; those are
+listed separately so nobody re-adds them.
 
 Already being worked on tonight, so not proposed again: topic tags, the library table with a column chooser, the All
 chats table, self-healing downloads and the macOS app. Legacy details those efforts might miss are in
@@ -109,32 +110,38 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
 - **Legacy:** the desktop Reader was a resizable 50/50 split where either pane could be collapsed, with "Show PDF" /
   "Show Chat" handles (`app/page.tsx:1843-2016`, `components/CollapseHandle.tsx`). On a tablet the paper filled the
   screen and a **Chat** button switched to the chat (`app/page.tsx:1612-1841`).
-- **Gradstep today:** at widths of 850 pt and up, Reader always puts a chat column of 320–400 pt beside the paper
+- **At the original audit:** at widths of 850 pt and up, Reader always puts a chat column of 320–400 pt beside the paper
   (`apps/apple/ScienceReader/Views/RootView.swift:13`, `168-171`). There is no way to read the paper alone on a
   full-screen iPad, and no way to widen the chat. `UX_PARITY.md:15` asks to preserve "panel controls".
 - **Approach:**
   - **S:** a Hide/Show chat control in the Paper "…" menu and toolbar.
   - **M:** a draggable divider, with the chosen width remembered.
+- **Built 2026-10-07:** both — Hide/Show chat (Paper "…" menu; a chat button in the paper's bar while hidden) and a
+  draggable divider, kept per device ([decision](DECISIONS.md#reader-navigation-find-contents-levels-figures-ipad-chat-column-owner-asked-2026-10-07-agent-decisions-reversible)).
 
 ### 6. Figure gallery
 
 - **Legacy:** a **Figs** button opened a grid of every figure with its number and caption. A figure opened full
   screen with previous/next, pinch and double-tap zoom, a caption sheet and **Go to figure in paper**
   (`components/FigureViewer.tsx`: gallery 630-783, gestures 102-250, caption 473-625; `app/page.tsx:1260-1293`).
-- **Gradstep today:** tapping a figure in the text opens just that figure in a sheet
+- **At the original audit:** tapping a figure in the text opens just that figure in a sheet
   (`apps/apple/ScienceReader/Views/PaperView.swift:232-247`, `675-692`; `apps/apple/ScienceReader/Resources/reader-bridge.js:653-663`).
   There is no gallery and no paging between figures.
 - **Impact:** skimming the figures is a core way of triaging a paper.
 - **Approach:** the bundle index already lists every figure with its block ID, caption and alt text. Add **Figures**
   to the Paper "…" menu: a grid of verified images with captions. Its detail view pages through figures and has
   **Show in paper**, which jumps by block ID using the citation Back control.
+- **Built 2026-10-07:** Paper "…" › Figures: the grid, the figure view with previous/next, and Show in paper with Back.
+  Not ported: the legacy viewer's own pinch and double-tap zoom.
 
 ### 7. Find in paper
 
 - **Legacy:** the browser's find (⌘F) searched the paper's iframe. The browser provided this, not app code.
-- **Gradstep today:** `PaperWebView` doesn't enable WebKit's find interaction (`PaperView.swift:432-462`).
+- **At the original audit:** `PaperWebView` doesn't enable WebKit's find interaction (`PaperView.swift:432-462`).
 - **Approach:** set `isFindInteractionEnabled`, add **Find in paper** to the Paper "…" menu, and bind ⌘F. Check that
   find highlighting doesn't disturb the saved reading position.
+- **Built 2026-10-07:** WebKit's find bar from Paper "…" › Find in paper and ⌘F on iPhone and iPad. A highlighted
+  match is not a selection, and the found place is where reading resumes (UI test).
 
 ### 8. Library search: relevance order and word forms
 
@@ -167,22 +174,23 @@ Legacy paths are relative to `reference/web/`. Gradstep paths are relative to th
   the section numbering (Roman numeral, then capital letter, then number). The title, "Abstract" and in-paper
   "Contents" headings were skipped; References was kept (`lib/mathpix-cleanup.ts:290-367`,
   `components/TableOfContents.tsx`).
-- **Gradstep today:** the bundle index has heading levels, but the bridge drops `level` (`reader-bridge.js:381-385`)
+- **At the original audit:** the bundle index has heading levels, but the bridge drops `level` (`reader-bridge.js:381-385`)
   and the Contents sheet is a flat list of titles (`PaperView.swift:221-231`).
 - **Approach:** pass `level` through, indent by its distance from the shallowest level, skip the title and Abstract,
   and port `inferDepthFromNumbering` for flat outputs.
+- **Built 2026-10-07:** levels, and depth from numbering where levels were flattened (bridge `CONTENTS OUTLINE`).
 
 ### Next tier (11–20)
 
 | Gap | Legacy | Gradstep | Effort |
 |---|---|---|---|
 | Long papers are cut off without notice: OCR stops at page 80 | Converted the whole PDF (`lib/mathpix.ts`) | `page_limit = min(pages, 80)` (`docs/architecture/PAPER_PIPELINE.md:24`); the reader doesn't say so | S to say so ("first 80 of N pages"); M to convert the remaining pages |
-| Explaining an equation uses a generic prompt | Dedicated prompt: prerequisites, overall message, each symbol, notation conventions in ML (`components/MarkdownReader.tsx:786-796`) | "Explain in plain terms, including any symbols: ‹LaTeX›" (`ReaderModel.swift:1932`) | S: use the legacy prompt when the selection is a single equation |
+| Explaining an equation uses a generic prompt | Dedicated prompt: prerequisites, overall message, each symbol, notation conventions in ML (`components/MarkdownReader.tsx:786-796`) | "Explain in plain terms, including any symbols: ‹LaTeX›" (`ReaderModel.swift:1932`) | S: use the legacy prompt when the selection is a single equation. **Built 2026-10-07** ("Explain this equation: ‹formula›" + one line; `SelectionAction.prompt`) |
 | Answer style changed | "Thorough… define background terms… prefer longer, educational responses" (`app/api/chat/route.ts:125`) | "Lead with the answer… keep answers focused" (`_shared/chat.ts:151-154`) | S, but **owner decision**: longer answers cost more credits |
-| Diagrams fail more often than they need to | Prompt spelled out Mermaid label rules (ASCII only, quote labels that contain punctuation) and checked the syntax with `mermaid.parse` before saving (`route.ts:51-82`, `109`) | No syntax rules in `DIAGRAM_INSTRUCTIONS` (`_shared/chat.ts:170-172`); a broken diagram shows its source | S: port the rules text. M: validate on the server and give the model one retry round |
-| "Why it matters" may search the web | Relevance was "Using ONLY the paper's content (do NOT search the web)" (`app/page.tsx:798`) | Web search tool is offered (`_shared/chat.ts:339`) | S: `action: "relevance"` leaves search out |
+| Diagrams fail more often than they need to | Prompt spelled out Mermaid label rules (ASCII only, quote labels that contain punctuation) and checked the syntax with `mermaid.parse` before saving (`route.ts:51-82`, `109`) | No syntax rules in `DIAGRAM_INSTRUCTIONS` (`_shared/chat.ts:170-172`); a broken diagram shows its source | S: port the rules text. M: validate on the server and give the model one retry round. **Built 2026-10-07**: rules ported; validated on device (server parse doesn't fit the Edge bundle), one metered `diagram_fix` retry, "Couldn't draw this diagram" with the source collapsed |
+| "Why it matters" may search the web | Relevance was "Using ONLY the paper's content (do NOT search the web)" (`app/page.tsx:798`) | Web search tool is offered (`_shared/chat.ts:339`) | S: `action: "relevance"` leaves search out. **Built 2026-10-07** (needs the `chat` deploy) |
 | No actions when text is selected in an answer | Define, Relevance, Ingest and Similar worked on chat text too (`ChatPanel.tsx:291-349`, `838-881`) | Plain system text selection only (`ChatRichTextView.swift:26-64`) | M |
-| A paper's own conversations aren't shown when you open it | Opening a paper showed that paper's History tab: chats, passage, date, message count (`app/page.tsx:516`; `ChatPanel.tsx:1126-1231`) | Only the global All chats list (`RootView.swift:716`) | S once the All chats table exists: filter it to "This paper" |
+| A paper's own conversations aren't shown when you open it | Opening a paper showed that paper's History tab: chats, passage, date, message count (`app/page.tsx:516`; `ChatPanel.tsx:1126-1231`) | Only the global All chats list (`RootView.swift:716`) | S once the All chats table exists: filter it to "This paper". **Built 2026-10-07**: "This paper" chip with its count (chosen when opened from a paper chat or the paper's options), the paper's other chats in the chat title menu |
 | Assistant can't see your library | `search_library` tool; general chat could answer "what do I have on X" (`route.ts:207-222`) | None | M. Library membership is server-visible, but sending it to Anthropic needs consent copy |
 | Hardware keyboard on iPad | Enter sends, Shift-Enter adds a line, Esc closes overlays (`ChatPanel.tsx:364-374`, `app/page.tsx:224-236`) | Only Esc to dismiss the keyboard (`RootView.swift:699`) | S: ⌘↩ to send, Esc on sheets, ⌘F (see #7) |
 | No way to invite or manage accounts | AdminPanel created and deleted users (`components/AdminPanel.tsx`) | Admin tabs: Overview, Usage, Processing, Reliability, Support (`apps/admin/src/main.tsx:77`). Sign-up is invite-only and testers need accounts made for them | S–M: an owner-only Accounts tab (invite, credit grant, disable). **Built 2026-10-07** (migration 028, `admin-accounts`; not yet deployed) |
@@ -242,7 +250,7 @@ Status: **Have** (equal or better) · **Partial** · **Missing** · **Dropped** 
 |---|---|---|---|---|
 | Navigation | Phone tabs Feed / Library / Paper / Chat / Settings; Library first; Paper tab off until a paper is open | `components/MobileTabBar.tsx` | `RootView.swift` tab bar | Have |
 | Navigation | Wide modes Feed / Library / Reader / Browse / General Chat | `app/page.tsx:25` | `ReaderModel.swift:12`, `RootView.swift:146-176` | Have |
-| Navigation | Resizable and collapsible paper/chat panes; full-screen paper on tablet | `app/page.tsx:1612-2016` | Fixed chat column | Missing (#5) |
+| Navigation | Resizable and collapsible paper/chat panes; full-screen paper on tablet | `app/page.tsx:1612-2016` | Hide/Show chat and a remembered draggable divider (`ReaderSplit.swift`) | Have (#5; Simulator-verified) |
 | Navigation | Esc closes overlays; Enter sends | `app/page.tsx:224`, `ChatPanel.tsx:364` | Partial | Partial |
 | Library | Sort by title, authors, year, added, last opened (header click reverses) | `PaperTable.tsx:358-405` | `PaperTable.swift`; more sorts (Progress, Chats) | Have |
 | Library | Ranked full-text search with stemming and operators | `lib/db.ts:409-441` | Substring AND, no ranking | Partial (#8) |
@@ -266,13 +274,13 @@ Status: **Have** (equal or better) · **Partial** · **Missing** · **Dropped** 
 | Reader | Citation tap shows the reference with Ingest | `MarkdownReader.tsx:452-628` | Jump to the entry with Back; Open / Add / Copy (`PaperView.swift:256-323`) | Have (better) |
 | Reader | Underlines for passages with chats; tap opens the chat | `MarkdownReader.tsx:168-184` | None | Missing (#1) |
 | Reader | Go to passage from a chat | `ChatPanel.tsx:605-714` | None | Missing (#1) |
-| Reader | Contents overlay with levels | `TableOfContents.tsx`, `mathpix-cleanup.ts:290-367` | Flat list | Partial (#10) |
+| Reader | Contents overlay with levels | `TableOfContents.tsx`, `mathpix-cleanup.ts:290-367` | Heading levels and numbering-based depth; accessible levels | Have (#10; Simulator-verified) |
 | Reader | Paper and chat text size, remembered | `app/page.tsx:166-193` | Paper "…" and Settings, 14–26 pt | Have |
 | Reader | Dark mode toggle in the reader bar | `app/page.tsx:1758-1781` | Settings › Theme (Light / Dark / Match device) | Have (moved) |
 | Reader | Remembered reading position | None (reopened at the top) | Per artifact, restored after relaunch (device-local) | Have (better) |
-| Reader | Find in page | Browser ⌘F | None | Missing (#7) |
+| Reader | Find in page | Browser ⌘F | WebKit find bar, Paper menu and ⌘F | Have (#7; Simulator-verified) |
 | Reader | Native Copy / Look Up | Suppressed (`MarkdownReader.tsx:52-59`) | Kept | Have (better) |
-| Figures | Gallery, paging, zoom, caption sheet, Go to figure | `components/FigureViewer.tsx` | Single-figure sheet on tap | Partial (#6) |
+| Figures | Gallery, paging, zoom, caption sheet, Go to figure | `components/FigureViewer.tsx` | Gallery, previous/next, captions, Show in paper and Back; legacy custom zoom remains absent | Partial (#6; implemented actions Simulator-verified) |
 | Chat | Paper and General modes with a switch | `ChatPanel.tsx:765-813` | Segmented picker | Have |
 | Chat | Streaming; Stop keeps the partial answer; interrupted marker | `app/page.tsx:590-779` | Sealed `.interrupted` answers; ownership fencing | Have (better) |
 | Chat | Status lines for tool steps | `route.ts:666-831` | None | Missing (#9) |
@@ -310,9 +318,9 @@ Status: **Have** (equal or better) · **Partial** · **Missing** · **Dropped** 
 | Sentence-case ALL-CAPS table captions, keeping acronyms of 5 letters or fewer and Roman numerals | `lib/mathpix-cleanup.ts:161-199` | Renderer (`supabase/functions/_shared/reader/render.ts`, bump `RENDERER_REVISION`). Check how often real MMD captions are all caps first |
 | Find in-paper "Contents" sections (over 100 characters with dotted leaders or numbered entries) | `lib/mathpix-cleanup.ts:105-123` | Collapse behind a disclosure rather than hide, since the old fully hidden version cost text |
 | Repair URLs broken across lines ("https: //", "github. com") | `lib/mathpix-cleanup.ts:65-79`, `208-215` | Renderer link and text normalization, if MMD shows the artifact |
-| Equation-explain prompt | `components/MarkdownReader.tsx:791-794` | Explain on an equation-only selection |
+| Equation-explain prompt | `components/MarkdownReader.tsx:791-794` | Explain on an equation-only selection (ported 2026-10-07) |
 | Selection prompts: Relevance limited to the paper; Similar covering library and web | `app/page.tsx:795-803` | `action` handling in `_shared/chat.ts` |
-| Mermaid label rules for the model, plus a `mermaid.parse` check that returns errors so the model can fix them | `app/api/chat/route.ts:51-82`, `109` | `DIAGRAM_INSTRUCTIONS` |
+| Mermaid label rules for the model, plus a `mermaid.parse` check that returns errors so the model can fix them | `app/api/chat/route.ts:51-82`, `109` | `DIAGRAM_INSTRUCTIONS` (ported 2026-10-07; the check runs on device, `diagram_fix`) |
 | Figure-number regex `(?:figure\|fig\.?)\s*([S]?\d+[a-z]?)` and tiny-image filter (under 80×80 px, under 30 px attributes, logo/icon names) | `lib/figure-extraction.ts:149-182` | Gallery labels ("Figure 3b") and skipping logo crops (#6) |
 | Search field weights A/B/C/C/D | `lib/db.ts:43-55` | Ranking order for #8 |
 | Feed refresh rules: per-topic staleness of 6 h, 1.1 s pacing, 429 backoff, 45-day prune, hide papers already in the library by lowercased title | `lib/feed-discovery.ts`, `lib/paper-search.ts:281-349`, `lib/db.ts:975-1023` | Topic-based feed after tags |

@@ -40,13 +40,13 @@ final class DurableDraftIntegrationTests: XCTestCase {
         await fulfillment(of: [sent], timeout: 5)
         observation.cancel()
         await model!.flushDrafts()
-        XCTAssertEqual(model!.chatMessages.first?.payload.text, "Explain in plain terms, including any symbols: " + quote)
+        XCTAssertEqual(model!.chatMessages.first?.payload.text, SelectionAction.define.prompt(quote))
         let conversation = try XCTUnwrap(model!.activeConversation)
         model = nil
         let reopened = ReaderModel(configuration: nil)
         try await reopened.configureDurableDraftFixture(reset: false)
         reopened.openConversation(conversation)
-        XCTAssertEqual(reopened.chatMessages.map(\.payload.text), ["Explain in plain terms, including any symbols: " + quote])
+        XCTAssertEqual(reopened.chatMessages.map(\.payload.text), [SelectionAction.define.prompt(quote)])
         XCTAssertEqual(reopened.chatInput, "")
     }
 

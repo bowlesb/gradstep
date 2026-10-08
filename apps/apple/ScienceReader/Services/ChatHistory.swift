@@ -7,13 +7,15 @@ import ScienceReaderCore
 
 /// Which conversations show: the quick filter under the search field.
 enum ChatHistoryFilter: String, CaseIterable, Identifiable, Sendable {
-    case all, paper, general
+    /// `thisPaper`: the chats about the paper All chats was opened from (offered only then).
+    case all, paper, general, thisPaper
     var id: String { rawValue }
     var title: String {
         switch self {
         case .all: "All"
         case .paper: "Paper chats"
         case .general: "General"
+        case .thisPaper: "This paper"
         }
     }
 }
@@ -72,7 +74,7 @@ enum ChatHistoryQuery {
     /// The rows to show: filtered by the quick filter and the search (every word must match the questions or the
     /// paper's title, ignoring case and accents), then sorted.
     static func rows(_ summaries: [ConversationSummary], paperTitles: [UUID: String], filter: ChatHistoryFilter,
-                     search: String, sort: ChatHistorySort) -> [ChatHistoryRow] {
+                     paperID: UUID? = nil, search: String, sort: ChatHistorySort) -> [ChatHistoryRow] {
         let terms = search.split(whereSeparator: \.isWhitespace).map(String.init)
         let rows = summaries.lazy
             .filter { summary in
@@ -80,6 +82,7 @@ enum ChatHistoryQuery {
                 case .all: true
                 case .paper: summary.documentID != nil
                 case .general: summary.documentID == nil
+                case .thisPaper: paperID != nil && summary.documentID == paperID
                 }
             }
             .map { ChatHistoryRow(summary: $0, paperTitle: $0.documentID.flatMap { paperTitles[$0] }) }

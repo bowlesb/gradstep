@@ -51,6 +51,50 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(detail.web?.url, bundle.entryURL)
     }
 
+    // MARK: - Figure gallery (docs/LEGACY_GAP_AUDIT.md #6)
+
+    func testGalleryFiguresReadTheirNumberAndCaption() throws {
+        func label(_ text: String) -> [String?] { let value = GalleryFigure.label(text); return [value.number, value.caption] }
+        XCTAssertEqual(label(#"Figure 4: Best of N baseline for N = \{ 1,4,16,64,128 \} . Performance plateaus."#),
+                       ["Figure 4", "Best of N baseline for N = { 1,4,16,64,128 }. Performance plateaus."])
+        XCTAssertEqual(label("Fig. 2. Left: the frontier."), ["Figure 2", "Left: the frontier."])
+        XCTAssertEqual(label("FIGURE 12a | Ablations"), ["Figure 12a", "Ablations"])
+        XCTAssertEqual(label("Figure A. 1: Proof sketch"), ["Figure A.1", "Proof sketch"])
+        XCTAssertEqual(label("Table 3: Results"), ["Table 3", "Results"])
+        XCTAssertEqual(label("Queries and keys produce weights."), [nil, "Queries and keys produce weights."])
+        let figures = GalleryFigure.all(in: try ReaderBundleLoader.sample().index)
+        XCTAssertEqual(figures.map(\.number), ["Figure 1", "Figure 2"])
+        XCTAssertTrue(figures[0].caption.hasPrefix("A simplified attention data flow."))
+        XCTAssertNotNil(figures[0].imagePath)
+    }
+
+    func testShowFigureCentersItHighlightsItAndBackReturns() async throws {
+        let bundle = try ReaderBundleLoader.sample(), harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let figure = try XCTUnwrap(bundle.index.figures.last)
+        let rejected = try await script(web, "return window.__scienceReaderShowFigure('not-a-figure');") as? Bool
+        XCTAssertEqual(rejected, false)
+        let reported = harness.locations.count
+        let shown = try await script(web, "return window.__scienceReaderShowFigure(id);", ["id": figure.id]) as? Bool
+        XCTAssertEqual(shown, true)
+        let visible = try await eventually {
+            try await self.script(web, """
+                const rect = document.getElementById(id).getBoundingClientRect();
+                return window.scrollY > 0 && rect.top >= 0 && rect.bottom <= innerHeight && document.querySelector('.sr-flash') !== null;
+                """, ["id": figure.id]) as? Bool == true
+        }
+        XCTAssertTrue(visible, "The figure is in view and highlighted")
+        XCTAssertEqual(harness.citationStates.last, true, "Back is offered")
+        XCTAssertEqual(harness.locations.count, reported, "The saved place stays where reading left off")
+        let back = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
+        XCTAssertEqual(back, true)
+        let returned = try await eventually { try await self.script(web, "return window.scrollY;") as? Double == 0 }
+        XCTAssertTrue(returned, "Back returns to the top, where reading was")
+        XCTAssertEqual(harness.citationStates.last, false)
+    }
+
     func testSelectedTableRetainsCellAndRowSeparators() async throws {
         let bundle = try ReaderBundleLoader.sample()
         let harness = try Harness(bundle: bundle)
@@ -198,6 +242,66 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(original, 530, "An oversized existing source anchor remains intact")
     }
 
+    // MARK: - Contents levels (docs/LEGACY_GAP_AUDIT.md #10)
+
+    private func outline(_ document: String) async throws -> [String] {
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        XCTAssertFalse(harness.failed)
+        return harness.headings.map { String(repeating: "  ", count: $0.depth) + $0.title }
+    }
+
+    func testContentsIndentByLevelAndSkipAbstractAndPrintedContents() async throws {
+        let levels = try await outline("""
+            <h1>Abstract</h1><p>Text.</p><h2>Table of Contents</h2>
+            <h2 id="a">Introduction</h2><h3 id="b">Background</h3><h3 id="c">Notation</h3><h2 id="d">Method</h2><h2 id="e">References</h2>
+            """)
+        XCTAssertEqual(levels, ["Introduction", "  Background", "  Notation", "Method", "References"])
+        // Numbered headings whose levels agree are left as they are, even one that reads like an appendix letter.
+        let consistent = try await outline("""
+            <h2>1 Introduction</h2><h2>2 Experiments</h2><h3>A Simple Baseline</h3><h3>2.2 Results</h3>
+            """)
+        XCTAssertEqual(consistent, ["1 Introduction", "2 Experiments", "  A Simple Baseline", "  2.2 Results"])
+    }
+
+    func testContentsInferDepthFromNumberingWhereLevelsWereFlattened() async throws {
+        let decimal = try await outline("""
+            <h2>1 Introduction</h2><h2>2 Method</h2><h2>2.1 Setup</h2><h2>2.1.3 Batches</h2><h3>Training details</h3>
+            <h2>References</h2><h2>A Proofs</h2><h2>A. 1 Lemma</h2><h2>B.2 Bounds</h2>
+            """)
+        XCTAssertEqual(decimal, ["1 Introduction", "2 Method", "  2.1 Setup", "    2.1.3 Batches", "  Training details",
+                                 "References", "A Proofs", "  A. 1 Lemma", "  B.2 Bounds"])
+        // IEEE numbering: Roman sections, lettered subsections, "1)" below them.
+        let roman = try await outline("""
+            <h2>I. Introduction</h2><h2>II. Method</h2><h2>A. Data</h2><h2>B. Model</h2><h2>1) Encoder</h2><h2>III. Results</h2>
+            """)
+        XCTAssertEqual(roman, ["I. Introduction", "II. Method", "  A. Data", "  B. Model", "    1) Encoder", "III. Results"])
+    }
+
+    func testContentsOfARealConversionNestAppendixSections() async throws {
+        let sha = "cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71"
+        let directory = try XCTUnwrap(Bundle.main.resourceURL).appendingPathComponent("ReaderSamples/" + sha)
+        let bundle = try ReaderBundleLoader.load(directory: directory, expectedSHA256: sha)
+        let harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        XCTAssertFalse(harness.failed)
+        let depth = Dictionary(harness.headings.map { ($0.title, $0.depth) }, uniquingKeysWith: { first, _ in first })
+        XCTAssertEqual(harness.headings.first?.title, "1 Introduction", "Abstract is left out")
+        XCTAssertNil(depth["Abstract"])
+        XCTAssertEqual(depth["References"], 0, "References stays")
+        XCTAssertEqual(depth["5 Theoretical Analysis of DPO"], 0)
+        XCTAssertEqual(depth["5.1 Your Language Model Is Secretly a Reward Model"], 1, "An h3 subsection")
+        XCTAssertEqual(depth["A Mathematical Derivations"], 0)
+        XCTAssertEqual(depth.first { $0.key.hasPrefix("A. 2 ") }?.value, 1, "Mathpix printed A.2 at A's level; its number puts it below A")
+        XCTAssertEqual(harness.headings.count, bundle.index.headings.count - 1)
+        // Every entry still jumps to its heading.
+        let jumped = try await XCTUnwrap(harness.web).callAsyncJavaScript("return window.__scienceReaderJumpToHeading(id, true);",
+            arguments: ["id": try XCTUnwrap(harness.headings.last?.id)], in: nil, contentWorld: .defaultClient) as? Bool
+        XCTAssertEqual(jumped, true)
+    }
+
     // MARK: - Citations, references and the publication line
 
     private func script(_ web: WKWebView, _ source: String, _ arguments: [String: Any] = [:]) async throws -> Any? {
@@ -251,7 +355,8 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertEqual(state["next"] as? String, "Abstract")
         XCTAssertEqual(state["inBlock"] as? Bool, false)
         XCTAssertEqual(state["userSelect"] as? String, "none")
-        XCTAssertEqual(harness.headings.map(\.id), bundle.index.headings.map(\.id), "Contents are unchanged")
+        // Contents leave out Abstract (docs/LEGACY_GAP_AUDIT.md #10); citation links change nothing else.
+        XCTAssertEqual(harness.headings.map(\.id), bundle.index.headings.filter { $0.title != "Abstract" }.map(\.id), "Contents are unchanged")
 
         // A selection across the publication line resolves without it.
         _ = try await script(web, """

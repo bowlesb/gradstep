@@ -37,30 +37,65 @@ Before provisioning, inspect current organization billing and compute costs, the
 
 If a worker or backup arrangement cannot fit, change the proposed allocation or service selection before purchase. Do not treat unused contingency as an automatic recurring upgrade. Alerts use incurred costs plus outstanding reservations and forecast fixed costs. Pause new discretionary provider work before exhausting its allocation. Apply provider-side hard limits where supported and reconcile delayed provider invoices. This is a controlled budget, not a guarantee that every vendor's delayed invoice can be stopped at precisely $100.
 
-### Fixed commitments
+### Fixed commitments and observed usage — 2026-10-07
 
-Recorded commitments and usage-sensitive hosting forecasts against the $100/month incremental budget. The
-October staging ledger allowance is $9.80, but the open audit findings prevent treating it as a complete cap on
-Anthropic, Mathpix and search invoices. Invoice attribution and Tavily pay-as-you-go status still need verification.
+The incremental beta budget stays **$100/month**, excluding existing TextBrain costs. The latest verified October
+platform provider allowance is **$25**, not the older $9.80 figure. That ledger is still not a complete invoice cap
+while the audited provider/storage gaps remain deployed. New controls are locally implemented under review in
+[Spending controls](SPENDING_CONTROLS.md); no new allowance or subscription increase is authorized here.
 
-| Commitment | Since | Monthly | Notes |
+| Commitment | Since | Monthly | Evidence and limits |
 |---|---|---:|---|
-| Supabase | 2026-10-02 | Incremental amount unverified | Public-price scenarios: $25 for Pro with one Micro; $35 with two. An additional Micro under an existing paid organization may be $10 incremental. Attribute the actual invoice; exclude existing TextBrain costs |
-| Tavily Project plan (4,000 search credits) | 2026-10-06 | $30 | Bought by the owner for chat web search; pay-as-you-go must stay **off** |
-| gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 | Bought by the owner; one-off $181.14, shown monthly |
-| Google Cloud project `gradstep`: Cloud Run pipeline worker | 2026-10-06 | Usage-dependent; see scenario below | Live revision uses instance-based billing, 1 vCPU / 2 GiB, with a request every minute; max 3 instances. The previous $0–2 forecast was unsupported |
+| Supabase staging, Micro | 2026-10-02 | $0.01344/hour gross compute (about $10/month); net incremental bill unverified | Read-only Management API confirms Pro organization and Micro as the only selected project addon. Attribute actual organization compute credits/invoice and exclude TextBrain; do not automatically charge the entire organization subscription to this product |
+| Tavily Project, 4,000 search credits | 2026-10-06 | $30 | Owner supplied the paid October 6 invoice and November 6 renewal for November 6–December 6. Owner confirmed turning pay-as-you-go **off** on October 7 |
+| gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 amortized | One-off $181.14 already purchased by the owner; amortization is not a new monthly cash charge |
+| Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | Request billing live on revision `gradstep-pipeline-00007-j5l`, 1 vCPU / 2 GiB. At 23:40 UTC, the preceding complete hour reported 43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests. These are metrics, not an invoice or a monthly guarantee |
+| Cloudflare static reader/admin hosting | — | $0 hosting plan in current design | Verify actual deployment and usage; this does not price other providers |
 
-One continuously warm Cloud Run instance for 30 days is approximately $57.02 before the free allowance, or $51.80
-if the full relevant allowance is available. This is a forecast, **not measured uptime or an invoice**. With Tavily
-and amortized domains, that scenario totals $89.40 before incremental Supabase, AI/OCR, backups and overages. Adding
-$25–35 of incremental Supabase would put it at $114.40–124.40 before those metered costs. Request-based billing may
-fit the awaited worker handler, but deployment and scheduling must be reviewed together before changing either.
-See the [audit's billing evidence and scenarios](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) and
-[Cloud Run pricing](https://cloud.google.com/run/pricing). The budget remains $100; this audit does not authorize an increase.
+Cloud Run's earlier instance-billed idle estimate of roughly $54/month described the previous revision and must
+not be presented as current. The request-based configuration was deployed by Claude with owner approval. Read-only
+evidence: `.artifacts/pipeline-spending-economics-20261007.json` in the spending worktree. Its revision ceiling is 3,
+but the separate service ceiling still reads 20; local deployment changes set and verify both at 3. No Monitoring
+alert policies or billing-export datasets were found in this project; an export elsewhere is not ruled out. The
+low-activity forecast of roughly $0–3/month remains a forecast, not a measured full-period bill. Wake-on-work is a
+separate approved design to show the owner before deployment.
 
-Recommendation recorded in [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06):
-move Tavily to its free tier (1,000 credits/month) at renewal unless beta usage approaches that. The Apple
-Developer Program is not recorded here; confirm whether it counts as incremental.
+Supabase configuration was read back at 2026-10-08 00:02:31 UTC (October 7 locally): staging is active/healthy,
+the organization is Pro, and the only selected addon is Micro at $0.01344/hour. The filtered, credential-free evidence
+is `.artifacts/supabase-billing-configuration-20261007.json`. This endpoint reports configuration and pricing,
+not billed hours or allocation of the organization's shared $10 compute credit. The published Micro rate is about
+$10 per full month; project compute is charged hourly and is outside Supabase's usage spend cap.
+[Addon API](https://supabase.com/docs/reference/api/v1-list-project-addons),
+[compute billing](https://supabase.com/docs/guides/platform/manage-your-usage/compute).
+
+### Economical search plan
+
+At 23:35 UTC on October 7, Tavily's read-only `/usage` endpoint reported **37 of 4,000 credits used**, all search,
+for both the dedicated key and account. Evidence: `.artifacts/tavily-usage-20261007T233535Z.json`. Its `paygo_limit`
+was null, which did not establish whether overage was enabled; the owner's subsequent confirmation establishes
+that it was turned off. Refresh usage after quiescing old paid paths before configuring a new admission baseline.
+Do not assume this first day's test volume predicts a full public month.
+
+**Recommendation, not yet accepted or applied:** downgrade to Researcher Free at the **November 6 renewal**, retain
+pay-as-you-go off, allocate 900 of its 1,000 search credits to the application and leave 100 as operational headroom.
+Show approaching-limit warnings in admin and reassess from measured usage before expanding. One basic search costs
+one Tavily credit; one answer may issue several searches. The $30 Project subscription is not justified by the
+observed beta volume. Future usage-priced search needs both vendor limits and explicit dollar admission/accounting;
+do not turn on overage while treating its attempts as prepaid zero-dollar work.
+[Published plan and search prices](https://docs.tavily.com/documentation/api-credits),
+[plan changes](https://help.tavily.com/articles/2808196592-how-does-upgrading-or-downgrading-my-plan-work).
+
+Tavily documents **calendar-month credit resets**, separate from subscription billing on the sixth. Its November 6
+invoice period therefore must not become a rolling 31-day search allowance. Migration 034's dated period/baseline
+replaces that old approximation. The exact boundary timezone must be verified before an automatic period rollover;
+there is no blind automatic allowance replenishment in this work.
+[Credit resets](https://help.tavily.com/articles/6846808029-understanding-api-credits-reset),
+[billing versus reset dates](https://help.tavily.com/articles/3950309978-understanding-pay-as-you-go-and-billing-resets).
+
+Keep the current provider allocation within the approved total, reuse eligible verified OCR conversions, and retain
+Cloud Run request billing with no idle minimum. Forecast Supabase, backups, secrets/registry/builds, domain
+amortization and metered providers separately; unknown components remain unknown in admin. Invoice attribution and
+whether the Apple Developer Program is incremental remain open. No claim of a fully reconciled monthly total yet.
 
 ## Credit and cost accounting
 

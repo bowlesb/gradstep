@@ -35,11 +35,29 @@ Sandbox purchases require a stable verified Apple app-transaction identity for n
 ### Sandbox allowance implementation (036)
 
 Every Sandbox app report, notification, restore and refund reversal acquires the single Sandbox `store_policy`
-row `FOR UPDATE` before transaction, original-purchase-owner, account and credit-bucket locks. This deliberately
-serializes free test-credit admission across both allowance dimensions, avoiding an ownership-resolution race when
-a deleted account's purchase moves while a notification arrives. Sandbox volume is already rate limited and does
-not justify a second financial counter or a more complicated ownership preflight protocol. Production bypasses
-this gate and retains its existing behavior.
+row `FOR UPDATE` before the shared purchase lock protocol below. This deliberately serializes free test-credit
+admission across both allowance dimensions, avoiding an ownership-resolution race when a deleted account's purchase
+moves while a notification arrives. Sandbox volume is already rate limited and does not justify a second financial
+counter. Production bypasses this Sandbox gate; its grant/refund rules remain unchanged.
+
+Both environments then take transaction-scoped advisory gates for the exact, validated environment and transaction
+ID (two-integer namespace `741801`) and original purchase ID (namespace `741802`), in that order. The transaction's
+recorded original must match before entering the original's gate. These explicit, separate namespaces are reserved
+for purchase recording; a hash collision within either namespace only serializes unrelated purchases at that layer.
+There is no global Production admission mutex.
+
+With that original stable, recording captures the caller, signed token, current/previous owner and every historical
+transaction owner for the original, then locks existing account rows in UUID order. Those historical accounts matter:
+a later upgrade can still revoke an older bucket belonging to a deleted account. Only afterward may recording lock
+`store_seen`, ownership and buckets or acquire their implicit foreign-key locks. This agrees with034's multi-account
+funding order. Account closure takes an account first and does not acquire purchase gates, ownership or financial
+history rows; it therefore completes or waits without adding the opposite ordering.
+
+Unknown token accounts remain unattributed, preserving the newest verified signed state. If an account absent from
+the captured set becomes visible later, recording raises `store_account_changed` and rolls back for caller retry,
+instead of acquiring a new account lock out of order. The notification wrapper performs only a plain duplicate read
+before the shared recorder, and appends its notification record afterward. Sandbox identity preflight is read-only;
+identity updates also follow the shared recorder. Neither entry point can bypass the protocol.
 
 The durable allowance history is each transaction's granted `credits` and `granted_at`; refunds do not decrement
 these fields. Separate indexed sums bound the current UTC month's grants by account and by verified Apple

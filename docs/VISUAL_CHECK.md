@@ -15,7 +15,9 @@ longer than usual, one a minute into downloading, one failed), `library-columns`
 `library-import-progress`, `library-import-progress-help`, `library-import-progress-table` (imports at every step with
 percent and time left; the explainer sheet), `library-swipe`, `feed`, `feed-results` (the Feed's
 List over fixture results), `feed-table`, `feed-table-abstract` (a row's abstract open), `paper`, `paper-contents`, `chat-conversation`, `chat-scrolled` (part-way up, messages passing under the floating chrome), `chat-keyboard`,
-`chat-answer`, `chat-diagram`, `chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
+`chat-answer`, `chat-diagram`, `chat-diagram-failure` (invalid source after one repair, source collapsed),
+`chat-paper-menu` (the paper's other chats), `chat-paper-history` (This paper selected),
+`chat-sources`, `chat-credits`, `store`, `store-signedout`, `settings`, `settings-end`, and for the
 design audit the layer below the surface: `library-options`, `library-add`, `paper-options`, `paper-selection`,
 `chat-history`, `signin`; All chats over ~30 fixture conversations (`--chat-history-fixture`): `chat-history-table` (with
 an unsent draft), `chat-history-search` ("DPO"), `chat-history-actions` (a row's long-press menu), `chat-title` (a selection action's

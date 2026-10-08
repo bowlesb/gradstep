@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { admittedAnthropic, admittedTavily, referenceLookupSpending, type SpendingDependencies } from '../../supabase/functions/_shared/provider-spending.ts';
 import { chatRequestParams, createAnthropicClient, holdFor, promptCharacters, streamChat, WEB_SEARCH_TOOL,
   type ProviderOutcome } from '../../supabase/functions/_shared/anthropic.ts';
+import { runChat, type ChatDependencies, type ChatEvent } from '../../supabase/functions/_shared/chat.ts';
 
 const accountID = '10000000-0000-4000-8000-000000000001';
 const operationID = '20000000-0000-4000-8000-000000000002';
@@ -67,6 +68,83 @@ test('rejected, replayed and ambiguously acknowledged model grants never send', 
   await admittedAnthropic(h.deps, send)(params(), streamOptions());
   await admittedAnthropic(h.deps, send)(params(), streamOptions());
   assert.equal(sent, 1, 'recreated adapter uses the same first-attempt identity');
+});
+
+test('an admitted Edge bundle deployed before migration 034 makes no provider request when the RPC is missing', async () => {
+  const h = fixture(); let posts = 0;
+  h.deps.rpc = async (name, args) => {
+    h.calls.push({ name, params: args });
+    if (name === 'worker_reserve_operation') return { replayed: false }; // Existing pre-034 operation hold.
+    throw Object.assign(new Error('schema cache: function not found'), { code: 'PGRST202' });
+  };
+  const fetcher = (async () => { posts++; throw new Error('must not reach provider'); }) as typeof fetch;
+  const client = createAnthropicClient({ apiKey: 'not-real', fetch: fetcher });
+  assert.equal((await admittedAnthropic(h.deps, (p, o) => streamChat(client, p, o))(params(), streamOptions())).status, 'failed');
+  for (const route of ['chat_search', 'ingest_lookup'] as const) {
+    assert.equal((await admittedTavily(h.deps, route, fetcher, 'not-real')(searchInput, signal())).status, 'failed');
+  }
+  const reference = await referenceLookupSpending(h.deps, { reference: privateText, web: true,
+    consentVersion: 'cloud-ai-v2', enabled: true, apiKey: 'not-real', fetcher });
+  assert.ok(reference.search, 'legacy reserve success must not stand in for the new attempt grant');
+  assert.equal((await reference.search(searchInput, signal())).status, 'failed');
+  assert.equal(posts, 0);
+  assert.deepEqual(h.calls.filter(call => call.name === 'worker_provider_attempt_begin').map(call => call.params.p_route),
+    ['chat', 'chat_search', 'ingest_lookup', 'reference_lookup']);
+  assert.ok(!JSON.stringify(h.logs).includes(privateText));
+});
+
+test('already warm admitted adapters obtain a fresh grant for every next request after a policy or schema change', async () => {
+  for (const route of ['chat', 'chat_search', 'ingest_lookup', 'reference_lookup'] as const) {
+    const h = fixture(); let paused = false, posts = 0;
+    const original = h.deps.rpc;
+    h.deps.rpc = async (name, args) => {
+      if (paused && name === 'worker_provider_attempt_begin') {
+        h.calls.push({ name, params: args }); throw Object.assign(new Error('schema cache unavailable'), { code: 'PGRST202' });
+      }
+      return original(name, args);
+    };
+    const generate = admittedAnthropic(h.deps, async () => { posts++; return complete(); });
+    const search = route === 'chat' ? null : admittedTavily(h.deps, route, (async () => {
+      posts++; return Response.json({ results: [], usage: { credits: 1 } });
+    }) as typeof fetch, 'not-real');
+    const invoke = () => search ? search(searchInput, signal()) : generate(params(), streamOptions());
+    assert.notEqual((await invoke()).status, 'failed');
+    paused = true;
+    assert.equal((await invoke()).status, 'failed');
+    assert.equal(posts, 1, route + ' cannot reuse a cached grant/readiness decision');
+    assert.equal(h.calls.filter(call => call.name === 'worker_provider_attempt_begin').length, 2);
+  }
+});
+
+test('a missing search admission cannot escape through native fallback even in a warmed chat round', async () => {
+  const h = fixture(); let modelRequests = 0, searchRequests = 0;
+  const original = h.deps.rpc;
+  h.deps.rpc = async (name, args) => {
+    if (name === 'worker_reserve_operation') return { replayed: false };
+    if (name === 'worker_consume_request' || name === 'worker_settle_operation' || name === 'worker_record_provider_usage') return null;
+    if (name === 'worker_provider_attempt_begin' && args.p_provider === 'tavily') {
+      h.calls.push({ name, params: args }); throw Object.assign(new Error('missing admission'), { code: 'PGRST202' });
+    }
+    return original(name, args);
+  };
+  const generate = admittedAnthropic(h.deps, async () => {
+    modelRequests++;
+    return { ...complete(), stopReason: 'tool_use',
+      toolCalls: [{ id: 'toolu_fixture', name: 'search_web', input: { query: privateText } }],
+      content: [{ type: 'tool_use', id: 'toolu_fixture', name: 'search_web', input: { query: privateText } }] };
+  });
+  const search = admittedTavily(h.deps, 'chat_search', (async () => { searchRequests++; throw new Error('must not send'); }) as typeof fetch, 'not-real');
+  const deps: ChatDependencies = { ...h.deps, generate, loadPaper: async () => null, log: entry => h.logs.push(entry),
+    webSearch: true, nativeSearch: true, search: { ready: async () => true, run: search } };
+  const events: ChatEvent[] = [];
+  await runChat(deps, { operation_id: operationID, mode: 'general', consent_version: 'cloud-ai-v2',
+    messages: [{ role: 'user', text: privateText }] }, event => events.push(event), signal());
+  assert.equal(modelRequests, 1, 'the first admitted tool round ran; the native fallback was refused before transport');
+  assert.equal(searchRequests, 0);
+  assert.ok(events.some(event => event.event === 'error'));
+  assert.ok(h.logs.some(entry => (entry as { event?: string; failover?: boolean }).event === 'chat_answer'
+    && (entry as { failover?: boolean }).failover === true), 'exercise the fallback branch, not only initial refusal');
+  assert.equal(h.calls.filter(call => call.name === 'worker_provider_attempt_begin' && call.params.p_provider === 'anthropic').length, 1);
 });
 
 test('production SDK defaults make exactly one POST after a lost response and preserve full unknown liability', async () => {

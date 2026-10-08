@@ -71,7 +71,11 @@ final class UnsentDraftTests: XCTestCase {
         model.chatInput = "A general research question"
         let generalDraft = try XCTUnwrap(model.chatComposerID)
 
+        let previousHidden = model.readerChatHidden
+        defer { model.readerChatHidden = previousHidden }
+        model.readerChatHidden = true
         model.openUnsentDraft(paperDraft)
+        XCTAssertFalse(model.readerChatHidden, "Opening a paper draft reveals its composer in the wide Reader")
         XCTAssertFalse(model.generalChat)
         XCTAssertEqual(model.chatPaperID, paper.id)
         XCTAssertEqual(model.chatInput, "Question for this paper")
@@ -87,5 +91,23 @@ final class UnsentDraftTests: XCTestCase {
         XCTAssertEqual(model.chatInput, "Question for this paper")
         model.discardUnsentDraft(paperDraft)
         XCTAssertEqual(model.unsentDrafts.map(\.id), [generalDraft])
+    }
+
+    func testNewPaperChatRevealsTheHiddenColumnAndKeepsItsPreviousDraft() throws {
+        let model = ReaderModel(configuration: nil)
+        let previousHidden = model.readerChatHidden
+        defer { model.readerChatHidden = previousHidden }
+        model.openSample()
+        model.chatInput = "A question to finish later"
+        let previousDraft = try XCTUnwrap(model.chatComposerID)
+        model.readerChatHidden = true
+
+        model.newChat(general: false)
+
+        XCTAssertFalse(model.readerChatHidden)
+        XCTAssertNotEqual(model.chatComposerID, previousDraft)
+        XCTAssertEqual(model.chatInput, "")
+        model.openUnsentDraft(previousDraft)
+        XCTAssertEqual(model.chatInput, "A question to finish later")
     }
 }

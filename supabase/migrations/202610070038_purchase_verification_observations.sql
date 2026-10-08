@@ -201,6 +201,85 @@ begin
  return result;
 end $$;
 
+-- Account ledger reads are separate from submission diagnostics: an opaque JWS
+-- digest cannot identify a transaction. Page the authoritative records before
+-- joining current buckets and the most recent matching Sandbox decision.
+create index store_transactions_account_recorded on app_private.store_transactions
+ (account_id,recorded_at desc,environment desc,transaction_id desc);
+create index store_sandbox_decision_account_latest on app_private.store_sandbox_decisions
+ (account_id,transaction_id,created_at desc,period desc,reason desc);
+
+create function public.v1_admin_store_account_transactions(p_account_id uuid,p_cursor jsonb default null,p_limit integer default 25)
+returns jsonb language plpgsql stable security definer set search_path='' as $$
+declare boundary_time timestamptz:='infinity'; boundary_environment text:=''; boundary_transaction text:=''; result jsonb;
+begin
+ if not app_private.is_operator('owner') then raise exception 'owner_mfa_required' using errcode='42501'; end if;
+ if p_account_id is null or p_limit is null or p_limit not between 1 and 50 then raise exception 'invalid_store_ledger_query'; end if;
+ if p_cursor is not null then
+  if jsonb_typeof(p_cursor)<>'object' then raise exception 'invalid_store_ledger_cursor'; end if;
+  if (select array_agg(k order by k) from jsonb_object_keys(p_cursor) k)
+     is distinct from array['account_id','environment','recorded_at','transaction_id','version']::text[]
+   or p_cursor->'version' is distinct from '1'::jsonb
+   or jsonb_typeof(p_cursor->'account_id') is distinct from 'string'
+   or p_cursor->>'account_id' is distinct from p_account_id::text
+   or jsonb_typeof(p_cursor->'recorded_at') is distinct from 'string'
+   or length(p_cursor->>'recorded_at') not between 20 and 40
+   or p_cursor->>'recorded_at' !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]{1,6})?([+]00:00|Z)$'
+   or jsonb_typeof(p_cursor->'environment') is distinct from 'string'
+   or p_cursor->>'environment' not in ('Sandbox','Production')
+   or jsonb_typeof(p_cursor->'transaction_id') is distinct from 'string'
+   or length(p_cursor->>'transaction_id') not between 1 and 32
+   or p_cursor->>'transaction_id' ~ '[^0-9]' then raise exception 'invalid_store_ledger_cursor'; end if;
+  begin
+   boundary_time:=(p_cursor->>'recorded_at')::timestamptz;
+  exception when others then raise exception 'invalid_store_ledger_cursor'; end;
+  boundary_environment:=p_cursor->>'environment'; boundary_transaction:=p_cursor->>'transaction_id';
+  if not isfinite(boundary_time) or not exists(select 1 from app_private.store_transactions
+   where account_id=p_account_id and environment=boundary_environment and transaction_id=boundary_transaction
+    and recorded_at=boundary_time) then raise exception 'invalid_store_ledger_cursor'; end if;
+ end if;
+ with candidates as materialized (
+  select t.* from app_private.store_transactions t where t.account_id=p_account_id
+   and (t.recorded_at,t.environment,t.transaction_id)<(boundary_time,boundary_environment,boundary_transaction)
+  order by t.recorded_at desc,t.environment desc,t.transaction_id desc limit p_limit+1
+ ), page as materialized (
+  select * from candidates order by recorded_at desc,environment desc,transaction_id desc limit p_limit
+ ), rows as (
+  select t.recorded_at,t.environment,t.transaction_id,
+   jsonb_build_object('environment',t.environment,'transaction_id',t.transaction_id,
+    'original_transaction_id',t.original_transaction_id,'product_id',t.product_id,'quantity',t.quantity,
+    'purchased_at',t.purchased_at,'recorded_at',t.recorded_at,'granted_at',t.granted_at,
+    'expires_at',t.expires_at,'revoked_at',t.revoked_at,
+    'credits',jsonb_build_object('granted',t.credits,'balance',coalesce(b.balance,0),'reserved',coalesce(b.reserved,0),
+     'spendable',case when b.revoked_at is null and b.starts_at<=now() and (b.expires_at is null or b.expires_at>now())
+      then b.balance-b.reserved else 0 end,
+     'state',case when b.id is null then 'no_grant' when b.revoked_at is not null then 'revoked'
+      when b.expires_at<=now() then 'expired' when b.starts_at>now() then 'not_started' when b.balance=0 then 'spent' else 'active' end,
+     'starts_at',b.starts_at,'expires_at',b.expires_at,'revoked_at',b.revoked_at),
+    'sandbox_decision',case when d.transaction_id is null then null else jsonb_build_object('recorded_at',d.created_at,
+     'period',d.period,'reason',d.reason,'requested_credits',d.requested_credits,'granted_credits',d.granted_credits,
+     'credit_cap',d.credit_cap) end) value
+  from page t left join app_private.credit_buckets b on b.id=t.bucket_id and b.account_id=t.account_id
+  left join lateral (
+   select * from app_private.store_sandbox_decisions d where t.environment='Sandbox' and d.account_id=t.account_id
+    and d.transaction_id=t.transaction_id order by d.created_at desc,d.period desc,d.reason desc limit 1
+  ) d on true
+ )
+ select jsonb_build_object('generated_at',now(),'account_id',p_account_id,
+  'transactions',coalesce((select jsonb_agg(value order by recorded_at desc,environment desc,transaction_id desc) from rows),'[]'::jsonb),
+  'next_cursor',case when (select count(*) from candidates)>p_limit then
+   (select jsonb_build_object('version',1,'account_id',p_account_id,
+     'recorded_at',to_char(recorded_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+     'environment',environment,'transaction_id',transaction_id)
+    from page order by recorded_at,environment,transaction_id limit 1) else null end) into result;
+ return result;
+end $$;
+
+-- Deliberately not callable by a worker/service credential: investigation uses
+-- the signed-in owner's AAL2 context, like the private admin UI.
+revoke all on function public.v1_admin_store_account_transactions(uuid,jsonb,integer) from public,anon,service_role;
+grant execute on function public.v1_admin_store_account_transactions(uuid,jsonb,integer) to authenticated;
+
 revoke all on function app_private.prune_store_verifications(integer) from public,anon,authenticated;
 revoke all on function app_private.delete_account_store_verifications() from public,anon,authenticated;
 revoke all on function public.worker_prune_store_verifications(integer) from public,anon,authenticated;

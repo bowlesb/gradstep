@@ -61,6 +61,31 @@ A purchase (its original transaction ID) belongs to one account, bound on first 
 - The app hides plans when the Apple Account's current plan belongs to another account, so an upgrade bought
   there cannot land on the other account.
 
+## Purchase/account lock ordering (migration036, local)
+
+The spending review reproduced a deadlock between a deleted-account restore and multi-account OCR funding:
+purchase ownership's foreign-key checks could lock the new account before the old one while funding locked the
+same accounts in UUID order. This affects Production as well as Sandbox and concerns availability/retries, not a
+demonstrated duplicate grant.
+
+Migration036 retains018's purchase rules and adds a shared ordered lock protocol. After the Sandbox-only allowance
+gate, both environments take a transaction advisory gate, reject inconsistent transaction/original binding, take
+that original's advisory gate, and lock all captured accounts in UUID order before ownership/ledger foreign-key
+checks. The captured set includes historical transaction owners whose older buckets may be affected by refunds or
+upgrades. Unknown attribution remains supported; a late account discovery aborts for retry rather than expanding
+the locked set. The detailed ordering and namespace allocation are in
+[spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036).
+
+The applied018 migration is unchanged. Removing only the lock additions from036's replacement recorder yields
+018's original purchase body byte for byte; the existing upgrade-credit discrepancy is not changed by this repair.
+
+Local verification: the complete fresh database suite passes, including eight independent-session purchase cases.
+Four run actual account-closure, OCR-funding and purchase RPCs together (Production/Sandbox, recorded restore and
+first-seen deleted-token binding). Two use the composed funding account-lock prefix to verify historical upgrade
+buckets; the remaining cases cover late account creation and conflicting original IDs. Restoring the unchanged018
+recorder in a disposable database reproduces the original deadlock under the same actual Production RPC schedule.
+Evidence is under `.artifacts/purchase-lock-review/` in the spending worktree; no hosted mutation was performed.
+
 ## Verification
 
 `_shared/app-store.ts` uses Apple's `@apple/app-store-server-library` `SignedDataVerifier`: the certificate
@@ -148,6 +173,41 @@ Sandbox online-check exception, hosted schema change, new purchase or physical-d
 in the local evidence above. Apple's reference implementation and test certificate chain are
 at [apple/app-store-server-library-node](https://github.com/apple/app-store-server-library-node).
 
+Owner purchase detail now labels a successful verification **Receipt recorded**. Submission counts are neither
+sales nor credit grants: several signed submissions may describe one transaction, and a recorded receipt can grant
+zero credits. A selected submission opens a separate **Account transaction ledger**. It is account-wide, with no
+claim that the opaque submission digest identifies any particular transaction.
+
+The read-only `v1_admin_store_account_transactions(account_id, cursor, limit)` RPC in the still-unapplied migration
+038 reads existing `store_transactions`, the account's matching `credit_buckets`, and its latest matching
+`store_sandbox_decisions` entry. It does not create financial or diagnostic records or change grant/refund rules.
+
+- Signed-in owner + AAL2 is required; anonymous, service-role, ordinary customer and support sessions cannot call
+  this RPC. Apple transaction/original IDs remain inside this access-controlled view. `app_transaction_id`, signed
+  JWS and unverified identity claims are not returned.
+- Pages default to 25 and cannot exceed 50 transactions. The exact account-bound continuation contains version 1,
+  account UUID, UTC `recorded_at`, environment and transaction ID. All fields are validated, including existence
+  of the exact boundary row in that account. Descending `(recorded_at, environment, transaction_id)` continues
+  through ties without duplicates. Two indexes cover account continuation and the latest account/transaction
+  Sandbox decision. Candidate transactions are limited before the bucket/decision joins.
+- Each record separates the **original actual credit grant**, **currently spendable** amount, and **reserved**
+  amount. Revoked/expired credits have zero spendability while existing reservations remain visible for work in
+  progress. Fully spent and future-start buckets are distinguished from a receipt with no grant.
+- A matching Sandbox decision shows its finite reason, requested amount, granted amount and UTC allowance month.
+  A missing bucket or absent decision never becomes an inferred allowance-exhaustion reason. Production receipts
+  do not join Sandbox decisions with a coincident transaction ID.
+- Pages show balances at their own read time, not a consistent historical snapshot across pages. The dashboard
+  retains one page, offers Older/Newest navigation, and fences results after a new account, selected submission,
+  Refresh or page request. Ledger loading/error/retry is independent of the submission's verification history.
+
+Local ledger validation: fresh migrations and the complete database suite, including 170 transactions across
+7-row pages with tied timestamps and environments, invalid/cross-account cursors, every access boundary, actual
+partial/zero Sandbox grants, refunded/expired reservations and an unchanged financial-record digest. Index plans
+are checked after fixture statistics are analyzed. The admin production build and expanded synthetic browser
+journey pass; desktop, 390-point narrow and dark ledger captures were visually reviewed. Delayed completions
+exercise account/submission/Refresh/page races, alongside empty/error/retry and missing-decision cases. These are
+local checks; migration 038 and the dashboard addition still require the coordinated live rollout.
+
 Local checks: all 224 backend tests; 12 purchase tests under both Node and Deno, including
 the real SDK against a loopback OCSP responder returning HTTP 503; the database suites and
 five independent-session admission/replay/deletion/cleanup races; six StorePurchaseTests on
@@ -158,6 +218,7 @@ services. It does not establish hosted verification or credit delivery.
 
 This change adds no provider purchase or external worker. Each admitted verification adds
 two database RPCs (admit and finish), while the hourly cleanup runs inside the existing
-database. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
+database. Each owner ledger page adds one read-only RPC; its two indexes add database storage and write maintenance
+to the existing financial tables. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
 to the existing database allocation. Review actual database growth after deployment. The
 existing $100/month operating budget is unchanged.

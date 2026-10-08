@@ -61,7 +61,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showRecovery) { RecoveryView(model: model).interactiveDismissDisabled() }
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
-        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model).macSheetKeys() }
+        .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
@@ -189,8 +189,7 @@ struct RootView: View {
                 switch model.wideMode {
                 case .feed: FeedView(model: model)
                 case .library: LibraryView(model: model)
-                case .reader:
-                    HStack(spacing: 0) { PaperView(model: model).frame(maxWidth: .infinity); Divider(); ChatView(model: model).frame(width: min(400, max(320, width * 0.28))) }
+                case .reader: ReaderSplit(model: model, width: width)
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
@@ -717,11 +716,15 @@ struct FeedView: View {
 struct ChatView: View {
     @Bindable var model: ReaderModel
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
+    @ScaledMetric(relativeTo: .headline) private var titleFontSize = 17.0
     @FocusState private var composerFocused: Bool
     @Environment(\.tabBarReserve) private var tabBarReserve
     /// Where the floating controls end (global y): the bottom of the title bar above, the top of the message box below.
     @State private var chromeTop: CGFloat = 0
     @State private var chromeBottom: CGFloat = 0
+    @State private var historyBounds = CGRect.zero
+    @State private var newChatBounds = CGRect.zero
+    @State private var toolbarLayoutWidth: CGFloat = 0
     var body: some View {
         NavigationStack {
             GeometryReader { available in
@@ -746,18 +749,21 @@ struct ChatView: View {
                     bottomControls(compact: compact).onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { chromeBottom = $0 }
                 }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarLayoutWidth = $0 }
             .tabBarSpace(fade: false)
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { composerFocused = false; model.showAllChats = true } label: { Image(GradstepSymbol.chats) }
+                    Button { composerFocused = false; model.openAllChats(paper: chatsPaperID) } label: { Image(GradstepSymbol.chats) }
                         .accessibilityLabel("Chat history")
+                        .background(ToolbarButtonBounds(layoutWidth: toolbarLayoutWidth) { historyBounds = $0 })
                 }
                 // Design audit F8: the paper a conversation is about sits under its title (one tap back).
                 ToolbarItem(placement: .principal) { titleView }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { model.newChat(general: model.generalChat); composerFocused = true } label: { Image(GradstepSymbol.newChat) }
                         .accessibilityLabel("New chat")
+                        .background(ToolbarButtonBounds(layoutWidth: toolbarLayoutWidth) { newChatBounds = $0 })
                 }
                 // Separate circles, like the Library's + and … (iOS 26 groups adjacent items otherwise).
                 if #available(iOS 26.0, *) { ToolbarSpacer(.fixed, placement: .topBarTrailing) }
@@ -888,8 +894,66 @@ struct ChatView: View {
         }.pickerStyle(.inline)
     }
 
+    /// In a paper chat, All chats opens on this paper's chats ("This paper"; one tap on All shows everything).
+    private var chatsPaperID: UUID? { model.generalChat ? nil : model.chatPaper?.id }
+
+    /// The paper's other conversations, newest first, in the title menu (the legacy app opened a paper on its
+    /// History); all of them in All chats, filtered to this paper.
+    @ViewBuilder private var paperChatsSection: some View {
+        if let paper = chatsPaperID {
+            let chats = model.conversations(about: paper)
+            let others = chats.filter { $0.id != model.activeConversation }
+            if !others.isEmpty {
+                Section("Chats about this paper") {
+                    ForEach(others.prefix(5)) { chat in
+                        Button { composerFocused = false; model.openConversation(chat.id) } label: {
+                            let title = ChatTitle.display(chat.title)
+                            Text(title.isEmpty ? "Untitled conversation" : title)
+                            Text([ChatHistoryFormat.lastUsed(chat.lastUsedAt), ChatHistoryFormat.messages(chat.messageCount)].joined(separator: " · "))
+                        }
+                        .accessibilityIdentifier("chat.paperChat.\(chat.id.wire)")
+                    }
+                    MenuRow(chats.count == 1 ? "Show in All chats" : "All \(chats.count) chats about this paper", systemImage: GradstepSymbol.chats) {
+                        composerFocused = false; model.openAllChats(paper: paper)
+                    }
+                    .accessibilityIdentifier("chat.paperChats.all")
+                }
+            }
+        }
+    }
+
     /// iPad Reader layout: the paper is already open beside the chat.
     private var besidePaper: Bool { Platform.isLargeScreen && model.wideMode == .reader && model.tab != .chat }
+
+    /// A custom principal view can report its ideal width beyond the space
+    /// UIKit leaves between toolbar buttons. Use their measured positions,
+    /// including each button's minimum touch target, so long titles truncate.
+    private var titleWidth: CGFloat {
+        guard historyBounds.width > 0, newChatBounds.width > 0 else { return 160 }
+        let left = historyBounds.midX < newChatBounds.midX ? historyBounds : newChatBounds
+        let right = historyBounds.midX < newChatBounds.midX ? newChatBounds : historyBounds
+        let start = left.midX + max(44, left.width) / 2
+        let end = right.midX - max(44, right.width) / 2
+        return max(0, min(420, end - start - 16))
+    }
+
+    /// UIKit's toolbar Menu keeps an intrinsic label width even when its
+    /// surrounding SwiftUI frame shrinks. Fit its visible text explicitly;
+    /// accessibility and the saved conversation retain the complete title.
+    private var visibleTitle: String {
+        let title = model.chatTitle
+        let font = UIFont.systemFont(ofSize: titleFontSize, weight: .semibold)
+        let available = max(0, titleWidth - 24) // chevron and its spacing
+        func fits(_ value: String) -> Bool { (value as NSString).size(withAttributes: [.font: font]).width <= available }
+        guard !fits(title) else { return title }
+        let characters = Array(title)
+        var low = 0, high = characters.count
+        while low < high {
+            let count = (low + high + 1) / 2
+            if fits(String(characters.prefix(count)) + "…") { low = count } else { high = count - 1 }
+        }
+        return String(characters.prefix(low)) + "…"
+    }
 
     /// The conversation title is the menu that switches Paper chat / General chat; under it, the paper the
     /// conversation is about (tap to return to it), or "General chat".
@@ -899,17 +963,20 @@ struct ChatView: View {
                 // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
                 Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
                 contextPicker
+                paperChatsSection
             } label: {
                 HStack(spacing: 3) {
-                    Text(model.chatTitle).font(.headline).lineLimit(1)
+                    Text(visibleTitle).font(.system(size: titleFontSize, weight: .semibold)).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
-                }.foregroundStyle(.primary)
+                }.foregroundStyle(.primary).frame(minWidth: 0, maxWidth: .infinity)
             }
+            .buttonStyle(.plain)
             .accessibilityIdentifier("chat.context")
             // Not just the title: a new conversation is titled "New chat", like the button beside it.
             .accessibilityLabel("Conversation: \(model.chatTitle)")
             .accessibilityValue(model.generalChat ? "General chat" : "Paper chat")
-            .accessibilityHint("Switches between paper chat and general chat")
+            .accessibilityHint(chatsPaperID == nil ? "Switches between paper chat and general chat"
+                               : "Switches between paper chat and general chat, or opens another chat about this paper")
             if !model.generalChat, let paper = model.chatPaper, !besidePaper {
                 Button { composerFocused = false; model.select(paper) } label: {
                     Label(paper.title, systemImage: "doc.text").labelStyle(.titleAndIcon).font(.caption).lineLimit(1)
@@ -921,7 +988,7 @@ struct ChatView: View {
             } else if model.generalChat {
                 Text("General chat").font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
-        }.frame(maxWidth: 420)
+        }.frame(width: titleWidth)
     }
 
     /// Design audit F2: the same "…" as every screen — text size, diagrams, reporting.
@@ -933,13 +1000,56 @@ struct ChatView: View {
             }.controlGroupStyle(.compactMenu)
             Section {
                 GoToPassageMenuRow(model: model) { composerFocused = false }
-                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.showAllChats = true }
+                MenuRow("All chats", systemImage: GradstepSymbol.chats) { composerFocused = false; model.openAllChats(paper: chatsPaperID) }
                 MenuRow("All diagrams", systemImage: "square.stack.3d.up") { composerFocused = false; model.showDiagrams = true }
             }
             Section {
                 MenuRow("Report this screen", systemImage: "ladybug") { composerFocused = false; model.beginReport(afterMenu: true) }
             }
         } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Chat options")
+    }
+}
+
+/// Toolbar items have separate SwiftUI hosting roots, so their `.global`
+/// geometry is not a shared coordinate space. Report real window coordinates
+/// after layout; pane-width changes also ask the bridge to measure again.
+private struct ToolbarButtonBounds: UIViewRepresentable {
+    let layoutWidth: CGFloat
+    let report: (CGRect) -> Void
+
+    func makeUIView(context: Context) -> BoundsView {
+        let view = BoundsView()
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        return view
+    }
+
+    func updateUIView(_ view: BoundsView, context: Context) {
+        view.report = report
+        view.scheduleMeasurement()
+    }
+
+    final class BoundsView: UIView {
+        var report: ((CGRect) -> Void)?
+        private var scheduled = false
+        private var previous: CGRect?
+
+        override func didMoveToWindow() { super.didMoveToWindow(); scheduleMeasurement() }
+        override func layoutSubviews() { super.layoutSubviews(); scheduleMeasurement() }
+
+        func scheduleMeasurement() {
+            guard !scheduled else { return }
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.scheduled = false
+                guard let window = self.window, !self.bounds.isEmpty else { return }
+                let rect = self.convert(self.bounds, to: window)
+                guard rect != self.previous else { return }
+                self.previous = rect
+                self.report?(rect)
+            }
+        }
     }
 }
 
