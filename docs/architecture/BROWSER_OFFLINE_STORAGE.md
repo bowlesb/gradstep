@@ -166,8 +166,9 @@ and introduces no new expiring offline lease.
 ## Saved papers and library authority
 
 The detailed gate-2 schema, transaction, v5/descriptor contracts and acceptance plan are in
-[BROWSER_LIBRARY_STORAGE](BROWSER_LIBRARY_STORAGE.md). Its implementation remains separately
-reviewed and is not activated by the schema-2 journal.
+[BROWSER_LIBRARY_STORAGE](BROWSER_LIBRARY_STORAGE.md). The local foundation now includes an explicit schema-3
+activation and the fenced multi-head storage primitive, but it is not activated by the schema-2 journal or exposed
+to the deployed customer UI. The complete library protocol and descriptor/copy behavior remain separately gated.
 
 Use the existing epoch-aware **v5 full** library contract for the durable library slice, with
 encrypted upload descriptors and matching v5 online command adapters enabled together. Keep

@@ -13,7 +13,8 @@ history is retained in [deployment evidence](#deployment--2026-10-07).
 The [gate-1 encrypted browser journal](BROWSER_OFFLINE_STORAGE.md#gate-1-local-implementation-2026-10-08) is now
 wired into the deployed app. Its separate [verification record](../verification/2026-10-08-browser-journal-gate1.md)
 preserves the online Send requirement, legacy-profile activation, Safari gate and remaining cold offline-startup
-limitations. Gate 2/3 remain future work.
+limitations. The local gate-2 schema-3 storage primitive is implemented behind explicit activation, but complete
+library sync, descriptor writes, saved copies and cold offline startup remain future work.
 
 ## Scope
 

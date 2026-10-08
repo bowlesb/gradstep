@@ -11,12 +11,17 @@ removed executor work) is retained below where useful and in git history.
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. A cache-busting request to the custom domain matched the deployment preview byte-for-byte.
   No account, provider, OCR or paid request was made by these checks.
-- **Browser verification:** 332 unit tests across 27 files pass; the integrated production-CSP Playwright run is
+- **Browser verification:** 335 unit tests across 28 files pass; the integrated production-CSP Playwright run is
   **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
   **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
   Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
   interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
-- **Still gated:** durable library/saved-reader-copy storage (Gate 2), cold offline startup (Gate 3), browser OAuth
+- **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
+  three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
+  `libraryAccess`. It is covered by `apps/web/tests/library-storage.test.ts` and is not enabled by the deployed
+  browser UI. Descriptor writes, complete v5 library adoption, saved copies and cold startup remain gated pending
+  the epoch-bound descriptor PUT contract and measured copy-install limits.
+- **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), browser OAuth
   provider UI, Safari key persistence, PDF upload and purchases. Podcast generation remains backend-dark and no
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.

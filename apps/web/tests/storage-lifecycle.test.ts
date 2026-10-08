@@ -25,8 +25,8 @@ vi.mock('../src/lib/backend', async original => {
 });
 
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001';
-/** This release's database is version 2 (the journal); a future release stands in as version 3. */
-const NEWER = 3;
+/** This release understands schema 3 (the gate-2 stores); a future release stands in as version 4. */
+const NEWER = 4;
 const done: StreamEvent = { type: 'done', stopReason: 'end_turn', credits: 3 };
 const delay = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 
@@ -117,7 +117,7 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
 
   it('7. a proposed update waits while this tab has unsent work, and our own blocked open waits with guidance instead of failing', async () => {
     const { idb, storage } = await import('../src/lib/idb');
-    await idb.get('devices', 'open'); // this page is connected at version 2
+    await idb.get('devices', 'open'); // this page is connected at version 2 until gate-2 activation
     let work = true;
     const unregister = storage.registerWork(() => work);
     const newer = new BroadcastChannel('gradstep.storage'), replies: unknown[] = [];

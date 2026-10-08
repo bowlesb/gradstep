@@ -1,6 +1,6 @@
 // Compatibility checkpoint (docs/architecture/BROWSER_OFFLINE_STORAGE.md): three real two-tab journeys in one Chromium
 // profile against the local fixture backend. The second tab stands in for a newer release: it opens the `gradstep`
-// database at version 2 (or proposes doing so) from a same-origin document that does not run the app. No hosted or
+// database at version 4 (or proposes doing so) from a same-origin document that does not run the app. No hosted or
 // paid requests are made; "requests" below are the fixture's local chat stream.
 import { expect, test, type Page } from '@playwright/test';
 import { durableKeys } from './key-capability';
@@ -40,10 +40,10 @@ async function newerTab(page: Page) {
   await tab.goto('/brand-icon.svg');
   return tab;
 }
-/** What a newer release does to activate a schema: open version 2. Reports how long the older tabs took to let go. */
+/** What a newer release does to activate a future schema: open version 4. Reports how long the older tabs took to let go. */
 const upgrade = (tab: Page) => tab.evaluate(() => new Promise<{ ms: number; blocked: boolean; version: number }>((resolve, reject) => {
   const start = performance.now(); let blocked = false;
-  const request = indexedDB.open('gradstep', 3);
+  const request = indexedDB.open('gradstep', 4);
   request.onupgradeneeded = () => { request.result.createObjectStore('journal-probe'); };
   request.onblocked = () => { blocked = true; };
   request.onsuccess = () => { const db = request.result; resolve({ ms: performance.now() - start, blocked, version: db.version }); db.close(); };
@@ -76,7 +76,7 @@ test('an update during an answer stops it once, keeps unsent text copyable and l
   const newer = await newerTab(page);
   const opened = await upgrade(newer);
   // Bounded closure: this tab let go as soon as its accepted transactions finished, without a blocked newer tab.
-  expect(opened.version).toBe(3); expect(opened.blocked).toBe(false); expect(opened.ms).toBeLessThan(3_000);
+  expect(opened.version).toBe(4); expect(opened.blocked).toBe(false); expect(opened.ms).toBeLessThan(3_000);
 
   const notice = page.getByTestId('storage-notice');
   await expect(notice).toContainText('Gradstep was updated in another tab');
@@ -137,12 +137,12 @@ test('a reading save resumed after the update is refused; reopening shows the up
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click();
   await page.waitForFunction(() => (window as unknown as { activityWaiting?: boolean }).activityWaiting);
   const opened = await upgrade(newer);
-  expect(opened).toMatchObject({ version: 3, blocked: false });
+  expect(opened).toMatchObject({ version: 4, blocked: false });
   await expect(page.getByTestId('storage-notice')).toContainText('Gradstep was updated in another tab');
   await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
   await page.waitForTimeout(1_000);
   // The resumed callback could not write into the newer database.
-  expect(await records(newer)).toEqual({ version: 3, devices: 1, activity: before.activity });
+  expect(await records(newer)).toEqual({ version: 4, devices: 1, activity: before.activity });
 
   // Reopening this release over the newer database: an explanation and a reload button, not "browser unsupported",
   // and no automatic reload, downgrade or deletion.
@@ -157,7 +157,7 @@ test('a reading save resumed after the update is refused; reopening shows the up
   await page.screenshot({ path: `${shots}${info.project.name}-reopen-light.png` });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${shots}${info.project.name}-reopen-dark.png` });
-  expect(await records(newer)).toEqual({ version: 3, devices: 1, activity: before.activity });
+  expect(await records(newer)).toEqual({ version: 4, devices: 1, activity: before.activity });
   await newer.close();
 });
 

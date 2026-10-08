@@ -1,6 +1,6 @@
 # Browser library storage — gate 2
 
-**Reviewed design, implementation beginning 2026-10-08.** This extends
+**Reviewed design, storage foundation implemented 2026-10-08.** This extends
 [BROWSER_OFFLINE_STORAGE](BROWSER_OFFLINE_STORAGE.md), after the schema-2 private journal.
 The browser foundation is being implemented in an isolated branch; this document does not
 claim deployment, enabled customer UI, cold offline startup, or completed capacity acceptance.
@@ -8,7 +8,9 @@ Root approved the three-store design and a single final reader-install transacti
 to measured memory and structured-clone acceptance. Saved-copy implementation has an independent
 owner. No backend/native change or paid/provider operation is authorized by this work.
 
-The source review used integration `f04b744`, including the future-IDB-version refusal fix.
+The source review used integration `f04b744`, including the future-IDB-version refusal fix. The current local
+foundation adds schema-3 activation, bounded key inventory and fenced multi-head CAS in `idb.ts`; the complete
+v5 reader/descriptors/copies remain gated below.
 `library-descriptor.ts`, `KeyRing.descriptorKeys`, and the frozen descriptor interoperability
 fixtures are existing reviewed crypto; use them without inventing a second envelope format.
 The native descriptor/chunk queue in ASSET_SPENDING is a design contract. The current

@@ -2,17 +2,21 @@
 // structured clones, so non-extractable CryptoKeys are stored as keys (usable after reload, never readable as bytes).
 //
 // Database `gradstep`: version 1 has `devices` and `activity`; version 2 adds `journal` (the encrypted private journal,
-// lib/journal.ts). A browser with no Gradstep database starts at version 2. An existing version-1 profile stays at
-// version 1 until the person confirms they finished or copied work in every other Gradstep tab and closed them; only
-// then does `activateJournal` upgrade it. An unconfirmed upgrade is aborted, never forced.
+// lib/journal.ts); version 3 adds the three encrypted library domains. A browser with no Gradstep database starts at
+// version 2. Existing profiles stay at their current version until the person confirms they finished or copied work
+// in every other Gradstep tab and closed them; only then do the explicit activation functions upgrade them. An
+// unconfirmed upgrade is aborted, never forced. The library domains are deliberately not enabled by merely opening
+// the journal: this keeps the reviewed gate-1 compatibility release safe while gate 2 is introduced.
 //
 // When another tab changes the database, this page retires its connection cooperatively: transactions it already
 // accepted finish, the connection closes, and every later request from this page is refused with an explanation. It
 // never reopens, reloads, deletes or downgrades storage by itself.
 import type { Bytes } from './bytes';
 
-const NAME = 'gradstep', LEGACY = 1, VERSION = 2;
-export type Store = 'devices' | 'activity' | 'journal';
+const NAME = 'gradstep', LEGACY = 1, JOURNAL_VERSION = 2, LIBRARY_VERSION = 3, VERSION = LIBRARY_VERSION;
+export type Store = 'devices' | 'activity' | 'journal' | 'library' | 'libraryDescriptors' | 'readerCopies';
+export type LibraryStore = 'library' | 'libraryDescriptors' | 'readerCopies';
+const LIBRARY_STORES: readonly LibraryStore[] = ['library', 'libraryDescriptors', 'readerCopies'];
 
 /**
  * - `update`: another tab is changing the database (an upgrade); this page has stopped using it.
@@ -79,10 +83,14 @@ function openAt(version: number | undefined): Promise<IDBDatabase> {
     try { request = version === undefined ? indexedDB.open(NAME) : indexedDB.open(NAME, version); } catch { reject(new StorageError('storage_unavailable')); return; }
     request.onupgradeneeded = event => {
       const db = request.result;
-      // Never upgrade an existing version-1 profile without the person's confirmation (activateJournal).
-      if (event.oldVersion === LEGACY && !activating) { refused = true; request.transaction?.abort(); return; }
+      // Never upgrade an existing profile without the person's explicit activation. A newer release may still
+      // propose an upgrade to this page; this tab retires through onversionchange rather than accepting it.
+      if ((event.oldVersion === LEGACY || (event.oldVersion === JOURNAL_VERSION && (event.newVersion ?? 0) >= LIBRARY_VERSION))
+        && !activating) { refused = true; request.transaction?.abort(); return; }
       for (const store of ['devices', 'activity']) if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
-      if (db.version >= VERSION && !db.objectStoreNames.contains('journal')) db.createObjectStore('journal');
+      const next = event.newVersion ?? db.version;
+      if (next >= JOURNAL_VERSION && !db.objectStoreNames.contains('journal')) db.createObjectStore('journal');
+      if (next >= LIBRARY_VERSION) for (const store of LIBRARY_STORES) if (!db.objectStoreNames.contains(store)) db.createObjectStore(store);
     };
     // An older connection elsewhere has not closed yet. Keep waiting (never delete); the page explains what to close.
     request.onblocked = () => { if (lifecycle.phase === 'open') update({ issue: 'blocked' }); };
@@ -120,24 +128,29 @@ function database(): Promise<IDBDatabase> {
   connection ??= (async () => {
     const existing = await existingVersion();
     if (existing !== null && existing > VERSION) { update({ phase: 'retired', issue: 'upgraded', proposal: false }); throw refusal(); }
-    // A version-1 profile stays at version 1 until activation; unknown means open whatever exists (or create version 1).
-    return openAt(existing === LEGACY ? LEGACY : existing === null ? undefined : VERSION);
+    // A version-1 profile stays at version 1 until activation. When enumeration is unavailable, asking for v2
+    // intentionally falls back to v1 if an old profile exists (openAt's refused path); a new database becomes v2.
+    const target = existing === LEGACY ? LEGACY : existing !== null && existing >= LIBRARY_VERSION ? LIBRARY_VERSION : existing === null ? undefined : JOURNAL_VERSION;
+    return openAt(target);
   })().catch(error => { if (lifecycle.phase === 'open') connection = null; throw error; });
   return connection;
 }
 
 /** One transaction. Success is reported on completion, never on a request's success. `cancel` aborts deliberately. */
 function run<T>(stores: Store[] | ((db: IDBDatabase) => Store[]), mode: IDBTransactionMode,
-  body: (tx: IDBTransaction, cancel: () => void) => () => T, retried = false): Promise<T> {
+  body: (tx: IDBTransaction, cancel: () => void) => () => T, retried = false, minimumVersion = LEGACY): Promise<T> {
   const pending = database();
   return pending.then(db => new Promise<T>((resolve, reject) => {
     // A callback that resumes after retirement is refused, even though it began earlier.
     if (lifecycle.phase !== 'open') { reject(refusal()); return; }
+    if (db.version < minimumVersion) { reject(new StorageError('storage_unavailable')); return; }
+    const names = typeof stores === 'function' ? stores(db) : stores;
+    if (names.some(store => !db.objectStoreNames.contains(store))) { reject(new StorageError('storage_unavailable')); return; }
     let tx: IDBTransaction;
-    try { tx = db.transaction(typeof stores === 'function' ? stores(db) : stores, mode, mode === 'readwrite' ? { durability: 'strict' } : undefined); }
+    try { tx = db.transaction(names, mode, mode === 'readwrite' ? { durability: 'strict' } : undefined); }
     catch {
       // This page's own activation replaced the connection meanwhile: use the new one once.
-      if (!retried && connection && connection !== pending && lifecycle.phase === 'open') { resolve(run(stores, mode, body, true)); return; }
+      if (!retried && connection && connection !== pending && lifecycle.phase === 'open') { resolve(run(stores, mode, body, true, minimumVersion)); return; }
       reject(lifecycle.phase !== 'open' ? refusal() : new StorageError('storage_unavailable')); return;
     }
     active++;
@@ -220,8 +233,13 @@ export const idb = {
     };
     return () => undefined;
   }),
-  /** Removes the device, its reading data and its whole journal partition in one transaction. */
-  forgetDevice: (key: string, fence?: WriterFence, current?: () => boolean) => run<void>(db => db.objectStoreNames.contains('journal') ? ['devices', 'activity', 'journal'] : ['devices', 'activity'], 'readwrite', (tx, cancel) => {
+  /** Removes the device, its reading data and every account-domain partition in one transaction. */
+  forgetDevice: (key: string, fence?: WriterFence, current?: () => boolean) => run<void>(db => {
+    const stores: Store[] = ['devices', 'activity'];
+    if (db.objectStoreNames.contains('journal')) stores.push('journal');
+    for (const store of LIBRARY_STORES) if (db.objectStoreNames.contains(store)) stores.push(store);
+    return stores;
+  }, 'readwrite', (tx, cancel) => {
     let refused = false;
     const request = tx.objectStore('devices').get(admissionKey(key));
     request.onsuccess = () => {
@@ -229,6 +247,7 @@ export const idb = {
       if ((fence && !matchesFence(old, fence)) || (current && !current())) { refused = true; cancel(); return; }
       tx.objectStore('devices').delete(key); tx.objectStore('activity').delete(key);
       if (tx.objectStoreNames.contains('journal')) tx.objectStore('journal').delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
+      for (const store of LIBRARY_STORES) if (tx.objectStoreNames.contains(store)) tx.objectStore(store).delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
       if (old) tx.objectStore('devices').put({ ...old, incarnation: crypto.randomUUID(), generation: old.generation + 1, lifetime: null, writers: [] }, admissionKey(key));
     };
     return () => { if (refused) throw new StorageError('storage_unavailable'); };
@@ -258,12 +277,12 @@ const sameBytes = (a: unknown, b: Uint8Array | null) => {
   return true;
 };
 export const journalAccess: JournalAccess = {
-  get: key => run<Bytes | undefined>(['journal'], 'readonly', tx => { const r = tx.objectStore('journal').get(key); return () => r.result as Bytes | undefined; }),
+  get: key => run<Bytes | undefined>(['journal'], 'readonly', tx => { const r = tx.objectStore('journal').get(key); return () => r.result as Bytes | undefined; }, false, JOURNAL_VERSION),
   range: (lower, upper) => run<[string, Bytes][]>(['journal'], 'readonly', tx => {
     const store = tx.objectStore('journal'), range = IDBKeyRange.bound(lower, upper);
     const names = store.getAllKeys(range), values = store.getAll(range);
     return () => names.result.map((name, i) => [name as string, values.result[i] as Bytes]);
-  }),
+  }, false, JOURNAL_VERSION),
   commit: (headKey, expected, put, remove, device) => {
     let outcome: 'committed' | 'conflict' | 'fenced' = 'committed';
     return run<'committed' | 'conflict' | 'fenced'>(['devices', 'journal'], 'readwrite', (tx, cancel) => {
@@ -279,7 +298,89 @@ export const journalAccess: JournalAccess = {
         for (const [key, value] of put) journal.put(value, key);
       };
       return () => outcome;
-    });
+    }, false, JOURNAL_VERSION);
+  },
+};
+
+/** A public key inside one of the gate-2 encrypted domains. The value is always an opaque sealed record. */
+export interface LibraryKey { store: LibraryStore; key: string }
+export interface LibraryCompare extends LibraryKey { expected: Bytes | null }
+export interface LibraryPut extends LibraryKey { value: Bytes }
+export interface LibraryRemove extends LibraryKey {}
+export interface LibraryDeviceGuard { key: string; deviceID: string; fence?: WriterFence; current?: () => boolean }
+export interface LibraryAccess {
+  /** Reads all requested heads in one readonly transaction, preserving request order. */
+  read(keys: readonly LibraryKey[]): Promise<(Bytes | undefined)[]>;
+  /** Returns only bounded public IDB keys; callers must use a scoped lower/upper range. */
+  keys(store: LibraryStore, lower: string, upper: string, limit?: number): Promise<string[]>;
+  /** Compares exact predecessor ciphertexts and applies the finite mutation atomically. */
+  commit(compare: readonly LibraryCompare[], put: readonly LibraryPut[], remove: readonly LibraryRemove[], device?: LibraryDeviceGuard): Promise<'committed' | 'conflict' | 'fenced'>;
+}
+
+function validLibraryKey(value: LibraryKey): void {
+  if (!LIBRARY_STORES.includes(value.store) || typeof value.key !== 'string' || value.key.length === 0 || value.key.length > 1_024)
+    throw new StorageError('storage_unavailable');
+}
+function validBytes(value: unknown): value is Bytes {
+  return value instanceof Uint8Array && value.byteLength <= 16 * 1024 * 1024;
+}
+function duplicateKey(value: LibraryKey): string { return `${value.store}\u0000${value.key}`; }
+
+export const libraryAccess: LibraryAccess = {
+  read: keys => {
+    if (!keys.length) return Promise.resolve([]);
+    for (const key of keys) validLibraryKey(key);
+    return run<(Bytes | undefined)[]>([...new Set(keys.map(key => key.store))], 'readonly', tx => {
+      const requests = keys.map(key => tx.objectStore(key.store).get(key.key));
+      return () => requests.map(request => request.result as Bytes | undefined);
+    }, false, LIBRARY_VERSION);
+  },
+  keys: (store, lower, upper, limit = 256) => {
+    if (!LIBRARY_STORES.includes(store) || typeof lower !== 'string' || typeof upper !== 'string' || lower > upper
+      || !Number.isSafeInteger(limit) || limit < 1 || limit > 4_000) return Promise.reject(new StorageError('storage_unavailable'));
+    return run<string[]>([store], 'readonly', tx => {
+      const request = tx.objectStore(store).getAllKeys(IDBKeyRange.bound(lower, upper), limit);
+      return () => request.result.map(key => String(key));
+    }, false, LIBRARY_VERSION);
+  },
+  commit: (compare, put, remove, device) => {
+    const all = [...compare, ...put, ...remove];
+    if (!all.length && !device) return Promise.resolve('committed');
+    for (const key of all) validLibraryKey(key);
+    if (compare.some(item => item.expected !== null && !validBytes(item.expected))
+      || put.some(item => !validBytes(item.value))) return Promise.reject(new StorageError('storage_unavailable'));
+    const compareIDs = new Set(compare.map(duplicateKey));
+    const putIDs = new Set(put.map(duplicateKey));
+    const removeIDs = new Set(remove.map(duplicateKey));
+    if (compareIDs.size !== compare.length || putIDs.size !== put.length || removeIDs.size !== remove.length
+      || [...putIDs].some(id => removeIDs.has(id))) return Promise.reject(new StorageError('storage_unavailable'));
+    const stores = [...new Set([...all.map(item => item.store), ...(device ? ['devices' as Store] : [])])];
+    let outcome: 'committed' | 'conflict' | 'fenced' = 'committed';
+    return run<'committed' | 'conflict' | 'fenced'>(stores, 'readwrite', (tx, cancel) => {
+      const requests = compare.map(item => ({ item, request: tx.objectStore(item.store).get(item.key) }));
+      const owner = device ? tx.objectStore('devices').get(device.key) : null;
+      const admission = device?.fence ? tx.objectStore('devices').get(admissionKey(device.key)) : null;
+      let remaining = requests.length + (owner ? 1 : 0) + (admission ? 1 : 0);
+      let checked = false;
+      const check = () => {
+        if (remaining > 0) { remaining--; }
+        if (remaining > 0 || checked) return;
+        checked = true;
+        if (device && ((owner!.result as { deviceID?: string } | undefined)?.deviceID !== device.deviceID
+          || (device.fence && !matchesFence(admission!.result, device.fence)) || (device.current && !device.current()))) {
+          outcome = 'fenced'; cancel(); return;
+        }
+        if (requests.some(({ item, request }) => !sameBytes(request.result, item.expected))) { outcome = 'conflict'; cancel(); return; }
+        for (const item of remove) tx.objectStore(item.store).delete(item.key);
+        for (const item of put) tx.objectStore(item.store).put(item.value, item.key);
+      };
+      for (const { request } of requests) request.onsuccess = check;
+      if (owner) owner.onsuccess = check;
+      if (admission) admission.onsuccess = check;
+      // No compare and no guard still needs to perform the finite mutation.
+      if (!requests.length && !owner && !admission) check();
+      return () => outcome;
+    }, false, LIBRARY_VERSION);
   },
 };
 
@@ -326,34 +427,57 @@ function listen() {
  * or copied unsent work in every other Gradstep tab and closed them. A tab that answers with unsent work defers it
  * (`deferred`); an older tab that keeps its connection makes the upgrade wait (`blocked` issue) until it closes.
  */
-export async function activateJournal(wait = 900): Promise<'active' | 'deferred'> {
+async function activateVersion(target: number, wait: number): Promise<'active' | 'deferred'> {
   const db = await database();
-  if (db.version >= VERSION) return 'active';
+  if (db.version >= target) return 'active';
   listen();
   const proposal = crypto.randomUUID(), replies: UpgradeReply[] = [];
   const collect = (r: UpgradeReply) => { if (r.proposal === proposal) replies.push(r); };
   replyWaiters.add(collect);
-  try { channel?.postMessage({ kind: 'upgrade-proposal', proposal, version: VERSION } satisfies UpgradeProposal); } catch { /* closed */ }
+  try { channel?.postMessage({ kind: 'upgrade-proposal', proposal, version: target } satisfies UpgradeProposal); } catch { /* closed */ }
   await new Promise(resolve => setTimeout(resolve, wait));
   replyWaiters.delete(collect);
   if (replies.some(r => !r.ready)) return 'deferred';
   if (lifecycle.phase !== 'open') throw refusal();
-  // Close this page's own version-1 connection without retiring the page; waiting requests use the new connection.
+  // Close this page's own connection without retiring the page; waiting requests use the new connection.
   activating = true;
   db.onversionchange = null; db.onclose = null; db.close();
-  connection = openAt(VERSION).finally(() => { activating = false; });
+  connection = openAt(target).finally(() => { activating = false; });
   try { await connection; } catch (error) { connection = null; throw error; }
   return 'active';
 }
 
+/** Turns on the encrypted journal for a version-1 profile after the explicit update handshake. */
+export function activateJournal(wait = 900): Promise<'active' | 'deferred'> {
+  return activateVersion(JOURNAL_VERSION, wait);
+}
+
+/** Turns on the gate-2 library stores. A version-1 profile is first brought to the reviewed journal schema. */
+export async function activateLibraryStorage(wait = 900): Promise<'active' | 'deferred'> {
+  const current = await database();
+  if (current.version < JOURNAL_VERSION) {
+    const journal = await activateVersion(JOURNAL_VERSION, wait);
+    if (journal === 'deferred') return journal;
+  }
+  return activateVersion(LIBRARY_VERSION, wait);
+}
+
 export const storage = {
+  /** Highest schema understood by this release. Existing profiles are not upgraded implicitly. */
   version: VERSION,
+  journalVersion: JOURNAL_VERSION,
+  libraryVersion: LIBRARY_VERSION,
   snapshot: (): StorageLifecycle => lifecycle,
   subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
   /** Whether this page may start new local writes, sends or consent continuations. */
   writable: () => lifecycle.phase === 'open',
   /** Opens the database (if needed) and reports whether the encrypted journal store exists. */
-  async journalReady(): Promise<boolean> { return (await database()).version >= VERSION; },
+  async journalReady(): Promise<boolean> { return (await database()).version >= JOURNAL_VERSION; },
+  /** Reports whether the explicit gate-2 activation has installed all library stores. */
+  async libraryReady(): Promise<boolean> {
+    const db = await database();
+    return db.version >= LIBRARY_VERSION && LIBRARY_STORES.every(store => db.objectStoreNames.contains(store));
+  },
   /** Registers a check for unsent work in this page, consulted when another tab proposes an update. */
   registerWork(check: () => boolean): () => void {
     listen();
