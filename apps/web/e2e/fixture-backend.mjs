@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
-import { fixturePort as PORT } from './environment.ts';
+import { appOrigin, fixturePort as PORT } from './environment.ts';
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
@@ -26,6 +26,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 
 // ---------- State ----------
 const sessions = new Map(); // token -> account
+const oauthCodes = new Map(); // one-use PKCE authorization codes
 const state = new Map();
 function account(id) {
   if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
@@ -282,7 +283,7 @@ createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${PORT}`);
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
-  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); seedReturning(); return send(response, 200, { ok: true }); }
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
@@ -374,6 +375,18 @@ createServer(async (request, response) => {
     if (url.searchParams.get('token') !== 'signed' || !memberFiles().includes(path)) return send(response, 400, { error: 'InvalidSignature' });
     return send(response, 200, readFileSync(join(SAMPLE, path)), 'application/octet-stream');
   }
+  // A local Supabase-style OAuth hop. It never contacts a provider: the authorization route issues a
+  // short-lived one-use code, then the token route verifies the S256 PKCE binding before minting the fixture session.
+  if (url.pathname === '/auth/v1/authorize' && request.method === 'GET') {
+    const provider = url.searchParams.get('provider'), redirect = url.searchParams.get('redirect_to');
+    const stateValue = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge');
+    if (!['google', 'apple'].includes(provider ?? '') || !redirect?.startsWith(`${appOrigin}/auth/callback`)
+      || !stateValue || !/^[A-Za-z0-9_-]{32,128}$/.test(stateValue) || !challenge || !/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) return send(response, 400, { error: 'invalid_request' });
+    const code = randomUUID().replaceAll('-', '');
+    oauthCodes.set(code, { account: ACCOUNTS['returning@example.test'], challenge, state: stateValue, expiresAt: Date.now() + 60_000 });
+    response.writeHead(302, { Location: `${redirect}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(stateValue)}`, 'Cache-Control': 'no-store' });
+    return response.end();
+  }
   if (request.headers.apikey !== 'fixture-anon') return send(response, 401, { message: 'No API key' });
   if (url.pathname === '/auth/v1/otp' && request.method === 'POST') {
     const body = await read(request);
@@ -384,6 +397,14 @@ createServer(async (request, response) => {
     const body = await read(request);
     if (body?.type !== 'email' || !ACCOUNTS[body.email] || body.token !== CODE) return send(response, 403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
     return send(response, 200, sessionFor(body.email));
+  }
+  if (url.pathname === '/auth/v1/token' && request.method === 'POST' && url.searchParams.get('grant_type') === 'pkce') {
+    const body = await read(request), entry = typeof body?.auth_code === 'string' ? oauthCodes.get(body.auth_code) : null;
+    const verifier = typeof body?.code_verifier === 'string' ? body.code_verifier : '';
+    const challenge = verifier ? sha(Buffer.from(verifier)).toString('base64url') : '';
+    if (!entry || entry.expiresAt < Date.now() || !verifier || challenge !== entry.challenge) return send(response, 400, { error: 'invalid_grant' });
+    oauthCodes.delete(body.auth_code);
+    return send(response, 200, sessionFor('returning@example.test'));
   }
   if (url.pathname === '/auth/v1/logout') return send(response, 204);
   const id = sessions.get((request.headers.authorization ?? '').replace(/^Bearer /, ''));

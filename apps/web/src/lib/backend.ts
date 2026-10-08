@@ -15,7 +15,8 @@ export const config: BackendConfig = {
 export interface Session { accessToken: string; refreshToken: string; expiresAt: number; lifetime: string; user: { id: string; email: string | null } }
 export interface AuthSnapshot { session: Session | null; generation: number; signal: AbortSignal }
 
-export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'invalid_code' | 'connection' | 'configuration' | 'rejected';
+export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'invalid_code' | 'connection' | 'configuration' | 'rejected'
+  | 'oauth_cancelled' | 'oauth_invalid';
 export class AuthError extends Error { constructor(readonly issue: AuthIssue, readonly retryAfter?: number) { super(issue); } }
 /** `code` is a known server code (e.g. `library_resync_required`, `key_authority_required`) or `request_failed`. */
 export class BackendError extends Error { constructor(readonly code: string, readonly status = 0) { super(code); } }
@@ -85,7 +86,51 @@ function requestDeadline(parents: (AbortSignal | null | undefined)[], millisecon
 
 const parse = (body: Uint8Array): unknown => { try { return JSON.parse(new TextDecoder().decode(body)); } catch { return null; } };
 
-// ---------- Authentication (email one-time code) ----------
+// ---------- Authentication (email one-time code and browser OAuth) ----------
+
+export type OAuthProvider = 'google' | 'apple';
+type PendingOAuth = { provider: OAuthProvider; state: string; verifier: string; createdAt: number };
+const oauthKey = () => `gradstep.${config.environment}.oauth.pending`;
+const base64url = (bytes: Uint8Array): string => {
+  let text = '';
+  for (const byte of bytes) text += String.fromCharCode(byte);
+  return btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+};
+const randomToken = (bytes = 32): string => {
+  if (typeof crypto?.getRandomValues !== 'function') throw new AuthError('configuration');
+  const value = new Uint8Array(bytes); crypto.getRandomValues(value); return base64url(value);
+};
+
+function readPendingOAuth(): PendingOAuth | null {
+  try {
+    const raw = sessionStorage.getItem(oauthKey());
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PendingOAuth>;
+    if ((value.provider !== 'google' && value.provider !== 'apple') || typeof value.state !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(value.state)
+      || typeof value.verifier !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(value.verifier)
+      || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || Date.now() - value.createdAt > 10 * 60_000) return null;
+    return value as PendingOAuth;
+  } catch { return null; }
+}
+
+function clearPendingOAuth(): void { try { sessionStorage.removeItem(oauthKey()); } catch { /* storage unavailable */ } }
+
+function oauthCallbackPath(): string {
+  if (typeof window === 'undefined') throw new AuthError('configuration');
+  if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    throw new AuthError('configuration');
+  }
+  return `${window.location.origin}/auth/callback`;
+}
+
+function oauthError(value: string | null): AuthError {
+  switch (value) {
+    case 'access_denied': case 'user_cancelled': case 'cancelled': return new AuthError('oauth_cancelled');
+    case 'temporarily_unavailable': case 'server_error': return new AuthError('connection');
+    case 'provider_disabled': case 'invalid_request': return new AuthError('configuration');
+    default: return new AuthError('oauth_invalid');
+  }
+}
 
 type Listener = (session: Session | null) => void;
 const listeners = new Set<Listener>();
@@ -137,6 +182,52 @@ export const auth = {
     const email = raw.trim();
     if (!email || new TextEncoder().encode(email).length > 320 || /[\u0000-\u001f\u007f\s]/.test(email) || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return null;
     return email;
+  },
+
+  /** Starts a browser OAuth authorization using the Supabase PKCE flow. The verifier and state stay in session storage only. */
+  async startOAuth(provider: OAuthProvider): Promise<never> {
+    if (provider !== 'google' && provider !== 'apple') throw new AuthError('configuration');
+    const redirectTo = oauthCallbackPath();
+    if (!config.url || !config.anonKey) throw new AuthError('configuration');
+    const pending: PendingOAuth = { provider, state: randomToken(), verifier: randomToken(), createdAt: Date.now() };
+    let challenge: string;
+    try {
+      challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pending.verifier))));
+      sessionStorage.setItem(oauthKey(), JSON.stringify(pending));
+    } catch { clearPendingOAuth(); throw new AuthError('configuration'); }
+    const authorize = new URL('/auth/v1/authorize', config.url);
+    authorize.searchParams.set('provider', provider);
+    authorize.searchParams.set('redirect_to', redirectTo);
+    authorize.searchParams.set('code_challenge', challenge);
+    authorize.searchParams.set('code_challenge_method', 's256');
+    authorize.searchParams.set('state', pending.state);
+    // Navigation is intentional: provider pages must never be embedded or opened in a popup we cannot fence.
+    window.location.assign(authorize.toString());
+    throw new AuthError('connection'); // unreachable in a browser; keeps callers from continuing before navigation.
+  },
+
+  /** Completes one callback, then removes the code and state from the address bar before exchanging them. */
+  async completeOAuth(): Promise<boolean> {
+    if (typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return false;
+    const query = new URLSearchParams(window.location.search);
+    const pending = readPendingOAuth();
+    clearPendingOAuth();
+    const code = query.get('code'), state = query.get('state'), error = query.get('error');
+    // Remove one-time credentials before network work. The app always returns to the sign-in route on failure.
+    window.history.replaceState(null, '', '/');
+    if (error) throw oauthError(error);
+    if (!pending || !code || !/^[A-Za-z0-9._~-]{8,4096}$/.test(code) || !state || state !== pending.state) throw new AuthError('oauth_invalid');
+    let reply;
+    try {
+      reply = await send('auth/v1/token?grant_type=pkce', {
+        body: JSON.stringify({ auth_code: code, code_verifier: pending.verifier }), maximum: 262_144, timeout: 30_000,
+      });
+    } catch { throw new AuthError('connection'); }
+    if (reply.status === 400 || reply.status === 401 || reply.status === 403) throw new AuthError('oauth_invalid');
+    if (reply.status < 200 || reply.status >= 300) throw new AuthError('connection');
+    try { publish(decodeSession(reply.body), true); }
+    catch { throw new AuthError('oauth_invalid'); }
+    return true;
   },
 
   /** `delivered` false: the reply was lost or unreadable; a code may still have been sent. */

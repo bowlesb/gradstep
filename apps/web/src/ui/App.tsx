@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
-import { type Session, auth, config } from '../lib/backend';
+import { AuthError, type AuthIssue, type Session, auth, config } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
 import type { Episode, Evidence } from '../lib/podcast';
@@ -38,16 +38,32 @@ function usePath(): [string, (path: string) => void] {
 
 export function App() {
   const [supported, setSupported] = useState<boolean | null>(null);
+  const [oauth, setOAuth] = useState<{ working: boolean; issue: AuthIssue | null }>({ working: location.pathname === '/auth/callback', issue: null });
   const { session, generation } = useSyncExternalStore(auth.subscribe, auth.snapshot);
 
   useEffect(() => {
     (async () => setSupported(!!config.url && typeof indexedDB !== 'undefined' && !!crypto?.subtle && await supportsX25519()))();
   }, []);
 
+  useEffect(() => {
+    if (location.pathname !== '/auth/callback') return;
+    let live = true;
+    void auth.completeOAuth().then(() => { if (live) setOAuth({ working: false, issue: null }); })
+      .catch(error => { if (live) setOAuth({ working: false, issue: error instanceof AuthError ? error.issue : 'oauth_invalid' }); });
+    return () => { live = false; };
+  }, []);
+
   if (supported === null) return null;
   if (!supported) return <Unsupported />;
-  if (!session) return <SignIn />;
+  if (oauth.working) return <OAuthCallback />;
+  if (!session) return <SignIn initialIssue={oauth.issue} />;
   return <AccountSession key={generation} session={session} />;
+}
+
+function OAuthCallback() {
+  return <main className="auth-shell"><section className="card auth-card" aria-live="polite"><Brand />
+    <h1>Completing sign-in</h1><p className="muted">Returning securely from your provider…</p><span className="spinner" aria-label="Working" />
+  </section></main>;
 }
 
 /** Refreshing tokens preserves this tree; signing out or starting another login always retires it. */

@@ -22,7 +22,8 @@ removed executor work) is retained below where useful and in git history.
   The deployed reader also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
   remove) from the paper toolbar. The prior full production-CSP Playwright run remains 146 passed / 103 expected
   skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
-  journey passes on desktop (answer and Mermaid source copy controls).
+  journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
+  expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
@@ -30,8 +31,9 @@ removed executor work) is retained below where useful and in git history.
   records. It is covered by the library-storage and checkpoint suites and is not enabled by the deployed browser UI.
   Descriptor writes, complete v5 library adoption, saved copies and cold startup remain gated pending the epoch-bound
   descriptor PUT contract and measured copy-install limits.
-- **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), browser OAuth
-  provider UI, Safari key persistence, PDF upload and purchases. Podcast generation remains backend-dark and no
+- **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), live browser
+  provider consent/identity acceptance, Safari key persistence, PDF upload and purchases. The browser now has bounded
+  Google/Apple PKCE controls and callback validation; provider-side acceptance remains a release gate. Podcast generation remains backend-dark and no
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
 - **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import { AuthError, auth } from '../lib/backend';
+import { AuthError, auth, type AuthIssue, type OAuthProvider } from '../lib/backend';
 import { Brand } from './common';
 
 const issueText: Record<string, string> = {
@@ -10,15 +10,17 @@ const issueText: Record<string, string> = {
   connection: 'Couldn’t reach Gradstep. Check your connection and try again.',
   configuration: 'Email sign-in is unavailable right now.',
   rejected: 'Couldn’t sign in. Try again.',
+  oauth_cancelled: 'Sign-in was cancelled. Choose a provider to try again.',
+  oauth_invalid: 'That sign-in link has expired or was already used. Start again.',
 };
 
-export function SignIn() {
+export function SignIn({ initialIssue = null }: { initialIssue?: AuthIssue | null } = {}) {
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [captured, setCaptured] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
-  const [issue, setIssue] = useState<string | null>(null);
+  const [issue, setIssue] = useState<string | null>(initialIssue ? issueText[initialIssue] : null);
   const [note, setNote] = useState<string | null>(null);
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -30,6 +32,12 @@ export function SignIn() {
 
   useEffect(() => { if (step !== 'code') return; const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, [step]);
   useEffect(() => { if (step === 'code') codeField.current?.focus(); }, [step]);
+
+  async function startOAuth(provider: OAuthProvider) {
+    setBusy(true); setIssue(null); setNote(null);
+    try { await auth.startOAuth(provider); }
+    catch (error) { setBusy(false); setIssue(issueText[error instanceof AuthError ? error.issue : 'rejected']); }
+  }
 
   async function send(address: string) {
     request.current?.abort();
@@ -77,14 +85,19 @@ export function SignIn() {
         <h1 id="sign-in-title">{step === 'email' ? 'Sign in' : 'Enter your code'}</h1>
         {step === 'email' ? (
           <form onSubmit={submitEmail} noValidate>
-            <p className="muted">Read your Gradstep library in the browser. We’ll email you a sign-in code.</p>
+            <p className="muted">Read your Gradstep library in the browser. Choose a provider or use an email code.</p>
+            <div className="oauth-actions" aria-label="Other sign-in methods">
+              <button type="button" className="secondary" onClick={() => void startOAuth('google')} disabled={busy} data-testid="oauth-google">Continue with Google</button>
+              <button type="button" className="secondary" onClick={() => void startOAuth('apple')} disabled={busy} data-testid="oauth-apple">Continue with Apple</button>
+            </div>
+            <div className="auth-divider" aria-hidden="true"><span>or</span></div>
             <label>Email
               <input type="email" name="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} required
                 value={email} onChange={e => setEmail(e.target.value)} disabled={busy} data-testid="email" />
             </label>
             {issue && <p className="issue" role="alert">{issue}</p>}
             <button type="submit" className="primary" disabled={busy || !email.trim()} data-testid="send-code">{busy ? 'Sending…' : 'Send code'}</button>
-            <p className="fine">Apple and Google sign-in are coming to the browser. Use the email address of your Gradstep account.</p>
+            <p className="fine">Use the email address already linked to your Gradstep account. New accounts remain invite-only.</p>
           </form>
         ) : (
           <form onSubmit={verify} noValidate>

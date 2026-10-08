@@ -6,7 +6,7 @@ encrypted journal, reader references/passage links, chat profiles/titles and pod
 output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
 Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
 real key setup, reading and encrypted question/history recovery. A later [hosted diagram journey](#hosted-answer-and-diagram--2026-10-08-utc)
-verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; email/OAuth UI,
+verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; live provider acceptance,
 Safari support and a comprehensive E2EE claim remain outside those proofs. Key-storage/draft limits are below. Original reader/M1 deployment
 history is retained in [deployment evidence](#deployment--2026-10-07).
 
@@ -29,7 +29,8 @@ find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-pape
 
 Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
 
-Remaining browser work (shown as unavailable where applicable): PDF upload, Apple/Google web sign-in,
+Remaining browser work (shown as unavailable where applicable): PDF upload and live provider acceptance for
+Apple/Google web sign-in,
 device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
 and tag editing are now deployed; they reuse the existing epoch-checked library command path.
 
@@ -304,7 +305,7 @@ limits: [PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
 
 ## Authentication
 
-Phase 1 is the email code only: `POST /auth/v1/otp` (`create_user: false`; sign-up stays invite-only and testers are
+Email code sign-in uses `POST /auth/v1/otp` (`create_user: false`; sign-up stays invite-only and testers are
 created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`), six ASCII digits with
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
@@ -326,9 +327,17 @@ a newer login. Caller cancellation and request deadlines both remain active thro
 Cancellation does not undo an already-sent mutation; existing operation-ID replay and pending enrollment recovery
 still determine its outcome.
 
-Apple and Google web sign-in are Phase 2: Google needs `https://app.gradstep.ai/auth/callback` in the staging
-redirect allowlist (PKCE, code-only callback, validated as natively), Apple needs a reviewed Services ID
-configuration separate from native Apple sign-in (see [native authentication](NATIVE_AUTHENTICATION.md)).
+**Browser OAuth is implemented with the same bounded PKCE shape as native sign-in.** The sign-in page offers Google
+and Apple. The client creates a 256-bit verifier and state, stores only those short-lived values in session storage,
+opens Supabase's exact `/auth/v1/authorize` origin, and accepts a code-only callback at `/auth/callback`. It removes
+the callback query before the token exchange, verifies state, exchanges the one-use code at
+`/auth/v1/token?grant_type=pkce`, and publishes the session only after the bounded response validates. Provider
+errors are mapped to a finite local set; raw callback text never appears in the UI or logs. A missing, expired or
+substituted state is rejected before any session request. Local production-CSP Playwright covers a Google PKCE
+round-trip, the recovery handoff, and a state-less callback rejection on desktop and phone (WebKit's key-dependent
+round-trip remains skipped). The staging redirect allowlist already contains the exact app callback. Actual Google
+and Apple browser consent, Services ID configuration and provider identity linking remain live acceptance gates;
+Apple's web Services ID is separate from native Apple sign-in (see [native authentication](NATIVE_AUTHENTICATION.md)).
 
 ## Edge function origin
 
@@ -387,12 +396,12 @@ pending request. A persistent command outbox needs the account/deployment and at
   decrypted by WebCrypto; fingerprints match; wrong account/device/epoch and tampering are rejected.
 - **Unit (Vitest).** Library page validation and reconciliation, arXiv parsing, progress wording, bundle verification
   against the app's real DPO sample bundle, frame document sanitization.
-- **End to end (Playwright, local fixture backend).** Sign-in, new keys and recovery, library table, add paper with
+- **End to end (Playwright, local fixture backend).** Email sign-in, Google PKCE OAuth, new keys and recovery, library table, add paper with
   progress, reader contents/citations/figures, sign-out; 390 px phone and desktop widths, light and dark.
 - **Hosted zero-credit journey (2026-10-08).** Real staging-backed key setup, cached-paper reading, encrypted
   question persistence and recovery passed in Chromium with complete account cleanup; details below. Real Auth
-  credentials were seeded through a synthetic-account password login. Email-code/OAuth UI and a paid answer
-  remain separate acceptance, and no reusable `scripts/web-live-journey.mjs` command is claimed here.
+credentials were seeded through a synthetic-account password login. Live provider consent and a paid answer remain
+separate acceptance, and no reusable `scripts/web-live-journey.mjs` command is claimed here.
 
 ## Evidence
 
