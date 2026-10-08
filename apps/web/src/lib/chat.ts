@@ -167,6 +167,7 @@ export function failureText(code: string): string {
     case 'conversation_deleted': return 'This conversation was deleted. Start a new chat to continue.';
     case 'answer_too_large': return 'The answer reached this browser’s size limit. The partial answer is saved.';
     case 'storage': return 'The answer couldn’t be saved to your encrypted history. Try again.';
+    case 'local_save': return 'This edit couldn’t be saved on this device. Keep this tab open and copy your text, or try again after freeing browser storage.';
     case 'question_unsaved': return 'Your question couldn’t be saved, so no answer was requested. Try again.';
     case 'storage_retired': return 'No answer was requested: Gradstep was updated in another tab. Your question is saved; continue in the updated tab.';
     case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';

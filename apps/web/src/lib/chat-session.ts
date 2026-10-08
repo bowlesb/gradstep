@@ -29,6 +29,8 @@ export interface Composer {
   /** The latest revision committed on this device (durable journal only). */
   savedRevision: number;
   receipt: Receipt | null;
+  branchRevision: string;
+  acknowledgedSubmissionID: string | null;
 }
 /** Whether this page's drafts survive a reload, and if not, why. */
 export type JournalState = 'active' | 'inactive' | 'unsupported' | 'newer' | 'damaged' | 'unavailable';
@@ -80,6 +82,9 @@ export class ChatSession {
   private editors = new Map<string, Promise<() => void>>();
   private checkpoints = new Map<string, { timer: ReturnType<typeof setTimeout>; since: number }>();
   private writes: Promise<void> = Promise.resolve();
+  private discarding = new Set<string>();
+  private turnOwners = new Map<string, { id: string; release: () => void; refused: boolean }>();
+  private discussions = new Map<string, { quote: string; composerID: string; textRevision: string }>();
 
   constructor(readonly account: string, readonly history: History, readonly signal: AbortSignal, dependencies: Partial<Dependencies> = {}, journalState?: JournalState) {
     const consentKey = `gradstep.${config.environment}.${account}.cloud-ai-consent`;
@@ -104,18 +109,29 @@ export class ChatSession {
     const unsubscribeRebase = history.subscribeRebase(mapping => this.remap(mapping));
     const observeStorage = () => { if (this.deps.storage.snapshot().phase !== 'open') this.retireStorage(); };
     const unsubscribeStorage = this.deps.storage.subscribe(observeStorage);
+    const unsubscribeFault = this.journal?.subscribeFault(error => {
+      if (!this.journal?.active) { this.journalState = 'damaged'; this.retireStorage(); }
+      else if ((error as { code?: string }).code === 'missing_key') void this.history.sync().catch(() => {});
+    });
     signal.addEventListener('abort', () => {
-      unsubscribe(); unsubscribeRebase(); unsubscribeStorage(); this.accepting = false;
+      unsubscribe(); unsubscribeRebase(); unsubscribeStorage(); unsubscribeFault?.(); this.accepting = false;
       for (const c of this.streams.values()) c.abort();
       for (const { timer } of this.checkpoints.values()) clearTimeout(timer);
-      this.checkpoints.clear(); this.listeners.clear(); this.releaseEditors();
+      this.checkpoints.clear(); this.listeners.clear();
+      // A replacement editor cannot acquire the lock while accepted writes or a discard still settle.
+      void Promise.allSettled([...this.tasks, this.writes]).then(() => {
+        this.journal?.retire(); this.releaseEditors();
+        for (const turn of this.turnOwners.values()) turn.release(); this.turnOwners.clear();
+      });
     }, { once: true });
     observeStorage();
   }
   /** Drafts and interrupted answers survive a reload in this browser. */
-  get durable() { return !!this.journal?.active && this.history.durable; }
+  get durable() { return !!this.journal && this.history.durable; }
   /** Storage was retired by a newer tab: this page sends nothing new, but its unsent text stays readable. */
   get storageRetired() { return this.retiredStorage; }
+  hasUnresolvedTurn(c: Composer) { return this.turnOwners.has(c.id); }
+  lockJournal(state: JournalState) { this.journalState = state; this.retireStorage(); }
   private retireStorage() {
     if (this.retiredStorage || this.signal.aborted) return;
     this.retiredStorage = true;
@@ -142,7 +158,8 @@ export class ChatSession {
   }
   private blank(documentID: string | null, id: string = crypto.randomUUID()): Composer {
     return { id, documentID, conversationID: null, head: null, draft: '', revision: 0, phase: 'idle', issue: null, question: null, answer: null,
-      liveID: null, liveText: '', progress: null, credits: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null };
+      liveID: null, liveText: '', progress: null, credits: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
+      branchRevision: crypto.randomUUID(), acknowledgedSubmissionID: null };
   }
   private create(documentID: string | null): Composer {
     // Empty, inactive composers can be retired. Unsent text is never evicted to make room.
@@ -171,19 +188,25 @@ export class ChatSession {
     this.selected.set(scope(c.documentID), c.id); this.publish(); return c;
   }
   chooseDraft(id: string) { const c = this.composers.get(id); if (c) { this.selected.set(scope(c.documentID), id); this.publish(); } return c; }
-  discardDraft(id: string) {
+  async discardDraft(id: string) {
     const c = this.composers.get(id);
-    if (!c || busy(c) || c.answer) return;
-    if (!this.journal || (c.savedRevision === 0 && !this.checkpoints.has(id))) { c.draft = ''; c.revision++; c.textRevision = crypto.randomUUID(); this.publish(); return; }
+    if (!c || busy(c) || c.answer || this.discarding.has(id) || this.retiredStorage) return;
+    if (!this.journal) { c.draft = ''; c.revision++; c.textRevision = crypto.randomUUID(); this.publish(); return; }
     // An encrypted tombstone: no delayed checkpoint can resurrect this composer. Later typing gets a new composer ID.
     this.cancelCheckpoint(c);
-    const observed = c.revision, template = { id: c.id, documentID: c.documentID, conversationID: c.conversationID, head: c.head, textRevision: c.textRevision, editedAt: Date.now() };
-    const replacement = { ...this.blank(c.documentID), conversationID: c.conversationID, head: c.head };
-    this.composers.delete(c.id); this.composers.set(replacement.id, replacement);
-    if (this.selected.get(scope(c.documentID)) === c.id) this.selected.set(scope(c.documentID), replacement.id);
-    this.claimEditor(replacement.id);
-    this.publish();
-    this.queue(() => this.journal!.discardDraft(c.id, observed, template)).finally(() => this.releaseEditor(c.id)).catch(() => {});
+    const observed = c.revision, template = { ...this.record(c) };
+    this.discarding.add(id);
+    try {
+      await this.queue(async () => { await this.editors.get(id); await this.journal!.discardDraft(c.id, observed, template); });
+      // Keep the original text reachable until the tombstone commits. Any edit during deletion has a new identity.
+      const replacement = { ...this.blank(c.documentID), conversationID: c.conversationID, head: c.head,
+        ...(c.revision > observed ? { draft: c.draft, revision: 1, textRevision: c.textRevision } : {}) };
+      this.composers.delete(c.id); this.composers.set(replacement.id, replacement);
+      if (this.selected.get(scope(c.documentID)) === c.id) this.selected.set(scope(c.documentID), replacement.id);
+      this.claimEditor(replacement.id); this.releaseEditor(id);
+      if (replacement.draft) this.scheduleCheckpoint(replacement);
+    } catch { c.issue = 'local_save'; }
+    finally { this.discarding.delete(id); this.publish(); }
   }
   edit(c: Composer, text: string): boolean {
     this.allowed();
@@ -200,7 +223,35 @@ export class ChatSession {
     return branches.length === 1 ? branches[0] : head ? this.history.state.conversationBranch(c.conversationID, head) : null;
   }
   resumeAfterSignOutFailure() { if (!this.signal.aborted) this.accepting = true; }
-  chooseBranch(c: Composer, head: string) { if (busy(c) || c.answer) return; c.head = head; c.question = null; c.issue = null; c.revision++; this.scheduleCheckpoint(c); this.publish(); }
+  chooseBranch(c: Composer, head: string) { if (busy(c) || c.answer) return; c.head = head; c.branchRevision = crypto.randomUUID(); c.question = null; c.issue = null; c.revision++; this.scheduleCheckpoint(c); this.publish(); }
+
+  /** Discuss prepares a device draft only; the caller reveals/focuses this composer. */
+  async discuss(documentID: string, quote: string): Promise<Composer | null> {
+    this.allowed();
+    if (this.retiredStorage) return null;
+    quote = boundedText(quote, 12_000);
+    const pending = this.discussions.get(documentID), retry = pending && pending.quote === quote && this.composers.get(pending.composerID);
+    let c = retry && retry.textRevision === pending!.textRevision ? retry : this.current(documentID);
+    if (c.conversationID || busy(c) || c.answer) c = this.newChat(documentID);
+    if (!(pending?.composerID === c.id && pending.textRevision === c.textRevision && pending.quote === quote)) {
+      if (!this.edit(c, `About “${quote}”: ${c.draft}`)) return null;
+      this.discussions.set(documentID, { quote, composerID: c.id, textRevision: c.textRevision });
+    }
+    await this.checkpoint(c);
+    if (c.issue === 'local_save') return null;
+    this.discussions.delete(documentID);
+    return c;
+  }
+  /** Retries device persistence only. This action never requests an answer. */
+  async retryDeviceSave(c: Composer): Promise<void> {
+    const terminal = this.turnOwners.get(c.id);
+    if (terminal?.refused) {
+      try { await this.journal!.dropTurn(terminal.id); terminal.release(); this.turnOwners.delete(c.id); c.issue = 'refused'; }
+      catch { c.issue = 'local_save'; }
+      this.publish(); return;
+    }
+    await this.checkpoint(c);
+  }
 
   // ---------- Device checkpoints (durable journal) ----------
 
@@ -211,10 +262,11 @@ export class ChatSession {
   }
   private record(c: Composer): StoredDraft {
     return { id: c.id, documentID: c.documentID, conversationID: c.conversationID, head: c.head, revision: c.revision, textRevision: c.textRevision,
-      text: c.draft, editedAt: Date.now(), receipt: c.receipt, discarded: false };
+      text: c.draft, editedAt: Date.now(), receipt: c.receipt, discarded: false,
+      branchRevision: c.branchRevision, acknowledgedSubmissionID: c.acknowledgedSubmissionID };
   }
   private scheduleCheckpoint(c: Composer) {
-    if (!this.journal) return;
+    if (!this.journal || this.discarding.has(c.id)) return;
     const pending = this.checkpoints.get(c.id), now = Date.now();
     if (pending) clearTimeout(pending.timer);
     const since = pending?.since ?? now;
@@ -229,9 +281,10 @@ export class ChatSession {
     const record = this.record(c);
     return this.queue(async () => {
       try {
+        await this.editors.get(c.id);
         await this.journal!.checkpointDraft(record);
         if (record.revision > c.savedRevision) c.savedRevision = record.revision;
-        if (c.issue === 'local_save') c.issue = null;
+        if (c.issue === 'local_save' && !this.turnOwners.has(c.id)) c.issue = null;
       } catch (error) {
         // Capacity, quota or I/O: the previous checkpoint stays; the text stays here. Nothing is evicted.
         if ((error as { code?: string }).code !== 'journal_discarded' && !this.signal.aborted && this.composers.has(c.id)) c.issue = 'local_save';
@@ -245,6 +298,7 @@ export class ChatSession {
     await Promise.allSettled(due.map(c => this.checkpoint(c)));
     await this.writes;
     await this.journal?.drain();
+    if ([...this.composers.values()].some(c => c.issue === 'local_save' && c.revision > c.savedRevision)) throw new BackendError('local_storage');
   }
   private consume(c: Composer) { c.draft = ''; c.revision++; c.textRevision = crypto.randomUUID(); }
   private remap(mapping: Map<string, string>) {
@@ -255,6 +309,7 @@ export class ChatSession {
       if (c.question) c.question = { ...c.question, id: map(c.question.id), entries: entries(c.question.entries) };
       if (c.answer) c.answer = entries(c.answer);
       if (c.receipt) c.receipt = { ...c.receipt, submissionID: map(c.receipt.submissionID), eventIDs: c.receipt.eventIDs.map(map) };
+      if (c.acknowledgedSubmissionID) c.acknowledgedSubmissionID = map(c.acknowledgedSubmissionID);
     }
     this.publish();
   }
@@ -266,23 +321,23 @@ export class ChatSession {
    */
   async restore(drafts: StoredDraft[], turns: StoredTurn[]): Promise<void> {
     if (!this.journal) return;
-    const reclaim: string[] = [];
+    const reclaim: string[] = [], releaseReclaimed: (() => void)[] = [];
     const restored: Composer[] = [];
     for (const d of drafts) {
       const release = await this.deps.locks.tryHold(`gradstep.composer.${d.id}`).catch(() => null);
       if (!release) continue; // a live tab owns it
       const pendingSubmission = !!d.receipt && this.history.isPending(d.receipt.submissionID);
-      if (d.discarded || (!d.text && !(d.conversationID && d.receipt))) { reclaim.push(d.id); release(); continue; }
+      if (d.discarded || (!d.text && !(d.conversationID && d.receipt))) { reclaim.push(d.id); releaseReclaimed.push(release); continue; }
       const c: Composer = { ...this.blank(d.documentID, d.id), conversationID: d.conversationID, head: d.head && this.history.resolve(d.head), draft: d.text,
-        revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, receipt: d.receipt && { ...d.receipt,
+        revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, branchRevision: d.branchRevision,
+        acknowledgedSubmissionID: d.receipt && this.history.resolve(d.receipt.submissionID), receipt: d.receipt && { ...d.receipt,
           submissionID: this.history.resolve(d.receipt.submissionID), eventIDs: d.receipt.eventIDs.map(id => this.history.resolve(id)) } };
       if (pendingSubmission) c.question = { revision: -1, id: c.receipt!.submissionID, entries: [], selection: null, action: null };
       this.composers.set(c.id, c); this.editors.set(c.id, Promise.resolve(release));
       restored.push(c);
-      (d as StoredDraft & { at?: number }).at = d.editedAt;
     }
     for (const c of restored.sort((a, b) => (drafts.find(d => d.id === a.id)!.editedAt - drafts.find(d => d.id === b.id)!.editedAt))) this.selected.set(scope(c.documentID), c.id);
-    if (reclaim.length) await this.journal.collectDrafts(reclaim).catch(() => {});
+    if (reclaim.length) { try { await this.journal.collectDrafts(reclaim); } finally { for (const release of releaseReclaimed) release(); } }
     for (const turn of turns) {
       const release = await this.deps.locks.tryHold(`gradstep.turn.${turn.id}`).catch(() => null);
       if (!release) continue; // its stream is still running in another tab
@@ -310,7 +365,7 @@ export class ChatSession {
   send(c: Composer, selection: string | null = null, action: ChatAction | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();
     if (this.retiredStorage) return Promise.resolve(); // refused: nothing is saved or requested from this page
-    if (busy(c) || c.answer || !c.draft.trim()) return Promise.resolve();
+    if (busy(c) || c.answer || this.turnOwners.has(c.id) || !c.draft.trim()) return Promise.resolve();
     if (this.history.status !== 'ready' || this.history.issue) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
     if (c.conversationID && this.history.state.isDeleted(c.conversationID)) { c.issue = 'conversation_deleted'; this.publish(); return Promise.resolve(); }
     const branch = this.branch(c);
@@ -334,12 +389,12 @@ export class ChatSession {
         if (this.durable) {
           // One local transaction: root/question events, their exact outbox bytes and the receipt that consumes only the
           // captured text revision. Newer typing survives; a failure leaves the previous checkpoint and this text.
-          const receipt: Receipt = { submissionID: id, eventIDs: entries.map(e => e.id), textRevision, revision };
+          const receipt: Receipt = { submissionID: id, eventIDs: entries.map(e => e.id), textRevision, revision, branchRevision: c.branchRevision };
           this.cancelCheckpoint(c);
-          try { await this.history.commit(entries, { draft: { ...this.record(c), head: id, receipt } }); }
+          try { await this.editors.get(c.id); await this.history.commit(entries, { draft: { ...this.record(c), head: id, receipt } }); }
           catch (error) { Object.assign(c, previous); c.question = null; throw Object.assign(error as object, { local: true }); }
           this.signal.throwIfAborted();
-          c.receipt = receipt; c.head = id;
+          c.receipt = receipt; c.acknowledgedSubmissionID = id; c.head = id;
           if (c.textRevision === textRevision) this.consume(c);
           c.savedRevision = Math.max(c.savedRevision, revision);
           this.publish();
@@ -360,12 +415,14 @@ export class ChatSession {
 
   retry(c: Composer): Promise<void> {
     this.allowed();
+    if (this.turnOwners.get(c.id)?.refused) return this.retryDeviceSave(c);
     if (busy(c) || this.retiredStorage) return Promise.resolve();
     c.phase = 'saving'; c.issue = null; this.publish();
     return this.track((async () => {
       try {
         if (c.answer) {
           await this.history.append(c.answer, this.durable ? { finishTurn: c.answer[0].id } : {});
+          this.turnOwners.get(c.id)?.release(); this.turnOwners.delete(c.id);
           c.head = this.history.resolve(c.answer[0].id); c.answer = null; c.liveText = ''; c.liveID = null; c.phase = 'idle'; this.publish(); return;
         }
         if (!c.question) {
@@ -400,10 +457,11 @@ export class ChatSession {
     this.accepting = false;
     for (const controller of this.streams.values()) controller.abort();
     await Promise.allSettled([...this.tasks]);
-    await this.flushCheckpoints().catch(() => {});
+    await this.flushCheckpoints();
+    if (this.turnOwners.size) throw new BackendError('local_storage');
   }
   /** After explicit sign-out (and any local removal): retire this login lifetime's journal writer. */
-  async retireJournal() { await this.journal?.signOut().catch(() => {}); }
+  async retireJournal() { await this.journal?.signOut(); }
 
   private async answerQuestion(c: Composer): Promise<void> {
     this.signal.throwIfAborted();
@@ -440,12 +498,17 @@ export class ChatSession {
     this.streams.set(c.id, controller);
     c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null; this.publish();
     let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string } | null = null;
-    let lastCheckpoint = Date.now(), checkpointing: Promise<void> = Promise.resolve();
+    let lastCheckpoint = Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     const checkpointTurn = (force = false) => {
-      if (!turn || (!force && Date.now() - lastCheckpoint < TURN_INTERVAL)) return;
+      if (!turn) return;
+      if (!force && Date.now() - lastCheckpoint < TURN_INTERVAL) {
+        checkpointTimer ??= setTimeout(() => { checkpointTimer = undefined; checkpointTurn(); }, TURN_INTERVAL - (Date.now() - lastCheckpoint));
+        return;
+      }
+      clearTimeout(checkpointTimer); checkpointTimer = undefined;
       lastCheckpoint = Date.now();
       const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpoint };
-      checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => {});
+      checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     try {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
@@ -463,7 +526,7 @@ export class ChatSession {
     } catch (error) {
       outcome = controller.signal.aborted && controller.signal.reason?.name !== 'TimeoutError' ? { kind: 'cancelled' }
         : { kind: 'failed', code: error instanceof BackendError && error.code !== 'connection' ? error.code : 'transport' };
-    } finally { clearTimeout(deadline); controller.dispose(); this.streams.delete(c.id); }
+    } finally { clearTimeout(deadline); clearTimeout(checkpointTimer); controller.dispose(); this.streams.delete(c.id); }
     await checkpointing;
     // An externally retired login cannot write or expose text in its replacement. Its turn checkpoint stays on this
     // device and reopens as interrupted on the next sign-in; it is never re-requested.
@@ -473,7 +536,7 @@ export class ChatSession {
     const result = resolution(outcome, c.liveText);
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
     if (result.status) {
-      const entries: Entry[] = [{ id: answerID, event: { kind: 'message', entityID, parents: [question.id], conversationID,
+      const entries: Entry[] = [{ id: answerID, event: { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
         documentID: c.documentID ?? undefined, text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() } }];
       if (diagram && result.status === 'complete') entries.push({ id: crypto.randomUUID(), event: { kind: 'diagram', entityID: crypto.randomUUID(), parents: [],
         conversationID, text: encodeDiagram({ ...diagram, messageID: entityID }), createdAt: Date.now() } });
@@ -486,7 +549,15 @@ export class ChatSession {
       } else {
         try { await this.history.append(entries); c.answer = null; c.head = answerID; } catch { c.issue = 'storage'; }
       }
-    } else if (turn) await this.journal!.dropTurn(answerID).catch(() => {}); // a refusal or empty answer leaves no partial
+    } else if (turn) {
+      try { await this.journal!.dropTurn(answerID); }
+      catch {
+        // Keep ownership while cleanup is retryable; a live peer must not recover a refused checkpoint.
+        c.issue = 'local_save';
+        if (releaseTurn) { this.turnOwners.set(c.id, { id: answerID, release: releaseTurn, refused: true }); releaseTurn = null; }
+      }
+    }
+    if (c.answer && releaseTurn) { this.turnOwners.set(c.id, { id: answerID, release: releaseTurn, refused: false }); releaseTurn = null; }
     releaseTurn?.();
     if (!c.answer) { c.liveText = ''; c.liveID = null; }
     c.phase = 'idle'; this.publish(); void this.refreshBalance();

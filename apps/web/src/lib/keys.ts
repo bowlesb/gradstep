@@ -4,24 +4,67 @@
 // Device private keys are non-extractable CryptoKeys; key bundles are never persisted.
 import { type Bytes, fromBytea, randomBytes, toBytea, wireUUID } from './bytes';
 import { approvalPayload } from './approval';
-import { auth, config, rpc } from './backend';
+import { auth, config, rpc, BackendError, type AuthSnapshot } from './backend';
 import { cancellation } from './cancellation';
-import { idb, storage, StorageError } from './idb';
+import { idb, storage, StorageError, type WriterFence } from './idb';
 import { type KeyBundle, type KeyRing, WireError, generateBundle, generateDeviceKeyPair, keyRing, recover as recoverBundle, unwrapForDevice,
   open, seal, wrapForDevice, wrapRecovery } from './wire';
 
 interface Identity { deviceID: string; privateKey: CryptoKey; publicKey: Bytes; challenge: Bytes }
 /** `envelope`/`epoch`: the self-approval made with the recovery code. A request awaiting another device has neither. */
 interface Pending { requestID: string; candidate: Identity; envelope?: Bytes; epoch?: number }
-export interface DeviceRecord extends Identity { accountID: string; localKey: CryptoKey; pending?: Pending }
+export interface DeviceRecord extends Identity { accountID: string; localKey: CryptoKey; origin?: string; pending?: Pending }
 interface KeyState { epoch: number; recovery_package: string; device_envelope: string | null }
 
-export type Preparation = { kind: 'ready'; ring: KeyRing; deviceID: string } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' };
+export interface PreparedLocal { key: CryptoKey; fence: WriterFence; current: () => boolean }
+export type Preparation = { kind: 'ready'; ring: KeyRing; deviceID: string; local?: PreparedLocal } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' };
 /** Shown as a QR code and a six-digit comparison code until an approved device adds this browser. */
 export interface AwaitingApproval { kind: 'awaiting_approval'; requestID: string; payload: string; code: string }
 
 const recordKey = (account: string) => `${config.environment}:${wireUUID(account)}`;
 const uuid = () => crypto.randomUUID();
+interface Owner { fence: WriterFence; current: () => boolean }
+const owners = new WeakMap<AbortSignal, Promise<Owner>>();
+const operationOwners = new WeakMap<AbortSignal, Owner>();
+/** A synchronous check is repeated inside each IDB mutation, including after a suspended callback. */
+function currentLogin(account: string, captured: AuthSnapshot): boolean {
+  const now = auth.snapshot();
+  if (captured.signal.aborted || now.signal !== captured.signal || now.session?.user.id !== account || !captured.session) return false;
+  try {
+    const stored = JSON.parse(localStorage.getItem(`gradstep.${config.environment}.session`) ?? 'null');
+    return stored?.user?.id === account && (stored.lifetime ?? 'legacy') === captured.session.lifetime;
+  } catch { return false; } // durable admission cannot infer a login from inaccessible storage
+}
+async function ownerFor(account: string, captured: AuthSnapshot): Promise<Owner> {
+  let pending = owners.get(captured.signal);
+  if (!pending) {
+    const current = () => currentLogin(account, captured);
+    pending = (async () => {
+      if (!current()) throw new BackendError('sign_in_required');
+      const writer = uuid(), key = recordKey(account);
+      let release: (() => void) | undefined;
+      if (navigator.locks) {
+        const prior = await idb.get<{ generation: number; writers: string[] }>('devices', `${key}:admission`);
+        const dead: string[] = [];
+        for (const id of prior?.writers ?? []) await navigator.locks.request(`gradstep.writer.${id}`, { ifAvailable: true }, lock => { if (lock) dead.push(id); });
+        if (dead.length) await idb.reapWriters(key, prior!.generation, dead);
+        await new Promise<void>((resolve, reject) => { navigator.locks.request(`gradstep.writer.${writer}`, {}, () => new Promise<void>(done => {
+          release = done; resolve();
+        })).catch(reject); });
+      }
+      let fence: WriterFence;
+      try { fence = await idb.admit(key, config.url, captured.session!.lifetime, writer, current); }
+      catch (error) { release?.(); throw error; }
+      const owner = { fence, current };
+      captured.signal.addEventListener('abort', () => { void idb.retireWriter(fence).catch(() => {}).finally(() => release?.()); }, { once: true });
+      if (!current()) { await idb.retireWriter(fence); release?.(); throw new BackendError('cancelled'); }
+      return owner;
+    })();
+    owners.set(captured.signal, pending);
+    pending.catch(() => { if (owners.get(captured.signal) === pending) owners.delete(captured.signal); });
+  }
+  return pending;
+}
 
 async function newIdentity(): Promise<Identity> {
   const pair = await generateDeviceKeyPair();
@@ -30,16 +73,26 @@ async function newIdentity(): Promise<Identity> {
 
 /** Serializes key-changing work for one account across tabs (DeviceKeys' operation lane). */
 function keyLock<T>(account: string, body: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-  return navigator.locks ? navigator.locks.request(`gradstep.keys.${recordKey(account)}`, { signal }, body) : body();
+  if (!navigator.locks) return Promise.reject(new WireError('unsupported_browser'));
+  return navigator.locks.request(`gradstep.keys.${recordKey(account)}`, { signal }, body);
 }
 function exclusive<T>(account: string, body: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
   // A page whose storage was retired by a newer tab starts no key work (and so no enrollment request) at all.
   if (!storage.writable()) return Promise.reject(storageRefusal());
-  const scope = cancellation([auth.snapshot().signal, signal]);
+  const captured = auth.snapshot(), scope = cancellation([captured.signal, signal]);
   const run = async () => {
     scope.signal.throwIfAborted();
     if (!storage.writable()) throw storageRefusal();
-    const value = await body(scope.signal); scope.signal.throwIfAborted(); return value;
+    const owner = await ownerFor(account, captured);
+    operationOwners.set(scope.signal, owner);
+    const value = await body(scope.signal); scope.signal.throwIfAborted();
+    if (!owner.current()) throw new BackendError('cancelled');
+    if (value && typeof value === 'object' && 'kind' in value && value.kind === 'ready') {
+      const record = await readDevice(account);
+      if (!record || !owner.current()) throw new BackendError('cancelled');
+      return { ...value, local: { key: record.localKey, fence: owner.fence, current: owner.current } };
+    }
+    return value;
   };
   return keyLock(account, run, scope.signal).finally(scope.dispose);
 }
@@ -53,6 +106,9 @@ function storageRefusal(): StorageError {
 export async function readDevice(account: string): Promise<DeviceRecord | undefined> {
   const saved = await idb.get<DeviceRecord>('devices', recordKey(account));
   if (saved && saved.accountID !== wireUUID(account)) throw new WireError('wrong_account');
+  // This is the only deployment to which old environment-only records can be explicitly attributed.
+  const legacy = config.environment === 'staging' && config.url === 'https://coxhjvqpflgxkleydati.supabase.co';
+  if (saved && (saved.origin ? saved.origin !== config.url : !legacy)) throw new BackendError('local_scope');
   return saved;
 }
 
@@ -88,7 +144,8 @@ async function verifyDevice(account: string, original: DeviceRecord, saved: Devi
 /** Prove committed keys can be read and used before relying on them for server enrollment. */
 async function persistDevice(account: string, record: DeviceRecord, signal?: AbortSignal): Promise<DeviceRecord> {
   signal?.throwIfAborted();
-  await idb.put('devices', recordKey(account), record);
+  const owner = signal && operationOwners.get(signal);
+  if (!owner || !await idb.putDevice(owner.fence, { ...record, origin: config.url }, owner.current)) throw new BackendError('cancelled');
   return verifyDevice(account, record, await readDevice(account), signal);
 }
 
@@ -98,7 +155,7 @@ async function loadDevice(account: string, signal?: AbortSignal): Promise<Device
   if (saved) return verifyDevice(account, saved, saved, signal);
   const identity = await newIdentity();
   const localKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-  const record: DeviceRecord = { ...identity, accountID: wireUUID(account), localKey };
+  const record: DeviceRecord = { ...identity, accountID: wireUUID(account), localKey, origin: config.url };
   signal?.throwIfAborted();
   const persisted = await persistDevice(account, record, signal);
   // Ask the browser not to evict this origin's storage (keys live here). Best effort.
@@ -259,7 +316,9 @@ async function finishApproved(account: string, record: DeviceRecord, pending: Pe
 }
 
 /** For a shared computer: forget this browser's device keys and reading data for the account. */
-export async function forgetDevice(account: string): Promise<void> {
-  if (!storage.writable()) throw storageRefusal();
-  await keyLock(account, () => idb.forgetDevice(recordKey(account)));
+export async function forgetDevice(account: string, signal?: AbortSignal): Promise<void> {
+  await exclusive(account, async signal => {
+    const owner = operationOwners.get(signal)!;
+    await idb.forgetDevice(recordKey(account), owner.fence, owner.current);
+  }, signal);
 }

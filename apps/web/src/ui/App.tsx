@@ -176,15 +176,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     try {
       // Finish local removal before another login can prepare this device. Failure stays visible and retryable.
       await chat?.settleBeforeSignOut();
-      if (forget) await forgetDevice(account);
+      owner.signal.throwIfAborted();
+      if (forget) await forgetDevice(account, owner.signal);
       else if (device) await saveActivity(device, activity).catch(() => {});
+      if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       navigate('/');
       await auth.signOut(owner.generation);
     } catch (error) {
       if (!owner.signal.aborted) {
         chat?.resumeAfterSignOutFailure();
-        setSignOutError(storageGuidance(error) ? 'This tab can’t change Gradstep’s storage after the update in another tab. Sign out from the updated tab instead.' : 'Couldn’t remove this browser’s keys. Try again.');
+        setSignOutError(storageGuidance(error) ? 'This tab can’t change Gradstep’s storage after the update in another tab. Sign out from the updated tab instead.'
+          : forget ? 'Couldn’t remove this browser’s keys. Try again.' : 'Some work couldn’t be saved on this device. Keep this tab open, copy any unsaved text, and retry the save before signing out.');
         setLeaving(false);
       }
     }
@@ -315,9 +318,11 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
         <p className="muted">This browser stays approved, so signing in again won’t need your recovery code.</p>
-        {chat?.hasVolatileContent && <p className="issue">Unsent drafts and any changes that haven’t synced will be lost. Active answers will be stopped and their partial text saved when possible.</p>}
+        {chat?.durable ? <p className="fine">Drafts and pending chat saves stay encrypted in this browser. Active answers stop and their committed partial text can be reopened after signing in.</p>
+          : chat?.hasVolatileContent && <p className="issue">Unsent drafts and any changes that haven’t synced will be lost. Active answers will be stopped and their partial text saved when possible.</p>}
+        {forget && chat?.durable && <p className="issue">Removing this browser’s keys also removes its drafts and pending chat saves. Work that hasn’t synced cannot be recovered with a recovery code.</p>}
         <label className="check"><input type="checkbox" checked={forget} disabled={leaving} onChange={e => setForget(e.target.checked)} data-testid="forget-device" />
-          Also remove this browser’s keys and reading places (use on a shared computer)</label>
+          Also remove this browser’s keys, saved drafts and reading places (use on a shared computer)</label>
         {signOutError && <p className="issue" role="alert">{signOutError}</p>}
         <div className="dialog-actions">
           <button className="secondary" disabled={leaving} onClick={() => setSigningOut(false)}>Cancel</button>

@@ -130,6 +130,12 @@ export class PrivateState {
   resolve(id: string): string { let next = id; for (let i = 0; i < 64 && this.replacements.has(next); i++) next = this.replacements.get(next)!; return next; }
   /** Restores mappings committed earlier (the retired events themselves are not loaded). */
   restoreReplacements(mapping: Map<string, string>) { for (const [old, next] of mapping) this.replacements.set(old, next); }
+  /** Prove a local rebase is valid before its transaction commits. */
+  checkLocalReplacements(events: AppliedEvent[], mapping: Map<string, string>): void {
+    const staged = new PrivateState();
+    staged.applyBatch([...this.events.values(), ...events]);
+    staged.applyLocalReplacements(mapping);
+  }
   /**
    * Replaces retired local events by already applied replacements: content must match with parents remapped, and no
    * retained event may still refer to a retired one. A replacement keeps its original's place in the arrival order.

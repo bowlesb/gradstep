@@ -53,7 +53,7 @@ export class History {
   subscribeRebase = (listener: (mapping: Map<string, string>) => void) => { this.rebaseListeners.add(listener); return () => { this.rebaseListeners.delete(listener); }; };
   getVersion = () => this.version;
   /** Unsent work survives a reload in this browser (the encrypted journal is active). */
-  get durable() { return !!this.journal?.active; }
+  get durable() { return !!this.journal; }
   get unsaved(): number { return this.pending.length; }
   isPending(id: string): boolean { const resolved = this.state.resolve(id); return this.pending.some(p => p.id === resolved); }
   /** An event ID after any local rebase. */
@@ -82,15 +82,23 @@ export class History {
   async restore(snapshot: JournalSnapshot): Promise<void> {
     const retired = snapshot.replaced;
     const kept = snapshot.events.filter(e => !retired.has(e.envelope.id));
-    const staged = await this.decrypt(kept);
+    const all = await this.decrypt(snapshot.events), byID = new Map(all.map(e => [e.id, e]));
+    const resolve = (id: string) => { const seen = new Set<string>(); while (retired.has(id)) { if (seen.has(id)) throw new BackendError('local_storage'); seen.add(id); id = retired.get(id)!; } return id; };
+    if (new Set(retired.values()).size !== retired.size) throw new BackendError('local_storage');
+    for (const [old, next] of retired) {
+      const before = byID.get(old), after = byID.get(next);
+      if (!before || !after || JSON.stringify(encodeEvent({ ...before.payload, parents: before.payload.parents.map(resolve) })) !== JSON.stringify(encodeEvent({ ...after.payload, parents: after.payload.parents.map(resolve) }))) throw new BackendError('local_storage');
+    }
+    const staged = all.filter(e => !retired.has(e.id));
+    if (staged.some(e => e.payload.parents.some(p => retired.has(p)))) throw new BackendError('local_storage');
     this.signal.throwIfAborted();
     const sizes = this.admit(kept.map(e => ({ id: e.envelope.id, bytes: e.envelope.ciphertext.length })));
     this.state.restoreReplacements(retired);
     this.state.applyBatch(staged);
     this.record(sizes);
     this.cursor = snapshot.cursor;
-    const byID = new Map(kept.map(e => [e.envelope.id, e.envelope]));
-    this.pending = snapshot.outbox.map(id => byID.get(id)!);
+    const envelopes = new Map(kept.map(e => [e.envelope.id, e.envelope]));
+    this.pending = snapshot.outbox.map(id => envelopes.get(id)!);
     for (const envelope of this.pending) this.sealed.set(envelope.id, envelope.ciphertext);
     this.publish();
   }
@@ -98,15 +106,25 @@ export class History {
   /** Another tab committed history records, a cursor or outbox changes. */
   private async applyDelta(delta: JournalDelta): Promise<void> {
     const kept = delta.events.filter(e => !delta.replaced.has(e.envelope.id));
-    const staged = await this.decrypt(kept);
+    const all = await this.decrypt(delta.events), staged = all.filter(e => !delta.replaced.has(e.id));
     if (this.signal.aborted) return;
-    const fresh = [...delta.replaced].filter(([old]) => this.state.events.has(old));
+    const resolve = (id: string): string => { const seen = new Set<string>(); while (delta.replaced.has(id)) { if (seen.has(id)) throw new BackendError('local_storage'); seen.add(id); id = delta.replaced.get(id)!; } return id; };
+    const byID = new Map([...this.state.events.values(), ...all].map(e => [e.id, e]));
+    for (const [old, next] of delta.replaced) {
+      const a = byID.get(old), b = byID.get(next);
+      if (a && (!b || JSON.stringify(encodeEvent({ ...a.payload, parents: a.payload.parents.map(resolve) })) !== JSON.stringify(encodeEvent({ ...b.payload, parents: b.payload.parents.map(resolve) })))) throw new BackendError('local_storage');
+    }
+    const fresh: [string, string][] = [...delta.replaced].filter(([old]) => this.state.events.has(old)).map(([old, next]) => [old, resolve(next)]);
+    this.state.check(staged);
+    if (fresh.length) this.state.checkLocalReplacements(staged, new Map(fresh));
+    const sizes = this.admit(kept.map(e => ({ id: e.envelope.id, bytes: e.envelope.ciphertext.length })));
     this.state.applyBatch(staged);
-    this.record(this.admit(kept.map(e => ({ id: e.envelope.id, bytes: e.envelope.ciphertext.length }))));
+    this.record(sizes);
     if (fresh.length) this.state.applyLocalReplacements(new Map(fresh));
-    else this.state.restoreReplacements(delta.replaced);
+    this.state.restoreReplacements(delta.replaced);
     this.cursor = Math.max(this.cursor, delta.cursor);
     this.syncPending(delta.outbox, kept.map(e => e.envelope));
+    if (fresh.length) for (const listener of this.rebaseListeners) listener(new Map(fresh));
     this.publish();
   }
   /** The journal's outbox is authoritative for durable pending events. */
@@ -122,7 +140,11 @@ export class History {
     if (this.running) { this.again = true; return this.running; }
     const run = (async () => {
       try {
-        do { this.again = false; await this.transfer(); } while (this.again && !this.signal.aborted);
+        do {
+          this.again = false;
+          if (this.journal) await this.journal.sync(() => this.transfer());
+          else await this.transfer();
+        } while (this.again && !this.signal.aborted);
         if (this.status !== 'ready' || this.issue) { this.status = 'ready'; this.issue = null; this.publish(); }
       } catch (error) {
         if (this.signal.aborted) return;
@@ -145,12 +167,16 @@ export class History {
    */
   async commit(entries: { id: string; event: PrivateEvent }[], options: AppendOptions = {}): Promise<void> {
     const write = this.writes.then(async () => {
+      for (let attempt = 0; ; attempt++) {
       this.signal.throwIfAborted();
+      await this.journal?.refresh();
+      const expectedRevision = this.journal?.revision;
       if (!entries.length || entries.length > 4 || entries.some(e => !isUUID(e.id) || e.id !== e.id.toLowerCase()) || new Set(entries.map(e => e.id)).size !== entries.length) throw new BackendError('invalid_request');
-      const fresh = entries.filter(({ id, event }) => {
+      const normalized = entries.map(({ id, event }) => ({ id, event: { ...event, parents: event.parents.map(p => this.resolve(p)) } }));
+      const fresh = normalized.filter(({ id, event }) => {
         const old = this.state.events.get(this.state.resolve(id));
         if (!old) return true;
-        if (old.deviceID !== this.deviceID || (this.state.resolve(id) === id && JSON.stringify(encodeEvent(old.payload)) !== JSON.stringify(encodeEvent(event)))) throw new BackendError('event_conflict');
+        if ((old.deviceID !== this.deviceID && this.resolve(id) === id) || JSON.stringify(encodeEvent(old.payload)) !== JSON.stringify(encodeEvent(event))) throw new BackendError('event_conflict');
         return false;
       });
       if (this.pending.length + fresh.length > 128) throw new BackendError('history_capacity');
@@ -161,7 +187,14 @@ export class History {
       if ([...this.pending, ...envelopes].reduce((n, e) => n + e.ciphertext.length, 0) > 8 * 1024 * 1024) throw new BackendError('history_capacity');
       const sizes = this.admit(envelopes.map(e => ({ id: e.id, bytes: e.ciphertext.length })));
       if (this.journal) {
-        try { await this.journal.appendLocal(envelopes, options); } catch (error) { throw new BackendError(journalCode(error)); }
+        const draft = options.draft && { ...options.draft, head: options.draft.head && this.resolve(options.draft.head),
+          acknowledgedSubmissionID: options.draft.acknowledgedSubmissionID && this.resolve(options.draft.acknowledgedSubmissionID),
+          receipt: options.draft.receipt && { ...options.draft.receipt, submissionID: this.resolve(options.draft.receipt.submissionID), eventIDs: options.draft.receipt.eventIDs.map(id => this.resolve(id)) } };
+        try { await this.journal.appendLocal(envelopes, { ...options, draft, expectedRevision }); }
+        catch (error) {
+          if ((error as { code?: string }).code === 'journal_conflict' && attempt < 2) continue;
+          throw new BackendError(journalCode(error));
+        }
         this.signal.throwIfAborted();
       }
       this.state.applyBatch(applied);
@@ -169,6 +202,8 @@ export class History {
       for (const envelope of envelopes) { this.sealed.set(envelope.id, envelope.ciphertext); if (!this.pending.some(p => p.id === envelope.id)) this.pending.push(envelope); }
       if (this.journal) this.syncPending(this.journal.outbox, envelopes);
       this.publish();
+      return;
+      }
     });
     this.writes = write.catch(() => {});
     await write;
@@ -190,6 +225,8 @@ export class History {
   }
 
   private async transfer(): Promise<void> {
+    // Online authority is refreshed before catch-up/rebase. It never comes from a durable local cursor.
+    if (this.journal) { this.ring = await this.refreshRing(); await this.journal.refresh(); }
     for (let attempt = 0; ; attempt++) {
       try {
         await this.pull();
@@ -218,7 +255,9 @@ export class History {
    * under current authority, so absence proves these events were never committed. Every pending descendant is included;
    * content and logical IDs are preserved, parents remapped. Committed history is never rewritten.
    */
-  private async rebase(): Promise<void> {
+  private async rebase(attempt = 0): Promise<void> {
+    await this.journal?.refresh();
+    const expectedRevision = this.journal?.revision;
     const pending = [...this.pending];
     const affected = new Set(pending.filter(e => e.epoch < this.ring.epoch || e.deviceID !== this.deviceID).map(e => e.id));
     if (!affected.size) return;
@@ -237,13 +276,18 @@ export class History {
     }
     this.signal.throwIfAborted();
     const applied = replacements.map(r => ({ id: r.envelope.id, deviceID: this.deviceID, payload: r.payload }));
-    this.state.check(applied);
+    this.state.checkLocalReplacements(applied, mapping);
+    const sizes = this.admit(replacements.map(r => ({ id: r.envelope.id, bytes: r.envelope.ciphertext.length })));
     if (this.journal) {
-      try { await this.journal.rebase(replacements.map(r => ({ old: r.old, envelope: r.envelope })), this.deviceID); } catch (error) { throw new BackendError(journalCode(error)); }
+      try { await this.journal.rebase(replacements.map(r => ({ old: r.old, envelope: r.envelope })), this.deviceID, expectedRevision!); }
+      catch (error) {
+        if ((error as { code?: string }).code === 'journal_conflict' && attempt < 2) return this.rebase(attempt + 1);
+        throw new BackendError(journalCode(error));
+      }
     }
     this.state.applyBatch(applied);
     this.state.applyLocalReplacements(mapping);
-    this.record(this.admit(replacements.map(r => ({ id: r.envelope.id, bytes: r.envelope.ciphertext.length }))));
+    this.record(sizes);
     const replaced = new Map(replacements.map(r => [r.old, r.envelope]));
     this.pending = this.pending.map(e => replaced.get(e.id) ?? e);
     for (const r of replacements) { this.sealed.delete(r.old); this.sealed.set(r.envelope.id, r.envelope.ciphertext); }
@@ -260,7 +304,7 @@ export class History {
       this.signal.throwIfAborted();
       if (!Number.isSafeInteger(cursor) || cursor <= 0) throw new BackendError('invalid_response');
       // Losing this local acknowledgement is harmless: the next pull reconciles the same ID and bytes.
-      if (this.journal) await this.journal.acknowledge([envelope.id]).catch(() => {});
+      if (this.journal) await this.journal.acknowledge([envelope.id]);
       if (this.pending[0] === envelope) this.pending.shift();
       else this.pending = this.pending.filter(p => p.id !== envelope.id);
       this.publish();

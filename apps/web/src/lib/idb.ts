@@ -137,12 +137,13 @@ function run<T>(stores: Store[] | ((db: IDBDatabase) => Store[]), mode: IDBTrans
     const finish = () => { if (!finished) { finished = true; active--; settle(); } };
     let result: () => T;
     try { result = body(tx, () => { cancelled = true; tx.abort(); }); }
-    catch { try { tx.abort(); } catch { /* already finished */ } finish(); reject(new StorageError('storage_unavailable')); return; }
-    tx.oncomplete = () => { finish(); resolve(result()); };
+    catch (error) { try { tx.abort(); } catch { /* already finished */ } finish(); reject(new StorageError(error instanceof DOMException && error.name === 'QuotaExceededError' ? 'storage_quota' : 'storage_unavailable')); return; }
+    const resolveResult = () => { try { resolve(result()); } catch (error) { reject(error); } };
+    tx.oncomplete = () => { finish(); resolveResult(); };
     tx.onerror = event => { if (cancelled) event.preventDefault(); };
     tx.onabort = () => {
       finish();
-      if (cancelled) { resolve(result()); return; }
+      if (cancelled) { resolveResult(); return; }
       reject(new StorageError(tx.error?.name === 'QuotaExceededError' ? 'storage_quota' : 'storage_unavailable'));
     };
   }));
@@ -155,6 +156,53 @@ export const idb = {
   }),
   put: (store: Store, key: string, value: unknown) => run<void>([store], 'readwrite', tx => { tx.objectStore(store).put(value, key); return () => undefined; }),
   delete: (store: Store, key: string) => run<void>([store], 'readwrite', tx => { tx.objectStore(store).delete(key); return () => undefined; }),
+  /** Atomically admit a captured login/writer. `current` is synchronous and checks the live and persisted login. */
+  admit: (key: string, origin: string, lifetime: string, writer: string, current: () => boolean) => run<WriterFence>(['devices'], 'readwrite', (tx, cancel) => {
+    let result: WriterFence;
+    const request = tx.objectStore('devices').get(admissionKey(key));
+    request.onsuccess = () => {
+      if (!current()) { cancel(); return; }
+      const old = request.result as Admission | undefined;
+      if (old && (old.format !== 1 || old.origin !== origin || !Number.isSafeInteger(old.generation) || !Array.isArray(old.writers))) { cancel(); return; }
+      const same = old?.lifetime === lifetime;
+      const next: Admission = { format: 1, origin, incarnation: old?.incarnation ?? crypto.randomUUID(), lifetime,
+        generation: same ? old!.generation : (old?.generation ?? 0) + 1, writers: same ? [...old!.writers] : [] };
+      if (!next.writers.includes(writer)) next.writers.push(writer);
+      if (next.writers.length > 128) { cancel(); return; }
+      result = { key, origin, incarnation: next.incarnation, lifetime, generation: next.generation, writer };
+      tx.objectStore('devices').put(next, admissionKey(key));
+    };
+    return () => { if (!result!) throw new StorageError('storage_unavailable'); return result; };
+  }),
+  /** Retiring one writer leaves legitimate peers admitted. Retiring a login fences every tab in that login. */
+  retireWriter: (fence: WriterFence, login = false) => run<void>(['devices'], 'readwrite', tx => {
+    const request = tx.objectStore('devices').get(admissionKey(fence.key));
+    request.onsuccess = () => {
+      const value = request.result as Admission | undefined;
+      if (!matchesFence(value, fence)) return;
+      tx.objectStore('devices').put({ ...value, lifetime: login ? null : value!.lifetime,
+        writers: login ? [] : value!.writers.filter(w => w !== fence.writer) }, admissionKey(fence.key));
+    };
+    return () => undefined;
+  }),
+  reapWriters: (key: string, generation: number, dead: string[]) => run<void>(['devices'], 'readwrite', tx => {
+    const request = tx.objectStore('devices').get(admissionKey(key));
+    request.onsuccess = () => {
+      const value = request.result as Admission | undefined;
+      if (value?.generation === generation) tx.objectStore('devices').put({ ...value, writers: value.writers.filter(id => !dead.includes(id)) }, admissionKey(key));
+    };
+    return () => undefined;
+  }),
+  /** The admission captured before encryption/network work is checked again in the key-write transaction. */
+  putDevice: (fence: WriterFence, value: unknown, current: () => boolean) => run<boolean>(['devices'], 'readwrite', tx => {
+    let committed = false;
+    const request = tx.objectStore('devices').get(admissionKey(fence.key));
+    request.onsuccess = () => {
+      if (!current() || !matchesFence(request.result, fence)) return;
+      tx.objectStore('devices').put(value, fence.key); committed = true;
+    };
+    return () => committed;
+  }),
   /** A delayed encrypted save must not recreate data after its device was forgotten or replaced. */
   putActivity: (key: string, deviceID: string, value: unknown) => run<void>(['devices', 'activity'], 'readwrite', tx => {
     const device = tx.objectStore('devices').get(key);
@@ -162,18 +210,35 @@ export const idb = {
     return () => undefined;
   }),
   /** Removes the device, its reading data and its whole journal partition in one transaction. */
-  forgetDevice: (key: string) => run<void>(db => db.objectStoreNames.contains('journal') ? ['devices', 'activity', 'journal'] : ['devices', 'activity'], 'readwrite', tx => {
-    tx.objectStore('devices').delete(key); tx.objectStore('activity').delete(key);
-    if (tx.objectStoreNames.contains('journal')) tx.objectStore('journal').delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
-    return () => undefined;
+  forgetDevice: (key: string, fence?: WriterFence, current?: () => boolean) => run<void>(db => db.objectStoreNames.contains('journal') ? ['devices', 'activity', 'journal'] : ['devices', 'activity'], 'readwrite', (tx, cancel) => {
+    let refused = false;
+    const request = tx.objectStore('devices').get(admissionKey(key));
+    request.onsuccess = () => {
+      const old = request.result as Admission | undefined;
+      if ((fence && !matchesFence(old, fence)) || (current && !current())) { refused = true; cancel(); return; }
+      tx.objectStore('devices').delete(key); tx.objectStore('activity').delete(key);
+      if (tx.objectStoreNames.contains('journal')) tx.objectStore('journal').delete(IDBKeyRange.bound(`${key}:`, `${key}:￿`));
+      if (old) tx.objectStore('devices').put({ ...old, incarnation: crypto.randomUUID(), generation: old.generation + 1, lifetime: null, writers: [] }, admissionKey(key));
+    };
+    return () => { if (refused) throw new StorageError('storage_unavailable'); };
   }),
+};
+
+/** Opaque coordination metadata only. Private journal content remains authenticated under the local AES key. */
+interface Admission { format: 1; origin: string; incarnation: string; lifetime: string | null; generation: number; writers: string[] }
+export interface WriterFence { key: string; origin: string; incarnation: string; lifetime: string; generation: number; writer: string }
+const admissionKey = (key: string) => `${key}:admission`;
+const matchesFence = (value: unknown, fence: WriterFence): boolean => {
+  const a = value as Admission | undefined;
+  return !!a && a.format === 1 && a.origin === fence.origin && a.incarnation === fence.incarnation && a.lifetime === fence.lifetime
+    && a.generation === fence.generation && Array.isArray(a.writers) && a.writers.includes(fence.writer);
 };
 
 /** Raw access for lib/journal.ts: reads, and a compare-and-swap commit fenced by the exact device record. */
 export interface JournalAccess {
   get(key: string): Promise<Bytes | undefined>;
   range(lower: string, upper: string): Promise<[string, Bytes][]>;
-  commit(headKey: string, expected: Bytes | null, put: [string, Bytes][], remove: string[], device?: { key: string; deviceID: string }): Promise<'committed' | 'conflict' | 'fenced'>;
+  commit(headKey: string, expected: Bytes | null, put: [string, Bytes][], remove: string[], device?: { key: string; deviceID: string; fence?: WriterFence; current?: () => boolean }): Promise<'committed' | 'conflict' | 'fenced'>;
 }
 const sameBytes = (a: unknown, b: Uint8Array | null) => {
   if (b === null) return a === undefined;
@@ -193,9 +258,11 @@ export const journalAccess: JournalAccess = {
     return run<'committed' | 'conflict' | 'fenced'>(['devices', 'journal'], 'readwrite', (tx, cancel) => {
       const journal = tx.objectStore('journal');
       const owner = device ? tx.objectStore('devices').get(device.key) : null;
+      const admission = device?.fence ? tx.objectStore('devices').get(admissionKey(device.key)) : null;
       const head = journal.get(headKey);
       head.onsuccess = () => {
-        if (device && (owner!.result as { deviceID?: string } | undefined)?.deviceID !== device.deviceID) { outcome = 'fenced'; cancel(); return; }
+        if (device && ((owner!.result as { deviceID?: string } | undefined)?.deviceID !== device.deviceID
+          || (device.fence && !matchesFence(admission!.result, device.fence)) || (device.current && !device.current()))) { outcome = 'fenced'; cancel(); return; }
         if (!sameBytes(head.result, expected)) { outcome = 'conflict'; cancel(); return; }
         for (const key of remove) journal.delete(key);
         for (const [key, value] of put) journal.put(value, key);

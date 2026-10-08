@@ -57,7 +57,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const deleted = !!c.conversationID && chat.history.state.isDeleted(c.conversationID);
   const last = messages.at(-1);
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
-  const canAnswer = !retired && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
+  const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
   const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
   const send = () => { if (!disabled) void chat.send(c); };
 
@@ -78,7 +78,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       </select></label>}
     </div>
     {(chat.history.status !== 'ready' || chat.history.issue || chat.history.unsaved > 0) && <div className="chat-sync fine" role="status">
-      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : 'Saving encrypted history… Keep this tab open.')}
+      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : chat.durable ? 'Saved on this device. Syncing encrypted history…' : 'Saving encrypted history… Keep this tab open.')}
       {chat.history.issue && <button className="link" onClick={() => void chat.history.sync().catch(() => {})}>Retry sync</button>}
     </div>}
     <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0} onScroll={() => {
@@ -99,6 +99,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : 'Thinking…'}</p>}</div>}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
+        {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
         {canAnswer && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
         {c.answer && !retired && <button className="secondary small" onClick={() => void chat.retry(c)}>Retry saving</button>}
       </div>}
@@ -117,7 +118,10 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
           : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
       </div>
       {inputIssue && <p className="issue fine">This draft is too long. Shorten it to continue.</p>}
-      <p className="fine draft-hint">{retired ? 'This tab has stopped sending. Select your text to copy it.' : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
+      <p className="fine draft-hint" data-testid="draft-status">{retired ? 'This tab has stopped sending. Select your text to copy it.' : chat.durable
+        ? c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
+          : c.revision > c.savedRevision ? 'Saving draft on this device…' : 'Saved on this device. Site-data clearing can remove unsynced work. Shift+Enter for a new line.'
+        : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
     </form>
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer.</p>
