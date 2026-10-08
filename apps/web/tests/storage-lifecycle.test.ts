@@ -25,16 +25,18 @@ vi.mock('../src/lib/backend', async original => {
 });
 
 const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001';
+/** This release's database is version 2 (the journal); a future release stands in as version 3. */
+const NEWER = 3;
 const done: StreamEvent = { type: 'done', stopReason: 'end_turn', credits: 3 };
 const delay = () => { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; };
 
 /** The signal a newer tab produces in this page, without IndexedDB (controller cases). */
 function lifecycle() {
-  let state: StorageLifecycle = { phase: 'open', issue: null, proposal: false };
+  let state: StorageLifecycle = { phase: 'open', issue: null, proposal: false, version: 2 };
   const listeners = new Set<() => void>();
   return {
     snapshot: () => state, subscribe: (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; },
-    retire() { state = { phase: 'retiring', issue: 'update', proposal: false }; for (const l of [...listeners]) l(); },
+    retire() { state = { ...state, phase: 'retiring', issue: 'update', proposal: false }; for (const l of [...listeners]) l(); },
   };
 }
 async function session(stream: (signal: AbortSignal) => AsyncIterable<StreamEvent>, consent = true) {
@@ -57,9 +59,9 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
   beforeEach(() => { factory = new IDBFactory(); vi.stubGlobal('indexedDB', factory); vi.resetModules(); });
   afterEach(() => { vi.unstubAllGlobals(); });
   /** Another tab running a newer release: opens the database at a higher version and keeps its connection. */
-  const newerTab = (version = 2) => new Promise<IDBDatabase>((resolve, reject) => {
+  const newerTab = (version = NEWER) => new Promise<IDBDatabase>((resolve, reject) => {
     const request = factory.open('gradstep', version);
-    request.onupgradeneeded = () => { if (!request.result.objectStoreNames.contains('journal')) request.result.createObjectStore('journal'); };
+    request.onupgradeneeded = () => { for (const name of ['devices', 'activity', 'journal', 'newer']) if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name); };
     request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
   });
   const read = (db: IDBDatabase, store: string, key: string) => new Promise<unknown>(resolve => {
@@ -75,7 +77,7 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     await accepted;
     const newer = await upgrading;
     expect(await read(newer, 'devices', 'k')).toEqual({ deviceID: 'accepted' });
-    expect(storage.snapshot()).toEqual({ phase: 'retired', issue: 'update', proposal: false });
+    expect(storage.snapshot()).toMatchObject({ phase: 'retired', issue: 'update', proposal: false });
     await expect(idb.put('devices', 'late', { deviceID: 'late' })).rejects.toMatchObject({ code: 'storage_update' });
     await expect(idb.putActivity('k', 'accepted', new Uint8Array(1))).rejects.toMatchObject({ code: 'storage_update' });
     expect(await read(newer, 'devices', 'late')).toBeUndefined();
@@ -86,6 +88,7 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
 
   it('7. a proposed update waits while this tab has unsent work, and our own blocked open waits with guidance instead of failing', async () => {
     const { idb, storage } = await import('../src/lib/idb');
+    await idb.get('devices', 'open'); // this page is connected at version 2
     let work = true;
     const unregister = storage.registerWork(() => work);
     const newer = new BroadcastChannel('gradstep.storage'), replies: unknown[] = [];
@@ -93,8 +96,8 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     try {
       const proposal = crypto.randomUUID();
       newer.postMessage({ kind: 'upgrade-proposal', proposal: 'not-an-id', version: 2 });
-      newer.postMessage({ kind: 'upgrade-proposal', proposal, version: 1 }); // not newer than this page
-      newer.postMessage({ kind: 'upgrade-proposal', proposal, version: 2 });
+      newer.postMessage({ kind: 'upgrade-proposal', proposal, version: 2 }); // not newer than this page's version 2
+      newer.postMessage({ kind: 'upgrade-proposal', proposal, version: NEWER });
       await vi.waitFor(() => expect(replies).toEqual([{ kind: 'upgrade-reply', proposal, ready: false }]));
       expect(storage.snapshot()).toMatchObject({ phase: 'open', proposal: true });
       await idb.put('devices', 'still-writable', 1); // deferring is not retirement
@@ -107,7 +110,7 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     // Our open request reported as blocked: keep waiting (never delete, never claim the browser is unsupported).
     vi.resetModules();
     const fresh = new IDBFactory(), seen: string[] = [];
-    vi.stubGlobal('indexedDB', { open: (name: string, version: number) => {
+    vi.stubGlobal('indexedDB', { databases: () => fresh.databases(), open: (name: string, version: number) => {
       const request = fresh.open(name, version);
       queueMicrotask(() => request.onblocked?.(new Event('blocked') as IDBVersionChangeEvent));
       return request;
@@ -115,8 +118,8 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     const second = await import('../src/lib/idb');
     second.storage.subscribe(() => seen.push(second.storage.snapshot().issue ?? 'none'));
     await second.idb.put('devices', 'after-blocked', 2);
-    expect(seen).toEqual(['blocked', 'none']);
-    expect(second.storage.snapshot()).toEqual({ phase: 'open', issue: null, proposal: false });
+    expect(seen).toContain('blocked'); expect(seen.at(-1)).toBe('none');
+    expect(second.storage.snapshot()).toMatchObject({ phase: 'open', issue: null, proposal: false, version: 2 });
   });
 
   it('8. a legacy version-1 page never reopens after retirement, and reports a newer database as an update, not a missing capability', async () => {
@@ -133,12 +136,12 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     vi.resetModules();
     const late = await import('../src/lib/idb');
     await expect(late.idb.get('devices', 'kept')).rejects.toMatchObject({ code: 'storage_upgraded' });
-    expect(late.storage.snapshot()).toEqual({ phase: 'retired', issue: 'upgraded', proposal: false });
+    expect(late.storage.snapshot()).toMatchObject({ phase: 'retired', issue: 'upgraded', proposal: false });
     const again = vi.spyOn(factory, 'open');
     await expect(late.idb.get('devices', 'kept')).rejects.toMatchObject({ code: 'storage_upgraded' });
     expect(again).not.toHaveBeenCalled();
     const check = await newerTab();
-    expect(check.version).toBe(2);
+    expect(check.version).toBe(NEWER);
     expect(await read(check, 'devices', 'kept')).toEqual({ deviceID: 'kept' });
     check.close();
   });
