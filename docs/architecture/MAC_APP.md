@@ -1,5 +1,42 @@
 # Mac app
 
+## Mac-specific review — 2026-10-08
+
+Worktree `science-reader-mac-native-20261008`, branch `codex/mac-native-20261008`, based on `44bf3c2`.
+The current distributed checkpoint is **TestFlight 21** (`c10e54c`), VALID / IN_BETA_TESTING for Mac and iOS;
+the build-17 distribution details below are historical. No upload or hosted/paid request was made in this review.
+
+- The Mac toolbar now clears its workspace selection while Settings is shown, so the previously selected pane can
+  be chosen again. View adds **Hide/Show Chat Beside Paper** (⌃⌘H), using the existing remembered chat visibility.
+  `PaperMenuActions` has a figure-gallery callback ready for the shared paper view to publish.
+- The standalone Mac approval section draws the existing GSDA1 Mac payload using Core Image, with a white quiet
+  zone and integer pixel scaling. Its poller backs off from 2 to 10 seconds, checks request state each minute,
+  stops after 30 minutes, stops while the scene is inactive, and ignores older/cancelled results.
+  **It is not yet connected to RecoveryView.** The exact small shared hooks are staged for ownership/identity review;
+  the existing recovery UI and DeviceKeys are unchanged by this checkpoint. The proposed path shares DeviceKeys'
+  durable pending recipient and operation lock with recovery rather than making a second key store.
+- Five development-signed Catalyst unit tests pass on macOS 26.3.1: the rendered QR is independently decoded by
+  Vision back to its exact GSDA1 text; polling limits, cancellation, older-result fencing and error copy pass.
+  Evidence: `.artifacts/mac-native-20261008/MacApprovalUnits.xcresult` in the worktree. Later toolbar/UI assertions
+  compile but do not yet have runtime evidence.
+- A fresh signed **universal** Catalyst build-for-testing succeeds for arm64 and x86_64, using only `fixture.invalid`
+  and a public fixture key, with its own DerivedData and package checkout. The final build explicitly overrides
+  `SCIENCE_READER_ENVIRONMENT=mac-native-fixture-20261008` (the project otherwise overrides the xcconfig's
+  environment label) and uses `ENABLE_DEBUG_DYLIB=NO` only for the local test harness. No provisioning or security settings changed. Xcode 26.4's
+  missing local Metal-toolchain search-path warning and pre-existing test-concurrency warnings remain.
+- **UI runtime blocked before assertions:** the local MacKeyboardTests runner exited after 73.735 seconds with
+  “Timed out while enabling automation mode.” Computer Use separately reports pending **Accessibility and Screen
+  Recording permissions in the ChatGPT Computer Use window**. No menu/pointer/drag/drop, live sign-in or camera
+  workflow is claimed from this run. `BaselineKeyboard.xcresult` and `baseline-keyboard.log` preserve the failure.
+  Later unit-host starts, including the full suite from the fresh universal build, also stalled before assertions.
+  A sample of that correctly scoped host shows XCTest waiting in `_prepareTestConfigurationAndIDESession`,
+  with this worktree's test bundle and Core framework loaded; no test method was running. Only this worktree's
+  stalled xcodebuild processes were interrupted. `full-unit-host.sample.txt` and `full-mac-units.log` preserve
+  this separate limitation; no full-suite pass is claimed. The latest-main merge check was current at `44bf3c2`.
+- Shared PDF intake findings are handed to the shared-native owner: account/session fencing must begin before
+  provider loading, temporary drop copies need cleanup, and the Add sheet currently ignores PDFs after the first.
+  See [focused review and deterministic reproductions](../reviews/NATIVE_PDF_DROP_INTAKE_20261008.md).
+
 Native table UX validation (2026-10-08): the combined column-picker, scrolling-table and v5 library-command code
 passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **351 tests, 4 expected
 skips, no failures**. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
