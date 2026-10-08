@@ -302,6 +302,7 @@ async function chat(acct, body, { signal, timeoutMs = 180_000 } = {}) {
       // Progress lines (kinds only, never the query): when the reader first sees that work started.
       else if (event === 'status') { result.firstStatusMs ??= Date.now() - started; if (result.statuses.length < 16) result.statuses.push([value.kind, Date.now() - started]); }
       else if (event === 'done') result.done = value; else if (event === 'error') result.error = value; else if (event === 'diagram') result.diagram = value;
+      else if (event === 'title') result.title = value.text;
     }
   }
   result.ms = Date.now() - started;
@@ -756,6 +757,106 @@ check('chat.related', { title: 'Related (web search) answer lists linked sources
   if (links.length < 2) return fail(`only ${links.length} link(s) in the answer: web search returned no sources`, metrics);
   return pass(`${links.length} links${/\n\nSources:\n/.test(r.answer) ? ' and a Sources list' : ''}; ${chatSummary(r)}; first status ${seconds(r.firstStatusMs) ?? '–'} s,`
     + ` first text ${seconds(r.firstTokenMs) ?? '–'} s, total ${(r.ms / 1000).toFixed(0)} s`, metrics);
+});
+
+// Chat model, effort and length (chat-profiles-v1, migration 047) and topic titles: the paid check after deploying
+// them (docs/architecture/CHAT.md#deploy-order). Opt-in only, never scheduled:
+//   node scripts/workflow-checks.mjs --only=chat.profiles,chat.profiles-max --cap-usd=0.75
+const PROFILE_FIXTURE = join(ROOT, 'apps/apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-v1.json');
+// Accepted serving models: the profile's own, or its server-side refusal fallbacks.
+const PROFILE_MODELS = { haiku: ['claude-haiku-5-5'], sonnet: ['claude-sonnet-5-5', 'claude-sonnet-5'], opus: ['claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8'] };
+const PROFILE_QUESTION = 'In two sentences: which attention mechanisms does this model use, and what does each one buy?';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** This check's own account (enough credits for Opus holds) and its copy of the chat paper. */
+async function profilesAccount(signal) {
+  const acct = await account('profiles', 400);
+  shared.profilesPaper ??= await readyPaper(acct, args.paper ?? PAPER, signal);
+  return { acct, item: shared.profilesPaper };
+}
+
+/** One profiled paper answer. Returns what was measured and the first problem, or null. */
+async function profiledAnswer(acct, item, choice, { messages, title = false, signal }) {
+  const id = `${choice.model}-${choice.effort}-${choice.length}`;
+  const r = await chat(acct, { mode: 'paper', document_id: item.document_id, profile: choice, ...(title ? { topic_title: true } : {}),
+    messages: messages ?? [{ role: 'user', text: PROFILE_QUESTION }] }, { signal, timeoutMs: 200_000 });
+  const usage = r.done?.usage ?? {};
+  const m = { id, operation: r.operation, credits: r.done?.credits ?? 0, model: r.done?.model ?? null, titled: title,
+    cache_read: usage.cache_read_input_tokens ?? 0, cache_write: usage.cache_creation_input_tokens ?? 0, output: usage.output_tokens ?? 0,
+    first_token_s: r.firstTokenMs && r.firstTokenMs / 1000, total_s: r.ms / 1000, answer: r.answer };
+  // The question is synthetic, so its title may be shown; console only, never in the recorded report.
+  if (r.title) console.log(`         ${id} titled “${r.title}”`);
+  const problem = r.error || !r.done ? chatSummary(r)
+    : r.done.profile !== id ? `done reported profile ${r.done.profile ?? 'none'}`
+    : !PROFILE_MODELS[choice.model].includes(r.done.model) ? `served by ${r.done.model ?? 'an unreported model'}`
+    : r.done.stop_reason !== 'end_turn' ? `stopped with ${r.done.stop_reason}`
+    : r.answer.trim().length < 40 ? `answer only ${r.answer.trim().length} characters`
+    : title && !r.title ? 'no title event' : null;
+  return { m, problem: problem && `${id}: ${problem}` };
+}
+
+/** Recorded metrics are flat scalars: per profile, credits, provider dollars, tokens and seconds (never text). */
+const profileMetrics = measured => Object.fromEntries(measured.flatMap((x, i) => ['credits', 'provider_usd', 'cache_read', 'cache_write', 'output',
+  'first_token_s', 'total_s'].map(key => [`${i}_${x.id}_${key}`, x[key] ?? null])));
+
+/** The frozen quote (app_private.chat_quotes) and provider attempts of each answer agree with what it reported. */
+async function profileQuotesProblem(measured) {
+  if (!management) return null;
+  const list = measured.map(x => x.operation).filter(op => UUID_PATTERN.test(op)).map(op => `'${op}'`).join(',');
+  const quotes = await management.sql(`select operation_id::text op, profile, model, effort, length, max_output_tokens, title_model,
+    credit_ceiling from app_private.chat_quotes where operation_id in (${list})`);
+  const attempts = await management.sql(`select operation_id::text op, model, state, actual_microusd from app_private.provider_attempts
+    where provider='anthropic' and operation_id in (${list})`);
+  const table = JSON.parse(readFileSync(PROFILE_FIXTURE, 'utf8'));
+  for (const x of measured) {
+    const q = quotes.find(row => row.op === x.operation), own = attempts.filter(row => row.op === x.operation);
+    const published = table.profiles.find(p => p.id === x.id);
+    if (!q) return `${x.id}: no chat_quotes row`;
+    if (q.profile !== x.id || q.model !== published.api_model || Number(q.max_output_tokens) !== published.max_output_tokens)
+      return `${x.id}: quote ${q.profile}/${q.model}/${q.max_output_tokens} differs from the published profile`;
+    if ((q.title_model === 'claude-haiku-5-5') !== x.titled) return `${x.id}: quote title_model ${q.title_model ?? 'null'}`;
+    if (Number(q.credit_ceiling) < x.credits) return `${x.id}: settled ${x.credits} credits above the quoted ${q.credit_ceiling}`;
+    // The answer's round(s), plus the title's own attempt when one was asked for (Anthropic attempts only).
+    if (own.length < (x.titled ? 2 : 1) || own.some(a => a.state !== 'succeeded')) return `${x.id}: provider attempts ${own.map(a => `${a.model}:${a.state}`).join(', ') || 'none'}`;
+    x.provider_usd = own.reduce((sum, a) => sum + Number(a.actual_microusd ?? 0), 0) / 1e6;
+  }
+  return null;
+}
+
+check('chat.profiles', { title: 'Each chat model answers with its profile; titles; follow-up reads the cache', suites: [], timeout: 900, costUSD: 0.25 }, async ({ signal }) => {
+  const { acct, item } = await profilesAccount(signal);
+  // The deployed table is exactly the checked-in one (the build's estimates and labels).
+  const published = await acct.fn('chat', { method: 'GET', signal });
+  if (published.status !== 200) return fail(`GET chat: HTTP ${published.status} ${published.json?.code ?? ''}`.trim());
+  if (JSON.stringify(published.json) !== JSON.stringify(JSON.parse(readFileSync(PROFILE_FIXTURE, 'utf8'))))
+    return fail('GET chat differs from the checked-in chat-profiles-v1.json (deployed function is not this build)');
+  const measured = [];
+  const run = async (choice, options = {}) => { const r = await profiledAnswer(acct, item, choice, { ...options, signal }); measured.push(r.m); return r; };
+  for (const model of ['haiku', 'sonnet', 'opus']) {
+    const r = await run({ model, effort: 'low', length: 'brief' }, { title: true });
+    if (r.problem) return fail(r.problem, profileMetrics(measured));
+  }
+  // A follow-up on the same model reads the paper back from the prompt cache (written by the Sonnet answer above).
+  const first = measured.find(x => x.id === 'sonnet-low-brief');
+  const follow = await run({ model: 'sonnet', effort: 'low', length: 'brief' }, { messages: [{ role: 'user', text: PROFILE_QUESTION },
+    { role: 'assistant', text: first.answer }, { role: 'user', text: 'Which of them matters more for long inputs? One sentence.' }] });
+  if (follow.problem) return fail(follow.problem, profileMetrics(measured));
+  const quoteProblem = await profileQuotesProblem(measured);
+  const metrics = profileMetrics(measured);
+  if (quoteProblem) return fail(quoteProblem, metrics);
+  const summary = measured.map(x => `${x.id} ${x.credits} cr${x.provider_usd != null ? ` ($${x.provider_usd.toFixed(4)})` : ''}`).join('; ');
+  if (follow.m.cache_read < 0.8 * first.cache_write) return warn(`follow-up read ${follow.m.cache_read} cached tokens of ${first.cache_write} written; ${summary}`, metrics);
+  return pass(`${summary}; follow-up read ${follow.m.cache_read} cached tokens${management ? '; quotes agree' : ' (no management token: quotes not compared)'}`, metrics);
+});
+
+check('chat.profiles-max', { title: 'The largest profile (Opus · High · Detailed) answers within its quote', suites: [], timeout: 600, costUSD: 0.4 }, async ({ signal }) => {
+  const { acct, item } = await profilesAccount(signal);
+  const r = await profiledAnswer(acct, item, { model: 'opus', effort: 'high', length: 'detailed' }, { signal });
+  if (r.problem) return fail(r.problem, profileMetrics([r.m]));
+  const quoteProblem = await profileQuotesProblem([r.m]);
+  const metrics = profileMetrics([r.m]);
+  if (quoteProblem) return fail(quoteProblem, metrics);
+  return pass(`${r.m.id}: ${r.m.output} output tokens, ${r.m.credits} credits${r.m.provider_usd != null ? ` ($${r.m.provider_usd.toFixed(4)})` : ''}, `
+    + `first text ${r.m.first_token_s?.toFixed(1) ?? '–'} s, total ${r.m.total_s.toFixed(0)} s`, metrics);
 });
 
 // The Add paper (Ingest) corpus. `after`: what a queued import must do in this suite —

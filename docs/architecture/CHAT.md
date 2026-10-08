@@ -185,7 +185,8 @@ are ignored, never fatal.
 
 Owner request (2026-10-08): "chats should have the ability to customize the length and effort and model right there
 in the chat in a clear UX". Status: built and tested locally on branch `chat-controls-titles`; **not deployed**,
-migration 047 **not applied**, no paid provider request made. The lead runs a small paid check after review.
+migration 047 **not applied**, no paid provider request made. The lead runs a small paid check after review
+([deploy order](#deploy-order); local verification below).
 
 The server owns a versioned profile table (`chat-profiles-v1`, `supabase/functions/_shared/chat-profiles.ts`). A
 request names a choice; the server accepts only the table's combinations, sends the matching request, holds the
@@ -385,13 +386,20 @@ before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
 
 ### Deploy order
 
-1. Apply migration `202610080047_chat_profiles.sql` (additive).
-2. Deploy the `chat` function. Before step 1 its reservations fail (`worker_reserve_chat` missing) as
-   `service_unavailable`, before any provider request; deploy both together.
-3. Ship clients. Older clients are unaffected (no new fields sent; `title` events and `done` labels are ignored).
-4. Paid check (lead): one answer per model at the default effort and length on a known paper, one Opus · High ·
-   Detailed, a follow-up to confirm `cache_read_tokens` ≈ the paper, and one titled first question; compare
-   `chat_quotes`, `provider_attempts` and settled credits.
+1. Apply migration `202610080047_chat_profiles.sql` (additive): `python3 scripts/migrate-supabase.py staging`.
+2. Deploy the `chat` function: `python3 scripts/deploy-staging.py staging --skip-migrations --functions chat`. Before
+   step 1 its reservations fail (`worker_reserve_chat` missing) as `service_unavailable`, before any provider
+   request; deploy both together. The deploy runs the free deploy suite plus `chat.smoke` and `ingest.not-found`
+   (≈ $0.01, default requests: no profile, no title) unless `--skip-checks`.
+3. Paid check (lead): `node scripts/workflow-checks.mjs --only=chat.profiles,chat.profiles-max --cap-usd=0.75`
+   ([workflow checks](WORKFLOW_CHECKS.md)). `chat.profiles` (≈ $0.25 estimated) compares `GET chat` with the
+   checked-in table, asks the Mistral 7B question once per model at Low · Brief with a topic title, checks
+   `done.profile`, `done.model` and the `title` event, asks a Sonnet follow-up that must read the paper from the
+   cache, and compares each `chat_quotes` row and its Anthropic `provider_attempts` (state, title attempt, settled
+   credits ≤ the quoted ceiling). `chat.profiles-max` (≤ $0.40 estimated) does one Opus · High · Detailed answer.
+   Titles print to the console only. The runner skips a check whose estimate would pass the cap or leave the
+   platform budget under its $0.50 reserve; synthetic accounts are deleted afterwards.
+4. Ship clients. Older clients are unaffected (no new fields sent; `title` events and `done` labels are ignored).
 
 ## Money
 
