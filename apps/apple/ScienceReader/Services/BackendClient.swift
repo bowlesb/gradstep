@@ -80,6 +80,14 @@ struct AppleAuthorization: Sendable { let id: UUID; let hashedNonce: String }
 
 enum BackendError: LocalizedError {
     case unavailable, signInRequired, emailConfirmation, rejected(String), transport
+    /// Finite public delivery codes only. Server-provided prose never reaches the reader UI.
+    static let readerDeliveryCodes: Set<String> = ["reader_transfer_limit", "reader_upgrade_required",
+        "reader_grant_unavailable", "reader_grant_consumed", "asset_inventory_incomplete",
+        "reader_unavailable", "reader_not_ready", "reader_integrity_failed"]
+    var readerDeliveryMessage: String? {
+        guard case .rejected(let code) = self, Self.readerDeliveryCodes.contains(code) else { return nil }
+        return errorDescription
+    }
     var errorDescription: String? {
         switch self {
         case .unavailable: "The backend is not configured for this build."
@@ -94,7 +102,8 @@ enum BackendError: LocalizedError {
             case "reader_transfer_limit": "Paper downloads are temporarily limited. Downloaded papers remain available."
             case "reader_upgrade_required": "Update Gradstep to download this paper. Downloaded papers remain available."
             case "reader_grant_unavailable", "reader_grant_consumed": "The download needs to restart. Open the paper again."
-            case "asset_inventory_incomplete": "This paper is temporarily unavailable. Downloaded papers remain available."
+            case "asset_inventory_incomplete", "reader_unavailable", "reader_not_ready": "This paper is temporarily unavailable. Downloaded papers remain available."
+            case "reader_integrity_failed": "This paper couldn’t be verified. Try downloading it again."
             case "key_authority_required", "stale_key_epoch": "This device needs updated encryption keys from an approved device or recovery code."
             case "invalid_credentials": "The email or password was not accepted."
             case "email_not_confirmed": "Confirm your email before signing in."
@@ -930,7 +939,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         let started = ProcessInfo.processInfo.systemUptime
         do {
             if let maximumResponseBytes {
-                (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes)
+                // A one-byte member may have a larger finite JSON quota error. Keep the
+                // success ceiling exact, with a separate small error-only ceiling.
+                let errorBytes = path.hasPrefix("functions/v1/reader-member?") ? 4_096 : nil
+                (data, response) = try await boundedResponse(for: request, maximumBytes: maximumResponseBytes, maximumErrorBytes: errorBytes)
             } else {
                 (data, response) = try await network.data(for: request)
             }
@@ -973,24 +985,26 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             let known = Set(["upload_too_large", "upload_quota", "upload_limit", "upload_storage_full", "upload_expired", "upload_id_conflict",
                              "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
-                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"])
+                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"]).union(BackendError.readerDeliveryCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }
         return data
     }
 
-    private func boundedResponse(for request: URLRequest, maximumBytes: Int) async throws -> (Data, URLResponse) {
+    private func boundedResponse(for request: URLRequest, maximumBytes: Int, maximumErrorBytes: Int? = nil) async throws -> (Data, URLResponse) {
         let (bytes, response) = try await network.bytes(for: request, delegate: LibraryRedirectPolicy())
         // Always cancel on early exit, including a false Content-Length,
         // decoder-independent overflow, cancellation, or a truncated stream.
         defer { bytes.task.cancel() }
-        guard response.expectedContentLength <= Int64(maximumBytes) else { throw LibraryProtocolError.payloadTooLarge }
+        let allowedBytes = if let maximumErrorBytes, let response = response as? HTTPURLResponse,
+                              !(200..<300).contains(response.statusCode) { maximumErrorBytes } else { maximumBytes }
+        guard response.expectedContentLength <= Int64(allowedBytes) else { throw LibraryProtocolError.payloadTooLarge }
         return try await withTaskCancellationHandler {
             var data = Data()
-            data.reserveCapacity(min(maximumBytes, 65_536))
+            data.reserveCapacity(min(allowedBytes, 65_536))
             for try await byte in bytes {
-                guard data.count < maximumBytes else { throw LibraryProtocolError.payloadTooLarge }
+                guard data.count < allowedBytes else { throw LibraryProtocolError.payloadTooLarge }
                 data.append(byte)
             }
             try Task.checkCancellation()

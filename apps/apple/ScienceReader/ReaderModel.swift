@@ -2104,7 +2104,8 @@ final class ReaderModel {
                 if self.selectedPaper?.id == paper.id { self.openLocalPaperIfNeeded() }
             } catch {
                 guard self.sessionID == scope, self.readerDownloadAttempt?.id == attempt, !(error is CancellationError) else { return }
-                self.readerOpenIssue = "This paper couldn’t be downloaded. Check your connection and try again."
+                self.readerOpenIssue = (error as? BackendError)?.readerDeliveryMessage
+                    ?? "This paper couldn’t be downloaded. Check your connection and try again."
             }
         }
     }

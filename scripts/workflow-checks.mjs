@@ -15,6 +15,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve4, resolve6 } from 'node:dns/promises';
+import { verifyReaderDelivery } from './reader-workflow.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PROJECT_REF = 'coxhjvqpflgxkleydati';
@@ -269,18 +270,11 @@ async function waitForReady(acct, match, { timeoutS, signal, label }) {
   throw new Error(`${label}: not ready after ${timeoutS} s (last state ${last})`);
 }
 
-/** Downloads the reader bundle as the app does and verifies every member's SHA-256. */
-async function verifyBundle(acct, itemID, signal) {
-  const r = await acct.fn(`reader-artifact?item_id=${itemID}`, { signal, timeoutMs: 30_000 });
-  if (r.status !== 200 || !r.json?.manifest_sha256) throw new Error(`reader-artifact: HTTP ${r.status} ${r.json?.code ?? ''}`);
-  if (sha256(Buffer.from(r.json.manifest, 'base64')) !== r.json.manifest_sha256) throw new Error('reader manifest hash mismatch');
-  let bytes = 0;
-  for (const member of r.json.members) {
-    const response = await fetch(member.url, { signal: AbortSignal.any([AbortSignal.timeout(60_000), signal]) });
-    const body = Buffer.from(await response.arrayBuffer()); bytes += body.length;
-    if (!response.ok || sha256(body) !== member.sha256) throw new Error(`reader member ${member.path}: ${response.ok ? 'hash mismatch' : `HTTP ${response.status}`}`);
-  }
-  return { members: r.json.members.length, bytes };
+/** The same authenticated member protocol as current clients, with legacy compatibility explicit. */
+async function verifyBundle(acct, item, signal) {
+  acct.touched = true;
+  return verifyReaderDelivery({ backendURL: env.SUPABASE_URL, anonKey: env.SUPABASE_ANON_KEY,
+    token: () => acct.token(), item, signal });
 }
 
 /** One answer from functions/v1/chat, streamed and parsed like the app's SSE parser. */
@@ -593,10 +587,10 @@ check('import.arxiv', { title: 'Add an arXiv paper → ready → reader bundle v
   const started = Date.now();
   await beginImport(acct, source, signal);
   const { item, seconds, steps } = await waitForReady(acct, e => e.source_id === source, { timeoutS: 240, signal, label: source });
-  const bundle = await verifyBundle(acct, item.id, signal);
+  const bundle = await verifyBundle(acct, item, signal);
   shared.libraryItem = item;
-  const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), members: bundle.members, bundle_bytes: bundle.bytes, pages: item.page_count };
-  const text = `DPO ready in ${seconds} s (${steps.map(s => s.state).join(' → ') || 'immediately'}); ${bundle.members} members, ${(bundle.bytes / 1e6).toFixed(1)} MB verified`;
+  const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), members: bundle.members, bundle_bytes: bundle.bytes, pages: item.page_count, reader_transport: bundle.transport };
+  const text = `DPO ready in ${seconds} s (${steps.map(s => s.state).join(' → ') || 'immediately'}); ${bundle.members} members, ${(bundle.bytes / 1e6).toFixed(1)} MB verified (${bundle.transport})`;
   return seconds > 120 ? warn(`${text}: slower than 2 min for an already-converted paper`, metrics) : pass(text, metrics);
 });
 
@@ -810,8 +804,8 @@ check('ingest.imports-ready', { title: 'Papers queued by Add paper reach ready',
   const results = await Promise.all(pendingImports.map(async p => {
     try {
       const { item, seconds } = await waitForReady(p.acct, e => e.id === p.id || (e.kind === 'item' && e.source_id === p.source), { timeoutS: 1200, signal, label: p.source });
-      const bundle = await verifyBundle(p.acct, item.id, signal);
-      return { ok: true, text: `${p.source} ready ≤ ${Math.round((Date.now() - p.queuedAt) / 1000)} s after queueing (${item.page_count} p, ${bundle.members} members)` };
+      const bundle = await verifyBundle(p.acct, item, signal);
+      return { ok: true, text: `${p.source} ready ≤ ${Math.round((Date.now() - p.queuedAt) / 1000)} s after queueing (${item.page_count} p, ${bundle.members} members, ${bundle.transport})` };
     } catch (error) { return { ok: false, text: `${p.check}: ${error.message}` }; }
   }));
   const failed = results.filter(r => !r.ok);
@@ -828,9 +822,9 @@ for (const [id, source, title, timeoutS, pages] of [
     const acct = await account('heavy', 150), started = Date.now();
     await beginImport(acct, source, signal);
     const { item, seconds, steps } = await waitForReady(acct, e => e.source_id === source, { timeoutS, signal, label: source });
-    const bundle = await verifyBundle(acct, item.id, signal);
-    const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), pages: item.page_count, bundle_bytes: bundle.bytes };
-    return pass(`ready in ${seconds} s (${steps.map(s => s.state).join(' → ')}); ${item.scope}, ${item.page_count} pages, ${bundle.members} members verified`, metrics);
+    const bundle = await verifyBundle(acct, item, signal);
+    const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), pages: item.page_count, bundle_bytes: bundle.bytes, reader_transport: bundle.transport };
+    return pass(`ready in ${seconds} s (${steps.map(s => s.state).join(' → ')}); ${item.scope}, ${item.page_count} pages, ${bundle.members} members verified (${bundle.transport})`, metrics);
   });
 }
 

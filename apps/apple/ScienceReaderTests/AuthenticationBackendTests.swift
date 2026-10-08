@@ -151,6 +151,45 @@ private struct AuthenticationFixture {
 
 @MainActor
 final class AuthenticationBackendTests: XCTestCase {
+    func testReaderMemberPreservesBoundedQuotaErrorsEvenForATinyMember() async throws {
+        let account = UUID(), token = String(repeating: "a", count: 64), memberID = UUID()
+        let cases = [("reader_transfer_limit", 429), ("reader_upgrade_required", 426),
+                     ("reader_grant_unavailable", 403), ("reader_grant_consumed", 409),
+                     ("asset_inventory_incomplete", 503), ("reader_not_ready", 503), ("reader_integrity_failed", 503)]
+        for (code, status) in cases {
+            let fixture = try AuthenticationFixture([.ok(Data("{\"code\":\"\(code)\",\"message\":\"private-server-detail\"}".utf8), status: status)],
+                                                    stored: AuthenticationFixture.session(account: account))
+            defer { fixture.close() }
+            let url = "https://\(fixture.host)/functions/v1/reader-member?grant=\(token)&member=\(memberID.wire)"
+            let member = try JSONDecoder().decode(ReaderArtifactDescriptor.Member.self, from: JSONSerialization.data(withJSONObject:
+                ["path": "a.txt", "bytes": 1, "sha256": String(repeating: "0", count: 64), "url": url]))
+            do { _ = try await fixture.client.readerMember(member, accountID: account); XCTFail("Quota/availability response cannot be accepted") }
+            catch BackendError.rejected(let result) { XCTAssertEqual(result, code) }
+            catch { XCTFail("Lost delivery reason: \(type(of: error))") }
+            let requests = fixture.server.requests()
+            XCTAssertEqual(requests.count, 1, "A consumed grant is never retried automatically")
+            XCTAssertEqual(requests.first?.headers["Authorization"], "Bearer fixture-access")
+            XCTAssertEqual(requests.first?.url.absoluteString, url)
+        }
+    }
+
+    func testReaderMemberSuccessAndErrorBodiesHaveIndependentHardBounds() async throws {
+        let account = UUID()
+        for reply in [AuthenticationTestServer.Reply(data: Data([1, 2])),
+                      .init(data: Data(repeating: 120, count: 4_097), status: 429),
+                      .init(data: Data(), status: 503, headers: ["Content-Length": "4097"])] {
+            let fixture = try AuthenticationFixture([.reply(reply)], stored: AuthenticationFixture.session(account: account))
+            defer { fixture.close() }
+            let member = try JSONDecoder().decode(ReaderArtifactDescriptor.Member.self, from: JSONSerialization.data(withJSONObject:
+                ["path": "a.txt", "bytes": 1, "sha256": String(repeating: "0", count: 64),
+                 "url": "https://\(fixture.host)/functions/v1/reader-member?grant=\(String(repeating: "a", count: 64))&member=\(UUID().wire)"]))
+            do { _ = try await fixture.client.readerMember(member, accountID: account); XCTFail("Oversized response accepted") }
+            catch LibraryProtocolError.payloadTooLarge { }
+            catch { XCTFail("Wrong bound failure: \(type(of: error))") }
+            XCTAssertEqual(fixture.server.requests().count, 1)
+        }
+    }
+
     func testEmailPreparationSendCorrectionAndAcceptanceUseOneCapturedAddress() async throws {
         let account = UUID()
         let fixture = try AuthenticationFixture([.ok(), .ok(Data(#"{"error_code":"otp_expired"}"#.utf8), status: 403),

@@ -12,12 +12,12 @@ import XCTest
 final class OfflineModelTests: XCTestCase {
     private enum Failure: Error { case observationTimedOut }
 
-    private func fixture(expired: Bool = false, paperCount: Int = 1,
+    private func fixture(expired: Bool = false, paperCount: Int = 1, installReaders: Bool = true,
                          verification: @escaping ReaderBundleCoordinator.Verification = ReaderBundleInput.verify,
                          directory: @escaping ReaderBundleCoordinator.DirectoryReader = { try await $0.listInstalledReaderBundles(scope: $1) }) async throws -> OfflineModelFixture {
         let fixture = try OfflineModelFixture(expired: expired, paperCount: paperCount, verification: verification, directory: directory)
         addTeardownBlock { await fixture.close() }
-        try await fixture.seed()
+        try await fixture.seed(installReaders: installReaders)
         return fixture
     }
 
@@ -38,6 +38,27 @@ final class OfflineModelTests: XCTestCase {
         })
         XCTAssertEqual(paperIDs, expected, "Library metadata must not keep previously selected bundles", file: file, line: line)
         XCTAssertEqual(rowIDs, expected, "Published search rows must release the same old handles immediately", file: file, line: line)
+    }
+
+    func testDownloadQuotaAndUpgradeReasonsSurviveBackendAndModelWithoutRawServerText() async throws {
+        for (code, expected) in [
+            ("reader_transfer_limit", "Paper downloads are temporarily limited. Downloaded papers remain available."),
+            ("reader_upgrade_required", "Update Gradstep to download this paper. Downloaded papers remain available."),
+            ("reader_grant_consumed", "The download needs to restart. Open the paper again."),
+            ("asset_inventory_incomplete", "This paper is temporarily unavailable. Downloaded papers remain available."),
+            ("private-server-detail", "This paper couldn’t be downloaded. Check your connection and try again.")
+        ] {
+            let fixture = try await fixture(installReaders: false), model = fixture.model
+            fixture.server.setReaderFailure(code)
+            await model.start()
+            try await observe("The cloud paper is available to open") { model.papers.contains { $0.id == fixture.catalog.document } }
+            model.select(try XCTUnwrap(model.papers.first { $0.id == fixture.catalog.document }))
+            try await observe("A failed download presents its safe reason") { model.readerOpenIssue != nil }
+            XCTAssertEqual(model.readerOpenIssue, expected)
+            XCTAssertNil(model.selectedPaper?.readerBundle)
+            XCTAssertFalse(model.readerOpenIssue?.contains("private-server-detail") ?? true)
+            XCTAssertTrue(fixture.server.requests().contains("reader-artifact"))
+        }
     }
 
     func testChangingPapersEvictsOnlyTheLoadedCopyAndReopensFromDisk() async throws {
@@ -648,11 +669,12 @@ private final class OfflineModelFixture {
             readerBundleVerification: verification, readerBundleDirectoryReader: directory)
     }
 
-    func seed() async throws {
+    func seed(installReaders: Bool = true) async throws {
         // This writer is never used again once the model opens its account;
         // startup must claim the normal fresh-writer generation itself.
         let store = try reopenStore()
         try await store.saveLibraryPresentation(catalog.observation(additionalCatalogs: additionalCatalogs), scope: scope)
+        guard installReaders else { return }
         for entry in [catalog] + additionalCatalogs {
             let binding = try ReaderArtifactBinding(scope: scope, documentID: entry.document,
                 artifactID: entry.artifact, manifestSHA256: bundle.manifestSHA256)
@@ -830,6 +852,7 @@ private final class OfflineModelServer: @unchecked Sendable {
     private var state: Int64 = 1
     private var availability = "available"
     private var paths: [String] = []
+    private var readerFailure = "reader_not_ready"
 
     init(catalog: OfflineModelCatalog, additionalCatalogs: [OfflineModelCatalog], device: LocalDevice, holdRefresh: Bool) throws {
         self.catalog = catalog; self.additionalCatalogs = additionalCatalogs; self.holdRefresh = holdRefresh
@@ -843,6 +866,7 @@ private final class OfflineModelServer: @unchecked Sendable {
     }
 
     func requests() -> [String] { lock.withLock { paths } }
+    func setReaderFailure(_ code: String) { lock.withLock { readerFailure = code } }
     func setAvailability(_ value: String) { lock.withLock { state += 1; availability = value } }
     func setDeviceEnvelopeAvailable(_ value: Bool) { lock.withLock { deviceEnvelopeAvailable = value } }
     func holdNextChanges(_ arrival: XCTestExpectation) { lock.withLock { holdChanges = arrival } }
@@ -879,6 +903,7 @@ private final class OfflineModelServer: @unchecked Sendable {
             case "v1_reader_capabilities":
                 request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
             case "v3_library_page": request.respond(catalog.baseline(state: state, availability: availability, additionalCatalogs: additionalCatalogs))
+            case "reader-artifact": request.respond(OfflineModelCatalog.bytes(["code": readerFailure, "message": "private-server-detail"]), status: 429)
             case "v3_library_changes":
                 let input = Self.fields(request.request)
                 let after = (input["p_after"] as? NSNumber)?.int64Value ?? 0
