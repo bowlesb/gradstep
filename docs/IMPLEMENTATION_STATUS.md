@@ -20,9 +20,10 @@ removed executor work) is retained below where useful and in git history.
   provider UI, Safari key persistence, PDF upload and purchases. Podcast generation remains backend-dark and no
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
-- **Mac:** the universal Catalyst build and 351 applicable native UX tests have compile/unit evidence. Mac menu,
-  QR approval, drag/drop and keyboard UI runtime checks remain open because XCTest stalled before assertions and
-  Computer Use reports pending Accessibility/Screen Recording permissions. No new TestFlight upload or owner-device
+- **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native
+  unit suite passes **373 tests, 4 expected skips, 0 failures**; the Settings toolbar regression is fixed in
+  `beff20c`. Mac menu, QR approval, drag/drop and keyboard UI runtime checks remain open because XCTest automation
+  still needs the local Accessibility/Screen Recording permissions. No new TestFlight upload or owner-device
   acceptance is claimed by this candidate.
 
 ## Current rollout — 2026-10-08 UTC

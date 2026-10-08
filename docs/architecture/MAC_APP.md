@@ -28,20 +28,20 @@ the build-17 distribution details below are historical. No upload or hosted/paid
   “Timed out while enabling automation mode.” Computer Use separately reports pending **Accessibility and Screen
   Recording permissions in the ChatGPT Computer Use window**. No menu/pointer/drag/drop, live sign-in or camera
   workflow is claimed from this run. `BaselineKeyboard.xcresult` and `baseline-keyboard.log` preserve the failure.
-  Later unit-host starts, including the full suite from the fresh universal build, also stalled before assertions.
-  A sample of that correctly scoped host shows XCTest waiting in `_prepareTestConfigurationAndIDESession`,
-  with this worktree's test bundle and Core framework loaded; no test method was running. Only this worktree's
-  stalled xcodebuild processes were interrupted. `full-unit-host.sample.txt` and `full-mac-units.log` preserve
-  this separate limitation; no full-suite pass is claimed. The latest-main merge check was current at `44bf3c2`.
+  Earlier unit-host starts also stalled before assertions; those logs are historical. The current merged-main
+  development-signed run is recorded below and passes the full native unit suite. No Mac UI automation or live
+  account workflow is claimed until the local permissions are available.
 - Shared PDF intake findings are handed to the shared-native owner: account/session fencing must begin before
   provider loading, temporary drop copies need cleanup, and the Add sheet currently ignores PDFs after the first.
   See [focused review and deterministic reproductions](../reviews/NATIVE_PDF_DROP_INTAKE_20261008.md).
 
 Native table UX validation (2026-10-08): the combined column-picker, scrolling-table and v5 library-command code
-passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **351 tests, 4 expected
-skips, no failures**. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
-`/private/tmp/gradstep-native-ux-mac-signed-unit.xcresult`; this is unit/runtime and compilation evidence,
-not a new manual keyboard/pointer or live-account verification.
+passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **373 tests, 4 expected
+skips, no failures**. The Settings toolbar regression is fixed in `beff20c`; its focused test and the complete
+signed suite pass. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
+`/Users/benbowlwes/science-reader/.artifacts/mac-main-20261008/signed-unit-after-fix.log` and the result bundle at
+`/private/tmp/gradstep-mac-main-20261008-signed-v3/Logs/Test/Test-ScienceReader-2026.10.08_15-47-25--0700.xcresult`;
+this is unit/runtime and compilation evidence, not a new manual keyboard/pointer or live-account verification.
 
 Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
