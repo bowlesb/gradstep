@@ -3,6 +3,7 @@
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
 // inline Retry/Remove/credits states, and a compact list beside an open paper.
 import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { addFailure, addOutcome, type AddOutcome, addPaper } from '../lib/add';
 import { parseArxiv } from '../lib/arxiv';
@@ -15,6 +16,7 @@ import { Dialog, formatDate } from './common';
 import { Icon } from './icons';
 import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
+import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THRESHOLD } from './LibraryRows';
 
 export type Library = ReturnType<typeof useLibrary>;
 type SortKey = 'title' | 'authors' | 'year' | 'tags' | 'added' | 'opened' | 'progress';
@@ -48,6 +50,8 @@ const shortAuthors = (authors: string[]) => {
 
 /** Rows, counts, tags and the filtered, sorted list for one library view. Shared by the table, rail and compact list. */
 export function useLibraryModel(library: Library, current: Map<string, Activity>, view: LibraryQuery, visible = true) {
+  const viewport = useRef<LibraryViewport | null>(null);
+  const [windowed, setWindowed] = useState(false); // explicit opt-in, retained only for this account session
   // While no library view is showing (reading a paper), reading-place reports must not re-sort the library.
   const seen = useRef(current);
   if (visible) seen.current = current;
@@ -98,7 +102,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
       return (sort.descending ? -c : c) || a.title.localeCompare(b.title);
     });
   }, [all, view, activity]);
-  return { all, counts, tags, shown };
+  return { all, counts, tags, shown, viewport, windowed, setWindowed };
 }
 export type LibraryModel = ReturnType<typeof useLibraryModel>;
 
@@ -240,7 +244,27 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const { notice, setNotice, run } = useCommandRunner();
   const { columns, setColumns, reset } = useLibraryColumns();
   const [choosingColumns, setChoosingColumns] = useState(false);
+  const showAll = useCallback(() => model.setWindowed(false), [model.setWindowed]);
+  const rowCommands = useRef<LibraryRowsCommands | null>(null);
+  const [printing, setPrinting] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const tableHeader = useRef<HTMLTableSectionElement>(null);
+  const selection = document.getSelection();
+  const selectedText = !!selection && !selection.isCollapsed && !!scroller.current
+    && (scroller.current.contains(selection.anchorNode) || scroller.current.contains(selection.focusNode));
+  // Native Find searches the whole current result set. Keep full mode until the reader chooses
+  // windowing again; native Find's close/menu commands have no observable browser API.
+  useEffect(() => {
+    const find = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'f' && !document.querySelector('dialog[open]')) {
+        flushSync(showAll); // allow the browser's normal Find command afterwards
+      }
+    };
+    const beforePrint = () => { rowCommands.current?.beforePrint(); flushSync(() => setPrinting(true)); };
+    const afterPrint = () => setPrinting(false);
+    addEventListener('keydown', find, true); addEventListener('beforeprint', beforePrint); addEventListener('afterprint', afterPrint);
+    return () => { removeEventListener('keydown', find, true); removeEventListener('beforeprint', beforePrint); removeEventListener('afterprint', afterPrint); };
+  }, [showAll]);
   useEffect(() => {
     if (notice?.pendingKey && !library.pending.has(notice.pendingKey)) setNotice(notice.onObserved ? { text: notice.onObserved } : null);
   }, [notice, library.pending, setNotice]);
@@ -280,6 +304,11 @@ export function LibraryView({ library, model, activity, view, setView, showChips
               ? LIBRARY_COLUMNS.filter(c => c.key === column.key || columns.includes(c.key)).map(c => c.key)
               : columns.filter(c => c !== column.key))} />{column.label}
           </label>)}
+          {model.shown.length >= WINDOW_THRESHOLD && <div className="library-window-choice">
+            <label className="check"><input type="checkbox" checked={model.windowed} disabled={selectedText && !model.windowed} onChange={event => model.setWindowed(event.target.checked)} />Show rows as you scroll</label>
+            <p className="fine">Keep off for browser-menu Find and full screen-reader browsing. Keyboard Find, Tab and selecting text load every row.</p>
+            {selectedText && <p className="fine">Clear the text selection to show rows as you scroll.</p>}
+          </div>}
         </div>
         <div className="row-actions column-actions"><button className="secondary" onClick={reset}>Reset</button><button className="primary" onClick={() => setChoosingColumns(false)}>Done</button></div>
       </Dialog>
@@ -298,20 +327,18 @@ export function LibraryView({ library, model, activity, view, setView, showChips
           onKeyDown={scrollColumns} onFocus={revealColumnFocus}
           style={{ '--library-detail-width': `${visibleColumns.reduce((sum, c) => sum + c.width, 0)}px` } as CSSProperties}>
           <span id="library-scroll-help" className="visually-hidden">Left and right arrows scroll columns. Up and down arrows move between paper titles.</span>
-          <table className="papers" data-testid="library-table" aria-label="Papers">
+          <table className="papers" data-testid="library-table" aria-label="Papers" aria-rowcount={shown.length + 1}>
             <colgroup><col className="col-title" />{visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
-            <thead><tr>
+            <thead ref={tableHeader}><tr aria-rowindex={1}>
               {header('title', 'Title', 'col-title')}{visibleColumns.map(c => header(c.key, c.label, `col-${c.key}`))}
             </tr></thead>
-            <tbody onKeyDown={e => moveRowFocus(e, 'a.title')}>
-              {shown.map(row => {
+            <LibraryRows rows={shown} scroller={scroller} header={tableHeader} viewport={model.viewport}
+              query={JSON.stringify(view)} columns={columns} full={!model.windowed || printing} printing={printing} commands={rowCommands} showAll={showAll} render={(row, index, measure) => {
                 const a = row.entry.kind === 'item' ? activity.get(row.entry.id) : undefined;
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
-                  onTag={setView} columns={columns} />;
-              })}
-              {shown.length === 0 && <tr><td colSpan={1 + columns.length} className="no-match"><span>No papers match.</span></td></tr>}
-            </tbody>
+                  onTag={setView} columns={columns} index={index} measure={measure} />;
+              }} />
           </table>
         </div>
       )}
@@ -342,16 +369,18 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
 }
 
-const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns }: {
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean;
   onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
+  index: number; measure?: (element: HTMLTableRowElement | null) => void;
 }) {
   const entry = row.entry;
   const progress = useImportProgress(entry, mark);
   const open = () => { if (row.readable && entry.kind === 'item') onOpen(entry); };
   const authors = authorList(entry);
   return (
-    <tr className={`${row.readable ? 'readable' : 'pending'}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
+    <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
+      className={`${row.readable ? 'readable' : 'pending'}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
       <td className="col-title">
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
