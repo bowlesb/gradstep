@@ -61,6 +61,8 @@ final class MacApprovalSession {
         switch error {
         case DeviceKeyError.operationInProgress:
             "This Mac is still preparing your private library. Try again in a moment."
+        case DeviceKeyError.noKeyAuthority:
+            "This account has no approved device to share its private keys yet. Use the recovery code to set up the first device."
         case BackendError.signInRequired:
             "Sign in again to finish setting up this Mac."
         case ReaderError.invalidKey, ReaderError.corruptData, ReaderError.wrongAccount, ReaderError.staleEpoch:

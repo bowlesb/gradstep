@@ -1228,6 +1228,23 @@ final class ReaderModel {
                               currentKeys: keys, refreshKeys: { [weak self] in await self?.synchronize(); return keys() })
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// The Mac recovery sheet's QR path uses the same DeviceKeys pending enrollment as browser approval. A completed
+    /// poll is activated through the normal ReaderModel ownership path before the sheet is dismissed.
+    func macApprovalPayload(refresh: Bool) async throws -> DeviceApprovalPayload? {
+        guard let accountID, let keys else { throw BackendError.signInRequired }
+        let scope = sessionID
+        let payload = try await keys.macApprovalPayload(refresh: refresh)
+        guard sessionID == scope, self.accountID == accountID else { throw BackendError.signInRequired }
+        if payload == nil, let approved = try keys.cachedDevice() {
+            try await activate(approved, scope: scope)
+            guard sessionID == scope else { throw BackendError.signInRequired }
+            needsRecovery = false; recoveryCode = nil; showRecovery = false
+        }
+        return payload
+    }
+    #endif
+
     @discardableResult
     func activate(_ device: LocalDevice, scope: UUID) async throws -> ReaderWorkOwnership.StoreScope {
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }

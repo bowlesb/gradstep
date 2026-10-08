@@ -9,16 +9,19 @@ the build-17 distribution details below are historical. No upload or hosted/paid
 - The Mac toolbar now clears its workspace selection while Settings is shown, so the previously selected pane can
   be chosen again. View adds **Hide/Show Chat Beside Paper** (⌃⌘H), using the existing remembered chat visibility.
   `PaperMenuActions` has a figure-gallery callback ready for the shared paper view to publish.
-- The standalone Mac approval section draws the existing GSDA1 Mac payload using Core Image, with a white quiet
-  zone and integer pixel scaling. Its poller backs off from 2 to 10 seconds, checks request state each minute,
-  stops after 30 minutes, stops while the scene is inactive, and ignores older/cancelled results.
-  **It is not yet connected to RecoveryView.** The exact small shared hooks are staged for ownership/identity review;
-  the existing recovery UI and DeviceKeys are unchanged by this checkpoint. The proposed path shares DeviceKeys'
-  durable pending recipient and operation lock with recovery rather than making a second key store.
+- The Mac approval section now connects to the shared `RecoveryView` and `DeviceKeys` path. When an existing account
+  has an approved device, the Mac creates a durable pending recipient, shows the GSDA1 QR payload and six-digit
+  comparison code, and polls the existing enrollment RPCs. Approval is then activated through the same encrypted
+  account key bundle used by recovery; there is no second key store. The poller backs off from 2 to 10 seconds,
+  checks request state each minute, stops after 30 minutes or while the scene is inactive, and fences older/cancelled
+  results. A first device with no key authority receives an actionable recovery-code message instead.
 - Five development-signed Catalyst unit tests pass on macOS 26.3.1: the rendered QR is independently decoded by
   Vision back to its exact GSDA1 text; polling limits, cancellation, older-result fencing and error copy pass.
-  Evidence: `.artifacts/mac-native-20261008/MacApprovalUnits.xcresult` in the worktree. Later toolbar/UI assertions
-  compile but do not yet have runtime evidence.
+  The enrollment safety suite adds five more signed tests covering pending-recipient renewal, epoch changes,
+  revocation and recovery races; all **10 focused tests passed** in the current signed Catalyst run. Evidence:
+  `/private/tmp/gradstep-mac-approval-signed-focused-20261008b.xcresult` and the earlier
+  `.artifacts/mac-native-20261008/MacApprovalUnits.xcresult` in the worktree. Later toolbar/UI assertions compile
+  but do not yet have runtime evidence.
 - A fresh signed **universal** Catalyst build-for-testing succeeds for arm64 and x86_64, using only `fixture.invalid`
   and a public fixture key, with its own DerivedData and package checkout. The final build explicitly overrides
   `SCIENCE_READER_ENVIRONMENT=mac-native-fixture-20261008` (the project otherwise overrides the xcconfig's

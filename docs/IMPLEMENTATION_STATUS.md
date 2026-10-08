@@ -11,7 +11,7 @@ removed executor work) is retained below where useful and in git history.
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. A cache-busting request to the custom domain matched the deployment preview byte-for-byte.
   No account, provider, OCR or paid request was made by these checks.
-- **Browser verification:** 335 unit tests across 28 files pass; the integrated production-CSP Playwright run is
+- **Browser verification:** 339 unit tests across 29 files pass; the integrated production-CSP Playwright run is
   **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
   **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
   Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
@@ -28,10 +28,11 @@ removed executor work) is retained below where useful and in git history.
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
 - **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native
-  unit suite passes **373 tests, 4 expected skips, 0 failures**; the Settings toolbar regression is fixed in
-  `beff20c`. Mac menu, QR approval, drag/drop and keyboard UI runtime checks remain open because XCTest automation
-  still needs the local Accessibility/Screen Recording permissions. No new TestFlight upload or owner-device
-  acceptance is claimed by this candidate.
+  unit suite previously passed **373 tests, 4 expected skips, 0 failures**; the Settings toolbar regression is fixed
+  in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
+  the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
+  checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
+  No new TestFlight upload or owner-device acceptance is claimed by this candidate.
 
 ## Current rollout — 2026-10-08 UTC
 

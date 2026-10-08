@@ -1317,6 +1317,11 @@ struct RecoveryView: View {
                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
                         Button("Recover this device") { Task { await model.finishRecovery(code: input) } }.disabled(input.isEmpty || model.isBusy)
                     }
+                    #if targetEnvironment(macCatalyst)
+                    MacDeviceApprovalSection { refresh in
+                        try await model.macApprovalPayload(refresh: refresh)
+                    }
+                    #endif
                 } else if let code = model.recoveryCode {
                     Section {
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()
