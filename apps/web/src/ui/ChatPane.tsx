@@ -143,7 +143,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     </div>
     {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
-      <textarea ref={field} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
+      <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
         onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
       <div className="composer-footer"><div className="composer-meta">
@@ -191,12 +191,24 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
   const [deleteEntry, setDeleteEntry] = useState<{ id: string; event: { kind: 'tombstone'; entityID: string; parents: string[]; createdAt: number } } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [renamingID, setRenamingID] = useState<string | null>(null);
+  const newGeneral = () => {
+    const composer = chat.newChat(null);
+    onOpen(null); onClose();
+    // Let the history dialog close before focusing its destination; a newer navigation or login
+    // must not move focus into a different composer.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!chat.signal.aborted && !chat.storageRetired) document.querySelector<HTMLTextAreaElement>(`textarea[data-composer-id="${composer.id}"]`)?.focus();
+    }));
+  };
   const normalized = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   const rows = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
     && normalized(search).split(/\s+/).filter(Boolean).every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
   rows.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
   return <>
-    <div className="dialog-heading"><h2>All chats</h2><button className="link" onClick={onClose}>Done</button></div>
+    <div className="dialog-heading"><h2>All chats</h2><div className="history-heading-actions">
+      <button className="secondary small" disabled={chat.storageRetired} onClick={newGeneral}>New general chat</button>
+      <button className="link" onClick={onClose}>Done</button>
+    </div></div>
     <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
     <div className="history-filters">{(currentDocument ? ['this', 'all', 'paper', 'general'] : ['all', 'paper', 'general']).map(f => <button key={f} className={`seg${filter === f ? ' on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{({ this: 'This paper', all: 'All', paper: 'Paper chats', general: 'General' })[f]}</button>)}</div>
     <p className="fine">{rows.length} chats · Synced encrypted history</p>

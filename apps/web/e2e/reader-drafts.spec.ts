@@ -23,7 +23,7 @@ test.beforeEach(async ({ page, request }) => {
   await request.post(`${API}/__reset`);
 });
 
-test('Discuss a figure keeps existing text, focuses the composer and survives reload without a model request', async ({ page, request }) => {
+test('Discuss a figure keeps text and passage through reload, and waits for explicit Send', async ({ page, request }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(String(error)));
   await paper(page);
   await message(page).fill('My own unsent question'); await saved(page);
@@ -40,6 +40,14 @@ test('Discuss a figure keeps existing text, focuses the composer and survives re
   await page.reload(); await openChat(page);
   await expect(message(page)).toHaveValue(draft);
   expect((await (await request.get(`${API}/__chat-evidence`)).json()).requests).toHaveLength(0);
+  // The figure passage is part of the restored draft, not only its visible quote.
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'Allow and get answer' }).click();
+  await expect(page.getByTestId('chat-assistant')).toBeVisible();
+  await page.getByRole('button', { name: 'Go to passage', exact: true }).click();
+  if (await page.locator('.pane-right.overlay').count()) await page.keyboard.press('Escape');
+  await expect(page.getByTestId('citation-back')).toBeVisible();
+  expect((await (await request.get(`${API}/__chat-evidence`)).json()).requests).toHaveLength(1);
   expect(errors).toEqual([]);
 });
 

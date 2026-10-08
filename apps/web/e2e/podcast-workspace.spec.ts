@@ -76,7 +76,11 @@ async function signIn(page: Page) {
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
 }
-async function showChat(page: Page) { if (!await page.getByTestId('chat-pane').isVisible()) await page.getByTestId('ask').click(); }
+async function showChat(page: Page) {
+  await expect(page.getByTestId('reader-frame')).toBeVisible();
+  if (!await page.getByTestId('chat-pane').isVisible()) await page.getByTestId('ask').click();
+  await expect(message(page)).toBeVisible();
+}
 async function closeDrawer(page: Page) { if (await page.locator('.pane-right.overlay').count()) await page.keyboard.press('Escape'); }
 const message = (page: Page) => page.getByRole('textbox', { name: 'Message', exact: true });
 async function listen(page: Page) {
@@ -133,7 +137,9 @@ test('superseded evidence navigation preserves the transcript and cannot leave a
     if (e.data?.gradstep === 'reader' && e.data.value?.type === 'passage') (window as any).passages.push(e.data.value.found);
   }); });
   await signIn(page); await listen(page);
-  if (!await page.getByTestId('chat-pane').isVisible()) await page.getByRole('button', { name: 'Chat panel', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('button').click();
+  await page.getByRole('button', { name: 'New general chat', exact: true }).click();
+  await expect(message(page)).toBeFocused();
   await page.evaluate(() => {
     const timer = window.setTimeout.bind(window);
     window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => timer(handler, delay === 400 ? 30_000 : delay, ...args)) as typeof window.setTimeout;

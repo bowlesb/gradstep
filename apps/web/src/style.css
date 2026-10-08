@@ -441,6 +441,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 .diagram-frame { display: block; max-width: none; border: 0; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
+.history-heading-actions { display: flex; align-items: center; gap: 12px; }
 
 /* Reader reference actions stay beside the entry; the detail dialog keeps the paper visible around it. */
 .reader-reference-menu { position: fixed; margin: 0; width: min(280px, calc(100vw - 16px)); padding: 10px; }
