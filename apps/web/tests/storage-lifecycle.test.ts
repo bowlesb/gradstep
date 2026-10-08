@@ -68,6 +68,35 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     const r = db.transaction(store).objectStore(store).get(key); r.onsuccess = () => resolve(r.result);
   });
 
+  it.each(['missing', 'throwing'] as const)('refuses a newer database when version enumeration is %s, without exposing or retaining its connection', async enumeration => {
+    const newer = await newerTab();
+    const key = 'fixture:account', stores = ['devices', 'activity', 'journal', 'newer'];
+    await new Promise<void>((resolve, reject) => {
+      const tx = newer.transaction(stores, 'readwrite');
+      for (const store of stores) tx.objectStore(store).put({ preserved: store }, key);
+      tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);
+    });
+    const opened = vi.fn((name: string, version?: number) => version === undefined ? factory.open(name) : factory.open(name, version));
+    vi.stubGlobal('indexedDB', { open: opened,
+      ...(enumeration === 'throwing' ? { databases: () => { throw new Error('Enumeration unavailable'); } } : {}) });
+    const { idb, storage } = await import('../src/lib/idb');
+    try {
+      await expect(idb.get('devices', key)).rejects.toMatchObject({ code: 'storage_upgraded' });
+      expect(opened).toHaveBeenCalledExactlyOnceWith('gradstep');
+      expect(storage.snapshot()).toMatchObject({ phase: 'retired', issue: 'upgraded', proposal: false });
+      expect(storage.writable()).toBe(false);
+      await expect(idb.put('devices', key, { overwritten: true })).rejects.toMatchObject({ code: 'storage_upgraded' });
+      await expect(idb.forgetDevice(key)).rejects.toMatchObject({ code: 'storage_upgraded' });
+      await expect(storage.journalReady()).rejects.toMatchObject({ code: 'storage_upgraded' });
+      expect(opened).toHaveBeenCalledTimes(1); // retirement never retries or reopens
+      for (const store of stores) expect(await read(newer, store, key)).toEqual({ preserved: store });
+    } finally { newer.close(); }
+    // Closing the rejected connection matters too: it must not block a later supported release's upgrade.
+    const next = await newerTab(NEWER + 1);
+    expect(next.version).toBe(NEWER + 1);
+    next.close();
+  });
+
   it('1. a write accepted before the update completes; a later callback from this page is refused and writes nothing', async () => {
     const { idb, storage } = await import('../src/lib/idb');
     expect(await idb.get('devices', 'k')).toBeUndefined(); // the connection is open
