@@ -12,7 +12,7 @@ Prepared 2026-10-02. Product scope and $100/month incremental budget approved by
 | Paid add-ons | None | No PITR, custom domain, IPv4, log drains, or larger compute |
 | Supabase spend cap | Enabled where available | Does not replace application budgets or cap compute charges |
 | Provider work | Disabled until dedicated keys, rate cards, and reservation tests are configured | At most $30/month aggregate staging + production, not $30 in each project |
-| Static admin hosting | Selection pending account access | Must fit remaining fixed-cost allocation; no secrets in browser bundle |
+| Static admin hosting | Initially pending; **2026-10-08 update:** dedicated `gradstep-admin` Pages at `https://admin.gradstep.ai`, deployment `349d3859` | $0 static Pages, no Functions; no server secrets in browser bundle. Hosting/denied-caller checks pass; real owner MFA/actions remain untested. [Evidence](ADMIN_HOSTING.md) |
 | Independent backups | Destination pending account access | Must include Storage bytes and verified restores before real beta data |
 | Apple distribution | Internal TestFlight first | Separate bundle/app identity; sandbox purchases; public release needs user review |
 
