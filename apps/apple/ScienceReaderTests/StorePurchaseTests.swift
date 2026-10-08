@@ -71,6 +71,14 @@ final class StorePurchaseTests: XCTestCase {
         XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: "already_recorded", credits: nil)), "Your purchase is active.")
         XCTAssertTrue(StoreSync.message(for: StoreSyncResult(outcome: "linked_to_another_account", credits: nil)).contains("another account"))
         XCTAssertTrue(StoreSync.message(for: nil).contains("try again automatically"))
+        XCTAssertTrue(StoreSync.message(for: StoreSyncResult(outcome: "verification_unavailable", credits: nil)).contains("try again automatically"))
+        for outcome in ["invalid", "environment_unavailable", "unsupported", "unknown_product", "unrecognized"] {
+            let message = StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: nil))
+            XCTAssertFalse(message.contains("try again automatically"), "A refusal must not promise automatic recovery")
+            XCTAssertFalse(message.contains("went through"))
+            XCTAssertTrue(message.contains("report"))
+        }
+        XCTAssertTrue(StoreSync.message(for: StoreSyncResult(outcome: "invalid", credits: nil)).contains("Restore purchases"))
         let summary = try JSONDecoder().decode(StoreSummary.self, from: Data(#"{"plan":"pro","product_id":"com.sciencereader.ios.pro.monthly","expires_at":"2026-11-05T16:12:03.123456+00:00"}"#.utf8))
         XCTAssertEqual(summary.planName, "Pro")
         XCTAssertEqual(summary.expiresAt, ISO8601DateFormatter().date(from: "2026-11-05T16:12:03Z"))
