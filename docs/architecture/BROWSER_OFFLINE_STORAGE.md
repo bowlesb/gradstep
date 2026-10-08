@@ -325,6 +325,51 @@ releases it when the draft is cleared, with the database still at version 1. Lig
 `.artifacts/web-storage/`. These establish orderly retirement and honest warnings only, not
 durability or offline access. Safari remains a separate gate.
 
+### Status and handoff, 2026-10-08
+
+Work stopped here at the owner's request (web work moves to Codex). Branch
+`worktree-agent-a7d3a326272f0e9f4`, commit `76ad197` (on `42b8730`, no later `main` merged).
+Not deployed.
+
+- **Done:** the compatibility checkpoint above, nothing more. IndexedDB stays at version 1.
+- **Passing:** `cd apps/web && npm test` — 17 files, 199 tests (191 existing + 8 new).
+  `npm run build` — passes (existing >500 kB chunk warning only).
+  `npx playwright test e2e/storage-update.spec.ts --project=desktop` — 3 passed.
+  Full `npx playwright test` (desktop, phone, webkit) — 74 passed, 51 skipped, 1 failed:
+  `library-columns.spec.ts` "chosen columns persist…" at 390 px measured the pane mid-resize and
+  passed on immediate rerun (2/2). It is unrelated to storage. The skips are the existing WebKit key-persistence gate
+  and phone-skipped desktop-only cases; the new journeys skip WebKit for the same reason.
+- **Gate 1 is not done.** Unfinished, unreviewed work is on branch `wip/browser-journal-gate1`
+  (`5f47f5e`, `7fd85c8`, on top of `76ad197`). It has:
+  - an encrypted journal module (`lib/journal.ts`): hash-chained event records, digest-manifested
+    draft and turn records, compare-and-swap commits under a per-account Web Lock, lifetime and
+    device fences;
+  - a version-2 `journal` store with person-confirmed activation for version-1 profiles (`idb.ts`);
+  - History restore, pull, outbox and fresh-ID rebase persistence;
+  - ChatSession draft checkpoints, submission receipts, turns and turn recovery.
+
+  It is **not wired** into `useChat`/`App`, so no journal ever opens. It has no activation dialog
+  and no journal tests. It typechecks and keeps the 199 unit tests passing. Treat it as a draft to
+  review or discard, not as gate-1 evidence. No drafts survive a reload on any branch.
+- **Next (as designed above):**
+  1. Review and wire the WIP.
+  2. Add journal unit tests (`fake-indexeddb`, injected locks) for the race list.
+  3. Add persistent-profile Chromium journeys, including the first vertical test. The fixture
+     backend needs a "commit but lose the append acknowledgement" mode.
+  4. Add the activation dialog.
+- **Pitfalls found:**
+  - Playwright's fixture/app ports (54329/4317) are hard-coded in many specs, so parallel worktrees
+    collide. A run started while another worktree's servers are up fails at start-up and can't mix
+    results. Wait for the ports, or make them configurable everywhere.
+  - In Node, `BroadcastChannel` must be `unref()`'d or Vitest hangs. `fake-indexeddb` needs
+    `databases` stubbed when wrapping `open`.
+  - `durability: 'strict'` is accepted by Chromium and `fake-indexeddb`.
+  - On the WIP branch, a page that opens storage before activation stays at version 1. A
+    `versionchange` from the same release's activation retires other tabs, just like a newer
+    release would.
+  - A probe that opens the database at a higher version fires `versionchange` and retires
+    compatibility tabs. Read the version with `indexedDB.databases()` instead of opening it.
+
 ## Delivery gates and focused acceptance
 
 1. **Durable private journal, after the compatibility checkpoint.** Implement persisted scope,
