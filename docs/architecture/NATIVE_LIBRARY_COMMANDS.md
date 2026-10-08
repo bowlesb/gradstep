@@ -7,6 +7,50 @@ tags](TAGS.md)); all three share the item's membership revision and lane. A tag 
 pending is resolved in one transaction (`editLibraryTags`): an unsent edit is replaced, a sent one gets the new lists
 as its held successor.
 
+## Upload-capable readers: v5 commands (migration 042)
+
+Builds 17 and 18 adopted the full-v5 library when uploads (039) became available, but all library commands still
+required the legacy v3 read context. That deliberately conservative gate disabled Feed/Add, Retry, Cancel, tags,
+archive and Remove. Migration 042 and the matching native client complete the write side of that adoption.
+
+Each `v5_*` command wraps its existing `v2_*` equivalent, with one extra argument, `p_dataset_epoch`. The server
+checks the upload dataset identity before evaluating the preconditions, runs the existing mutation, then checks
+the identity under a shared row lock held through commit. A restore rotates that same configuration row, so a
+command either commits before rotation or rolls back every effect after observing the new epoch. Authentication,
+account checks, spending/capacity admission, receipts, request digests and revision conflicts remain the existing
+v2 behavior. The response adds `dataset_epoch`; its receipt sequence is in the same grouped journal read by v5.
+
+The client freezes the endpoint and epoch from the **complete observation that supplied the cursor or revision**.
+Legacy observations still create byte-identical v2 requests. V5 receipts must name the frozen epoch before they
+can settle the queue, and catch-up must complete in that same context. A dataset refusal preserves the request
+and any held reversal for explicit review, starts a fresh baseline and never changes the old request's bytes or
+replays it in the new epoch. Private-history encryption, command IDs and queue storage formats are unchanged.
+
+**Ship order: apply 042, verify the six RPCs and their permissions, then release the app.** The 039 capability
+response advertises full-v5 reads and does not advertise a separate command version; this change adds no new
+negotiation field. A client that reaches a 039–041 server retains the missing-endpoint request locally and offers
+refresh, without falling back to the dataset-less v2 endpoint. Once 042 is available, that same request can be
+retried. Existing build 18 remains disabled until updated even after the migration is applied.
+
+Local validation includes real SQL parity for all six wrappers, rejected stale epochs with no side effects,
+concurrent commit/rotation in both orders, restore quarantine, retained encrypted requests, and native model
+journeys for all mutation families. The full UI fixture uses an activated synthetic account and a scripted v5
+backend; no test contacts staging or a paid provider. Verified on the takeover branch, 2026-10-07:
+
+- Full disposable database suite: all 39 SQL test files and the upgrade/concurrency checks pass, including 042's
+  three independent-session rotation schedules; restore quarantine passes 20 tests against the real schema.
+- Core: 245 Swift Testing cases plus four XCTest cases pass. Native unit suite: 373 tests, five expected skips,
+  zero failures. This includes a 039–041 server without the new endpoints, followed by exact replay when 042
+  becomes available, and Retry → Cancel / tags → Archive → Unarchive → Remove at successive observed revisions.
+- Feed Add → In library → imported Library row passes on iPhone 17 Pro and iPad; screenshots inspected. The
+  interrupted test's final accessibility query was corrected for List rows, whose title is a child element.
+- Mac Catalyst Debug build passes. This is compile evidence, not Mac interaction or hosted-write evidence.
+
+Evidence: `/private/tmp/gradstep-v5-{core,database,restore}-takeover.log`,
+`/private/tmp/gradstep-v5-verified-takeover.xcresult`, `/private/tmp/gradstep-v5-ipad-takeover.xcresult`,
+and `/private/tmp/gradstep-v5-catalyst-takeover.log`. No migration, hosted mutation or app upload was performed
+by this branch; staging verification and the next TestFlight build remain the release steps.
+
 ## Storage and ownership
 
 Use the existing account-scoped `EncryptedStore` actor and SQLite transaction discipline. Add a separate `local_library_commands(id, sealed)` table; do not encode these commands as `PrivateEvent`, append them to `records`, or put them in the encrypted-history outbox. Library membership is already service-visible. Local encryption protects the device copy; it does not make membership end-to-end encrypted.

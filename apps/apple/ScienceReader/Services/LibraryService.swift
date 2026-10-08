@@ -91,10 +91,16 @@ actor LibraryService {
     func snapshot() -> LibrarySnapshot? { published }
     var isRefreshing: Bool { running != nil }
     func permitsLegacyCommands() -> Bool { !adoptedFull5 && working.readContext == .legacyFull3 }
+    /// A new command may be frozen from an observation in `context` only while this service still
+    /// reads that context: a protocol adoption or dataset change in progress refuses it rather than
+    /// sending old preconditions under a newer dataset. A v3 context is refused once v5 is adopted.
+    func permitsCommands(in context: LibraryReadContext) -> Bool {
+        working.readContext == context && (context.permitsUploads || !adoptedFull5)
+    }
 
     /// Discovery may stop obsolete writes without claiming any row is current.
-    /// v5 writes remain disabled until the server can enforce the epoch in the
-    /// same transaction as the mutation; this is not a substitute for that gate.
+    /// v5 commands carry their dataset epoch, which the server checks in the
+    /// mutation's own transaction (migration 042); discovery only reviews early.
     func commandReadContext() async throws -> LibraryReadContext {
         if let active = running { _ = try await active.task.value }
         try Task.checkCancellation()

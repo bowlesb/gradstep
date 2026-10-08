@@ -1,16 +1,17 @@
 # App Store purchases
 
-Status: implemented and tested locally (migration `202610050018_app_store_purchases.sql`, Edge functions `store-sync` and
-`app-store-notifications`, Settings › Get credits); App Store Connect products created. An independent review's findings were
-fixed. **Hosted purchases currently fail verification:** the v36 diagnostic probe on 2026-10-07
-confirmed missing hosted certificate primitives required by Apple's SDK. Standalone Node/Deno tests
-had not exposed this runtime difference. No successful staging App Store transaction has been recorded.
-See the [incident evidence and runtime repair](../reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
-Not yet verified with a real sandbox purchase.
+Status, 2026-10-08: **private Node verification deployed; real Sandbox credit-pack grants observed on staging.**
+The earlier Edge runtime incompatibility is documented in the
+[incident evidence](../reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md) and repaired by the
+[private verifier](PURCHASE_VERIFICATION_RUNTIME.md), with Apple signature and revocation checks intact.
+Read-only verification at 05:14 UTC found three Sandbox pack transactions, grants of 400 + 400 + 200 credits,
+and successful exact replays. The third reached the 1,000-credit monthly Sandbox allowance. Durable verification
+observations and credit records are deployed (033–038); raw receipts are not diagnostic records.
+This does not verify production purchases or the full subscription/refund lifecycle.
 
-**2026-10-07 spending-controls branch:** migration036 closes the concurrent Sandbox identity allowance gap and
-requires a current or previously verified app-transaction identity for new free grants. This addition is not yet
-deployed. See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036). The historical upgrade
+**Migration036 is deployed:** it closes the concurrent Sandbox identity allowance gap and
+requires a current or previously verified app-transaction identity for new free grants.
+See [spending controls](SPENDING_CONTROLS.md#sandbox-allowance-implementation-036). The historical upgrade
 behavior below still conflicts with the owner's decision to retain earlier period credits;036 does not change it.
 
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
