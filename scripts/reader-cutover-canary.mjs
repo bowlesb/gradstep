@@ -317,6 +317,8 @@ export class ReaderCutoverCanary {
         const type = r.response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
         observed.push({ url_sha256: sha(url), bytes: r.bytes.length,
           media_type: ['text/html', 'text/plain', 'text/css', 'application/json', 'image/png', 'image/jpeg'].includes(type) ? type : 'unexpected',
+          declared_length: /^\d{1,10}$/.test(r.response.headers.get('content-length') ?? '') ? Number(r.response.headers.get('content-length')) : null,
+          no_referrer: r.response.headers.get('referrer-policy') === 'no-referrer',
           nosniff: r.response.headers.get('x-content-type-options') === 'nosniff',
           private_no_store: r.response.headers.get('cache-control') === 'private, no-store' });
       }
@@ -325,7 +327,14 @@ export class ReaderCutoverCanary {
     let result;
     try { result = await verifyReaderDelivery({ backendURL: ORIGIN, anonKey: this.env.SUPABASE_ANON_KEY,
       token: () => this.token(this.owner), item: this.item, fetcher }); }
-    catch { fail('bounded_bundle_verification_failed'); }
+    catch (error) {
+      // The helper's finite codes contain no URLs or response bodies; keep the
+      // stage evidence needed to distinguish gateway differences from bad bytes.
+      const code = typeof error?.message === 'string' && /^reader_[a-z_]{1,64}$/.test(error.message)
+        ? error.message : 'reader_check_failed';
+      this.report('bounded_verification_refused', { code, response_headers: observed });
+      fail('bounded_bundle_verification_failed');
+    }
     const checked = validateReaderDescriptor(captured, this.item, ORIGIN);
     if (result.transport !== 'bounded-v1' || result.bytes !== integer(this.paper.bundle_bytes)
       || captured.manifest_sha256 !== this.paper.manifest_sha256) fail('bounded_bundle_identity');
