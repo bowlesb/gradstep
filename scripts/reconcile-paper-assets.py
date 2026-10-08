@@ -20,6 +20,8 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+# Inventory scope 3 (migration 046) adds private podcast audio to the two paper buckets.
+BUCKETS = ('paper-assets', 'paper-uploads', 'podcast-assets')
 MAX_OBJECTS = 50000
 MAX_JSON = 2 * 1024 * 1024
 MAX_METADATA = 128 * 1024 * 1024
@@ -81,7 +83,8 @@ class Client:
         # All paths are constructed here; no manifest or redirect can choose a host.
         if not path.startswith(('/rest/v1/rpc/worker_asset_', '/storage/v1/object/list/paper-assets',
                                 '/storage/v1/object/authenticated/paper-assets/', '/storage/v1/object/list/paper-uploads',
-                                '/storage/v1/object/authenticated/paper-uploads/')):
+                                '/storage/v1/object/authenticated/paper-uploads/', '/storage/v1/object/list/podcast-assets',
+                                '/storage/v1/object/authenticated/podcast-assets/')):
             raise InventoryError('request_scope_refused')
         headers = {'Authorization': 'Bearer ' + self.key, 'apikey': self.key, 'Accept-Encoding': 'identity'}
         body = None if payload is None else canonical(payload)
@@ -120,12 +123,12 @@ class Client:
     def rpc(self, name, payload): return self.json('/rest/v1/rpc/' + name, payload)
 
     def listing(self, prefix, offset, bucket='paper-assets'):
-        if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+        if bucket not in BUCKETS: raise InventoryError('invalid_inventory_bucket')
         return self.json('/storage/v1/object/list/' + bucket,
                          {'prefix': prefix, 'limit': 500, 'offset': offset, 'sortBy': {'column': 'name', 'order': 'asc'}})
 
     def blob(self, path, size, retain=False, bucket='paper-assets'):
-        if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+        if bucket not in BUCKETS: raise InventoryError('invalid_inventory_bucket')
         return self.request('/storage/v1/object/authenticated/' + bucket + '/' + urllib.parse.quote(path, safe='/'),
                             maximum=size, storage=True, retain=retain)
 
@@ -180,17 +183,20 @@ def inventory(client, scan):
         for row in rows:
             if not isinstance(row, dict): raise InventoryError('invalid_inventory_page')
             bucket = row.setdefault('bucket', 'paper-assets')
-            if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+            if bucket not in BUCKETS: raise InventoryError('invalid_inventory_bucket')
             key = bucket + '/' + str(row.get('path'))
             if row.get('id') in ids or key in records: raise InventoryError('duplicate_inventory')
             try:
                 uuid.UUID(row['id'])
                 if bucket == 'paper-assets': uuid.UUID(row['document_id'])
+                elif bucket == 'podcast-assets':
+                    # 046: shared audio carries its source document; private audio carries only its owner.
+                    if row.get('document_id') is not None: uuid.UUID(row['document_id'])
                 elif row.get('document_id') is not None: raise ValueError('staging_document')
             except (ValueError, TypeError, KeyError): raise InventoryError('invalid_inventory_identity') from None
             if not isinstance(row.get('path'), str) or len(row['path']) > 1024: raise InventoryError('invalid_inventory_path')
             digest(row.get('sha256'))
-            if bucket == 'paper-assets': digest(row.get('document_sha256'))
+            if bucket == 'paper-assets' or (bucket == 'podcast-assets' and row.get('document_id') is not None): digest(row.get('document_sha256'))
             integer(row.get('bytes'), 64 * MiB, 1); media_type(row.get('media_type'))
             if row.get('state') not in ('pending', 'verified', 'deleting'): raise InventoryError('invalid_inventory_state')
             if row.get('owner_id') is not None:
@@ -251,8 +257,8 @@ def reconcile(client, scan, max_bytes, save_proof=None):
     try:
         admission = client.rpc('worker_asset_inventory_begin', {'p_scan_id': scan}); begun = True
         buckets = admission.get('buckets', ['paper-assets'])
-        if buckets not in (['paper-assets'], ['paper-assets', 'paper-uploads']): raise InventoryError('invalid_inventory_scope')
-        if ('paper-uploads' in buckets) != (admission.get('scope', 1) == 2): raise InventoryError('invalid_inventory_scope')
+        scopes = {1: ['paper-assets'], 2: ['paper-assets', 'paper-uploads'], 3: ['paper-assets', 'paper-uploads', 'podcast-assets']}
+        if buckets != scopes.get(admission.get('scope', 1)): raise InventoryError('invalid_inventory_scope')
         report['scope'] = admission.get('scope', 1)
         def snapshot():
             complete, size = {}, 0
@@ -273,7 +279,13 @@ def reconcile(client, scan, max_bytes, save_proof=None):
             path, bucket = row['path'], row['bucket']
             key = bucket + '/' + path
             if bucket not in buckets: raise InventoryError('inventory_scope_mismatch')
-            owned = (row.get('scope') in ('shared_catalog','owner_private') and (row['scope']=='owner_private') == (row.get('owner_id') is not None)) if bucket=='paper-assets' else (row.get('scope') is None and row.get('owner_id') is not None and row.get('document_id') is None)
+            private_owned = row.get('scope') is None and row.get('owner_id') is not None and row.get('document_id') is None
+            if bucket == 'paper-assets':
+                owned = row.get('scope') in ('shared_catalog','owner_private') and (row['scope']=='owner_private') == (row.get('owner_id') is not None)
+            elif bucket == 'podcast-assets':
+                owned = private_owned or (row.get('scope') == 'shared_catalog' and row.get('owner_id') is None and row.get('document_id') is not None)
+            else:
+                owned = private_owned
             if not owned:
                 issue('unowned', path); continue
             if row['state'] != 'verified': issue('incomplete', path, 'unresolved_object'); continue

@@ -108,6 +108,8 @@ select test.reject(format('select public.worker_podcast_seed_admit(%L,gen_random
 select public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000002',:'month',2000000,true,'owner-decision-20261008');
 select test.assert((public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000002',:'month',2000000,true,'owner-decision-20261008')->>'replayed')::boolean,'seed period replay');
 
+select test.assert(exists(select 1 from jsonb_array_elements(public.worker_podcast_seed_candidates(20)) c
+ where c->>'approval_id'=:'approval' and (c->>'text_bytes')::bigint=5000 and not (c->>'existing_release')::boolean),'pilot candidates list the eligible conversion');
 \set S1 '46000000-0000-0000-0003-000000000001'
 select spent_microusd as spent0,reserved_microusd as reserved0 from app_private.platform_budgets where period=:'month' \gset
 select public.worker_podcast_seed_admit(:'O',:'S1',:'approval','CC BY 4.0 verified; no third-party exclusions found') as seed \gset

@@ -1878,6 +1878,24 @@ begin
  return app_private.delete_account_finish_before_046(p_account_id);
 end $$;
 
+-- Seed pilot helper: eligible CC BY 4.0 / CC0 conversions with verified text
+-- small enough for the profile. Public catalog metadata only.
+create function public.worker_podcast_seed_candidates(p_limit integer default 20) returns jsonb
+language plpgsql stable security definer set search_path='' as $$
+declare spec jsonb:=app_private.podcast_spec();
+begin
+ if p_limit is null or p_limit not between 1 and 100 then raise exception 'invalid_limit'; end if;
+ return coalesce((select jsonb_agg(c order by c->>'recorded_at' desc) from (
+  select jsonb_build_object('approval_id',ca.id,'title',left(cm.metadata->>'title',200),'source_id',cm.source_id,'license',ca.license_uri,
+   'text_bytes',(pin->>'text_bytes')::bigint,'recorded_at',ca.recorded_at,
+   'existing_release',exists(select 1 from app_private.podcast_sources s join app_private.podcast_releases r on r.episode_id=s.episode_id
+     where s.approval_id=ca.id and r.scope='shared' and r.state in ('ready','pending_review'))) c
+  from app_private.catalog_asset_approvals ca join app_private.catalog_metadata cm on cm.id=ca.metadata_id
+   cross join lateral (select app_private.podcast_approval_pin(ca.id) pin) p
+  where p.pin is not null and (p.pin->>'text_bytes')::bigint<=(spec->>'max_source_bytes')::bigint
+  order by ca.recorded_at desc limit p_limit) x),'[]'::jsonb);
+end $$;
+
 -- Read-only operator view: ids and numeric units, never transcript contents.
 create function public.worker_podcast_status() returns jsonb
 language sql stable security definer set search_path='' as $$
@@ -1919,7 +1937,7 @@ begin
    'worker_podcast_recover','worker_podcast_claim','worker_podcast_advance','worker_podcast_attempt_begin','worker_podcast_fail','worker_podcast_asset_plan',
    'worker_podcast_asset_write','worker_podcast_asset_written','worker_podcast_publish','worker_podcast_release','worker_podcast_delivery_expire',
    'worker_podcast_delivery_create','worker_podcast_delivery_redeem','worker_podcast_delivery_observed','worker_podcast_cleanup','worker_podcast_cleanup_confirm',
-   'worker_podcast_status','worker_podcast_kick_due','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
+   'worker_podcast_status','worker_podcast_kick_due','worker_podcast_seed_candidates','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
    'worker_asset_inventory_begin','worker_asset_inventory_page','worker_asset_inventory_finish','worker_pdf_upload_policy','worker_asset_spending_status') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role',f);
   execute format('grant execute on function %s to service_role',f);

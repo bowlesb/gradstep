@@ -90,6 +90,13 @@ def quarantine(sql):
       if pg_catalog.to_regclass('app_private.provider_spending_policy') is not null then
         execute 'update app_private.provider_spending_policy set enabled=false';
       end if;
+      if pg_catalog.to_regclass('app_private.podcast_policy') is not null then
+        -- Podcast admission, worker grants, uploads, publication and delivery all
+        -- compare this epoch: rotating it fences every pre-restore job, quote and
+        -- grant. Outstanding provider and object liabilities stay recorded.
+        execute 'update app_private.podcast_policy set catalog_enabled=false, delivery_enabled=false, generation_enabled=false,
+          seed_enabled=false, fixtures_enabled=false, epoch=gen_random_uuid(), revision=revision+1';
+      end if;
       if pg_catalog.to_regclass('app_private.store_verifier_policy') is not null then
         -- A restored enabled transport must not forward paid runtime work.
         -- Preserve attempts/counters; fence only policies whose state changes.

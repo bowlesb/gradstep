@@ -468,6 +468,28 @@ check('pipeline.stuck', { title: 'No import stuck or crash-looping', suites: ALL
   return pass(`nothing stuck — ${context}`, metrics);
 });
 
+// Paper podcasts (migration 046): read-only status, ids and numbers only. Nothing here enables work or spends.
+check('podcast.state', { title: 'Podcast switches, seed allowance, liabilities and stuck jobs', suites: ALL, timeout: 60 }, async () => {
+  let status;
+  try { status = await rpc('worker_podcast_status', {}, { service: true }); }
+  catch (error) { return error.status === 404 ? skip('migration 046 not applied (no podcast status function)') : fail(error.message); }
+  const policy = status.policy ?? {};
+  const on = ['catalog_enabled', 'delivery_enabled', 'generation_enabled', 'seed_enabled', 'fixtures_enabled'].filter(k => policy[k]).map(k => k.replace('_enabled', ''));
+  const problems = [];
+  for (const seed of status.seed_periods ?? []) {
+    if (seed.committed_microusd > seed.limit_microusd) problems.push(`seed ${seed.period} committed ${usd(seed.committed_microusd / 1e6)} over its ${usd(seed.limit_microusd / 1e6)} allowance`);
+  }
+  const unknown = status.jobs?.unknown_provider ?? 0;
+  if (unknown) problems.push(`${unknown} job(s) with an unknown provider outcome (reconcile from billing evidence)`);
+  if (status.unresolved_writes) problems.push(`${status.unresolved_writes} unresolved podcast upload(s)`);
+  if (on.some(k => ['generation', 'seed', 'fixtures', 'delivery'].includes(k)) && !status.inventory_certified) problems.push('podcast work enabled without scope-3 inventory certification');
+  const stuck = (status.recent_jobs ?? []).filter(j => !j.finished_at && !['unknown_provider', 'quarantined'].includes(j.state)
+    && Date.now() - Date.parse(j.created_at) > 30 * 60_000);
+  if (stuck.length) problems.push(`${stuck.length} podcast job(s) unfinished after 30 min`);
+  const text = `switches on: ${on.join(', ') || 'none'}; jobs ${JSON.stringify(status.jobs ?? {})}; releases ${JSON.stringify(status.releases ?? {})}`;
+  return problems.length ? fail(`${problems.join('; ')} — ${text}`) : pass(text);
+});
+
 check('auth.providers', { title: 'Sign in with Apple and email codes are on', suites: SCHEDULED, timeout: 30 }, async () => {
   const r = await http(`${env.SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: env.SUPABASE_ANON_KEY } });
   if (r.status !== 200) return fail(`auth settings: HTTP ${r.status}`);

@@ -107,6 +107,41 @@ class TwoBuckets(Fixture):
         finally: self.objects = original
 
 
+class ThreeBuckets(TwoBuckets):
+    """Scope 3 (migration 046): shared and private podcast audio, tracked directly."""
+    def __init__(self):
+        super().__init__()
+        self.audio, self.private_audio = b'm4a shared fixture', b'm4a private fixture'
+        self.podcast_objects = {f"shared/{'c' * 64}/audio.m4a": self.audio, f"private/{self.row['owner_id']}/{'d' * 64}/audio.m4a": self.private_audio}
+        self.rows.append({'id': str(uuid.uuid4()), 'bucket': 'podcast-assets', 'path': f"shared/{'c' * 64}/audio.m4a",
+                          'document_id': str(uuid.uuid4()), 'document_sha256': 'b' * 64, 'scope': 'shared_catalog', 'owner_id': None,
+                          'state': 'verified', 'sha256': hashlib.sha256(self.audio).hexdigest(), 'bytes': len(self.audio), 'media_type': 'audio/mp4'})
+        self.rows.append({'id': str(uuid.uuid4()), 'bucket': 'podcast-assets', 'path': f"private/{self.row['owner_id']}/{'d' * 64}/audio.m4a",
+                          'document_id': None, 'document_sha256': None, 'scope': None, 'owner_id': self.row['owner_id'],
+                          'state': 'verified', 'sha256': hashlib.sha256(self.private_audio).hexdigest(), 'bytes': len(self.private_audio), 'media_type': 'audio/mp4'})
+        self.podcast_snapshots = 0
+
+    def rpc(self, name, args):
+        result = super().rpc(name, args)
+        if name == 'worker_asset_inventory_begin': result.update(scope=3, buckets=['paper-assets', 'paper-uploads', 'podcast-assets'])
+        return result
+
+    def listing(self, prefix, offset, bucket='paper-assets'):
+        if bucket != 'podcast-assets': return super().listing(prefix, offset, bucket)
+        original, snapshots = self.objects, self.snapshots
+        self.objects, self.snapshots = self.podcast_objects, self.podcast_snapshots
+        try: return Fixture.listing(self, prefix, offset, bucket)
+        finally:
+            self.podcast_objects, self.podcast_snapshots = self.objects, self.snapshots
+            self.objects, self.snapshots = original, snapshots
+
+    def blob(self, path, size, retain=False, bucket='paper-assets'):
+        if bucket != 'podcast-assets': return super().blob(path, size, retain, bucket)
+        original = self.objects; self.objects = self.podcast_objects
+        try: return Fixture.blob(self, path, size, retain, bucket)
+        finally: self.objects = original
+
+
 class AssetInventoryTests(unittest.TestCase):
     def run_scan(self, client): return ASSETS.reconcile(client, str(uuid.uuid4()), 10 * ASSETS.MiB)
 
@@ -134,6 +169,23 @@ class AssetInventoryTests(unittest.TestCase):
         self.assertEqual((client.snapshots, client.upload_snapshots), (2, 2))
         self.assertEqual(client.downloaded, len(client.data) + len(client.manifest) + len(client.staging))
         self.assertNotIn(client.staging_path, json.dumps(result))
+
+    def test_scope_three_hashes_shared_and_private_podcast_audio(self):
+        client = ThreeBuckets()
+        result = self.run_scan(client)
+        self.assertTrue(result['recorded']); self.assertTrue(result['report']['complete'])
+        self.assertEqual(result['report']['scope'], 3)
+        self.assertEqual(result['report']['object_count'], 5)
+        self.assertEqual(client.podcast_snapshots, 2)
+        self.assertNotIn('audio.m4a', json.dumps(result))
+        stray = ThreeBuckets(); stray.podcast_objects['shared/' + 'e' * 64 + '/audio.m4a'] = b'untracked'
+        self.assertEqual(self.run_scan(stray)['report']['discrepancies']['untracked'], 1)
+        mismatched = ThreeBuckets(); mismatched.scope_buckets = None
+        mismatched.rpc = lambda name, args, inner=mismatched.rpc: (dict(inner(name, args), buckets=['paper-assets', 'paper-uploads'])
+                                                                  if name == 'worker_asset_inventory_begin' else inner(name, args))
+        refused = ASSETS.reconcile(mismatched, str(uuid.uuid4()), 10 * ASSETS.MiB)['report']
+        self.assertFalse(refused['complete'], 'scope 3 with a missing podcast bucket is never certified')
+        self.assertIn({'kind': 'incomplete', 'code': 'invalid_inventory_scope'}, refused['issues'])
 
     def test_staging_unknown_objects_and_ownerless_rows_cannot_be_backfilled(self):
         client = TwoBuckets(); client.upload_objects['unknown'] = b'unknown'
