@@ -388,16 +388,20 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     }
 
     func libraryCommand(_ attempt: LibraryCommandAttempt) async throws -> LibraryCommandDelivery {
-        // v2 writes have no atomic dataset-epoch precondition. Read negotiation
-        // cannot close restore-between-read-and-POST; v5 dispatch stays disabled
-        // until a separately reviewed epoch-aware facade is available.
-        guard attempt.readContext == .legacyFull3 else { throw LibraryCommandError.contextMismatch }
+        // The attempt's read context chooses the family. v2 commands have no dataset
+        // precondition and are sent only for legacy (full-v3) observations. v5 commands
+        // (migration 042) carry the observed upload dataset epoch, which the server checks
+        // in the mutation's own transaction, closing restore-between-read-and-POST.
         let deployment = try LibraryCommandScope(accountID: attempt.scope.accountID, deploymentID: config.url.absoluteString)
         guard attempt.scope == deployment else { throw LibraryCommandError.invalidScope }
         let request = attempt.request
-        guard ["v2_begin_import", "v2_set_library_item", "v2_cancel_import", "v2_retry_import", "v2_set_item_archived",
-                "v2_set_item_tags"].contains(request.endpoint),
+        let commands = ["begin_import", "set_library_item", "cancel_import", "retry_import", "set_item_archived", "set_item_tags"]
+        let family = attempt.readContext.datasetEpoch == nil ? "v2_" : "v5_"
+        guard commands.map({ family + $0 }).contains(request.endpoint),
               !request.body.isEmpty, request.body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
+        // The frozen body must name exactly the attempt's dataset (or none for v2).
+        let epoch = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["p_dataset_epoch"] as? String
+        guard epoch == attempt.readContext.datasetEpoch?.wire else { throw LibraryCommandError.contextMismatch }
         let data = try await authorized(path: "rest/v1/rpc/\(request.endpoint)", body: request.body,
                                         accountID: attempt.scope.accountID, maximumResponseBytes: LibraryWire.maximumPageBytes,
                                         libraryCommandErrors: true)
@@ -954,7 +958,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             }
             if libraryCommandErrors {
                 if response.statusCode == 401 { throw BackendError.signInRequired }
-                let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit",
+                // library_resync_required: a v5 command observed in a replaced dataset (042).
+                let commandCodes: Set<String> = ["operation_id_conflict", "request_rate_limit", "library_resync_required",
                     "library_account_import_limit", "library_environment_import_limit", "library_active_import_limit",
                     "library_account_item_limit", "library_environment_item_limit",
                     "library_account_receipt_limit", "library_environment_receipt_limit",

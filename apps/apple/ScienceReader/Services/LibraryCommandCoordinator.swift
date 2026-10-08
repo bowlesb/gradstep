@@ -36,14 +36,17 @@ final class LibraryCommandCoordinator {
         if snapshot.commands.isEmpty { report(nil) }
     }
 
+    /// `context` is the read context of the complete observation the mutation's preconditions
+    /// came from. It chooses v2 (legacy) or v5 (that dataset epoch); Core requires the saved
+    /// library to be in the same context, so old preconditions are never sent under a newer one.
     @discardableResult
-    func enqueue(_ mutation: LibraryMutation, display: String?) async throws -> LocalLibraryCommandHandle {
+    func enqueue(_ mutation: LibraryMutation, display: String?, observedIn context: LibraryReadContext) async throws -> LocalLibraryCommandHandle {
         try requireWritable()
-        guard await library.permitsLegacyCommands()
+        guard await library.permitsCommands(in: context)
         else { throw LibraryCommandError.contextMismatch }
         let scope = scope
         let (handle, snapshot) = try await persist { store in
-            let handle = try await store.enqueueLibraryCommand(scope: scope, mutation: mutation, display: display)
+            let handle = try await store.enqueueLibraryCommand(scope: scope, mutation: mutation, display: display, readContext: context)
             return (handle, try await store.libraryCommandSnapshot(scope: scope))
         }
         try requireOpen()
@@ -54,14 +57,14 @@ final class LibraryCommandCoordinator {
     /// A tag edit: replaces an unsent earlier edit, or follows a sent one (see `editLibraryTags`).
     @discardableResult
     func editTags(documentID: UUID, tags: [String], hiddenTags: [String], observedRevision: Int64,
-                  display: String?) async throws -> LocalLibraryCommandHandle {
+                  display: String?, observedIn context: LibraryReadContext) async throws -> LocalLibraryCommandHandle {
         try requireWritable()
-        guard await library.permitsLegacyCommands()
+        guard await library.permitsCommands(in: context)
         else { throw LibraryCommandError.contextMismatch }
         let scope = scope
         let (handle, snapshot) = try await persist { store in
             let handle = try await store.editLibraryTags(scope: scope, documentID: documentID, tags: tags, hiddenTags: hiddenTags,
-                                                         observedRevision: observedRevision, display: display)
+                                                         observedRevision: observedRevision, display: display, readContext: context)
             return (handle, try await store.libraryCommandSnapshot(scope: scope))
         }
         try requireOpen()
@@ -161,11 +164,9 @@ final class LibraryCommandCoordinator {
                     try await store.reviewLibraryCommandContext(context, scope: scope)
                 }
                 try requireWritable()
+                // Commands observed in another context (a v3 queue after adopting v5, or
+                // an older v5 dataset) are now set aside for review; current ones proceed.
                 publish(reviewed, nil)
-                if context != .legacyFull3 {
-                    report("Library changes are paused while this app finishes adopting the new sync version. Saved changes are preserved for review.")
-                    return
-                }
             }
             while !closed && !paused && !halted {
                 try Task.checkCancellation()
@@ -190,7 +191,7 @@ final class LibraryCommandCoordinator {
                 let attempt: LibraryCommandAttempt, begun: LocalLibraryCommandSnapshot
                 do {
                     (attempt, begun) = try await persist { store in
-                        let attempt = try await store.beginLibraryAttempt(next.handle, scope: scope)
+                        let attempt = try await store.beginLibraryAttempt(next.handle, scope: scope, readContext: next.libraryReadContext)
                         return (attempt, try await store.libraryCommandSnapshot(scope: scope))
                     }
                 } catch LibraryCommandError.staleHandle {
@@ -212,6 +213,7 @@ final class LibraryCommandCoordinator {
                     guard !closed else { return }
                     let reason: LibraryCommandFailure = paused || Task.isCancelled ? .suspended : Self.reason(error)
                     try await failure(reason, attempt: attempt)
+                    if reason == .datasetChanged { try await resynchronize() }
                     return
                 }
                 guard !closed else { return }
@@ -263,6 +265,23 @@ final class LibraryCommandCoordinator {
             report("Your library changed on another device. Review it before trying that action again.")
         } else { report(nil) }
         return saved
+    }
+
+    /// The server refused a command observed in a replaced dataset (a restore rotated
+    /// the epoch). Core has set it, and any held reversal, aside for review with the
+    /// exact request; it is never re-frozen under the new epoch. Read a fresh
+    /// baseline so the library and the review show the server's current state.
+    private func resynchronize() async throws {
+        let observed = try await library.refresh()
+        try Task.checkCancellation()
+        try requireWritable()
+        guard observed.scope.accountID == scope.accountID else { throw ReaderError.wrongAccount }
+        let scope = scope
+        let reviewed = try await persist { store in
+            try await store.reviewLibraryCommandContext(observed.observation.readContext, scope: scope)
+        }
+        try requireOpen()
+        publish(reviewed, observed)
     }
 
     private func failure(_ reason: LibraryCommandFailure, attempt: LibraryCommandAttempt) async throws {
@@ -326,6 +345,7 @@ final class LibraryCommandCoordinator {
                 if code == "request_failed" { return .connection }
                 if code == "request_rate_limit" { return .rateLimited }
                 if code == "operation_id_conflict" { return .operationConflict }
+                if code == "library_resync_required" { return .datasetChanged }
                 if code.hasPrefix("library_"), code.hasSuffix("_limit") { return .capacity }
                 return .serverRejected
             default: return .connection
@@ -341,6 +361,7 @@ final class LibraryCommandCoordinator {
         case .rateLimited: "Library updates are temporarily limited. Your change is saved on this device."
         case .capacity: "The library limit has been reached. Your change is saved on this device."
         case .operationConflict: "This library change needs review. Refresh your library before trying again."
+        case .datasetChanged: "Your library was updated on the server. Review your saved change before trying it again."
         default: "Your change is saved on this device. Refresh to try sending it again."
         }
     }

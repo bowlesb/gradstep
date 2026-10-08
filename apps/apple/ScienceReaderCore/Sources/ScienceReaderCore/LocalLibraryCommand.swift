@@ -66,30 +66,39 @@ public enum LibraryMutation: Codable, Equatable, Sendable {
         }
     }
 
-    func request(operationID: UUID, scope: LibraryCommandScope) throws -> FrozenLibraryRequest {
+    /// The read context the preconditions were observed in chooses the command family. A legacy
+    /// (full-v3) observation is sent to the unchanged v2 command. An upload-capable (full-v5)
+    /// observation is sent to the v5 command with that dataset epoch, which the server checks in
+    /// the command's own transaction (migration 042): after a restore the frozen request is refused,
+    /// never rebased. Legacy request bytes are unchanged, so persisted v2 rows still validate.
+    func request(operationID: UUID, scope: LibraryCommandScope,
+                 readContext: LibraryReadContext = .legacyFull3) throws -> FrozenLibraryRequest {
         try validate()
         var parameters: [String: Any] = ["p_operation_id": operationID.wire]
-        let endpoint: String
+        let family = readContext.datasetEpoch == nil ? "v2_" : "v5_"
+        if let epoch = readContext.datasetEpoch { parameters["p_dataset_epoch"] = epoch.wire }
+        let command: String
         switch self {
         case .beginImport(let source, let revision, let cursor):
-            endpoint = "v2_begin_import"
+            command = "begin_import"
             parameters["p_source_id"] = source; parameters["p_requested_revision"] = revision ?? (NSNull() as Any)
             parameters["p_observed_cursor"] = cursor
         case .setMembership(let document, let present, let revision, let approval):
-            endpoint = "v2_set_library_item"
+            command = "set_library_item"
             parameters["p_document_id"] = document.wire; parameters["p_present"] = present
             parameters["p_expected_revision"] = revision; parameters["p_approval_id"] = approval?.wire ?? (NSNull() as Any)
         case .cancelImport(let imported, let revision), .retryImport(let imported, let revision):
-            if case .cancelImport = self { endpoint = "v2_cancel_import" } else { endpoint = "v2_retry_import" }
+            if case .cancelImport = self { command = "cancel_import" } else { command = "retry_import" }
             parameters["p_import_id"] = imported.wire; parameters["p_expected_revision"] = revision
         case .setArchived(let document, let archived, let revision):
-            endpoint = "v2_set_item_archived"
+            command = "set_item_archived"
             parameters["p_document_id"] = document.wire; parameters["p_archived"] = archived; parameters["p_expected_revision"] = revision
         case .setTags(let document, let tags, let hidden, let revision):
-            endpoint = "v2_set_item_tags"
+            command = "set_item_tags"
             parameters["p_document_id"] = document.wire; parameters["p_tags"] = tags; parameters["p_hidden_tags"] = hidden
             parameters["p_expected_revision"] = revision
         }
+        let endpoint = family + command
         let body = try JSONSerialization.data(withJSONObject: parameters, options: [.sortedKeys, .withoutEscapingSlashes])
         guard body.count <= 2_048 else { throw LibraryCommandError.invalidMutation }
         let domain = Data("science-reader/library-request/v1\n\(scope.accountID.wire)\n\(scope.deploymentID)\n\(endpoint)\n".utf8)
@@ -208,7 +217,7 @@ struct LibraryCommandJournal: Equatable {
             if row.mutation == mutation { return row.handle }
             throw LibraryCommandError.targetBusy
         }
-        let handle = try nextHandle(), request = try mutation.request(operationID: handle.intentID, scope: scope)
+        let handle = try nextHandle(), request = try mutation.request(operationID: handle.intentID, scope: scope, readContext: readContext)
         self.scope = scope
         rows[handle.intentID] = LocalLibraryCommand(handle: handle, laneID: handle.intentID, scope: scope,
                                                    readContext: readContext, display: display, mutation: mutation, request: request, phase: .prepared)
@@ -322,10 +331,15 @@ struct LibraryCommandJournal: Equatable {
         var value = try owns(attempt, writerID: writerID)
         guard value.receipt == nil else { throw LibraryCommandError.invalidTransition }
         value.failure = failure; value.attemptID = nil
-        value.phase = failure == .operationConflict ? .needsReview :
+        // A dataset refusal (library_resync_required) is definitive for this
+        // frozen request: the server checked its epoch in the command's own
+        // transaction and a replaced epoch never returns. Like a review after a
+        // changed read context, the exact request is kept and never rebased.
+        let review = failure == .operationConflict || failure == .datasetChanged
+        value.phase = review ? .needsReview :
             [.authentication, .capacity, .serverRejected].contains(failure) ? .blocked : .submittedUnknown
         try bump(&value); rows[value.id] = value
-        if failure == .operationConflict {
+        if review {
             // This UUID cannot be replayed with these arguments. Preserve its
             // evidence for explicit review, without stranding a held reversal
             // or inventing an applied receipt/precondition for that reversal.
@@ -364,7 +378,8 @@ struct LibraryCommandJournal: Equatable {
             guard observation.committedCursor >= receipt.requiredCursor else { throw LibraryCommandError.incompleteObservation }
             if let id = receipt.result.id {
                 let entry = observation.entries[LibraryEntryID(kind: receipt.result.kind, entityID: id)]
-                try validateReceipt(LibraryCommandResponse(result: receipt.result, replayed: true, entry: entry), for: value)
+                try validateReceipt(LibraryCommandResponse(result: receipt.result, replayed: true, entry: entry,
+                                                           datasetEpoch: value.libraryReadContext.datasetEpoch), for: value)
             }
             let phase: LibraryCommandPhase = receipt.result.status == .applied ? .finished : .needsReview
             if value.phase != phase { value.phase = phase; value.attemptID = nil; try bump(&value); rows[value.id] = value }
@@ -414,7 +429,7 @@ struct LibraryCommandJournal: Equatable {
                   value.attemptID == nil || value.everSubmitted else { throw ReaderError.corruptData }
             try validateDisplay(value.display)
             if let mutation = value.mutation {
-                guard value.request == (try mutation.request(operationID: id, scope: value.scope)) else { throw ReaderError.corruptData }
+                guard value.request == (try mutation.request(operationID: id, scope: value.scope, readContext: value.libraryReadContext)) else { throw ReaderError.corruptData }
             } else {
                 guard value.request == nil, value.successor != nil, value.predecessor != nil,
                       !value.everSubmitted, [.held, .needsReview, .cancelled, .finished].contains(value.phase) else { throw ReaderError.corruptData }
@@ -485,7 +500,7 @@ struct LibraryCommandJournal: Equatable {
         guard let successor = child.successor, let mutation = parent.mutation, let request = parent.request,
               child.request == nil, receipt.result.status == .applied else { throw LibraryCommandError.invalidTransition }
         let next = try materialize(successor, from: mutation, operationID: request.operationID, revision: receipt.result.revision)
-        child.mutation = next; child.request = try next.request(operationID: child.id, scope: child.scope); child.phase = .prepared
+        child.mutation = next; child.request = try next.request(operationID: child.id, scope: child.scope, readContext: child.libraryReadContext); child.phase = .prepared
     }
     private func validateResult(_ result: LibraryCommandResult, for value: LocalLibraryCommand) throws {
         guard let mutation = value.mutation, let request = value.request, result.revision >= 0 else { throw LibraryCommandError.invalidReceipt }
@@ -512,6 +527,8 @@ struct LibraryCommandJournal: Equatable {
     }
     private func validateReceipt(_ response: LibraryCommandResponse, for value: LocalLibraryCommand) throws {
         try response.validate(); try validateResult(response.result, for: value)
+        // A v5 receipt names the dataset it committed in; a v2 receipt names none.
+        guard response.datasetEpoch == value.libraryReadContext.datasetEpoch else { throw LibraryCommandError.invalidReceipt }
         guard let entry = response.entry else { return }
         switch (value.mutation, entry) {
         case let (.setMembership(document, _, _, _), .item(item)), let (.setArchived(document, _, _), .item(item)),
