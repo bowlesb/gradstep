@@ -6,16 +6,26 @@ import { expect, test, type Page } from '@playwright/test';
 import { durableKeys } from './key-capability';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 
-const API = 'http://127.0.0.1:54329';
+import { fixtureOrigin as API, appOrigin } from './environment';
 const shots = '../../.artifacts/web-storage/';
 const evidence = async (request: any) => (await request.get(`${API}/__chat-evidence`)).json();
-test.beforeEach(async ({ request }) => { await request.post(`${API}/__reset`); });
+test.beforeEach(async ({ request, page }) => {
+  await request.post(`${API}/__reset`);
+  // Exercise the still-supported, explicitly deferred version-1 profile.
+  await page.goto('/brand-icon.svg');
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const r = indexedDB.open('gradstep', 1);
+    r.onupgradeneeded = () => { r.result.createObjectStore('devices'); r.result.createObjectStore('activity'); };
+    r.onsuccess = () => { r.result.close(); resolve(); }; r.onerror = () => reject(r.error);
+  }));
+});
 
 async function login(page: Page) {
   await page.goto('/');
   await page.getByTestId('email').fill('returning@example.test'); await page.getByTestId('send-code').click();
   await page.getByTestId('code').fill('123456'); await page.getByTestId('verify').click();
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
+  await page.getByRole('button', { name: 'Continue without device drafts' }).click();
   await expect(page.getByTestId('library-table')).toBeVisible();
 }
 async function openPaperChat(page: Page) {
@@ -33,7 +43,7 @@ async function newerTab(page: Page) {
 /** What a newer release does to activate a schema: open version 2. Reports how long the older tabs took to let go. */
 const upgrade = (tab: Page) => tab.evaluate(() => new Promise<{ ms: number; blocked: boolean; version: number }>((resolve, reject) => {
   const start = performance.now(); let blocked = false;
-  const request = indexedDB.open('gradstep', 2);
+  const request = indexedDB.open('gradstep', 3);
   request.onupgradeneeded = () => { request.result.createObjectStore('journal-probe'); };
   request.onblocked = () => { blocked = true; };
   request.onsuccess = () => { const db = request.result; resolve({ ms: performance.now() - start, blocked, version: db.version }); db.close(); };
@@ -43,15 +53,15 @@ const records = (tab: Page) => tab.evaluate(() => new Promise<{ version: number;
   const request = indexedDB.open('gradstep');
   request.onsuccess = () => {
     const db = request.result, tx = db.transaction(['devices', 'activity']);
-    const devices = tx.objectStore('devices').count(), activity = tx.objectStore('activity').count();
-    tx.oncomplete = () => { resolve({ version: db.version, devices: devices.result, activity: activity.result }); db.close(); };
+    const devices = tx.objectStore('devices').getAll(), activity = tx.objectStore('activity').count();
+    tx.oncomplete = () => { resolve({ version: db.version, devices: devices.result.filter(value => value?.deviceID).length, activity: activity.result }); db.close(); };
   };
   request.onerror = () => reject(new Error('unavailable'));
 }));
 
 test('an update during an answer stops it once, keeps unsent text copyable and lets the newer tab in promptly', async ({ page, request }, info) => {
   test.skip(info.project.name === 'webkit' || !await durableKeys(page), 'Requires durable non-extractable keys (WebKit 312279 gate).');
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://127.0.0.1:4317' });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: appOrigin });
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
   await request.post(`${API}/__chat-fixture`, { data: { mode: 'slow' } });
   await login(page); await openPaperChat(page);
@@ -66,7 +76,7 @@ test('an update during an answer stops it once, keeps unsent text copyable and l
   const newer = await newerTab(page);
   const opened = await upgrade(newer);
   // Bounded closure: this tab let go as soon as its accepted transactions finished, without a blocked newer tab.
-  expect(opened.version).toBe(2); expect(opened.blocked).toBe(false); expect(opened.ms).toBeLessThan(3_000);
+  expect(opened.version).toBe(3); expect(opened.blocked).toBe(false); expect(opened.ms).toBeLessThan(3_000);
 
   const notice = page.getByTestId('storage-notice');
   await expect(notice).toContainText('Gradstep was updated in another tab');
@@ -127,12 +137,12 @@ test('a reading save resumed after the update is refused; reopening shows the up
   await page.getByTestId('library-table').getByRole('link', { name: /Direct Preference Optimization/ }).click();
   await page.waitForFunction(() => (window as unknown as { activityWaiting?: boolean }).activityWaiting);
   const opened = await upgrade(newer);
-  expect(opened).toMatchObject({ version: 2, blocked: false });
+  expect(opened).toMatchObject({ version: 3, blocked: false });
   await expect(page.getByTestId('storage-notice')).toContainText('Gradstep was updated in another tab');
   await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
   await page.waitForTimeout(1_000);
   // The resumed callback could not write into the newer database.
-  expect(await records(newer)).toEqual({ version: 2, devices: 1, activity: before.activity });
+  expect(await records(newer)).toEqual({ version: 3, devices: 1, activity: before.activity });
 
   // Reopening this release over the newer database: an explanation and a reload button, not "browser unsupported",
   // and no automatic reload, downgrade or deletion.
@@ -147,7 +157,7 @@ test('a reading save resumed after the update is refused; reopening shows the up
   await page.screenshot({ path: `${shots}${info.project.name}-reopen-light.png` });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${shots}${info.project.name}-reopen-dark.png` });
-  expect(await records(newer)).toEqual({ version: 2, devices: 1, activity: before.activity });
+  expect(await records(newer)).toEqual({ version: 3, devices: 1, activity: before.activity });
   await newer.close();
 });
 

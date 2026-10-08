@@ -1,18 +1,19 @@
 // A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
 // contents tree in the left rail with the current section, citation jumps with Back, find in the
 // paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
-import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
-import { BackendError } from '../lib/backend';
+import { BackendError, functionPost } from '../lib/backend';
 import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
 import type { Item } from '../lib/library';
 import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
 import { bridgeAnchor, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
 import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
-import { type FrameKey, type FrameMessage, frameDocument, readFrameMessage } from '../reader/frame';
+import { type FrameKey, type FrameMessage, type ReaderReference, type ReaderFigureReference, frameDocument, readFrameMessage } from '../reader/frame';
 import { FigureViewer } from './Figures';
+import { Dialog } from './common';
 import { Icon } from './icons';
 import { readStored, writeStored } from './prefs';
 import { useWorkspaceControls } from './Shell';
@@ -46,10 +47,12 @@ function failure(error: unknown): string {
   return 'Couldn’t open this paper. Try again.';
 }
 
-type ReaderProps = { cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
+type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
+  /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
+  onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -60,7 +63,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -74,6 +77,11 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
   const [bridgeReady, setBridgeReady] = useState(false);
   const appliedPassage = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reference, setReference] = useState<ReaderReference | null>(null);
+  const [figureReference, setFigureReference] = useState<ReaderFigureReference | null>(null);
+  const [referenceNotice, setReferenceNotice] = useState<{ text: string; operationID: string; message: string; kind: 'working' | 'done' | 'not_found' | 'failed' } | null>(null);
+  const referenceRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => referenceRequest.current?.abort(), []);
   const [figure, setFigure] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
   const [finding, setFinding] = useState(false);
   const [findText, setFindText] = useState('');
@@ -149,7 +157,7 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       if (!frame.current || event.source !== frame.current.contentWindow || event.data?.gradstep !== 'reader') return;
-      const message: FrameMessage | null = readFrameMessage(event.data.value);
+      const message: FrameMessage | null = readFrameMessage(event.data.value, bundle ?? undefined);
       if (!message) return;
       switch (message.type) {
         case 'headings':
@@ -178,7 +186,9 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
         case 'marks': if (message.ids.length === 1) onMarkedChat(message.ids[0]); else setMarkedChats(message.ids); break;
         case 'passage': if (!message.found) setNotice('Couldn’t find the passage. The paper may have changed.'); onPassageHandled(); break;
         case 'figure': setFigure({ id: message.id, open: true }); break;
-        case 'reference': setNotice('Reference actions (add to library, open) are not yet available in the browser.'); break;
+        case 'reference': setReference(message.reference); break;
+        // An older bridge never emits figureref. Keep its existing figure gallery path unchanged.
+        case 'figureref': setFigureReference(message.reference); break;
         case 'tags': setNotice('Editing tags is not yet available in the browser.'); break;
         case 'invalid': setError('This paper couldn’t be shown.'); break;
         case 'find': setFound({ count: message.count, index: message.index }); break;
@@ -211,6 +221,27 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
     setActive(id);
     if (workspace && !workspace.left.inline) workspace.show('left', false);
   };
+  const referenceAnchor = (text: string, blockID?: string): TextAnchor => ({ artifactID: item.artifact_id ?? '', elementID: blockID, quote: text, prefix: '', suffix: '' });
+  const discuss = onDiscuss ? (text: string, blockID?: string) => onDiscuss(text, referenceAnchor(text, blockID)) : undefined;
+  const addReference = async (text: string, operationID: string = crypto.randomUUID()) => {
+    referenceRequest.current?.abort();
+    const controller = new AbortController(); referenceRequest.current = controller;
+    setReference(null); setReferenceNotice({ text, operationID, kind: 'working', message: 'Adding to your library…' });
+    try {
+      // Match native's existing free catalog lookup; no cloud-search consent or chat request is implied.
+      const result = await functionPost<{ status?: unknown; paper?: { title?: unknown } }>('add-reference', {
+        operation_id: operationID, reference: [...text].slice(0, 2_000).join(''), capabilities: ['web_import'],
+      }, { account, signal: controller.signal, maximum: 65_536 });
+      if (controller.signal.aborted) return;
+      const title = typeof result.paper?.title === 'string' && result.paper.title.length <= 1_000 ? `“${result.paper.title}”` : 'This paper';
+      const messages: Record<string, string> = { added: `Added ${title}. It’s being prepared to read.`, present: `${title} is already in your library.`,
+        closed: `${title} isn’t openly available, so it can’t be added.`, not_found: 'Couldn’t identify this reference.', needs_update: `${title} needs the latest version of Gradstep.` };
+      const status = typeof result.status === 'string' ? result.status : '';
+      setReferenceNotice({ text, operationID, kind: status === 'not_found' ? 'not_found' : Object.hasOwn(messages, status) ? 'done' : 'failed',
+        message: Object.hasOwn(messages, status) ? messages[status] : 'Couldn’t add it right now.' });
+      if (status === 'added') onReferenceAdded?.();
+    } catch { if (!controller.signal.aborted) setReferenceNotice({ text, operationID, kind: 'failed', message: 'Couldn’t add it right now.' }); }
+  };
   const figures = bundle?.index.figures ?? [];
   const contentsShown = !!workspace?.left.open && !!contentsSlot;
 
@@ -221,7 +252,8 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         <div className="reader-actions">
-          {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back"><Icon name="chevronLeft" size={14} />Back</button>}
+          {listenAction}
+          {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back" aria-label="Back to where you were" title="Back to where you were"><Icon name="chevronLeft" size={14} />Back</button>}
           <button className={`icon-button${finding ? ' on' : ''}`} onClick={() => (finding ? closeFind() : openFind())} disabled={!srcdoc} aria-label="Find in paper" title="Find in paper (⌘F)" data-testid="find"><Icon name="search" /></button>
           <button className="tool-button" onClick={() => setFigure({ id: null, open: true })} disabled={!figures.length} title="Figures" data-testid="figures">
             <Icon name="image" /><span>Figures</span>{figures.length > 0 && <span className="count">{figures.length}</span>}</button>
@@ -265,11 +297,24 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
         </div>}
         {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
+        {referenceNotice && <div className="reader-reference-notice" role="status" data-testid="reference-notice">
+          <span>{referenceNotice.message}</span>
+          {referenceNotice.kind === 'not_found' && <button className="secondary small" onClick={() => {
+            const text = referenceNotice.text; setReferenceNotice(null); onSelection('ingest', text, referenceAnchor(text));
+          }}>Ask in chat</button>}
+          {referenceNotice.kind === 'failed' && <button className="secondary small" onClick={() => void addReference(referenceNotice.text, referenceNotice.operationID)}>Try again</button>}
+          {referenceNotice.kind !== 'working' && <button className="icon-button" aria-label="Dismiss reference message" onClick={() => setReferenceNotice(null)}><Icon name="close" size={14} /></button>}
+        </div>}
       </div>
       {contentsSlot && headings.length > 0 && createPortal(<Contents headings={headings} active={active} onJump={jump} />, contentsSlot)}
+      {reference && <ReferenceActions reference={reference} frame={frame.current} onClose={() => setReference(null)}
+        onAdd={() => void addReference(reference.text)} onDiscuss={discuss ? () => discuss(reference.text, reference.blockID) : undefined} />}
+      {bundle && figureReference && <FigureReferenceDetail bundle={bundle} reference={figureReference} theme={theme} fontSize={font}
+        onClose={() => setFigureReference(null)} onGo={() => { setFigureReference(null); command('showFigure', figureReference.id, reduced(), true); }}
+        onDiscuss={discuss} />}
       {bundle && figure.open && (
-        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onClose={() => setFigure({ id: null, open: false })}
-          onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id); }} />
+        <FigureViewer bundle={bundle} theme={theme} initial={figure.id} onDiscuss={discuss} onClose={() => setFigure({ id: null, open: false })}
+          onShowInPaper={id => { setFigure({ id: null, open: false }); command('showFigure', id, reduced()); }} />
       )}
     </div>
   );
@@ -290,4 +335,74 @@ function Contents({ headings, active, onJump }: { headings: Heading[]; active: s
       </ol>
     </nav>
   );
+}
+
+
+/** A compact, keyboard-accessible menu anchored to the bibliography entry, with no duplicate title row. */
+function ReferenceActions({ reference, frame, onClose, onAdd, onDiscuss }: {
+  reference: ReaderReference; frame: HTMLIFrameElement | null; onClose: () => void; onAdd: () => void; onDiscuss?: () => Promise<boolean>;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [busy, setBusy] = useState(false), [issue, setIssue] = useState<string | null>(null);
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (!node.open) node.showModal();
+    const host = frame?.getBoundingClientRect(), rect = reference.rect;
+    const x = host && rect ? host.left + Math.max(0, Math.min(host.width, rect.x)) : innerWidth / 2;
+    const y = host && rect ? host.top + Math.max(0, Math.min(host.height, rect.y + rect.height)) : innerHeight / 2;
+    node.style.left = `${Math.max(8, Math.min(innerWidth - node.offsetWidth - 8, x))}px`;
+    node.style.top = `${Math.max(8, Math.min(innerHeight - node.offsetHeight - 8, y + 6))}px`;
+  }, [reference, frame, issue]);
+  const prepare = async () => {
+    if (!onDiscuss || busy) return;
+    setBusy(true); setIssue(null);
+    try { if (await onDiscuss()) onClose(); else setIssue('Couldn’t save the chat draft. The reference is still here.'); }
+    catch { setIssue('Couldn’t save the chat draft. The reference is still here.'); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    if (busy) return;
+    try { await navigator.clipboard.writeText(reference.text); onClose(); }
+    catch { setIssue('Couldn’t copy the reference. Try again.'); }
+  };
+  return <dialog ref={dialog} className="dialog reader-reference-menu" aria-label="Reference actions" onCancel={e => { e.preventDefault(); if (!busy) onClose(); }}
+    onClick={e => { if (e.target === dialog.current && !busy) onClose(); }}>
+    {reference.link && <a className="secondary small" href={reference.link.url} target="_blank" rel="noopener noreferrer" aria-disabled={busy || undefined} tabIndex={busy ? -1 : undefined} onClick={e => { if (busy) e.preventDefault(); else onClose(); }}>{reference.link.title}</a>}
+    {onDiscuss && <button className="secondary small" disabled={busy} onClick={() => void prepare()}>{busy ? 'Saving draft…' : 'Discuss in chat'}</button>}
+    <button className="secondary small" disabled={busy} onClick={onAdd}>Add to library</button>
+    <button className="secondary small" disabled={busy} onClick={() => void copy()}>Copy</button>
+    <button className="link small" disabled={busy} onClick={onClose}>Cancel</button>
+    {issue && <p className="issue" role="alert">{issue}</p>}
+  </dialog>;
+}
+
+/** Created only for a validated new-bridge message, so the legacy bridge never opens unsupported table/code detail. */
+function FigureReferenceDetail({ bundle, reference, theme, fontSize, onClose, onGo, onDiscuss }: {
+  bundle: VerifiedBundle; reference: ReaderFigureReference; theme: 'light' | 'dark'; fontSize: number;
+  onClose: () => void; onGo: () => void; onDiscuss?: (text: string, blockID?: string) => Promise<boolean>;
+}) {
+  const doc = useMemo(() => frameDocument(bundle, { parentOrigin: location.origin, figureID: reference.id, theme, fontSize }), [bundle, reference.id, theme, fontSize]);
+  const [busy, setBusy] = useState(false), [issue, setIssue] = useState<string | null>(null);
+  const figure = bundle.index.figures.find(f => f.id === reference.id);
+  const blockID = figure?.block_id ?? reference.id;
+  const text = figure?.caption || bundle.index.blocks.find(b => b.id === blockID)?.text || reference.label;
+  const discuss = async () => {
+    if (!onDiscuss || busy) return;
+    setBusy(true); setIssue(null);
+    try { if (await onDiscuss(text, blockID)) onClose(); else setIssue('Couldn’t save the chat draft. Try again.'); }
+    catch { setIssue('Couldn’t save the chat draft. Try again.'); }
+    finally { setBusy(false); }
+  };
+  return <Dialog open onClose={() => { if (!busy) onClose(); }} title={reference.label} wide>
+    <div className="reader-reference-detail">
+      <div className="figure-head"><h2>{reference.label}</h2><button className="primary small" disabled={busy} onClick={onClose}>Done</button></div>
+      <iframe className="figure-frame" title={reference.label} sandbox="allow-scripts" srcDoc={doc} />
+      {issue && <p className="issue" role="alert">{issue}</p>}
+      <div className="dialog-actions">
+        {onDiscuss && <button className="secondary small" disabled={busy} onClick={() => void discuss()}>{busy ? 'Saving draft…' : 'Discuss in chat'}</button>}
+        <button className="primary small" disabled={busy} onClick={onGo} data-testid="figure-reference-go">{reference.goTitle}</button>
+      </div>
+    </div>
+  </Dialog>;
 }

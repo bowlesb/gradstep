@@ -1,8 +1,10 @@
 // The existing right panel, backed by one account-owned controller (it survives pane/navigation unmounts).
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { chatTitle, failureText, progressText } from '../lib/chat';
+import { answeredBy, profileSummary } from '../lib/chat-profiles';
 import { ChatSession, composerBusy } from '../lib/chat-session';
-import type { ConversationSummary, TextAnchor } from '../lib/events';
+import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from '../lib/events';
+import { ProfileControl } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate } from './common';
 import { Diagram } from './Diagram';
@@ -14,6 +16,30 @@ export function useChatUpdates(chat: ChatSession) {
   return useSyncExternalStore(chat.history.subscribe, chat.history.getVersion);
 }
 export interface PaperContext { documentID: string; title: string; available: boolean }
+
+/** A conversation's title as shown: its topic title (generated or renamed) as is, else today's derived title. */
+export function summaryTitle(summary: ConversationSummary): string {
+  if (summary.titleSource !== undefined) return summary.title;
+  const t = chatTitle(summary.title);
+  return [t.label, t.text].filter(Boolean).join(' · ');
+}
+
+/** Inline rename: Enter or Save keeps it (≤ 80 characters), Escape or Cancel leaves the title unchanged. */
+function RenameField({ initial, onSave, onCancel, label }: { initial: string; onSave: (title: string) => Promise<boolean>; onCancel: () => void; label: string }) {
+  const [value, setValue] = useState(initial), [busy, setBusy] = useState(false), [failed, setFailed] = useState(false);
+  const save = () => {
+    if (!value.trim() || busy) return;
+    setBusy(true); setFailed(false);
+    onSave(value).then(ok => { if (!ok) setFailed(true); }, () => setFailed(true)).finally(() => setBusy(false));
+  };
+  return <form className="rename-field" onSubmit={e => { e.preventDefault(); save(); }}>
+    <input aria-label={label} value={value} maxLength={MAX_TITLE_CHARACTERS} autoFocus disabled={busy} data-testid="rename-input"
+      onChange={e => setValue(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); } }} />
+    <button type="submit" className="primary small" disabled={busy || !value.trim()}>Save</button>
+    <button type="button" className="secondary small" disabled={busy} onClick={onCancel}>Cancel</button>
+    {failed && <p className="issue fine" role="alert">The new name couldn’t be saved. Keep it here and try again.</p>}
+  </form>;
+}
 
 export function ChatPane({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   chat: ChatSession | null; paper: PaperContext | null; mode: 'paper' | 'general'; onMode: (mode: 'paper' | 'general') => void;
@@ -36,6 +62,9 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const branches = useMemo(() => c.conversationID ? chat.history.state.conversationBranches(c.conversationID) : [], [chat, c.conversationID, historyVersion]);
   const diagrams = useMemo(() => chat.history.state.diagramsByMessage(), [chat, historyVersion]);
   const [link, setLink] = useState<string | null>(null), [inputIssue, setInputIssue] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  useEffect(() => setRenaming(false), [c.id, c.conversationID]);
+  const table = chat.profileTable, choice = chat.profileFor(c);
   const viewport = useRef<HTMLDivElement>(null), bottom = useRef<HTMLDivElement>(null), follow = useRef(true);
   const [away, setAway] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -52,12 +81,11 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   useEffect(() => { if (follow.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [branch?.head, branch?.messages.length, displayText, c.phase, c.id]);
   const messages = branch?.messages ?? [];
   const savedLive = messages.some(m => m.payload.entityID === c.liveID);
-  const title = summary ? chatTitle(summary.title) : null;
-  const titleText = title ? [title.label, title.text].filter(Boolean).join(' · ') : mode === 'paper' ? 'Ask about this paper' : 'General chat';
+  const titleText = summary ? summaryTitle(summary) || 'Chat' : mode === 'paper' ? 'Ask about this paper' : 'General chat';
   const deleted = !!c.conversationID && chat.history.state.isDeleted(c.conversationID);
   const last = messages.at(-1);
   const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
-  const canAnswer = !retired && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
+  const canAnswer = !retired && !chat.hasUnresolvedTurn(c) && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
   const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
   const send = () => { if (!disabled) void chat.send(c); };
 
@@ -70,7 +98,10 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       <button className="icon-button" onClick={() => { chat.newChat(documentID); field.current?.focus(); }} aria-label="New chat" title="New chat"><Icon name="plus" /></button>
     </PaneHeader>
     <div className="chat-heading">
-      <strong title={titleText}>{titleText}</strong>
+      {renaming && summary ? <RenameField initial={titleText} label="Chat name" onCancel={() => setRenaming(false)}
+        onSave={async name => { const ok = await chat.rename(summary.id, name); if (ok) setRenaming(false); return ok; }} />
+        : <div className="chat-title-row"><strong title={titleText} data-testid="chat-title">{titleText}</strong>
+          {summary && !deleted && <button className="link small rename-link" disabled={retired} onClick={() => setRenaming(true)} aria-label={`Rename “${titleText}”`}>Rename</button>}</div>}
       {mode === 'paper' && <span className="fine chat-paper" title={paper?.title}>{paper?.title ?? 'Paper chat'}</span>}
       {summary?.anchor && summary.documentID && <button className="link small" onClick={() => onPassage(summary.documentID!, summary.anchor!)}>Go to passage</button>}
       {branches.length > 1 && <label className="branch-picker">Branch <select aria-label="Conversation branch" value={c.head ?? ''} disabled={composerBusy(c) || !!c.answer} onChange={e => chat.chooseBranch(c, e.target.value)}>
@@ -78,7 +109,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       </select></label>}
     </div>
     {(chat.history.status !== 'ready' || chat.history.issue || chat.history.unsaved > 0) && <div className="chat-sync fine" role="status">
-      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : 'Saving encrypted history… Keep this tab open.')}
+      {chat.history.issue ?? (chat.history.status === 'loading' ? 'Loading encrypted history…' : chat.durable ? 'Saved on this device. Syncing encrypted history…' : 'Saving encrypted history… Keep this tab open.')}
       {chat.history.issue && <button className="link" onClick={() => void chat.history.sync().catch(() => {})}>Retry sync</button>}
     </div>}
     <div ref={viewport} className="chat-transcript" role="region" aria-label="Conversation" tabIndex={0} onScroll={() => {
@@ -93,36 +124,46 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
         <div className="message-label">{m.payload.role === 'user' ? 'You' : 'Gradstep'}</div>
         {m.payload.role === 'user' ? <div className="question-text">{m.payload.text}</div> : <Answer text={m.payload.text ?? ''} />}
         {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
+        {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
         {diagrams.has(m.payload.entityID) && <Diagram title={diagrams.get(m.payload.entityID)!.title} source={diagrams.get(m.payload.entityID)!.source} />}
       </div>)}
       {c.liveID && !savedLive && <div key={c.liveID} className="chat-message assistant" data-testid="chat-streaming"><div className="message-label">Gradstep</div>
         <Answer text={displayText} streaming />{!c.liveText && <p className="fine" role="status">{c.progress ? progressText(c.progress) : 'Thinking…'}</p>}</div>}
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
+        {c.issue === 'local_save' && !retired && <button className="secondary small" onClick={() => void chat.retryDeviceSave(c)}>Retry device save</button>}
         {canAnswer && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
         {c.answer && !retired && <button className="secondary small" onClick={() => void chat.retry(c)}>Retry saving</button>}
       </div>}
       {!c.issue && canAnswer && !composerBusy(c) && last?.payload.role === 'user' && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
+      {canAnswer && (c.issue || last?.payload.role === 'user') && <p className="fine" data-testid="retry-profile">This question: {profileSummary(chat.retryProfile(c), table)}</p>}
       {c.credits !== null && <p className="fine answer-cost">{c.credits} {c.credits === 1 ? 'credit' : 'credits'} used</p>}
       {deleted && <p className="issue">This conversation was deleted. Your draft is still here to copy.</p>}
       <div ref={bottom} />
     </div>
     {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
-      <textarea ref={field} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
+      <textarea ref={field} data-composer-id={c.id} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
         onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
-      <div className="composer-footer"><span className="fine" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}` : 'Uses credits'}</span>
+      <div className="composer-footer"><div className="composer-meta">
+        <ProfileControl table={table} choice={choice} defaultChoice={chat.defaultProfile} disabled={retired || composerBusy(c) || !!c.answer}
+          onChange={next => chat.setProfile(c, next)} onMakeDefault={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />
+        <span className="fine composer-balance" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}` : 'Uses credits'}</span></div>
         {c.phase === 'streaming' ? <button type="button" className="secondary small" onClick={() => chat.stop(c)}>Stop</button>
           : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
       </div>
       {inputIssue && <p className="issue fine">This draft is too long. Shorten it to continue.</p>}
-      <p className="fine draft-hint">{retired ? 'This tab has stopped sending. Select your text to copy it.' : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
+      <p className="fine draft-hint" data-testid="draft-status">{retired ? 'This tab has stopped sending. Select your text to copy it.' : chat.durable
+        ? c.issue === 'local_save' ? 'Couldn’t save this edit on this device. Keep this tab open and copy your text.'
+          : c.revision > c.savedRevision ? 'Saving draft on this device…' : 'Saved on this device. Site-data clearing can remove unsynced work. Shift+Enter for a new line.'
+        : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
     </form>
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer.</p>
       <p>Web searches may go to Tavily or Anthropic’s search provider. Anthropic and the search services may retain requests under their API terms.</p>
       <p className="muted">Gradstep passes the request through without storing the text. Saved chats are encrypted with your device keys. Answers use credits.</p>
+      <p className="fine">This question: {profileSummary(chat.retryProfile(c), table)}</p>
       <div className="dialog-actions"><button className="secondary" onClick={() => void chat.consent(c, false)}>Not now</button><button className="primary" onClick={() => void chat.consent(c, true)}>Allow and get answer</button></div>
     </Dialog>
     <Dialog open={!!link} onClose={() => setLink(null)} title="Open source">
@@ -149,23 +190,42 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
   const [deleting, setDeleting] = useState<ConversationSummary | null>(null), [deleteError, setDeleteError] = useState(false);
   const [deleteEntry, setDeleteEntry] = useState<{ id: string; event: { kind: 'tombstone'; entityID: string; parents: string[]; createdAt: number } } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [renamingID, setRenamingID] = useState<string | null>(null);
+  const newGeneral = () => {
+    const composer = chat.newChat(null);
+    onOpen(null); onClose();
+    // Let the history dialog close before focusing its destination; a newer navigation or login
+    // must not move focus into a different composer.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!chat.signal.aborted && !chat.storageRetired) document.querySelector<HTMLTextAreaElement>(`textarea[data-composer-id="${composer.id}"]`)?.focus();
+    }));
+  };
   const normalized = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
   const rows = chat.history.state.conversationSummaries().filter(c => (filter === 'all' || (filter === 'this' ? c.documentID === currentDocument : filter === 'paper' ? !!c.documentID : !c.documentID))
     && normalized(search).split(/\s+/).filter(Boolean).every(word => normalized(`${c.title} ${c.questions} ${papers.get(c.documentID ?? '') ?? ''}`).includes(word)));
-  rows.sort((a, b) => sort === 'title' ? a.title.localeCompare(b.title) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
+  rows.sort((a, b) => sort === 'title' ? summaryTitle(a).localeCompare(summaryTitle(b)) : (sort === 'started' ? (b.startedAt ?? -1) - (a.startedAt ?? -1) : (b.lastUsedAt ?? -1) - (a.lastUsedAt ?? -1)) || b.lastArrival - a.lastArrival);
   return <>
-    <div className="dialog-heading"><h2>All chats</h2><button className="link" onClick={onClose}>Done</button></div>
+    <div className="dialog-heading"><h2>All chats</h2><div className="history-heading-actions">
+      <button className="secondary small" disabled={chat.storageRetired} onClick={newGeneral}>New general chat</button>
+      <button className="link" onClick={onClose}>Done</button>
+    </div></div>
     <input type="search" autoFocus aria-label="Search chats" placeholder="Search chats" value={search} onChange={e => setSearch(e.target.value)} />
     <div className="history-filters">{(currentDocument ? ['this', 'all', 'paper', 'general'] : ['all', 'paper', 'general']).map(f => <button key={f} className={`seg${filter === f ? ' on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>{({ this: 'This paper', all: 'All', paper: 'Paper chats', general: 'General' })[f]}</button>)}</div>
     <p className="fine">{rows.length} chats · Synced encrypted history</p>
-    {[...chat.composers.values()].filter(c => c.draft).map(c => <div className="history-draft" key={c.id}><button className="link" onClick={() => { chat.chooseDraft(c.id); onOpen(c.documentID); onClose(); }}>Draft · {papers.get(c.documentID ?? '') ?? 'General chat'}</button><button className="link" disabled={composerBusy(c)} onClick={() => chat.discardDraft(c.id)}>Discard</button></div>)}
+    {[...chat.composers.values()].filter(c => c.draft).map(c => <div className="history-draft" key={c.id}><button className="link" onClick={() => { chat.chooseDraft(c.id); onOpen(c.documentID); onClose(); }}>Draft · {papers.get(c.documentID ?? '') ?? 'General chat'}</button><button className="link" disabled={composerBusy(c) || !!c.answer || chat.hasUnresolvedTurn(c) || chat.storageRetired}
+      title={c.answer || chat.hasUnresolvedTurn(c) ? 'Finish saving this answer before discarding the draft.' : undefined} onClick={() => chat.discardDraft(c.id)}>Discard</button></div>)}
     {chat.history.issue && <p role="alert">{chat.history.issue}</p>}
     <div className="history-table-wrap"><table className="history-table"><thead><tr><th><button className="link" onClick={() => setSort('title')}>Conversation</button></th><th className="history-paper">Paper</th><th><button className="link" onClick={() => setSort(sort === 'started' ? 'last' : 'started')}>{sort === 'started' ? 'Started' : 'Last used'}</button></th><th><span className="sr-only">Actions</span></th></tr></thead>
-      <tbody>{rows.map(c => <tr key={c.id}><td><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{[chatTitle(c.title).label, chatTitle(c.title).text].filter(Boolean).join(' · ') || 'Chat'}</button><span className="fine">{c.messageCount} messages</span></td>
-        <td className="history-paper">{c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General'}</td><td className="fine">{formatDate(sort === 'started' ? c.startedAt : c.lastUsedAt)}</td><td><button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
+      <tbody>{rows.map(c => <tr key={c.id}><td>{renamingID === c.id
+        ? <RenameField initial={summaryTitle(c) || 'Chat'} label="Chat name" onCancel={() => setRenamingID(null)}
+          onSave={async name => { const ok = await chat.rename(c.id, name); if (ok) setRenamingID(null); return ok; }} />
+        : <><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{summaryTitle(c) || 'Chat'}</button>
+          <span className="fine history-meta">{c.messageCount} messages · <button className="link history-rename" disabled={chat.storageRetired} aria-label={`Rename ${summaryTitle(c) || 'chat'}`} onClick={() => setRenamingID(c.id)}>Rename</button></span></>}</td>
+        <td className="history-paper">{c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General'}</td><td className="fine">{formatDate(sort === 'started' ? c.startedAt : c.lastUsedAt)}</td>
+        <td><button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
     </table></div>
     {!rows.length && <p className="muted">{search ? 'No matching chats.' : 'Your saved conversations will appear here.'}</p>}
-    {deleting && <div className="chat-delete" role="alert"><p>Delete “{deleting.title}” from chats on all your devices?</p><div className="dialog-actions"><button className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button className="primary" disabled={deleteBusy} onClick={() => {
+    {deleting && <div className="chat-delete" role="alert"><p>Delete “{summaryTitle(deleting) || 'this chat'}” from chats on all your devices?</p><div className="dialog-actions"><button className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button className="primary" disabled={deleteBusy} onClick={() => {
       const entry = deleteEntry ?? { id: crypto.randomUUID(), event: { kind: 'tombstone' as const, entityID: deleting.id, parents: [], createdAt: Date.now() } };
       setDeleteEntry(entry); setDeleteBusy(true);
       void chat.history.append([entry]).then(() => setDeleting(null), () => setDeleteError(true)).finally(() => setDeleteBusy(false));

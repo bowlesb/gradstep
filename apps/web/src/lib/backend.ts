@@ -26,7 +26,14 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'too_many_enrollment_requests', 'enrollment_mismatch', 'enrollment_conflict', 'enrollment_id_conflict', 'invalid_management_token',
   'reader_not_ready', 'reader_integrity_failed', 'reader_unavailable', 'item_unavailable', 'origin_unavailable', 'insufficient_credits',
   'account_busy', 'platform_budget_exhausted', 'import_unavailable', 'reader_transfer_limit', 'reader_upgrade_required',
-  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete', 'rate_limited', 'invalid_category', 'service_unavailable']);
+  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete', 'rate_limited', 'invalid_category', 'service_unavailable',
+  'feed_unavailable', 'invalid_feed', 'invalid_feed_topic', 'invalid_feed_feedback',
+  // Finite podcast contract errors, never arbitrary server/provider text.
+  'account_unavailable', 'spending_suspended', 'podcast_transfer_limit', 'podcast_unavailable', 'podcast_paused',
+  'podcast_release_unavailable', 'podcast_request_unavailable', 'source_unavailable', 'source_too_large',
+  'quote_unavailable', 'quote_expired', 'consent_required', 'active_generation_limit', 'podcast_busy', 'podcast_daily_limit',
+  'too_many_active_operations', 'storage_full', 'podcast_request_conflict', 'podcast_grant_unavailable',
+  'podcast_grant_consumed', 'podcast_range_unavailable', 'podcast_integrity_failed']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 
@@ -316,6 +323,19 @@ export async function functionPost<T>(path: string, body: unknown, options: { ma
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
+}
+
+/** One authorized, single-use audio GET on this deployment. No Range or grant retry. */
+export async function podcastMemberBytes(url: string, bytes: number, signal: AbortSignal | undefined, account: string): Promise<Uint8Array<ArrayBuffer>> {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new BackendError('podcast_integrity_failed'); }
+  if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > 16_777_216
+    || parsed.origin !== new URL(config.url).origin || parsed.pathname !== '/functions/v1/podcast-member' || parsed.username || parsed.password || parsed.hash
+    || parsed.searchParams.size !== 2 || new Set(parsed.searchParams.keys()).size !== 2 || !/^[0-9a-f]{64}$/.test(parsed.searchParams.get('grant') ?? '')
+    || !isUUID(parsed.searchParams.get('member'))) throw new BackendError('podcast_integrity_failed');
+  const data = await authorized(`functions/v1/podcast-member${parsed.search}`, { method: 'GET', maximum: bytes, account, signal, timeout: 120_000 });
+  if (data.length !== bytes) throw new BackendError('podcast_integrity_failed');
+  return data;
 }
 
 /** A signed Storage URL on the configured project host; carries no account credential. */

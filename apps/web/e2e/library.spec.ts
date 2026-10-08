@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 
 test('a full library stays searchable while an import progresses', async ({ page, request, context, browserName }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
@@ -24,11 +24,13 @@ test('a full library stays searchable while an import progresses', async ({ page
   const started = Date.now();
   await page.getByTestId('recover').click();
   const rows = page.getByTestId('paper-row');
-  await expect(rows).toHaveCount(3999); // 4,000 retained entries include one archived paper.
+  await expect(page.getByTestId('library-table')).toHaveAttribute('aria-rowcount', '4000'); // includes the heading, excludes one archived paper
+  await expect(rows).toHaveCount(3999); // full rendering remains the default
   const recoveryToLibraryMs = Date.now() - started;
   // Exercise the heaviest chosen-column view on both sizes; compact defaults are deliberately smaller.
   await page.getByRole('button', { name: 'Columns', exact: true }).click();
   const columns = page.getByRole('dialog', { name: 'Library columns' });
+  await columns.getByRole('checkbox', { name: 'Show rows as you scroll', exact: true }).check();
   for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await columns.getByRole('checkbox', { name, exact: true }).check();
   await columns.getByRole('button', { name: 'Done' }).click();
   const progress = page.getByTestId('import-progress').locator('progress');
@@ -43,7 +45,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   await page.screenshot({ path: `../../.artifacts/web-library/${label}-${info.project.name}-large-library.png` });
   const scroller = page.getByRole('region', { name: 'Library table' });
   await scroller.evaluate(element => { element.scrollTop = 1000; });
-  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(1000);
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBeGreaterThan(900);
   expect((await page.getByRole('columnheader', { name: 'Title' }).boundingBox())!.y).toBeCloseTo((await scroller.boundingBox())!.y, 0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
 
@@ -57,6 +59,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   await expect(rows.first().locator('.col-tags')).toHaveText('Live library marker');
   await page.getByTestId('search').fill('');
 
+  const renderedRows = await rows.count();
   const searchStarted = Date.now();
   await page.getByTestId('search').fill('Research paper 3997');
   await expect(rows).toHaveCount(1);
@@ -70,7 +73,8 @@ test('a full library stays searchable while an import progresses', async ({ page
     ? rail.getByRole('button', { name: new RegExp(name || 'Self-supervised learning') }).click()
     : page.getByRole('combobox', { name: 'Filter by tag' }).selectOption(name);
   await tag('Self-supervised learning');
-  await expect(rows).toHaveCount(1998);
+  await expect(page.getByTestId('library-table')).toHaveAttribute('aria-rowcount', '1999');
+  await expect.poll(() => rows.count()).toBeLessThan(80);
   await tag(''); // a second press clears the rail's tag
   await page.getByRole('button', { name: /^Year/ }).click();
   await expect(rows.first().locator('.col-year')).toHaveText('2025');
@@ -81,7 +85,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   await expect(page).toHaveURL(/\/paper\/cccccccc-0000-4000-8000-000000003997$/);
   await expect(page.getByTestId('contents')).toBeEnabled();
   expect(errors).toEqual([]);
-  const report = { retainedEntries: 4000, visibleRows: 3999, recoveryToLibraryMs, searchMs,
+  const report = { retainedEntries: 4000, matchingRows: 3999, renderedRows, recoveryToLibraryMs, searchMs,
     observationSeconds: after.Timestamp - before.Timestamp,
     scriptMilliseconds: (after.ScriptDuration - before.ScriptDuration) * 1000,
     taskMilliseconds: (after.TaskDuration - before.TaskDuration) * 1000,

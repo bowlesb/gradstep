@@ -3,7 +3,7 @@ import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 const COLUMNS = ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress'];
 const KEY = 'gradstep.library.columns.v1';
 async function signIn(page: Page) {
@@ -18,9 +18,12 @@ async function signIn(page: Page) {
   await expect(page.getByTestId('library-table')).toBeVisible();
 }
 const shot = (page: Page, name: string) => page.screenshot({ path: `../../.artifacts/web-columns/${test.info().project.name}-${name}.png` });
-const hasNoPageOverflow = async (page: Page) => expect(await page.evaluate(() => ({ page: document.documentElement.scrollWidth, viewport: innerWidth,
-  center: document.querySelector('.pane-center')!.scrollWidth, centerWidth: document.querySelector('.pane-center')!.clientWidth })))
-  .toMatchObject({ page: page.viewportSize()!.width, viewport: page.viewportSize()!.width, center: await page.locator('.pane-center').evaluate(e => e.clientWidth) });
+// Read both sides of the overflow invariant in the same frame; the workspace may collapse its rail
+// between two awaited reads immediately after crossing the compact breakpoint.
+const hasNoPageOverflow = async (page: Page) => expect.poll(() => page.evaluate(() => {
+  const center = document.querySelector('.pane-center')!;
+  return { page: document.documentElement.scrollWidth, viewport: innerWidth, centerFits: center.scrollWidth <= center.clientWidth };
+})).toMatchObject({ page: page.viewportSize()!.width, viewport: page.viewportSize()!.width, centerFits: true });
 
 test.beforeEach(async ({ request }) => { await request.post(`${FIXTURE}/__reset`); });
 

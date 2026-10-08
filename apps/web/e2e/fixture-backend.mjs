@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local, fail-closed stand-in for the Supabase routes the browser reader uses, for Playwright.
-// It follows the real contracts (migrations 002/006/010/019/029, reader-artifact) closely enough to
+// It follows the real contracts (migrations 002/006/010/019/020/029/030, reader-artifact) closely enough to
 // exercise the client, with public test data only. Unknown routes answer 404; nothing proxies out.
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -10,10 +10,12 @@ import { fileURLToPath } from 'node:url';
 import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
-const PORT = Number(process.env.FIXTURE_PORT ?? 54329);
+import { fixturePort as PORT } from './environment.ts';
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
+// Public profile contract fixture from chat-controls-titles (3286b43); this browser fixture does not call a hosted server.
+const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -26,7 +28,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 const sessions = new Map(); // token -> account
 const state = new Map();
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set() });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -132,8 +134,44 @@ function receipt(a, operation, digest, result) {
   return { ...response, entry: a.entries.get(result.kind + ':' + result.id) };
 }
 
+// 010/020/030: replay the historical result with the item's current projection; never apply a
+// retried operation twice. Archive, removal and tags all compete on membership_revision.
+function paperCommand(a, p, action) {
+  const allowed = ['p_operation_id', 'p_document_id', 'p_expected_revision', ...(action === 'tags' ? ['p_tags', 'p_hidden_tags'] : action === 'archive' ? ['p_archived'] : ['p_present'])];
+  if (Object.keys(p).some(key => !allowed.includes(key)) || !Number.isSafeInteger(p.p_expected_revision) || p.p_expected_revision < 1) throw pg('invalid_command');
+  const validTags = (tags, limit) => Array.isArray(tags) && tags.length <= limit && tags.every(tag => typeof tag === 'string' && tag === tag.trim()
+    && [...tag].length >= 1 && [...tag].length <= 40 && Buffer.byteLength(tag, 'utf8') <= 120 && !/[\p{Cc}\p{Cs}]|\s\s/u.test(tag))
+    && new Set(tags.map(tag => tag.toLowerCase())).size === tags.length;
+  if (action === 'tags' && (!validTags(p.p_tags, 12) || !validTags(p.p_hidden_tags, 8))) throw pg('invalid_tags_command');
+  if (action === 'archive' && typeof p.p_archived !== 'boolean') throw pg('invalid_archive_command');
+  if (action === 'remove' && p.p_present !== false) throw pg('invalid_membership_command');
+  const paper = [...a.entries.values()].find(entry => entry.kind === 'item' && entry.document_id === p.p_document_id);
+  if (!paper) throw pg('document_unavailable');
+  const digest = JSON.stringify(action === 'tags' ? ['tags-v1', p.p_document_id, p.p_tags, p.p_hidden_tags, p.p_expected_revision]
+    : action === 'archive' ? ['archive-v1', p.p_document_id, p.p_archived, p.p_expected_revision]
+      : ['membership-v2', p.p_document_id, false, p.p_expected_revision, null]);
+  if (a.receipts.has(p.p_operation_id)) return receipt(a, p.p_operation_id, digest);
+  if ((action !== 'remove' && !paper.visible) || paper.membership_revision !== p.p_expected_revision)
+    return receipt(a, p.p_operation_id, digest, { status: 'revision_conflict', kind: 'item', id: paper.id, revision: paper.membership_revision });
+  const updated = { ...paper, membership_revision: paper.membership_revision + 1 };
+  if (action === 'tags') {
+    if (p.p_tags.length) updated.user_tags = [...p.p_tags]; else delete updated.user_tags;
+    if (p.p_hidden_tags.length) updated.hidden_tags = [...p.p_hidden_tags]; else delete updated.hidden_tags;
+  } else if (action === 'archive') {
+    if (p.p_archived) updated.archived = true; else delete updated.archived;
+  } else {
+    updated.visible = false; updated.last_remove_seq = a.seq + 1;
+    delete updated.archived; delete updated.tags; delete updated.user_tags; delete updated.hidden_tags;
+  }
+  const seq = emit(a, [updated]);
+  return receipt(a, p.p_operation_id, digest, { status: 'applied', kind: 'item', id: paper.id, seq, revision: updated.membership_revision });
+}
+
 // ---------- RPCs ----------
 const rpcs = {
+  v2_set_item_tags: (_id, a, p) => paperCommand(a, p, 'tags'),
+  v2_set_item_archived: (_id, a, p) => paperCommand(a, p, 'archive'),
+  v2_set_library_item: (_id, a, p) => paperCommand(a, p, 'remove'),
   v1_key_state: (id, a, p) => a.keyring && {
     epoch: a.keyring.epoch, recovery_package: a.keyring.recovery_package,
     device_envelope: a.devices.get(p.p_device_id)?.revoked_at === null ? a.envelopes.get(`${p.p_device_id}:${a.keyring.epoch}`) ?? null : null,
@@ -249,6 +287,11 @@ createServer(async (request, response) => {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
+    if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
+    // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
+    if (typeof p?.labels === 'boolean') a.chatLabels = p.labels;
+    // profiles: false answers GET functions/v1/chat with 405, as a server before profiles does.
+    if (typeof p?.profiles === 'boolean') a.chatProfiles = p.profiles;
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
@@ -260,6 +303,26 @@ createServer(async (request, response) => {
   if (url.pathname === '/__removable-import' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
     emit(a, [{ ...imp, retryable: false, error_code: 'pdf_invalid' }]);
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__paper-action' && request.method === 'POST') {
+    const body = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    const paper = a.entries.get('item:' + (body?.itemID ?? 'aaaaaaaa-0000-4000-8000-000000000001'));
+    if (!paper || !['tags', 'archive', 'remove'].includes(body?.action)) return send(response, 400, {});
+    const params = { p_operation_id: body.operationID ?? randomUUID(), p_document_id: paper.document_id, p_expected_revision: body.revision ?? paper.membership_revision,
+      ...(body.action === 'tags' ? { p_tags: body.tags ?? [], p_hidden_tags: body.hidden ?? [] } : body.action === 'archive' ? { p_archived: body.archived ?? true } : { p_present: false }) };
+    try { return send(response, 200, paperCommand(a, params, body.action)); } catch { return send(response, 400, {}); }
+  }
+  if (url.pathname === '/__library-action-evidence' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, { seq: a.seq, entries: [...a.entries.values()], receipts: [...a.receipts].map(([operationID, value]) => ({ operationID, result: value.response.result })) });
+  }
+  if (url.pathname === '/__mapped-imports' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), paper = a.entries.get('item:aaaaaaaa-0000-4000-8000-000000000001');
+    const base = { kind: 'import', intent_revision: 1, source: 'arxiv', source_id: '1706.03762', source_url: 'https://arxiv.org/abs/1706.03762',
+      retryable: false, document_id: paper.document_id, library_item_id: paper.id };
+    emit(a, [{ ...base, id: 'bbbbbbbb-0000-4000-8000-000000000010', visible: true, phase: 'acquiring' },
+      { ...base, id: 'bbbbbbbb-0000-4000-8000-000000000011', visible: false, phase: 'ready' }]);
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__cancel-stopped-import' && request.method === 'POST') {
@@ -331,15 +394,26 @@ createServer(async (request, response) => {
     if (!rpcs[name] || body === null) return send(response, 404, { code: 'PGRST202', message: 'not found' });
     try {
       const result = rpcs[name](id, a, body);
+      // The row commits but the caller receives no append receipt. A finite 503 avoids Chromium's transport-level
+      // retry of a dropped reused socket, making exact-ID recovery deterministic.
+      if (name === 'v1_append_event' && a.loseAppendAck) { a.loseAppendAck = false; return send(response, 503, { code: 'service_unavailable' }); }
       return result === null && ['v1_approve_enrollment'].includes(name) ? send(response, 204) : send(response, 200, result ?? null);
     } catch (error) {
       if (error.pg) return send(response, 400, { code: 'P0001', message: error.message });
       throw error;
     }
   }
+  if (url.pathname === '/functions/v1/chat' && request.method === 'GET') {
+    return a.chatProfiles ? send(response, 200, CHAT_PROFILES) : send(response, 405, { code: 'method_unavailable' });
+  }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
     if (!body?.operation_id || body.consent_version !== 'cloud-ai-v2' || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    // As chat.ts validates: a profile is exactly {model, effort, length} with known values; topic_title is a boolean.
+    const p = body.profile;
+    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
+      || !['low', 'medium', 'high'].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
+    if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -356,7 +430,10 @@ createServer(async (request, response) => {
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
-      event('done', { stop_reason: 'end_turn', credits: 3 }); response.end();
+      if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
+      const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';
+      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }[body.profile?.model ?? 'sonnet'];
+      event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;
   }
@@ -371,6 +448,7 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
   }
   // Feed (discover?category=…): public sample metadata only.
   if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
+    if (url.searchParams.has('feed')) return send(response, 404, { code: 'feed_unavailable' });
     const category = url.searchParams.get('category') ?? '';
     if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
     return send(response, 200, { results: [

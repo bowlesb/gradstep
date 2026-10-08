@@ -1,0 +1,58 @@
+# Browser podcast client checkpoint — 2026-10-08
+
+Implemented in `codex/web-podcast-client-20261008`, from main `44bf3c2`. **Local fixture evidence only. The podcast backend is dark and undeployed; no provider, hosted endpoint, migration, paid generation, deployment, or physical device was used.**
+
+Contract: `podcast-v1` at `921562f`, `docs/architecture/PAPER_PODCASTS.md` (client API reference), native `PodcastCenter`/`PodcastGenerateSheet`, and the donor web-only commits `72e04ff`/`947afe3`. This checkpoint adopts and repairs their client foundation; no donor App/Feed/shared backend changes were applied.
+
+## Owned source
+
+- `src/lib/podcast.ts`: bounded contract decoders; catalog/paper/episode/states; explicit quote/start/status/cancel; exact configured single-use member URL; byte count, MIME identity and SHA-256 before a Blob. Private releases accept null server titles and use the library's title in the UI. Unknown release states fail closed; unknown transcript claim kinds become context. Chapter zero, ordered chapters/segments, unique IDs and valid chapter references are enforced. Capabilities come from catalog/paper responses; no nonexistent Edge capabilities action is assumed.
+- `src/lib/podcast-playback.ts`: backend-origin, environment, account **and auth-lifetime** scoped positions; every session/sequence save has an immutable localStorage key. This removes a shared map or per-episode read/modify/write race. Reading merges by session start, session UUID, sequence, then tombstone for exact ties. A backward seek wins within its session. Pruning deletes only immutable keys observed in a snapshot and retains the 200 most recently saved episode winners. Concurrent unseen writes remain intact until the next prune. Revocation writes a newer tombstone, which rejects stale position writes while retained. The same 200-entry bound can evict old tombstones; a stale tab can then restore disposable position metadata. A position never authorizes playback: every new playback positively checks server state before delivery. This intentionally avoids an unbounded revocation ledger. Only position metadata is kept in unencrypted localStorage under the accepted device-local v1 contract. No audio, transcripts, or podcast history events are persisted.
+- `src/ui/Podcast.tsx` + owned `Podcast.css`/`PodcastIcons.tsx`: Listen catalog; dock in its own workspace row; play/pause, ±15s, progress/rate, chapters, approximate transcript, evidence passage callback and explicit Add callback. MediaSession Play and Pause are separate idempotent commands. In-memory verified audio is released on Stop, auth retirement, and unmount. Confirmed auth retirement (including external sign-out/account changes and same-account new login) clears its captured lifetime. Ordinary unmount/StrictMode replay saves and releases only this player’s media, preserving other tabs’ resume points. Explicit Forget can clear all lifetimes for this backend/account. A retired owner cannot erase a newer login's positions.
+- Paper Listen: read-only paper availability, explicit estimate, displayed maximum **150 credits**, named providers, server-readable private audio/transcript disclosure, then a separate confirmation to start. Quote and start share the same request UUID. A lost start response retains that exact quote/request for retry or status lookup; reuse/join does not start generation. Ready charges come only from the server. Cancel is explicit; closing a sheet does not cancel accepted work.
+- Minimal `backend.ts`: finite podcast error allowlist and bounded authorized member GET. Existing account-generation/refresh fences stay authoritative. `vite.config.ts` adds only `media-src blob:` to the production CSP.
+
+## Polling and lifecycle bounds
+
+Open verified releases check `states` before every new download, then every 60 seconds foreground / 5 minutes hidden, with one request in flight. Online/visibility wakes are throttled to one per 10 seconds. Closing/stopping/account retirement cancels polling. Positive non-ready results release audio, remove the position and offer an explicit replacement. Transient errors preserve verified audio. Offline revocations become knowable only after reconnect.
+
+A visible private-generation sheet polls every 5 seconds during its first minute, then every 15 seconds; only one status read at a time, no reads while hidden/offline, stops at terminal state, pauses after an error or 30 minutes, and offers explicit Refresh. Closing stops polling. There is no automatic paid retry, progress percentage inferred from time, or generation on mounting/opening a paper.
+
+## Integration status
+
+Root integrated the client into the real App, Feed and Reader in `914ab0e`, then included the reviewed
+unresolved-start/reuse corrections from `22e7388` in `815d61d`. The separate dock keeps chat above the player.
+The evidence callback is asynchronous and returns `true` for a completed winning navigation, `false` for
+an absent paper and `null` when superseded. Integrated desktop/390 px journeys cover draft recovery, passage
+return, navigation supersession and cached Feed refresh cancellation. This is still local evidence;
+deployment and backend capability must be recorded separately.
+
+Unresolved generation requests now retain only bounded opaque request/quote/item identifiers in scoped
+sessionStorage before Start, including through sheet closure and reload. A lost response, `job: null`,
+or expired quote after an uncertain start cannot discard that identity or silently issue a new request.
+Explicit status and retry use the same identity. Positive reuse resolves and verifies the exact release.
+Private audio/transcripts remain in memory, and this does not provide offline podcast downloads.
+
+## Historical integration handoff (superseded)
+
+The following patch is retained as review history. **Do not apply it to current code.** The root integration
+above supersedes it, including the asynchronous evidence result and unresolved-request persistence.
+
+`integration.patch` is an **unapplied** review artifact against root's `e67309d`; it touches only root-owned `App.tsx`, `Feed.tsx`, and the Reader toolbar slot. It preserves the newer `FeedSelection`/`select` API and For you/topic/category choice. Root/Reader owners must apply or adapt it, review, and run integrated journeys. Those files are unchanged on this branch. The patch was applied and TypeScript-checked only in an ignored, frozen artifact copy of e67309d; the real shared files were not edited.
+
+1. In `Signed`, instantiate `usePodcasts(account)` and `usePodcastPlayer(account)` once. Root already keys `AccountSession` by `auth.snapshot().generation`; retain that boundary. For explicit Forget, call `clearPositions(account)` only after rechecking the captured auth owner, immediately before sign-out. The hooks also observe auth retirement directly, so external login/logout does not depend on the sign-out button.
+2. `ListenFilter` (`selected`, `select`, `view`) and `ListenFilterButton` add the Listen choice beside For you/topics. Choosing a normal feed clears Listen, preserving its prior selected feed. Pause feed-page loading while Listen is selected; mount `<ListenView podcasts={podcasts} player={player}/>` for its content.
+3. Place `<PodcastDock>` immediately after `<Workspace>` in the app flex column, outside the reader/chat panes. Supply `onEvidence(episode,evidence): boolean`: locate visible library item by **document ID**, open it, and pass `evidenceAnchor(evidence)` through the existing passage finder. Return false for absent papers. Supply `onAdd(episode): Promise<void>` to explicitly import the source through `library.addArxiv(episode.source.arxivID, episode.source.version)`; the dock reports success/failure.
+4. Reader accepts one optional `listenAction?: ReactNode` toolbar slot; supply `<PaperListen account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player}/>` beside existing paper actions. Nothing about reader selection, frame bridge, encrypted chat, or import models changes.
+
+The standalone fixture composition verifies these callbacks, not the final main App/Feed/Reader integration. Hosted capability/deployment checks, real private job/provider quality, live download allowances, Safari and physical Mac/iOS remain outside this evidence. Browser offline downloads remain intentionally absent; Stop/reopen needs a new single-use grant.
+
+## Verification
+
+- `npm test`: **230 passed**, including 29 podcast tests (final run after UI/lifecycle hardening).
+- `npm run build`: TypeScript and production build pass; existing large bundle warning remains. App integration is unapplied, so the normal production app does not yet expose these components. The dedicated fixture production build bundles and executes them under the same generated CSP.
+- `npx playwright test --config podcast.playwright.config.ts`: **14 Chromium journeys passed** (fixture `54369`, app `4357`). Covers actual HTMLAudioElement playback, idempotent hardware/media handlers, rate/chapter/segment seek, evidence/Add, full displayed credit consent, lost-start exact identity, poll completion/charges, disabled generation, explicit cancellation vs close, hash tampering, delayed delivery and private-start across auth retirement, external same-account retirement cleanup, ordinary unmount/remount resume preservation, bounded revocation/replacement, transient state failure, two actual concurrent tabs, quote reuse/join/expiry, no audio in localStorage/CacheStorage/IndexedDB, and 390 px layout.
+- Visual evidence under `.artifacts/podcast-client/`: `player-desktop.png`, `player-phone.png`, `private-consent-desktop.png`, `private-consent-phone.png`. Light desktop/phone inspected. Fixture tones and invented test account only.
+- Development StrictMode (`WEB_E2E_DEV=1`, same config), focused external-auth/unmount, delayed-delivery, two-tab, and other-tab remount/resume cases: **4 passed**. This exercises React effect replay as well as the production journeys.
+
+Root-owned test-port helper `d1cad9e` was cherry-picked as `2617545` before this work; integration should not apply it twice.

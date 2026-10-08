@@ -37,8 +37,11 @@ into active import rows. Local Chromium observations over about 3.4 seconds drop
 to 9–18 ms; the fixture still renders 3,999 rows from 4,000 retained entries. It exercises client wire capacity,
 not the backend's item/import quota mix. [Evidence and limitations](BROWSER_READER.md#library-update-isolation--2026-10-07).
 The separate [framework experiment](WEB_FRAMEWORK_EVALUATION.md) measured windowed rendering with 50,000 synthetic
-records; it bypassed product sync/storage and does not establish 50,000-paper capacity. Product windowing, larger
+records; it bypassed product sync/storage and does not establish 50,000-paper capacity. Default product windowing, larger
 capacity and browser offline library storage remain proposed work. Native encrypted per-row caching already exists.
+An [opt-in browser table implementation](../verification/2026-10-08-browser-library-windowing.md) is locally verified
+at the existing bound (2026-10-08). Full rows remain the default; browser-menu Find cannot search unmounted rows
+in the optional mode, so default windowing still requires the owner’s explicit UX decision. This is not a larger-capacity acceptance.
 
 ## Separate replication, queries and assets
 

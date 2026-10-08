@@ -29,6 +29,7 @@ describe('payload and comparison code (device-approval-v1.json)', () => {
 
 // ---------- An in-memory server following migration 002's enrollment contract ----------
 const account = '11111111-2222-4333-8444-555555555555';
+const login = vi.hoisted(() => ({ signal: new AbortController().signal, generation: 0, session: { user: { id: '11111111-2222-4333-8444-555555555555' }, lifetime: 'test-login' } }));
 const storage = vi.hoisted(() => ({ record: undefined as DeviceRecord | undefined }));
 const server = vi.hoisted(() => ({
   keyring: null as null | { epoch: number; recovery_package: string },
@@ -60,9 +61,17 @@ const rpc = vi.hoisted(() => vi.fn(async (name: string, p: Record<string, string
   }
   throw new Error('unexpected ' + name);
 }));
-vi.mock('../src/lib/backend', () => ({ config: { environment: 'test' }, rpc, BackendError: class extends Error {},
-  auth: { snapshot: () => ({ signal: new AbortController().signal }) } }));
+vi.mock('../src/lib/backend', () => ({ config: { environment: 'test', url: 'https://fixture.example' }, rpc, BackendError: class extends Error {},
+  auth: { snapshot: () => login } }));
 vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
+  reapWriters: async () => {},
+  admit: async (key: string, origin: string, lifetime: string, writer: string) => ({ key, origin, lifetime, writer, incarnation: crypto.randomUUID(), generation: 1 }),
+  retireWriter: async () => {},
+  putDevice: async (_fence: unknown, record: DeviceRecord, current: () => boolean) => {
+    if (!current()) return false;
+    const cloned = structuredClone(record);
+    storage.record = cloned; return true;
+  },
   get: async () => storage.record && structuredClone(storage.record),
   put: async (_store: string, _key: string, record: DeviceRecord) => { storage.record = structuredClone(record); },
 } }));
@@ -79,7 +88,7 @@ describe('approve this browser from another device', () => {
   beforeEach(async () => {
     storage.record = undefined; server.devices.clear(); server.envelopes.clear(); server.requests.clear(); server.calls = [];
     server.keyring = { epoch: 1, recovery_package: toBytea(await wrapRecovery(bundle, code)) };
-    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('navigator', { locks: { request: async (_name: string, options: unknown, callback: (lock?: object) => unknown) => callback({}) } }); vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(login.session) });
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
