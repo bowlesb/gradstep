@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Pending reader ACL review in a disposable loopback DB; no hosted calls.
+"""Reader ACL review in a disposable loopback DB; no hosted calls.
 
---baseline shows the old issuer still succeeds where the candidate rejects it.
-Normal migration/deploy runners intentionally ignore the pending file.
+--baseline loads only pre-045 schema and intentionally fails where the obsolete
+issuer succeeds. The same review works before and after reviewed promotion.
 """
 import argparse
 import concurrent.futures
@@ -16,14 +16,23 @@ ROOT = Path(__file__).resolve().parents[2]
 BIN = Path(os.environ.get('SCIENCE_READER_PG_BIN', '/Users/benbowlwes/textbrain/scripts/.pgtools/postgresql-18.4.0-aarch64-apple-darwin/bin'))
 BASE = ['-h', '127.0.0.1', '-p', '55431']
 ENV = {key: value for key, value in os.environ.items() if not key.startswith('PG')}
-PENDING = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql.pending'
+MIGRATION_NAME = '202610080045_reader_issuer_fence.sql'
+
+
+def migration_path():
+    paths = [ROOT / 'supabase/migrations' / MIGRATION_NAME,
+             ROOT / 'supabase/migrations' / (MIGRATION_NAME + '.pending')]
+    found = [path for path in paths if path.is_file()]
+    if len(found) != 1:
+        raise AssertionError('Expected exactly one pending or promoted reader issuer fence')
+    return found[0]
 
 
 def run(binary, *args, **kwargs):
     return subprocess.run([str(BIN / binary), *BASE, *args], env=ENV, check=kwargs.pop('check', True), **kwargs)
 
 
-def boundaries(db):
+def boundaries(db, migration):
     def sql(source):
         return run('psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', db,
                    input=source, capture_output=True, text=True, timeout=15).stdout.strip()
@@ -74,7 +83,7 @@ def boundaries(db):
                            (f'alter function {target} owner to authenticated;', f'alter function {target} owner to current_user;')]:
         sql(setup + 'grant execute on function public.worker_reader_descriptor(uuid,uuid) to service_role;')
         before = sql(fingerprint)
-        rejected = run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(PENDING),
+        rejected = run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(migration),
                        capture_output=True, text=True, check=False)
         assert rejected.returncode and 'reader_issuer_owner_review_required' in rejected.stderr, rejected.stderr
         assert sql(fingerprint) == before, 'Failed reader fence changed state or ACLs'
@@ -82,23 +91,25 @@ def boundaries(db):
     print('PASS changed definer or ownership refuses the migration with state, bodies and ACLs unchanged')
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--baseline', action='store_true')
-    args = parser.parse_args()
+def verify(baseline=False):
+    migration = migration_path()
+    ordinary = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
+    migrations = [path for path in ordinary if path.name < MIGRATION_NAME] if baseline else ordinary
+    already_applied = migration in migrations
     db = 'science_reader_test_reader_fence_' + uuid.uuid4().hex[:10]
     run('createdb', db)
     try:
         run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', 'postgres', '-c',
             f'ALTER DATABASE "{db}" SET timezone TO \'UTC\'', capture_output=True)
-        for source in [ROOT / 'tests/database/bootstrap.sql', *sorted((ROOT / 'supabase/migrations').glob('*.sql'))]:
+        for source in [ROOT / 'tests/database/bootstrap.sql', *migrations]:
             run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(source), capture_output=True, text=True)
-        run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-v', f'candidate={str(not args.baseline).lower()}', '-d', db,
+        run('psql', '-X', '-v', 'ON_ERROR_STOP=1', '-v', f'candidate={str(not baseline).lower()}',
+            '-v', f'already_applied={str(already_applied).lower()}', '-v', f'fence_migration={migration}', '-d', db,
             '-f', str(ROOT / 'tests/database/candidates/reader_issuer_fence.sql'), capture_output=True, text=True)
         print('PASS true-role legacy denial, guarded dual/bounded delivery and exact single-use redemption')
         print('PASS unchanged objects, functions, inventory enforcement, policy, quotas and grant history')
         print('PASS dual rollback keeps old RPC fenced; explicit regrant demonstrates bounded-mode bypass')
-        boundaries(db)
+        boundaries(db, migration)
     except subprocess.CalledProcessError as error:
         print(error.stderr or '')
         raise SystemExit(1)
@@ -107,4 +118,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--baseline', action='store_true')
+    verify(baseline=parser.parse_args().baseline)

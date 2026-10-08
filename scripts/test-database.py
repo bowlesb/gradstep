@@ -50,11 +50,23 @@ def phase(sources, checks):
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.parse_args()
+parser.add_argument('--reader-issuer-fence-candidate', action='store_true',
+                    help='Also apply the reviewed pending 045 ACL to the disposable full-suite fixture; no hosted changes.')
+args = parser.parse_args()
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
+fence = ROOT / 'supabase/migrations/202610080045_reader_issuer_fence.sql'
+if args.reader_issuer_fence_candidate:
+    pending = pathlib.Path(str(fence) + '.pending')
+    if fence.exists() or not pending.is_file():
+        parser.error('Candidate mode requires only the pending 045 file; promoted migrations are tested normally.')
+    migrations = sorted([*migrations, pending])
 tests = sorted((ROOT / 'tests/database').glob('test_*.sql'))
 checks = ['concurrency', 'upgrade', 'library_compact_upgrade', 'library_upload_visibility_upgrade', 'library_query_concurrency', 'library_v5_command_concurrency', 'provider_accounting_upgrade', 'provider_accounting_concurrency', 'pipeline_retry_concurrency', 'asset_accounting_concurrency', 'pdf_upload_concurrency', 'sandbox_allowance_concurrency', 'store_purchase_lock_concurrency', 'store_verification_concurrency', 'deployment_readiness', 'store_verifier_concurrency', 'credit_resume_concurrency', 'feed_concurrency']
 phase([*migrations, *tests], checks)
 # Natural expiry must cross committed transactions. Isolate those fixture rows
 # from suites that intentionally assert exact global account/ledger counts.
 phase([*migrations, ROOT / 'tests/database/subscription_upgrade_credits.sql'], ['subscription_upgrade_concurrency'])
+if fence.is_file() or args.reader_issuer_fence_candidate:
+    # Its role, rollback and multi-session checks own another disposable DB so
+    # committed lifecycle fixtures do not alter unrelated suites' global counts.
+    module('reader_issuer_fence').verify()
