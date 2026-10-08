@@ -10,6 +10,11 @@ verified a paid answer, Mermaid rendering and recovery after reload. Auth was se
 Safari support and a comprehensive E2EE claim remain outside those proofs. Key-storage/draft limits are below. Original reader/M1 deployment
 history is retained in [deployment evidence](#deployment--2026-10-07).
 
+Later local work (not deployed): the [gate-1 encrypted browser journal](BROWSER_OFFLINE_STORAGE.md#gate-1-local-implementation-2026-10-08)
+adds committed device drafts, exact pending events and interrupted-turn recovery. Its separate
+[verification record](../verification/2026-10-08-browser-journal-gate1.md) preserves the online Send requirement,
+legacy-profile activation, Safari gate and remaining cold offline-startup limitations.
+
 ## Scope
 
 Phase 1 (this design): sign in with an email code → this browser becomes a device (approved from an iPhone/iPad by
@@ -518,7 +523,8 @@ The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) an
 
 ### Bounds, durability and remaining gaps
 
-History is **memory-only in this browser**: 20,000 retained events / 64 MiB ciphertext, failing visibly at the
+In the deployed milestone-2 build and explicitly deferred version-1 profiles, history is **memory-only**:
+20,000 retained events / 64 MiB ciphertext, failing visibly at the
 bound instead of treating a partial pull as a complete history. Pending events are capped at 128 / 8 MiB.
 Unsent drafts are limited to 128, 200 KB each / 2 MiB combined, kept only in this tab. Visible copy, sign-out
 confirmation and a browser departure prompt warn about unsaved work. Reload/process loss before acknowledgement
@@ -526,15 +532,23 @@ can lose a pending edit or answer; there is no durable browser outbox, offline c
 journal's crash guarantees have been reproduced. Successfully acknowledged events can be decrypted after reload
 or on another approved/recovered device. Abrupt logout elsewhere may prevent a partial answer from being saved.
 
+The local gate-1 candidate keeps committed drafts, exact outbox ciphertext, validated history and turn
+checkpoints in authenticated encrypted IndexedDB records under the device's non-extractable AES key.
+The same live-history/draft bounds remain; journal records reserve bounded space for replacement history,
+draft receipts and discard tombstones. Failed writes keep the previous checkpoint and the current copyable
+text. Reload restores only committed work, and never starts a paid answer automatically. Cold startup still
+needs online key preparation and the library; device drafts are local-only and can be lost if site data or
+keys are cleared. This is local fixture evidence, not a deployment or Safari-support claim.
+
 At most three local streams run at once, each ≤2 MiB of SSE, ≤200 KB saved text, 45-second idle timeout and
 210-second total client deadline. Formula parsing limits individual source to 12,000 characters, 500 formulas and
 1,000 macro expansions; unsupported output remains readable source. These local bounds complement server controls.
 The full native query/history cache capacity has not been benchmarked in this browser.
 
-Still separate: durable encrypted browser drafts/outbox/offline history, broader provider-backed acceptance,
+Still separate: cold offline history/startup, saved papers/library, broader provider-backed acceptance,
 rendered-diagram automatic repair, answer-quote actions, richer reference actions and cross-device reading positions.
 The [browser durability proposal](BROWSER_OFFLINE_STORAGE.md) sequences the private journal, explicit saved
-papers and cold offline startup; it is a design only, not a claim those features have shipped. Its
+papers and cold offline startup; gate 1 is implemented locally, while gates 2/3 remain future work. Its
 [compatibility checkpoint](BROWSER_OFFLINE_STORAGE.md#compatibility-checkpoint--local-verification-2026-10-08)
 is implemented locally (not deployed): when a newer tab updates storage this tab stops sending, stops an active
 answer through the partial-save path, keeps unsent text readable to copy and explains what to close or reload.

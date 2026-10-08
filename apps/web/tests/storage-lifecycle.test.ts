@@ -79,7 +79,7 @@ describe('storage lifecycle in idb.ts (spec IndexedDB)', () => {
     expect(await read(newer, 'devices', 'k')).toEqual({ deviceID: 'accepted' });
     expect(storage.snapshot()).toMatchObject({ phase: 'retired', issue: 'update', proposal: false });
     await expect(idb.put('devices', 'late', { deviceID: 'late' })).rejects.toMatchObject({ code: 'storage_update' });
-    await expect(idb.putActivity('k', 'accepted', new Uint8Array(1))).rejects.toMatchObject({ code: 'storage_update' });
+    await expect(idb.putActivity('k', 'accepted', new Uint8Array(1), { key: 'k', origin: 'https://fixture.invalid', incarnation: 'test', lifetime: 'test', generation: 1, writer: 'test' }, () => true)).rejects.toMatchObject({ code: 'storage_update' });
     expect(await read(newer, 'devices', 'late')).toBeUndefined();
     expect(await read(newer, 'activity', 'k')).toBeUndefined();
     expect(storage.writable()).toBe(false);

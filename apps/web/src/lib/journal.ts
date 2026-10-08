@@ -276,10 +276,19 @@ export class Journal {
 
   private listen() {
     this.hint = this.deps.channel?.(this.lockName) ?? null;
-    this.unlisten = this.hint?.listen(() => { void this.refresh().catch(error => this.fault(error)); }) ?? null;
+    this.unlisten = this.hint?.listen(() => { void this.refresh().catch(() => {}); }) ?? null;
   }
   /** Changes committed by other tabs (history records, cursor, outbox). Drafts and turns stay with their owning tab. */
   subscribe(listener: (delta: JournalDelta) => void | Promise<void>): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  /** Re-read after acquiring an editor/turn owner lock; the initial open snapshot may predate its last commit. */
+  draft(id: string): Promise<StoredDraft | null> {
+    return this.deps.lock(this.lockName, async () => { await this.catchUp(); return this.readDraft(this.head, id); })
+      .catch(error => { this.fault(error); throw error; });
+  }
+  turn(id: string): Promise<StoredTurn | null> {
+    return this.deps.lock(this.lockName, async () => { await this.catchUp(); return this.head.turns[id] ? this.readTurn(this.head, id) : null; })
+      .catch(error => { this.fault(error); throw error; });
+  }
   /** Loads another tab's commits, if any. */
   refresh(): Promise<void> {
     if (this.retired) return Promise.reject(new JournalError('journal_retired'));
@@ -431,9 +440,15 @@ export class Journal {
   }
 
   /** Events authored here: records and outbox entries, with an optional draft receipt and turn retirement, atomically. */
-  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; expectedRevision?: number } = {}): Promise<void> {
+  appendLocal(envelopes: EventEnvelope[], options: { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn; expectedRevision?: number } = {}): Promise<void> {
     return this.commit(async head => {
       if (options.expectedRevision !== undefined && head.revision !== options.expectedRevision) throw new JournalError('journal_conflict');
+      // Recovery retires only the exact checkpoint it read after acquiring ownership. Rebase or a late writer
+      // forces a fresh read; it must never delete newer text while committing an older interrupted answer.
+      if (options.recoveryTurn) {
+        if (options.finishTurn !== options.recoveryTurn.id) throw new JournalError('journal_conflict');
+        await this.checkTurn(head, options.recoveryTurn);
+      }
       const fresh: LoadedEvent[] = [];
       for (const envelope of envelopes) {
         const known = this.knownIDs.get(envelope.id);
@@ -565,6 +580,9 @@ export class Journal {
     try { return validTurn(JSON.parse(fromUtf8(await open(this.scope.localKey, sealed, aad.turn(this.scope.account, head.incarnation, id)))) as StoredTurn, id); }
     catch { return damaged(); }
   }
+  private async checkTurn(head: Head, expected: StoredTurn): Promise<void> {
+    if (!head.turns[expected.id] || JSON.stringify(await this.readTurn(head, expected.id)) !== JSON.stringify(expected)) throw new JournalError('journal_stale');
+  }
   private async turnRecord(next: Head, turn: StoredTurn): Promise<[string, Bytes]> {
     validTurn(turn, turn.id);
     const sealed = await seal(this.scope.localKey, utf8(JSON.stringify(turn)), aad.turn(this.scope.account, next.incarnation, turn.id));
@@ -589,8 +607,9 @@ export class Journal {
     });
   }
   /** A refused or empty answer leaves nothing: its partial checkpoint is removed. */
-  dropTurn(id: string): Promise<void> {
+  dropTurn(id: string, expected?: StoredTurn): Promise<void> {
     return this.commit(async head => {
+      if (expected) { if (expected.id !== id) throw new JournalError('journal_conflict'); await this.checkTurn(head, expected); }
       if (!head.turns[id]) return null;
       const next = clone(head); delete next.turns[id];
       return { next, put: [], remove: [this.k.turn(id)] };

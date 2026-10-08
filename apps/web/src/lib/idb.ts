@@ -203,10 +203,13 @@ export const idb = {
     };
     return () => committed;
   }),
-  /** A delayed encrypted save must not recreate data after its device was forgotten or replaced. */
-  putActivity: (key: string, deviceID: string, value: unknown) => run<void>(['devices', 'activity'], 'readwrite', tx => {
-    const device = tx.objectStore('devices').get(key);
-    device.onsuccess = () => { if ((device.result as { deviceID?: string } | undefined)?.deviceID === deviceID) tx.objectStore('activity').put(value, key); };
+  /** A delayed save must prove its exact writer/login as well as its retained device in the write transaction. */
+  putActivity: (key: string, deviceID: string, value: unknown, fence: WriterFence, current: () => boolean) => run<void>(['devices', 'activity'], 'readwrite', tx => {
+    const device = tx.objectStore('devices').get(key), admission = tx.objectStore('devices').get(admissionKey(key));
+    admission.onsuccess = () => {
+      if (key === fence.key && current() && matchesFence(admission.result, fence) && (device.result as { deviceID?: string } | undefined)?.deviceID === deviceID)
+        tx.objectStore('activity').put(value, key);
+    };
     return () => undefined;
   }),
   /** Removes the device, its reading data and its whole journal partition in one transaction. */

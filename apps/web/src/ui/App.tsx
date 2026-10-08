@@ -116,11 +116,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   }, [activityLoaded, leaving]);
 
   useEffect(() => {
-    if (!device || leaving) return;
-    const timer = setTimeout(() => { saveActivity(device, activity).catch(() => {}); }, 500);
+    if (!device || !ready.local || leaving) return;
+    const local = ready.local;
+    const timer = setTimeout(() => { saveActivity(device, activity, local).catch(() => {}); }, 500);
     saveTimer.current = timer;
     return () => clearTimeout(timer);
-  }, [device, activity, leaving]);
+  }, [device, activity, leaving, ready.local]);
 
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
   const paperID = match?.[1] ?? null;
@@ -178,7 +179,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       await chat?.settleBeforeSignOut();
       owner.signal.throwIfAborted();
       if (forget) await forgetDevice(account, owner.signal);
-      else if (device) await saveActivity(device, activity).catch(() => {});
+      else if (device && ready.local) await saveActivity(device, activity, ready.local).catch(() => {});
       if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       navigate('/');

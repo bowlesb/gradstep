@@ -40,12 +40,18 @@ test.beforeEach(async ({ request }, info) => {
   await request.post(`${API}/__reset`);
 });
 
-test('persistent profile: type, restart, lose append acknowledgement, restart, explicit answer, crash, recover partial and newer draft', async ({ playwright, request }) => {
+test('persistent profile: type, restart, lose append acknowledgement, restart, explicit answer, close, recover partial and newer draft', async ({ playwright, request }) => {
   const profile = await mkdtemp(join(tmpdir(), 'gradstep-journal-'));
-  const launch = () => playwright.chromium.launchPersistentContext(profile, { viewport: { width: 1280, height: 860 }, baseURL: APP });
+  const errors: string[] = [];
+  const launch = async () => {
+    const context = await playwright.chromium.launchPersistentContext(profile, { viewport: { width: 1280, height: 860 }, baseURL: APP });
+    const observe = (page: Page) => page.on('pageerror', e => errors.push(e.message));
+    for (const page of context.pages()) observe(page);
+    context.on('page', observe); return context;
+  };
   let context = await launch();
   try {
-    let page = context.pages()[0], errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    let page = context.pages()[0];
     await login(page); await openChat(page);
     await message(page).fill('Persistent private question β'); await saved(page);
     const before = await records(page); expect(before.version).toBe(2); expect(before.extractable).toEqual([false, false]); expect(before.raw).not.toContain('Persistent private');

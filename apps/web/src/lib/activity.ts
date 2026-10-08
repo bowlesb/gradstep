@@ -4,7 +4,7 @@
 import { fromUtf8, utf8 } from './bytes';
 import { config } from './backend';
 import { idb } from './idb';
-import type { DeviceRecord } from './keys';
+import type { DeviceRecord, PreparedLocal } from './keys';
 import { open, seal } from './wire';
 
 export interface Location { block: number; fraction: number; height: number; y: number }
@@ -24,14 +24,14 @@ export async function loadActivity(device: DeviceRecord): Promise<Map<string, Ac
   } catch { return new Map(); } // unreadable: start empty, replaced on the next save
 }
 
-export function saveActivity(device: DeviceRecord, activity: Map<string, Activity>): Promise<void> {
+export function saveActivity(device: DeviceRecord, activity: Map<string, Activity>, local: PreparedLocal): Promise<void> {
   const identity = key(device.accountID), captured = [...activity];
   const write = async () => {
     const merged = await loadActivity(device);
     for (const [id, value] of captured) if (!merged.has(id) || merged.get(id)!.opened <= value.opened) merged.set(id, value);
     const entries = [...merged].sort((a, b) => b[1].opened - a[1].opened).slice(0, MAX);
     const sealed = await seal(device.localKey, utf8(JSON.stringify(entries)), aad(device.accountID));
-    await idb.putActivity(identity, device.deviceID, sealed);
+    await idb.putActivity(identity, device.deviceID, sealed, local.fence, local.current);
   };
   // Queue before encryption, and serialize cooperating tabs. An older snapshot cannot overtake a newer one.
   const next = (saves.get(identity) ?? Promise.resolve()).catch(() => {}).then(() =>

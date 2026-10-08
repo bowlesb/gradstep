@@ -12,14 +12,14 @@
 import { BackendError, rpc } from './backend';
 import { type Bytes, equal, fromBytea, isUUID, sha256, toBytea } from './bytes';
 import { type AppliedEvent, type PrivateEvent, PrivateState, decodeEvent, encodeEvent } from './events';
-import type { Journal, JournalDelta, JournalSnapshot, LoadedEvent, StoredDraft } from './journal';
+import type { Journal, JournalDelta, JournalSnapshot, LoadedEvent, StoredDraft, StoredTurn } from './journal';
 import { type EventEnvelope, type KeyRing, WireError, openEvent, sealEvent } from './wire';
 
 const PAGE = 50, PAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_HISTORY_EVENTS = 20_000, MAX_HISTORY_BYTES = 64 * 1024 * 1024;
 interface Row { id: string; device_id: string; cursor: number; epoch: number; format: number; ciphertext: string; ciphertext_sha256: string }
 interface Page { events: Row[]; next_cursor: number; has_more: boolean }
-export interface AppendOptions { draft?: StoredDraft; finishTurn?: string }
+export interface AppendOptions { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn }
 
 export type HistoryStatus = 'loading' | 'ready' | 'error';
 const refreshable = (error: unknown) => (error instanceof WireError && error.code === 'missing_key')
@@ -82,7 +82,16 @@ export class History {
   async restore(snapshot: JournalSnapshot): Promise<void> {
     const retired = snapshot.replaced;
     const kept = snapshot.events.filter(e => !retired.has(e.envelope.id));
-    const all = await this.decrypt(snapshot.events), byID = new Map(all.map(e => [e.id, e]));
+    let all: AppliedEvent[];
+    try { all = await this.decrypt(snapshot.events); }
+    catch (error) {
+      // A peer can commit a rotated epoch after key preparation but before this snapshot opens.
+      // Refresh current authority once before classifying the complete checkpoint as unreadable.
+      if (!(error instanceof WireError) || error.code !== 'missing_key') throw error;
+      this.ring = await this.refreshRing(); this.signal.throwIfAborted();
+      all = await this.decrypt(snapshot.events);
+    }
+    const byID = new Map(all.map(e => [e.id, e]));
     const resolve = (id: string) => { const seen = new Set<string>(); while (retired.has(id)) { if (seen.has(id)) throw new BackendError('local_storage'); seen.add(id); id = retired.get(id)!; } return id; };
     if (new Set(retired.values()).size !== retired.size) throw new BackendError('local_storage');
     for (const [old, next] of retired) {
@@ -193,6 +202,7 @@ export class History {
         try { await this.journal.appendLocal(envelopes, { ...options, draft, expectedRevision }); }
         catch (error) {
           if ((error as { code?: string }).code === 'journal_conflict' && attempt < 2) continue;
+          if (options.recoveryTurn && (error as { code?: string }).code === 'journal_stale') throw error;
           throw new BackendError(journalCode(error));
         }
         this.signal.throwIfAborted();

@@ -102,6 +102,7 @@ export class ChatSession {
       }
       for (const c of this.composers.values()) if (c.answer && c.phase === 'idle' && c.answer.every(e => history.state.events.has(history.resolve(e.id)) && !history.isPending(e.id))) {
         c.head = history.resolve(c.answer[0].id); c.answer = null; c.liveText = ''; c.liveID = null;
+        this.turnOwners.get(c.id)?.release(); this.turnOwners.delete(c.id);
         if (c.issue === 'storage') c.issue = null;
         this.publish();
       }
@@ -163,7 +164,7 @@ export class ChatSession {
   }
   private create(documentID: string | null): Composer {
     // Empty, inactive composers can be retired. Unsent text is never evicted to make room.
-    for (const [id, c] of this.composers) if (!c.draft && !c.conversationID && !busy(c) && !c.question && !c.answer && c.savedRevision === 0) { this.composers.delete(id); this.releaseEditor(id); }
+    for (const [id, c] of this.composers) if (!c.draft && !c.conversationID && !busy(c) && !c.question && !c.answer && c.revision === 0 && c.savedRevision === 0) { this.composers.delete(id); this.releaseEditor(id); }
     const c = this.blank(documentID);
     this.composers.set(c.id, c); this.selected.set(scope(documentID), c.id);
     this.claimEditor(c.id);
@@ -319,36 +320,59 @@ export class ChatSession {
    * tab stays there. A turn is recovered only after acquiring its owner lock (elapsed time proves nothing): its saved
    * partial text becomes an interrupted answer; an empty one is removed. No request is ever retried here.
    */
-  async restore(drafts: StoredDraft[], turns: StoredTurn[]): Promise<void> {
+  restore(drafts: StoredDraft[], turns: StoredTurn[]): Promise<void> {
+    return this.track(this.restoreOwned(drafts, turns));
+  }
+  private async restoreOwned(drafts: StoredDraft[], turns: StoredTurn[]): Promise<void> {
     if (!this.journal) return;
     const reclaim: string[] = [], releaseReclaimed: (() => void)[] = [];
-    const restored: Composer[] = [];
-    for (const d of drafts) {
-      const release = await this.deps.locks.tryHold(`gradstep.composer.${d.id}`).catch(() => null);
-      if (!release) continue; // a live tab owns it
-      const pendingSubmission = !!d.receipt && this.history.isPending(d.receipt.submissionID);
-      if (d.discarded || (!d.text && !(d.conversationID && d.receipt))) { reclaim.push(d.id); releaseReclaimed.push(release); continue; }
-      const c: Composer = { ...this.blank(d.documentID, d.id), conversationID: d.conversationID, head: d.head && this.history.resolve(d.head), draft: d.text,
-        revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, branchRevision: d.branchRevision,
-        acknowledgedSubmissionID: d.receipt && this.history.resolve(d.receipt.submissionID), receipt: d.receipt && { ...d.receipt,
-          submissionID: this.history.resolve(d.receipt.submissionID), eventIDs: d.receipt.eventIDs.map(id => this.history.resolve(id)) } };
-      if (pendingSubmission) c.question = { revision: -1, id: c.receipt!.submissionID, entries: [], selection: null, action: null };
-      this.composers.set(c.id, c); this.editors.set(c.id, Promise.resolve(release));
-      restored.push(c);
-    }
-    for (const c of restored.sort((a, b) => (drafts.find(d => d.id === a.id)!.editedAt - drafts.find(d => d.id === b.id)!.editedAt))) this.selected.set(scope(c.documentID), c.id);
-    if (reclaim.length) { try { await this.journal.collectDrafts(reclaim); } finally { for (const release of releaseReclaimed) release(); } }
-    for (const turn of turns) {
-      const release = await this.deps.locks.tryHold(`gradstep.turn.${turn.id}`).catch(() => null);
+    const restored: { composer: Composer; editedAt: number }[] = [];
+    this.signal.throwIfAborted();
+    try {
+      for (const captured of drafts) {
+        const release = await this.deps.locks.tryHold(`gradstep.composer.${captured.id}`).catch(() => null);
+        if (!release) continue; // a live tab owns it
+        let d: StoredDraft | null;
+        try { this.signal.throwIfAborted(); d = await this.journal.draft(captured.id); this.signal.throwIfAborted(); }
+        catch (error) { release(); throw error; }
+        if (!d) { release(); continue; }
+        const pendingSubmission = !!d.receipt && this.history.isPending(d.receipt.submissionID);
+        if (d.discarded || (!d.text && !(d.conversationID && d.receipt))) { reclaim.push(d.id); releaseReclaimed.push(release); continue; }
+        const c: Composer = { ...this.blank(d.documentID, d.id), conversationID: d.conversationID, head: d.head && this.history.resolve(d.head), draft: d.text,
+          revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, branchRevision: d.branchRevision,
+          acknowledgedSubmissionID: d.receipt && this.history.resolve(d.receipt.submissionID), receipt: d.receipt && { ...d.receipt,
+            submissionID: this.history.resolve(d.receipt.submissionID), eventIDs: d.receipt.eventIDs.map(id => this.history.resolve(id)) } };
+        if (pendingSubmission) c.question = { revision: -1, id: c.receipt!.submissionID, entries: [], selection: null, action: null };
+        this.composers.set(c.id, c); this.editors.set(c.id, Promise.resolve(release));
+        restored.push({ composer: c, editedAt: d.editedAt });
+      }
+      for (const { composer: c } of restored.sort((a, b) => a.editedAt - b.editedAt)) this.selected.set(scope(c.documentID), c.id);
+      if (reclaim.length) { this.signal.throwIfAborted(); await this.journal.collectDrafts(reclaim); }
+    } finally { for (const release of releaseReclaimed) release(); }
+    for (const captured of turns) {
+      const release = await this.deps.locks.tryHold(`gradstep.turn.${captured.id}`).catch(() => null);
       if (!release) continue; // its stream is still running in another tab
-      try {
-        if (!turn.text.trim()) { await this.journal.dropTurn(turn.id); continue; }
-        await this.history.commit([{ id: turn.id, event: { kind: 'message', entityID: turn.entityID, parents: [this.history.resolve(turn.questionID)],
-          conversationID: turn.conversationID, documentID: turn.documentID ?? undefined, text: turn.text, role: 'assistant', status: 'interrupted', createdAt: turn.updatedAt } }],
-          { finishTurn: turn.id });
-      } catch { /* kept for the next open; never re-requested */ } finally { release(); }
+      try { await this.recoverTurn(captured.id); } finally { release(); }
     }
     this.publish();
+  }
+  private async recoverTurn(id: string): Promise<void> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        this.signal.throwIfAborted();
+        const turn = await this.journal!.turn(id);
+        this.signal.throwIfAborted();
+        if (!turn) return;
+        if (!turn.text.trim()) { await this.journal!.dropTurn(turn.id, turn); return; }
+        await this.history.commit([{ id: turn.id, event: { kind: 'message', entityID: turn.entityID, parents: [this.history.resolve(turn.questionID)],
+          conversationID: turn.conversationID, documentID: turn.documentID ?? undefined, text: turn.text, role: 'assistant', status: 'interrupted', createdAt: turn.updatedAt } }],
+          { finishTurn: turn.id, recoveryTurn: turn });
+        return;
+      } catch (error) {
+        if ((error as { code?: string }).code === 'journal_stale' && attempt < 2) continue;
+        throw error; // preserve the checkpoint and surface failure; never silently open over damaged private data
+      }
+    }
   }
 
   async refreshBalance() {
@@ -498,16 +522,16 @@ export class ChatSession {
     this.streams.set(c.id, controller);
     c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null; this.publish();
     let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string } | null = null;
-    let lastCheckpoint = Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastCheckpoint = performance.now(), lastCheckpointDate = turn?.updatedAt ?? Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     const checkpointTurn = (force = false) => {
       if (!turn) return;
-      if (!force && Date.now() - lastCheckpoint < TURN_INTERVAL) {
-        checkpointTimer ??= setTimeout(() => { checkpointTimer = undefined; checkpointTurn(); }, TURN_INTERVAL - (Date.now() - lastCheckpoint));
+      if (!force && performance.now() - lastCheckpoint < TURN_INTERVAL) {
+        checkpointTimer ??= setTimeout(() => { checkpointTimer = undefined; checkpointTurn(); }, TURN_INTERVAL - (performance.now() - lastCheckpoint));
         return;
       }
       clearTimeout(checkpointTimer); checkpointTimer = undefined;
-      lastCheckpoint = Date.now();
-      const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpoint };
+      lastCheckpoint = performance.now(); lastCheckpointDate = Math.max(lastCheckpointDate + 1, Date.now());
+      const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpointDate };
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
     try {
