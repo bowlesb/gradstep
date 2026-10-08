@@ -33,11 +33,17 @@ public struct ChatGenerationRequest: Equatable, Sendable {
     public let selection: String?
     /// Only sent with a selection.
     public let action: ChatAction?
+    /// The chat's model, effort and length; sent only when it isn't the standard profile, so a request with the
+    /// default stays byte-for-byte the one servers before profiles accept (server 2026-10-08).
+    public let profile: ChatProfileChoice
+    /// Ask the server for a topic title alongside the answer (server 2026-10-08).
+    public let topicTitle: Bool
 
     /// Keeps the newest turns that fit the server bounds. The context always
     /// starts and ends with a user turn; empty turns are skipped.
     public static func make(operationID: UUID, documentID: UUID?, transcript: [ChatTurnInput], selection: String?,
-                            action: ChatAction? = nil) throws -> ChatGenerationRequest {
+                            action: ChatAction? = nil, profile: ChatProfileChoice = .standard,
+                            topicTitle: Bool = false) throws -> ChatGenerationRequest {
         let usable = transcript.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard let last = usable.last, last.role == .user else { throw ChatRequestError.emptyContext }
         guard last.text.utf8.count <= maximumMessageBytes else { throw ChatRequestError.questionTooLarge }
@@ -52,7 +58,7 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         let quote = selection.map { bounded($0, scalars: maximumSelectionScalars) }
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return ChatGenerationRequest(operationID: operationID, documentID: documentID, turns: kept, selection: quote,
-                                     action: quote == nil ? nil : action)
+                                     action: quote == nil ? nil : action, profile: profile, topicTitle: topicTitle)
     }
 
     /// A diagram the device's Mermaid could not parse, sent back once for a corrected version: general mode, one turn
@@ -63,12 +69,15 @@ public struct ChatGenerationRequest: Equatable, Sendable {
         let message = bounded(error.trimmingCharacters(in: .whitespacesAndNewlines), scalars: 600)
         let text = "Title: \(bounded(title, scalars: 200))\nMermaid error: \(message.isEmpty ? "unknown" : message)\n\n\(source)"
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.utf8.count <= maximumRepairBytes else { return nil }
+        // A repair always uses the server's default model and asks for no title.
         return ChatGenerationRequest(operationID: operationID, documentID: nil, turns: [ChatTurnInput(role: .user, text: text)],
-                                     selection: nil, action: .diagramFix)
+                                     selection: nil, action: .diagramFix, profile: .standard, topicTitle: false)
     }
 
-    private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?) {
+    private init(operationID: UUID, documentID: UUID?, turns: [ChatTurnInput], selection: String?, action: ChatAction?,
+                 profile: ChatProfileChoice, topicTitle: Bool) {
         self.operationID = operationID; self.documentID = documentID; self.turns = turns; self.selection = selection; self.action = action
+        self.profile = profile; self.topicTitle = topicTitle
     }
 
     public func encoded() throws -> Data {
@@ -85,11 +94,14 @@ public struct ChatGenerationRequest: Equatable, Sendable {
             let action: String?
             /// Ingest may add web (non-arXiv) papers: this build shows them.
             let capabilities: [String]?
+            let profile: ChatProfileChoice?
+            let topic_title: Bool?
         }
         return try ReaderCrypto.encode(Body(operation_id: operationID.wire, consent_version: Self.consentVersion,
             mode: documentID == nil ? "general" : "paper", document_id: documentID?.wire,
             messages: turns.map { Turn(role: $0.role.rawValue, text: $0.text) }, selection: selection.map(Selection.init), action: action?.rawValue,
-            capabilities: action == .ingest ? ["web_import"] : nil))
+            capabilities: action == .ingest ? ["web_import"] : nil, profile: profile == .standard ? nil : profile,
+            topic_title: topicTitle ? true : nil))
     }
 
     static func bounded(_ text: String, scalars limit: Int) -> String {
@@ -106,7 +118,10 @@ public enum ChatStreamEvent: Equatable, Sendable {
     case diagram(title: String, source: String)
     /// What the server is doing between pieces of text (searching, adding a paper).
     case status(ChatProgress)
-    case done(stopReason: String, credits: Int)
+    /// The conversation's topic title (asked for with `topicTitle`), sent before `done`.
+    case title(String)
+    /// `model`: the model that wrote the answer; `profile`: the profile it was asked with (servers from 2026-10-08).
+    case done(stopReason: String, credits: Int, model: String? = nil, profile: String? = nil)
     case failure(code: String)
 }
 
@@ -209,6 +224,12 @@ public struct ChatSSEParser: Sendable {
         return nil
     }
 
+    static func label(_ value: String?) -> String? {
+        guard let value, !value.isEmpty, value.utf8.count <= PrivateEvent.maximumLabelBytes,
+              value.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "-._".contains($0)) }) else { return nil }
+        return value
+    }
+
     private mutating func dispatch() throws -> ChatStreamEvent? {
         defer { eventName = ""; data = []; hasData = false }
         guard hasData else { return nil }
@@ -229,10 +250,16 @@ public struct ChatSSEParser: Sendable {
             guard let status = try? JSONDecoder().decode(Status.self, from: payload),
                   let kind = ChatProgress.Kind(rawValue: status.kind) else { return nil }
             return .status(ChatProgress(kind: kind, query: status.query))
+        case "title":
+            // A title that isn't usable is dropped; the answer is unaffected.
+            struct Title: Decodable { let text: String }
+            guard let title = try? JSONDecoder().decode(Title.self, from: payload), let text = ChatTopicTitle.clean(title.text) else { return nil }
+            return .title(text)
         case "done":
-            struct Done: Decodable { let stop_reason: String; let credits: Int }
+            struct Done: Decodable { let stop_reason: String; let credits: Int; let model: String?; let profile: String? }
             guard let done = try? JSONDecoder().decode(Done.self, from: payload), done.credits >= 0 else { throw ChatStreamError.malformed }
-            return .done(stopReason: done.stop_reason, credits: done.credits)
+            // Labels only: bounded plain identifiers, else left out (never fatal).
+            return .done(stopReason: done.stop_reason, credits: done.credits, model: Self.label(done.model), profile: Self.label(done.profile))
         case "error":
             struct Failure: Decodable { let code: String }
             guard let failure = try? JSONDecoder().decode(Failure.self, from: payload),
@@ -288,5 +315,25 @@ public enum ChatFailureText {
     /// Whether retrying the same question can reasonably succeed.
     public static func isRetryable(_ code: String) -> Bool {
         !["invalid_request", "refused"].contains(code)
+    }
+}
+
+/// Conversation topic titles (owner feedback, TestFlight build 21): written by the chat service alongside an answer, or
+/// typed by the reader when renaming. Kept in the encrypted history as a conversation revision (`titleSource`).
+public enum ChatTopicTitle {
+    public static let maximumCharacters = 80
+
+    /// One plain line of at most 80 characters (control and bidirectional-override characters removed, whitespace
+    /// collapsed); nil when nothing is left.
+    public static func clean(_ text: String) -> String? {
+        let scalars = text.unicodeScalars.map { scalar -> String in
+            CharacterSet.controlCharacters.contains(scalar) || (0x200B...0x200F).contains(scalar.value) || (0x2028...0x202E).contains(scalar.value)
+                || (0x2066...0x2069).contains(scalar.value) ? " " : String(scalar)
+        }.joined()
+        let line = scalars.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !line.isEmpty else { return nil }
+        guard line.count > maximumCharacters else { return line }
+        // A typed name longer than the limit keeps its first 80 characters.
+        return String(line.prefix(maximumCharacters)).trimmingCharacters(in: .whitespaces)
     }
 }
