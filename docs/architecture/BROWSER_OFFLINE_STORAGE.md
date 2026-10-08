@@ -1,6 +1,8 @@
 # Browser durability and offline reading
 
-**Design proposal, 2026-10-08; not implemented or deployed.** Reviewed against `d3eaf62`.
+**Design proposal, 2026-10-08.** Reviewed against `d3eaf62`. **Compatibility checkpoint implemented
+locally on 2026-10-08 (not deployed)**; see [its verification](#compatibility-checkpoint--local-verification-2026-10-08).
+Durable journal, saved papers and offline startup are not implemented.
 This extends [the browser reader](BROWSER_READER.md), follows the
 [native journal and recovery contract](PRIVACY_AND_SYNC.md), and carries over the
 [native offline-copy policy](NATIVE_OFFLINE_BUNDLES.md). It does not change navigation,
@@ -249,8 +251,8 @@ or erase old storage to make the upgrade proceed.
 
 ## Next implementation checkpoint: compatibility only
 
-This checkpoint is independently shippable and remains **design-only for this takeover**.
-Keep IndexedDB version 1, its existing stores, encryption, online behavior and CSP unchanged.
+This checkpoint is independently shippable. It was implemented locally on 2026-10-08; see the
+verification section below. Keep IndexedDB version 1, its existing stores, encryption, online behavior and CSP unchanged.
 Add a shared storage-lifecycle signal and cooperative update/retirement handling to `idb.ts`,
 key operations, `ChatSession`, `useChat` and `App`:
 
@@ -272,6 +274,101 @@ must show no duplicate paid request, readable/copyable volatile text, bounded cl
 transactions, and a visible legacy close/reopen barrier rather than an automatic upgrade.
 Check the update guidance in light/dark and keyboard navigation. Tests establish orderly
 retirement and honest warnings, not durability or offline access.
+
+### Compatibility checkpoint — local verification, 2026-10-08
+
+Implemented in `apps/web` (`lib/idb.ts`, `lib/keys.ts`, `lib/chat-session.ts`, `ui/useChat.ts`,
+`ui/App.tsx`, `ui/Keys.tsx`, `ui/ChatPane.tsx`, `ui/StorageNotice.tsx`); not deployed.
+
+- **Lifecycle signal.** `storage.snapshot()` reports `open`, `retiring` or `retired` with an issue:
+  `update` (a newer tab changed the database), `upgraded` (opening version 1 failed with
+  `VersionError`), `closed` (the browser closed or deleted the database) or `blocked` (this page's
+  own open request waits for an older connection; it keeps waiting instead of failing). On
+  `versionchange` the page calls `close()` at once, so transactions it already created complete and
+  no new one can start; it reports `retired` once those finish and never reopens version 1. Every
+  later request, including a callback that began earlier, fails with a `StorageError` naming the
+  issue. Read-write transactions request `durability: 'strict'`.
+- **Cooperative deferral.** A newer release can post `{kind: 'upgrade-proposal', proposal, version}`
+  on the `gradstep.storage` BroadcastChannel. A page holding unsent work replies `ready: false` and
+  shows “Another Gradstep tab is ready to update … Send or copy it, then close this tab.” It replies
+  `ready: true` once its drafts, streams and unsynced events are gone. Messages carry only a random
+  ID and flags. Deferring does not retire the page. A reply set is a hint only: older releases never
+  answer, so schema activation still needs the person's explicit confirmation.
+- **Key operations.** `exclusive()` and `forgetDevice()` refuse to start once storage has retired,
+  so no enrollment request or key write begins from a retired page.
+- **Chat.** On retirement `ChatSession` stops active streams through the existing partial-save path
+  (an interrupted answer, while the login is still valid), moves a pending consent choice to “No
+  answer was requested …”, and refuses new Send, Get answer, Retry saving, consent continuation and
+  deletion. Composers become read-only but stay visible and selectable for copying; failed saves stay
+  visible and background sync may still acknowledge events accepted before retirement. A question
+  saved during retirement is never followed by a paid request. The account stays mounted; the
+  existing before-unload warning is unchanged. Account retirement still overrides everything.
+- **Guidance.** A row under the top bar says “Gradstep was updated in another tab … copy what you
+  want to keep, then close this tab and continue in the updated one. This version of Gradstep doesn't
+  keep unsent drafts after a reload.”, with a person-initiated **Reload this tab**. Opening this
+  release over a newer database shows the same title with **Reload this page** instead of the
+  unsupported-browser message. The composer hint now says drafts stay in the tab only and aren't kept
+  after a reload. No automatic reload, service worker, database upgrade or durable-save badge.
+
+Verification: eight lifecycle/controller cases in `tests/storage-lifecycle.test.ts` (accepted write
+versus late callback; denied Send/consent/retry/edit; stopped partial answer with one request;
+retained newer draft; failed save kept and later acknowledged without AI; account retirement;
+proposal deferral and a blocked open; legacy version-1 page that never reopens and reports a newer
+database as an update) run `idb.ts` against `fake-indexeddb` 6.2.5 (dev only) and the controller
+against fakes. Three real two-tab Chromium journeys in `e2e/storage-update.spec.ts` use the
+production build and the local fixture: an update during a streamed answer (one stream request,
+three saved events, newer draft read-only and copied through the clipboard with the keyboard, the
+newer tab admitted in well under 3 s without `blocked`, before-unload still warns); a reading save
+resumed after the update writes nothing and a reload shows the update barrier with the version-2
+database and device record intact; and a tab with unsent work defers a proposal, keeps sending, then
+releases it when the draft is cleared, with the database still at version 1. Light/dark screenshots:
+`.artifacts/web-storage/`. These establish orderly retirement and honest warnings only, not
+durability or offline access. Safari remains a separate gate.
+
+### Status and handoff, 2026-10-08
+
+Work stopped here at the owner's request (web work moves to Codex). Branch
+`worktree-agent-a7d3a326272f0e9f4`, commit `76ad197` (on `42b8730`, no later `main` merged).
+Not deployed.
+
+- **Done:** the compatibility checkpoint above, nothing more. IndexedDB stays at version 1.
+- **Passing:** `cd apps/web && npm test` — 17 files, 199 tests (191 existing + 8 new).
+  `npm run build` — passes (existing >500 kB chunk warning only).
+  `npx playwright test e2e/storage-update.spec.ts --project=desktop` — 3 passed.
+  Full `npx playwright test` (desktop, phone, webkit) — 74 passed, 51 skipped, 1 failed:
+  `library-columns.spec.ts` "chosen columns persist…" at 390 px measured the pane mid-resize and
+  passed on immediate rerun (2/2). It is unrelated to storage. The skips are the existing WebKit key-persistence gate
+  and phone-skipped desktop-only cases; the new journeys skip WebKit for the same reason.
+- **Gate 1 is not done.** Unfinished, unreviewed work is on branch `wip/browser-journal-gate1`
+  (`5f47f5e`, `7fd85c8`, on top of `76ad197`). It has:
+  - an encrypted journal module (`lib/journal.ts`): hash-chained event records, digest-manifested
+    draft and turn records, compare-and-swap commits under a per-account Web Lock, lifetime and
+    device fences;
+  - a version-2 `journal` store with person-confirmed activation for version-1 profiles (`idb.ts`);
+  - History restore, pull, outbox and fresh-ID rebase persistence;
+  - ChatSession draft checkpoints, submission receipts, turns and turn recovery.
+
+  It is **not wired** into `useChat`/`App`, so no journal ever opens. It has no activation dialog
+  and no journal tests. It typechecks and keeps the 199 unit tests passing. Treat it as a draft to
+  review or discard, not as gate-1 evidence. No drafts survive a reload on any branch.
+- **Next (as designed above):**
+  1. Review and wire the WIP.
+  2. Add journal unit tests (`fake-indexeddb`, injected locks) for the race list.
+  3. Add persistent-profile Chromium journeys, including the first vertical test. The fixture
+     backend needs a "commit but lose the append acknowledgement" mode.
+  4. Add the activation dialog.
+- **Pitfalls found:**
+  - Playwright's fixture/app ports (54329/4317) are hard-coded in many specs, so parallel worktrees
+    collide. A run started while another worktree's servers are up fails at start-up and can't mix
+    results. Wait for the ports, or make them configurable everywhere.
+  - In Node, `BroadcastChannel` must be `unref()`'d or Vitest hangs. `fake-indexeddb` needs
+    `databases` stubbed when wrapping `open`.
+  - `durability: 'strict'` is accepted by Chromium and `fake-indexeddb`.
+  - On the WIP branch, a page that opens storage before activation stays at version 1. A
+    `versionchange` from the same release's activation retires other tabs, just like a newer
+    release would.
+  - A probe that opens the database at a higher version fires `versionchange` and retires
+    compatibility tabs. Read the version with `indexedDB.databases()` instead of opening it.
 
 ## Delivery gates and focused acceptance
 

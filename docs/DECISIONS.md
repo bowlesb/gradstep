@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-07. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-08. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## Web framework (owner decided 2026-10-07)
 
@@ -816,7 +816,32 @@ Private upload titles use the encrypted library descriptors (Codex), so they are
   macOS App Store version was created because the upload did not require one.
 
 
-## Personalized feed (owner asked 2026-10-07; design awaiting owner approval)
+## Personalized feed (owner asked 2026-10-07; For you accepted 2026-10-08)
+
+**Owner decided 2026-10-08 (feedback on TestFlight build 21):** "Machine learning and artificial intelligence are too
+generic it need to be specific to the individual tastes and their nuances"; "Why not topics? And can we put a
+popularity score?" This answers the pending choice: **For you is the Feed's first chip and default**, and ranking may
+use the **server-visible library metadata** — the papers added (including Adds from the Feed), their public arXiv
+categories, authors and titles, their catalog tags, and the reader's personal tags (server-visible by the 2026-10-07
+tags decision). Encrypted data (conversations, notes, passages, upload titles, reading activity) is never used on the
+server. Enabling serving or refresh on staging remains the lead's step after review.
+
+Agent decisions that follow (reversible; [design](architecture/PERSONALIZED_FEED.md#specific-topics-and-popularity-owner-feedback-on-build-21-2026-10-08)):
+
+- **Specific topic chips instead of broad categories.** After For you, up to eight of the reader's own topics, chosen
+  on the server from their library's tags and own tags plus 15 curated combinations ("RL for reasoning"), ordered by
+  interest × specificity, never a broad category area and never a topic on more than 20 % of the pool. Broad arXiv
+  categories stay reachable under **More topics**. No model call: the vocabulary, the keyword rules and the catalog
+  tags readers already have. Without For you the header keeps the old category chips.
+- **Topics per paper** from the same keyword rules (specific first) replace the single broad "Topic" column.
+- **Popularity = Hugging Face Papers upvotes**, read only by the shared pool refresh (≤ 12 anonymous requests per run,
+  1 s apart, 429 stops), stored on pool rows, shown as "▲ n" or "—" when unknown; never estimated. Semantic Scholar
+  citations were measured and rejected for new papers (all 0; anonymous 429s). A separate switch,
+  `worker_set_feed_popularity(false)`, stops only these requests.
+- **Not run:** an optional one-time Haiku labeling pass over 500 pool papers (≈ $0.95, cap $1) to tune the keyword
+  rules; the lead decides.
+- The browser reader's Feed and Mac-only polish moved to Codex (owner, 2026-10-08); the discover response contract is
+  documented for them.
 
 Owner: "I think we need to also invest in a better feed, it should feel relevant to a users interests and be kept up
 to date and changing but have cost under control". Design and cost table: [Personalized feed](architecture/PERSONALIZED_FEED.md).
@@ -828,10 +853,11 @@ to date and changing but have cost under control". Design and cost table: [Perso
   Migration 043 (renumbered from the never-applied 044, after 042). It was subsequently applied **disabled** on
   2026-10-08 as the ledger prerequisite to subscription fix 044. Serving and refresh stay off; no refresh function
   or native/web For you UI is deployed. Those product and privacy choices remain a proposal.
-- **Awaiting the owner:** rollout of A; "For you" as the first, default chip with a why line and More like this /
-  Not interested actions; keeping Feed feedback on the server (like tags) with the proposed privacy text; serving the
-  category chips from the pool; later, option B (shared embeddings, $1/month cap). An LLM in the loop (option C) is
-  not recommended ($25–68/month to tag the pool, or per-reader cost that scales to $330/month at 1,000 readers).
+- **Still awaiting the owner:** More like this / Not interested actions; keeping Feed feedback on the server (like
+  tags) with the proposed privacy text; later, option B (shared embeddings, $1/month cap). An LLM in the loop
+  (option C) is not recommended ($25–68/month to tag the pool, or per-reader cost that scales to $330/month at 1,000
+  readers). Serving category chips from the pool follows from accepting For you's use of the pool (it stops per-reader
+  arXiv requests).
 
 ## Build 16 #1, #8, #10 and build 17 #2 (agent decisions 2026-10-08, reversible)
 

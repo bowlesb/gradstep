@@ -168,6 +168,7 @@ export function failureText(code: string): string {
     case 'answer_too_large': return 'The answer reached this browser’s size limit. The partial answer is saved.';
     case 'storage': return 'The answer couldn’t be saved to your encrypted history. Try again.';
     case 'question_unsaved': return 'Your question couldn’t be saved, so no answer was requested. Try again.';
+    case 'storage_retired': return 'No answer was requested: Gradstep was updated in another tab. Your question is saved; continue in the updated tab.';
     case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';
     case 'platform_budget_exhausted': return 'AI answers are paused right now. Your papers and saved chats still work.';
     case 'rate_limited': return 'Too many requests right now. Try again in a moment.';
@@ -182,7 +183,7 @@ export function failureText(code: string): string {
     default: return 'The answer couldn’t be completed. Try again.';
   }
 }
-export const retryable = (code: string) => !['invalid_request', 'refused'].includes(code);
+export const retryable = (code: string) => !['invalid_request', 'refused', 'storage_retired'].includes(code);
 
 /** Bounded by the encrypted event limit (UTF-8 bytes) on a code point boundary. */
 export function boundedText(text: string, maximum = 200_000): string {

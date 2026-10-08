@@ -120,6 +120,13 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 }
 
 .workspace { flex: 1; min-height: 0; display: flex; position: relative; }
+.storage-notice { flex: none; display: flex; align-items: center; gap: 14px; padding: 10px max(16px, env(safe-area-inset-left)); background: var(--problem-soft);
+  border-bottom: 1px solid var(--line); color: var(--text); }
+.storage-notice-text { flex: 1; min-width: 0; }
+.storage-notice h2 { font-size: 13.5px; margin: 0 0 2px; }
+.storage-notice p { font-size: 13px; color: var(--muted); margin: 0; max-width: 80ch; }
+.storage-notice button { flex: none; }
+@media (max-width: 600px) { .storage-notice { flex-direction: column; align-items: flex-start; gap: 8px; } }
 .pane { flex: none; min-width: 0; display: flex; flex-direction: column; background: var(--surface-2); overflow: hidden; }
 .pane-center { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; background: var(--surface); container-type: inline-size; container-name: center; }
 .pane.overlay { position: absolute; top: 0; bottom: 0; z-index: 20; box-shadow: var(--pop); }

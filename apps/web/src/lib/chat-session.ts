@@ -1,10 +1,13 @@
 // One login lifetime owns these composers and streams. Private text remains in memory; only sealed History
 // envelopes persist remotely. Paid requests require an acknowledged question. Navigation never rebinds a task.
+// When a newer tab retires this page's storage, the session stops sending (BROWSER_OFFLINE_STORAGE.md, compatibility
+// checkpoint): active answers stop through the existing partial-save path and drafts stay visible, read-only, to copy.
 import { BackendError, config, rpc } from './backend';
 import { boundedText, CONSENT_VERSION, makeRequest, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
 import { cancellation } from './cancellation';
 import { encodeDiagram, type PrivateEvent, type TextAnchor } from './events';
 import { History } from './history';
+import { storage as browserStorage, type StorageLifecycle } from './idb';
 
 interface Entry { id: string; event: PrivateEvent }
 interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null }
@@ -16,6 +19,7 @@ export interface Composer {
 interface Dependencies {
   stream: (account: string, request: ReturnType<typeof makeRequest>, signal: AbortSignal) => AsyncIterable<StreamEvent>;
   readConsent: () => boolean; writeConsent: () => void;
+  storage: { snapshot: () => StorageLifecycle; subscribe: (listener: () => void) => () => void };
 }
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 const scope = (documentID: string | null) => documentID ?? 'general';
@@ -31,12 +35,14 @@ export class ChatSession {
   private streams = new Map<string, ReturnType<typeof cancellation>>();
   private tasks = new Set<Promise<void>>();
   private accepting = true;
+  private retiredStorage = false;
   private readonly deps: Dependencies;
 
   constructor(readonly account: string, readonly history: History, readonly signal: AbortSignal, dependencies: Partial<Dependencies> = {}) {
     const consentKey = `gradstep.${config.environment}.${account}.cloud-ai-consent`;
     this.deps = { stream: streamAnswer, readConsent: () => { try { return localStorage.getItem(consentKey) === CONSENT_VERSION; } catch { return false; } },
-      writeConsent: () => { localStorage.setItem(consentKey, CONSENT_VERSION); if (localStorage.getItem(consentKey) !== CONSENT_VERSION) throw new Error('consent_unsaved'); }, ...dependencies };
+      writeConsent: () => { localStorage.setItem(consentKey, CONSENT_VERSION); if (localStorage.getItem(consentKey) !== CONSENT_VERSION) throw new Error('consent_unsaved'); },
+      storage: browserStorage, ...dependencies };
     const unsubscribe = history.subscribe(() => {
       for (const c of this.composers.values()) if (c.phase === 'idle' && c.issue === 'question_unsaved' && c.question?.entries.length
         && c.question.entries.every(e => history.state.events.has(e.id) && !history.isPending(e.id))) {
@@ -50,7 +56,20 @@ export class ChatSession {
         this.publish();
       }
     });
-    signal.addEventListener('abort', () => { unsubscribe(); this.accepting = false; for (const c of this.streams.values()) c.abort(); this.listeners.clear(); }, { once: true });
+    const observeStorage = () => { if (this.deps.storage.snapshot().phase !== 'open') this.retireStorage(); };
+    const unsubscribeStorage = this.deps.storage.subscribe(observeStorage);
+    signal.addEventListener('abort', () => { unsubscribe(); unsubscribeStorage(); this.accepting = false; for (const c of this.streams.values()) c.abort(); this.listeners.clear(); }, { once: true });
+    observeStorage();
+  }
+  /** Storage was retired by a newer tab: this page sends nothing new, but its unsent text stays readable. */
+  get storageRetired() { return this.retiredStorage; }
+  private retireStorage() {
+    if (this.retiredStorage || this.signal.aborted) return;
+    this.retiredStorage = true;
+    // While this account is still valid, stopping goes through the ordinary partial-save path (interrupted answer).
+    for (const controller of this.streams.values()) controller.abort(new DOMException('Storage retired', 'AbortError'));
+    for (const c of this.composers.values()) if (c.phase === 'consent') { c.phase = 'idle'; c.issue = 'storage_retired'; }
+    this.publish();
   }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getVersion = () => this.version;
@@ -84,6 +103,7 @@ export class ChatSession {
   discardDraft(id: string) { const c = this.composers.get(id); if (!c || busy(c) || c.answer) return; c.draft = ''; c.revision++; this.publish(); }
   edit(c: Composer, text: string): boolean {
     this.allowed();
+    if (this.retiredStorage) return false;
     if ((!c.draft && text && [...this.composers.values()].filter(x => !!x.draft).length >= 128) || bytes(text) > 200_000 || [...this.composers.values()].reduce((n, x) => n + (x === c ? 0 : bytes(x.draft)), 0) + bytes(text) > 2 * 1024 * 1024) return false;
     c.draft = text; c.revision++; this.publish(); return true;
   }
@@ -107,6 +127,7 @@ export class ChatSession {
 
   send(c: Composer, selection: string | null = null, action: ChatAction | null = null, anchor?: TextAnchor): Promise<void> {
     this.allowed();
+    if (this.retiredStorage) return Promise.resolve(); // refused: nothing is saved or requested from this page
     if (busy(c) || c.answer || !c.draft.trim()) return Promise.resolve();
     if (this.history.status !== 'ready' || this.history.issue) { c.issue = 'question_unsaved'; this.publish(); return Promise.resolve(); }
     if (c.conversationID && this.history.state.isDeleted(c.conversationID)) { c.issue = 'conversation_deleted'; this.publish(); return Promise.resolve(); }
@@ -138,7 +159,7 @@ export class ChatSession {
 
   retry(c: Composer): Promise<void> {
     this.allowed();
-    if (busy(c)) return Promise.resolve();
+    if (busy(c) || this.retiredStorage) return Promise.resolve();
     c.phase = 'saving'; c.issue = null; this.publish();
     return this.track((async () => {
       try {
@@ -161,6 +182,7 @@ export class ChatSession {
   consent(c: Composer, accepted: boolean): Promise<void> {
     this.allowed();
     if (c.phase !== 'consent') return Promise.resolve();
+    if (this.retiredStorage) { c.phase = 'idle'; c.issue = 'storage_retired'; this.publish(); return Promise.resolve(); }
     if (!accepted) { c.phase = 'idle'; c.issue = 'consent_declined'; this.publish(); return Promise.resolve(); }
     try { this.deps.writeConsent(); } catch { c.phase = 'idle'; c.issue = 'consent_unsaved'; this.publish(); return Promise.resolve(); }
     return this.track(this.answerQuestion(c));
@@ -172,6 +194,8 @@ export class ChatSession {
   private async answerQuestion(c: Composer): Promise<void> {
     this.signal.throwIfAborted();
     if (!this.accepting) { c.phase = 'idle'; this.publish(); return; }
+    // A question saved while storage retired stays saved; no paid request starts from this page.
+    if (this.retiredStorage) { c.phase = 'idle'; c.issue = 'storage_retired'; this.publish(); return; }
     if (this.history.status !== 'ready' || this.history.issue || !c.question || this.history.isPending(c.question.id) || this.history.state.isDeleted(c.conversationID!)) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
     if (!this.deps.readConsent()) { c.phase = 'consent'; this.publish(); return; }
     const branch = this.history.state.conversationBranch(c.conversationID!, c.question.id);

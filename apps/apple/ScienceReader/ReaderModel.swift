@@ -219,7 +219,7 @@ final class ReaderModel {
     var feedSort = FeedTableColumn.defaultSort
     /// The Feed table's columns, per kind of device (build 17: "why are there so few options").
     var feedColumns = ColumnChoice.load(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
-                                        regularDefault: FeedTableColumn.regularDefault, from: .standard) {
+                                        regularDefault: FeedTableColumn.regularDefault, introduced: FeedTableColumn.introduced, from: .standard) {
         didSet { feedColumns.save(to: .standard) }
     }
     /// The Feed leaves out papers already in the library (its "…" menu; kept on the device).
@@ -1450,6 +1450,7 @@ final class ReaderModel {
         libraryQuery = ""; discoveryQuery = ""; searchExternal = false
         discoveryTask?.cancel(); discoveryResults = []; discoveryState = .idle
         feedTask?.cancel(); feedResults = []; feedState = .idle; feedCategory = nil
+        feedSelection = nil; feedShown = nil; feedPersonal = FeedPersonalization()
         generalChat = true
         email = nil; signInProviders = []; recoveryCode = nil; needsRecovery = false; showRecovery = false; showReports = false; showReport = false; reportScreenshot = nil
         showAllChats = false; showDiagrams = false; presentedDiagram = nil
@@ -1616,14 +1617,36 @@ final class ReaderModel {
         }
     }
 
-    // MARK: Feed — newest papers in the library's own arXiv categories. The
-    // categories are derived on the device; only the chosen category is sent.
+    // MARK: Feed — For you and the reader's topics when the server offers them (docs/architecture/
+    // PERSONALIZED_FEED.md), else the newest papers in the library's own arXiv categories. The categories are
+    // derived on the device; only the chosen category or topic is sent.
     enum FeedState: Equatable { case idle, loading, loaded, failed(String) }
     private(set) var feedResults: [DiscoveryResult] = []
     private(set) var feedState: FeedState = .idle
     private(set) var feedCategory: String?
     private var feedGeneration = 0
     private var feedTask: Task<Void, Never>?
+    /// Whether For you is offered and the reader's topic chips (kept on the device).
+    var feedPersonal = FeedPersonalization.load(from: .standard) {
+        didSet { if feedPersonal != oldValue { feedPersonal.save(to: .standard) } }
+    }
+    /// The chip the reader picked; nil opens For you when it may be offered, else the first category.
+    private(set) var feedSelection: FeedSelection?
+    /// What the loaded results are.
+    private(set) var feedShown: FeedSelection?
+
+    /// The Feed's chip: the reader's pick while it can be shown, else For you, else the first category.
+    var currentFeedSelection: FeedSelection {
+        if let feedSelection, feedPersonal.allows(feedSelection) { return feedSelection }
+        if feedPersonal.available != false { return .forYou }
+        return .category(feedCategory ?? feedCategories.first ?? "cs.LG")
+    }
+
+    func selectFeed(_ selection: FeedSelection) {
+        feedSelection = selection
+        if case .category(let category) = selection { feedCategory = category }
+        loadFeed()
+    }
 
     /// Feed topics from the library's arXiv categories (owner feedback 2026-10-06: a single
     /// cross-listed paper put "hep-ph" first). A topic needs two papers unless it is core ML;
@@ -1641,26 +1664,43 @@ final class ReaderModel {
         return top.isEmpty ? ["cs.LG", "cs.CL", "cs.AI", "cs.CV"] : Array(top)
     }
 
-    func selectFeedCategory(_ category: String) { feedCategory = category; loadFeed() }
+    func selectFeedCategory(_ category: String) { selectFeed(.category(category)) }
 
     func loadFeed() {
-        let category = feedCategory ?? feedCategories.first ?? "cs.LG"
-        feedCategory = category
+        let selection = currentFeedSelection
+        if case .category(let category) = selection { feedCategory = category }
+        // For you and topics open in the server's order; categories newest first (as before).
+        if feedShown?.isPersonal != selection.isPersonal { feedSort = FeedTableColumn.defaultSort(personal: selection.isPersonal) }
         feedTask?.cancel(); feedGeneration += 1
         let generation = feedGeneration
+        #if DEBUG && FIXTURE_HOST
+        if let response = fixtureFeedResponse(selection) { showFeed(response, for: selection); return }
+        #endif
         guard let backend, let accountID else { feedState = .failed("Sign in to see new papers."); return }
         feedState = .loading
         let scope = sessionID
         feedTask = Task {
             do {
-                let results = try await backend.feed(category: category, accountID: accountID)
+                let response = try await backend.feed(selection, accountID: accountID)
                 guard self.sessionID == scope, self.feedGeneration == generation else { return }
-                self.feedResults = results; self.feedState = .loaded
+                self.showFeed(response, for: selection)
             } catch {
                 guard self.sessionID == scope, self.feedGeneration == generation, !(error is CancellationError) else { return }
+                if selection.isPersonal, case BackendError.rejected(let code) = error, code == "feed_unavailable" || code == "invalid_feed_topic" {
+                    // For you isn't offered (the category chips, as before), or that topic is gone (For you).
+                    if code == "feed_unavailable" { self.feedPersonal.note(nil, for: selection) }
+                    self.feedSelection = nil
+                    self.loadFeed()
+                    return
+                }
                 self.feedState = .failed("New papers aren’t available right now. Try again in a moment.")
             }
         }
+    }
+
+    private func showFeed(_ response: DiscoveryResponse, for selection: FeedSelection) {
+        feedPersonal.note(response.feed, for: selection)
+        feedResults = response.results; feedShown = selection; feedState = .loaded
     }
 
     /// arXiv identifiers already in the library or being added.
@@ -3246,6 +3286,7 @@ extension ReaderModel {
          {"source_id":"2001.08361","revision":1,"title":"Scaling Laws for Neural Language Models","authors":["Jared Kaplan","Sam McCandlish"],"year":2020,"abstract":"An existing import is already part of the library.","categories":["cs.LG"]}]
         """
         feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
+        Self.fixtureCategoryJSON = json
         if ProcessInfo.processInfo.arguments.contains("--feed-full-abstract-fixture") {
             let full = String(repeating: "We evaluate a compact policy across several model sizes and datasets, reporting accuracy, latency, and uncertainty. ", count: 8)
                 + "The final limitation is that results have not been evaluated on physical robots."
@@ -3257,6 +3298,74 @@ extension ReaderModel {
                let result = try? JSONDecoder().decode(DiscoveryResult.self, from: data) { feedResults = [result] }
         }
         feedCategory = feedCategories.first; feedState = .loaded
+        if ProcessInfo.processInfo.arguments.contains("--feed-for-you-fixture") {
+            feedPersonal = FeedPersonalization(available: true, topics: Self.fixtureFeedTopics)
+            feedSelection = nil
+            loadFeed()
+        } else {
+            feedPersonal = FeedPersonalization(available: false)
+        }
+    }
+
+    /// The category fixture's rows (`installFeedFixture`), for More topics.
+    nonisolated(unsafe) static var fixtureCategoryJSON = "[]"
+
+    static let fixtureFeedTopics = [FeedTopic(name: "RL for reasoning", kind: "combined", papers: 41),
+                                    FeedTopic(name: "Mechanistic interpretability", kind: "topic", papers: 12),
+                                    FeedTopic(name: "Tokenization", kind: "topic", papers: 9),
+                                    FeedTopic(name: "State space models", kind: "topic", papers: 7),
+                                    FeedTopic(name: "byte-level LMs", kind: "own", papers: 3)]
+
+    /// For you and topic responses for UI checks (`--feed-for-you-fixture`): synthetic papers with reasons, specific
+    /// topics and upvotes (one unknown, shown as a dash). Categories keep the ordinary fixture.
+    func fixtureFeedResponse(_ selection: FeedSelection) -> DiscoveryResponse? {
+        guard ProcessInfo.processInfo.arguments.contains("--feed-for-you-fixture") else { return nil }
+        if case .category = selection {
+            // More topics: the ordinary category fixture, from a server that offers For you.
+            return try? JSONDecoder().decode(DiscoveryResponse.self, from: Data(#"{"feed":{"for_you":true},"results":\#(Self.fixtureCategoryJSON)}"#.utf8))
+        }
+        let rows: [[String: Any]] = [
+            ["source_id": "2610.08448", "revision": 1, "title": "Cross-Tokenizer On-Policy Distillation for Reasoning Models",
+             "authors": ["Mei Lin", "Jonas Weber", "Ana Costa"], "year": 2026, "categories": ["cs.CL", "cs.LG"],
+             "abstract": "We distill a reasoning teacher into a student with a different tokenizer, aligning byte spans on-policy.",
+             "topics": ["Knowledge distillation", "Tokenization", "Reasoning"], "upvotes": 162,
+             "reason": ["kind": "tag", "label": "byte-level LMs", "text": "In your tag: byte-level LMs"]],
+            ["source_id": "2610.07767", "revision": 1, "title": "Verifier-Guided GRPO Scales Mathematical Reasoning",
+             "authors": ["Sara Okafor", "Peter Lindqvist"], "year": 2026, "categories": ["cs.LG"],
+             "abstract": "Process verifiers shape group-relative policy optimization rewards, improving pass@1 on olympiad problems.",
+             "topics": ["Policy optimization", "Mathematical reasoning", "Reward modeling"], "upvotes": 87,
+             "reason": ["kind": "added", "label": "DeepSeekMath", "text": "Because you added “DeepSeekMath”"]],
+            ["source_id": "2610.05030", "revision": 1, "title": "Sparse Feature Circuits in Long-Context Retrieval Heads",
+             "authors": ["Hiro Tanaka", "Lena Fischer"], "year": 2026, "categories": ["cs.LG", "cs.CL"],
+             "abstract": "Sparse autoencoder features reveal the circuits retrieval heads use across a million-token context.",
+             "topics": ["Mechanistic interpretability", "Long context"], "upvotes": 40,
+             "reason": ["kind": "author", "label": "Lena Fischer", "text": "By Lena Fischer, an author in your library"]],
+            ["source_id": "2610.03543", "revision": 1, "title": "Selective State Spaces Without Tokenizers",
+             "authors": ["Omar Haddad"], "year": 2026, "categories": ["cs.LG"],
+             "abstract": "A byte-level selective state space model matches subword transformers at equal compute.",
+             "topics": ["State space models", "Tokenization"], "upvotes": NSNull(),
+             "reason": ["kind": "added", "label": "Mamba", "text": "Because you added “Mamba: Linear-Time Sequence Modeling”"]],
+            ["source_id": "2610.09912", "revision": 1, "title": "Household Manipulation from a Single Demonstration",
+             "authors": ["Yuki Sato", "Dana Cohen"], "year": 2026, "categories": ["cs.RO"],
+             "abstract": "One demonstration and a learned world model suffice for long-horizon household tasks.",
+             "topics": ["Imitation learning", "World models"], "upvotes": 5,
+             "reason": ["kind": "explore", "label": "cs.RO", "text": "Something different: Robotics"]],
+        ]
+        // A topic chip: the papers with that topic ("RL for reasoning" and "byte-level LMs" stand for their parts).
+        let parts: [String: [String]] = ["RL for reasoning": ["Policy optimization", "Reasoning"], "byte-level LMs": ["Tokenization"]]
+        let chosen: [[String: Any]]
+        switch selection {
+        case .topic(let name):
+            let wanted = Set(parts[name] ?? [name])
+            chosen = rows.filter { !wanted.isDisjoint(with: $0["topics"] as? [String] ?? []) }
+        default:
+            chosen = rows
+        }
+        var feed: [String: Any] = ["for_you": true, "cold_start": false]
+        if case .topic(let name) = selection { feed["topic"] = ["name": name, "kind": "topic"] }
+        else { feed["topics"] = Self.fixtureFeedTopics.map { ["name": $0.name, "kind": $0.kind, "papers": $0.papers ?? 0] } }
+        guard let data = try? JSONSerialization.data(withJSONObject: ["results": chosen, "feed": feed]) else { return nil }
+        return try? JSONDecoder().decode(DiscoveryResponse.self, from: data)
     }
 
     /// Add-paper fixture: an import the scripted upload service created or retried (replaces one with the same ID).

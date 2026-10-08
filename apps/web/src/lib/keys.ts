@@ -6,7 +6,7 @@ import { type Bytes, fromBytea, randomBytes, toBytea, wireUUID } from './bytes';
 import { approvalPayload } from './approval';
 import { auth, config, rpc } from './backend';
 import { cancellation } from './cancellation';
-import { idb } from './idb';
+import { idb, storage, StorageError } from './idb';
 import { type KeyBundle, type KeyRing, WireError, generateBundle, generateDeviceKeyPair, keyRing, recover as recoverBundle, unwrapForDevice,
   open, seal, wrapForDevice, wrapRecovery } from './wire';
 
@@ -33,9 +33,20 @@ function keyLock<T>(account: string, body: () => Promise<T>, signal?: AbortSigna
   return navigator.locks ? navigator.locks.request(`gradstep.keys.${recordKey(account)}`, { signal }, body) : body();
 }
 function exclusive<T>(account: string, body: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  // A page whose storage was retired by a newer tab starts no key work (and so no enrollment request) at all.
+  if (!storage.writable()) return Promise.reject(storageRefusal());
   const scope = cancellation([auth.snapshot().signal, signal]);
-  const run = async () => { scope.signal.throwIfAborted(); const value = await body(scope.signal); scope.signal.throwIfAborted(); return value; };
+  const run = async () => {
+    scope.signal.throwIfAborted();
+    if (!storage.writable()) throw storageRefusal();
+    const value = await body(scope.signal); scope.signal.throwIfAborted(); return value;
+  };
   return keyLock(account, run, scope.signal).finally(scope.dispose);
+}
+
+function storageRefusal(): StorageError {
+  const { issue } = storage.snapshot();
+  return new StorageError(issue === 'upgraded' ? 'storage_upgraded' : issue === 'closed' ? 'storage_closed' : 'storage_update');
 }
 
 /** Signed UI reads the device prepared by the key lane; it must never recreate a forgotten identity. */
@@ -249,5 +260,6 @@ async function finishApproved(account: string, record: DeviceRecord, pending: Pe
 
 /** For a shared computer: forget this browser's device keys and reading data for the account. */
 export async function forgetDevice(account: string): Promise<void> {
+  if (!storage.writable()) throw storageRefusal();
   await keyLock(account, () => idb.forgetDevice(recordKey(account)));
 }

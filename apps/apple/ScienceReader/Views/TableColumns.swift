@@ -18,7 +18,8 @@ enum TableColumnWording {
 
 /// The reader's columns for one table, kept on the device separately for iPhone and for iPad/Mac (by device kind, so
 /// rotating a phone never swaps sets). Unknown names (a column a later build removed) are ignored; no saved value means
-/// the defaults.
+/// the defaults. A default column a later build introduced (the Feed's Popularity) is added once to saved choices made
+/// before it existed; the columns a reader has seen are saved alongside, so turning it off sticks.
 struct ColumnChoice<Column: CaseIterable & RawRepresentable & Hashable & Sendable>: Equatable, Sendable where Column.RawValue == String {
     let key: String
     let compactDefault: Set<Column>
@@ -38,11 +39,15 @@ struct ColumnChoice<Column: CaseIterable & RawRepresentable & Hashable & Sendabl
         set { if width == .compact { compact = newValue } else { regular = newValue } }
     }
 
-    static func load(key: String, compactDefault: Set<Column>, regularDefault: Set<Column>, from defaults: UserDefaults) -> Self {
+    static func load(key: String, compactDefault: Set<Column>, regularDefault: Set<Column>, introduced: Set<Column> = [],
+                     from defaults: UserDefaults) -> Self {
         var choice = Self(key: key, compactDefault: compactDefault, regularDefault: regularDefault)
+        let seen = defaults.string(forKey: key + ".seen").map { Set($0.split(separator: ",").compactMap { Column(rawValue: String($0)) }) } ?? []
         for width in LibraryColumnSettings.WidthClass.allCases {
             guard let saved = defaults.string(forKey: key + "." + width.rawValue) else { continue }
-            choice[width] = Set(saved.split(separator: ",").compactMap { Column(rawValue: String($0)) })
+            var chosen = Set(saved.split(separator: ",").compactMap { Column(rawValue: String($0)) })
+            chosen.formUnion(introduced.intersection(choice.defaults(width)).subtracting(seen))
+            choice[width] = chosen
         }
         return choice
     }
@@ -52,6 +57,7 @@ struct ColumnChoice<Column: CaseIterable & RawRepresentable & Hashable & Sendabl
             let names = Column.allCases.filter(self[width].contains).map(\.rawValue)
             defaults.set(names.joined(separator: ","), forKey: key + "." + width.rawValue)
         }
+        defaults.set(Column.allCases.map(\.rawValue).joined(separator: ","), forKey: key + ".seen")
     }
 }
 

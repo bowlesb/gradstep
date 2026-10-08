@@ -129,12 +129,43 @@ removed executor work) is retained below where useful and in git history.
   exact purchase recording and actual credits granted remain distinct.
 - **Personalized Feed 043:** **applied with serving off and refresh disabled**, pool and feedback empty, no sources.
   The scheduled gate exists but returns before network/profile work. Hosted readback: `feed-dark-deployment.json`.
-  For You as default and use of server-visible metadata await the owner's answer; no Feed refresh function or
-  personalized UI was deployed, and no paid ranking is enabled.
+  The owner accepted For you as the default and server-visible library metadata for ranking (2026-10-08, build 21
+  feedback). **048 (specific topic chips, Topics per paper, Hugging Face popularity) is built and tested locally, not
+  applied**; the matching `discover`/`feed-refresh` and the iPhone/iPad Feed (For you default, topic chips, More
+  topics, why line, Topics and Popularity columns) are local only. No Feed refresh function or personalized UI was
+  deployed, and no paid ranking is enabled. [Enable steps](architecture/PERSONALIZED_FEED.md#enable-048-on-staging-lead).
 - **Pricing and podcasts:** research/model and reviewed design merged; live offers are unchanged. Podcast v1
   scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
+
+## Ownership split and browser durability handover — 2026-10-08
+
+- **Ownership:** at the owner's direction, Codex owns the web app (`apps/web`) and Mac-specific work. Claude owns
+  iPhone/iPad, the backend and the shared native views. Server contracts for the web versions of today's features
+  are documented in CHAT.md, PAPER_PODCASTS.md, PERSONALIZED_FEED.md and READER_RENDERER.md as each feature merges.
+- **Browser durability, compatibility-only checkpoint:** merged to main (`76ad197`, status note `1779caa`); not
+  deployed. When Gradstep updates in another tab, this tab finishes the writes it started, stops active answers
+  (saving the partial text as interrupted), keeps unsent text visible to copy and explains what to close or reload.
+  IndexedDB stays at version 1; there is no service worker.
+  - Tests: web 199/199 unit tests; three two-tab Playwright journeys; build passes.
+  - **Nothing new survives a reload yet.**
+- **Gate 1 draft:** on branch `wip/browser-journal-gate1` (`5f47f5e`, `7fd85c8`). It is not wired into the app and
+  has no tests of its own. It is for Codex to review or discard, not gate-1 evidence.
+- **Pitfall:** the Playwright ports 54329 and 4317 are hard-coded, so parallel worktree runs collide.
+
+## Codex worktrees retired — 2026-10-08
+
+The owner confirmed Codex had stopped. All 14 `codex/*` branches were checked against main:
+- Every commit is in main, either merged or as an identical copy (`git cherry` reports all `-`).
+- The only uncommitted work was in `store-runtime` and `store-runtime-ops`, from 2026-10-07 18:23–18:39. It was the
+  purchase-verifier transport, the health check and deploy tooling. Main has every file, identical or later-fixed
+  (the remaining Codex-only lines are earlier versions of lines main has since corrected).
+
+Before removal, the branches were saved as a git bundle and the uncommitted edits and untracked files as patches and
+tarballs, in `.artifacts/codex-archive-20261008/` (not in git). All Codex worktrees and branches are removed.
+`/Users/benbowlwes/science-reader-review-2026-10-02` is an older review snapshot, not a worktree, and was left in
+place.
 
 ## Earlier backend and build 18 rollout — retained evidence
 
@@ -616,7 +647,8 @@ Email" relay address would create a separate account (no linking); testers shoul
   through the private Node verifier, not unsupported Edge certificate primitives.
 - **Product:** browser OAuth/Safari secure-key persistence, durable encrypted browser drafts/offline support,
   owner acceptance of build 21's accumulated screenshot fixes, accessibility on real papers and physical-device checks (paused).
-  Feed 043 activation, podcast scope/privacy/pilot and public-pricing changes remain owner decisions.
+  Feed 043/048 activation is the lead's step after review (For you itself is decided); podcast scope/privacy/pilot and
+  public-pricing changes remain owner decisions.
 - **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
   release a deleted account's App Store subscription binding, and expire deleted data from backups.
 - **App Store listing**: final name and icon (the legacy artwork is a placeholder), privacy label from the

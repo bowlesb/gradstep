@@ -674,6 +674,7 @@ struct FeedView: View {
                             if let issue {
                                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
                             }
+                            FeedColdStartNote(model: model)
                             ForEach(model.shownFeedResults) { result in
                                 DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false)
                                     .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
@@ -735,13 +736,10 @@ struct FeedView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        // Listen (podcasts) first, then the Feed's own chips: For you, the reader's topics and
+                        // More topics when For you is offered; else the categories.
                         PodcastListenChip(model: model)
-                        ForEach(model.feedCategories, id: \.self) { category in
-                            ChipButton(title: ArxivTopics.name(for: category),
-                                       selected: (model.feedCategory ?? model.feedCategories.first) == category) {
-                                model.selectFeedCategory(category)
-                            }.accessibilityIdentifier("feed.topic.\(category)")
-                        }
+                        FeedChipsBar(model: model)
                     }
                 }
                 // Chips that scroll past the edge fade out instead of sliding under the menu button.
@@ -767,7 +765,7 @@ struct FeedView: View {
                             Picker("Sort by", selection: Binding(get: { model.feedSort.key }, set: { key in
                                 model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
                             })) {
-                                ForEach(FeedSortKey.allCases, id: \.self) { Text($0.label).tag($0) }
+                                ForEach(FeedSortKey.offered(personal: model.currentFeedSelection.isPersonal), id: \.self) { Text($0.label).tag($0) }
                             }.pickerStyle(.inline)
                         } label: {
                             Label { Text("Sort by"); Text(model.feedSort.key.label) } icon: { menuIcon("arrow.up.arrow.down") }
@@ -1454,6 +1452,7 @@ struct DiscoveryRow: View {
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
+                if let reason = result.reason { FeedReasonLine(reason: reason) }
                 if let abstract = result.abstract {
                     Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1464,9 +1463,13 @@ struct DiscoveryRow: View {
                         Link("Read the full abstract on arXiv", destination: url).font(.footnote)
                     }
                 }
-                Text(([result.year.map(String.init)].compactMap { $0 } + ArxivTopics.names(for: result.categories, limit: 2)
+                // Year, popularity when known, its specific topics (else arXiv topics), and in search the arXiv number.
+                Text(([result.year.map(String.init), FeedFormat.popularity(result)].compactMap { $0 } + FeedFormat.topics(result, limit: 3)
                        + (showsIdentifier ? ["arXiv \(result.sourceID)"] : []))
                     .joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                    .accessibilityLabel(([result.year.map(String.init), result.upvotes.map { _ in FeedFormat.spokenPopularity(result) }].compactMap { $0 }
+                                         + FeedFormat.topics(result, limit: 3) + (showsIdentifier ? ["arXiv \(result.sourceID)"] : []))
+                        .joined(separator: ", "))
             }
             Spacer(minLength: 4)
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID), adding: adding,

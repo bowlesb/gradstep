@@ -56,8 +56,9 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
   const titleText = title ? [title.label, title.text].filter(Boolean).join(' · ') : mode === 'paper' ? 'Ask about this paper' : 'General chat';
   const deleted = !!c.conversationID && chat.history.state.isDeleted(c.conversationID);
   const last = messages.at(-1);
-  const canAnswer = !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
-  const disabled = chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
+  const retired = chat.storageRetired; // another tab updated storage: nothing new is sent from this page
+  const canAnswer = !retired && !['refused', 'invalid_request'].includes(c.issue ?? '') && !c.answer && !composerBusy(c) && (c.question || last?.payload.role === 'user');
+  const disabled = retired || chat.history.status !== 'ready' || !!chat.history.issue || deleted || (mode === 'paper' && !paper?.available);
   const send = () => { if (!disabled) void chat.send(c); };
 
   return <div className="chat-pane" data-testid="chat-pane">
@@ -99,7 +100,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       {c.progress && c.liveText && <p className="fine chat-progress" role="status">{progressText(c.progress)}</p>}
       {c.issue && <div className="chat-issue" role="alert"><p>{failureText(c.issue)}</p>
         {canAnswer && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
-        {c.answer && <button className="secondary small" onClick={() => void chat.retry(c)}>Retry saving</button>}
+        {c.answer && !retired && <button className="secondary small" onClick={() => void chat.retry(c)}>Retry saving</button>}
       </div>}
       {!c.issue && canAnswer && !composerBusy(c) && last?.payload.role === 'user' && <button className="secondary small" disabled={deleted || (mode === 'paper' && !paper?.available)} onClick={() => void chat.retry(c)}>Get answer</button>}
       {c.credits !== null && <p className="fine answer-cost">{c.credits} {c.credits === 1 ? 'credit' : 'credits'} used</p>}
@@ -108,7 +109,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
     </div>
     {away && <button className="jump-latest secondary small" onClick={() => { follow.current = true; setAway(false); bottom.current?.scrollIntoView({ block: 'end' }); }}>Latest message <Icon name="chevronDown" size={12} /></button>}
     <form className="chat-composer" onSubmit={e => { e.preventDefault(); send(); }}>
-      <textarea ref={field} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000}
+      <textarea ref={field} aria-label="Message" placeholder={mode === 'paper' ? 'Ask about this paper…' : 'Message…'} value={c.draft} rows={2} maxLength={200_000} readOnly={retired}
         onChange={e => setInputIssue(!chat.edit(c, e.target.value))}
         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (!composerBusy(c)) send(); } }} />
       <div className="composer-footer"><span className="fine" title="Add credits in Gradstep on iPhone, iPad or Mac">{chat.balance ? `${chat.balance.available} credits${chat.balance.reserved ? ` · ${chat.balance.reserved} held` : ''}` : 'Uses credits'}</span>
@@ -116,7 +117,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
           : <button type="submit" className="primary small" disabled={disabled || composerBusy(c) || !!c.answer || !c.draft.trim()}>{c.phase === 'saving' || c.phase === 'finishing' ? 'Saving…' : 'Send'}</button>}
       </div>
       {inputIssue && <p className="issue fine">This draft is too long. Shorten it to continue.</p>}
-      <p className="fine draft-hint">Unsent drafts stay in this tab. Shift+Enter for a new line.</p>
+      <p className="fine draft-hint">{retired ? 'This tab has stopped sending. Select your text to copy it.' : 'Unsent drafts stay in this tab only and aren’t kept after a reload. Shift+Enter for a new line.'}</p>
     </form>
     <Dialog open={c.phase === 'consent'} onClose={() => void chat.consent(c, false)} title="Cloud AI answers">
       <h2>Cloud AI answers</h2><p>Your question, selected passage, earlier turns and the paper’s text go to Anthropic to write an answer.</p>
@@ -161,7 +162,7 @@ function HistoryList({ chat, papers, currentDocument, onClose, onOpen }: { chat:
     {chat.history.issue && <p role="alert">{chat.history.issue}</p>}
     <div className="history-table-wrap"><table className="history-table"><thead><tr><th><button className="link" onClick={() => setSort('title')}>Conversation</button></th><th className="history-paper">Paper</th><th><button className="link" onClick={() => setSort(sort === 'started' ? 'last' : 'started')}>{sort === 'started' ? 'Started' : 'Last used'}</button></th><th><span className="sr-only">Actions</span></th></tr></thead>
       <tbody>{rows.map(c => <tr key={c.id}><td><button className="history-title" onClick={() => { chat.open(c.id); onOpen(c.documentID ?? null); onClose(); }}>{[chatTitle(c.title).label, chatTitle(c.title).text].filter(Boolean).join(' · ') || 'Chat'}</button><span className="fine">{c.messageCount} messages</span></td>
-        <td className="history-paper">{c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General'}</td><td className="fine">{formatDate(sort === 'started' ? c.startedAt : c.lastUsedAt)}</td><td><button className="link" aria-label={`Delete ${c.title}`} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
+        <td className="history-paper">{c.documentID ? papers.get(c.documentID) ?? 'Paper no longer in library' : 'General'}</td><td className="fine">{formatDate(sort === 'started' ? c.startedAt : c.lastUsedAt)}</td><td><button className="link" aria-label={`Delete ${c.title}`} disabled={chat.storageRetired} onClick={() => { setDeleting(c); setDeleteError(false); setDeleteEntry(null); }}>Delete</button></td></tr>)}</tbody>
     </table></div>
     {!rows.length && <p className="muted">{search ? 'No matching chats.' : 'Your saved conversations will appear here.'}</p>}
     {deleting && <div className="chat-delete" role="alert"><p>Delete “{deleting.title}” from chats on all your devices?</p><div className="dialog-actions"><button className="secondary" onClick={() => setDeleting(null)}>Cancel</button><button className="primary" disabled={deleteBusy} onClick={() => {

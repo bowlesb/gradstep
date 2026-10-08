@@ -97,10 +97,11 @@ final class PaperTableTests: XCTestCase {
     }
 
     func testFeedColumnsFollowTheWidth() {
-        XCTAssertEqual(feedColumns(Width.phoneSmall), ["published", "add"], "Phone portrait: title, published and Add")
-        XCTAssertEqual(feedColumns(Width.phone), ["published", "add"])
-        XCTAssertEqual(feedColumns(Width.phoneLandscape), ["topic", "published", "add"])
-        XCTAssertEqual(feedColumns(Width.padPortrait), ["topic", "published", "authors", "add"])
+        // Build 21: Popularity first beside the title (narrow), then Topics (chips), then Published.
+        XCTAssertEqual(feedColumns(Width.phoneSmall), ["popularity", "add"], "Phone portrait: title, popularity and Add")
+        XCTAssertEqual(feedColumns(Width.phone), ["popularity", "add"])
+        XCTAssertEqual(feedColumns(Width.phoneLandscape), ["popularity", "topic", "add"])
+        XCTAssertEqual(feedColumns(Width.padPortrait), ["popularity", "topic", "published", "add"])
     }
 
     func testChosenColumnsRemainReachableWithoutMovingPinnedControls() {
