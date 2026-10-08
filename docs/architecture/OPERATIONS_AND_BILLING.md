@@ -10,7 +10,7 @@ Status: implementation underway; see [current implementation evidence](../IMPLEM
 - TestFlight initially uses staging with Apple sandbox purchases. Production preparation must not copy staging users or synthetic entitlements. The build identifies its environment visibly to testers.
 - Use Supabase Auth, Postgres, private Storage, bounded Edge Functions, durable Queues, and scheduled reconciliation. Separate API ingress from work execution. Queue payloads contain identifiers and approved work options, not private plaintext conversations.
 - The pipeline now runs on Cloud Run; review its billing mode and scheduling together against the approved budget (see below). Do not use the NAS as a production dependency. [Pipeline reliability](PIPELINE_RELIABILITY.md).
-- Static React clients use Cloudflare hosting, backed by authenticated Supabase APIs. Reader deployment remains unfinished; distinguish a created Pages project from a deployed app and configured custom domain. No server secrets belong in the bundle. [Browser deployment status](BROWSER_READER.md#where-it-lives).
+- Static React clients use Cloudflare hosting, backed by authenticated Supabase APIs. The admin is live at `https://admin.gradstep.ai` on its own static Pages project; real owner MFA acceptance remains pending. No server secrets belong in the bundle. [Admin hosting evidence](ADMIN_HOSTING.md), [browser deployment status](BROWSER_READER.md#where-it-lives).
 - Backend schema, functions, roles/grants, buckets, cron/queue configuration, and environment-specific nonsecret settings are versioned. Use the same reviewed migrations in staging and production. No first-request schema creation or undocumented dashboard fixes.
 - Apply least-privilege service identities. Provider, Apple signing, database, and management credentials are distinct. Establish dedicated Science Reader provider keys/workspaces so monitoring or limits cannot interrupt TextBrain.
 
@@ -50,7 +50,7 @@ while the audited provider/storage gaps remain deployed. New controls are locall
 | Tavily Project, 4,000 search credits | 2026-10-06 | $30 | Owner supplied the paid October 6 invoice and November 6 renewal for November 6–December 6. Owner confirmed turning pay-as-you-go **off** on October 7 |
 | gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 amortized | One-off $181.14 already purchased by the owner; amortization is not a new monthly cash charge |
 | Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | Request billing live on revision `gradstep-pipeline-00007-j5l`, 1 vCPU / 2 GiB. At 23:40 UTC, the preceding complete hour reported 43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests. These are metrics, not an invoice or a monthly guarantee |
-| Cloudflare Pages: `gradstep-site` (gradstep.ai) and `gradstep-app` (app.gradstep.ai, browser reader) | 2026-10-07 (reader) | $0 | Free tier, static assets only (no Functions); deployed 2026-10-07 21:00 PDT with `scripts/deploy-web.mjs`. Admin hosting not deployed. This does not price other providers |
+| Cloudflare Pages: `gradstep-site` (gradstep.ai), `gradstep-app` (app.gradstep.ai, browser reader), `gradstep-admin` (admin.gradstep.ai) | 2026-10-07 (reader); 2026-10-08 UTC (admin) | $0 | Free static Pages, no Functions or new paid tier. Admin deployment `349d3859` and its custom domain are live; HTTPS/CSP/HSTS/no-transform and denied-caller checks pass. [Hosting evidence](ADMIN_HOSTING.md). This does not price other providers or establish an owner MFA session |
 
 Cloud Run's earlier instance-billed idle estimate of roughly $54/month described the previous revision and must
 not be presented as current. The request-based configuration was deployed by Claude with owner approval. Read-only
@@ -115,6 +115,32 @@ A job claim and a money reservation must be coordinated. Enqueue via a transacti
 Record costs for metadata extraction, search, diagram generation, OCR, and retries as well as visible chat turns. No direct provider keys in apps or the admin browser. If the balance service is unavailable, new paid work stops while ordinary local reading continues.
 
 Credit operations include grants, holds, captures, releases, refunds, adjustments, and entitlement-related corrections. Each admin adjustment records actor, reason, delta, and affected operation. The dashboard can reconstruct a balance from the ledger and compare it with materialized counters.
+
+### Owner cost-evidence entry — deployed 2026-10-08
+
+The **Spending → Record cost evidence** form is deployed at [the admin site](https://admin.gradstep.ai), backed
+by `admin-spending` v1 and the existing migration 037 append-only observation RPC. Each submission/retry verifies
+the caller's open account and owner/MFA status using that caller's JWT before invoking the service-only RPC.
+It records an observation; it does not change customer credits, provider budgets, reservations or live offers.
+Anonymous/customer denial and exact admin-origin CORS are verified. The owner role is provisioned through an
+audited bootstrap, but **real owner sign-in/TOTP and a successful hosted entry remain untested; no invoices were written**.
+
+Choose a component, **reporting month**, measure (`commitment`, `forecast`, `invoice` or `metric`), known USD
+amount or unknown, evidence completeness and a short reference without credentials or account/invoice contents.
+The reporting month groups the observation; it does not assert the vendor's service period. Leave completeness
+unchecked when attribution or the covered period is uncertain. Verified zero and unknown are different.
+For example, the supplied paid October 6 Tavily invoice confirms $30 paid but gives no prior service period;
+the separate upcoming November 6 renewal explicitly covers November 6–December 6. Neither has been entered here.
+
+Commitment/forecast amounts represent the component's total for the selected reporting month; the latest
+planning observation is used, not the sum of invoice line items. Invoice and metric observations remain separate
+from planning/provider totals. Do not mix individual line items with a full-month amount or count prepaid
+Tavily searches again as metered dollars. Records are permanent; corrections append a new observation.
+An unconfirmed submission keeps its original request UUID and observation time on retry, including a reload
+in the same tab while its retry journal remains available and the same fields are re-entered. Do not deliberately
+start a different entry to resolve an unknown outcome.
+The dashboard currently browses at most 40 current-month observations; accepted earlier/future entries are
+retained but do not yet have month navigation. [Deployment and verification evidence](ADMIN_HOSTING.md).
 
 ## Shared conversions and fair attribution
 

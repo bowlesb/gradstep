@@ -10,9 +10,17 @@ removed executor work) is retained below where useful and in git history.
   match source. Anonymous callers receive 401 and customers 403; a hosted lookup verifies no observation was
   recorded, zero-credit balances stayed unchanged and the disposable account was deleted. No provider cost
   or holds. The owner/MFA form passed local desktop/phone/dark, lost-response/reload, invoice-versus-allocation
-  and SQL checks. Static admin hosting and the owner's authenticator enrollment are being completed; no
-  invoice was entered and no real owner/MFA journey is claimed. `admin-spending-source-proof.json` and
+  and SQL checks. No invoice was entered and no real owner/MFA journey is claimed. `admin-spending-source-proof.json` and
   `admin-spending-postdeploy-verified.log` contain the redacted deployment evidence.
+- **Admin hosting is live at https://admin.gradstep.ai**, Pages **349d3859**, dedicated `gradstep-admin`
+  direct-upload project with a custom domain and proxied CNAME, free static hosting and no Functions.
+  At 08:31 UTC the hosted sign-in smoke passed HTTPS 200, strict CSP/HSTS/no-transform, desktop/phone-dark
+  layout, no browser errors or unexpected requests, and exact-origin CORS for `admin-spending`,
+  `admin-accounts` and `support-assets`. An audited bootstrap granted the existing verified account the owner
+  role without changing its password or MFA factors. **Real owner password/TOTP sign-in and hosted owner actions
+  remain untested**; ordinary MFA is required and no invoice evidence has been entered.
+  Evidence: `admin-live-smoke.json`, `admin-hosting-provision.json`, `admin-owner-bootstrap.json` under
+  `.artifacts/takeover-20261008/`. [Admin hosting](architecture/ADMIN_HOSTING.md).
 - **Interrupted-worktree audit completed:** ten apparently unmerged commits on the library-descriptor,
   upload-visibility and purchase-runtime branches are patch-equivalent to main. The 23 remaining source files
   in the two dormant runtime worktrees are byte-identical to merged `a2b4a38`; later main changes explain
@@ -294,7 +302,8 @@ credits once), grant credits (audited, at most 2,000) and disable/enable sign-in
 `…028_admin_accounts.sql` was applied to staging and the `admin-accounts` function deployed on 2026-10-07 (the
 deploy check `admin.accounts-gate` refuses anonymous and customer callers). Verified: database suite (new `test_owner_accounts.sql`), backend suite (10 new cases with
 fakes), Deno type-check, admin build, and the tab rendered from `?fixture=accounts` in headless Chromium (light,
-dark, 390 px phone, dialogs). Not yet exercised against staging or with a real owner session.
+dark, 390 px phone, dialogs). The static admin is now hosted and staging anonymous/customer deny checks pass;
+the Accounts tab's privileged actions have not been exercised with a real owner MFA session.
 
 **Chat answers (2026-10-07, legacy gaps 4, 2, 9; [decision](DECISIONS.md#chat-answers-tables-papers-named-progress-agent-decisions-2026-10-07-overnight-mandate)):**
 Markdown tables render as native tables (pipe text only while incomplete during streaming); **Papers in this
@@ -521,7 +530,7 @@ false, no client): the server answers "Unsupported provider". Email codes fail f
 because sign-up is closed (`signup_disabled`); the app showed "Sign-in isn’t available in this build" and now says
 the email has no account (next build). Codes to the owner's existing account are accepted by the server; delivery
 uses Resend's shared test sender, which delivers only to the Resend account's own address. The app has no password
-sign-in (replaced by email codes on 2026-10-04); only the local admin site uses a password.
+sign-in (replaced by email codes on 2026-10-04); only the admin site uses a password (now hosted; owner MFA acceptance pending).
 Update 22:20 PDT: codes now come from `codes@gradstep.ai` (verified domain) and reach any invited address.
 Update 22:45 PDT: Google sign-in is configured: OAuth web client in Google Cloud project `gradstep` (Google Auth
 Platform, External audience in testing mode, test users only; branding gradstep.ai and its privacy page), redirect

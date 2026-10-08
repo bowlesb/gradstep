@@ -412,6 +412,24 @@ The owner asked for an owner-only Accounts tab so testers can be managed without
   Synthetic `@example.invalid` logins are listed and marked "Test". Apple/Google sign-in for a pre-created tester
   relies on Supabase linking identities with the same verified email; not yet tried on staging.
 
+## Admin hosting and cost evidence (owner authorized; deployed 2026-10-08)
+
+- Keep the privileged admin on **https://admin.gradstep.ai**, separate from the customer reader's origin and
+  device-key storage. Deployment **349d3859** uses the dedicated `gradstep-admin` direct-upload Pages project,
+  production branch `main`, custom domain and proxied CNAME. Free static assets only; no Functions or paid tier.
+- The reviewed deployment script builds only with the selected public staging configuration, scans for leaked
+  server credentials, rejects production fixtures/server bundles and validates strict CSP/HSTS/no-transform.
+  Route rules cannot remove inherited security headers; the pinned Pages mode prevents an implicit Worker
+  deployment. Live sign-in-screen/CSP checks pass on desktop and phone; exact admin-origin CORS is verified for the
+  privileged endpoints without replacing their owner/MFA gates. [Hosting evidence](architecture/ADMIN_HOSTING.md).
+- Cost evidence is an append-only, auditable owner operation through the caller's normal MFA session and
+  existing migration 037 service RPC. A reporting month is not a vendor service period; invoices/metrics remain
+  separate from the latest component commitment/forecast and provider expense. Unknown-outcome retries retain
+  the same request identity. This action never changes budgets or customer credit balances.
+- The existing verified owner account received its role through an audited bootstrap; no password or MFA factor
+  was changed and no owner session was impersonated. **Real owner password/TOTP acceptance and hosted owner
+  actions are still untested; no invoice records were written.** Owner bootstrap is not proof of MFA completion.
+
 ## All chats as a table (owner asked 2026-10-07)
 
 Owner: "the all chats UX is terrible, bad use of space, we also need a nice table, better more dense rows, not
