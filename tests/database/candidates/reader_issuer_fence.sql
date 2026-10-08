@@ -37,8 +37,13 @@ update app_private.reader_delivery_policy set mode='dual';
 
 set role service_role;
 select test.assert(current_user='service_role','actual legacy issuer role');
+\if :already_applied
+select test.reject($q$select public.worker_reader_descriptor('45000000-0000-0000-0000-000000000001',
+ '45000000-0000-0000-0000-000000000007')$q$,'permission denied');
+\else
 select test.assert(public.worker_reader_descriptor('45000000-0000-0000-0000-000000000001',
  '45000000-0000-0000-0000-000000000007')->>'bucket'='paper-assets','baseline legacy bypass exists');
+\endif
 reset role;
 
 -- Exclude only the intentional ACL difference. Preserve physical identities,
@@ -57,7 +62,7 @@ create function test.unchanged_state() returns text language sql as $$
 $$;
 select test.unchanged_state() as state_before \gset
 \if :candidate
- \ir ../../../supabase/migrations/202610080045_reader_issuer_fence.sql.pending
+ \i :fence_migration
 \endif
 select test.assert(test.unchanged_state()=:'state_before','fence only changes legacy execute ACL');
 

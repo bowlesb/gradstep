@@ -3,7 +3,7 @@
 Status: local review only. Pending migration `202610080045_reader_issuer_fence.sql.pending`
 is not deployed; assign its final number at promotion. No hosted policy, stored object,
 credential or cache was changed for this review. Build 20 supports bounded transport;
-build 21's clearer quota errors are not part of that already-shipped evidence.
+the clearer quota errors in the build 21 candidate are not shipped evidence.
 
 ## Issuer boundary
 
@@ -19,6 +19,14 @@ single-use redemption, a two-session policy-switch race and changed-owner/define
 refusal. Objects, function bodies, inventory enforcement, policies and financial
 counters stay unchanged by the migration. `--baseline` fails at the expected old-RPC
 permission assertion. The ACL does not revoke descriptors already returned to Edge.
+
+`python3 scripts/test-database.py --reader-issuer-fence-candidate` applies pending
+045 only to disposable local fixtures and runs the full database suites plus this
+focused review. Without the flag, pending files remain excluded. After promotion to
+`.sql`, the normal runner automatically includes the focused review. The standalone
+loader accepts exactly one pending/promoted file, tests an already-applied ACL when
+present, and its `--baseline` always loads only pre-045 migrations. Pipeline delivery
+fixtures use the supported guarded issuer; customer denial of the old RPC remains.
 
 ## Ordered hosted procedure
 

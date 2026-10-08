@@ -95,10 +95,14 @@ select e->>'phase' as phase from jsonb_array_elements(public.v2_library_page()->
 select test.assert(:'phase'='ready','import ready');
 reset role;
 set role service_role;
-select public.worker_reader_descriptor('14000000-0000-0000-0000-00000000000a',(:'item'::jsonb->>'id')::uuid) as descriptor \gset
+-- Use the supported policy-checked entry point. Migration 045 denies direct
+-- service-role execution of its internal descriptor helper.
+select public.worker_reader_delivery_create('14000000-0000-0000-0000-00000000000a',(:'item'::jsonb->>'id')::uuid,
+ decode(repeat('91',32),'hex'),'legacy') as descriptor \gset
 select test.assert(:'descriptor'::jsonb->>'manifest_path'='reader/'||repeat('7b',32)||'/manifest.json' and :'descriptor'::jsonb->>'manifest_sha256'=repeat('7b',32),'reader descriptor');
 select test.assert(public.worker_chat_context('14000000-0000-0000-0000-00000000000a',(:'item'::jsonb->>'document_id')::uuid)->>'path'='raw/'||repeat('6a',32)||'/standalone.mmd','chat context path');
-select test.reject(format('select public.worker_reader_descriptor(%L,%L)','14000000-0000-0000-0000-00000000000b',:'item'::jsonb->>'id'),'reader_unavailable');
+select test.reject(format('select public.worker_reader_delivery_create(%L,%L,decode(repeat(''92'',32),''hex''),''legacy'')',
+ '14000000-0000-0000-0000-00000000000b',:'item'::jsonb->>'id'),'reader_unavailable');
 select test.reject(format('select public.worker_chat_context(%L,%L)','14000000-0000-0000-0000-00000000000b',:'item'::jsonb->>'document_id'),'document_unavailable');
 reset role;
 
