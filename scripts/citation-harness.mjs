@@ -46,6 +46,11 @@ if (!rules) throw new Error('the app bridge has no CITATION MATCHER section');
 const subjectMatcher = matcherOf(bridge);
 const Citations = subjectMatcher ? new Function(`${subjectMatcher}\nreturn CitationMatcher;`)() : null;
 
+// Figure, table and algorithm references ("Fig. 1", "Table 2"): the current rules find the candidates, so every
+// bridge version is measured on the same ones; each link's target caption is checked independently below.
+const figureRulesOf = source => source.match(/\/\/ BEGIN FIGURE REFERENCES\n([\s\S]*?)\/\/ END FIGURE REFERENCES/)?.[1] ?? null;
+const figureRules = figureRulesOf(current);
+
 // Measurement only: expose the bridge's reference list to read entry texts, and (bridges that
 // format a paper's own contents) each contents link's heading.
 const instrumented = bridge.replace('const references = {', 'const references = window.__srAudit = {')
@@ -141,7 +146,7 @@ for (const dir of dirs) {
   await page.evaluate(instrumented);
   await page.evaluate(() => Promise.race([window.__scienceReaderReady, new Promise(resolve => setTimeout(resolve, 8000))]));
   const elapsed = Date.now() - started;
-  const state = await page.evaluate(rulesSource => {
+  const state = await page.evaluate(([rulesSource, figureSource]) => {
     const rules = new Function(`${rulesSource}\nreturn CitationMatcher;`)();
     const audit = window.__srAudit;
     // The bibliography by the current rules (the same walk as collectReferences).
@@ -165,19 +170,21 @@ for (const dir of dirs) {
     for (const element of document.querySelectorAll('[data-reader-block]')) {
       if (element.closest(skipped) || inBibliography(element)) continue;
       let text = '';
-      const cites = [];
+      const cites = [], figrefs = [];
       const walk = parent => {
         for (let node = parent.firstChild; node; node = node.nextSibling) {
           if (node.nodeType === Node.TEXT_NODE) { text += node.data; continue; }
           if (node.nodeType !== Node.ELEMENT_NODE) continue;
           if (node.matches(skipped) || node.hasAttribute('data-reader-block') || members.has(node)) { text += '⁣'; continue; }
           if (node.tagName === 'BR') { text += '\n'; continue; }
-          const cite = node.matches('.sr-cite') ? { start: text.length, target: node.getAttribute('data-sr-cite') } : null;
+          const cite = node.matches('.sr-cite:not(.sr-figref)') ? { start: text.length, target: node.getAttribute('data-sr-cite') } : null;
+          const figref = node.matches('.sr-figref') ? { start: text.length, target: node.getAttribute('data-sr-figure'), label: node.getAttribute('aria-label') } : null;
           const isBreak = breaks.test(node.tagName);
           if (isBreak) text += '⁣';
           walk(node);
           if (isBreak) text += '⁣';
           if (cite) cites.push({ ...cite, end: text.length });
+          if (figref) figrefs.push({ ...figref, end: text.length });
         }
       };
       walk(element);
@@ -188,8 +195,27 @@ for (const dir of dirs) {
         if (last && last.target === cite.target && !text.slice(last.end, cite.start).replace(/\s/g, '')) last.end = cite.end;
         else merged.push(cite);
       }
-      blocks.push({ id: element.id, text, cites: merged.map(cite => ({ ...cite, text: text.slice(cite.start, cite.end) })) });
+      blocks.push({ id: element.id, container: element.matches("figure,.reader-table,pre"), text, cites: merged.map(cite => ({ ...cite, text: text.slice(cite.start, cite.end) })),
+        figrefs: figrefs.map(figref => ({ ...figref, text: text.slice(figref.start, figref.end) })) });
     }
+    // Figure references: the candidates the current rules find, and each linked target's own caption text.
+    const figureCandidates = [];
+    if (figureSource) {
+      const Figures = new Function(`${figureSource}\nreturn FigureReferences;`)();
+      for (const block of blocks) {
+        for (const found of Figures.scan(block.text)) figureCandidates.push({ block: block.id, start: found.start, end: found.end, key: Figures.key(found.kind, found.number),
+          context: block.text.slice(Math.max(0, found.start - 40), found.end + 25).replace(/\s+/g, ' ').replace(/⁣/g, '¦') });
+      }
+    }
+    const captionOf = element => {
+      if (!element) return '';
+      if (element.matches('figure')) return element.querySelector('figcaption')?.textContent ?? '';
+      if (element.matches('.reader-table')) return [...element.querySelectorAll('.reader-caption')].map(node => node.textContent).join('\n');
+      return element.textContent;
+    };
+    const figureCaptions = Object.fromEntries([...new Set(blocks.flatMap(block => block.figrefs.map(figref => figref.target)))]
+      .map(id => { const element = document.getElementById(id); return [id, { caption: captionOf(element).slice(0, 2000), tag: element?.tagName ?? null,
+        neighbours: [element?.previousElementSibling, element?.nextElementSibling].map(node => node?.matches('p') ? node.textContent.slice(0, 300) : '') }]; }));
     const entries = audit.entries.map(entry => ({ id: entry.id, text: entry.text, number: entry.number, label: entry.label }));
     // The paper's own contents lists the bridge formatted, with each heading link's target.
     const contents = [...document.querySelectorAll('.sr-toc')].map(block => ({ id: block.id,
@@ -198,8 +224,8 @@ for (const dir of dirs) {
         label: row.querySelector('.sr-toc-label').textContent.replace(/\s+/g, ' ').trim(), page: row.querySelector('.sr-toc-page').textContent,
         depth: Number(row.getAttribute('data-sr-depth')), linked: row.classList.contains('sr-toc-link'),
         target: window.__srContents?.get(row)?.range.toString().replace(/\s+/g, ' ').trim() ?? null })) }));
-    return { changed, blocks, entries, contents, cites: document.querySelectorAll('.sr-cite').length };
-  }, rules);
+    return { changed, blocks, entries, contents, cites: document.querySelectorAll('.sr-cite:not(.sr-figref)').length, figureCandidates, figureCaptions };
+  }, [rules, figureRules]);
   await context.close();
 
   if (args.dump) {
@@ -243,6 +269,34 @@ for (const dir of dirs) {
         (row.examples.contentsSuspect ??= []).push(`${entry.label} → ${entry.target}`);
       }
     }
+  }
+  // Figure references: candidates (the current rules), linked ones, and links whose target's caption (or, for a caption
+  // paragraph beside it, that paragraph) does not print the label the link names. The oracle reads the link's own text.
+  Object.assign(row, { figureCandidates: state.figureCandidates.length, figureLinks: 0, figureLinked: 0, figureSuspect: 0 });
+  row.examples.figureUnlinked = []; row.examples.figureSuspect = [];
+  const ORACLE_WORDS = { f: String.raw`fig(?:ure)?s?\.?`, t: String.raw`tab(?:le)?s?\.?`, a: String.raw`alg(?:orithm|o)?s?\.?` };
+  for (const block of state.blocks) {
+    let kind = null;
+    for (const figref of block.figrefs) {
+      row.figureLinks += 1;
+      const text = figref.text.replace(/[ ~]/g, ' ');
+      const word = /^\s*([A-Za-z]+)/.exec(text)?.[1].toLowerCase();
+      if (word && /^(?:fig|tab|alg)/.test(word)) kind = word[0];
+      const number = /([A-Z]\.?\s?\d{1,3}|\d{1,3}(?:\.\d{1,2})?|[IVX]{1,5})(?![\d])/.exec(text.replace(/^\s*(?:fig|tab|alg)[A-Za-z]*\.?/i, ''))?.[1];
+      const target = state.figureCaptions[figref.target];
+      // At the caption's start, or later with a colon ("… FID=7.89 Figure 4: Bedroom samples").
+      const digits = number && number.replace(/\s/g, '').replace(/\./g, '\\.').replace(/^([A-Z])(?:\\\.)?(?=\d)/, '$1\\.?\\s?');
+      const printed = number && kind && new RegExp(String.raw`^\s*${ORACLE_WORDS[kind]}\s*${digits}(?![\d])|\s${ORACLE_WORDS[kind]}\s*${digits}(?![\d])\s*:`, 'i');
+      const ok = printed && [target?.caption ?? '', ...(target?.tag === 'P' ? [] : target?.neighbours ?? [])].some(caption => printed.test(caption.trim()));
+      if (!ok) { row.figureSuspect += 1; row.examples.figureSuspect.push(`"${figref.text}" → ${target?.tag} "${(target?.caption ?? '').slice(0, 70)}"`); }
+    }
+  }
+  for (const candidate of state.figureCandidates) {
+    const block = state.blocks.find(value => value.id === candidate.block);
+    // A caption's own label ("Figure 3: …" where a caption starts) is not a reference.
+    if (/(?:^|[⁣\n])[^\S\n]*$/.test(block.text.slice(0, candidate.start)) && (block.container || /^[^\S\n]*[:.|]/.test(block.text.slice(candidate.end)))) { row.figureCandidates -= 1; continue; }
+    if (block.figrefs.some(figref => figref.start <= candidate.start && candidate.start < figref.end)) row.figureLinked += 1;
+    else if (row.examples.figureUnlinked.length < EXAMPLES) row.examples.figureUnlinked.push(`${candidate.key}: …${candidate.context}…`);
   }
   const covered = new Set();
   for (const candidate of candidates) {
@@ -311,6 +365,10 @@ const listed = results.filter(row => row.contents);
 console.log(`\nContents lists formatted: ${listed.reduce((sum, row) => sum + row.contents, 0)} in ${listed.length} of ${results.length} papers; `
   + `${listed.reduce((sum, row) => sum + row.contentsEntries, 0)} entries, ${listed.reduce((sum, row) => sum + row.contentsLinked, 0)} linked to a heading, `
   + `${listed.reduce((sum, row) => sum + row.contentsSuspect, 0)} links whose heading disagrees with the entry.`);
+const figureTotal = results.reduce((sum, row) => [sum[0] + row.figureCandidates, sum[1] + row.figureLinked, sum[2] + row.figureLinks, sum[3] + row.figureSuspect,
+  sum[4] + (row.figureLinks ? 1 : 0)], [0, 0, 0, 0, 0]);
+console.log(`Figure, table and algorithm references ("Fig. 1", "Tables 2 and 3"): ${figureTotal[1]} of ${figureTotal[0]} found linked (${pct(figureTotal[1], figureTotal[0])}), `
+  + `${figureTotal[2]} links in ${figureTotal[4]} papers, ${figureTotal[3]} whose target's caption doesn't print the label.`);
 for (const row of results) {
   const shown = Object.entries(row.examples).filter(([, list]) => list.length);
   if (!shown.length) continue;
