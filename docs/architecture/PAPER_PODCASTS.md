@@ -420,3 +420,34 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 
 Listening position and history are **device-local in v1** (see "Listening history" below): no podcast events enter
 the encrypted history stream, so older clients' chat/history replay is unaffected.
+
+### Browser client (apps/web, 2026-10-08, local fixture verification only)
+
+- **Listen filter:** an additive chip (or rail item when the topic rail is shown) before the Feed's topics
+  (`ui/Feed.tsx` `ListenFilter`); episode cards show title, authors, year, duration, topic, the AI-audio badge and
+  "Synthetic fixture" for labeled fixtures. The catalog is requested only when Listen is opened. Absent or disabled
+  capability shows "Listening isn't available yet"; the Feed and reading continue.
+- **Docked player:** `ui/Podcast.tsx` renders in its own row of the app column under the workspace, so the reader,
+  chat composer and selection bar shrink above it rather than being overlaid (the journey asserts the composer and
+  reader end above the dock). Play/pause, ±15 s, speed (0.75–2×), position slider with spoken time, chapters, an
+  approximate-timing transcript (segments seek; the active one follows playback unless the listener scrolls), and
+  evidence chips. Evidence opens the cited passage through the existing passage finder (text-only anchor) when the
+  paper is in the library and folds the dock to its bar; otherwise it shows the arXiv source link. Stop is explicit;
+  navigation keeps playing. Media Session handlers where the browser supports them; reduced motion disables
+  transcript animation.
+- **Delivery:** `podcast?action=episode` (state must be `ready`, audio identity must match the catalog) →
+  `action=download` → one authorized GET of the exact `functions/v1/podcast-member` URL (no Range, two-minute bound)
+  → length and SHA-256 → in-memory Blob URL, revoked at Stop, episode change, sign-out and account change.
+  **No offline browser downloads in v1:** nothing is written to CacheStorage or IndexedDB; playing again uses a new
+  single-use grant. CSP adds only `media-src blob:` (default stays `'none'`; connect-src unchanged; deploy-web's
+  output validation passes).
+- **Listening places:** per-account `localStorage` (`gradstep.<env>.podcast-positions.<account>`, ≤ 200 episodes),
+  saved at pause, chapter change, every 15 s while playing, page hide and Stop. Merge rule: within a play session the
+  higher sequence wins (seeking back is kept); across sessions the later session start wins; never max(position).
+  Another tab's write never moves the playing tab. Cleared at sign-out.
+- **Not done in the browser:** the paper-detail Listen action, private generation (quote/start/status) and
+  revocation polling of an already open episode beyond the pre-download state check.
+- **Evidence (local only):** `npm test` in apps/web 205 passed (14 podcast); `npx playwright test` 73 passed /
+  53 skipped (existing WebKit key-persistence skips; podcast journey on desktop and 390 px phone); production build
+  passes. Light/dark desktop and phone screenshots in `.artifacts/podcast-web/` were inspected. No hosted backend,
+  provider or deployment was used.
