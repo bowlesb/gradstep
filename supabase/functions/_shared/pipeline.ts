@@ -634,6 +634,11 @@ export async function runPipeline(deps: PipelineDeps, deadline: number): Promise
   await deps.rpc<{ retried?: number; healed?: number; postponed?: number } | null>('worker_pipeline_auto_retry', { p_min_interval_seconds: 20 })
     .then(r => { if (r && (r.retried || r.healed || r.postponed)) deps.log('auto_retry', { retried: r.retried ?? 0, healed: r.healed ?? 0, postponed: r.postponed ?? 0 }); })
     .catch(() => deps.log('auto_retry_failed'));
+  // Imports waiting on credits restart once the account's balance covers them (migration 040), oldest
+  // first, so this claim can already pick them up. At most one sweep every 10 s; never blocks the pipeline.
+  await deps.rpc<{ resumed?: number; limited?: number } | null>('worker_pipeline_resume_credits', { p_min_interval_seconds: 10 })
+    .then(r => { if (r && (r.resumed || r.limited)) deps.log('credit_resume', { resumed: r.resumed ?? 0, limited: r.limited ?? 0 }); })
+    .catch(() => deps.log('credit_resume_failed'));
   const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
   if (!claimed) return { processed: 0 };
   await processPaper(deps, claimed, policy, deadline);
