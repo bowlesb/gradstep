@@ -437,6 +437,11 @@ test('encoder: escaped chapter metadata, fixed mono AAC arguments and a strict p
   assert.equal(verifyProbe(probe(), 2), 301_250);
   assert.throws(() => verifyProbe(probe({ chapters: [{}] }), 2), /encoding_invalid/);
   assert.throws(() => verifyProbe(probe({ streams: [{ codec_type: 'audio', codec_name: 'mp3', channels: 1, sample_rate: '24000' }] }), 2), /encoding_invalid/);
+  const chapterTrack = { codec_type: 'data', codec_name: 'bin_data', codec_tag_string: 'text' };
+  const audioStream = { codec_type: 'audio', codec_name: 'aac', channels: 1, sample_rate: '24000' };
+  assert.equal(verifyProbe(probe({ streams: [audioStream, chapterTrack] }), 2), 301_250, 'the MP4 chapter text track is expected');
+  assert.throws(() => verifyProbe(probe({ streams: [audioStream, { codec_type: 'video', codec_name: 'png' }] }), 2), /encoding_invalid/);
+  assert.throws(() => verifyProbe(probe({ streams: [audioStream, chapterTrack, chapterTrack] }), 2), /encoding_invalid/);
   // The subprocess path with a fake spawner (no ffmpeg on the test host).
   const spawned: string[][] = [];
   const spawner = ((binary: string, argv: string[]) => {

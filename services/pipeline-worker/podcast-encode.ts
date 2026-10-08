@@ -52,17 +52,23 @@ export function ffmpegArguments(input: string, metadata: string, output: string)
     '-movflags', '+faststart', '-f', 'mp4', output];
 }
 
-interface Probe { streams?: { codec_type?: string; codec_name?: string; channels?: number; sample_rate?: string }[];
+interface Probe { streams?: { codec_type?: string; codec_name?: string; codec_tag_string?: string; channels?: number; sample_rate?: string }[];
   format?: { duration?: string; format_name?: string }; chapters?: unknown[] }
 
-/** The probe must show exactly one mono 24 kHz AAC stream, the chapters and a duration. */
+/**
+ * The probe must show exactly one mono 24 kHz AAC stream, the chapters and a duration. The MP4 muxer stores
+ * chapters as a QuickTime text track (a `data` stream tagged `text`, which AVFoundation reads); nothing else is allowed.
+ */
 export function verifyProbe(json: string, chapterCount: number): number {
   let probe: Probe;
   try { probe = JSON.parse(json) as Probe; } catch { throw new Error('encoding_invalid'); }
-  const audio = (probe.streams ?? []).filter(s => s.codec_type === 'audio');
+  const streams = probe.streams ?? [];
+  const audio = streams.filter(s => s.codec_type === 'audio');
+  const others = streams.filter(s => s.codec_type !== 'audio');
   const duration = Number(probe.format?.duration);
   if (audio.length !== 1 || audio[0].codec_name !== 'aac' || audio[0].channels !== 1 || audio[0].sample_rate !== String(ENCODER_SETTINGS.sample_rate)
-    || (probe.streams ?? []).length !== 1 || !Number.isFinite(duration) || duration <= 0 || (probe.chapters ?? []).length !== chapterCount
+    || others.length > 1 || others.some(s => s.codec_type !== 'data' || s.codec_tag_string !== 'text')
+    || !Number.isFinite(duration) || duration <= 0 || (probe.chapters ?? []).length !== chapterCount
     || !(probe.format?.format_name ?? '').includes('mp4')) throw new Error('encoding_invalid');
   return Math.round(duration * 1000);
 }
