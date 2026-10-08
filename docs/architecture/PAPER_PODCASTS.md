@@ -1,6 +1,9 @@
 # Shared paper podcasts: implementation contract proposal
 
-2026-10-08. **Design for independent schema/cost/identity review. Not implemented or deployed.**
+2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark: migration 046 is not applied, nothing is
+deployed and no paid provider call has been made.** The design below was the reviewed input; the
+[implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
+[seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this).
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
@@ -540,6 +543,217 @@ is a real update. Save at pause, background/page hide, chapter change, Stop and 
 Another device's or tab's record never moves an already playing player; it is offered as "resume" on next open.
 Scope storage per account and clear it at sign-out/account switch. Native seals it with the device-held local key;
 the browser keeps it in per-account `localStorage`. Nothing is sent to the server in v1.
+
+## V1 implementation (branch `podcast-v1`)
+
+### Schema: migration `202610080046_paper_podcasts.sql`
+
+Everything is in `app_private` with RLS on and no table grants; customers reach only `v1_podcast_*`
+(authenticated) and the worker/Edge only `worker_podcast_*` (service role). All functions are `security definer`
+with `search_path=''`. Every switch starts **off**: `podcast_policy.catalog_enabled`, `delivery_enabled`,
+`generation_enabled`, `seed_enabled`, `fixtures_enabled`. Enabling anything that writes or delivers (generation,
+seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scope-2 certification is refused.
+
+| Area | What 046 adds |
+|---|---|
+| Finance (034 extension) | `metered_operations.kind` gains `podcast`; `provider_attempts` gains provider `google` and routes `podcast_script`, `podcast_review`, `podcast_speech`; `valid_provider_units` gains `text_input_tokens`, `audio_output_tokens`, `audio_ms`. `worker_provider_attempt_begin` is replaced with the 034 body plus those routes; a podcast route is granted only inside `worker_podcast_attempt_begin` (transaction-local token), which takes model, units and ceiling from the immutable profile, so no caller-supplied model or price can be granted. Pricing snapshots record the tariff and `profile` (`podcast-5min-v1:1`). |
+| Identities | `podcast_profiles` (immutable spec + SHA-256); `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
+| Rights | `podcast_rights` (one row per shared episode: active/quarantined/withdrawn, `rights_revision`, CC BY 4.0/CC0 approval pinned, reviewer, evidence digest) + append-only events. Checked at admission, every provider grant, publication, catalog listing and every delivery redemption. |
+| Jobs | `podcast_jobs` (origin `generated`/`fixture`; funding `platform_seed`/`customer`/`fixture`; FK to the metered operation; fenced claim id/generation/lease; captured policy epoch and rights revision; one active job per work key), `podcast_job_attempts` (one per route), `podcast_job_events` (append-only, bounded to 128). States as designed: `queued → scripting → checking → synthesizing → verifying → publishing → ready`, plus `canceled`, `failed`, `capacity_wait`, `unknown_provider`, `quarantined`. |
+| Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $2 and ≤ 2 episodes** by check constraint, created disabled). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. |
+| Private generation | `podcast_quotes` (ids/digests only, 15-minute expiry, epoch-bound, cleaned after a day) and `podcast_requests` (`(account, request_id)` idempotency; `started`/`joined`/`reused`). `v1_podcast_start` rechecks the quote, source pins and work key, reuses a ready private release (zero hold), joins the owner's active job, enforces 1 active private job/account, 2 active jobs/environment, 20 jobs/day and the quality-loss allocation, then makes **one** 150-credit / $0.75 reservation. |
+| Storage | `stored_objects` gains bucket `podcast-assets` (shared objects: document identity, `shared/<key>/…`; private objects: owner identity, `private/<owner>/<key>/…`, enforced by check constraint). `podcast_asset_holds` (20 MiB / 3 objects per job at admission), `podcast_asset_uploads/members/writes` (exact plan before write, one write grant, uncertain writes retain capacity, late writes reconcile but cannot publish). `paper_asset_check_capacity` now counts podcast objects and holds globally and per owner (1 GiB/owner). Inventory scope 3 (`worker_asset_inventory_*` replaced): begin/finish require drained podcast work, pages include `podcast-assets`; `v1_reader_capabilities` and `worker_pdf_upload_policy` accept scope ≥ 2. `worker_podcast_cleanup`/`_confirm` delete objects of terminal jobs that never became a release. |
+| Delivery | `podcast_delivery_grants/redemptions` (token hash only, account/release/rights-revision/epoch bound, 15-minute expiry, one redemption per object, charged before Storage is read). Transfer counters reuse `reader_transfer_months` with kind `podcast` (100 MiB/account, 512 MiB with an active subscription, 2 GiB/environment) **and** the shared reader environment counter. |
+| Deletion | `worker_delete_account_begin` cancels the account's queued podcast jobs (or requests cancel of running ones), deletes quotes/requests and delivery grants, withdraws private releases and returns `blocked` while a podcast write is unresolved; private audio is deleted through the existing object list. Shared releases survive a listener's deletion. |
+| Restore | `scripts/restore-local.py` turns every podcast switch off and rotates `podcast_policy.epoch`; every fenced call compares the job's captured epoch, so pre-restore jobs, quotes and grants cannot proceed. |
+| Rate limits | `podcast-read` 600/account/h, `podcast-generate` 20/account/h, `podcast-download` 60/account/h. |
+
+### Generation (pipeline worker, `POST /podcast`)
+
+`services/pipeline-worker/server.ts` routes `POST /podcast` to `podcast-run.ts` in its own worker thread, awaited
+under the same 840 s hard limit as the paper pipeline (its own in-flight guard; maintenance mode refuses it).
+Each request recovers up to three expired leases, then claims **one** job. Wake-ups: `pg_net` at admission
+(`science_reader_pipeline_url` + `/podcast`), and a customer's status poll re-kicks a queued or stalled job at most
+once a minute; `scripts/podcast-ops.py kick` does the same for the operator. There is no new schedule or loop.
+Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker leaves generated jobs queued
+(fixture jobs still run).
+
+1. **Source:** download the pinned `standalone.mmd` (bounded), verify length and SHA-256; refuse > 400 KB.
+2. **Script pass 1** (`podcast_script`): Claude Sonnet 5.5, ≤ 6,000 output tokens, no tools, no server-side
+   fallback, no SDK retries, `thinking: between_tools` (no extended thinking; the whole output budget is script),
+   structured JSON schema output. Input bound: the serialized request's UTF-8 bytes (one token never covers less
+   than one byte) must be ≤ 80,000; if larger, the free `count_tokens` estimate × 1.05 + 512 must be ≤ 80,000;
+   otherwise the job fails **before any paid call** (`source_too_large`, charge 0). The paper is untrusted data.
+3. **Script pass 2** (`podcast_review`): the same text plus the draft, ≤ 4,000 output tokens, fact-check and
+   repair, with an explicit `accept`/`reject` verdict.
+4. **Checker** (`podcast-checker-v1`, deterministic): structure, ids, 3–8 chapters, 8–80 segments, 450–1,000 words,
+   ≤ 6,000 spoken characters, no markup or speaker labels, every `paper_result`/`author_interpretation` segment has
+   1–3 evidence quotes found verbatim (whitespace-normalized) in the pinned text, every number spoken in a segment
+   appears in its evidence, segments without evidence contain no digits, math LaTeX comes from the paper, ≥ 5
+   evidenced segments, verdict `accept`. Failure = quality rejection: customer charged 0, known cost recorded as
+   platform quality loss (private generation pauses when the month's losses reach the $0.75 allocation).
+5. **Speech** (`podcast_speech`): one Gemini 3.8 Flash TTS multi-speaker request (below); request text bytes + 256
+   must be ≤ 8,192. `finishReason` must be `STOP`; WAV must be 16-bit PCM 24 kHz mono, complete, 120–660 s, not
+   silent, no dead air > 8 s.
+6. **Timing and encoding:** approximate segment timing (proportional, snapped to pauses), chapters from segment
+   starts; ffmpeg (Debian 5.1 in the worker image) encodes **mono AAC-LC 64 kbit/s, 24 kHz, MP4/M4A** with EBU R128
+   loudness normalization (−16 LUFS) and chapter markers; ffprobe must show exactly one mono AAC stream plus the MP4
+   chapter text track, the right chapter count and a duration within 1.5 s of the WAV.
+7. **Publication:** release key = SHA-256 of audio and transcript hashes; exact 3-object plan (`audio.m4a`,
+   `transcript.json`, `manifest.json`), one write grant each, upload without overwrite (a lost reply is accepted
+   only after re-reading the exact bytes), then `worker_podcast_publish` settles: seed → `pending_review` (operator
+   `review` publishes), private → `ready`. Customer charge = ⌈known µ$ / 5,000⌉ credits ≤ 150.
+
+Every grant is recorded before its POST; results (succeeded/rejected/unknown with numeric units and the
+provider request id) are finished with replay-safe retries. An unknown outcome (transport loss, 5xx, missing usage)
+retains the attempt's whole ceiling, stops the job (`unknown_provider`, customer charged 0) and is never retried
+automatically. A crash after any admitted paid call ends the job (`failed`/`unknown_provider`); only a job that never
+reached a paid call is requeued. Labeled fixture jobs (`--fixture`) run the same path with zero provider calls:
+real verbatim evidence quotes, synthetic tone audio, the real encoder, Storage and delivery.
+
+### Speech provider: Vertex AI feasibility and enablement
+
+Checked 2026-10-08 13:42 UTC with free metadata calls only (owner's gcloud identity, project `gradstep`):
+`aiplatform.googleapis.com` and `iamcredentials.googleapis.com` are **enabled**; the publisher model
+`publishers/google/models/gemini-3.8-flash-tts` resolves (`versionId: default`); `voices.list` (v1beta1, global)
+returns the prebuilt voices, including **Sadaltager** (male, "Knowledgeable and steady… recommended for scientific
+explanations") and **Erinome** (female, "Clear, articulate, and precise… instruction"), which are the fixed v1 voices.
+No generation request was sent. Official facts encoded in the profile and adapter:
+
+- Model `gemini-3.8-flash-tts`, **Preview** launch stage (released 2026-09-28), **global location only**, endpoint
+  `https://aiplatform.googleapis.com/v1/projects/gradstep/locations/global/publishers/google/models/gemini-3.8-flash-tts:generateContent`.
+  Input limit **8,192** tokens, output limit **16,384** tokens.
+  [Model page](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash-tts).
+- Multi-speaker requests need **exactly two** speakers in `speechConfig.multiSpeakerVoiceConfig.speakerVoiceConfigs`;
+  each part carries `speechMetadata.speaker`/`style`; the text is a verbatim transcript (inline "Speaker 1:" may be
+  read aloud); system instructions unsupported; unary output is WAV, 16-bit PCM, 24 kHz, mono; MP3/Opus output is
+  not offered. [Generate speech with Gemini TTS](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/text-to-speech/overview).
+- Price: $0.50/M text input and $9/M audio output through 2026-12-31 (delivered as 50% credits back), **$1/M and
+  $18/M from 2027-01-01**; audio is 25 tokens/second; requests failing with 400/500 errors are not charged.
+  [Vertex pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing),
+  [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing). The adapter reserves and records at the
+  January list price; promotional credits are reconciled later from invoices, never assumed.
+- Data handling: no zero-retention or training claim is made for this configuration; review Vertex's data
+  governance terms before private generation is enabled.
+
+**Authentication: no keys.** The Cloud Run worker (`gradstep-pipeline@gradstep.iam.gserviceaccount.com`) mints a
+300-second token for a **dedicated** speech account through the IAM Credentials API, using its own metadata-server
+identity. The lead must, once:
+
+```sh
+gcloud iam service-accounts create gradstep-podcast-speech --project gradstep \
+  --display-name "Gradstep podcast speech (Vertex TTS only)"
+gcloud iam roles create gradstepSpeechInvoker --project gradstep --title "Gradstep speech invoker" \
+  --permissions aiplatform.endpoints.predict --stage GA
+gcloud projects add-iam-policy-binding gradstep \
+  --member serviceAccount:gradstep-podcast-speech@gradstep.iam.gserviceaccount.com \
+  --role projects/gradstep/roles/gradstepSpeechInvoker --condition None
+gcloud iam service-accounts add-iam-policy-binding gradstep-podcast-speech@gradstep.iam.gserviceaccount.com \
+  --project gradstep --member serviceAccount:gradstep-pipeline@gradstep.iam.gserviceaccount.com \
+  --role roles/iam.serviceAccountTokenCreator
+```
+
+then add `"podcast_speech": {"service_account": "gradstep-podcast-speech@gradstep.iam.gserviceaccount.com",
+"project": "gradstep"}` to `infra/staging.json`; `deploy-pipeline-worker.py` passes both as non-secret environment
+variables. If `aiplatform.endpoints.predict` alone is refused for publisher models, use `roles/aiplatform.user` on
+the speech account only (broader; record it). Quota for the preview model is the project default; one request per
+episode is far below it.
+
+### Cost ceilings per five-minute episode (calculated, not measured)
+
+| Call | Ceiling (reserved) | Typical (20k-token paper, ~750 spoken words) |
+|---|---:|---:|
+| Script pass 1 | 80,000 in × $2/M + 6,000 out × $10/M = **$0.220000** | ~22k in + ~3k out ≈ $0.074 |
+| Script pass 2 | 80,000 × $2/M + 4,000 × $10/M = **$0.200000** | ~26k in + ~3k out ≈ $0.082 |
+| Speech | 8,192 × $1/M + 16,384 × $18/M = **$0.303104** | ~1.5k text + 7,500 audio tokens ≈ $0.137 list ($0.068 net of the 2026 credit) |
+| **Total** | **$0.723104**, held as **$0.75 / 150 credits** | **≈ $0.29 list** (≈ $0.22 with the 2026 credit) |
+
+Ceilings are hard: each grant must fit the operation's remaining reservation, and a recorded actual above an
+attempt's ceiling freezes platform work. "Typical" values are planning estimates from the pricing model, not
+measurements; the pilot measures them. Runtime: ~3–5 minutes of a 1 vCPU/2 GiB request-billed instance
+(≈ $0.005–0.009 at list before the free tier); storage ~2.4 MB audio + ~20 KB transcript per episode.
+**Seed pilot maximum:** 2 episodes × $0.75 = $1.50 admitted, inside the $2 seed allowance and the existing
+$25 provider cap; the database refuses a third seed episode and any admission that would exceed $2.
+
+### Listening history
+
+Device-local in v1 (see the canonical record in the client API reference). The design's encrypted podcast stream
+(own envelope domain, independent cursor, compaction, key rotation and old-client tests) is the follow-up; the
+record format and merge rule are already fixed so that stream can reuse them. No server table holds positions.
+
+### Deviations from the design and remaining gates
+
+- **One bounded request per job** keeps drafts in memory: a crash after a paid call ends the job (platform loss,
+  customer charged 0) instead of resuming from a persisted draft. Upload failures after paid generation lose that
+  episode the same way. Measured pilot failure rates decide whether drafts should be persisted.
+- **Token bound:** bytes are a provable bound; above 80,000 bytes the free `count_tokens` estimate (+5% + 512) is
+  used. Anthropic documents counts as estimates; an actual above the grant freezes paid work rather than overspending.
+- **Timing is approximate** (one multi-speaker take); word-level alignment would need a separate, separately
+  admitted transcription pass.
+- **No admin dashboard page yet:** podcast routes appear in the existing Spending page by provider/route/model;
+  operators use `scripts/podcast-ops.py status` and the `podcast.state` workflow check.
+- **Not built:** progressive/range playback, private-to-shared sharing, sponsorship, encrypted listening stream,
+  automatic revocation polling beyond the documented `states` call, optional QA transcription, OpenAI comparison.
+- The design's required real-session races are covered locally for start/join, claim, cancel, seed-disable and
+  grant redemption (`tests/database/podcast_concurrency.py`); account-deletion vs running-job and purchase-refund
+  races are covered only by single-session SQL.
+
+### Seed pilot runbook ($2, the lead runs this)
+
+Prerequisites: review this branch; owner account id (`<OWNER>`, with the owner role) at hand; no other agent
+deploying the worker. All `podcast-ops.py` mutations print a request id first; re-run with `--request-id` after a
+lost reply.
+
+1. **Back up** (`python3 scripts/backup.py staging`), then **apply 046** through the normal migration path
+   (`python3 scripts/deploy-staging.py staging --defer-activation --functions podcast podcast-member` applies pending
+   migrations, provisions the private `podcast-assets` bucket from `infra/staging.json` and deploys both functions;
+   they answer but everything stays off).
+2. **Speech identity:** run the four `gcloud` commands above and add `podcast_speech` to `infra/staging.json`.
+3. **Worker:** `python3 scripts/check-podcast-encoder.py --amd64` (zero spend), then deploy the worker image
+   through the usual paused → readiness → activate procedure (`deploy-pipeline-worker.py … --defer-activation`;
+   the image now contains ffmpeg and `/podcast`).
+4. **Inventory scope 3:** pause the pipeline (`pipeline-ops.py disable`), run `scripts/asset-inventory.py staging
+   --apply` (now three buckets; requires no podcast claims/writes), confirm zero discrepancies and `inventory_scope=3`
+   (`podcast-ops.py status` → `inventory_certified: true`), re-enable the pipeline.
+5. **Zero-spend staged journey:** `podcast-ops.py policy --actor <OWNER> --set fixtures_enabled=true
+   --set catalog_enabled=true --set delivery_enabled=true --reason "Staged fixture journey"`; pick an approval from
+   `podcast-ops.py candidates`; `podcast-ops.py seed --actor <OWNER> --approval <id> --fixture --reason "Labeled
+   synthetic fixture"`; `podcast-ops.py kick`; when `status` shows the job `ready`, `podcast-ops.py review … --publish`.
+   Check the Listen filter, playback, transcript evidence jump and offline download in a TestFlight/Simulator build
+   against staging; then withdraw it: `podcast-ops.py rights --episode <id> --state withdrawn --reason "Fixture done"`.
+6. **Seed allowance:** `podcast-ops.py seed-period --actor <OWNER> --limit-usd 2 --max-episodes 2 --enable
+   --evidence owner-decision-20261008` and `policy --set seed_enabled=true --reason "Seed pilot"`. Confirm current
+   provider headroom ≥ $1.50 (`pipeline-ops.py status` / Spending page).
+7. **Pick two papers** from `candidates` (CC BY 4.0/CC0, text ≤ 400 KB, ideally one equation-heavy and one
+   empirical); check third-party material/exclusions in each; then for each: `seed --actor <OWNER> --approval <id>
+   --reason "<rights check summary>"` and `kick`. Each admission reserves $0.75; `status` shows grants, actual
+   micro-dollars per route, provider request ids and the seed `committed_microusd`.
+8. **Review** each `pending_review` release by listening end to end against the paper and its evidence links
+   (factual support, numbers, limitations, pronunciation, no cut-off speech) and record `review --publish` or
+   `--reject` with a reason. Only then turn on the catalog for testers (`policy --set catalog_enabled=true
+   --set delivery_enabled=true`).
+9. **Record** actual cost per accepted minute, first-playable time, durations and any `unknown_provider` in the
+   operations record; reconcile Vertex charges against the invoice later (`worker_provider_attempt_reconcile`).
+   Private generation (`generation_enabled`) stays off until the pilot is reviewed.
+
+Rollback at any point: `policy --set seed_enabled=false --set generation_enabled=false --set catalog_enabled=false
+--set delivery_enabled=false`; settlement, deletion and already downloaded copies keep working.
+
+### Verification (local, 2026-10-08)
+
+- `python3 scripts/test-database.py`: full suite passes, including `tests/database/test_podcasts.sql` (dark
+  defaults, audited policy, $2/two-episode seed allowance, seed lifecycle with profile-derived ceilings, review,
+  catalog metadata and no funder/path leakage, bounded delivery and transfer limits, takedown, private
+  quote/start/join/cancel, unknown outcomes, actual-usage charges, private isolation, lease recovery, epoch fence,
+  quality pause, capacity refusal, fixtures, scope-3 inventory, account deletion, immutability) and
+  `podcast_concurrency.py` (real sessions).
+- `npm test`: backend suite passes, including 23 podcast tests (checker, speech adapter, token impersonation, WAV
+  and timing, worker job against a fake database, encoder arguments/probe, Edge API, single-use delivery, worker
+  routing). Deno strict checks pass for `podcast`, `podcast-member` and the shared podcast modules.
+- Operations tests: restore quarantine, scope-3 inventory reconciliation, worker deploy context and speech env,
+  `podcast-ops.py`.
+- `scripts/check-podcast-encoder.py`: the real worker image (ffmpeg 5.1.9) encoded a 25.15 s labeled fixture to
+  63 kbit/s mono AAC M4A in 0.8 s; macOS AVFoundation read both chapter markers from an encoded file.
 
 ### Browser client (apps/web, 2026-10-08, local fixture verification only)
 

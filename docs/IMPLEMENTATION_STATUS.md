@@ -6,6 +6,14 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **Paper podcasts v1 built on branch `podcast-v1`, dark, not applied or deployed.** Owner asked to "build the
+  notebook LM podcasts feature"; Decisions 2 (≤ $2, ≤ 2 seed episodes, $0.75 each, inside the $25 cap) and 3
+  (bounded private generation, max 150 credits) recorded in [DECISIONS](DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08).
+  Migration 046 (every switch off), worker `POST /podcast` (Sonnet 5.5 two-pass script + deterministic evidence
+  checker, Gemini 3.8 Flash TTS on Vertex via an impersonated dedicated service account, ffmpeg mono AAC 64 kbit/s with
+  chapters), Edge `podcast`/`podcast-member`, native client and a first browser client. Local tests only; **no paid
+  provider call**. The lead's $2 seed-pilot runbook: [Paper podcasts](architecture/PAPER_PODCASTS.md#seed-pilot-runbook-2-the-lead-runs-this).
+
 - **Reader cutover completed at 09:33 UTC.** Migration 045 fences the old issuer; delivery is bounded-only.
   After the full in-flight/expiry horizon, all 1,046 historical/physical reader paths were cache-purged, including
   five absent historical paths. Both formerly cached token variants then returned explicit expiry denial; a

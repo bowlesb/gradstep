@@ -18,6 +18,12 @@ identified incomplete storage accounting and replayable reader URLs (F5/F6).
 
 ## Inventory and admission
 
+**Migration 046 (branch `podcast-v1`, not applied):** adds the private `podcast-assets` bucket as inventory
+**scope 3**. Capacity checks count podcast objects and job holds globally and per owner; inventory begin/finish
+require drained podcast workers; podcast work can be enabled only after a scope-3 certification, while existing
+upload gates accept scope 2 or 3. Podcast audio uses its own single-use bounded delivery with a `podcast` transfer
+kind that also charges the shared reader environment counter. [Paper podcasts](PAPER_PODCASTS.md#v1-implementation-branch-podcast-v1).
+
 `stored_objects` remains the immutable identity of each physical object. Originals, raw MMD/ZIP/JSON,
 rendered HTML/index/images/styles/provenance, and both manifests must all have rows **before** an upload starts.
 Manifest membership is an immutable relation to those identities. Paper assets retain their document's shared or
