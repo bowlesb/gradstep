@@ -1,19 +1,19 @@
 # Browser reader
 
-Status, 2026-10-08 UTC: **milestone 2 and Library columns/full abstracts deployed to https://app.gradstep.ai
-against staging**, latest Pages `e15a5614` from `0db9809` adds fitted diagrams and zoom. Library columns shipped
-in `67f5547c`; encrypted browser chat first shipped in `68faefdb` from `b4b7ad7`. Latest deployment/smoke:
-`.artifacts/takeover-20261008/{web-diagram-deploy.log,web-diagram-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
-errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
+Status, 2026-10-08 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
+`a5c351a1` from source `74e9e95` against staging.** It includes the reviewed Feed, library actions/columns,
+encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
+output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
+Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
 real key setup, reading and encrypted question/history recovery. A later [hosted diagram journey](#hosted-answer-and-diagram--2026-10-08-utc)
 verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; email/OAuth UI,
 Safari support and a comprehensive E2EE claim remain outside those proofs. Key-storage/draft limits are below. Original reader/M1 deployment
 history is retained in [deployment evidence](#deployment--2026-10-07).
 
-Later local work (not deployed): the [gate-1 encrypted browser journal](BROWSER_OFFLINE_STORAGE.md#gate-1-local-implementation-2026-10-08)
-adds committed device drafts, exact pending events and interrupted-turn recovery. Its separate
-[verification record](../verification/2026-10-08-browser-journal-gate1.md) preserves the online Send requirement,
-legacy-profile activation, Safari gate and remaining cold offline-startup limitations.
+The [gate-1 encrypted browser journal](BROWSER_OFFLINE_STORAGE.md#gate-1-local-implementation-2026-10-08) is now
+wired into the deployed app. Its separate [verification record](../verification/2026-10-08-browser-journal-gate1.md)
+preserves the online Send requirement, legacy-profile activation, Safari gate and remaining cold offline-startup
+limitations. Gate 2/3 remain future work.
 
 ## Scope
 

@@ -1,8 +1,29 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; browser chat, chosen columns and the admin site are deployed.**
+Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `a5c351a1`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
+
+## Current web/Mac candidate — 2026-10-08 UTC
+
+- **Browser release:** source is candidate commit `74e9e95` on the Codex integration branch; Pages deployment
+  `a5c351a1` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+  passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
+  same-origin isolation. A cache-busting request to the custom domain matched the deployment preview byte-for-byte.
+  No account, provider, OCR or paid request was made by these checks.
+- **Browser verification:** 332 unit tests across 27 files pass; the integrated production-CSP Playwright run is
+  **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
+  **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
+  Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
+  interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
+- **Still gated:** durable library/saved-reader-copy storage (Gate 2), cold offline startup (Gate 3), browser OAuth
+  provider UI, Safari key persistence, PDF upload and purchases. Podcast generation remains backend-dark and no
+  paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
+  contracts are live.
+- **Mac:** the universal Catalyst build and 351 applicable native UX tests have compile/unit evidence. Mac menu,
+  QR approval, drag/drop and keyboard UI runtime checks remain open because XCTest stalled before assertions and
+  Computer Use reports pending Accessibility/Screen Recording permissions. No new TestFlight upload or owner-device
+  acceptance is claimed by this candidate.
 
 ## Current rollout — 2026-10-08 UTC
 

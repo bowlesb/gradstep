@@ -1,6 +1,9 @@
 # Browser podcast client checkpoint — 2026-10-08
 
-Implemented in `codex/web-podcast-client-20261008`, from main `44bf3c2`. **Local fixture evidence only. The podcast backend is dark and undeployed; no provider, hosted endpoint, migration, paid generation, deployment, or physical device was used.**
+Implemented in `codex/web-podcast-client-20261008`, from main `44bf3c2`. The client is integrated into browser
+release `a5c351a1`; the podcast backend remains dark and undeployed. Local fixture evidence used no provider,
+hosted endpoint, migration, paid generation or physical device. The deployed client therefore renders the same
+explicit capability-unavailable state until the reviewed server contract is enabled.
 
 Contract: `podcast-v1` at `921562f`, `docs/architecture/PAPER_PODCASTS.md` (client API reference), native `PodcastCenter`/`PodcastGenerateSheet`, and the donor web-only commits `72e04ff`/`947afe3`. This checkpoint adopts and repairs their client foundation; no donor App/Feed/shared backend changes were applied.
 
