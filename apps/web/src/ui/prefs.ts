@@ -1,6 +1,7 @@
 // Per-browser presentation preferences (theme, pane widths and visibility, text size). Conveniences
 // only: storage can be unavailable (private windows, blocked site data) and every read falls back.
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { defaultLibraryColumns, LIBRARY_COLUMNS_KEY, parseLibraryColumns, type LibraryColumn } from '../lib/library-columns';
 
 export function readStored<T>(key: string, fallback: T, valid: (value: unknown) => boolean): T {
   try {
@@ -33,6 +34,23 @@ export function useMedia(query: string): boolean {
     return () => list.removeEventListener('change', notify);
   }, [query]);
   return useSyncExternalStore(subscribe, () => matchMedia(query).matches, () => false);
+}
+
+// ---------- Library columns ----------
+
+const compactLibrary = () => typeof matchMedia === 'function' && matchMedia('(max-width: 759px)').matches;
+export function useLibraryColumns() {
+  const [columns, setColumns] = useState<readonly LibraryColumn[]>(() => {
+    try { return parseLibraryColumns(localStorage.getItem(LIBRARY_COLUMNS_KEY)) ?? defaultLibraryColumns(compactLibrary()); }
+    catch { return defaultLibraryColumns(compactLibrary()); }
+  });
+  const update = useCallback((next: readonly LibraryColumn[]) => {
+    setColumns(next);
+    writeStored(LIBRARY_COLUMNS_KEY, { version: 1, columns: next });
+  }, []);
+  // Defaults differ at first use or an explicit Reset only. Resizing never hides a chosen column.
+  const reset = useCallback(() => update(defaultLibraryColumns(compactLibrary())), [update]);
+  return { columns, setColumns: update, reset };
 }
 
 // ---------- Theme ----------

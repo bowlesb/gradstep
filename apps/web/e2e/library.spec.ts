@@ -26,6 +26,11 @@ test('a full library stays searchable while an import progresses', async ({ page
   const rows = page.getByTestId('paper-row');
   await expect(rows).toHaveCount(3999); // 4,000 retained entries include one archived paper.
   const recoveryToLibraryMs = Date.now() - started;
+  // Exercise the heaviest chosen-column view on both sizes; compact defaults are deliberately smaller.
+  await page.getByRole('button', { name: 'Columns', exact: true }).click();
+  const columns = page.getByRole('dialog', { name: 'Library columns' });
+  for (const name of ['Authors', 'Year', 'Tags', 'Added', 'Opened', 'Progress']) await columns.getByRole('checkbox', { name, exact: true }).check();
+  await columns.getByRole('button', { name: 'Done' }).click();
   const progress = page.getByTestId('import-progress').locator('progress');
   const initialProgress = Number(await progress.getAttribute('value'));
   await page.getByTestId('search').focus();
@@ -36,6 +41,11 @@ test('a full library stays searchable while an import progresses', async ({ page
   await expect(page.getByTestId('search')).toBeFocused();
   const label = (process.env.WEB_LIBRARY_LABEL ?? 'current').replace(/[^a-z0-9-]/gi, '');
   await page.screenshot({ path: `../../.artifacts/web-library/${label}-${info.project.name}-large-library.png` });
+  const scroller = page.getByRole('region', { name: 'Library table' });
+  await scroller.evaluate(element => { element.scrollTop = 1000; });
+  await expect.poll(() => scroller.evaluate(element => element.scrollTop)).toBe(1000);
+  expect((await page.getByRole('columnheader', { name: 'Title' }).boundingBox())!.y).toBeCloseTo((await scroller.boundingBox())!.y, 0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(page.viewportSize()!.width);
 
   // A changed entry with the same ID must invalidate row facts and search membership while the
   // memoized table remains mounted. The same journal also updates the reader in its own journeys.

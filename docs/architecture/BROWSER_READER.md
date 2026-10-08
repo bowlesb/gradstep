@@ -36,7 +36,7 @@ frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx
 |---|---|
 | Panes | Left rail · center · chat pane. Drag a divider (pointer captured, so the paper frame can't swallow it; arrow keys; double-click resets); dragging well past the minimum collapses it to the legacy edge handle (⋮⋮). Widths and per-route visibility are kept in this browser (`localStorage` `gradstep.layout.v1`; unavailable storage falls back to defaults). Defaults follow the legacy modes: Library and Feed without chat, a paper with chat. The center keeps ≥ 440 px: the chat narrows first, then becomes a drawer. Below 1,100 px the chat is a drawer; below 760 px the rail is too. |
 | Top bar | Rail toggle, brand, Library · Feed · Chats, library search (centered), Add paper, appearance (light/dark; System in the account menu), chat-pane toggle, account. |
-| Library | Rail: All papers, Unread, Reading, Failed, Archived and the tags, with counts (chips with a tag menu when the rail is hidden). Center: full-width table Title (2 lines) · Authors · Year · Tags (click to filter) · Added · Opened · Progress; columns drop by the center's width (container queries), never scrolling sideways. Live import progress and Retry / Remove / "Get credits in the app" inline. Search, filter and sort survive opening a paper; while reading, position reports don't re-sort the library. |
+| Library | Rail: All papers, Unread, Reading, Failed, Archived and the tags, with counts (chips with a tag menu when the rail is hidden). Center: table Title (2 lines) · Authors · Year · Tags (click to filter) · Added · Opened · Progress. M1 dropped columns by container width; the [local column follow-up](#library-column-follow-up--local-verification-2026-10-08-utc) replaces that with explicit choices and horizontal scrolling. Live import progress and Retry / Remove / "Get credits in the app" stay inline. Search, filter and sort survive opening a paper; while reading, position reports don't re-sort the library. |
 | Paper | Rail tabs: Contents (the bridge's outline depths; current section from reading-position reports) and Library (compact list, the legacy Browse; top-bar search switches to it). Toolbar: Contents, title, citation Back, Find, Figures (count), text size, Chat. |
 | Find | App-owned code in `frame-shim.js` (the bridge is unchanged): case-insensitive matches across inline elements but never across blocks, CSS custom highlights, the current match in the upper third, starting from the reading place; Enter/Shift-Enter; ≤ 1,000 matches. |
 | Figures | Gallery of the verified images (data URIs of verified bytes), one figure in its own sandboxed figure frame, ←/→, Escape back to the gallery, Show in paper (bridge `__scienceReaderShowFigure`, with citation Back). |
@@ -48,6 +48,30 @@ frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx
 The frame script hash changes with the shim and is computed at build for both CSPs, as before. Local verification
 (production CSP, Chromium): `e2e/layout.spec.ts` at 1440×900 and 1920×1080 in light and dark, plus a 390 px journey;
 the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. Claude subsequently deployed milestone 1 as Pages `a405d26c`; these layout journeys remain local fixture evidence, not a hosted signed-in test. Milestone 2 was subsequently deployed as recorded above.
+
+### Library column follow-up — local verification, 2026-10-08 UTC
+
+**Local only; not included in deployed Pages `68faefdb`.** The owner's request to keep chosen columns available
+now applies to the browser Library. Columns opens a native dialog with checkboxes for Authors, Year, Tags, Added,
+Opened and Progress; Title is always shown. Reset restores defaults; Escape/Done returns to the table with focus
+restored to Columns. A horizontal scroll region stays inside the center pane; the title and header row remain pinned. When
+there is overflow, left/right buttons expose scrolling even when the OS hides its scrollbar. Arrow keys scroll
+from the region, a title or a sortable header; focusing another header reveals it beside the pinned title.
+
+The finite preference `gradstep.library.columns.v1` contains only column IDs, rejects malformed/duplicate/unknown
+or oversized input, and falls back safely when site storage is unavailable. Initial/Reset defaults are Year and
+Progress below 760 px, all details on wider windows. An explicit choice is kept across reloads and width changes;
+resizing never hides a chosen column. Hidden Authors retains the first author under the title. Hidden Progress
+does not remove import status or retry/credit actions. A hidden sort column is named above the table. Row memoization
+and the active import's own timer remain; scroll affordances update in a separate component.
+
+Verification: two preference unit cases, production TypeScript/build, and six Chromium production-CSP journeys
+across desktop/390 px. These cover selection/Reset, persistence, unavailable storage, keyboard sorting/focus,
+horizontal title pinning, sticky headers, resize, retry with Progress hidden, return from a paper, and the existing
+4,000-entry live-update/search/tag journey with every column enabled. Local samples: library ready in 1,026/576 ms,
+search 278/255 ms (desktop/390 px); 7.5/6.2 ms script time during each roughly 3.4-second import observation window.
+These are local fixture measurements, not hosted capacity or Safari evidence. Light/dark screenshots:
+`.artifacts/web-columns/`; capacity metrics: `.artifacts/web-library/chosen-columns-{desktop,phone}-metrics.json`.
 
 ## Where it lives
 

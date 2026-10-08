@@ -2,16 +2,18 @@
 // full-width table — Title, Authors, Year, Tags, Added, Opened, Progress — with sortable headers,
 // the filters in the left rail (or as chips when the rail is hidden), live import progress with
 // inline Retry/Remove/credits states, and a compact list beside an open paper.
-import { type FormEvent, type KeyboardEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type FocusEvent, type FormEvent, type KeyboardEvent, type RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Activity } from '../lib/activity';
 import { addFailure, addOutcome, type AddOutcome, addPaper } from '../lib/add';
 import { parseArxiv } from '../lib/arxiv';
 import { BackendError } from '../lib/backend';
 import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/library';
+import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
 import { Dialog, formatDate } from './common';
 import { Icon } from './icons';
+import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
 
 export type Library = ReturnType<typeof useLibrary>;
@@ -179,17 +181,74 @@ function moveRowFocus(event: KeyboardEvent<HTMLElement>, selector: string) {
   links[Math.max(0, Math.min(links.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus();
 }
 
+/** The scroll region and row/header links keep horizontal movement available without moving the page. */
+function scrollColumns(event: KeyboardEvent<HTMLDivElement>) {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  const target = event.target as HTMLElement;
+  if (target !== event.currentTarget && !target.closest('a.title, button.sort')) return;
+  event.preventDefault();
+  event.currentTarget.scrollLeft += event.key === 'ArrowRight' ? 160 : -160;
+}
+
+/** Native focus scrolling doesn't account for an overlapping sticky cell. Keep focused controls uncovered. */
+function revealColumnFocus(event: FocusEvent<HTMLDivElement>) {
+  const target = event.target as HTMLElement, cell = target.closest('td, th');
+  if (!cell || cell.classList.contains('col-title')) return;
+  const scroller = event.currentTarget, pinned = scroller.querySelector('th.col-title');
+  if (!pinned) return;
+  const bounds = target.getBoundingClientRect(), left = pinned.getBoundingClientRect().right, right = scroller.getBoundingClientRect().right;
+  if (bounds.left < left) scroller.scrollLeft -= left - bounds.left;
+  else if (bounds.right > right) scroller.scrollLeft += bounds.right - right;
+}
+
+/** Overlay scrollbars can be invisible. Keep an explicit affordance without rerendering rows on scroll. */
+function ColumnScrollControls({ scroller, available }: { scroller: RefObject<HTMLDivElement | null>; available: boolean }) {
+  const [edge, setEdge] = useState({ left: false, right: false });
+  useEffect(() => {
+    const element = scroller.current;
+    if (!element || !available) { setEdge({ left: false, right: false }); return; }
+    const measure = () => {
+      const left = element.scrollLeft > 1, right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      setEdge(previous => previous.left === left && previous.right === right ? previous : { left, right });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    const table = element.querySelector('table');
+    if (table) observer.observe(table);
+    element.addEventListener('scroll', measure, { passive: true });
+    measure();
+    return () => { observer.disconnect(); element.removeEventListener('scroll', measure); };
+  }, [scroller, available]);
+  if (!edge.left && !edge.right) return null;
+  const scroll = (direction: number) => {
+    const element = scroller.current;
+    if (!element) return;
+    // One useful visible detail area at a time, keeping a small overlap for orientation.
+    const titleWidth = element.querySelector('th.col-title')?.getBoundingClientRect().width ?? 200;
+    element.scrollLeft += direction * Math.max(120, element.clientWidth - titleWidth - 24);
+  };
+  return <div className="column-scroll-controls" role="group" aria-label="Scroll library columns">
+    <button className="icon-button" disabled={!edge.left} onClick={() => scroll(-1)} aria-label="Scroll columns left" title="Scroll columns left"><Icon name="chevronLeft" size={16} /></button>
+    <button className="icon-button" disabled={!edge.right} onClick={() => scroll(1)} aria-label="Scroll columns right" title="Scroll columns right"><Icon name="chevronRight" size={16} /></button>
+  </div>;
+}
+
 export function LibraryView({ library, model, activity, view, setView, showChips, currentID, onOpen, onAdd }: {
   library: Library; model: LibraryModel; activity: Map<string, Activity>; view: LibraryQuery; setView: SetQuery; showChips: boolean;
   currentID: string | null; onOpen: (item: Item) => void; onAdd: () => void;
 }) {
   const { notice, setNotice, run } = useCommandRunner();
+  const { columns, setColumns, reset } = useLibraryColumns();
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (notice?.pendingKey && !library.pending.has(notice.pendingKey)) setNotice(notice.onObserved ? { text: notice.onObserved } : null);
   }, [notice, library.pending, setNotice]);
   const { all, counts, shown } = model;
+  const visibleColumns = LIBRARY_COLUMNS.filter(c => columns.includes(c.key));
+  const sortedHidden = view.sort.key !== 'title' && !columns.includes(view.sort.key);
   const header = (key: SortKey, label: string, className: string) => (
-    <th className={className} aria-sort={view.sort.key === key ? (view.sort.descending ? 'descending' : 'ascending') : 'none'} scope="col">
+    <th key={key} className={className} aria-sort={view.sort.key === key ? (view.sort.descending ? 'descending' : 'ascending') : 'none'} scope="col">
       <button className="sort" onClick={() => setView(q => ({ ...q, sort: { key, descending: q.sort.key === key ? !q.sort.descending : !['title', 'authors', 'tags'].includes(key) } }))}>
         {label}{view.sort.key === key && <span className="sort-mark" aria-hidden="true">{view.sort.descending ? ' ↓' : ' ↑'}</span>}
       </button>
@@ -199,13 +258,31 @@ export function LibraryView({ library, model, activity, view, setView, showChips
 
   return (
     <section className="library" aria-labelledby="library-title">
-      <div className="view-head">
+      <div className="view-head library-head">
         <h1 id="library-title">Library</h1>
         <span className="view-sub" aria-live="polite">
           {library.state === 'ready' || all.length ? `${shown.length.toLocaleString()} ${shown.length === 1 ? 'paper' : 'papers'}${describe.length ? ` · ${describe.join(' · ')}` : ''}` : ''}
         </span>
         {(describe.length > 0) && <button className="link small-link" onClick={() => setView(q => ({ ...q, filter: 'all', tag: '', query: '' }))}>Clear filters</button>}
+        <div className="library-table-tools">
+          <ColumnScrollControls scroller={scroller} available={all.length > 0} />
+          <button className="secondary small columns-button" aria-haspopup="dialog" aria-expanded={choosingColumns} onClick={() => setChoosingColumns(true)}>Columns</button>
+        </div>
+        {sortedHidden && <span className="fine library-sort-note">Sorted by {LIBRARY_COLUMNS.find(c => c.key === view.sort.key)?.label} {view.sort.descending ? '↓' : '↑'}</span>}
       </div>
+      <Dialog open={choosingColumns} onClose={() => setChoosingColumns(false)} title="Library columns">
+        <h2>Library columns</h2>
+        <p className="fine">Title stays pinned as you scroll.</p>
+        <div className="column-choices">
+          <label className="check"><input type="checkbox" checked disabled />Title <span className="fine">Always shown</span></label>
+          {LIBRARY_COLUMNS.map(column => <label className="check" key={column.key}>
+            <input type="checkbox" checked={columns.includes(column.key)} onChange={event => setColumns(event.target.checked
+              ? LIBRARY_COLUMNS.filter(c => c.key === column.key || columns.includes(c.key)).map(c => c.key)
+              : columns.filter(c => c !== column.key))} />{column.label}
+          </label>)}
+        </div>
+        <div className="row-actions column-actions"><button className="secondary" onClick={reset}>Reset</button><button className="primary" onClick={() => setChoosingColumns(false)}>Done</button></div>
+      </Dialog>
       {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} />}
       {notice && <p className="issue banner" role="alert">{notice.text}</p>}
       {library.state === 'loading' && all.length === 0 && <div className="empty"><div className="spinner" aria-label="Loading library" /></div>}
@@ -217,20 +294,23 @@ export function LibraryView({ library, model, activity, view, setView, showChips
           <button className="primary" onClick={onAdd}>Add paper</button></div>
       )}
       {all.length > 0 && (
-        <div className="table-wrap">
-          <table className="papers" data-testid="library-table">
+        <div className="table-wrap" ref={scroller} tabIndex={0} role="region" aria-label="Library table" aria-describedby="library-scroll-help"
+          onKeyDown={scrollColumns} onFocus={revealColumnFocus}
+          style={{ '--library-detail-width': `${visibleColumns.reduce((sum, c) => sum + c.width, 0)}px` } as CSSProperties}>
+          <span id="library-scroll-help" className="visually-hidden">Left and right arrows scroll columns. Up and down arrows move between paper titles.</span>
+          <table className="papers" data-testid="library-table" aria-label="Papers">
+            <colgroup><col className="col-title" />{visibleColumns.map(c => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
             <thead><tr>
-              {header('title', 'Title', 'col-title')}{header('authors', 'Authors', 'col-authors')}{header('year', 'Year', 'col-year')}{header('tags', 'Tags', 'col-tags')}
-              {header('added', 'Added', 'col-added')}{header('opened', 'Opened', 'col-opened')}{header('progress', 'Progress', 'col-progress')}
+              {header('title', 'Title', 'col-title')}{visibleColumns.map(c => header(c.key, c.label, `col-${c.key}`))}
             </tr></thead>
             <tbody onKeyDown={e => moveRowFocus(e, 'a.title')}>
               {shown.map(row => {
                 const a = row.entry.kind === 'item' ? activity.get(row.entry.id) : undefined;
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
-                  onTag={setView} />;
+                  onTag={setView} columns={columns} />;
               })}
-              {shown.length === 0 && <tr><td colSpan={7} className="no-match">No papers match.</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={1 + columns.length} className="no-match"><span>No papers match.</span></td></tr>}
             </tbody>
           </table>
         </div>
@@ -262,9 +342,9 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
 }
 
-const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag }: {
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean;
-  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery;
+  onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
 }) {
   const entry = row.entry;
   const progress = useImportProgress(entry, mark);
@@ -275,20 +355,20 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
       <td className="col-title">
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
-        {row.firstAuthor && <span className="author">{row.firstAuthor}{authors.length > 1 ? ' et al.' : ''}</span>}
+        {!columns.includes('authors') && row.firstAuthor && <span className="author">{row.firstAuthor}{authors.length > 1 ? ' et al.' : ''}</span>}
         {row.status && !progress && <span className={`status ${row.status.kind}`}>{row.status.kind === 'problem' ? '⚠︎ ' : ''}{row.status.text}</span>}
         {progress && <span className="status active" aria-label={progress.label}>{progress.title}{progress.detail ? ` (${progress.detail})` : ''}</span>}
         {busy && <span className="status active">Updating…</span>}
         <span className="inline-action"><RowAction row={row} busy={busy} retry={retry} remove={remove} run={run} /></span>
       </td>
-      <td className="col-authors" title={authors.join(', ')}>{shortAuthors(authors) || <span className="faint">—</span>}</td>
-      <td className="col-year">{row.year ?? '—'}</td>
-      <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
+      {columns.includes('authors') && <td className="col-authors" title={authors.join(', ')}>{shortAuthors(authors) || <span className="faint">—</span>}</td>}
+      {columns.includes('year') && <td className="col-year">{row.year ?? '—'}</td>}
+      {columns.includes('tags') && <td className="col-tags">{row.tags.length ? <span className="tags">{row.tags.slice(0, 4).map(t => (
         <button className="tag" key={t} onClick={e => { e.stopPropagation(); onTag(q => ({ ...q, tag: t })); }} title={`Show papers tagged “${t}”`}>{t}</button>))}</span>
-        : <span className="faint">—</span>}</td>
-      <td className="col-added">{formatDate(row.added)}</td>
-      <td className="col-opened">{formatDate(opened)}</td>
-      <td className="col-progress">
+        : <span className="faint">—</span>}</td>}
+      {columns.includes('added') && <td className="col-added">{formatDate(row.added)}</td>}
+      {columns.includes('opened') && <td className="col-opened">{formatDate(opened)}</td>}
+      {columns.includes('progress') && <td className="col-progress">
         {progress ? (
           <span className="import-progress" data-testid="import-progress">
             {progress.percent !== null ? <progress max={100} value={progress.percent} aria-label={progress.label} /> : <span className="spinner small" aria-label={progress.label} />}
@@ -298,7 +378,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
           readingProgress !== null ? <span className="reading-progress"><progress className="accent" max={1} value={readingProgress} aria-label={`${Math.round(readingProgress * 100)}% read`} />
             <span className="fine">{Math.round(readingProgress * 100)}%</span></span> : <span className="faint">—</span>
         ) : <span className="faint">—</span>}
-      </td>
+      </td>}
     </tr>
   );
 });
