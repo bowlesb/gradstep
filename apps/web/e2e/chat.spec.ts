@@ -1,9 +1,9 @@
 // Real WebCrypto + production CSP. Local fixtures only, no hosted or paid requests.
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
-const API = 'http://127.0.0.1:54329';
+import { fixtureOrigin as API } from './environment';
 async function login(page: Page) {
-  await page.goto('http://127.0.0.1:4317/');
+  await page.goto('/');
   await page.getByTestId('email').fill('returning@example.test'); await page.getByTestId('send-code').click();
   await page.getByTestId('code').fill('123456'); await page.getByTestId('verify').click();
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();

@@ -2,7 +2,7 @@
 // build served by `vite preview` with the production security headers (connect-src → fixture).
 import { defineConfig, devices } from '@playwright/test';
 
-const FIXTURE = 54329, APP = 4317;
+import { fixturePort as FIXTURE, appPort as APP } from './e2e/environment';
 const env = `VITE_SUPABASE_URL=http://127.0.0.1:${FIXTURE} VITE_SUPABASE_ANON_KEY=fixture-anon VITE_ENVIRONMENT=fixture`;
 // Use WEB_E2E_DEV=1 for targeted StrictMode lifecycle journeys (the security-header test requires production).
 const appCommand = process.env.WEB_E2E_DEV === '1'
