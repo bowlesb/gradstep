@@ -807,3 +807,44 @@ the interface either way.
   53 skipped (existing WebKit key-persistence skips; podcast journey on desktop and 390 px phone); production build
   passes. Light/dark desktop and phone screenshots in `.artifacts/podcast-web/` were inspected. No hosted backend,
   provider or deployment was used.
+
+### Native client (apps/apple, 2026-10-08, local fixture verification only)
+
+iPhone and iPad first; Mac Catalyst compiles the same code (no Mac-only work). Hooks into existing screens are a few
+lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swift` and Core `Podcast*.swift`.
+
+- **Listen filter:** a chip before the Feed's own chips, shown once the server reports `catalog: true` (or in the
+  fixture). While Listen is chosen the Feed's chips stay visible, none selected; choosing one returns to that feed.
+  Cards: title, year, duration, topic (arXiv codes by name), AI-audio badge, "Synthetic fixture", private, downloaded,
+  time left. **Listen** is also in the Paper "…" menu and a Library row's actions: plays the shared or own private
+  episode, follows a running generation, or offers private generation (offer → explicit quote with providers,
+  storage and maximum → consent → durable status polled 2/5/15 s → charged/released credits as the server states).
+  `{reuse}` from quote/start/status plays the ready release with no new charge; `podcast_outcome_pending` and other
+  finite codes are explained plainly. Private episodes take the library item's own title.
+- **Player:** sheet with play/pause, ±15 s, speed 0.75–2×, position slider (spoken values), chapters, transcript
+  (tap seeks; follow-along respects Reduce Motion; LaTeX typeset, VoiceOver reads the spoken form), evidence that opens
+  the paper at the quote through the Go to passage finder (Markdown marks removed) with Back, or the source plus an
+  explicit Add when the paper isn't in the library. Done keeps playing; Stop is explicit. Space and ←/→ with a
+  hardware keyboard. Mini-player above the tab bar takes part of the tab bar's reserve, so the chat message box and
+  the reader's controls sit above it (hidden with the software keyboard); on the iPad's wide layout it docks below
+  every pane. AVAudioSession playback/spokenAudio/longFormAudio, `UIBackgroundModes: audio` (Info.plist is now
+  generated from project.yml), Now Playing and remote commands (play, pause, toggle, ±15, rate, scrub), interruptions,
+  route changes and media-services resets.
+- **Delivery and storage:** one single-use grant per transfer; the bearer goes only to this origin's
+  `podcast-member`; no Range; length and SHA-256 checked before "downloaded". Files live in the account's folder
+  (`<environment>/<account>/podcasts/`, erased with the account), protected until first unlock so locked
+  background playback works, excluded from backup. A copy Play needed is kept (≤ 3, LRU) so Download reuses it; the
+  downloads list (with transcripts) and listening history are AES-GCM sealed under subkeys of the device-held local
+  key, account-bound. Takedowns/corrections are checked (`states`) when the catalog loads; blocked copies are removed.
+- **History:** device-local, session/sequence ordered (backwards seeks kept, later session wins, tombstones);
+  saved at pause, chapter change, seek, end, background and every 15 s while playing; cleared from view on sign-out
+  and account switch.
+- **Fixture (`--podcast-fixture`, Simulator/Mac Debug only):** two labeled shared episodes and a generated private
+  one; audio is tones synthesized on the device with the transcript's timing; evidence quotes are verbatim sentences
+  of the bundled offline sample. Zero spend, no network.
+- **Evidence:** `swift test` (Core) 266 passed, including 18 podcast tests that decode every captured server
+  response in `tests/fixtures/podcast`; iOS unit tests 399 run, 5 skipped, 1 timing flake in
+  `LibraryModelTests` that passes alone (podcast transport/fixture: 8 passed); podcast UI journeys 11 passed on an
+  iPhone 17 Pro Simulator plus 1 on an iPad Pro 11-inch Simulator; FeedForYouTests 4 passed after the Feed merge;
+  Mac Catalyst build succeeds. Light/dark screenshots in `.artifacts/podcast-ui/` were inspected. No hosted backend,
+  provider call, device or TestFlight upload was used.
