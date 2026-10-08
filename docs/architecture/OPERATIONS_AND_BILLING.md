@@ -46,7 +46,7 @@ while the audited provider/storage gaps remain deployed. New controls are locall
 
 | Commitment | Since | Monthly | Evidence and limits |
 |---|---|---:|---|
-| Supabase | 2026-10-02 | Incremental amount unverified | An additional Micro under the existing paid organization may be $10 incremental; attribute actual organization compute credits/invoice and exclude TextBrain. Do not automatically charge the entire organization subscription to this product |
+| Supabase staging, Micro | 2026-10-02 | $0.01344/hour gross compute (about $10/month); net incremental bill unverified | Read-only Management API confirms Pro organization and Micro as the only selected project addon. Attribute actual organization compute credits/invoice and exclude TextBrain; do not automatically charge the entire organization subscription to this product |
 | Tavily Project, 4,000 search credits | 2026-10-06 | $30 | Owner supplied the paid October 6 invoice and November 6 renewal for November 6–December 6. Owner confirmed turning pay-as-you-go **off** on October 7 |
 | gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 amortized | One-off $181.14 already purchased by the owner; amortization is not a new monthly cash charge |
 | Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | Request billing live on revision `gradstep-pipeline-00007-j5l`, 1 vCPU / 2 GiB. At 23:40 UTC, the preceding complete hour reported 43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests. These are metrics, not an invoice or a monthly guarantee |
@@ -59,6 +59,14 @@ but the separate service ceiling still reads 20; local deployment changes set an
 alert policies or billing-export datasets were found in this project; an export elsewhere is not ruled out. The
 low-activity forecast of roughly $0–3/month remains a forecast, not a measured full-period bill. Wake-on-work is a
 separate approved design to show the owner before deployment.
+
+Supabase configuration was read back at 2026-10-08 00:02:31 UTC (October 7 locally): staging is active/healthy,
+the organization is Pro, and the only selected addon is Micro at $0.01344/hour. The filtered, credential-free evidence
+is `.artifacts/supabase-billing-configuration-20261007.json`. This endpoint reports configuration and pricing,
+not billed hours or allocation of the organization's shared $10 compute credit. The published Micro rate is about
+$10 per full month; project compute is charged hourly and is outside Supabase's usage spend cap.
+[Addon API](https://supabase.com/docs/reference/api/v1-list-project-addons),
+[compute billing](https://supabase.com/docs/guides/platform/manage-your-usage/compute).
 
 ### Economical search plan
 
