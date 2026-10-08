@@ -371,6 +371,7 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
   }
   // Feed (discover?category=…): public sample metadata only.
   if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
+    if (url.searchParams.has('feed')) return send(response, 404, { code: 'feed_unavailable' });
     const category = url.searchParams.get('category') ?? '';
     if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
     return send(response, 200, { results: [

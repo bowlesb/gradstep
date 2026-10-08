@@ -25,6 +25,29 @@ Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general
 Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
 Apple/Google web sign-in, device list and revocation, offline reading and purchases.
 
+### Native Feed parity — local candidate, 2026-10-08
+
+Built on `codex/mac-web-integration-20261008`; **not deployed**. The browser now follows the native Feed contract
+from `feed-topics-popularity-20261008` (`a7320bf`): For you first when offered, specific interest topics, More topics
+for broad categories, recommendation reasons, and popularity attributed to Hugging Face Papers. Category browsing
+remains available when the personal feed is unavailable. Backend migration 048, the updated functions and their
+activation remain Claude's work; these browser tests use local fixtures and do not establish hosted readiness.
+
+Cards remain the initial presentation. Table offers optional Popularity, Topics, Published, Authors, arXiv ID and
+Abstract columns, a pinned title, horizontal scrolling and keyboard navigation. Column/layout/filter preferences
+contain only finite presentation choices. Suggested keeps the server order; Newest follows native arXiv submission
+month/serial ordering; unknown popularity stays last in either direction. Expanded abstracts remain complete.
+
+More like this and Not interested use the existing account-scoped feedback RPC only after a user action. The UI
+waits for acceptance before hiding a paper. Undo refetches the current selection, including when an intervening
+refresh already omitted the dismissed paper; each locally recorded positive preference also has its own Undo.
+Feed metadata stays in account-lifetime memory, bounded to 16 pages. No chat/provider request accompanies feedback.
+The one-time capability hint is per environment/account; an ordinary category response can announce newly available
+For you. Old/aborted topic replies cannot replace the selected feed.
+
+Verification: [local Feed evidence](../verification/2026-10-08-web-feed.md). Safari account/key support remains a
+separate gate. There is no new database layout, provider spend or deployment in this candidate.
+
 ## Workspace (legacy large-screen layout)
 
 Owner, 2026-10-07: the first browser build "needs a ton of polish… the old science reader web code… used all the space
