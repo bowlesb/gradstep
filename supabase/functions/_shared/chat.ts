@@ -176,7 +176,7 @@ The paper need not be on arXiv: the app also finds open-access copies elsewhere.
 Do not say whether it was added; the app reports that. If the passage does not reference a specific paper, say so and do not call the tool.`;
 
 // The legacy app's "Similar" searched the web (Tavily) for related work; this is its successor.
-const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering. You have up to ${RELATED_SEARCH_MAX_USES} searches: spend them on distinct angles (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
+const RELATED_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. You must search the web before answering. You have up to ${RELATED_SEARCH_MAX_USES} searches: spend them on distinct angles (the method's name, the problem it solves, recent follow-ups with the current year, earlier work it builds on) rather than one broad query, and run them together in one step (several searches at once) rather than one after another. Then list 4–8 papers, most relevant first, as a numbered list. Each item: the title in bold, first author et al. and year, one sentence on how it relates to the passage, and an arXiv (https://arxiv.org/abs/…) or DOI link when you found one. Prefer peer-reviewed or widely cited work; never invent papers or links.`;
 const RELATED_OFFLINE_INSTRUCTIONS = `The reader used "Related" on the selected passage: they want papers related to it. List 4–8 papers you are confident exist (title, first author, year, one sentence on the relation), most relevant first. Say plainly that you could not search the web, and never invent papers or links.`;
 
 // Why it matters: the legacy app's relevance prompt ("Using ONLY the paper's content (do NOT search the web)").
@@ -202,13 +202,20 @@ ${MERMAID_RULES}`;
 
 const WEB_SEARCH_INSTRUCTIONS = `You can search the web. Search when the question needs information beyond the paper or your knowledge may be out of date: related or follow-up work, recent results, comparisons with other models or methods, or checking a specific claim or number. Do not search for what the paper itself answers. Name the sources you rely on. If you used web search, end your answer with a line "Sources:" followed by one line per page you relied on (at most 8), each exactly in the form "1. Page title — https://…".`;
 
-export function chatInstructions(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): string {
-  if (action === 'diagram_fix') return DIAGRAM_FIX_INSTRUCTIONS;
+/** The instructions in two parts: what every answer with the same tools shares (`shared`, cached with the
+ * paper) and the selection action's own (`action`, sent after the paper), so that Related or Why it matters
+ * right after a question about the same paper reads the paper from the prompt cache instead of rewriting it. */
+export function chatInstructionParts(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): { shared: string; action: string | null } {
+  if (action === 'diagram_fix') return { shared: DIAGRAM_FIX_INSTRUCTIONS, action: null };
   // Why it matters never searches (its request carries no search tool either).
   const search = webSearch && action !== 'relevance';
-  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS
-    : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}${action === 'related' ? `\n\n${search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS}` : ''}${action === 'relevance' ? `\n\n${RELEVANCE_INSTRUCTIONS}` : ''}`;
-  return `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`;
+  const tools = action === 'ingest' ? INGEST_INSTRUCTIONS : `${DIAGRAM_INSTRUCTIONS}${search ? `\n\n${WEB_SEARCH_INSTRUCTIONS}` : ''}`;
+  const own = action === 'related' ? (search ? RELATED_INSTRUCTIONS : RELATED_OFFLINE_INSTRUCTIONS) : action === 'relevance' ? RELEVANCE_INSTRUCTIONS : null;
+  return { shared: `${BASE_INSTRUCTIONS}\n\n${mode === 'paper' ? PAPER_INSTRUCTIONS : GENERAL_INSTRUCTIONS}\n\n${tools}`, action: own };
+}
+export function chatInstructions(mode: 'paper' | 'general', action: ChatAction | null = null, webSearch = false): string {
+  const parts = chatInstructionParts(mode, action, webSearch);
+  return parts.action ? `${parts.shared}\n\n${parts.action}` : parts.shared;
 }
 
 /** Cited web sources, appended to the answer as inert text (titles cleaned). */
@@ -294,6 +301,7 @@ export function sseFrame(message: ChatEvent): string {
 }
 
 export type LogEntry = Record<string, string | number | boolean | null>;
+type PaperLocation = { bucket?: unknown; path?: unknown; title?: unknown; byte_count?: unknown } | null;
 export interface ChatDependencies {
   accountID: string;
   rpc(name: string, params: Record<string, unknown>): Promise<unknown>;
@@ -346,28 +354,48 @@ export async function runChat(deps: ChatDependencies, body: unknown, emit: (even
   }
 }
 
+/** A started call whose failure is handled where it is awaited (never an unhandled rejection). */
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+function settled<T>(promise: Promise<T>): Promise<Settled<T>> {
+  return promise.then(value => ({ ok: true as const, value }), error => ({ ok: false as const, error }));
+}
+
 async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: ChatEvent) => void, signal: AbortSignal) {
-  try { await deps.rpc('worker_consume_request', { p_account_id: deps.accountID, p_route: 'chat' }); }
-  catch (error) { throw new ChatFailure(reason(error) === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable'); }
-  const request = validateChatRequest(body);
+  // Time to first text (owner feedback build 16 #8): the rate limit still decides first, but the reads that do
+  // not depend on it (balance, search policy) start alongside it instead of one by one. The paper's context
+  // still follows the credit check: it authorizes and accounts the Storage read.
+  const consumed = settled(deps.rpc('worker_consume_request', { p_account_id: deps.accountID, p_route: 'chat' }));
+  const admitted = async () => {
+    const result = await consumed;
+    if (!result.ok) throw new ChatFailure(reason(result.error) === 'request_rate_limit' ? 'rate_limited' : 'service_unavailable');
+  };
+  let request: ChatRequest;
+  try { request = validateChatRequest(body); } catch (error) { await admitted(); throw error; }
   // Ingest, Why it matters (the paper only) and diagram repairs never search.
   const search = !['ingest', 'relevance', 'diagram_fix'].includes(request.action ?? '') && deps.webSearch === true;
   // Tavily first when the reader's consent names it (checked while the paper loads);
   // otherwise, and as its backup, Anthropic's search.
   const tavilyReady = search && request.consentVersion === CONSENT_VERSION && deps.search
     ? deps.search.ready().catch(() => false) : Promise.resolve(false);
+  const balance = deps.availableCredits ? settled(deps.availableCredits()) : null;
+  await admitted();
 
   if (!deps.generate) throw new ChatFailure('provider_unavailable');
   const tavily = await tavilyReady === true;
   const nativeSearch = search && deps.nativeSearch === true;
   const searchOffered = tavily || nativeSearch;
+  // Related always searches before it answers: say so at once, not after the paper loads and the model's
+  // first round has chosen its queries (that first status used to arrive ~4 s in).
+  if (request.action === 'related' && searchOffered && !signal.aborted) emit({ event: 'status', data: searchingStatus(undefined) });
   const searchCap = request.action === 'related' ? RELATED_SEARCH_MAX_USES : WEB_SEARCH_MAX_USES;
   const repair = request.action === 'diagram_fix';
   const maxTokens = repair ? DIAGRAM_FIX_MAX_TOKENS : CHAT_MAX_TOKENS;
-  const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: chatInstructions(request.mode, request.action, searchOffered),
+  const instructions = chatInstructionParts(request.mode, request.action, searchOffered);
+  const makeParams = (paper: PaperContext | null) => chatRequestParams({ instructions: instructions.shared, actionInstructions: instructions.action,
     paper, turns: request.turns, selection: request.selection, maxTokens, tools: request.action === 'ingest' ? [ADD_PAPER_TOOL]
       : [CREATE_DIAGRAM_TOOL, ...(tavily ? [SEARCH_WEB_TOOL] : nativeSearch ? [request.action === 'related' ? RELATED_WEB_SEARCH_TOOL : WEB_SEARCH_TOOL] : [])] });
-  const available = deps.availableCredits ? await deps.availableCredits().catch(() => null) : null;
+  const held = balance ? await balance : null;
+  const available = held?.ok ? held.value : null;
   if (deps.availableCredits && (available === null || !Number.isSafeInteger(available) || available < 0)) throw new ChatFailure('service_unavailable');
   // The history/instructions/output budget already imply this minimum hold.
   // Refuse clearly insufficient balances before downloading the paper; cheap
@@ -377,8 +405,8 @@ async function runChecked(deps: ChatDependencies, body: unknown, emit: (event: C
 
   let paper: PaperContext | null = null;
   if (request.mode === 'paper') {
-    let context: { bucket?: unknown; path?: unknown; title?: unknown; byte_count?: unknown };
-    try { context = await deps.rpc('worker_chat_context', { p_account_id: deps.accountID, p_document_id: request.documentID }) as typeof context; }
+    let context: PaperLocation;
+    try { context = await deps.rpc('worker_chat_context', { p_account_id: deps.accountID, p_document_id: request.documentID }) as PaperLocation; }
     catch (error) { throw new ChatFailure(reason(error) === 'document_unavailable' ? 'document_unavailable' : 'service_unavailable'); }
     if (!context || typeof context.bucket !== 'string' || typeof context.path !== 'string') throw new ChatFailure('document_unavailable');
     const byteCount = typeof context.byte_count === 'number' ? context.byte_count : undefined;
@@ -554,6 +582,8 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
   search: { tavily: boolean; backup: boolean; cap: number }, stats: SearchStats): Promise<ProviderOutcome> {
   const attempts: ProviderAttempt[] = [], calls: NonNullable<ProviderOutcome['toolCalls']> = [];
   const sources = new Map<string, string | null>();
+  // Pages each Tavily search returned (in rank order): the source list when the answer writes none.
+  const searched: { url: string; title: string | null }[][] = [];
   const extra: MessageParam[] = [];
   let tools = params.tools, tavily = search.tavily, searches = 0, anthropicSearches = 0, exact = true;
   let firstID: string | null = null, wrote = false, separate = false;
@@ -585,7 +615,8 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       const { toolCalls: _calls, webSearches: _searches, sources: _sources, ...last } = outcome;
       return { ...last, messageID: firstID ?? outcome.messageID, attempts, exact, ...(all.length ? { toolCalls: all } : {}),
         ...(anthropicSearches ? { webSearches: anthropicSearches } : {}),
-        ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) } : {}) };
+        ...(sources.size ? { sources: [...sources].map(([url, title]) => ({ url, title })) }
+          : searched.length ? { sources: searchedPages(searched) } : {}) };
     };
     const left = params.max_tokens - attempts.reduce((sum, attempt) => sum + attempt.usage.output, 0);
     const continuation = outcome.stopReason === 'pause_turn'
@@ -623,7 +654,11 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       if (!tavily || !deps.search) return reply(unavailable(canSwitch()), true);
       options.onStatus?.(searchingStatus(input.query));
       const result = await deps.search.run(input, options.signal).catch((): SearchOutcome => ({ status: 'failed', failure: 'unavailable', retryAfterMs: null }));
-      if (result.status === 'ok') { stats.tavily++; stats.credits += result.credits; return reply(searchResultContent(result.results)); }
+      if (result.status === 'ok') {
+        stats.tavily++; stats.credits += result.credits;
+        searched.push(result.results.map(page => ({ url: page.url, title: page.title || null })));
+        return reply(searchResultContent(result.results));
+      }
       stats.failures++; tavily = false; failed = true;
       deps.log({ event: 'chat_search_failed', operation_id: operationID, provider: 'tavily', failure: result.failure });
       return reply(unavailable(canSwitch()), true);
@@ -640,6 +675,15 @@ async function generateAnswer(deps: ChatDependencies, generate: NonNullable<Chat
       tools = [...(params.tools ?? []), { ...WEB_SEARCH_TOOL, max_uses: searchesLeft }];
     }
   }
+}
+
+/** The searches' pages, each search's best first, without repeats. */
+function searchedPages(lists: readonly { url: string; title: string | null }[][]): { url: string; title: string | null }[] {
+  const pages = new Map<string, string | null>();
+  for (let rank = 0; lists.some(list => rank < list.length); rank++) {
+    for (const list of lists) if (rank < list.length && !pages.has(list[rank].url)) pages.set(list[rank].url, list[rank].title);
+  }
+  return [...pages].map(([url, title]) => ({ url, title }));
 }
 
 function unavailable(backup: boolean): string {

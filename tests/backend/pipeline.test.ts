@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { PDFDocument } from 'pdf-lib';
-import { contentType, countPages, fetchArxiv, loadRaw, PermanentFailure, PipelineRPCError, processPaper, RAW_FORMAT,
+import { contentType, countPages, fetchArxiv, loadRaw, PermanentFailure, PipelineRPCError, processPaper, RAW_FORMAT, retryAfterSeconds, THROTTLED_METADATA_FAILURES,
   type PaperEntry, type PipelineDeps, type PipelinePolicy } from '../../supabase/functions/_shared/pipeline.ts';
 import { sha256 } from '../../supabase/functions/_shared/http.ts';
 
@@ -371,4 +371,67 @@ test('a slow download tells readers the size and pages; a quick one leaves it to
       assert.ok(names(calls).indexOf('worker_pipeline_progress') < names(calls).indexOf('worker_pipeline_original'), 'before the copy is recorded');
     } else assert.equal(reports.length, 0, 'within 5 s of the stage projection');
   }
+});
+
+test('arXiv throttling the Atom API: the record comes from arXivRaw, with the same license evidence', async () => {
+  const slots: unknown[] = [];
+  const { deps, calls, logs } = harness({
+    worker_pipeline_arxiv_slot: p => { slots.push(p.p_slots); return { reserved: true, wait_ms: 0, spacing_ms: 3000 }; },
+    worker_pipeline_metadata: p => {
+      assert.equal(p.p_eligible, true); assert.equal(p.p_revision, 3);
+      assert.equal((p.p_metadata as { title: string }).title, 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model');
+      assert.deepEqual((p.p_metadata as { authors: string[] }).authors.slice(0, 2), ['Rafael Rafailov', 'Archit Sharma']);
+      assert.equal(p.p_license_uri, 'https://creativecommons.org/licenses/by/4.0/');
+      return entry('failed');
+    },
+  }, {
+    fetch: (async (url: string) => url.includes('export.arxiv.org') ? new Response('Rate exceeded.', { status: 429 })
+      : url.includes('oaipmh') ? new Response(oai) : new Response(null, { status: 500 })) as unknown as typeof fetch,
+  });
+  await processPaper(deps, entry('metadata', { revision: null }), policy, deadline);
+  assert.deepEqual(slots, [2], 'both requests stay inside the two reserved pacing slots');
+  assert.ok(names(calls).includes('worker_pipeline_metadata'));
+  assert.ok(!names(calls).includes('worker_pipeline_defer'));
+  assert.ok(logs.includes('arxiv_busy'));
+  // An unreachable Atom API falls back the same way; a missing paper is still permanent.
+  const unreachable = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_metadata: () => entry('failed') }, {
+    fetch: (async (url: string) => { if (url.includes('export.arxiv.org')) throw new Error('ECONNRESET'); return new Response(oai); }) as unknown as typeof fetch });
+  await processPaper(unreachable.deps, entry('metadata', { revision: null }), policy, deadline);
+  assert.ok(names(unreachable.calls).includes('worker_pipeline_metadata'));
+  const missing = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, {
+    fetch: (async () => new Response(null, { status: 404 })) as unknown as typeof fetch });
+  await processPaper(missing.deps, entry('metadata', { revision: null }), policy, deadline);
+  const gone = missing.calls.find(c => c.name === 'worker_pipeline_defer')!.params;
+  assert.equal(gone.p_fail, true); assert.equal(gone.p_error_code, 'metadata_unavailable');
+});
+
+test('arXiv throttling both endpoints: the paper waits (as asked), readers are told, and it fails only after about an hour', async () => {
+  const busy = (retryAfter: string | null) => (async () => new Response('busy', { status: 503, headers: retryAfter ? { 'retry-after': retryAfter } : {} })) as unknown as typeof fetch;
+  const run = async (failures: number, retryAfter: string | null) => {
+    const h = harness({ worker_pipeline_arxiv_slot: () => ({ reserved: true, wait_ms: 0, spacing_ms: 3000 }), worker_pipeline_defer: p => p }, { fetch: busy(retryAfter) });
+    await processPaper(h.deps, entry('metadata', { revision: null, failures }), policy, deadline);
+    return { defer: h.calls.find(c => c.name === 'worker_pipeline_defer')!.params, calls: names(h.calls), projected: h.calls.find(c => c.name === 'worker_pipeline_project_progress')?.params };
+  };
+  const first = await run(0, '120');
+  assert.equal(first.defer.p_fail, false); assert.equal(first.defer.p_error_code, 'rate_limited');
+  assert.equal(first.defer.p_seconds, 120, 'the wait arXiv asked for, longer than the 30 s back-off');
+  assert.deepEqual(first.projected, { p_paper_id: '11111111-1111-4111-8111-111111111111' }, 'readers see the wait as it starts');
+  assert.equal(first.calls.at(-1), 'worker_pipeline_project_progress');
+  assert.equal((await run(0, null)).defer.p_seconds, 30);
+  const fifth = await run(4, null);
+  assert.equal(fifth.defer.p_fail, false, 'throttling is waited out past the usual five tries');
+  assert.equal(fifth.defer.p_seconds, 480);
+  const last = await run(THROTTLED_METADATA_FAILURES - 1, null);
+  assert.equal(last.defer.p_fail, true); assert.equal(last.defer.p_error_code, 'metadata_unavailable'); assert.equal(last.defer.p_resume_stage, 'metadata');
+  assert.equal(last.projected, undefined, 'a failure is projected by the stage change, not as a wait');
+});
+
+test('Retry-After is read as seconds or an HTTP date, bounded to an hour', () => {
+  const now = Date.parse('2026-10-08T03:40:00Z');
+  assert.equal(retryAfterSeconds('120', now), 120);
+  assert.equal(retryAfterSeconds('Wed, 08 Oct 2026 03:41:30 GMT', now), 90);
+  assert.equal(retryAfterSeconds('99999', now), 3600);
+  assert.equal(retryAfterSeconds('soon', now), null);
+  assert.equal(retryAfterSeconds('Wed, 08 Oct 2026 03:30:00 GMT', now), null);
+  assert.equal(retryAfterSeconds(null, now), null);
 });
