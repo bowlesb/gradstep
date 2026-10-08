@@ -173,11 +173,40 @@ Sandbox online-check exception, hosted schema change, new purchase or physical-d
 in the local evidence above. Apple's reference implementation and test certificate chain are
 at [apple/app-store-server-library-node](https://github.com/apple/app-store-server-library-node).
 
-Before the cost-control rollout, extend owner purchase detail to show the recorded grant and Sandbox allowance
-decision alongside verification status. The current **Confirmed** label means a verified receipt was recorded; it can
-still represent zero credits because an allowance is exhausted or the verified Apple identity is missing.
-`store_sandbox_decisions` already retains the requested/granted amount and reason; that distinction is not yet surfaced
-by the Purchases page. It must not be inferred from receipt verification alone.
+Owner purchase detail now labels a successful verification **Receipt recorded**. Submission counts are neither
+sales nor credit grants: several signed submissions may describe one transaction, and a recorded receipt can grant
+zero credits. A selected submission opens a separate **Account transaction ledger**. It is account-wide, with no
+claim that the opaque submission digest identifies any particular transaction.
+
+The read-only `v1_admin_store_account_transactions(account_id, cursor, limit)` RPC in the still-unapplied migration
+038 reads existing `store_transactions`, the account's matching `credit_buckets`, and its latest matching
+`store_sandbox_decisions` entry. It does not create financial or diagnostic records or change grant/refund rules.
+
+- Signed-in owner + AAL2 is required; anonymous, service-role, ordinary customer and support sessions cannot call
+  this RPC. Apple transaction/original IDs remain inside this access-controlled view. `app_transaction_id`, signed
+  JWS and unverified identity claims are not returned.
+- Pages default to 25 and cannot exceed 50 transactions. The exact account-bound continuation contains version 1,
+  account UUID, UTC `recorded_at`, environment and transaction ID. All fields are validated, including existence
+  of the exact boundary row in that account. Descending `(recorded_at, environment, transaction_id)` continues
+  through ties without duplicates. Two indexes cover account continuation and the latest account/transaction
+  Sandbox decision. Candidate transactions are limited before the bucket/decision joins.
+- Each record separates the **original actual credit grant**, **currently spendable** amount, and **reserved**
+  amount. Revoked/expired credits have zero spendability while existing reservations remain visible for work in
+  progress. Fully spent and future-start buckets are distinguished from a receipt with no grant.
+- A matching Sandbox decision shows its finite reason, requested amount, granted amount and UTC allowance month.
+  A missing bucket or absent decision never becomes an inferred allowance-exhaustion reason. Production receipts
+  do not join Sandbox decisions with a coincident transaction ID.
+- Pages show balances at their own read time, not a consistent historical snapshot across pages. The dashboard
+  retains one page, offers Older/Newest navigation, and fences results after a new account, selected submission,
+  Refresh or page request. Ledger loading/error/retry is independent of the submission's verification history.
+
+Local ledger validation: fresh migrations and the complete database suite, including 170 transactions across
+7-row pages with tied timestamps and environments, invalid/cross-account cursors, every access boundary, actual
+partial/zero Sandbox grants, refunded/expired reservations and an unchanged financial-record digest. Index plans
+are checked after fixture statistics are analyzed. The admin production build and expanded synthetic browser
+journey pass; desktop, 390-point narrow and dark ledger captures were visually reviewed. Delayed completions
+exercise account/submission/Refresh/page races, alongside empty/error/retry and missing-decision cases. These are
+local checks; migration 038 and the dashboard addition still require the coordinated live rollout.
 
 Local checks: all 224 backend tests; 12 purchase tests under both Node and Deno, including
 the real SDK against a loopback OCSP responder returning HTTP 503; the database suites and
@@ -189,6 +218,7 @@ services. It does not establish hosted verification or credit delivery.
 
 This change adds no provider purchase or external worker. Each admitted verification adds
 two database RPCs (admit and finish), while the hourly cleanup runs inside the existing
-database. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
+database. Each owner ledger page adds one read-only RPC; its two indexes add database storage and write maintenance
+to the existing financial tables. Live diagnostic rows are capped; Postgres indexes, WAL and backups still contribute
 to the existing database allocation. Review actual database growth after deployment. The
 existing $100/month operating budget is unchanged.

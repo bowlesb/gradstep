@@ -6,7 +6,7 @@ import { mutate } from './mutations';
 import { Reliability } from './reliability';
 import { Spending } from './spending';
 import { Accounts, liveAccountsApi } from './accounts';
-import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation } from './purchases';
+import { Purchases, type PurchasesApi, type PurchaseObservations, type PurchaseObservation, type PurchaseLedgerPage } from './purchases';
 import { WorkflowChecksPanel, type WorkflowChecks } from './checks';
 import { Brand, Shell } from './shell';
 import './style.css';
@@ -16,6 +16,7 @@ const loadChecks = () => rpc<WorkflowChecks>('v1_admin_workflow_checks', { p_day
 const purchasesApi: PurchasesApi = {
   list: (filter, reference) => rpc<PurchaseObservations>('v1_admin_store_verifications', { p_filter: filter, p_reference: reference }),
   attempts: (accountID, reference) => rpc<PurchaseObservation[]>('v1_admin_store_verification_attempts', { p_account_id: accountID, p_reference: reference }),
+  transactions: (accountID, cursor) => rpc<PurchaseLedgerPage>('v1_admin_store_account_transactions', { p_account_id: accountID, p_cursor: cursor, p_limit: 25 }),
 };
 
 const dollars = (micro: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 4 }).format(micro / 1_000_000);

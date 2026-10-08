@@ -3,7 +3,7 @@ import type { PipelineMetrics } from './backend';
 import { Accounts, type AccountList, type AccountsApi, type AdminAccount, type AccountSort } from './accounts';
 import { Reliability } from './reliability';
 import { Shell } from './shell';
-import { Purchases, type PurchasesApi, type PurchaseSubmission } from './purchases';
+import { Purchases, type PurchasesApi, type PurchaseSubmission, type PurchaseTransaction } from './purchases';
 
 // Development-only sample data for screenshots: `?fixture=reliability` (add `&state=empty`
 // for empty states) and `?fixture=accounts`. main.tsx loads this module only when import.meta.env.DEV is true,
@@ -104,6 +104,7 @@ export function PurchasesFixture() {
   const api = useMemo<PurchasesApi>(() => {
     const now = new Date().toISOString();
     const account = '38000000-0000-0000-0000-000000000001';
+    const otherAccount = '38000000-0000-0000-0000-000000000002';
     const rows: PurchaseSubmission[] = scenario === 'empty' ? [] : [
       { account_id: account, reference: '38'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 3,
         state: 'pending', outcome: 'verification_unavailable', stage: 'revocation', apple_status: 'retryable_verification_failure', transport_code: 'timeout' },
@@ -111,20 +112,64 @@ export function PurchasesFixture() {
         state: 'interrupted', outcome: 'started', stage: null, apple_status: null, transport_code: null },
       { account_id: account, reference: '40'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 1,
         state: 'refused', outcome: 'invalid', stage: 'certificate_chain', apple_status: 'invalid_certificate', transport_code: null },
+      { account_id: account, reference: '41'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 1,
+        state: 'confirmed', outcome: 'recorded', stage: null, apple_status: null, transport_code: null },
+      { account_id: otherAccount, reference: '42'.repeat(32), first_at: now, last_at: now, finished_at: now, attempts: 1,
+        state: 'confirmed', outcome: 'already_recorded', stage: null, apple_status: null, transport_code: null },
     ];
+    const previous = new Date(Date.now() - 86_400_000).toISOString();
+    const period = now.slice(0, 7) + '-01';
+    const transaction = (id: string, extra: Partial<PurchaseTransaction> = {}): PurchaseTransaction => ({
+      environment: 'Sandbox', transaction_id: id, original_transaction_id: id, product_id: 'com.sciencereader.ios.credits.400',
+      quantity: 1, purchased_at: now, recorded_at: now, granted_at: now, expires_at: null, revoked_at: null,
+      credits: { granted: 400, balance: 400, reserved: 0, spendable: 400, state: 'active', starts_at: now, expires_at: null, revoked_at: null },
+      sandbox_decision: null, ...extra,
+    });
+    const rowsOfCredits = [
+      transaction('91006', { granted_at: null,
+        credits: { granted: 0, balance: 0, reserved: 0, spendable: 0, state: 'no_grant', starts_at: null, expires_at: null, revoked_at: null },
+        sandbox_decision: { recorded_at: now, period, requested_credits: 400, granted_credits: 0, credit_cap: 1000, reason: 'both_allowances_exhausted' } }),
+      transaction('91005', {
+        credits: { granted: 200, balance: 160, reserved: 20, spendable: 140, state: 'active', starts_at: now, expires_at: null, revoked_at: null },
+        sandbox_decision: { recorded_at: now, period, requested_credits: 400, granted_credits: 200, credit_cap: 1000, reason: 'partial_allowance' } }),
+      transaction('91004', { environment: 'Production', revoked_at: now,
+        credits: { granted: 400, balance: 40, reserved: 40, spendable: 0, state: 'revoked', starts_at: previous, expires_at: null, revoked_at: now } }),
+      transaction('91003', { environment: 'Production', product_id: 'com.sciencereader.ios.standard.monthly', expires_at: previous,
+        credits: { granted: 800, balance: 600, reserved: 20, spendable: 0, state: 'expired', starts_at: previous, expires_at: previous, revoked_at: null } }),
+      transaction('91002', { environment: 'Production',
+        credits: { granted: 400, balance: 0, reserved: 0, spendable: 0, state: 'spent', starts_at: previous, expires_at: null, revoked_at: null } }),
+      transaction('91001', { granted_at: null,
+        credits: { granted: 0, balance: 0, reserved: 0, spendable: 0, state: 'no_grant', starts_at: null, expires_at: null, revoked_at: null } }),
+    ];
+    let ledgerFailureAcknowledged = false;
     return {
       async list(filter, reference) {
         if (scenario === 'error') throw Error('synthetic_failure');
         const matched = rows.filter(row => (!reference || row.reference.startsWith(reference)) &&
           (filter === 'all' || row.state === filter || (filter === 'unconfirmed' && ['pending', 'interrupted', 'verifying'].includes(row.state))));
-        return { generated_at: now, matched: matched.length, counts: { pending: 1, interrupted: 1, refused: 1 }, submissions: matched,
+        return { generated_at: now, matched: matched.length, counts: { pending: 1, interrupted: 1, refused: 1, confirmed: 2 }, submissions: matched,
           readiness: { retained: 5, policy: { retention_days: 30, account_rows: 2048, environment_rows: 50000 },
             cleanup: { active: scenario !== 'cleanup', expected_command: true, schedule: '17 * * * *' } } };
       },
+      async transactions(accountID, cursor) {
+        // All overlapping initial reads fail together, including Strict Mode's
+        // extra development effect. A deliberate retry receives fresh data.
+        const failThisRead = scenario === 'ledger_retry' && !ledgerFailureAcknowledged;
+        const delay = (scenario === 'ledger_race' && accountID === account) || (scenario === 'older_race' && cursor) ? 750 : 25;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        if (scenario === 'ledger_error' || failThisRead) { ledgerFailureAcknowledged = true; throw Error('synthetic_ledger_failure'); }
+        if (cursor && cursor.account_id !== accountID) throw Error('synthetic_invalid_cursor');
+        const transactions = scenario === 'ledger_empty' ? [] : accountID === otherAccount
+          ? [transaction('92001', { environment: 'Production' })] : rowsOfCredits.slice(cursor ? 3 : 0, cursor ? 6 : 3);
+        return { account_id: scenario === 'ledger_wrong_account' ? otherAccount : accountID, generated_at: now, transactions,
+          next_cursor: scenario !== 'ledger_empty' && accountID === account && !cursor
+            ? { version: 1, account_id: accountID, recorded_at: now, environment: 'Production', transaction_id: '91004' } : null };
+      },
       async attempts(_account, reference) {
-        return Array.from({ length: rows.find(row => row.reference === reference)?.attempts ?? 0 }, (_, n) => ({
-          id: `fixture-attempt-${n}`, admitted_at: now, finished_at: now, outcome: 'verification_unavailable',
-          stage: 'revocation', apple_status: 'retryable_verification_failure', transport_code: 'timeout',
+        const submission = rows.find(row => row.reference === reference);
+        return Array.from({ length: submission?.attempts ?? 0 }, (_, n) => ({
+          id: `fixture-attempt-${n}`, admitted_at: now, finished_at: submission?.finished_at ?? null, outcome: submission?.outcome ?? 'started',
+          stage: submission?.stage ?? null, apple_status: submission?.apple_status ?? null, transport_code: submission?.transport_code ?? null,
         }));
       },
     };
