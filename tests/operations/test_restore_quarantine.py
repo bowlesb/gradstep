@@ -404,6 +404,9 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
         upload_full = json.loads(self.actor_sql('select public.v5_library_page(null,1);'))
         upload_compact = json.loads(self.actor_sql('select public.v5_library_compact_page(null,1);'))
         upload_query = json.loads(self.actor_sql("select public.v5_library_query('{}',null,1);"))
+        applied = json.loads(self.actor_sql(
+            f"select public.v5_begin_import('{upload_full['dataset_epoch']}',gen_random_uuid(),'2407.03904',0,null);"))
+        self.assertEqual(applied['result']['status'], 'applied')
         self.assertIsNotNone(baseline['next_cursor'])
         self.assertIsNotNone(query['next_cursor'])
         before = self.rows()
@@ -438,13 +441,20 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
             (f"select public.v5_library_compact_changes('{old_upload_epoch}',0);", 'library_resync_required'),
             (f"select public.v5_library_metadata('{old_upload_epoch}',array[]::uuid[]);", 'library_resync_required'),
             (f"select public.v5_library_query('{{}}','{json.dumps(upload_query['next_cursor'])}'::jsonb,1);", 'library_query_restart_required'),
+            # Commands observed in the pre-restore dataset, including an exact replay (042).
+            (f"select public.v5_begin_import('{old_upload_epoch}','{applied['result']['id']}','2407.03904',0,null);", 'library_resync_required'),
+            (f"select public.v5_begin_import('{old_upload_epoch}',gen_random_uuid(),'2407.03905',3,null);", 'library_resync_required'),
+            (f"select public.v5_cancel_import('{old_upload_epoch}',gen_random_uuid(),'{applied['result']['id']}',1);", 'library_resync_required'),
         ]:
             with self.subTest(statement=statement), self.assertRaisesRegex(RuntimeError, error):
                 self.actor_sql(statement)
         fresh = json.loads(self.actor_sql('select public.v4_library_page();'))
         self.assertEqual(fresh['dataset_epoch'], new_epoch)
-        self.assertEqual(len(fresh['entries']), 3)
+        self.assertEqual(len(fresh['entries']), 4)
         self.assertEqual(json.loads(self.actor_sql('select public.v5_library_page();'))['dataset_epoch'], new_upload_epoch)
+        fresh_command = json.loads(self.actor_sql(
+            f"select public.v5_begin_import('{new_upload_epoch}',gen_random_uuid(),'2407.03905',4,null);"))
+        self.assertEqual((fresh_command['result']['status'], fresh_command['dataset_epoch']), ('applied', new_upload_epoch))
 
 
 if __name__ == '__main__':
