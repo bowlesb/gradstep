@@ -183,13 +183,17 @@ only by SHA-256; no tokens, credentials, URL query strings or server error bodie
 written. A screenshot/browser check is a separate UI task; this runner proves the
 transport and accounting boundary.
 
-### Local browser proof using those exact bytes (planned)
+### Local browser proof using those exact bytes
 
 After complete helper verification the process retains only `renderBundle`:
 manifest bytes/digest and a path-to-bytes map, at most 1 MiB plus 64 KiB manifest.
 It contains no signed URL, grant or account token and is cleared during cleanup.
-This enables a separate **local-only** rendering command without another hosted
-descriptor/member read. The command itself is not implemented or claimed tested.
+For the explicitly authorized public DPO canary only, initial success also writes
+`verified-bundle.json` (0600, create-only) beside the report. That bounded snapshot
+has only source ID, manifest digest/base64 and member path/base64 values. It never
+serializes the descriptor, URL or session. Other source IDs refuse export before
+account creation. This enables a separate **local-only** rendering command without
+another hosted descriptor/member read; the browser command is still being prepared.
 
 The small harness should build a temporary entry with the existing Vite reader
 plugin, import the production `verifyBundle` and `frameDocument`, and receive that
