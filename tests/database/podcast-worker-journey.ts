@@ -106,8 +106,13 @@ const edge = (account: string) => ({ user: async () => ({ accountID: account, rp
   service: rpc, download: async (bucket: string, path: string, maximum: number) => { const v = storage.get(`${bucket}/${path}`)!; assert.ok(v.byteLength <= maximum); return v; },
   origin: 'https://project.supabase.co', randomHex: () => createHash('sha256').update(randomUUID()).digest('hex') });
 const headers = { 'Cache-Control': 'no-store' };
-const get = async (account: string, query: string, init?: RequestInit) =>
-  (await handlePodcast(new Request(`https://edge.test/functions/v1/podcast?${query}`, init), edge(account), headers)).json();
+const observed: Record<string, unknown> = {};
+const get = async (account: string, query: string, init?: RequestInit) => {
+  const value = await (await handlePodcast(new Request(`https://edge.test/functions/v1/podcast?${query}`, init), edge(account), headers)).json();
+  const action = /action=([a-z]+)/.exec(query)![1];
+  observed[observed[action] ? `${action}_${Object.keys(observed).filter(k => k.startsWith(action)).length + 1}` : action] = value;
+  return value;
+};
 const catalog = await get(fixture.other, 'action=catalog&limit=10');
 assert.equal(catalog.episodes.length, 2);
 assert.equal(catalog.episodes[1].fixture, true, 'fixture labeled');
@@ -146,4 +151,10 @@ assert.equal(mine.episode.release_id, done.job.release_id); assert.equal(mine.ep
 const states = await get(fixture.other, 'action=states', { method: 'POST', body: JSON.stringify({ release_ids: [done.job.release_id, generated.release_id] }) });
 assert.equal(states.states[done.job.release_id].state, 'unavailable', 'no cross-account oracle');
 assert.equal(states.states[generated.release_id].state, 'ready');
+// Real server responses (ids randomized per run) for client contract tests: tests/fixtures/podcast/.
+if (process.env.PODCAST_FIXTURE_OUT) {
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  mkdirSync(process.env.PODCAST_FIXTURE_OUT, { recursive: true });
+  for (const [name, value] of Object.entries(observed)) writeFileSync(`${process.env.PODCAST_FIXTURE_OUT}/${name}.json`, JSON.stringify(value, null, 1) + '\n');
+}
 console.log(JSON.stringify({ ok: true, script_calls: scriptCalls, speech_calls: speechCalls, objects: storage.size }));

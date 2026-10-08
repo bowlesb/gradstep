@@ -1,0 +1,43 @@
+{
+ "job": null,
+ "episode": {
+  "year": 2025,
+  "audio": {
+   "bytes": 76,
+   "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
+   "media_type": "audio/mp4"
+  },
+  "scope": "shared",
+  "state": "ready",
+  "title": "Journey fixture paper",
+  "topic": "cs.LG",
+  "source": {
+   "url": "https://arxiv.org/abs/2501.14382v1",
+   "license": "https://creativecommons.org/licenses/by/4.0/",
+   "version": 1,
+   "arxiv_id": "2501.14382"
+  },
+  "authors": [
+   "J. Fixture"
+  ],
+  "fixture": false,
+  "ai_audio": true,
+  "language": "en",
+  "release_id": "e867c20e-bd16-4e22-83dd-ea59d32b5c0a",
+  "document_id": "8ae4d92e-91cb-42e7-87f9-80798a73b458",
+  "duration_ms": 140000,
+  "published_at": "2026-10-08T18:40:00.242784+00:00",
+  "replacement_id": null
+ },
+ "capabilities": {
+  "catalog": true,
+  "delivery": true,
+  "transfer": {
+   "limit_bytes": 104857600,
+   "remaining_bytes": 104857600
+  },
+  "generation": true,
+  "max_credits": 150,
+  "target_seconds": 300
+ }
+}

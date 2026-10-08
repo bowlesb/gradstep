@@ -1,0 +1,13 @@
+{
+ "job": {
+  "state": "ready",
+  "failure": null,
+  "release_id": "fb137c3a-c443-45f7-8dbb-50d63945a8e0",
+  "request_id": "d70a3e65-ab6a-474f-b81d-179d02993996",
+  "held_credits": 0,
+  "charged_credits": 38,
+  "cancel_requested": false,
+  "released_credits": 112,
+  "stage_entered_at": "2026-10-08T18:40:01.04493+00:00"
+ }
+}

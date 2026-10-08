@@ -63,6 +63,7 @@ def verify(bin_path, db, base):
       commit;""")
     fixture = {'owner': owner, 'account': account, 'other': other, 'approval': appr, 'item': item, 'paper': text_path + '|' + PAPER}
     result = subprocess.run(['node', str(ROOT / 'tests/database/podcast-worker-journey.ts')], cwd=ROOT, capture_output=True, text=True, timeout=300,
-                            env={**env, 'PODCAST_PSQL': str(bin_path / 'psql'), 'PODCAST_DB': db, 'PODCAST_FIXTURE': json.dumps(fixture)})
+                            env={**env, 'PODCAST_PSQL': str(bin_path / 'psql'), 'PODCAST_DB': db, 'PODCAST_FIXTURE': json.dumps(fixture),
+                                 **({'PODCAST_FIXTURE_OUT': os.environ['PODCAST_FIXTURE_OUT']} if os.environ.get('PODCAST_FIXTURE_OUT') else {})})
     if result.returncode: raise AssertionError(result.stdout[-3000:] + result.stderr[-3000:])
     print('PASS podcast worker journey', result.stdout.strip().splitlines()[-1], flush=True)

@@ -1,0 +1,41 @@
+{
+ "job": null,
+ "episode": {
+  "year": null,
+  "audio": {
+   "bytes": 76,
+   "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
+   "media_type": "audio/mp4"
+  },
+  "scope": "private",
+  "state": "ready",
+  "title": null,
+  "topic": null,
+  "source": {
+   "url": null,
+   "license": null,
+   "version": null,
+   "arxiv_id": null
+  },
+  "authors": [],
+  "fixture": false,
+  "ai_audio": true,
+  "language": "en",
+  "release_id": "fb137c3a-c443-45f7-8dbb-50d63945a8e0",
+  "document_id": "8ae4d92e-91cb-42e7-87f9-80798a73b458",
+  "duration_ms": 140000,
+  "published_at": "2026-10-08T18:40:01.028939+00:00",
+  "replacement_id": null
+ },
+ "capabilities": {
+  "catalog": true,
+  "delivery": true,
+  "transfer": {
+   "limit_bytes": 104857600,
+   "remaining_bytes": 104857600
+  },
+  "generation": true,
+  "max_credits": 150,
+  "target_seconds": 300
+ }
+}

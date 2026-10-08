@@ -481,7 +481,14 @@ is an opaque decimal string (pass it back unchanged) or `null`. A disabled catal
 ```
 
 `title`, `year`, `authors`, `topic` and `source` are always present for shared episodes; for **private** episodes they
-are `null`/empty because private titles are not server-visible — use the library item's own title.
+are `null`/empty because private titles are not server-visible — use the library item's own title. `topic` is the
+paper's first catalog topic tag, or its first arXiv category code (for example `cs.LG`) when it has no tags: map codes
+to names as the Feed does.
+
+**Real response fixtures.** `tests/fixtures/podcast/*.json` are actual responses of the Edge handlers over the real
+SQL functions (catalog, episode, paper for shared and private, quote, start, status, download, states), captured by
+`PODCAST_FIXTURE_OUT=tests/fixtures/podcast` with `tests/database/podcast_worker_journey.py` (zero spend; ids and
+hashes are random per capture). Client decoders should be tested against them.
 
 **Episode** `GET ?action=episode&release_id=…` returns the Episode plus `chapters` and `transcript`. Use it as the
 pre-download state check: play only if `state` is `ready` and `audio.sha256`/`audio.bytes` equal what you will verify.
