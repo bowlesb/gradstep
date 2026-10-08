@@ -144,3 +144,11 @@ progress.accent::-moz-progress-bar { background: var(--accent); }
   .reader-actions { margin-left: auto; }
   .reader { height: calc(100dvh - 57px); }
 }
+
+/* Approve from your phone (ui/Approve.tsx). The QR keeps a white quiet zone in both themes so cameras read it. */
+.approve-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text); }
+.approve-qr { margin: 0; align-self: center; width: min(100%, 248px); aspect-ratio: 1; display: grid; place-items: center; }
+.approve-qr svg { width: 100%; height: 100%; border-radius: 12px; border: 1px solid var(--line); }
+.approve-code { margin: 0; text-align: center; color: var(--muted); }
+.approve-code output { display: block; margin-top: 4px; font-size: 28px; letter-spacing: 0.08em; color: var(--text); }
+.approve-status { display: flex; align-items: center; gap: 8px; }

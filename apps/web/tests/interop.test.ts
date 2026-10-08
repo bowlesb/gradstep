@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fromBase64, toBase64, toHex, canonicalJSON, utf8 } from '../src/lib/bytes';
-import { type KeyBundle, decodeBundle, enrollmentFingerprint, importTestPrivateKey, keyRing, openEvent, recover, sealEvent,
+import { approvalPayload } from '../src/lib/approval';
+import { type KeyBundle, decodeBundle, enrollmentFingerprint, generateDeviceKeyPair, importTestPrivateKey, keyRing, openEvent, recover, sealEvent,
   unwrapForDevice, wrapForDevice, wrapRecovery } from '../src/lib/wire';
 
 const core = new URL('../../apple/ScienceReaderCore/', import.meta.url);
@@ -66,7 +67,7 @@ describe('frozen Swift-tested fixture (envelopes-v1.json)', () => {
 const swift = (() => { try { execFileSync('swift', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 
 describe.runIf(swift)('Swift CryptoKit ⇄ WebCrypto, fresh random envelopes both ways', () => {
-  it('Swift opens WebCrypto envelopes and WebCrypto opens Swift envelopes', async () => {
+  it('Swift opens WebCrypto envelopes, WebCrypto opens Swift envelopes, and Swift approves a browser key from its QR payload', async () => {
     const keys = bundle(), ring = await keyRing(keys), recipient = await importTestPrivateKey(rawPrivate);
     const input = {
       keys: fixture.keys, payload: fixture.payload, eventID: event, deviceID: device, challenge: fixture.challenge, privateKey: fixture.privateKey,
@@ -75,17 +76,25 @@ describe.runIf(swift)('Swift CryptoKit ⇄ WebCrypto, fresh random envelopes bot
       recoveryPackage: toBase64(await wrapRecovery(keys, fixture.recoveryCode)),
       deviceEnvelope: toBase64(await wrapForDevice(keys, device, recipient.publicKey, challenge)),
     };
+    // QR approval: this browser's real, non-extractable key as its QR payload names it; Swift approves as the app does.
+    const browser = await generateDeviceKeyPair(), browserChallenge = crypto.getRandomValues(new Uint8Array(32)), requestID = crypto.randomUUID();
+    const qr = await approvalPayload({ requestID, account, deviceID: device, publicKey: browser.publicKey, challenge: browserChallenge, kind: 'w' });
+    const approval = { payload: qr.payload, requestID, deviceID: device, publicKey: toBase64(browser.publicKey), challenge: toBase64(browserChallenge) };
     // Fresh randomness: none of these may equal the frozen fixture.
     expect(input.eventCiphertext).not.toBe(fixture.eventCiphertext);
     expect(input.deviceEnvelope).not.toBe(fixture.deviceEnvelope);
     // The executable throws (non-zero exit) unless it decrypts all three to exactly these keys/payload.
     const stdout = execFileSync('swift', ['run', '--package-path', fileURLToPath(core), 'ScienceReaderWireCheck'],
-      { input: JSON.stringify(input), encoding: 'utf8', timeout: 600_000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'ignore'] });
+      { input: JSON.stringify({ ...input, approval }), encoding: 'utf8', timeout: 600_000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'ignore'] });
     const output = JSON.parse(stdout);
     expect(output.eventCiphertext).not.toBe(input.eventCiphertext);
     expect(await openEvent({ id: event, deviceID: device, epoch: 1, format: 1, ciphertext: fromBase64(output.eventCiphertext) }, ring)).toEqual(fixture.payload);
     expect(await recover(fromBase64(output.recoveryPackage), fixture.recoveryCode, account)).toEqual(keys);
     expect(await unwrapForDevice(fromBase64(output.deviceEnvelope), account, device, 1, recipient.privateKey, recipient.publicKey, challenge)).toEqual(keys);
+    expect(output.approval.code).toBe(qr.code);
+    expect(output.approval.refusedSubstitute).toBe(true);
+    expect(browser.privateKey.extractable).toBe(false);
+    expect(await unwrapForDevice(fromBase64(output.approval.envelope), account, device, 1, browser.privateKey, browser.publicKey, browserChallenge)).toEqual(keys);
     expect(output.fingerprint).toBe(await enrollmentFingerprint(account, device, recipient.publicKey, challenge));
   }, 600_000);
 });
