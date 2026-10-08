@@ -3,6 +3,7 @@
 // check is rejected whole; nothing partial is published.
 import { canonicalJSON, isUUID } from './bytes';
 import { BackendError, rpc } from './backend';
+import { MAX_HIDDEN_TAGS, MAX_OWN_TAGS, validTags } from './paper-tags';
 
 export const FORMAT = 2, PAGE_LIMIT = 100, MAX_PAGE_BYTES = 1_048_576, MAX_ENTRIES = 4_000;
 
@@ -364,15 +365,32 @@ export class Reconciler {
 
 export type Command =
   | { endpoint: 'v2_begin_import'; p_source_id: string; p_requested_revision: number | null; p_observed_cursor: number }
-  | { endpoint: 'v2_retry_import' | 'v2_cancel_import'; p_import_id: string; p_expected_revision: number };
+  | { endpoint: 'v2_retry_import' | 'v2_cancel_import'; p_import_id: string; p_expected_revision: number }
+  // expectedItemID is a local receipt binding, not an RPC parameter.
+  | { endpoint: 'v2_set_item_archived'; expectedItemID: string; p_document_id: string; p_archived: boolean; p_expected_revision: number }
+  | { endpoint: 'v2_set_item_tags'; expectedItemID: string; p_document_id: string; p_tags: string[]; p_hidden_tags: string[]; p_expected_revision: number }
+  | { endpoint: 'v2_set_library_item'; expectedItemID: string; p_document_id: string; p_present: false; p_expected_revision: number };
 
 export async function sendCommand(account: string, command: Command, operationID = crypto.randomUUID(), signal?: AbortSignal): Promise<CommandResponse> {
-  const { endpoint, ...params } = command;
+  // A caller changing its draft while a reply is delayed cannot change a replay's payload/binding.
+  command = command.endpoint === 'v2_set_item_tags' ? { ...command, p_tags: [...command.p_tags], p_hidden_tags: [...command.p_hidden_tags] } : { ...command };
+  const { endpoint, ...fields } = command;
+  const params = 'expectedItemID' in fields ? (({ expectedItemID: _, ...wire }) => wire)(fields) : fields;
+  if ('expectedItemID' in command && (!isUUID(command.expectedItemID) || !isUUID(command.p_document_id) || !revision(command.p_expected_revision))) fail('command_binding');
+  if (command.endpoint === 'v2_set_item_tags' && (!validTags(command.p_tags, MAX_OWN_TAGS) || !validTags(command.p_hidden_tags, MAX_HIDDEN_TAGS))) fail('invalid_tags_command');
   let lastError: unknown;
   // One automatic resend of the identical request after a lost reply; the server replays its receipt.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = decodeCommand(await rpc<unknown>(endpoint, { p_operation_id: operationID, ...params }, { maximum: MAX_PAGE_BYTES, account, signal }));
+      if ('expectedItemID' in command) {
+        const entry = response.entry, result = response.result;
+        if (!entry || entry.kind !== 'item' || entry.id !== command.expectedItemID || entry.document_id !== command.p_document_id
+          || result.kind !== 'item' || result.id !== command.expectedItemID || entry.membership_revision < result.revision
+          || (result.status === 'applied' ? result.revision !== command.p_expected_revision + 1
+            : result.seq !== undefined || result.revision <= 0 || result.revision === command.p_expected_revision)) fail('command_binding');
+        return response;
+      }
       const id = command.endpoint === 'v2_begin_import' ? operationID : command.p_import_id;
       const revision = command.endpoint === 'v2_begin_import' ? 1 : command.p_expected_revision + 1;
       const entry = response.entry;

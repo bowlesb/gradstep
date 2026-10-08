@@ -9,7 +9,7 @@ export interface LibraryViewport {
   query: string; columns: string; width: number; top: number; left: number;
   anchor: string | null; index: number; inset: number; focus: RowFocus | null; measurements: VirtualItem[];
 }
-export interface LibraryRowsCommands { beforePrint(): void }
+export interface LibraryRowsCommands { beforePrint(): void; beforeSequentialNavigation(): void }
 export const WINDOW_THRESHOLD = 100;
 const controls = 'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]';
 
@@ -86,6 +86,11 @@ export function LibraryRows({ rows, scroller, header, query, columns, full, prin
     if (!restoration.current) return;
     cancelAnimationFrame(restoration.current.frame); restoration.current = null; setRestoringKey(null);
   }, []);
+  const beforeSequentialNavigation = useCallback(() => {
+    if (!live.current.active) return;
+    cancelRestore(); skipModeRestore.current = true;
+    flushSync(live.current.showAll);
+  }, [cancelRestore]);
   const restore = useCallback((saved: LibraryViewport | null, focus = false) => {
     cancelRestore();
     const context = live.current, element = scroller.current;
@@ -177,8 +182,7 @@ export function LibraryRows({ rows, scroller, header, query, columns, full, prin
       // Native sequential navigation needs every intervening control. Let the browser choose the next
       // control after synchronous expansion, preserving the exact focused DOM node and default action.
       if (event.key === 'Tab' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !/^(INPUT|TEXTAREA)$/.test((event.target as HTMLElement).tagName))) {
-        skipModeRestore.current = true;
-        flushSync(live.current.showAll);
+        beforeSequentialNavigation();
       }
     };
     const selection = () => {
@@ -199,7 +203,7 @@ export function LibraryRows({ rows, scroller, header, query, columns, full, prin
     document.addEventListener('pointerdown', interrupt, true);
     document.addEventListener('selectionchange', selection);
     document.addEventListener('focusin', portalFocus);
-    commands.current = { beforePrint() { capture(true); printed.current = viewport.current; } };
+    commands.current = { beforePrint() { capture(true); printed.current = viewport.current; }, beforeSequentialNavigation };
     return () => {
       // Snapshot once at navigation, never on a scrolling frame. The saved layout signature decides
       // whether it can be reused; the key/inset remains authoritative after a changed layout.
@@ -209,7 +213,7 @@ export function LibraryRows({ rows, scroller, header, query, columns, full, prin
       element.removeEventListener('wheel', interrupt); element.removeEventListener('touchstart', interrupt);
       document.removeEventListener('pointerdown', interrupt, true); document.removeEventListener('selectionchange', selection); document.removeEventListener('focusin', portalFocus);
     };
-  }, [mounted, cancelRestore, capture, commands, header, restore, scroller, viewport, virtualizer]);
+  }, [mounted, beforeSequentialNavigation, cancelRestore, capture, commands, header, restore, scroller, viewport, virtualizer]);
 
   const move = (event: KeyboardEvent<HTMLTableSectionElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;

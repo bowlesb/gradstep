@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local, fail-closed stand-in for the Supabase routes the browser reader uses, for Playwright.
-// It follows the real contracts (migrations 002/006/010/019/029, reader-artifact) closely enough to
+// It follows the real contracts (migrations 002/006/010/019/020/029/030, reader-artifact) closely enough to
 // exercise the client, with public test data only. Unknown routes answer 404; nothing proxies out.
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -134,8 +134,44 @@ function receipt(a, operation, digest, result) {
   return { ...response, entry: a.entries.get(result.kind + ':' + result.id) };
 }
 
+// 010/020/030: replay the historical result with the item's current projection; never apply a
+// retried operation twice. Archive, removal and tags all compete on membership_revision.
+function paperCommand(a, p, action) {
+  const allowed = ['p_operation_id', 'p_document_id', 'p_expected_revision', ...(action === 'tags' ? ['p_tags', 'p_hidden_tags'] : action === 'archive' ? ['p_archived'] : ['p_present'])];
+  if (Object.keys(p).some(key => !allowed.includes(key)) || !Number.isSafeInteger(p.p_expected_revision) || p.p_expected_revision < 1) throw pg('invalid_command');
+  const validTags = (tags, limit) => Array.isArray(tags) && tags.length <= limit && tags.every(tag => typeof tag === 'string' && tag === tag.trim()
+    && [...tag].length >= 1 && [...tag].length <= 40 && Buffer.byteLength(tag, 'utf8') <= 120 && !/[\p{Cc}\p{Cs}]|\s\s/u.test(tag))
+    && new Set(tags.map(tag => tag.toLowerCase())).size === tags.length;
+  if (action === 'tags' && (!validTags(p.p_tags, 12) || !validTags(p.p_hidden_tags, 8))) throw pg('invalid_tags_command');
+  if (action === 'archive' && typeof p.p_archived !== 'boolean') throw pg('invalid_archive_command');
+  if (action === 'remove' && p.p_present !== false) throw pg('invalid_membership_command');
+  const paper = [...a.entries.values()].find(entry => entry.kind === 'item' && entry.document_id === p.p_document_id);
+  if (!paper) throw pg('document_unavailable');
+  const digest = JSON.stringify(action === 'tags' ? ['tags-v1', p.p_document_id, p.p_tags, p.p_hidden_tags, p.p_expected_revision]
+    : action === 'archive' ? ['archive-v1', p.p_document_id, p.p_archived, p.p_expected_revision]
+      : ['membership-v2', p.p_document_id, false, p.p_expected_revision, null]);
+  if (a.receipts.has(p.p_operation_id)) return receipt(a, p.p_operation_id, digest);
+  if ((action !== 'remove' && !paper.visible) || paper.membership_revision !== p.p_expected_revision)
+    return receipt(a, p.p_operation_id, digest, { status: 'revision_conflict', kind: 'item', id: paper.id, revision: paper.membership_revision });
+  const updated = { ...paper, membership_revision: paper.membership_revision + 1 };
+  if (action === 'tags') {
+    if (p.p_tags.length) updated.user_tags = [...p.p_tags]; else delete updated.user_tags;
+    if (p.p_hidden_tags.length) updated.hidden_tags = [...p.p_hidden_tags]; else delete updated.hidden_tags;
+  } else if (action === 'archive') {
+    if (p.p_archived) updated.archived = true; else delete updated.archived;
+  } else {
+    updated.visible = false; updated.last_remove_seq = a.seq + 1;
+    delete updated.archived; delete updated.tags; delete updated.user_tags; delete updated.hidden_tags;
+  }
+  const seq = emit(a, [updated]);
+  return receipt(a, p.p_operation_id, digest, { status: 'applied', kind: 'item', id: paper.id, seq, revision: updated.membership_revision });
+}
+
 // ---------- RPCs ----------
 const rpcs = {
+  v2_set_item_tags: (_id, a, p) => paperCommand(a, p, 'tags'),
+  v2_set_item_archived: (_id, a, p) => paperCommand(a, p, 'archive'),
+  v2_set_library_item: (_id, a, p) => paperCommand(a, p, 'remove'),
   v1_key_state: (id, a, p) => a.keyring && {
     epoch: a.keyring.epoch, recovery_package: a.keyring.recovery_package,
     device_envelope: a.devices.get(p.p_device_id)?.revoked_at === null ? a.envelopes.get(`${p.p_device_id}:${a.keyring.epoch}`) ?? null : null,
@@ -267,6 +303,26 @@ createServer(async (request, response) => {
   if (url.pathname === '/__removable-import' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
     emit(a, [{ ...imp, retryable: false, error_code: 'pdf_invalid' }]);
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__paper-action' && request.method === 'POST') {
+    const body = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    const paper = a.entries.get('item:' + (body?.itemID ?? 'aaaaaaaa-0000-4000-8000-000000000001'));
+    if (!paper || !['tags', 'archive', 'remove'].includes(body?.action)) return send(response, 400, {});
+    const params = { p_operation_id: body.operationID ?? randomUUID(), p_document_id: paper.document_id, p_expected_revision: body.revision ?? paper.membership_revision,
+      ...(body.action === 'tags' ? { p_tags: body.tags ?? [], p_hidden_tags: body.hidden ?? [] } : body.action === 'archive' ? { p_archived: body.archived ?? true } : { p_present: false }) };
+    try { return send(response, 200, paperCommand(a, params, body.action)); } catch { return send(response, 400, {}); }
+  }
+  if (url.pathname === '/__library-action-evidence' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, { seq: a.seq, entries: [...a.entries.values()], receipts: [...a.receipts].map(([operationID, value]) => ({ operationID, result: value.response.result })) });
+  }
+  if (url.pathname === '/__mapped-imports' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), paper = a.entries.get('item:aaaaaaaa-0000-4000-8000-000000000001');
+    const base = { kind: 'import', intent_revision: 1, source: 'arxiv', source_id: '1706.03762', source_url: 'https://arxiv.org/abs/1706.03762',
+      retryable: false, document_id: paper.document_id, library_item_id: paper.id };
+    emit(a, [{ ...base, id: 'bbbbbbbb-0000-4000-8000-000000000010', visible: true, phase: 'acquiring' },
+      { ...base, id: 'bbbbbbbb-0000-4000-8000-000000000011', visible: false, phase: 'ready' }]);
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__cancel-stopped-import' && request.method === 'POST') {
