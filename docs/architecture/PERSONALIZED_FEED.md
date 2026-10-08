@@ -1,11 +1,17 @@
 # Personalized feed ("For you")
 
-Status, 2026-10-08 UTC: **option A backend built and tested locally; native/web For you UI remains a proposal.
-Both server switches remain off.** Migration `202610070043_personalized_feed.sql` was applied to staging at
-2026-10-08 07:42 UTC as the prerequisite to subscription repair044, after encrypted backup. Readback confirms
-`serving=off`, `refresh_enabled=false`, an empty pool/feedback and no sources. The scheduled gate returns before
-network work; no refresh function or personalized UI was deployed. Evidence:
-`.artifacts/takeover-20261008/feed-dark-deployment.json`. The owner decisions this needs are listed at the end.
+Status, 2026-10-08 UTC: **option A backend built and tested locally; build 21 feedback (specific topics, Topics and
+Popularity columns) built locally for the server and iPhone/iPad; nothing new applied or deployed. Both server
+switches remain off.** Migration `202610070043_personalized_feed.sql` was applied to staging at 2026-10-08 07:42 UTC
+as the prerequisite to subscription repair044, after encrypted backup. Readback confirms `serving=off`,
+`refresh_enabled=false`, an empty pool/feedback and no sources. The scheduled gate returns before network work; no
+refresh function or personalized UI was deployed. Evidence: `.artifacts/takeover-20261008/feed-dark-deployment.json`.
+Migration `202610080048_feed_topics_popularity.sql` (topics, popularity) is written and tested locally, **not
+applied**. The owner accepted For you as the default and the use of server-visible library metadata on 2026-10-08
+([decision](../DECISIONS.md#personalized-feed-owner-asked-2026-10-07-for-you-accepted-2026-10-08)); enabling serving
+or refresh on staging is the lead's step after review ([enable steps](#enable-048-on-staging-lead)). The browser
+(apps/web) and Mac-only polish moved to Codex on 2026-10-08; the [response contract](#discover-response-contract-for-clients)
+below is what the web side builds on.
 
 Owner request (2026-10-07): "I think we need to also invest in a better feed, it should feel relevant to a users
 interests and be kept up to date and changing but have cost under control".
@@ -134,6 +140,129 @@ Split so ranking can change without migrations:
 - Category chips are served from the pool too when the switch is on (newest 25 in that category, Not interested
   papers removed), so chip loads stop calling arXiv. Categories outside the pool keep the live RSS path.
 
+## Specific topics and popularity (owner feedback on build 21, 2026-10-08)
+
+Owner, on the Feed's chips (screenshot: "Natural language processing", "Machine learning", "Computer vision"):
+"Machine learning and artificial intelligence are too generic it need to be specific to the individual tastes and
+their nuances". On the Columns sheet: "Why not topics? And can we put a popularity score?"
+
+### Chips: For you, then the reader's own topics
+
+- **For you is the first chip and the Feed's default** whenever the server offers it. The app learns that from any
+  Feed response (`feed.for_you`) and keeps it on the device; on first use it tries For you once and falls back to the
+  category chips on `404 feed_unavailable` (one request per install while serving is off).
+- **Topic chips follow For you**, at most eight, ordered by the reader's interest. They are computed by the server on
+  each For you request (`feed-interests.ts`, no model) from what it already holds for the library:
+  - Candidates: the vocabulary tags on the reader's library papers (catalog tags minus removed ones, plus their own
+    tags, normalized to vocabulary spelling), their own free-text tags, topics of papers marked More like this, and
+    **curated combinations** of vocabulary tags with researcher names: *RL for reasoning* (Reasoning + RL / Policy
+    optimization / Reward modeling), *Multimodal reasoning*, *Diffusion language models*, *Diffusion policies*, *Robot
+    foundation models*, *Coding agents*, *Agent safety*, *Agentic RAG*, *LLM multi-agent systems*, *Efficient long
+    context*, *Speech language models*, *Medical imaging*, *Graph transformers*, *Video world models*, *3D generation*
+    (15; adding one is free). A library paper's narrower tag implies its broader one for matching combinations
+    (Mathematical reasoning → Reasoning, Policy optimization → Reinforcement learning, …).
+  - Interest: the sum of the library papers' weights (the ranking's: fading from 1 to 0.4 over months, archived half,
+    own tags ×1.5, More like this 1.5 decaying over 90 days).
+  - Evidence: at least two library papers, or a tag the reader gave, or More like this. Generic organizational tags
+    ("to read", "important", …) never count.
+  - Pool: at least two eligible papers in the 14-day window (not in the library, not Not interested) and **at most 20 %
+    of the window** (so "Large language models" is not a chip). Counts come from `worker_feed_candidates_v2`.
+  - **Broad category areas are never chips** (the 11 vocabulary areas that are an arXiv category's name: Machine
+    learning, Natural language processing, Computer vision, Artificial intelligence, Robotics, …). Other areas
+    (Recommender systems, Time series, AI safety, …) can be, at half weight.
+  - Order: interest × specificity, where specificity = clamp(ln(1/share) / ln(100), 0.35, 1) — 1 at ≤ 1 % of the pool,
+    0.5 at 10 %, 0.35 at 20 %. A single tag that a chosen combination explains (its interest ≤ 1.25× the
+    combination's) is dropped, so *RL for reasoning* does not also show *Reasoning* and *Policy optimization*.
+- **More topics** (a chip-styled menu after the topics) lists the broad arXiv categories: the library's own first, then
+  the core ML ones, one per name. Picking one shows it as a selected chip while it is shown; its papers are newest
+  first, as before. Without For you, the header is exactly the old category chips.
+- Selecting a topic chip asks `discover?feed=topic&topic=NAME`: the server resolves the name to a combination, a
+  vocabulary tag, or one of the reader's own tags (matched as a phrase; the database checks the tag is theirs), takes
+  up to 300 eligible window papers with it, and ranks them with For you's ranking (no exploration slots; the topic
+  itself is never the "why"). A chip that no longer exists returns `400 invalid_feed_topic` and the app returns to For
+  you.
+- Why the keyword rules and not a model: the pool's topics come from `feed-topics-v1` (curated rules mapping title and
+  abstract onto the same vocabulary as catalog tags, tested on real abstracts), and the reader's side comes from the
+  Haiku catalog tags they already have. No per-reader or per-request model call exists. The legacy app's free LLM
+  keywords (`reference/web/lib/metadata.ts`, 5–10 per paper) drifted between papers, which is why tags became a
+  vocabulary; combinations recover the useful multi-word phrases ("RL for reasoning") without that drift.
+
+### Topics per paper
+
+Every discover result now carries `topics`: up to four specific topics, most specific first (rule strength order),
+other areas after them, and the broad category areas only when nothing more specific applies. Pool papers use their
+stored rule topics; live RSS and search results are tagged on the fly with the same rules (pure TypeScript, no I/O).
+The Feed table's **Topics** column (stored key `topic`, so saved column choices carry over) shows them as chips;
+List rows show them in the details line. An older server's results fall back to the arXiv category names.
+
+### Popularity: Hugging Face Papers upvotes
+
+| Source | Checked 2026-10-08 | Used |
+|---|---|---|
+| **Hugging Face Papers** `GET https://huggingface.co/api/daily_papers?date=YYYY-MM-DD&limit=100&p=N` (in Hugging Face's published OpenAPI spec, `huggingface.co/.well-known/openapi.json`; no key) | 2026-10-07 listed **73 papers**, upvotes 162, 87, 75, 40 … (one request, 388 KB). Coverage is the community-submitted daily list: roughly 5–10 % of the ~825 new ML papers a day, the ones people are talking about | **Yes** — the Popularity value |
+| Semantic Scholar `POST /graph/v1/paper/batch` (citationCount; unauthenticated) | Every paper from the last week had **0 citations** (the 162-upvote paper included); 2 of 4 unauthenticated requests from one workstation returned **429** ("apply for a key"), and Edge egress IPs are shared with other tenants | No: zero signal for new papers and an unreliable shared anonymous limit. Reconsider only for a longer window, with a dedicated free S2 key |
+| arXiv listing | RSS/API carry no views, downloads or votes | No signal available |
+| Gradstep's own "added by N readers" | Already the `popular` reason (≥ 3 readers, 14 days) | Kept as a reason, not shown as a number (privacy threshold, tiny beta) |
+
+- **Rate limits and terms.** Hugging Face's Hub API limit is **500 requests per 5 minutes per IP for anonymous
+  callers** (1,000 for a free account token), reported in `RateLimit`/`RateLimit-Policy` headers; over it, `429`
+  ([Hub rate limits](https://huggingface.co/docs/hub/rate-limits)). The refresh makes **at most 12 requests per run**
+  (six days × two pages, normally one page), one second apart, and runs at most every 2 hours (≈ 50–70 requests a
+  day in steady state). Hugging Face's Terms of Service do not restrict reading this public API beyond its policies
+  and limits; upvote counts are facts about public papers, shown with attribution ("Upvotes on Hugging Face Papers"
+  in the Columns sheet, VoiceOver and the why line). No account information is sent: the request is a date.
+- **When it runs.** Only inside the pool refresh (`feed-refresh`, pg_cron-woken, under the arXiv source's claim and
+  before it is released), never per reader request. `worker_feed_signal_plan` chooses up to six listing days: days
+  never fetched first, newest first; the last four days are re-read after 110 minutes (upvotes accumulate there);
+  older days in the 14-day window once a day; a failed or throttled day waits ≥ 25 minutes. A 429 records the day
+  as busy and ends the pass; two failed days end it. `worker_feed_signals_record` writes upvotes onto pool rows that
+  exist (papers outside the pool are ignored), strictly validated. `feed_policy.popularity_enabled` (default on) turns
+  only these requests off: `select public.worker_set_feed_popularity(false)`.
+- **Unknown is a dash.** `upvotes` is null until the paper appears in a fetched daily list; it is never estimated and
+  never 0 by default. The Popularity column shows "▲ 162" or "—", and its sort puts unknown last in both directions.
+- **Ranking v2** (`feed-heuristic-v2`) adds `0.1 × min(1, ln(1+u)/ln(101))` to relevance (a 100-upvote paper gains
+  as much as the "≥ 3 readers" aggregate), lets up to 30 well-upvoted eligible papers (≥ 5) into the candidate set,
+  and gives a paper with ≥ 20 upvotes and no personal reason the why line **"Popular on Hugging Face Papers"**.
+- **Cost:** $0 provider spend; a few hundred KB per request from Hugging Face; the pool's popularity state is one
+  small table (≤ 90 days × one row) and two columns on pool rows.
+
+### Discover response contract (for clients)
+
+All Feed requests are `GET /functions/v1/discover` with the reader's session and `abstract=full` (newer clients). The
+fields below are additive; older clients ignore them.
+
+| Request | Response |
+|---|---|
+| `?feed=for_you&abstract=full` | `{ results: Result[], feed: { for_you: true, ranking: "feed-heuristic-v2", cold_start, refreshed_at, pool, topics: Chip[] } }` |
+| `?feed=topic&topic=NAME&abstract=full` | `{ results: Result[], feed: { for_you: true, ranking, cold_start, refreshed_at, pool, topic: { name, kind } } }` |
+| `?category=cs.CL&abstract=full` | `{ results: Result[], feed?: { for_you: true, refreshed_at? } }` — `feed` is present exactly when For you is offered to this reader |
+| errors | `404 {code:"feed_unavailable"}` (For you not offered or empty pool: show category chips), `400 {code:"invalid_feed_topic"}` (chip no longer valid: go back to For you), `429` rate limit (`discover`: 60/account/h), `503` |
+
+- `Chip`: `{ name: string (1–40 chars), kind: "combined" | "topic" | "own", papers: number }` in display order (most
+  interesting first). Send `name` back unchanged as `topic=`.
+- `Result`: `{ source_id, revision, title, authors[≤12], year, abstract (≤700 preview), full_abstract?, abstract_truncated?,
+  categories[≤12], topics: string[≤4], upvotes: number | null, reason?: { kind, label, text }, first_seen?, announced? }`.
+  `reason` is present on For you and topic results; `kind` is one of `author`, `tag`, `more_like`, `added`, `popular`,
+  `trending`, `category`, `explore` (show `text`; the kind only picks a symbol). `upvotes` is Hugging Face Papers
+  upvotes, `null` when unknown (show "—"). Pool-served results set `abstract_truncated: true` only when the pool had to
+  shorten the abstract (2,000 characters; arXiv allows 1,920).
+- Category chips are served from the pool (with `topics` and `upvotes`) when the reader is served and the pool is
+  fresh, including `abstract=full` requests (this stops per-reader arXiv requests); otherwise live RSS with `topics`,
+  and `upvotes` from the pool when the reader is served.
+- The web client should mirror iOS: For you first and default when `feed.for_you`, chips from `feed.topics`, More
+  topics for the library-derived categories, a why line from `reason.text`, topics and "▲ n"/"—" per paper, and sort
+  options Suggested (server order, For you/topics only), Newest, Popularity.
+
+### Optional one-time labeling pass (not run; question for the lead)
+
+A free alternative is already in place; this would only measure and tune it. **Proposal:** tag a sample of **500 pool
+papers once** with the existing Haiku catalog tagger (same prompt and vocabulary as library papers) through Message
+Batches, compare with `feed-topics-v1`, and tune the keyword rules from the disagreements (precision/recall per tag),
+then bump the rules' version. Cost from the measured $0.0038 per paper (TAGS.md) at the Batches discount (−50 %):
+**≈ $0.95 total, hard cap $1** through a platform-funded hold; no recurring cost. Expected benefit: modest — mainly
+recall of specific topics phrased unusually in abstracts. Recommendation: run it only if chips on the first real
+pool look thin or noisy. It needs the pool (refresh on) first.
+
 ## Freshness and "new since last visit"
 
 - The pool refreshes every 2 hours (conditional), so a new announcement is in For you within ~2.5 hours of arXiv
@@ -190,14 +319,25 @@ Voyage `voyage-3.5-lite`; third-party price listings — confirm on the vendor p
 | Response | 50 papers, abstracts ≤ 700 characters | `discover` | — |
 | B (future) | Platform-funded metered operation per embedding batch through `worker_provider_attempt_begin` (`route: feed_embeddings`); a separate monthly allowance ($1) checked at claim | Database admission, like [provider spending](PROVIDER_SPENDING.md) | Refused or failed: those papers have no vector and are ranked by A's score; retried next day at most twice. The feed never fails for it |
 
-## App and web (proposal; arrangement unchanged)
+## App and web (arrangement unchanged)
+
+Built for iPhone and iPad (2026-10-08, local; Simulator-verified, not shipped): the For you chip, topic chips, More
+topics, the why line, and the Topics and Popularity columns. Not built yet: More like this / Not interested actions,
+the "New" marker. The browser reader and Mac-only polish are Codex's (owner, 2026-10-08); the Catalyst build compiles
+the same SwiftUI code.
 
 - **"For you" chip first**, selected when the Feed opens if the server offers it. The app learns that from the
-  `feed.for_you` flag on any Feed response (remembered on the device), so nothing appears while the switch is off and
-  no extra request is made. If For you later reports `feed_unavailable`, the chip disappears and the first category
-  loads.
-- **Why line**: List rows add one footnote line under the metadata, with a small sparkle symbol ("New · In your tag:
-  RLHF"); the Table puts it in the title cell's second line before the first author ("In your tag: RLHF · Lin et al.").
+  `feed.for_you` flag on any Feed response (remembered on the device). Before it knows, it tries For you once and, on
+  `feed_unavailable`, remembers that and loads the first category, so the category chips work as before. If For you
+  later reports `feed_unavailable`, the chip disappears and the first category loads.
+- **Why line**: List rows add one footnote line under the authors, with a small sparkle symbol ("In your tag:
+  RLHF"; an arrow for "Popular on Hugging Face Papers"); the Table puts it in the title cell's second line before the
+  first author ("In your tag: RLHF · Lin et al.").
+- **Columns** (Feed › … › Columns): Popularity ("Upvotes on Hugging Face Papers", "▲ 162" or "—"), Topics ("Its
+  specific topics, from title and abstract"), Published, Authors, arXiv ID, Abstract. Popularity and Topics are on by
+  default; readers who saved column choices before build 22 get Popularity once (a "seen columns" record makes turning
+  it off stick). Sort by adds Popularity, and Suggested (the server's ranking) for For you and topics, which is their
+  default; categories stay newest first.
 - **Actions on For you rows**: long-press (right-click on the Mac) offers Add to library, **More like this**, **Not
   interested**, View on arXiv; List rows also get a trailing swipe **Not interested**. Not interested removes the row
   at once with one banner "Hidden · Undo" (the existing `StatusBanner`); More like this confirms with "We'll show
@@ -251,7 +391,9 @@ feedback stay until pruned (30 days) or account deletion; nothing else depends o
 | Pool refresh (RSS parse, topic rules, refresh loop) | `supabase/functions/feed-refresh/index.ts`, `_shared/feed-pool.ts`, `_shared/feed-topics.ts` |
 | Ranking and reasons; For you and pool-served chips | `_shared/feed-rank.ts`, `supabase/functions/discover/index.ts` |
 | Deployment wiring | `supabase/config.toml` (explicit refresh-function deploy only until rollout), `scripts/deploy-staging.py` (Vault + secret when `FEED_REFRESH_SECRET` is set) |
-| App — planned, not implemented | `ScienceReaderCore/Discovery.swift` (reasons, `first_seen`, `feed` info), `Services/FeedPersonalization.swift`, `Views/ForYouViews.swift`, small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView`, `DiscoveryRow`), `FeedTableView`, `BackendClient` |
+| Topics and popularity (048) | `supabase/migrations/202610080048_feed_topics_popularity.sql`, `_shared/feed-signals.ts` (Hugging Face), `_shared/feed-interests.ts` (chips, combinations), `displayTopics` in `_shared/feed-topics.ts`, ranking v2 in `_shared/feed-rank.ts`, `discover` and `feed-refresh` |
+| App (iPhone/iPad) | `ScienceReaderCore/Discovery.swift` (topics, upvotes, reasons, `feed` info), `Services/FeedPersonalization.swift`, `Views/FeedTableView.swift` (columns, chips bar, why line), small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView` header, `DiscoveryRow`), `TableColumns` (introduced columns), `BackendClient` |
+| Tests | `tests/database/test_feed_topics_popularity.sql`, `tests/backend/feed-personal.test.ts`, Core `DiscoveryTests`, app `FeedPersonalizationTests`, `PaperTableTests`, UI `FeedForYouTests` |
 
 Local takeover validation (2026-10-08 UTC): the full database/upgrade/concurrency suite passed before final
 hardening; focused `test_feed.sql` plus `feed_concurrency.py` pass again after fixing full-account exclusions
@@ -264,12 +406,37 @@ and retained Not interested choices are excluded through an account-indexed set.
 share lock before rate windows and the per-account feedback lock, so closure either cleans a committed write
 or causes a late write to fail; deleted feedback cannot be recreated by an in-flight request.
 
+## Enable 048 on staging (lead)
+
+Prerequisites: review of this branch; encrypted backup as for 043. Nothing below spends provider money.
+
+1. Apply `202610080048_feed_topics_popularity.sql` with `scripts/migrate-supabase.py` (after 045–047; it depends only
+   on 043 and 030). Read back: `select public.worker_feed_status()` shows `policy.popularity_enabled=true`,
+   `pool.with_upvotes=0`, `popularity.days=0`; switches unchanged.
+2. Deploy the functions explicitly: `scripts/deploy-staging.py staging --skip-migrations --functions feed-refresh discover`
+   (migration before functions: the new `discover` calls `worker_feed_candidates_v2`, `worker_feed_category_v2` and
+   `worker_feed_details`; category chips fall back to live RSS if 048 is missing, For you would answer 503).
+3. Refresh on, serving off: `select public.worker_set_feed_policy('off', true)`. Within ~30 minutes the cron kick wakes
+   `feed-refresh`; check `worker_feed_status()`: `sources[0].last_status` `updated`, pool ≈ 800 new papers per
+   announcement day, `popularity.ok` ≥ 1, `pool.with_upvotes` > 0. Edge logs: `event: popularity` with
+   `requests ≤ 12`, no `busy`.
+4. Staff serving with a build containing this app change: `select public.worker_set_feed_policy('staff', true)`.
+   Check For you, two topic chips and the Popularity column on a tester account; measure `worker_feed_candidates_v2`
+   (p50/p95; it now also counts topics over the window).
+5. Rollback: `worker_set_feed_policy('off', false)`; popularity alone: `worker_set_feed_popularity(false)`.
+
+**Cost statement.** Expected provider spend **$0** (no model; Hugging Face and arXiv are free, unauthenticated).
+Supabase: two to three more database calls per For you request (candidates v2, details; topic counts add one pass over
+the ≈ 10,000-row window inside the same call), one more per topic chip; ≤ 12 Hugging Face requests and ≤ 7 small
+writes per refresh run; pg_cron unchanged (one job every 30 minutes that usually does nothing); storage ≈ 16 bytes per
+pool row plus ≤ 90 rows of day state. Hosted query cost is unmeasured until step 4.
+
 ## Decisions for the owner
 
 1. **Approve option A for staging rollout** (no paid API; expected to fit existing infrastructure, to be measured) and the rollout steps above.
-2. **UI**: "For you" as the first chip and the Feed's default when available; the why line; More like this / Not
-   interested in the long-press menu and the Not interested swipe; the "New" marker. (Additive; the Feed's
-   arrangement is unchanged.)
+2. **UI**: decided 2026-10-08 — "For you" is the first chip and the Feed's default when available, with the why line
+   (built). Still proposed: More like this / Not interested in the long-press menu and the Not interested swipe; the
+   "New" marker. (Additive; the Feed's arrangement is unchanged.)
 3. **Privacy**: storing Not interested / More like this on the server (not end-to-end encrypted, like tags) and the
    notice text above; the "added by several readers" aggregate with a threshold of three.
 4. **Category chips served from the shared pool** when the switch is on (stops per-user arXiv calls).
