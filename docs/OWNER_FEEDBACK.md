@@ -103,3 +103,20 @@ in 19 from the follow-up work started afterward.
 | `AAWbg6g4dUfzp4mwU1x5u14` | “It looks like this is a bad UX please fix”; screenshot shows truncated expanded abstract | In build 20 + discover v78. The server's 700-character preview was the root cause; new clients opt into a bounded full abstract, preserve mathematical Unicode and label any actual excerpt. Hosted full source/Feed smoke passes. |
 | `ABHWnLf34Hf5ty2J-F3Blv4` | Reference popover repeats the visible bibliography text; buttons/options are liked | In build 20: reference title and existing actions retained, duplicate body removed. Reference → actions → Copy → Back journey passes. |
 | `AH_QWMX10xPbqz3-10h1WGk` | Ingested-paper links need explicit Library and arXiv website destinations; “Open” is vague | In build 20: visibly labeled Library button beside the external identifier link. Opens the current saved paper or pending import, including wide layout, and preserves the previous chat draft/history; model and UI regressions pass. |
+
+## Build 21, reader references and figures (2026-10-08)
+
+Screenshots `.artifacts/feedback/small-2026-10-08T11-47-20-18Z-0.png`, `…T11-50-01-745Z-0.png`, `…T11-51-56-283Z-0.png` and
+`…T13-19-34-487Z-0.png` (local, not committed). Reader bridge and native iOS/iPad only; no re-render, no deployment.
+Decisions: [References, figure links and Back](DECISIONS.md#references-figure-links-and-back-owner-feedback-on-build-21-2026-10-08-agent-decisions-reversible);
+measurements: [Reader renderer](architecture/READER_RENDERER.md#figure-table-and-algorithm-references).
+
+| # | Owner said | Change | Status |
+|---|---|---|---|
+| 1 | "Reference at the top of the message isn't needed" | The reference actions have no title row | Fixed on branch; iPhone journey (light/dark) |
+| 2 | "Needs to be a discuss in chat button … you can continue typing" | **Discuss in chat**: this paper's chat, the entry quoted in the message box (`About “…”: `), keyboard up, nothing sent; a new conversation unless the paper's chat is still empty | Fixed on branch; model test and iPhone journey |
+| 3 | "Brafman ref missed" ("Brafman and Ten-nenholtz 2002" in a semicolon group) | Hyphenated (line-break, soft, Unicode) and accented surnames match on both sides | Fixed on branch: unambiguous author–year links 2,578 → 2,579 of 2,603 on 55 staging/local papers (99.0% → 99.1%), the KWIK paper 106 → 107 of 107; 0 wrong; no other link changed |
+| 4 | "When figures are referenced you should be able to link directly to them … a 'return to reading location' option" | "Fig. 1", "Figure 3(b)", "Figs. 2 and 3", "Table 2", "Algorithm 1" link to the element whose caption prints the label; a tap shows it with its caption in a half-height sheet with Go to figure; **Back to where you were** after every jump, left of A− / A+, until Back, two screens away or a return by scrolling | Fixed on branch: 1,236 of 1,291 references linked (95.7%), 0 to a mislabelled target; KWIK 20/20 including "Fig. 1"; iPhone journey (light/dark) |
+
+The browser reader gets the figure links through the shared bridge; its sheet, Discuss in chat and Back wording are
+listed for the web owner in the renderer doc.
