@@ -48,6 +48,8 @@ removed executor work) is retained below where useful and in git history.
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
   No new TestFlight upload or owner-device acceptance is claimed by this candidate.
+  The current main source also contains the Mac-specific purchase-settings copy (`fe0dd2b`); a fresh universal
+  Catalyst build-for-testing and focused Mac execution passed **11/11** (approval and StoreKit purchase suites).
 
 ## Current rollout — 2026-10-08 UTC
 

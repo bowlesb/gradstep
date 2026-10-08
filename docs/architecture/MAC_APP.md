@@ -47,6 +47,11 @@ is `/private/tmp/gradstep-mac-approval-signed-full-20261008b.xcresult`; earlier 
 `/private/tmp/gradstep-mac-main-20261008-signed-v3/Logs/Test/Test-ScienceReader-2026.10.08_15-47-25--0700.xcresult`;
 this is unit/runtime and compilation evidence, not a new manual keyboard/pointer or live-account verification.
 
+Mac copy polish (2026-10-08, `fe0dd2b`): the purchase footer now says **System Settings › Apple Account ›
+Subscriptions** on Catalyst while retaining the iOS wording on iPhone/iPad. A fresh universal Catalyst
+`build-for-testing` succeeded after the change, and focused Mac execution passed **11/11** (Mac approval 5/5 and
+StoreKit purchase behavior 6/6). The same pre-existing Xcode warnings remain; no new warning was introduced.
+
 Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
 keyboard/UI runtime attempt reached no assertions and was interrupted, so those interaction checks remain open.
