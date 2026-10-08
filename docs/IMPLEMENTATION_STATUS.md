@@ -24,6 +24,12 @@ removed executor work) is retained below where useful and in git history.
   skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
   journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
   expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
+  A fresh combined desktop + phone production-CSP run completed **149 passed / 25 intentional skips / 0 failures**
+  in 8.7 minutes. It covered the deployed reader actions and chat-copy controls, OAuth, chat settings and titles,
+  Feed personalization and feedback, podcasts, library commands and column choices, 4,000-entry windowed libraries,
+  reader drafts and references, recovery, update barriers, and narrow phone layouts. The skips are the existing
+  phone-inapplicable desktop cases and the explicitly gated journal/layout/reference journeys; no new failure was
+  introduced by the browser OAuth revision.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated

@@ -17,6 +17,13 @@ limitations. The local gate-2 schema-3 storage primitive and encrypted complete-
 behind explicit activation, but complete v5 library sync, descriptor writes, saved copies and cold offline startup
 remain future work.
 
+The current production-CSP browser verification also has a fresh combined desktop + phone result of **149 passed,
+25 intentional skips, 0 failures** in 8.7 minutes. It exercised the deployed paper actions and chat-copy controls,
+OAuth callback validation, chat settings/titles, Feed topics and feedback, podcasts, library commands/columns,
+4,000-entry windowed libraries, reader drafts/references, recovery, update barriers and narrow layouts. The skips
+are the existing platform-gated or intentionally excluded journeys; this run does not claim Safari key persistence,
+live Google/Apple consent, or cold offline startup.
+
 ## Scope
 
 Phase 1 (this design): sign in with an email code → this browser becomes a device (approved from an iPhone/iPad by
