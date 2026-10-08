@@ -16,8 +16,9 @@ PROJECT = 'coxhjvqpflgxkleydati'
 
 
 class StagingDeploymentTests(unittest.TestCase):
-    def run_fixture(self, arguments, *, cleanup=True, health='active', secret=True, migration_fails=False):
+    def run_fixture(self, arguments, *, cleanup=True, health='active', secret=True, migration_fails=False, feed_secret=False):
         events = []
+        self.secret_names = []
         output = io.StringIO()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -30,6 +31,7 @@ class StagingDeploymentTests(unittest.TestCase):
             (root / 'infra/staging.json').write_text(json.dumps(config))
             env = 'SUPABASE_PROJECT_REF=' + PROJECT + '\nSUPABASE_URL=https://fixture-db.example\nSUPABASE_SERVICE_ROLE_KEY=secret-fixture\n'
             if secret: env += 'PIPELINE_SECRET=secret-fixture\n'
+            if feed_secret: env += 'FEED_REFRESH_SECRET=secret-fixture-feed\n'
             (root / '.env.staging').write_text(env)
             (root / '.env.providers').write_text('ANTHROPIC_API_KEY=secret-fixture\n')
             for name in config['functions']:
@@ -66,6 +68,7 @@ class StagingDeploymentTests(unittest.TestCase):
                     return config['paper_bucket']
                 if url.endswith('/secrets'):
                     events.append('function_secrets')
+                    self.secret_names = [entry['name'] for entry in body]
                     return None
                 if url.endswith('/database/query'):
                     events.append(('sql', body['query']))
@@ -133,6 +136,27 @@ class StagingDeploymentTests(unittest.TestCase):
             events, error = self.run_fixture(arguments, secret=secret)
             self.assertIsInstance(error, SystemExit)
             self.assertEqual(events, [])
+
+    def test_feed_refresh_secret_reaches_the_function_and_vault_only_when_present(self):
+        events, error = self.run_fixture(['--functions', 'chat'])
+        self.assertIsNone(error)
+        self.assertNotIn('FEED_REFRESH_SECRET', self.secret_names)
+        self.assertFalse(any(isinstance(e, tuple) and e[0] == 'sql' and 'science_reader_feed' in e[1] for e in events))
+        events, error = self.run_fixture(['--functions', 'chat'], feed_secret=True)
+        self.assertIsNone(error)
+        self.assertIn('FEED_REFRESH_SECRET', self.secret_names)
+        feed_sql = [e[1] for e in events if isinstance(e, tuple) and e[0] == 'sql' and 'science_reader_feed' in e[1]]
+        self.assertEqual(len(feed_sql), 4, 'URL and secret, each updated or created')
+        self.assertTrue(any('https://fixture-db.example/functions/v1/feed-refresh' in query for query in feed_sql))
+        pipeline_vault = next(i for i, e in enumerate(events) if isinstance(e, tuple) and e[0] == 'sql' and 'science_reader_pipeline_secret' in e[1])
+        feed_vault = next(i for i, e in enumerate(events) if isinstance(e, tuple) and e[0] == 'sql' and 'science_reader_feed_url' in e[1])
+        self.assertLess(pipeline_vault, feed_vault)
+
+    def test_deferred_deploy_cannot_create_the_feed_refresh_secret(self):
+        events, error = self.run_fixture(['--defer-activation', '--skip-migrations', '--functions', 'feed-refresh'])
+        self.assertIsInstance(error, SystemExit)
+        self.assertNotIn('function_secrets', events)
+        self.assertFalse(any(isinstance(e, tuple) for e in events))
 
 
 if __name__ == '__main__': unittest.main()

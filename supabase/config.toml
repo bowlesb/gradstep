@@ -57,6 +57,10 @@ verify_jwt = false
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false
 
+[functions.feed-refresh]
+# Called by pg_cron (pg_net) with the dedicated FEED_REFRESH_SECRET header, never a user token.
+verify_jwt = false
+
 [functions.account-delete]
 # Auth is verified against Auth.getUser inside the handler.
 verify_jwt = false

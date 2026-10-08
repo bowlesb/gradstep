@@ -122,10 +122,23 @@ def deploy(args):
         os.chmod(env_path, 0o600)
         env['PIPELINE_SECRET'] = value
         print('Generated a new dedicated pipeline secret in the local environment file')
+    # The Feed's pool refresh (migration 044, docs/architecture/PERSONALIZED_FEED.md) has its own
+    # dedicated secret: pg_cron posts it from Vault, the feed-refresh function compares it.
+    if 'feed-refresh' in selected_functions and not env.get('FEED_REFRESH_SECRET'):
+        if args.defer_activation:
+            raise SystemExit('Deferred activation cannot create the feed refresh secret; create it in a routine deploy')
+        value = secrets.token_urlsafe(48)
+        lines = [l for l in env_path.read_text().splitlines() if not l.startswith('FEED_REFRESH_SECRET=')]
+        env_path.write_text('\n'.join(lines).rstrip('\n') + f'\nFEED_REFRESH_SECRET={value}\n')
+        os.chmod(env_path, 0o600)
+        env['FEED_REFRESH_SECRET'] = value
+        print('Generated a new dedicated feed refresh secret in the local environment file')
     web_search = args.chat_web_search or ('on' if config.get('chat_web_search') else 'off')
     function_secrets = [{'name': 'ADMIN_ORIGINS', 'value': ','.join(config['admin_origins'])},
                         {'name': 'PIPELINE_SECRET', 'value': env['PIPELINE_SECRET']},
                         {'name': 'CHAT_WEB_SEARCH', 'value': web_search}]
+    if env.get('FEED_REFRESH_SECRET'):
+        function_secrets.append({'name': 'FEED_REFRESH_SECRET', 'value': env['FEED_REFRESH_SECRET']})
     # App Store purchases: which Apple environments this deployment accepts (staging:
     # Sandbox, i.e. TestFlight and sandbox testers; never Xcode StoreKit testing).
     store = config.get('app_store')
@@ -163,6 +176,14 @@ def deploy(args):
         for name, value in [('science_reader_pipeline_url', worker_url), ('science_reader_pipeline_secret', env['PIPELINE_SECRET'])]:
             sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
             sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
+        # The feed's database schedule (migration 044) wakes feed-refresh only when the pool is due
+        # and refreshing is switched on; it needs the function URL and secret in Vault.
+        if env.get('FEED_REFRESH_SECRET'):
+            feed_url = env['SUPABASE_URL'].rstrip('/') + '/functions/v1/feed-refresh'
+            for name, value in [('science_reader_feed_url', feed_url), ('science_reader_feed_secret', env['FEED_REFRESH_SECRET'])]:
+                sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
+                sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
+            print('Stored the feed refresh URL and secret in Vault (the schedule is in migration 044; refreshing stays off until switched on)')
         if args.rotate_pipeline_secret:
             sql("select extensions.pg_stat_statements_reset()")
             print('Rotated the pipeline secret and reset query statistics')
