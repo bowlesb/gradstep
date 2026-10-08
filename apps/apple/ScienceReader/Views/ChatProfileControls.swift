@@ -63,7 +63,11 @@ struct ChatProfilePicker: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 if mode == .chat {
-                    Text("Answers in this chat").font(.headline).accessibilityAddTraits(.isHeader)
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Answers in this chat").font(.headline).accessibilityAddTraits(.isHeader)
+                        Spacer()
+                        Button("Done") { dismiss() }.font(.body.weight(.semibold)).accessibilityIdentifier("chat.profile.done")
+                    }
                 }
                 if table == nil {
                     unavailable

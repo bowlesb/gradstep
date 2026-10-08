@@ -109,6 +109,7 @@
 		756BAE336AE1C03663DEF5FD /* SharedItemsImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 587DADF5AD033DBEE8BF2778 /* SharedItemsImport.swift */; };
 		75E904FF52D43C762C5FD2AF /* EnrollmentSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15CECF5E28F723846BFFD1E /* EnrollmentSafetyTests.swift */; };
 		7707551B28B8897B64FD97F1 /* ConversationBranchSelections.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2D007555EFC3298556E72D3 /* ConversationBranchSelections.swift */; };
+		7871DE8678B9E316D5B04E68 /* ChatControlsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F6D85E441C49C35D9D797A /* ChatControlsTests.swift */; };
 		7886FA4E53948C5AC01576B9 /* ReaderModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1905CDF1F6F493A7C19CD27 /* ReaderModel.swift */; };
 		792A6D98599A601613D2DEAA /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16BB0761CB97647F552ADC5A /* DesignSystem.swift */; };
 		7B6ECC0C4064EDE1348737C6 /* BranchPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D4CCDD32E72F57DD9DD351 /* BranchPresentationTests.swift */; };
@@ -378,6 +379,7 @@
 		A587BFED5778D7F7DE7832D5 /* AuthenticationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationModelTests.swift; sourceTree = "<group>"; };
 		A673417A4679FF103F59578D /* ScienceReaderResourceProbe.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ScienceReaderResourceProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A7F2F1B3D692A2A834D7DA37 /* ReaderSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderSplit.swift; sourceTree = "<group>"; };
+		A7F6D85E441C49C35D9D797A /* ChatControlsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatControlsTests.swift; sourceTree = "<group>"; };
 		A87576DE63B383CD1FD6B82E /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		A936FA1557A9E96F78AA01E4 /* PDFUploadViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFUploadViews.swift; sourceTree = "<group>"; };
 		AB50594F18333FAC43C49A3E /* PaperToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperToolsTests.swift; sourceTree = "<group>"; };
@@ -691,6 +693,7 @@
 			children = (
 				52B3DA4E0DBA9C37FD845B3F /* AddPaperFlowTests.swift */,
 				84354AD2432ACE03EFF6117B /* AuthenticationWorkflowTests.swift */,
+				A7F6D85E441C49C35D9D797A /* ChatControlsTests.swift */,
 				348B17DD68A3B6460A7DF28D /* ChatHistoryTableTests.swift */,
 				4A6C432D10E7A818EB678B82 /* DeviceApprovalUITests.swift */,
 				6ABCE7C29BC217A615B98397 /* LibraryLayoutTests.swift */,
@@ -1082,6 +1085,7 @@
 			files = (
 				5BED8DF9722A6A401C2F0DB5 /* AddPaperFlowTests.swift in Sources */,
 				8A997BEE2A5319CECED6797E /* AuthenticationWorkflowTests.swift in Sources */,
+				7871DE8678B9E316D5B04E68 /* ChatControlsTests.swift in Sources */,
 				227ABDBD8223031A00FC6382 /* ChatHistoryTableTests.swift in Sources */,
 				055BD8597D634AC7BC088828 /* DeviceApprovalUITests.swift in Sources */,
 				DF2B8A487D1BD5BA8D99BC4C /* LibraryLayoutTests.swift in Sources */,

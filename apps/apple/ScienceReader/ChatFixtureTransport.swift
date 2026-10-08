@@ -78,9 +78,14 @@ struct ChatFixtureTransport: ChatTransport {
                         if mode == .diagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.diagram)) }
                         if mode == .brokenDiagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram)) }
                         if mode != .interrupt {
-                            if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
-                            continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model),
-                                                     profile: request.profile.id))
+                            // A server from before profiles (`--chat-fixture-no-profiles`) sends neither a title nor labels.
+                            if Self.serverHasProfiles {
+                                if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
+                                continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model),
+                                                         profile: request.profile.id))
+                            } else {
+                                continuation.yield(.done(stopReason: "end_turn", credits: 2))
+                            }
                         }
                     }
                     continuation.finish()
@@ -149,8 +154,10 @@ struct ChatFixtureTransport: ChatTransport {
 
     func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
 
+    static var serverHasProfiles: Bool { !ProcessInfo.processInfo.arguments.contains("--chat-fixture-no-profiles") }
+
     func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
-        guard !ProcessInfo.processInfo.arguments.contains("--chat-fixture-no-profiles"),
+        guard Self.serverHasProfiles,
               let table = ChatProfileTable.decode(Data(Self.profiles.utf8)) else { throw ChatTransportError.rejected("method_unavailable") }
         return table
     }
