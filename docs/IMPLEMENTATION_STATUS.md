@@ -13,7 +13,7 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 - **Chat function** deployed. Its checks passed 15 of 16 (`chat.smoke` 2.6 s, `ingest.not-found`; $0.007 settled).
   `pipeline.stuck` failed on that same resumed import: it counts age from the original Add, and the import was then
   waiting out an OCR funding pause. Fixed by the self-healing work (041).
-- **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 041 and a new
+- **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
   build are in progress).
 
 ## Library foundation and independent reviews — 2026-10-07
