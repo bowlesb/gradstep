@@ -224,6 +224,9 @@ The native app loads a verified bundle into a `WKWebView` with content JavaScrip
 
 Contents, citation jumps with Back, the paper's own contents lists, figures and math fitting therefore behave as in
 the app. Selections offer Explain, Why it matters, Related and Add paper. Reference taps still report "Not yet available in the browser".
+The reader toolbar also exposes the same paper action menu as the Library: edit tags, archive/unarchive, and remove
+from the library. It uses the existing epoch-checked library commands and the same conflict/retry dialog; no new
+database layout or server capability is required.
 
 ## Keys in the browser
 

@@ -19,6 +19,7 @@ import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } f
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
+import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { type Route, type Theme, useTheme } from './prefs';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
@@ -72,6 +73,9 @@ const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
   const library = useLibrary(account);
+  // The reader has the same paper action surface as Library. Keeping a separate owner avoids
+  // two portals competing when a library menu is still closing during navigation.
+  const readerActions = useLibraryActions(library);
   const chat = useChat(account, ready);
   const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
   const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
@@ -315,7 +319,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+      : item ? <Reader paperMenu={<PaperMenuButton item={item} busy={library.pending.has(item.id)} expanded={readerActions.menuItemID === item.id} onOpen={readerActions.open} />} listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }}
@@ -377,6 +381,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </div>}
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
+      {item && <LibraryActionSurface actions={readerActions} />}
       <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />

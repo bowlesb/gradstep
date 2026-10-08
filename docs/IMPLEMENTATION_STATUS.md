@@ -18,6 +18,9 @@ removed executor work) is retained below where useful and in git history.
   **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
   Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
   interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
+  The local reader candidate also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
+  remove) from the paper toolbar, with a dedicated production-CSP journey; it is not in the deployed Pages revision
+  until the next deliberate browser deploy.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated

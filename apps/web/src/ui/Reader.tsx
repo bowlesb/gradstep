@@ -52,7 +52,7 @@ type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: stri
   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
   /** Prepares an unsent draft; true only once the host accepted/persisted it. Never a paid Send. */
-  onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void;
+  onDiscuss?: (quote: string, anchor: TextAnchor) => Promise<boolean>; onReferenceAdded?: () => void; paperMenu?: ReactNode;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -63,7 +63,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded, paperMenu }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -252,6 +252,7 @@ function PaperReader({ listenAction, cache, cacheKey, account, item, saved, them
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         <div className="reader-actions">
+          {paperMenu}
           {listenAction}
           {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back" aria-label="Back to where you were" title="Back to where you were"><Icon name="chevronLeft" size={14} />Back</button>}
           <button className={`icon-button${finding ? ' on' : ''}`} onClick={() => (finding ? closeFind() : openFind())} disabled={!srcdoc} aria-label="Find in paper" title="Find in paper (⌘F)" data-testid="find"><Icon name="search" /></button>

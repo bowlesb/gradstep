@@ -193,6 +193,22 @@ test('the compact library shares the same tag editor without navigating the pape
   expect(page.url()).toBe(before);
 });
 
+test('the reader toolbar exposes the same paper actions and tag editor', async ({ page }) => {
+  await signIn(page); await paper(page).getByRole('link').click();
+  await expect(page.getByTestId('contents')).toBeEnabled();
+  const trigger = page.getByRole('button', { name: /^Actions for Direct Preference Optimization/ });
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  await expect(page.getByRole('menu', { name: 'Paper actions' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Edit tags…' }).click();
+  await expect(editor(page)).toBeVisible();
+  await addTag(page, 'From reader');
+  await editor(page).getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(editor(page)).toHaveCount(0);
+  await expect(page.getByRole('status')).toContainText('Tags saved.');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+});
+
 test('a real tag dialog keeps its row alive while optional windowing scrolls away', async ({ page, request }) => {
   await request.post(`${FIXTURE}/__large-library`, { data: { count: 400 } }); await signIn(page);
   await expect(page.getByTestId('paper-row')).toHaveCount(399);
