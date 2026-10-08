@@ -76,10 +76,10 @@ struct PodcastGenerateSheet: View {
             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 8) {
-                Label { Text("The paper’s converted text is sent to " + quote.providers.joined(separator: " and ") + ".") } icon: { Image(systemName: "server.rack") }
-                Label { Text("The episode and its transcript are stored privately for your account, like your uploaded PDFs. They aren’t end-to-end encrypted.") } icon: { Image(systemName: "lock") }
-                Label { Text("Your chats, notes and highlights are never used.") } icon: { Image(systemName: "bubble.left.and.bubble.right") }
-                Label { Text("AI-generated · beta: check important claims against the paper.") } icon: { Image(systemName: "waveform") }
+                Label { Text("The paper’s converted text is sent to " + quote.providers.joined(separator: " and ") + ".") } icon: { PodcastConsentIcon(name: "server.rack") }
+                Label { Text("The episode and its transcript are stored privately for your account, like your uploaded PDFs. They aren’t end-to-end encrypted.") } icon: { PodcastConsentIcon(name: "lock") }
+                Label { Text("Your chats, notes and highlights are never used.") } icon: { PodcastConsentIcon(name: "bubble.left.and.bubble.right") }
+                Label { Text("AI-generated · beta: check important claims against the paper.") } icon: { PodcastConsentIcon(name: "waveform") }
             }
             .font(.subheadline).fixedSize(horizontal: false, vertical: true)
             Button { center.startGeneration() } label: { ProminentLabel(title: "Create episode · up to \(quote.maxCredits) credits", fullWidth: true) }
@@ -167,4 +167,11 @@ struct PodcastGenerateSheet: View {
         default: "The episode couldn’t be made."
         }
     }
+}
+
+/// The consent list's icons share one width, so the lines' text starts in one column.
+private struct PodcastConsentIcon: View {
+    let name: String
+    @ScaledMetric(relativeTo: .subheadline) private var width: CGFloat = 26
+    var body: some View { Image(systemName: name).foregroundStyle(.secondary).frame(width: width).accessibilityHidden(true) }
 }

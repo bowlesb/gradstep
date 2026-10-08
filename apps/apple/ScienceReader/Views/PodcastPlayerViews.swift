@@ -411,8 +411,9 @@ struct PodcastMiniPlayer: View {
     }
 
     private func subtitle(_ episode: PodcastEpisode) -> String {
+        // Time left first: it's what the line is for, and it must survive truncation.
         let left = PodcastDuration.clock(milliseconds: max(0, player.durationMS - player.currentMS)) + " left"
-        return ([player.chapter?.title, episode.fixture ? "Synthetic fixture" : "AI audio"].compactMap { $0 } + [left]).joined(separator: " · ")
+        return ([left, player.chapter?.title, episode.fixture ? "Synthetic fixture" : "AI audio"].compactMap { $0 }).joined(separator: " · ")
     }
 }
 
