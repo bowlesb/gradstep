@@ -1,11 +1,17 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 20 is available for internal iOS and Mac testing; browser chat and chosen columns are deployed.**
+Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; browser chat, chosen columns and the admin site are deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **iOS and Mac TestFlight build 21**, source `c10e54c`, both **VALID / IN_BETA_TESTING** at 08:49 UTC.
+  iOS `26f12155-c57b-4bb4-9102-059134323c56`, Mac `71c46182-fbcc-4b2e-afa7-9223433576f8`;
+  `.artifacts/takeover-20261008/build-21-processing.json`. Includes all build 20 fixes plus actionable reader
+  quota, interrupted-download and update-required errors. The error body has its own 4 KiB bound even when
+  the requested asset is smaller. All 35 focused native tests pass; signed iOS and universal Catalyst archives
+  uploaded successfully. No physical-device or owner acceptance claim.
 - **Spending evidence API deployed**, `admin-spending` v1 from reviewed `31bcf1b`; all six deployed modules
   match source. Anonymous callers receive 401 and customers 403; a hosted lookup verifies no observation was
   recorded, zero-credit balances stayed unchanged and the disposable account was deleted. No provider cost
