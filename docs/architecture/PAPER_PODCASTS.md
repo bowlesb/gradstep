@@ -844,7 +844,7 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   of the bundled offline sample. Zero spend, no network.
 - **Evidence:** `swift test` (Core) 266 passed, including 18 podcast tests that decode every captured server
   response in `tests/fixtures/podcast`; iOS unit tests 399 run, 5 skipped, 1 timing flake in
-  `LibraryModelTests` that passes alone (podcast transport/fixture: 8 passed); podcast UI journeys 11 passed on an
+  `LibraryModelTests` that passes alone (podcast transport/fixture: 8 passed); podcast UI journeys: 10 passed (1 iPad-only skipped) on an
   iPhone 17 Pro Simulator plus 1 on an iPad Pro 11-inch Simulator; FeedForYouTests 4 passed after the Feed merge;
   Mac Catalyst build succeeds. Light/dark screenshots in `.artifacts/podcast-ui/` were inspected. No hosted backend,
   provider call, device or TestFlight upload was used.
