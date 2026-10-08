@@ -6,6 +6,11 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **Reader issuer fence 045 applied at 09:02 UTC; bounded-only mode enabled at 09:03 UTC.** Old service RPC
+  and legacy HTTP issuance are denied; new bounded delivery and a concurrent single-use redemption pass.
+  Quotas, counters, inventory enforcement and stored objects are preserved. **CDN retirement is still pending**
+  the full in-flight/expiry horizon ending 09:25:34 UTC, complete reader-path purge and exact expired-token
+  denial. Compatible build 21 is already available. [Live cutover sequence](reviews/READER_CDN_CUTOVER_20261008.md).
 - **iOS and Mac TestFlight build 21**, source `c10e54c`, both **VALID / IN_BETA_TESTING** at 08:49 UTC.
   iOS `26f12155-c57b-4bb4-9102-059134323c56`, Mac `71c46182-fbcc-4b2e-afa7-9223433576f8`;
   `.artifacts/takeover-20261008/build-21-processing.json`. Includes all build 20 fixes plus actionable reader
@@ -86,7 +91,7 @@ removed executor work) is retained below where useful and in git history.
   `.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. Its real Auth session was seeded via
   synthetic-account password login; email/OAuth UI was not tested, and this earlier journey made no paid request. Safari's secure-key
   persistence gate and tab-memory drafts/outbox remain. [Browser contract](architecture/BROWSER_READER.md).
-- **Staging schema through 044 is applied.** 043 was applied disabled as a prerequisite to 044; see below.
+- **Staging schema through 045 is applied.** 043 was applied disabled as a prerequisite to 044; see below.
   Before the earlier 042, encrypted checkpoint
   `20261008T051522Z-5ffa9efe26a9` captured the database and 1,332 objects; migration hash, grants and search paths
   were read back. Targeted hosted v5 Add/archive/unarchive/tags/remove/re-add, exact replay, deltas and
@@ -95,7 +100,7 @@ removed executor work) is retained below where useful and in git history.
   by the build 19 client plus 042; the ordinary hosted command test does not invoke OCR or chat.
 - **Spending controls 033–038 and uploads 039 are deployed.** Provider attempt coverage starts
   2026-10-08 02:40:51.785121 UTC; asset enforcement is on with complete scope-2 inventory and zero discrepancies.
-  **Reader delivery remains `legacy`**, so replayable signed-URL exposure is still open; token expiry alone does not retire CDN-cached responses. The 05:14 UTC provider
+  Reader delivery is now **bounded-only**, with final cached legacy URL retirement still pending; token expiry alone does not retire CDN-cached responses. The 05:14 UTC provider
   snapshot is **$13.677389 spent / $0 reserved / $25 limit**; it is not an invoice or total infrastructure cost.
   [Spending evidence and limits](architecture/SPENDING_CONTROLS.md).
 - **Purchases:** three observed real Sandbox packs granted 400 + 400 + 200 = 1,000, with replays recorded separately.

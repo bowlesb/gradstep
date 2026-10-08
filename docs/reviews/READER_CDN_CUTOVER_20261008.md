@@ -1,11 +1,16 @@
-# Reader CDN cutover candidate
+# Reader CDN cutover
 
-Status: cutover incomplete. Pending migration `202610080045_reader_issuer_fence.sql.pending`
-is not deployed; assign its final number at promotion. The 08:36 UTC hosted canary
-proved bounded bytes and rendering, then stopped before fencing on an overly strict
-post-purge cache check. Both synthetic accounts were deleted; delivery remains `dual`.
-The revised harness below is local-only until independently reviewed. Build 20 supports
-bounded transport; clearer quota errors in a later candidate are not shipped evidence.
+Status at 09:03 UTC: **045 is applied and delivery is bounded-only; final CDN retirement proof is pending.**
+The reviewed, unchanged migration was promoted to `202610080045_reader_issuer_fence.sql` and applied at
+09:02:06 UTC after encrypted backup `20261008T080554Z-b827400c4a00`. SHA-256:
+`abf05fa9505cbf8fc7e395698f093939d04afd805e46e91f7088e2150e001d7e`. A guarded policy change retained
+enforcement and all allowances/counters. Hosted service-role old-RPC denial, legacy HTTP 426 and a two-request
+first-redemption race passed: exactly one download, one consumed refusal, one 2,259-byte charge.
+T0 is **09:03:24.331444 UTC**; no complete-scope purge is allowed before **09:25:34.331 UTC**.
+The live canary holds the two previously observed HIT URLs only in memory. The corrected capability probe
+observed exact-byte REVALIDATED responses for both after the explicit purge; that is not final retirement.
+Build **21** is available in internal iOS/Mac TestFlight and carries clearer quota/interruption errors.
+Earlier diagnostic failures and cumulative usage remain documented below; no stored object was changed.
 
 ## Issuer boundary
 
