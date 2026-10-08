@@ -5,7 +5,7 @@
 // is the separate option C in the design.
 //
 // Changing a rule changes which papers get a tag: bump FEED_TOPICS_VERSION (pool rows record it).
-import { tagsFromCategories } from './tag-vocabulary.ts';
+import { TAG_VOCABULARY, tagsFromCategories } from './tag-vocabulary.ts';
 
 export const FEED_TOPICS_VERSION = 'feed-topics-v1';
 
@@ -186,4 +186,26 @@ export function feedTopics(title: string, abstract: string | null, categories: r
   const topics = scored.sort((a, b) => b.points - a.points || a.order - b.order).slice(0, 8).map(s => s.tag);
   for (const tag of tagsFromCategories(categories, 2)) if (!topics.includes(tag)) topics.push(tag);
   return topics;
+}
+
+// Broad areas: the vocabulary's areas that are an arXiv category's name ("Machine learning" for
+// cs.LG/stat.ML, "Natural language processing" for cs.CL, …). The Feed reaches those through its
+// category chips ("More topics"); as a paper's topic they say little (owner feedback, build 21).
+const AREA_NAMES = new Set(TAG_VOCABULARY.filter(tag => tag.kind === 'area').map(tag => tag.name));
+const BROAD_AREAS = new Set(TAG_VOCABULARY.filter(tag => tag.kind === 'area' && (tag.categories?.length ?? 0) > 0).map(tag => tag.name));
+
+/** Whether a vocabulary tag is an area (a field), not a specific topic. */
+export function isArea(tag: string): boolean { return AREA_NAMES.has(tag); }
+/** Whether a vocabulary tag is a broad area named after an arXiv category. */
+export function isBroadArea(tag: string): boolean { return BROAD_AREAS.has(tag); }
+
+/** A paper's topics as the Feed shows them (the Topics column, row details): specific topics first in
+ * their rule order, then other areas; broad category areas only when nothing more specific applies. */
+export function displayTopics(topics: readonly string[], limit = 4): string[] {
+  const unique = [...new Set(topics)];
+  const specific = unique.filter(tag => !AREA_NAMES.has(tag));
+  const areas = unique.filter(tag => AREA_NAMES.has(tag) && !BROAD_AREAS.has(tag));
+  const broad = unique.filter(tag => BROAD_AREAS.has(tag));
+  const chosen = [...specific, ...areas];
+  return (chosen.length ? chosen : broad).slice(0, limit);
 }

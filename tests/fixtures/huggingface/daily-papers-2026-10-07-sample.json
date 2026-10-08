@@ -1,0 +1,106 @@
+[
+ {
+  "paper": {
+   "id": "2610.08448",
+   "authors": [
+    {
+     "_id": "6ac5d077f7e8df18d14c7850",
+     "name": "Bingxi Hou",
+     "hidden": false
+    },
+    {
+     "_id": "6ac5d077f7e8df18d14c7851",
+     "name": "Guochao Jiang",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2026-10-06T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-10-07T00:00:00.000Z",
+   "title": "Rethinking Cross-Tokenizer On-Policy Distillation: From Alignment Coverage to Supervision Reliability",
+   "upvotes": 162,
+   "discussionId": "6ac5d078f7e8df18d14c7857"
+  },
+  "publishedAt": "2026-10-05T20:00:00.000Z",
+  "title": "Rethinking Cross-Tokenizer On-Policy Distillation: From Alignment Coverage to Supervision Reliability",
+  "numComments": 2,
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2610.07767",
+   "authors": [
+    {
+     "_id": "6ac599fdf7e8df18d14c7626",
+     "name": "Xin Wang",
+     "hidden": false
+    },
+    {
+     "_id": "6ac599fdf7e8df18d14c7627",
+     "name": "Hao Yu",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2026-10-06T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-10-07T00:00:00.000Z",
+   "title": "TRACE: Rollout-Guided Quantization-Aware Training for FP4 Reinforcement Learning of MoE Language Models",
+   "upvotes": 87,
+   "discussionId": "6ac599fdf7e8df18d14c7632"
+  },
+  "publishedAt": "2026-10-05T20:00:00.000Z",
+  "title": "TRACE: Rollout-Guided Quantization-Aware Training for FP4 Reinforcement Learning of MoE Language Models",
+  "numComments": 2,
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2610.03543",
+   "authors": [
+    {
+     "_id": "6ac4a89e9eb4ee6bd77a96b7",
+     "name": "Jiahao Zhan",
+     "hidden": false
+    },
+    {
+     "_id": "6ac4a89e9eb4ee6bd77a96b8",
+     "name": "Yan Wang",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2026-10-02T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-10-07T00:00:00.000Z",
+   "title": "DuoMatching: Joint-Marginal Distribution Matching for Few-Step Video Generation",
+   "upvotes": 75,
+   "discussionId": "6ac4a89e9eb4ee6bd77a96bf"
+  },
+  "publishedAt": "2026-10-01T20:00:00.000Z",
+  "title": "DuoMatching: Joint-Marginal Distribution Matching for Few-Step Video Generation",
+  "numComments": 2,
+  "isAuthorParticipating": true
+ },
+ {
+  "paper": {
+   "id": "2610.05030",
+   "authors": [
+    {
+     "_id": "6ac5ae2ff7e8df18d14c7714",
+     "name": "Yan Zhou",
+     "hidden": false
+    },
+    {
+     "_id": "6ac5ae2ff7e8df18d14c7715",
+     "name": "Yili Wang",
+     "hidden": false
+    }
+   ],
+   "publishedAt": "2026-10-04T00:00:00.000Z",
+   "submittedOnDailyAt": "2026-10-07T00:00:00.000Z",
+   "title": "EVISKILL: Grounding Skill Evolution in Replayable Evidence",
+   "upvotes": 40,
+   "discussionId": "6ac5ae30f7e8df18d14c7719"
+  },
+  "publishedAt": "2026-10-03T20:00:00.000Z",
+  "title": "EVISKILL: Grounding Skill Evolution in Replayable Evidence",
+  "numComments": 2,
+  "isAuthorParticipating": false
+ }
+]
