@@ -8,7 +8,7 @@ export const FRAME_SCRIPT_HASH = frame.hash;
 
 const REMOVE = 'script,base,meta[http-equiv],iframe,frame,frameset,object,embed,applet,form,link,noscript,template,portal';
 
-export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; figureID?: string; fontSize?: number }
+export interface FrameOptions { parentOrigin: string; paperLine?: string | null; paperTags?: string[] | null; figureID?: string; fontSize?: number; theme?: 'light' | 'dark' | null }
 
 /** The bundle's HTML with app-owned presentation: no bundle scripts, inlined styles, verified images as data URIs. */
 export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): string {
@@ -48,7 +48,7 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
   configBlock.setAttribute('type', 'application/json');
   configBlock.setAttribute('data-gradstep-config', '');
   const config = {
-    parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, font_size: options.fontSize ?? null,
+    parent_origin: options.parentOrigin, paper_line: options.paperLine ?? null, paper_tags: options.paperTags ?? null, font_size: options.fontSize ?? null, theme: options.theme ?? null,
     bundle: { ...bundle.index, manifest_sha256: bundle.manifestSHA256, ...(options.figureID ? { figure_id: options.figureID } : {}) },
   };
   // `<` escaped so no text in the index can end the data block.
@@ -61,11 +61,17 @@ export function frameDocument(bundle: VerifiedBundle, options: FrameOptions): st
 
 /** Messages from the frame, validated with the native coordinator's bounds. */
 export type FrameMessage =
-  | { type: 'headings'; items: { id: string; title: string }[] }
+  | { type: 'headings'; items: { id: string; title: string; depth?: number }[] }
   | { type: 'position'; block: number; fraction: number; height: number; y: number; progress: number }
   | { type: 'citation'; state: 'jumped' | 'ended' }
   | { type: 'selection'; empty: boolean }
-  | { type: 'reference' } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' };
+  | { type: 'reference' } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
+  | { type: 'find'; count: number; index: number }
+  | { type: 'key'; key: FrameKey };
+
+/** App shortcuts typed while the paper frame has focus (forwarded by the frame shim). */
+export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help';
+const FRAME_KEYS: readonly FrameKey[] = ['find', 'search', 'escape', 'left', 'right', 'help'];
 
 export function readFrameMessage(value: unknown): FrameMessage | null {
   const v = value as Record<string, unknown>;
@@ -74,8 +80,9 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
   switch (v.type) {
     case 'headings':
       if (!Array.isArray(v.items) || v.items.length > MAXIMUM_READER_HEADINGS) return null;
-      return { type: 'headings', items: (v.items as { id?: unknown; title?: unknown }[]).filter(i => typeof i?.id === 'string' && i.id && i.id.length <= 2048
-        && typeof i.title === 'string' && i.title && i.title.length <= 8000).map(i => ({ id: i.id as string, title: i.title as string })) };
+      return { type: 'headings', items: (v.items as { id?: unknown; title?: unknown; depth?: unknown }[]).filter(i => typeof i?.id === 'string' && i.id && i.id.length <= 2048
+        && typeof i.title === 'string' && i.title && i.title.length <= 8000).map(i => ({ id: i.id as string, title: i.title as string,
+        depth: Number.isInteger(i.depth) && (i.depth as number) >= 0 && (i.depth as number) <= 3 ? i.depth as number : undefined })) };
     case 'position':
       return [v.block, v.fraction, v.height, v.y, v.progress].every(finite) && Number.isInteger(v.block)
         ? { type: 'position', block: v.block as number, fraction: v.fraction as number, height: v.height as number, y: v.y as number, progress: Math.min(1, Math.max(0, v.progress as number)) } : null;
@@ -88,6 +95,12 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
     case 'figure': return typeof v.id === 'string' && /^[0-9A-Za-z_-]{1,200}$/.test(v.id) ? { type: 'figure', id: v.id } : null;
     case 'tags': return { type: 'tags' };
     case 'invalid': return { type: 'invalid' };
+    case 'find': {
+      const count = v.count, index = v.index;
+      return Number.isInteger(count) && Number.isInteger(index) && (count as number) >= 0 && (count as number) <= 1000 && (index as number) >= -1 && (index as number) < Math.max(1, count as number)
+        ? { type: 'find', count: count as number, index: count === 0 ? -1 : index as number } : null;
+    }
+    case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
   }
   return null;
 }
