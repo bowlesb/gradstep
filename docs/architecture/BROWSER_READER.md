@@ -12,9 +12,39 @@ Phase 1 (this design): sign in with an email code → this browser becomes a dev
 QR code, the recovery code, or new keys for an account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
 the same verified bundles and `reader-bridge.js` behavior → sign out.
 
-Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history,
-selection actions, reference actions, tag editing, web search/Feed, Apple/Google web sign-in, device list and
-revocation, offline reading, credits and purchases.
+Large-screen workspace, milestone 1 (built 2026-10-07 on branch, **not deployed**; see
+[Workspace](#workspace-legacy-large-screen-layout)): the legacy three-pane layout, a dense library table, contents tree,
+find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-paper`).
+
+Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history
+(milestone 2 fills the workspace's chat pane), selection actions, reference actions, tag editing, PDF upload,
+Apple/Google web sign-in, device list and revocation, offline reading, credits and purchases.
+
+## Workspace (legacy large-screen layout)
+
+Owner, 2026-10-07: the first browser build "needs a ton of polish… the old science reader web code… used all the space
+and real estate much smarter… copy that as a starting point." Milestone 1 rebuilds the signed-in UI on
+`reference/web/app/page.tsx`'s desktop modes (Library; Browse = library beside the paper; Reader = paper beside chat),
+merged into one workspace. Sign-in, key setup/approval/recovery, library sync, commands, verified bundles, the reader
+frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx` (routes, top bar, shortcuts),
+`Library.tsx`, `Reader.tsx`, `Figures.tsx`, `Feed.tsx`, `ChatPane.tsx`, `prefs.ts`.
+
+| Area | Behaviour |
+|---|---|
+| Panes | Left rail · center · chat pane. Drag a divider (pointer captured, so the paper frame can't swallow it; arrow keys; double-click resets); dragging well past the minimum collapses it to the legacy edge handle (⋮⋮). Widths and per-route visibility are kept in this browser (`localStorage` `gradstep.layout.v1`; unavailable storage falls back to defaults). Defaults follow the legacy modes: Library and Feed without chat, a paper with chat. The center keeps ≥ 440 px: the chat narrows first, then becomes a drawer. Below 1,100 px the chat is a drawer; below 760 px the rail is too. |
+| Top bar | Rail toggle, brand, Library · Feed · Chats, library search (centered), Add paper, appearance (light/dark; System in the account menu), chat-pane toggle, account. |
+| Library | Rail: All papers, Unread, Reading, Failed, Archived and the tags, with counts (chips with a tag menu when the rail is hidden). Center: full-width table Title (2 lines) · Authors · Year · Tags (click to filter) · Added · Opened · Progress; columns drop by the center's width (container queries), never scrolling sideways. Live import progress and Retry / Remove / "Get credits in the app" inline. Search, filter and sort survive opening a paper; while reading, position reports don't re-sort the library. |
+| Paper | Rail tabs: Contents (the bridge's outline depths; current section from reading-position reports) and Library (compact list, the legacy Browse; top-bar search switches to it). Toolbar: Contents, title, citation Back, Find, Figures (count), text size, Chat. |
+| Find | App-owned code in `frame-shim.js` (the bridge is unchanged): case-insensitive matches across inline elements but never across blocks, CSS custom highlights, the current match in the upper third, starting from the reading place; Enter/Shift-Enter; ≤ 1,000 matches. |
+| Figures | Gallery of the verified images (data URIs of verified bytes), one figure in its own sandboxed figure frame, ←/→, Escape back to the gallery, Show in paper (bridge `__scienceReaderShowFigure`, with citation Back). |
+| Appearance | The frame's `prefers-color-scheme` follows the system (the iframe's `color-scheme` didn't change it in Chromium), so the shim rewrites the documents' own `prefers-color-scheme` conditions to the chosen scheme and restores them for System; tested by toggling both ways. |
+| Feed | `discover?category=` for up to six topics from the library's arXiv categories (native rules and names); the legacy card grid; + Add to library through the library command. |
+| Add paper | arXiv IDs stay `v2_begin_import`; anything else goes to `add-paper` with `capabilities: ["web_import"]` only. Outcomes use the native wording, adapted: no upload or device download is offered, and a blocked or closed paper's https link can be opened. |
+| Shortcuts | `/` or ⌘K search, ⌘F find (paper), `[` rail, `]` chat, `?` help, Esc closes/clears, ↑/↓ between papers, ←/→ figures. The shim forwards these while the paper has focus (validated `key` messages). |
+
+The frame script hash changes with the shim and is computed at build for both CSPs, as before. Local verification
+(production CSP, Chromium): `e2e/layout.spec.ts` at 1440×900 and 1920×1080 in light and dark, plus a 390 px journey;
+the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. No hosted run yet.
 
 ## Where it lives
 

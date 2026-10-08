@@ -835,3 +835,16 @@ A new browser is approved from the owner's phone instead of typing the recovery 
 | QR drawing | `uqr` 0.1.3 (MIT, a port of Nayuki's QR generator, zero dependencies), as an inline SVG; no network or CSP change. |
 | Camera | AVFoundation (works on iPhone, iPad and Mac Catalyst); `NSCameraUsageDescription` and the Mac sandbox `com.apple.security.device.camera` entitlement added. No prompt on a device without a camera. |
 | Not done | A new **Mac or iPad** showing its own QR (the native restore screen still uses the recovery code); approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. |
+
+## Browser reader workspace (owner asked 2026-10-07: "copy the old web UX as a starting point"; agent decisions, reversible)
+
+Milestone 1 of the web redesign ([Browser reader › Workspace](architecture/BROWSER_READER.md#workspace-legacy-large-screen-layout)); built on branch, not deployed (QR approval ships first, after build 18).
+
+| Decision | Choice |
+|---|---|
+| Layout | The legacy desktop modes merged into one workspace: left rail, center, chat pane. Library and Feed open without chat, a paper with it (as Library vs Reader mode); each route remembers its own choice and the widths in this browser. |
+| Rail content | Library: views and tags with counts (the chips return when the rail is hidden). Paper: Contents or the compact library (legacy Browse). Feed: topics. |
+| Library table | Legacy density with today's data; an Authors column when the center is wide, otherwise the first author under the title. Tags filter on click. |
+| Find, appearance | Implemented in the app-owned frame shim, not the shared bridge, so iOS/Mac behaviour is untouched. |
+| Add | arXiv stays a library command; DOI/links use `add-paper` with `web_import` only; PDF upload stays out of the browser until its client is built. |
+| Chat pane | A placeholder that says chat is not yet in the browser; milestone 2 builds paper/general chat, encrypted history and selection actions there. |
