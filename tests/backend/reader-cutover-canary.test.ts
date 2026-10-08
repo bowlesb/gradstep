@@ -50,6 +50,17 @@ test('actual streams count toward the budget, oversized bodies are cancelled, an
   assert.equal((await boundedBody(new Response('payload', { headers: { 'content-length': '7' } }), 7, new BodyBudget())).toString(), 'payload');
 });
 
+test('carried diagnostic usage reduces the remaining payload and request budget without resetting hosted counters', () => {
+  const b = new BodyBudget({ bytes: 85_695, requests: 43, descriptors: 2 });
+  assert.equal(b.remaining(), LIMITS.bodyBytes - 85_695 - 65_536);
+  assert.equal(b.snapshot().requests, 43);
+  for (let i = 0; i < 6; i++) b.admit(4096, true);
+  assert.equal(b.snapshot().aggregate_descriptor_attempts, 8);
+  assert.throws(() => b.admit(4096, true), /descriptor_budget/);
+  for (const prior of [{ bytes: -1 }, { requests: 101 }, { descriptors: 3 }, { other: 1 }])
+    assert.throws(() => new BodyBudget(prior), /invalid_counter|prior_usage_/);
+});
+
 test('network surface excludes providers, policy writes, object mutation and a different origin', async () => {
   let sent = 0; const { run } = canary(async (url) => { sent++; return withURL(Response.json({}), String(url)); });
   for (const [url, options] of [

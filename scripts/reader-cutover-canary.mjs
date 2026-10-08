@@ -74,18 +74,27 @@ export function saveVerifiedBundle(file, bundle, sourceID) {
 // limits, not a claim about TLS/header bytes or whole-project provider invoices.
 export class BodyBudget {
   bytes = 0; requests = 0; descriptors = 0; reserve = CLEANUP_RESERVE;
+  constructor(prior = {}) {
+    if (!prior || typeof prior !== 'object' || Array.isArray(prior)
+      || Object.keys(prior).some(k => !['bytes', 'requests', 'descriptors'].includes(k))) fail('prior_usage_invalid');
+    this.priorBytes = integer(prior.bytes ?? 0); this.priorDescriptors = integer(prior.descriptors ?? 0);
+    this.bytes = this.priorBytes; this.requests = integer(prior.requests ?? 0);
+    if (this.priorBytes > MiB || this.requests > 100 || this.priorDescriptors > 2) fail('prior_usage_review_required');
+  }
   remaining(cleanup = false) { return LIMITS.bodyBytes - this.bytes - (cleanup ? 0 : this.reserve); }
   admit(maximum, descriptor, cleanup = false) {
     if (!Number.isSafeInteger(maximum) || maximum < 0 || maximum > this.remaining(cleanup)) fail('payload_budget_before_request');
     if (++this.requests > LIMITS.requests - (cleanup ? 0 : 15)) fail('request_budget');
-    if (descriptor && ++this.descriptors > LIMITS.descriptors) fail('descriptor_budget');
+    if (descriptor && (++this.descriptors > LIMITS.descriptors || this.descriptors + this.priorDescriptors > 8)) fail('descriptor_budget');
   }
   consume(count, cleanup = false) {
     this.bytes += count;
     if (this.remaining(cleanup) < 0) fail('payload_budget');
   }
   snapshot() { return { delivered_payload_bytes: this.bytes, requests: this.requests, descriptor_attempts: this.descriptors,
-    conservative_reader_admission_bytes: this.descriptors * MiB + 3 * MAX_BUNDLE,
+    prior_payload_bytes: this.priorBytes, prior_descriptor_attempts: this.priorDescriptors,
+    aggregate_descriptor_attempts: this.descriptors + this.priorDescriptors,
+    conservative_reader_admission_bytes: (this.descriptors + this.priorDescriptors) * MiB + 3 * MAX_BUNDLE,
     admission_includes_three_whole_bundle_reservations: true }; }
 }
 
@@ -181,11 +190,11 @@ const CACHED = `select pp.id paper_id,pp.source_id,pp.requested_revision,pp.revi
  group by pp.id,mo.id,ct.version_id order by case pp.source_id when '2305.18290' then 0 else 1 end,pp.requested_revision desc`;
 
 export class ReaderCutoverCanary {
-  constructor({ env, emit, fetcher = fetch, now = Date.now, signal, saveBundle }) {
+  constructor({ env, emit, fetcher = fetch, now = Date.now, signal, saveBundle, priorUsage = {} }) {
     if (env.SUPABASE_URL !== ORIGIN || env.SUPABASE_PROJECT_REF !== PROJECT
       || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY || !env.SUPABASE_ACCESS_TOKEN) fail('staging_credentials_required');
     Object.assign(this, { env, emit, fetcher, now, signal, saveBundle });
-    this.budget = new BodyBudget(); this.accounts = []; this.phase = 'new'; this.urls = [];
+    this.budget = new BodyBudget(priorUsage); this.accounts = []; this.phase = 'new'; this.urls = [];
     this.runID = randomUUID(); this.born = now(); this.started = new Date(now()).toISOString();
   }
   report(event, details = {}) { this.emit({ event, at: new Date(this.now()).toISOString(), phase: this.phase, ...details, budget: this.budget.snapshot() }); }
@@ -642,7 +651,8 @@ async function main() {
   let canary, timer, input; const stop = new AbortController();
   const signal = () => stop.abort(); process.once('SIGINT', signal); process.once('SIGTERM', signal);
   try {
-    canary = new ReaderCutoverCanary({ env: credentials(), emit, signal: stop.signal,
+    const priorUsage = JSON.parse(process.env.GRADSTEP_READER_CANARY_PRIOR_USAGE ?? '{}');
+    canary = new ReaderCutoverCanary({ env: credentials(), emit, signal: stop.signal, priorUsage,
       saveBundle: (bundle, sourceID) => saveVerifiedBundle(join(reportDir, 'verified-bundle.json'), bundle, sourceID) });
     timer = setTimeout(() => stop.abort(), LIMITS.durationMs);
     await canary.start();
