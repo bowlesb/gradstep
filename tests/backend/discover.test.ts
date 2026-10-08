@@ -36,6 +36,16 @@ test('full abstracts are opt-in, preserve the end of real metadata, and mark ove
   const long = 'λ'.repeat(24_001);
   assert.deepEqual(discoveryAbstract(long, true), { abstract: long.slice(0, 700), full_abstract: long.slice(0, 24_000), abstract_truncated: true });
   assert.deepEqual(discoveryAbstract(null, true), { abstract: null, full_abstract: null, abstract_truncated: false });
+  for (const limit of [700, 24_000]) {
+    const mathematical = 'x'.repeat(limit - 1) + '𝛼';
+    const result = discoveryAbstract(mathematical, true);
+    const bounded = limit === 700 ? result.abstract : result.full_abstract;
+    assert.equal(bounded, 'x'.repeat(limit - 1), 'Never emit half a mathematical Unicode character to Swift');
+    assert.ok(bounded!.isWellFormed());
+  }
+  const incomplete = openAlexResult({ title: 'Long source', locations: [{ landing_page_url: 'https://arxiv.org/abs/2305.18290' }],
+    abstract_inverted_index: { x: Array.from({ length: 5001 }, (_, i) => i) } }, true)!;
+  assert.equal(incomplete.abstract_truncated, true, 'Upstream reconstruction limits are excerpts, even below the character cap');
 });
 
 test('rejects non-feed XML and skips malformed entries', () => {

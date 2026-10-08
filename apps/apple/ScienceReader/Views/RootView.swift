@@ -1430,6 +1430,7 @@ struct DiscoveryRow: View {
     /// Search results show the arXiv number (people search by it); the Feed doesn't need it.
     var showsIdentifier = true
     @State private var adding = false
+    @State private var expanded = false
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             // The Library rows' type scale (design audit F6): title, authors, then details.
@@ -1438,7 +1439,16 @@ struct DiscoveryRow: View {
                 if let authors = LibraryFormat.shortAuthors(result.authors) {
                     Text(authors).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if let abstract = result.abstract { Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+                if let abstract = result.abstract {
+                    Text(abstract).font(.footnote).foregroundStyle(.secondary).lineLimit(expanded ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(expanded ? "Less" : "Full abstract") { expanded.toggle() }
+                        .font(.footnote).buttonStyle(.borderless)
+                        .accessibilityIdentifier("discover.abstract.\(result.sourceID)")
+                    if expanded && result.abstractTruncated, let url = URL(string: "https://arxiv.org/abs/\(result.sourceID)") {
+                        Link("Read the full abstract on arXiv", destination: url).font(.footnote)
+                    }
+                }
                 Text(([result.year.map(String.init)].compactMap { $0 } + ArxivTopics.names(for: result.categories, limit: 2)
                        + (showsIdentifier ? ["arXiv \(result.sourceID)"] : []))
                     .joined(separator: " · ")).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
