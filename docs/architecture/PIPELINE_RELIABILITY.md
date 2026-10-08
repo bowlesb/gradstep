@@ -1,6 +1,6 @@
 # Paper import reliability
 
-> **Status 2026-10-06 20:10 PDT:** migrations 022/023 applied to staging; worker deployed to Cloud Run
+> **Initial Cloud Run checkpoint, 2026-10-06 20:10 PDT:** migrations 022/023 applied to staging; worker deployed to Cloud Run
 > (`gradstep-pipeline`, project `gradstep`, us-west1, image built locally and pushed to Artifact Registry, runtime
 > identity `gradstep-pipeline@gradstep.iam.gserviceaccount.com` with access to its five secrets only); staging's
 > `science_reader_pipeline_url` points at it. The 49-page paper that looped since 2026-10-05 rendered and published
@@ -27,10 +27,10 @@ queues (pgmq) but no compute beyond Edge Functions, whose limits are fixed on ev
 
 ## Architecture
 
-### Spending-control hardening (2026-10-07, implementation branch; not deployed)
+### Spending-control hardening (deployed; configuration verified 2026-10-08 UTC)
 
-Use request-based Cloud Run billing only with a bounded, awaited request lifecycle. The HTTP process will run
-each pipeline invocation in a Node worker thread, await its result, and terminate/join the thread before replying.
+Request-based Cloud Run billing uses a bounded, awaited request lifecycle. The HTTP process runs
+each pipeline invocation in a Node worker thread, awaits its result, and terminates/joins the thread before replying.
 A hard 840-second limit leaves 60 seconds before Cloud Run's 900-second request timeout. A timeout is a failure;
 it must not settle an unknown provider submission as free, release a still-uncertain liability, or start a retry.
 Existing durable provider grants and fenced queue leases allow later reconciliation. Each instance admits one
@@ -40,7 +40,7 @@ previously establish an overall run limit. Expensive renderer imports live in th
 
 Deployment explicitly selects `--cpu-throttling`, zero minimum instances, and a maximum of three at both
 service and revision scope, then reads back the configuration. The billing-flag correction reached staging in
-`3e28a55`; the bounded thread lifecycle and maintenance/activation controls described here remain local pending
+`3e28a55`; the bounded thread lifecycle and maintenance/activation controls subsequently reached staging with
 the coordinated spending-control rollout. The one-minute scheduler remains a recovery wakeup;
 it is not permission to run outside the HTTP request. The pg_net wakeup callers have short client deadlines, and
 their timeout does not establish that a pipeline run failed. Google documents that HTTP/1.1 client disconnects
@@ -51,13 +51,17 @@ rechecking this lifecycle before rollout. No claim of free hosting follows from 
 [request timeout](https://docs.cloud.google.com/run/docs/configuring/request-timeout),
 [client disconnect behavior](https://docs.cloud.google.com/run/docs/troubleshooting#client-disconnect).
 
-The first deployment must wait for the spending-control backend changes that preserve uncertain provider and
-upload liability. Record the new revision, billing mode, limits, timeout and measured allocation after cutover.
-No live change has been made by this implementation branch.
+The initial hardening rollout followed migrations 034–038 and asset enforcement, through paused revision 00008
+and activated revision 00009. Subsequent uploads use migration 039. At **2026-10-08 09:00:47 UTC**, read-only
+configuration evidence records **`gradstep-pipeline-00012-9xj`** receiving all traffic: maintenance off,
+request-based CPU, minimum 0 / maximum 3 at both service and revision scope, concurrency 1, 900-second request
+timeout, 1 vCPU and 2 GiB memory. All six secret references are numeric and pinned: five at version 11 and
+Anthropic at version 5. Evidence: `.artifacts/takeover-20261008/pipeline-policy-readback.json`. This metadata
+readback does not independently exercise the thread lifecycle or establish measured allocation and invoices.
 
-Read-only inspection at **2026-10-08 00:11:16 UTC** observed revision `gradstep-pipeline-00007-j5l`,
+**Historical pre-rollout inspection, 2026-10-08 00:11:16 UTC:** revision `gradstep-pipeline-00007-j5l` had
 request-based CPU, revision maximum 3, but **service maximum 20** and no maintenance switch. This is the observed
-older configuration, not the activation target. The allowlisted report is
+older configuration, superseded by the 09:00:47 readback above. The allowlisted report is
 `.artifacts/pipeline-readiness-schema-20261007.json`; it verifies API/image-digest response shapes, not an invoice
 or a successful cutover.
 
@@ -73,10 +77,11 @@ or a successful cutover.
 - **Cost:** the original $0–2/month estimate was unsupported by the deployed instance-based billing mode.
   The [dated infrastructure inspection](../reviews/PIPELINE_SPENDING_EVIDENCE_20261007.md) measured 22.49 aggregate
   billable instance-hours in a 24-hour window; no invoice was retrieved. The request-based billing correction was
-  deployed separately; bounded thread hardening still needs a coordinated cutover and measured follow-up. See
-  [operations](OPERATIONS_AND_BILLING.md#fixed-commitments) for the unchanged budget and fixed commitments.
+  deployed separately, followed by the bounded thread hardening. Current configuration is verified above;
+  full-period allocation and invoice reconciliation remain outstanding. See
+  [operations](OPERATIONS_AND_BILLING.md) for the unchanged budget, dated metrics and fixed commitments.
 
-### Deferred deployment and explicit activation (local, 2026-10-07)
+### Deferred deployment and explicit activation (implemented 2026-10-07; used in staging rollout)
 
 The [spending rollout](SPENDING_CONTROLS.md) requires a maintenance interval. Installing code, changing policy,
 and enabling work are separate operations:

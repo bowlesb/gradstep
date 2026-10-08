@@ -1,6 +1,6 @@
 # Infrastructure, spending, and recovery
 
-> **2026-10-07 audit correction:** The platform budget bounds recorded reservations and settlements; it is **not yet a complete provider-spend cap**. The independent [credits, identity and cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) found unreserved Tavily lookup paths, hidden SDK retries, and uncertain Mathpix work whose liability can be released early. Storage and delivery also have coverage gaps. Findings remain open; no fixes or new monitoring were deployed by the audit. Paid processing now uses the Cloud Run pipeline and chat Edge function; statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
+> **Historical audit, 2026-10-07:** The independent [credits, identity and cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) found unreserved Tavily lookup paths, hidden SDK retries, uncertain Mathpix liability and storage/delivery gaps in that deployment. The audit itself deployed no fixes. Subsequent staging migrations 034–039 and provider/worker controls are deployed; use [Spending controls](SPENDING_CONTROLS.md) and [asset accounting](ASSET_SPENDING.md) for the current safeguards and remaining boundaries. The provider ledger is not a complete infrastructure invoice cap. Statements below about disabled acquisition gates and the 5 MiB/50-page pilot describe the superseded 011 design.
 
 Status: implementation underway; see [current implementation evidence](../IMPLEMENTATION_STATUS.md) for staging and client milestones. Applied migrations are immutable. The 011 acquisition checkpoint below is historical; it does not describe the currently running paid pipeline. Production and independent backup operations remain unfinished.
 
@@ -37,28 +37,49 @@ Before provisioning, inspect current organization billing and compute costs, the
 
 If a worker or backup arrangement cannot fit, change the proposed allocation or service selection before purchase. Do not treat unused contingency as an automatic recurring upgrade. Alerts use incurred costs plus outstanding reservations and forecast fixed costs. Pause new discretionary provider work before exhausting its allocation. Apply provider-side hard limits where supported and reconcile delayed provider invoices. This is a controlled budget, not a guarantee that every vendor's delayed invoice can be stopped at precisely $100.
 
-### Fixed commitments and observed usage — 2026-10-07
+### Fixed commitments and observed usage — updated 2026-10-08 UTC
 
-The incremental beta budget stays **$100/month**, excluding existing TextBrain costs. The latest verified October
-platform provider allowance is **$25**, not the older $9.80 figure. That ledger is still not a complete invoice cap
-while the audited provider/storage gaps remain deployed. New controls are locally implemented under review in
-[Spending controls](SPENDING_CONTROLS.md); no new allowance or subscription increase is authorized here.
+The incremental beta budget stays **$100/month**, excluding existing TextBrain costs. Read-only evidence at
+**2026-10-08 09:08:20 UTC** records the October provider ledger at **$14.017212 spent, $0 reserved, $25 limit**,
+with zero recorded unresolved provider attempts and no cost observations entered. These are point-in-time ledger
+values, not reconciled invoices or a cap on all infrastructure charges. The controls in
+[Spending controls](SPENDING_CONTROLS.md) are deployed; no new allowance or subscription increase is authorized here.
+Evidence: `.artifacts/takeover-20261008/spend-current-readback.json`.
 
 | Commitment | Since | Monthly | Evidence and limits |
 |---|---|---:|---|
 | Supabase staging, Micro | 2026-10-02 | $0.01344/hour gross compute (about $10/month); net incremental bill unverified | Read-only Management API confirms Pro organization and Micro as the only selected project addon. Attribute actual organization compute credits/invoice and exclude TextBrain; do not automatically charge the entire organization subscription to this product |
 | Tavily Project, 4,000 search credits | 2026-10-06 | $30 | Owner supplied the paid October 6 invoice and November 6 renewal for November 6–December 6. Owner confirmed turning pay-as-you-go **off** on October 7 |
 | gradstep.ai (2 years, $179.96) and gradstep.shop (1 year, $0.98 + $0.20 fee), Namecheap | 2026-10-06 | ≈ $7.60 amortized | One-off $181.14 already purchased by the owner; amortization is not a new monthly cash charge |
-| Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | Request billing live on revision `gradstep-pipeline-00007-j5l`, 1 vCPU / 2 GiB. At 23:40 UTC, the preceding complete hour reported 43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests. These are metrics, not an invoice or a monthly guarantee |
+| Cloud Run pipeline, dedicated Google Cloud project `gradstep` | 2026-10-06 | Usage-dependent | At 2026-10-08 09:00:47 UTC, revision `gradstep-pipeline-00012-9xj` has request billing, 1 vCPU / 2 GiB, concurrency 1, a 900-second request timeout and minimum 0 / maximum 3 at both service and revision scope. This is configuration evidence, not an invoice or a monthly guarantee |
 | Cloudflare Pages: `gradstep-site` (gradstep.ai), `gradstep-app` (app.gradstep.ai, browser reader), `gradstep-admin` (admin.gradstep.ai) | 2026-10-07 (reader); 2026-10-08 UTC (admin) | $0 | Free static Pages, no Functions or new paid tier. Admin deployment `349d3859` and its custom domain are live; HTTPS/CSP/HSTS/no-transform and denied-caller checks pass. [Hosting evidence](ADMIN_HOSTING.md). This does not price other providers or establish an owner MFA session |
 
-Cloud Run's earlier instance-billed idle estimate of roughly $54/month described the previous revision and must
-not be presented as current. The request-based configuration was deployed by Claude with owner approval. Read-only
-evidence: `.artifacts/pipeline-spending-economics-20261007.json` in the spending worktree. Its revision ceiling is 3,
-but the separate service ceiling still reads 20; local deployment changes set and verify both at 3. No Monitoring
-alert policies or billing-export datasets were found in this project; an export elsewhere is not ruled out. The
-low-activity forecast of roughly $0–3/month remains a forecast, not a measured full-period bill. Wake-on-work is a
-separate approved design to show the owner before deployment.
+The current pipeline readback gives `gradstep-pipeline-00012-9xj` all traffic, with maintenance off and six numeric
+Secret Manager references: five pinned to version 11 and Anthropic to version 5. Both instance ceilings are now 3;
+the service maximum of 20 in the earlier audit is superseded. Evidence:
+`.artifacts/takeover-20261008/pipeline-policy-readback.json`. Configuration does not measure actual allocation or
+prove a full month's cost. The bounded, awaited worker lifecycle is described in [pipeline reliability](PIPELINE_RELIABILITY.md).
+
+**Historical usage evidence:** the October 7 audit's instance-billed idle estimate of roughly $54/month described
+the previous billing mode. After the owner-approved request-billing change, the 23:40 UTC observation recorded
+43.2 billable instance-seconds, 86.4 GiB-seconds and 64 requests in the preceding complete hour
+(`.artifacts/pipeline-spending-economics-20261007.json` in the spending worktree). That audit found no Monitoring
+alert policies or billing-export datasets in this project; it did not rule out an export elsewhere, and those
+inventories were not rechecked in the October 8 configuration readback. The low-activity forecast of roughly
+$0–3/month remains a forecast, not a measured full-period bill.
+
+At **2026-10-08 09:00:12 UTC**, Supabase cron readback confirms an active minute-by-minute pipeline wakeup,
+store-verifier maintenance at minute 23 each hour and purchase-observation maintenance at minute 17. The Feed
+gate is scheduled every 30 minutes, while its serving and refresh policies remain off. An active schedule does
+not establish successful execution or authorize paid work. Evidence:
+`.artifacts/takeover-20261008/supabase-cron-readback.json`. Wake-on-work remains a separate approved design to
+show the owner before deployment; it has not replaced the one-minute pipeline schedule.
+
+The existing workflow-check job's image-only refresh was verified at **2026-10-08 09:21:12 UTC**, to digest
+`sha256:f02d84224ecbee907129a434ad5e0a3ae913c6d09c45fe07f2df496d9c55aeeb`. Job configuration, IAM and its three
+existing schedules were preserved: one task, zero retries and a 2,700-second timeout. The update executed no
+suite and sent no notification; alert email configuration is present but owner inbox delivery remains unverified.
+Evidence: `.artifacts/takeover-20261008/workflow-image-apply.json.verified.json` and [workflow checks](WORKFLOW_CHECKS.md).
 
 Supabase configuration was read back at 2026-10-08 00:02:31 UTC (October 7 locally): staging is active/healthy,
 the organization is Pro, and the only selected addon is Micro at $0.01344/hour. The filtered, credential-free evidence
