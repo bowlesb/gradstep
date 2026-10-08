@@ -82,3 +82,8 @@ verify_jwt = false
 # Called from the admin site (browser preflights carry no token). The handler verifies the
 # token with Auth.getUser and requires an owner with MFA (v1_admin_actor) before any change.
 verify_jwt = false
+
+[functions.admin-spending]
+# Auth.getUser and caller-token v1_admin_actor require a real owner MFA session
+# before the append-only evidence RPC. Browser preflights carry no token.
+verify_jwt = false

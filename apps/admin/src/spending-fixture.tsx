@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Shell } from './shell';
 import { Spending, type SpendingApi, type SpendingDetail, type SpendingOperation, type SpendingSummary } from './spending';
+import type { SpendingObservationRequest, SpendingObservationReceipt } from '../../../supabase/functions/_shared/spending-observations.ts';
 
 // Imported only in Vite development mode. Values are synthetic, never hosted financial records.
 const ACCOUNT_A = '11000000-0000-4000-8000-000000000001';
@@ -38,7 +39,7 @@ function summary(account: string | null, empty: boolean): SpendingSummary {
     legacy: { usage_records: empty ? 0 : 42, estimated_microusd: empty ? 0 : 925_000, reconciliation_microusd: 0 }, allowances: [],
     forecast: { period: '2026-10-01', operating_limit_microusd: 100_000_000, provider_allocation_microusd: 25_000_000,
       overhead_allocation_microusd: 10_000_000, funded_plan_microusd: 35_000_000, complete: false, missing_components: 7,
-      components: [{ id: 'tavily', label: 'Prepaid search', observation_id: 'synthetic-observation', measure: 'commitment',
+      components: [{ id: 'tavily_subscription', label: 'Tavily subscription', observation_id: 'synthetic-observation', measure: 'commitment',
         amount_microusd: 10_000_000, complete: true, observed_at: stamp, source: 'fixture', evidence_reference: 'sample-plan-2026-10' },
         { id: 'cloud_run', label: 'Cloud Run', observation_id: null, measure: null, amount_microusd: null, complete: null,
           observed_at: null, source: null, evidence_reference: null }] },
@@ -49,11 +50,32 @@ function summary(account: string | null, empty: boolean): SpendingSummary {
 
 export function SpendingFixture() {
   const [reloads, setReloads] = useState(0);
+  const recorded = useRef<SpendingObservationRequest[]>([]);
   const state = new URLSearchParams(location.search).get('state');
   const api = useMemo<SpendingApi>(() => {
     const delay = <T,>(value: T, account?: string | null) => new Promise<T>(resolve => setTimeout(() => resolve(value), account === ACCOUNT_A ? 500 : 40));
     return {
-      summary: (_days, account) => state === 'error' ? Promise.reject(new Error('Spending records could not be loaded.')) : delay(summary(account, state === 'empty'), account),
+      record: async (_ownerID, observation) => {
+        // The loopback browser check intercepts this synthetic endpoint, retaining its fake ledger across a reload.
+        const response = await fetch('/__fixture-spending-entry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(observation) })
+          .catch(() => { throw new Error('The observation was not confirmed. Retry the same entry; it will not be added twice.'); });
+        if (!response.ok) throw new Error('This entry conflicts with its recorded receipt.');
+        const receipt = await response.json() as SpendingObservationReceipt;
+        if (!recorded.current.some(row => row.request_id === observation.request_id)) recorded.current.push(observation);
+        return receipt;
+      },
+      summary: (_days, account) => {
+        if (state === 'error') return Promise.reject(new Error('Spending records could not be loaded.'));
+        const value = summary(account, state === 'empty');
+        value.external_observations = recorded.current.map(row => ({ ...row, id: row.request_id, source: 'owner-entry', units: {} })).reverse();
+        for (const row of recorded.current) if (row.period === value.forecast.period && ['commitment', 'forecast'].includes(row.measure)) {
+          const component = value.forecast.components.find(c => c.id === row.component);
+          if (component) { value.forecast.overhead_allocation_microusd += (row.amount_microusd ?? 0) - (component.amount_microusd ?? 0);
+            Object.assign(component, row, { observation_id: row.request_id, source: 'owner-entry' }); }
+        }
+        value.forecast.funded_plan_microusd = 25_000_000 + value.forecast.overhead_allocation_microusd;
+        return delay(value, account);
+      },
       operations: (_days, account, cursor, unresolved) => {
         const candidates = state === 'empty' ? [] : (unresolved ? [operations[0], oldUnknown] : operations).filter(row => !account || row.account_id === account);
         const start = cursor ? candidates.findIndex(row => row.id === cursor.id) + 1 : 0;
@@ -78,6 +100,6 @@ export function SpendingFixture() {
   }, [state]);
   return <Shell tabs={['Overview', 'Spending', 'Processing', 'Reliability', 'Accounts', 'Support']} tab="Spending"
     onTab={() => undefined} email="owner@example.com" onSignOut={() => undefined} loading={false} onRefresh={() => setReloads(n => n + 1)}>
-    <Spending api={api} reloadKey={reloads} />
+    <Spending ownerID={ACCOUNT_A} api={api} reloadKey={reloads} />
   </Shell>;
 }

@@ -95,7 +95,7 @@ function App() {
         <div className="two-columns"><section className="panel"><h2>Subscriptions</h2><Counts values={overview.subscriptions} empty="No verified subscriptions yet." /></section><section className="panel"><h2>Processing queue</h2><Counts values={overview.jobs} empty="No processing jobs yet." /></section></div>
         <p className="footnote">This dashboard contains service metadata and reports shared with support. Private chats and notes are not available to administrators.</p>
       </>}
-      {tab === 'Spending' && owner && <Spending key={account.account_id} reloadKey={reloads} />}
+      {tab === 'Spending' && owner && <Spending key={account.account_id} ownerID={account.account_id} reloadKey={reloads} />}
       {tab === 'Processing' && <PipelinePanel pipeline={pipeline} />}
       {tab === 'Reliability' && owner && <><WorkflowChecksPanel load={loadChecks} reloadKey={reloads} /><Reliability key={account.account_id} load={loadMetrics} reloadKey={reloads} /></>}
       {tab === 'Accounts' && owner && <Accounts key={account.account_id} api={accountsApi} reloadKey={reloads} />}
