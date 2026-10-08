@@ -1,0 +1,355 @@
+# Shared paper podcasts: implementation contract proposal
+
+2026-10-08. **Design for independent schema/cost/identity review. Not implemented or deployed.**
+The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
+the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
+bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
+Migration labels A/B/C below are ordering labels, not assigned migration numbers.
+
+## Product boundary
+
+V1: one already-converted paper, English, a five-minute target, two fixed synthetic voices, a concise
+source-linked transcript, chapters, playback speed, background audio and offline playback. The hosts are
+an explainer and a skeptical reader: result, method, assumptions, evidence, limitations and why it matters.
+No invented personal anecdotes, claims of author endorsement, voice imitation or added web facts.
+
+Add a **Listen filter within the existing Feed** for ready shared releases, and a Listen action on eligible
+paper details. Do not replace Library/Feed navigation. An episode card shows paper title, year, duration,
+topic and an AI-audio badge; language/source revision and credits live in its details. Tapping Play never
+adds a paper or buys a generation. Empty results offer ordinary paper discovery or an explicitly quoted
+private generation. Existing paper-to-chat navigation remains; transcript evidence opens the pinned paper
+passage, or shows the source link and explicit Add action when it is not in the library.
+
+The playback sheet has play/pause, ±15 seconds, speed, chapters, transcript and download. A compact player
+stays above the existing navigation; it cannot cover the chat composer or selection menu. Dismiss the sheet
+without stopping playback; Stop is explicit. Keep reading position and chat draft intact across transitions.
+Keyboard, VoiceOver, large text, reduced motion and interruptions are part of the journey, not optional polish.
+
+Start with **zero generation spend**: an empty catalog plus explicitly labeled local synthetic fixtures can
+exercise browsing/playback/offline behavior. The operator can import an existing, rights-approved real pilot
+audio/transcript with all the same provenance, verification, inventory and publication checks. An imported
+record states external origin and unknown external generation cost; it must not claim a zero-cost provider
+attempt or reviewed factuality merely because a file exists. Generating a new pilot elsewhere still costs
+money and is not a way around authorization. Once a bounded paid run is accepted, propose $2 total for two
+curated episodes and explicit QA inside the existing $25 provider cap; no new subscription or recurring seed
+budget. Admit from current headroom again at execution, not the historical $11.32 observation.
+
+## Funding and fairness
+
+| Action | Funding and privacy rule |
+|---|---|
+| Browse/play an eligible ready shared release | No generation credits; authenticated bounded delivery and rate limits |
+| Suggest a public paper for the catalog | Deduplicated, capped wish signal; no job or reservation; no requester identities in the catalog |
+| Curated canonical episode | Operator approves it from a separate seed sub-budget inside platform budget; customer credits zero |
+| Private episode for one's own accessible paper | Explicit quote and consent; one funding operation for that account; no public reuse |
+| Concurrent identical private requests on two devices | Join the same job within that owner scope; no duplicate generation charge |
+| Same private bytes uploaded by two accounts | Separate authorization and work keys; no cross-account existence oracle or dedup |
+| Custom language, length or voice | New profile/variant and quote after v1; not a free mutation of cached audio |
+| Customer sponsors a public canonical episode | Defer. Needs explicit “you fund it, everyone can listen”, refund and attribution policy |
+
+Do not bill the first accidental listener, transfer funding to another waiter after cancellation, promise
+future royalties, or issue credit rebates based on predicted reuse. Platform seeds and private generation
+are sufficient for v1. If sponsorship is added, recheck ready/shared work before reserving; losing concurrent
+sponsors release their holds. “Saved generation cost” is a counterfactual estimate, not revenue or money refunded.
+
+Platform seed operations can use the **real authorizing operator's existing financial account** with zero
+customer credits, `funding_kind=platform_seed`, an audited actor/reason, and a seed allocation row. Do not
+invent an Auth user, credit bucket or alternate ledger. Closing the operator account stops its unsubmitted
+work; an already-published eligible shared release is platform catalog content, not personal account data.
+
+## Exact identities and rights
+
+There are three different immutable identities; one hash cannot safely stand in for all three:
+
+1. **Episode work key**, known before generation: a canonical, domain-separated digest of ordered source
+   pins, scope (`shared` or exact private owner), editorial profile/version, language, target length and
+   requested provider/voice profile. V1 accepts exactly one source; the source child relation permits a
+   future bounded ordered set without changing identities. Do not dedup by DOI, title or bare arXiv ID.
+2. **Approved script identity**: exact normalized transcript/evidence/notation/pronunciation document hash,
+   plus checker version and editorial decision. Store the draft lineage separately. A probabilistic rerun
+   with the same prompt need not reproduce the same script.
+3. **Immutable release identity**: script hash, exact audio provider/model revision, voices, pronunciation
+   profile, encoder version/settings, measured duration, member hashes and manifest hash. Codec-only
+   derivatives reuse a script but have distinct bytes. A correction creates a new release, never overwrites.
+
+A source pin contains `catalog_asset_approvals.id`, catalog version/metadata IDs, `documents.id` and SHA-256,
+original object/hash, OCR run/options/raw-manifest hash, render artifact/manifest hash, and the selected text
+normalization version. Resolve and verify these relationships server-side; no caller-supplied combination
+of individually valid IDs is enough. Evidence locators bind the pinned normalized text and rendered anchor,
+with bounded offsets/quote digest and page/section/equation identifiers. A new paper revision gets a new pin.
+
+**Shared eligibility is deliberately narrow:** current verified CC BY 4.0 or CC0 approval plus an active
+podcast publication approval, both pinned to the exact source bytes. A public PDF URL, arXiv default license,
+private upload or an owner's unchecked assertion is not permission for cross-user audio redistribution.
+Maintain full source attribution, license link, changes/AI adaptation disclosure, paper revision and authors;
+separately check third-party material/exclusions. Do not imply author participation. CC BY permits commercial
+adaptation with conditions and valid grants are generally irrevocable; a product takedown is not a claim to
+retroactively revoke that license or erase lawful exported copies.
+[CC BY 4.0 terms](https://creativecommons.org/licenses/by/4.0/),
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+Existing asset approvals are immutable evidence, not the current takedown switch. Add revocable publication
+state with `rights_revision`; check current source availability, owner scope and this revision at admission,
+every next provider grant, publication and delivery. Shared release queries return public metadata only.
+Private work keys, scripts, source titles, funders, wish signals and listening history never enter public indexes.
+
+## Proposed additive schema
+
+All operational tables live in `app_private`, with RLS enabled and no direct authenticated grants. Expose
+bounded security-definer RPCs with empty `search_path`, an open actor account and explicit role checks;
+operator mutation additionally requires existing MFA/admin authorization. Immutable identities/events need
+database enforcement, not conventions in the worker. Use integer micro-USD, milliseconds, bytes and tokens.
+
+| Proposed relation | Important fields, keys and invariants |
+|---|---|
+| `podcast_policy` | Disabled by default; profile allowlist, seed/quality allocation, row/byte/job/transfer limits, storage inventory scope, kill switches; audited changes |
+| `podcast_profiles` | Immutable `id, version, spec_sha256`, bounded typed editorial/voice/model/rate/codec settings; active pointer separate from immutable spec |
+| `podcast_episode_keys` | `id, scope, owner_id?, work_sha256, profile_id/version`; shared owner null/private owner required; two unique partial indexes prevent null-scope duplicates |
+| `podcast_sources` | `(episode_id, ordinal)` PK; exact source/approval/document/artifact pins above; exactly one row in v1; immutable after admission |
+| `podcast_publication_approvals` | Episode/source pins, approval evidence digest, reviewer, `rights_revision`, active/quarantined/withdrawn; append-only decision events; no private-to-shared update |
+| `podcast_quotes` | Actor, client request UUID/digest, episode key, dataset epoch, consent/profile/rate versions, max credits/USD/calls/bytes, expiry; immutable; short bounded retention; no raw prompts |
+| `podcast_requests` | `(account_id, request_id)` PK, exact quote/digest, `intent_revision`, desired-present, job reference; same ID/different digest fails; removal/replay fence |
+| `podcast_jobs` | Episode, generation number, state/stage, claim UUID/generation/deadline, attempts policy, funding kind, `(operation_account_id, operation_id)` FK, rights revision, timestamps; one active job per episode key |
+| `podcast_scripts` | Immutable ID/job/source/spec digest, transcript/evidence object references and checksums, review result/schema version; bounded 4 MiB total documents; metadata has no private transcript |
+| `podcast_releases` | Immutable episode/script/model/voice/codec/duration/manifest identity; lifecycle projection ready/superseded/quarantined/withdrawn; optional replacement release FK; publication sequence |
+| `podcast_release_objects` | `(release_id, role, ordinal)` unique; exact `stored_objects` FK/hash/size/MIME; required manifest/transcript/evidence/audio set before ready |
+| `podcast_job_events` | Append-only bounded stage, claim, attempt and finite failure-code records; provider IDs are in existing attempts; no plaintext source/audio transcript/error blobs |
+| `podcast_asset_holds/uploads/writes` | Job-fenced equivalent of035's paper adapters; shared physical capacity counters, immutable exact object plans, one transport grant, ambiguous writes retain capacity |
+| `podcast_delivery_grants/redemptions` | Account/release/rights revision/object IDs, token hash, expiry, reserved bytes, one redemption per object; shared transfer capacity, not independent unlimited counters |
+| `podcast_seed_periods` | Dated limit/spent/reserved cents or micro-USD, linked to platform budget period; seeded zero/disabled until approved; no unverified automatic rollover |
+
+Before SQL, prefer reusing a demonstrated generic shared capacity/delivery primitive over copying035 bodies.
+The paper-specific035 adapters cannot simply be pointed at an audio bucket: their source membership,
+inventory, manifest schema, cleanup and transfer checks assume papers. A reviewed extraction must preserve
+their old contracts and grants. Cross-table source/owner checks need composite foreign keys where possible,
+with transactionally enforced residual predicates and adversarial tests. Count quotes/events/attempts and
+private object inventory against capacity; do not build an unlimited ancillary table behind a bounded audio table.
+
+No new cleartext server table for listening positions/bookmarks. Extend the existing encrypted client event
+format with account-bound opaque entity IDs and payloads containing release, position, play session/sequence,
+completed state and saved status. Verify unknown-kind behavior on older clients before sending new events;
+use capability/format negotiation or a separately versioned encrypted stream if old clients cannot skip
+unknown events without losing data. Do not break chat decryption/replay to add audio.
+
+### Exact integration points and migration order
+
+**A — identity, finance and disabled APIs.** Extend003's `metered_operations.kind` and all reserve/settle
+whitelists with `podcast`; keep the existing credit ledger/bucket allocation. Extend034's
+`provider_attempts` provider/route constraints and `valid_provider_units` with reviewed Google speech routes
+and numeric `text_input_tokens`, `audio_output_tokens`, `audio_ms` (only observed values, not inferred final
+usage). Add `podcast_script`, `podcast_review`, `podcast_speech` routes and optional QA only when selected.
+Do not use `metadata` or `chat` as a disguise. The actual pricing snapshot records rate and model version.
+Wire `_shared/provider-spending.ts` through a dedicated podcast adapter; it currently only types chat/search
+routes and assumes Anthropic token accounting. No arbitrary model/provider string selects a cheaper quote.
+
+**B — storage and delivery.** Add a **private** `podcast-assets` Storage bucket and explicit object-family
+constraints in `stored_objects` (001, extended039). Shared objects use document identity with no owner;
+private objects use owner identity, with ownership bound through their release/source. Update capacity,
+`worker_delete_account_begin/finish`, cleanup and `worker_asset_inventory_*` to a new inventory scope that
+includes audio and temporary objects. Do not declare existing scope2 certification sufficient. All Storage
+policies reject client writes and public reads; only admitted worker uploads and authenticated bounded
+delivery operate. Extend037's spend/storage admin views and `scripts/workflow-checks.mjs`.
+
+**C — worker and clients, then activation.** A separate bounded audio execution entry point in the existing
+Cloud Run worker architecture handles script verification/audio validation/transcoding; IAM-only ingress,
+minimum instances zero, request billing, awaited subprocess, hard deadline and concurrency. The paper queue
+must not starve while audio is generated. Short Edge ingress handles quote/start/status/list/delivery; the
+database transaction enqueues through an outbox/queue atomically with reservation. Poll durable status;
+Realtime is a hint to refetch, not evidence that publication or credit settlement happened. Update native
+`ReaderModel`/Feed/reader actions, Core encrypted state/cache/player contracts and web equivalents together.
+
+Proposed API shapes: `v1_podcast_capabilities`, `v1_podcast_catalog(after, filters, limit<=50)`,
+`v1_podcast_quote(source_item, epoch, profile, request_id)`, `v1_podcast_start(quote_id, request_id, digest)`,
+`v1_podcast_status(request_id)`, `v1_podcast_cancel(request_id, expected_revision)`,
+`v1_podcast_release(release_id)` and bounded `podcast-member`. Clients must treat absent/disabled capability
+as unavailable and continue reading; no fallback to unguarded generation. Native v5 library writes use
+042's epoch-checked commands when the user explicitly adds/removes a source. Audio does not become a
+special pseudo-paper or alter the existing library synchronization table layout.
+
+Assign actual migration numbers only after merging current branches. Back up and restore-test, review
+grants/locks/limits, deploy dark with zero paid allowance, certify all buckets, then run mock journeys. Each
+activation is explicit. Rollback disables admission and catalog publication while allowing settlement,
+deletion and safe reads of already-verified downloads; applied migrations remain immutable.
+
+## Financial and job lifecycle
+
+`quoted -> queued -> scripting -> checking -> synthesizing -> verifying -> publishing -> ready`.
+Explicit terminal or holding states: canceled, failed, needs_credits, capacity_wait, unknown_provider,
+quarantined. Store stage-entered time and next permitted non-paid retry; no generic “99%” for waits.
+
+Start rechecks actor/account, dataset epoch, source membership/rights, consent, profile, exact ready/active
+work, row/storage capacity, customer balance, seed/quality sub-budget and platform headroom in one admitted
+transaction. A ready matching private release returns reuse with zero generation reservation. A matching
+active same-owner job joins it. The quote never authorizes arbitrary later edits to its source or options.
+
+Lock order must compose with existing financial paths: budget period(s), accounts in UUID order, financial
+policy/operation locks, podcast work/job rows, then shared storage/transfer capacity in its documented order.
+Never hold a job/source row and then call a helper that acquires an account/budget row. Cancellation,
+deletion, publish, refund and maintenance use the same captured identities; late identity discovery aborts
+for retry. Public-ready lookup is read-only and must not turn into a lock inversion when reserving a miss.
+True concurrent-session tests, including account deletion/purchase refund, are required before this order
+is accepted as implemented.
+
+Each script, review, speech or permitted repair POST consumes its own **one-shot durable attempt grant**
+under the existing034 protocol. Disable SDK retries and hidden server fallback; record all usage and
+returned model identities. New rounds may use only the unspent parent envelope. An unknown outcome retains
+its full provider ceiling and pauses paid continuation; a lease expiry does not mean the vendor did no work.
+Finishing the same attempt is replay-safe; retrying a finish never sends speech again. Recovery with no
+provider query API may require audited vendor evidence/manual reconciliation, and never automatically costs
+another generation. Stale workers cannot upload/publish after a new claim or canceled request.
+
+Before submission, cancel releases the customer's unused hold and detaches interest. During a provider
+call, mark cancel requested, stop future calls, collect/settle confirmed usage where possible; no promised
+instant provider cancellation. A normal canceled private job charges known incurred usage within its
+disclosed maximum. A rejected/unsafe quality result charges the customer zero under the proposed policy;
+record that loss separately against a bounded platform quality allocation. Ambiguous usage can release a
+customer hold under an explicit service policy without erasing provider liability; do not use a timeout to
+claim zero provider expense. Public seed cancellation is an operator action independent of listener interest.
+
+V1 has no automatic paid retry. An explicit new generation uses a new quote/operation and `retry_of`; prior
+unknown liabilities still count globally and any overlapping unknown work blocks a fresh submission.
+Metadata/status/transcode/publication retries are bounded, idempotent and resume verified inputs only.
+Financial results are immutable even if the user later deletes the episode; retain existing de-identified
+financial records, not transcript contents. Refunds never manufacture provider refunds or reuse savings.
+
+Initial numerical envelope proposal: one active private job/account, two active jobs/environment, one paid
+speech transport at a time, 20 new jobs/day/environment, at most 64 provider attempts/operation under the
+existing policy and the profile's much smaller count. Five-minute v1 permits **two script calls + one speech
+call, no repair**; provider reserve up to $0.75/150 credits as derived in the economics model. Use the full
+documented speech serving cap until smaller bounds are proved; reject an oversized source, do not summarize
+only its beginning invisibly. Limits are ceilings, not a plan entitlement or permission to spend $15/day.
+
+## Scientific transcript and audio quality
+
+The script schema includes stable segment/claim IDs, speaker, spoken text, evidence locators, claim type
+(`paper_result`, `author_interpretation`, `explainer_analogy`), limitations, original math and a separate
+spoken expansion. Every material quantitative/comparative/scientific claim must have evidence; no valid
+locator means remove the claim or fail review. Treat PDFs/metadata as untrusted source data, never provider
+instructions. No browsing or model-driven tools in the script route. Model review is evidence to inspect,
+not proof of correctness.
+
+Retain exact LaTeX/MathML from the paper for display; do not replace it with TTS phonetics. A notation map
+ties spoken “theta at step t plus one” to the original equation/anchor. Explain a formula's role and
+assumptions in audio rather than reading every symbol. Check signs, inequalities, exponents, denominators,
+dimensions, units, table numbers and baselines against the evidence map. If a graph cannot be understood
+from verified text/caption, say what is supported or omit the interpretation; no invented trend.
+
+The speech adapter uses structured speaker/style metadata, fixed licensed synthetic voices, and no user
+voice uploads. Gemini's current generation schema separates that metadata from verbatim speech; do not
+send older inline “Speaker 1:” instructions that may be read aloud. Validate MIME/container, sample rate,
+channels, decoded duration, size, non-silent audio and complete ending; pin encoder/normalization settings.
+The provider's model limit is a billing bound, not evidence of a natural ending or scientific fidelity.
+[Google model/schema guidance](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash-tts).
+
+Evaluation set before public activation: equation-heavy derivation, survey, figure/table-heavy empirical
+paper, negative/limited result, long notation-heavy methods paper and adversarial PDF instructions. A reader
+familiar with each paper scores factual support, correct comparisons/numbers, limitations, equation
+pronunciation and usefulness. Gate: zero material unsupported/incorrect claims in the reviewed release,
+every evidence link correct, no cut-off speech, and acceptable listening quality on headphones and phone
+speakers. This is per-release review, not a universal guarantee. Curated episodes require an operator's
+review record; private v1 generation remains beta and visibly labeled with easy report/specific-time action.
+
+Track draft/review/audio acceptance separately, reviewer disagreements, cost per **accepted** minute,
+first-playable time, audio duration, failure/repair/unknown rates and transcript/source revision. Optional
+transcription can detect missing/changed words and numbers but can itself mishear equations; it is a
+separately admitted QA expense, not an infallible judge. Compare OpenAI using the same approved script only
+after its hard output-cost bound is established; no silent fallback or indefinite blind model retries.
+
+## Storage, bounded delivery and offline sync
+
+Proposed per-active-job capacity: 64 MiB temporary source audio, 16 MiB encoded audio and 4 MiB
+transcript/evidence/manifest, with bounded object counts. These reservations count within global capacity;
+they are not new independent storage allowances. Register exact hashes/lengths/MIMEs before writes, retain
+uncertain writes/temporary objects until confirmed cleanup, and only publish a fully verified manifest.
+An expired claim never frees capacity by assumption. Prefer transient encrypted scratch; any durable raw
+audio is inventoried and deleted after verified encoding/publication according to an explicit TTL.
+
+V1 deliberately uses a **small complete verified audio file**: Play obtains a single-use, short-lived,
+account/release/object-bound grant, downloads into encrypted/protected local storage, verifies hash/length,
+then uses AVPlayer or the browser audio element. Target size is about 2.4 MB for five minutes; show progress
+and cancel on slow networks. No silent prefetch of whole catalog cards, Range requests or public reusable
+Storage URLs. The manifest/transcript also consume delivery authorization. A failed transfer consumes its
+authorized-byte allowance conservatively; a retry needs new admission. Keep local replay free of new transfer.
+
+This choice costs initial download latency; measure it explicitly. Progressive/range playback can be a
+subsequent reviewed transport: immutable bounded segments or bounded range grants must charge every
+upstream read and repeated range request before fetching, support player seeks/retries, and cap the session's
+total bytes. A token expiry alone is not a replay/egress limit. Do not quietly add public HLS playlists while
+claiming035's one-shot delivery still covers it.
+
+Suggested initial separate audio transfer ceilings, all also charged to shared environment capacity:
+free account 100 MiB/month, paid account 512 MiB/month, environment 2 GiB/month. Expose remaining download
+capacity where it affects the action; ordinary local playback continues when transfer stops. Confirm these
+ceilings fit current global caps and measured demand before activation; they are not a reason to grow the
+global cap or count the same transfer as free cached egress. Retained private audio counts toward the existing
+1 GiB/account; shared catalog/audio within the common inventory cap. At exhaustion, new generation/delivery
+pauses plainly rather than evicting a user's library automatically.
+
+Offline cache owns verified files, manifests, transcript and release status/version. “Downloaded” is true
+only after durable commit and every required hash check. Account switch/sign-out separates or clears
+decrypted handles; private audio inherits protected/encrypted local storage, never unprotected browser
+CacheStorage with a global key. Handle browser persistence eviction honestly. Download/remove is device-local;
+saved episodes, playback position, completion and settings sync encrypted across surfaces.
+
+Playback state uses an explicit play-session/sequence with a deterministic concurrent-merge rule, not
+`max(position)`: seeking backwards and replaying are intentional. A remote sync update never moves the
+currently playing device; it offers resume on the next open. Persist at pause/background/chapter changes
+and at a bounded interval, not every second; interrupted offline devices must not reset a newer session.
+Client tests must cover backwards seeks, two devices offline, duplicates, session ordering, account change
+and deleted saved entries. The server inevitably sees authenticated content delivery/generation metadata;
+do not claim that E2EE positions hide all listening activity.
+
+## Privacy, corrections and deletion
+
+Shared releases contain approved public source-derived material only. Proposed private releases contain
+paper-derived audio/transcripts in access-controlled server storage, with platform-managed at-rest encryption,
+**not E2EE**. This is a product/privacy decision requiring acceptance; personal chats, annotations and
+custom private instructions stay excluded. An E2EE background personalized podcast would require a separate
+bounded job-envelope, recipient-key and recovery design rather than durable plaintext prompts in a queue.
+Provider retention and consent must name each activated provider; do not use a free provider tier that
+trains on inputs as an assumed cost saving for private PDFs.
+
+Quarantine removes catalog/search visibility and new grants immediately, without rewriting financial
+history. Corrected releases link both ways and keep their exact old provenance. Source retraction is
+distinct from a confirmed factual audio error or rights dispute, and the UI says which. Fetch a bounded
+revocation/correction status list on reconnect and before a new download; remove blocked cached playback
+when learned, and surface a replacement for correctable releases. Offline devices cannot learn a new
+takedown immediately, and exported lawful copies cannot be remotely erased. Do not promise that they can.
+
+Removing a saved public episode deletes only private membership/progress according to the user's choice;
+it never deletes shared catalog content for others. Deleting a private release revokes access, cancels
+future work, tombstones its intent against late workers, and schedules every staged/final object for
+confirmed deletion. Account deletion includes quotes, requests, private scripts/audio, saved encrypted
+events, temporary uploads and cached-auth revocation; legal financial records stay de-identified under
+existing policy. Public seed releases survive operator-account deletion only if their rights/quality
+approval is independent and active. A private-to-public “share” action is not in v1.
+
+## Acceptance and operator visibility
+
+Read-only admin views add provider costs/reservations/unknowns by route and release, customer charged versus
+refunded credits, platform seed/quality spend, admitted/accepted minutes, attempt lineage, serving model/rate,
+asset inventory/deletion discrepancies and authorized/observed transfer bytes. Aggregate reuse distinguishes
+unique accounts, new downloads and local replays; listening positions need not be decrypted for analytics.
+New routes appear in037 dashboards and alert/check thresholds before they are enabled. Cost telemetry uses
+IDs and numeric units; reports only include a transcript/excerpt with the user's explicit attachment.
+
+Required independent review/testing before real generation:
+
+- Schema/RLS: wrong owner/source/artifact combinations, private-work existence oracle, shared rights changes,
+  older clients, denied/granted capability negotiation and dataset-epoch changes.
+- Money: concurrent quote/start, two-device duplicates, last-moment ready reuse, canceled first funder,
+  account deletion/refund races, missing grant acknowledgement, paid response without usage, price/model
+  drift, exhausted sub-budget/global budget, and actual cost above a bound freezing new work.
+- Worker: lease theft after admission, crash after provider acceptance, crash after upload before publish,
+  late callback after cancellation/deletion, publication replay, no hidden SDK/fallback retry, partial files,
+  malformed audio and no paid automatic re-execution during restore/reconciliation.
+- Delivery/storage: one-shot replay, malformed/full/Range requests, concurrent redeems, aborted transfer,
+  quota races, orphaned temporary audio, wrong object hashes, incomplete inventory and deletion failure.
+- Human workflow: browse/play/return to paper/chat, evidence jump, offline download, background interruption,
+  seek/speed, account switch, slow-network cancellation, correction banner and two-device resume on native
+  and browser. Verify sound and source fidelity, not merely that a player has a Play button.
+
+Sequence: schema and identity/cost review; zero-spend fixtures/import path; local and staged mock journeys;
+owner-approved bounded provider/quality pilot; two reviewed seed releases; then private beta with visible
+quote, status and diagnostics. No public promises of podcast parity, unlimited generation, or unmeasured
+factual reliability. Expand length/language/voices and sponsorship only after the measured v1 contract holds.
