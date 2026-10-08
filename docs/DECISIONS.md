@@ -903,3 +903,17 @@ and backend contracts stay unchanged. Markdown/math and Mermaid load only when d
 remain tab-memory only and are described that way; durable offline chat requires a separate encrypted local-journal
 review. No Safari fallback, plaintext persistence, provider call or hosted deployment accompanies this branch.
 Detailed bounds, behavior and evidence: [Browser reader › Chat](architecture/BROWSER_READER.md#chat-milestone-2).
+
+## Paper podcasts v1 (owner asked 2026-10-08: "build the notebook LM podcasts feature please")
+
+The lead read the request as accepting two of the three [pricing decisions](research/PRICING_RECOMMENDATION_20261008.md#three-decisions-to-close-before-activation);
+Decision 1 (public offers 500/1,200/250) is out of scope and unchanged. Design: [Paper podcasts](architecture/PAPER_PODCASTS.md).
+
+| Decision | Choice |
+|---|---|
+| Decision 2 — shared catalog funding (accepted) | Platform-funded seed episodes: **at most $2 in total** for the first two five-minute curated episodes, each admitted at up to **$0.75**, inside the existing $25 provider cap (not on top of it). The operator's own account funds them with zero customer credits (`funding_kind=platform_seed`) under a dated seed period that is created **disabled**; no automatic replenishment or rollover. Browsing and playing ready shared episodes costs no generation credits. Public sponsorship and revenue sharing stay deferred. |
+| Decision 3 — private generation (accepted) | Server-readable private source-derived audio/transcripts with the same access/deletion boundary as private PDFs; no private-chat input; an explicit quote ("Estimate … maximum 150 credits"); one funding operation; actual usage charged within that maximum; quality failures charge the customer zero; **no paid automatic retry**. |
+| Listening history (agent decision, reversible) | Device-local in v1. The design requires a separately versioned encrypted podcast stream (own envelope domain, cursor, compaction and old-client tests) before any server copy; adding podcast kinds to the existing encrypted stream would stall older clients. No server table for positions exists. |
+| Speech provider (agent decision, reversible) | Gemini 3.8 Flash TTS (`gemini-3.8-flash-tts`, Preview) through Vertex AI's global endpoint in GCP project `gradstep`, called with a short-lived token for a dedicated service account that the worker impersonates; no API key. Voices fixed: Sadaltager (explainer) and Erinome (skeptical reader). Reserved at the January 2027 list price ($1/M text in, $18/M audio out) even while the 50% promotional credit runs. |
+| Script model | Claude Sonnet 5.5 (`claude-sonnet-5-5`), two passes (6,000 then 4,000 output tokens, ≤ 80,000 input tokens each), no tools, no server-side fallback, no SDK retries, structured JSON output grounded only in the pinned converted text. |
+| Activation | Nothing is enabled by migration 046. The lead reviews, applies it, certifies inventory scope 3, enables the seed period and runs the $2 seed pilot; private generation is a later explicit switch. |

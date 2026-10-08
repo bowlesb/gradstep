@@ -369,3 +369,54 @@ Sequence: schema and identity/cost review; zero-spend fixtures/import path; loca
 owner-approved bounded provider/quality pilot; two reviewed seed releases; then private beta with visible
 quote, status and diagnostics. No public promises of podcast parity, unlimited generation, or unmeasured
 factual reliability. Expand length/language/voices and sponsorship only after the measured v1 contract holds.
+
+## V1 implementation contract (2026-10-08, branch `podcast-v1`)
+
+Owner request 2026-10-08: "build the notebook LM podcasts feature please". Read as accepting Decision 2
+(platform seeds, at most $2 for the first two five-minute curated episodes, each admitted at up to $0.75, inside
+the existing $25 provider cap) and Decision 3 (the bounded private-generation contract); Decision 1 (public offers)
+is out of scope. See [DECISIONS.md](../DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08). Everything below ships
+**dark**: migration 046 creates every switch disabled, and no paid provider call was made while building it.
+
+### Client API (Edge `podcast`, bounded `podcast-member`)
+
+All requests carry the customer's `Authorization: Bearer` token; responses are `application/json`, `no-store`, and
+errors are `{ "code": "<finite_code>" }`. Absent or disabled capability means "unavailable": clients keep reading
+and never fall back to unguarded generation. Times are ISO 8601; durations are integer milliseconds.
+
+| Call | Request | Response |
+|---|---|---|
+| `GET ?action=catalog&after=&limit=` (≤ 50) | — | `{ episodes: [Episode], next: string\|null, capabilities: Capabilities }` |
+| `GET ?action=episode&release_id=` | — | `{ episode: Episode & { chapters: [Chapter], transcript: Transcript } }` |
+| `GET ?action=paper&item_id=` | — | `{ episode: Episode\|null, job: Job\|null, capabilities }` (shared or own private release for that library item) |
+| `POST ?action=quote` | `{ item_id, request_id }` | `{ quote: Quote }` or `{ reuse: { release_id } }` or `{ join: { request_id } }` |
+| `POST ?action=start` | `{ quote_id, request_id, consent_version }` | `{ job: Job }` |
+| `GET ?action=status&request_id=` | — | `{ job: Job }` |
+| `POST ?action=cancel` | `{ request_id }` | `{ job: Job }` |
+| `POST ?action=download` | `{ release_id }` | `{ grant: { expires_at, members: [Member] } }` |
+| `POST ?action=states` | `{ release_ids: [uuid] }` (≤ 100) | `{ states: { [release_id]: { state, replacement_id } } }` |
+| `GET podcast-member?grant=&member=` | bearer token | the member's exact bytes; single use; `Range` refused |
+
+- **Episode** `{ release_id, scope: "shared"|"private", title, year, authors: [string], topic: string|null,
+  duration_ms, language: "en", ai_audio: true, fixture: bool, document_id, published_at, state,
+  source: { arxiv_id|null, version|null, url|null, license|null }, audio: { bytes, sha256, media_type } }`.
+  `fixture: true` marks labeled synthetic fixture audio; clients show "Synthetic fixture" next to the AI-audio badge.
+- **Chapter** `{ id, title, start_ms }`. **Transcript** `{ speakers: { explainer: string, skeptic: string },
+  disclosure: string, timing: "approximate", segments: [{ id, speaker: "explainer"|"skeptic", text, start_ms,
+  end_ms, chapter, claim_type: "paper_result"|"author_interpretation"|"explainer_analogy"|"context",
+  evidence: [{ id, quote, section|null }], math: [{ latex, spoken }] }] }`. Evidence `quote` is verbatim text from the
+  pinned converted paper; clients open the paper at that quote (the passage-anchor finder), or show the source
+  link and an explicit Add action when the paper is not in the library.
+- **Quote** `{ id, expires_at, max_credits: 150, estimate: "Estimate — you're charged actual usage, maximum 150 credits",
+  providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consent_version: "podcast-private-v1", target_seconds: 300 }`.
+- **Job** `{ request_id, state, stage_entered_at, release_id|null, held_credits, charged_credits|null,
+  released_credits|null, failure|null }`; state is one of `queued, scripting, checking, synthesizing, verifying,
+  publishing, ready, canceled, failed, capacity_wait, unknown_provider, quarantined`. Poll status; never infer
+  completion or charges from elapsed time.
+- **Member** `{ role: "audio", url, bytes, sha256, media_type }`. The client downloads into protected local storage,
+  verifies length and SHA-256, and only then marks the episode downloaded. A failed download needs a new grant.
+- **Capabilities** `{ catalog: bool, generation: bool, delivery: bool, max_credits: 150, target_seconds: 300,
+  transfer: { remaining_bytes, limit_bytes } }`.
+
+Listening position and history are **device-local in v1** (see "Listening history" below): no podcast events enter
+the encrypted history stream, so older clients' chat/history replay is unaffected.
