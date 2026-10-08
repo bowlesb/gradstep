@@ -89,9 +89,10 @@ with the same Apple identity, plus a shared account using distinct Apple identit
 either allowance. Replays, missing/changed identities, unattributed-first reports, refunds/reversals, deleted-account
 restore and Production regression cases must preserve that invariant. The plan-change credit policy is unchanged.
 
-### Owner spending investigation (037 applied; UI locally verified)
+### Owner spending investigation (037 applied; admin deployed; owner session unverified)
 
-The owner-only **Spending** page replaces Usage and requires the existing MFA gate. Its 7/30/90-day summaries
+The owner-only **Spending** page is deployed at `https://admin.gradstep.ai`, Pages **349d3859**. It replaces Usage
+and requires the existing MFA gate. Its 7/30/90-day summaries
 separate reported provider costs, conservative estimates, customer debits, and unresolved liabilities. An all-date
 unresolved filter includes old prepaid search attempts even when their dollar ceiling is zero. Operation and
 event-history pages use bounded keyset cursors; details show recorded pricing, provider request IDs, numeric units,
@@ -101,9 +102,17 @@ The operating forecast includes the full provider allocation plus dated overhead
 remain **not recorded** and make the forecast incomplete. The dashboard does not manufacture invoices from metrics
 or promise an infrastructure-wide vendor spending cap. External cost observations remain append-only.
 
-#### Owner evidence entry (local implementation, not deployed)
+#### Owner evidence entry (API and frontend deployed 2026-10-08)
 
-The Spending page gains a small form for reporting month, component, measure, USD amount, completeness and an
+`admin-spending` v1 is deployed from reviewed **31bcf1b**, with all six served modules matched to source. The
+frontend is live in Pages **349d3859**, with exact admin-origin CORS verified. Anonymous callers receive 401 and
+customers 403; the hosted denial check recorded no observation and left credits/provider expense unchanged.
+The public sign-in screen passed HTTPS/CSP/HSTS/no-transform and desktop/phone checks. An audited bootstrap
+granted the existing verified account the owner role without changing its password or MFA factors. **A real
+owner password/TOTP session, privileged dashboard journeys and successful hosted evidence entry remain untested;
+no invoice has been entered.** [Hosting and redacted deployment evidence](ADMIN_HOSTING.md).
+
+The Spending page has a small form for reporting month, component, measure, USD amount, completeness and an
 evidence reference. A reporting month is an allocation bucket, not an inferred invoice service interval. Record
 commitments/forecasts separately from invoices/metrics: only the latest commitment or forecast per component feeds
 the plan, so an invoice does not charge the provider budget or add the same subscription a second time. Unknown
@@ -111,7 +120,7 @@ amounts and partial evidence remain explicit. For example, the owner's paid Octo
 $30 paid, but not its prior service interval; the separately supplied upcoming November 6–December 6 interval is
 known. Neither observation invents coverage for October 6–November 6.
 
-The new `admin-spending` Edge route validates Auth through `userClient`, then runs `v1_admin_actor` on that same
+The deployed `admin-spending` Edge route validates Auth through `userClient`, then runs `v1_admin_actor` on that same
 caller's token and checks the returned account. Only an owner with real `aal2` can reach the service-role client.
 It consumes the existing `admin-spending` rate window, then calls the already applied
 `worker_record_spending_observation`, which rechecks that the actor is an open owner. An owner UUID or a service
@@ -123,8 +132,8 @@ Each submission freezes its UUID, observation timestamp and fields until acknowl
 session retry journal stores only the fields' SHA-256 digest, UUID and timestamp; evidence and other form contents
 stay in memory. Re-entering the same fields after a reload uses that exact retry identity. An unavailable journal
 fails before sending. A successful exact replay is acknowledged once; a lost response never silently creates a
-new observation. Different entries are explicit new actions. The supplied invoice has not been entered: a real
-owner/MFA session and separately reviewed deployment remain required.
+new observation. Different entries are explicit new actions. The supplied invoice has not been entered:
+deployment is complete, but a real owner/MFA session remains required.
 
 The form records the component's amount for the reporting month; a planning entry replaces that component's
 previous total, rather than summing individual line items. It supports the existing eight cost components and
@@ -149,8 +158,8 @@ build and `node scripts/check-spending-dashboard.mjs` pass. The loopback-only jo
 details/history paging, keyboard focus and return, filters with delayed responses, zero-dollar unresolved work,
 empty/error states, phone-width layout and dark appearance. Screenshots under `.artifacts/spending-dashboard/`
 were inspected; development fixtures are excluded from production. Migration 037 and its APIs were subsequently
-applied to staging. This UI proof remains local fixture evidence; a live owner/MFA dashboard journey has not been
-re-audited in this takeover.
+applied to staging and the admin frontend is now hosted. These privileged UI journeys remain local fixture
+evidence; the live sign-in-screen and denied-caller checks do not establish a real owner/MFA dashboard journey.
 
 ## Current evidence and remaining limits — 2026-10-08 UTC
 
