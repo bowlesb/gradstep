@@ -1,11 +1,27 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 19 is available for internal iOS and Mac testing; browser chat is deployed.**
+Updated 2026-10-08 UTC. **Build 20 is available for internal iOS and Mac testing; browser chat and chosen columns are deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **iOS and Mac TestFlight build 20**, source `bd2e0f2`, uploaded October 7 at 23:43 PDT. Apple confirms both
+  **VALID / IN_BETA_TESTING**: iOS `74725990-aedc-4ac3-b609-347cb4d2a0e6`, Mac
+  `cea77106-c5e9-45f4-9245-3759a0816f5e`; `.artifacts/takeover-20261008/build-20-processing.json`.
+  Includes all of 19 plus full expanded Feed titles/abstracts in table and list layouts, explicit Library links
+  in chat that preserve drafts/history, and reference actions without repeating bibliography text. Focused
+  validation: Core 248 Swift Testing + 6 XCTest, 68 native cases, five UI journeys, light/dark and accessibility-XL
+  coverage, and universal Catalyst build. No new iPad UI or physical-device claim; screenshots in `native-build20/`.
+- **Full abstracts are live in discover v78**, opt-in `abstract=full`; existing preview clients keep the old
+  response. All 11 deployed modules match reviewed source `35209d4`. Three real zero-credit requests verified
+  legacy compatibility, exact complete arXiv abstract (1,604 characters), and a bounded 25-paper Feed. Zero
+  provider usage or holds and complete disposable-account deletion: `discover-full-hosted-smoke.json`.
+- **Browser column/full-abstract follow-up deployed**, Pages `67f5547c` from `0fb60c7`. Library columns are
+  optional and persistent; Title stays pinned during horizontal scrolling. Expanded Feed cards show full titles
+  and abstracts. Six Library workflows include 4,000-entry desktop/390 px libraries; four combined column/Feed
+  workflows pass. Production build and live HTTP/CSP/HSTS/no-console-error check pass (`web-columns-live-smoke.json`).
+  Earlier browser chat and hosted encrypted-history evidence below remain applicable, with their stated limits.
 - **iOS and Mac TestFlight build 19**, source `b4b7ad7`, uploaded October 7 at 22:56 PDT. App Store Connect
   confirms both **VALID / IN_BETA_TESTING**: iOS `6bda87b4-c0b8-45e4-a760-a6328beb979d`,
   Mac `d6bf3f5e-8d8f-4936-a0fa-039d2369651b`. Evidence:

@@ -865,13 +865,13 @@ Milestone 1 of the web redesign ([Browser reader › Workspace](architecture/BRO
 | Add | arXiv stays a library command; DOI/links use `add-paper` with `web_import` only; PDF upload stays out of the browser until its client is built. |
 | Chat pane | A placeholder that says chat is not yet in the browser; milestone 2 builds paper/general chat, encrypted history and selection actions there. |
 
-**Library table follow-up (owner requested chosen columns across surfaces; local 2026-10-08 UTC):** replaces the
+**Library table follow-up (owner requested chosen columns across surfaces; deployed 2026-10-08 UTC):** replaces the
 M1 width-dependent column hiding above. Title is always pinned; Authors, Year, Tags, Added, Opened and Progress are
 optional and remain reachable by horizontal scrolling inside the center pane. Choices are bounded, versioned
 per-browser presentation preferences; initial/Reset defaults are Year/Progress below 760 px and all details on
 wider windows. Resizing never removes a chosen column. Import states/actions remain beside Title. Native dialog
 checkboxes, Reset, Escape/focus return, keyboard sorting and explicit overflow arrows preserve the existing
-navigation/query model. No API/schema/private-data storage change. This follow-up is not in hosted Pages `68faefdb`;
+navigation/query model. No API/schema/private-data storage change. This follow-up is in hosted Pages `67f5547c`;
 see [browser verification](architecture/BROWSER_READER.md#library-column-follow-up--local-verification-2026-10-08-utc).
 
 

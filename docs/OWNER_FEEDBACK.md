@@ -2,9 +2,9 @@
 
 TestFlight screenshot feedback is read from App Store Connect (`betaFeedbackScreenshotSubmissions`; screenshots are
 saved under `.artifacts/feedback/`, which is not committed). Each item gets a plan and is closed with the build that
-fixes it. “In build 19” below means the reviewed change is included in both internal TestFlight builds, confirmed
-VALID / IN_BETA_TESTING on 2026-10-08 UTC; it does not claim the owner has installed or accepted it.
-Source `b4b7ad7`; release evidence `.artifacts/takeover-20261008/build-19-processing.json`.
+fixes it. “In build 19/20” below means the reviewed change is included in both internal iOS/Mac TestFlight builds,
+confirmed VALID / IN_BETA_TESTING on 2026-10-08 UTC; it does not claim the owner has installed or accepted it.
+Sources `b4b7ad7` / `bd2e0f2`; release evidence `.artifacts/takeover-20261008/build-{19,20}-processing.json`.
 
 ## Purchase credits, 2026-10-07 (TestFlight build 13; observed Sandbox path repaired)
 
@@ -96,7 +96,7 @@ in 19 from the follow-up work started afterward.
 | Report | Owner feedback / observed issue | Status and next action |
 |---|---|---|
 | `AGd2CKOBGtQ2_DixxpXTxxg` | “No if there’s room. Find a way to make horizontal scrolling a good UX pls” | Covered by build 19's chosen-column horizontal scrolling and pinned columns; owner acceptance remains. |
-| `ALdL2H9qgXauIAihHJQz8J8` | Expanded Feed row should show the entire title and abstract, with abstract text-size control | Follow-up in progress after 19; do not mark fixed by the general table/text-size work. |
-| `AAWbg6g4dUfzp4mwU1x5u14` | “It looks like this is a bad UX please fix”; screenshot shows truncated expanded abstract | Same expanded Feed workflow follow-up; not yet verified or shipped. |
-| `ABHWnLf34Hf5ty2J-F3Blv4` | Reference popover repeats the visible bibliography text; buttons/options are liked | Preserve the useful actions and remove duplicate presentation; follow-up in progress, not in 19. |
-| `AH_QWMX10xPbqz3-10h1WGk` | Ingested-paper links need explicit Library and arXiv website destinations; “Open” is vague | Build 19 replaces the generic Open label with the identifier, but the separate in-library navigation request still needs verification/fix. |
+| `ALdL2H9qgXauIAihHJQz8J8` | Expanded Feed row should show the entire title and abstract, with abstract text-size control | In build 20: full expanded table title/abstract, A−/A+ retained, list expansion also available; long ending verified in light/dark and accessibility XL. |
+| `AAWbg6g4dUfzp4mwU1x5u14` | “It looks like this is a bad UX please fix”; screenshot shows truncated expanded abstract | In build 20 + discover v78. The server's 700-character preview was the root cause; new clients opt into a bounded full abstract, preserve mathematical Unicode and label any actual excerpt. Hosted full source/Feed smoke passes. |
+| `ABHWnLf34Hf5ty2J-F3Blv4` | Reference popover repeats the visible bibliography text; buttons/options are liked | In build 20: reference title and existing actions retained, duplicate body removed. Reference → actions → Copy → Back journey passes. |
+| `AH_QWMX10xPbqz3-10h1WGk` | Ingested-paper links need explicit Library and arXiv website destinations; “Open” is vague | In build 20: visibly labeled Library button beside the external identifier link. Opens the current saved paper or pending import, including wide layout, and preserves the previous chat draft/history; model and UI regressions pass. |

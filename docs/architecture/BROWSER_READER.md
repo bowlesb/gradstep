@@ -1,8 +1,9 @@
 # Browser reader
 
-Status, 2026-10-08 UTC: **milestone 2 deployed to https://app.gradstep.ai against staging**, Pages `68faefdb`
-from combined source `b4b7ad7`. It adds encrypted browser chat to the existing reader workspace. Deployment log and
-live smoke: `.artifacts/takeover-20261008/{web-deploy.log,web-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
+Status, 2026-10-08 UTC: **milestone 2 and Library columns/full abstracts deployed to https://app.gradstep.ai
+against staging**, latest Pages `67f5547c` from `0fb60c7`. Encrypted browser chat first shipped in `68faefdb`
+from `b4b7ad7`; the follow-up retains it. Latest deployment/smoke:
+`.artifacts/takeover-20261008/{web-columns-deploy.log,web-columns-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
 errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
 real key setup, reading and encrypted question/history recovery. Auth was seeded; email/OAuth UI, paid answers,
 Safari support and an E2EE claim remain outside that proof. Key-storage/draft limits are below. Original reader/M1 deployment
@@ -51,7 +52,7 @@ the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout
 
 ### Library column follow-up — local verification, 2026-10-08 UTC
 
-**Local only; not included in deployed Pages `68faefdb`.** The owner's request to keep chosen columns available
+**Deployed as Pages `67f5547c`; not part of the earlier `68faefdb`.** The owner's request to keep chosen columns available
 now applies to the browser Library. Columns opens a native dialog with checkboxes for Authors, Year, Tags, Added,
 Opened and Progress; Title is always shown. Reset restores defaults; Escape/Done returns to the table with focus
 restored to Columns. A horizontal scroll region stays inside the center pane; the title and header row remain pinned. When
@@ -72,6 +73,13 @@ horizontal title pinning, sticky headers, resize, retry with Progress hidden, re
 search 278/255 ms (desktop/390 px); 7.5/6.2 ms script time during each roughly 3.4-second import observation window.
 These are local fixture measurements, not hosted capacity or Safari evidence. Light/dark screenshots:
 `.artifacts/web-columns/`; capacity metrics: `.artifacts/web-library/chosen-columns-{desktop,phone}-metrics.json`.
+
+The combined source also passes four desktop/390 px Library-column and full-abstract Feed workflows. Expanded
+Feed cards span the content width and show the entire title and opted-in full abstract; a bounded excerpt is
+labeled when necessary. Live discover v78 preserves old clients' preview payload and serves new clients the
+additive `abstract=full` response. Three hosted zero-credit requests verified legacy compatibility, a complete
+source-matched 1,604-character abstract, and 25 RSS results in 63,142 bytes, then deleted the test accounts:
+`.artifacts/takeover-20261008/discover-full-hosted-smoke.json`. This metadata check does not exercise paid chat.
 
 ## Where it lives
 
