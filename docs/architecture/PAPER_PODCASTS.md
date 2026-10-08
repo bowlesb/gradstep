@@ -599,7 +599,10 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    starts; ffmpeg (Debian 5.1 in the worker image) encodes **mono AAC-LC 64 kbit/s, 24 kHz, MP4/M4A** with EBU R128
    loudness normalization (−16 LUFS) and chapter markers; ffprobe must show exactly one mono AAC stream plus the MP4
    chapter text track, the right chapter count and a duration within 1.5 s of the WAV.
-7. **Publication:** release key = SHA-256 of audio and transcript hashes; exact 3-object plan (`audio.m4a`,
+   ffmpeg comes from Debian's package in our own worker container (LGPL/GPL components); it runs server-side only and
+   is not distributed in any app.
+7. **Publication:** release key = SHA-256 of the job id and the audio and transcript hashes (the manifest also names
+   job, episode and scope, so identical bytes from two jobs stay distinct releases); exact 3-object plan (`audio.m4a`,
    `transcript.json`, `manifest.json`), one write grant each, upload without overwrite (a lost reply is accepted
    only after re-reading the exact bytes), then `worker_podcast_publish` settles: seed → `pending_review` (operator
    `review` publishes), private → `ready`. Customer charge = ⌈known µ$ / 5,000⌉ credits ≤ 150.
