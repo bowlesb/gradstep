@@ -253,7 +253,7 @@ Admission must also reject a closed or spending-suspended account and an active 
    an automatic new session loop.
 5. **Finish receiving.** Compare-and-swap the session revision only when every declared part has one selected verified
    object. Freeze that ordered selection and a generation; reject further part starts. Attach/create the import with
-   the existing stable command identity and target revision, and transfer the future holds. Return durable processing
+   the existing stable command identity and target revision. Keep future holds on the session until the worker atomically transfers them before its first GET. Return durable processing
    state, not an assertion that the file is already verified. Repeated finish returns the same result. A late retry
    cannot resurrect an import removed after its captured membership revision.
 6. **Verify and publish.** A fenced pipeline job downloads only the frozen selected chunks. Reserve known upstream
@@ -427,8 +427,11 @@ to arXiv/web source kinds; retain the pending branch's v5 full reads for upload-
 page/changes/metadata/query facades that share v4's internal algorithms and add the explicit upload/descriptor contract.
 This avoids PostgreSQL overload/default-argument ambiguity and preserves web loading performance. Use separate
 capability-bound cursor identities; a cursor from a different source visibility or format restarts explicitly.
-Unsupported entries must still advance a legacy delta's high-water mark without leaking an unknown source; empty
-filtered pages cannot create an infinite loop. Legacy metadata hydration rejects unsupported-source IDs consistently.
+Unsupported entries must still advance a legacy delta's completed high-water mark without leaking an unknown source.
+Installed full-read clients require every `has_more` page to be nonempty and its next cursor to equal the last visible
+sequence. Indexed per-level journal identity seeks therefore skip hidden-only batches before `LIMIT + 1`, with
+authoritative filtering of each batch's entries. A hidden-only remainder finishes at the requested high-water mark;
+it does not emit an empty intermediate page. Legacy metadata hydration rejects unsupported-source IDs consistently.
 Existing v4 query projection includes neutral upload rows for the new facades, but legacy queries filter them before
 paging; counts, cursor fingerprints and tie breaks use the same visibility. Full v5 may return only the descriptor
 reference and use the same bounded hydration. No format 1 encrypted history events change, so mixed-version devices
@@ -436,8 +439,8 @@ continue to sync chats normally. Verify these rules against installed native/web
 
 Persist a minimum source-visibility level on projected entries and tombstones before deleting their source row;
 do not infer a removed upload's type from missing metadata. Baseline, delta, current query, counts and hydration all
-apply that same level. Old-client deltas filter each grouped change and strip descriptor references, but advance to
-the recorded scan boundary even when every entry was hidden. A tombstone for an upload the old client could never
+apply that same level. Old-client deltas filter each grouped change and strip descriptor references, but complete at
+the requested high-water mark when the remaining entries were all hidden. A tombstone for an upload the old client could never
 see stays hidden; a tombstone for supported content is still delivered. Public-source metadata and existing cursor
 formats retain their validation; the rollout bumps the dataset epoch where a rebuilt projection is required. New
 facades bind cursors to the upload-capable visibility, and every mutation still advances query generation even if
@@ -519,6 +522,82 @@ requests can still incur platform invocation cost; application admission alone d
   trusted devices; locked-key placeholder; title rename conflict; older-client history/library compatibility; unchanged
   offline reading. Verify private title/filename absence from database projections, logs and unencrypted queue files.
 
-Review decision requested: approve this transport/reservation/recovery direction and the encrypted-descriptor
-compatibility design before allocating the 039 schema or changing upload APIs. The feature remains gated; no upload
-schema, handler, client, hosted infrastructure or paid-provider change is implemented by this proposal.
+The lead reviewed and approved this transport/reservation/recovery direction and the encrypted-descriptor contract
+for local implementation. The feature remains gated; this approval does not enable hosted ingress or replace the
+measurement, client compatibility and explicit rollout gates above.
+
+
+### Local ingress implementation checkpoint — 2026-10-07
+
+Migration039 and the upload Edge/worker code now implement receiving → frozen → checking → consumed,
+with abandoned as a terminal cancellation/expiry state. The new transport remains disabled by default.
+The old signed/upsert transport and plaintext title parameters have been removed from server ingress.
+Current Apple upload UI still needs migration to this protocol before any feature enablement.
+
+Freeze records the selected immutable part identities and their digest, session generation, original target
+revision and observed library cursor. A separate idempotent attachment transaction uses the existing library
+command lock order and publishes the exact bound import/intent reference. Session future holds remain fully
+charged across a crash between those transactions. Worker download admission pins that exact session and
+generation, transfers future holds to the paper under the common capacity mutex, and only then grants any
+assembly GET. Admission returns that committed descriptor, so an earlier claim snapshot cannot bypass a supplied
+PDF attached in between. A per-paper admitted claim/generation marker prevents attachment from changing an already
+admitted physical source; finalize returns `upload_target_busy` and retains the frozen selection/holds for retry
+after the attempt terminates. A source past download cannot accept an unused replacement. A stale target is rejected;
+neither attachment nor the worker substitutes a newer session.
+
+Lock order is explicit:
+
+- Begin/part write: owner account `NO KEY UPDATE` → session → capacity → inventory rows. Begin rechecks the
+  feature switch under the capacity lock, so disabling it prevents a waiting admission from slipping through.
+- Freeze: owner account → session; it takes neither library policy nor capacity.
+- Attach: owner account → known owner-private paper → existing library policy/import order → session. It never takes
+  capacity. The account lock excludes concurrent same-owner import mutations; shared metadata-paper FK locks remain
+  compatible with their worker's `NO KEY UPDATE` lock.
+- Worker admission/publication/rejection: owner account → known paper fence → exact session → capacity
+  and the existing document/publication locks. No session-first path subsequently discovers a paper lock.
+- Positive write callback: owner account (closed allowed) → session → capacity → attempt/object. It records
+  terminal success after closure but cannot revive an abandoned selection. No negative/absence callback exists.
+- Janitor: capture a bounded candidate set, prelock all captured owner accounts and known papers in UUID order,
+  then sessions/capacity; skip changed paper bindings. Never acquire a newly discovered account or paper after
+  capacity. Future-unused holds may be released, but every physical attempt remains inventoried. No deletion
+  batch is issued until every physical PUT for that session has terminal positive proof. Candidate discovery excludes
+  already-clean terminal receipts and unknown-only terminal sessions with no future holds, and skips live checking
+  intents before the bounded `LIMIT`; neither cohort can starve independently deletable sessions. Issuing a batch
+  durably paces its retry for 15 minutes, so a whole window of failing removals cannot monopolize the next sweep.
+  Batch failures are isolated; confirmed successes still contribute to progress. Confirmation remains valid and
+  idempotent during pacing, and issuing/failing/expiring a batch never reduces its physical byte liability.
+- Account deletion: account `FOR UPDATE` → private papers → sessions → capacity → existing deletion flow.
+  Closure persists while uncertain writes block physical removal. Finish retains035's paper-write fence and
+  also checks ingress writes before deleting session/read/attempt references.
+
+Positive recovery makes a separately admitted, paced GET and requires the exact part size/hash. A failed, absent
+or mismatched response leaves the PUT uncertain. A single-use physical write grant plus raw nonretrying,
+nonredirecting, nonupsert transport is required for a matching object to prove that the one PUT is complete.
+Every assembly/recovery GET keeps its authorized byte ceiling even when its outcome is lost; observations are
+reported separately. Reconciliation discovery durably paces each candidate for 15 minutes before returning it,
+including when subsequent read admission is refused. Candidate failures are isolated, so one exhausted account's
+allowance cannot block another's positive recovery. Late observations after account closure cannot recreate personal
+transfer counters.
+
+Rejection and unused-session retirement clear only their exact paper/session/generation pin under owner → paper →
+session locks. They retain all physical objects and unknown writes. A replacement on the same import must bind a
+newer wanted intent; it cannot revive the rejected selection or attach to the old intent during its failure-projection
+gap. The following admitted worker transfers that replacement's holds and returns its exact descriptor.
+
+Encrypted descriptor bytes and count share the existing encrypted-storage allowance without masquerading as history
+events. `v1_sync_usage` and the admin overview expose additive `descriptor_bytes`, `descriptor_count` and
+`accounted_storage_bytes`; existing `ciphertext_bytes` still means encrypted history only. New native/browser usage
+displays must consume the total when they adopt descriptor capabilities. Only the current ciphertext envelope is
+retained; existing bounded library-command receipts preserve digest/result replay, including a currently authorized
+surviving device resolving an old author's accepted mutation after rotation.
+
+The inventory utility negotiates one-bucket scope on035 or two-bucket scope on039. Both complete listings are
+compared before/after, and all verified staging bytes are hashed against their preexisting owner-bound inventory.
+An unknown staging pathname never becomes ownership authority. Only a complete scope2 scan can enable ingress.
+
+Validation at this checkpoint: full fresh local PostgreSQL suites through039 plus14 real upload/descriptor/append
+interleavings and replacement/cleanup progress fixtures;280 backend tests (51 targeted worker/pipeline/ingress);
+15 inventory utility tests and the upload Edge Deno type check. An independent reviewer reproduced the lifecycle,
+descriptor and14-race checkpoint; deletion retry pacing received a further focused review. These are synthetic local
+receipts/fetches, not hosted Edge CPU/memory or slow-mobile-body evidence. Hosted measurements, full client
+protocol/descriptor integration, capability rollout and an explicitly reviewed feature enablement remain gates.

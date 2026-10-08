@@ -10,7 +10,7 @@ import { MathpixClient } from '../../supabase/functions/_shared/mathpix.ts';
 import { runPipeline, type PipelineDeps } from '../../supabase/functions/_shared/pipeline.ts';
 import { pipelineService, rpcAdapter, runtimeEnv, storageAdapter, uploadStorageAdapter } from '../../supabase/functions/_shared/pipeline-runtime.ts';
 import { renderReader } from '../../supabase/functions/_shared/reader-adapter.ts';
-import { sweepPdfUploads } from '../../supabase/functions/_shared/pdf-uploads.ts';
+import { reconcilePdfUploads, sweepPdfUploads } from '../../supabase/functions/_shared/pdf-uploads.ts';
 import { sweepAccountDeletions } from '../../supabase/functions/_shared/account-deletion.ts';
 import { classifyPaper, createTagClient, tagCatalog, type TaggingDeps } from '../../supabase/functions/_shared/tags.ts';
 
@@ -67,6 +67,7 @@ export async function runOnce(make: () => PipelineDeps = deps, now: () => number
   if (sweepUploads) {
     try {
       const service = pipelineService();
+      await reconcilePdfUploads(rpcAdapter(service), (path, maximum, observed) => uploadStorageAdapter(service).download(path, maximum, observed), fields => log('pdf_uploads', fields));
       await sweepPdfUploads(rpcAdapter(service), paths => uploadStorageAdapter(service).remove(paths), fields => log('pdf_uploads', fields));
     } catch { log('pdf_uploads', { event: 'pdf_upload_sweep_failed' }); }
   }

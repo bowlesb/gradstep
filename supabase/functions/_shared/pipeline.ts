@@ -36,7 +36,7 @@ export interface PaperEntry {
   source_kind?: 'arxiv' | 'web' | 'upload'; pdf_urls?: string[] | null; landing_url?: string | null;
   /** A reader's PDF this private paper uses at download (migration 039): their own upload, or one
    * supplying a web paper our servers couldn't fetch. Declared size and sha256 (hex). */
-  upload?: { id: string; object_id: string; path: string; sha256: string; bytes: number } | null;
+  upload?: { id: string; generation: number; sha256: string; bytes: number; parts: number } | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
 }
 export interface PipelinePolicy { max_pdf_bytes: number; max_ocr_pages: number; renderer_version: string; enabled: boolean }
@@ -79,7 +79,7 @@ export interface PipelineDeps {
   /** Readers' uploads (`paper-uploads` bucket, migration 039). Absent: an upload waits for a worker that has it. */
   uploads?: {
     /** Throws `storage_object_missing` when the object isn't there. */
-    download(path: string, maximumBytes: number): Promise<Uint8Array>;
+    download(path: string, maximumBytes: number, observed?: (bytes: number) => void): Promise<Uint8Array>;
     remove(paths: string[]): Promise<void>;
   };
 }
@@ -250,11 +250,34 @@ async function readUpload(deps: PipelineDeps, e: PaperEntry, claim: Claim, polic
     deps.log('upload_rejected', { paper: e.id, code });
     throw new PermanentFailure(code, 'download');
   };
-  let bytes: Uint8Array;
-  try { bytes = await deps.uploads.download(upload.path, Math.min(policy.max_pdf_bytes, upload.bytes)); }
-  catch (error) {
+  if (upload.bytes < 1 || upload.bytes > policy.max_pdf_bytes || upload.bytes > 67_108_864 ||
+      !Number.isSafeInteger(upload.generation) || upload.generation < 1 || !Number.isSafeInteger(upload.parts) || upload.parts < 1 || upload.parts > 16)
+    throw new Error('invalid_upload_descriptor');
+  const readID = deps.uuid();
+  const admitted = await deps.rpc<{ read: boolean; objects: { index: number; id: string; bucket: string; path: string; bytes: number; sha256: string }[] }>(
+    'worker_pdf_upload_read', { ...claim, p_read_id: readID, p_upload_id: upload.id, p_upload_generation: upload.generation });
+  if (!admitted?.read) throw new Error('upload_read_not_admitted');
+  if (!Array.isArray(admitted.objects) || admitted.objects.length !== upload.parts || admitted.objects.some((o, index) => o.index !== index ||
+      o.bucket !== 'paper-uploads' || !o.path.startsWith(`${e.owner_id}/${upload.id}/${index}/`) ||
+      !/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/(?:[0-9]|1[0-5])\/[0-9a-f-]{36}\.chunk$/.test(o.path) ||
+      o.bytes !== Math.min(4_194_304, upload.bytes - index * 4_194_304) || !/^[0-9a-f]{64}$/.test(o.sha256)))
+    throw new Error('invalid_upload_descriptor');
+  const bytes = new Uint8Array(upload.bytes); let offset = 0, observed = 0;
+  try {
+    for (const object of admitted.objects) {
+      let received = 0;
+      try {
+        const part = await deps.uploads.download(object.path, object.bytes, count => { received = Math.min(count, object.bytes); });
+        received = Math.min(part.length, object.bytes);
+        if (part.length !== object.bytes || await sha256(part) !== object.sha256) return await reject('upload_failed');
+        bytes.set(part, offset); offset += part.length;
+      } finally { observed += received; }
+    }
+  } catch (error) {
     if (error instanceof Error && ['storage_object_missing', 'storage_object_too_large'].includes(error.message)) return reject('upload_failed');
     throw error;
+  } finally {
+    await deps.rpc('worker_pdf_upload_read_observed', { p_read_id: readID, p_bytes: observed }).catch(() => {});
   }
   if (bytes.length !== upload.bytes || await sha256(bytes) !== upload.sha256) return reject('upload_failed');
   let pages: number;
@@ -270,11 +293,15 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
   if (isWeb(e) && !e.upload && webBudget < 30_000) return { entry: e, defer: 0 };
   // Storage caps and (for private copies) owner credits are checked before
   // any bytes are fetched or stored.
-  const admission = await deps.rpc<{ admitted: boolean; reason?: string }>('worker_pipeline_admit_download', claim);
+  const admission = await deps.rpc<{ admitted: boolean; reason?: string; upload?: PaperEntry['upload'] }>('worker_pipeline_admit_download', claim);
   if (!admission.admitted) {
     deps.log('download_not_admitted', { paper: e.id, reason: admission.reason ?? null });
     return { entry: e, stop: 'release' };
   }
+  // The claim snapshot can predate an attachment/cancellation. Only the
+  // admission transaction's committed selection decides which bytes to read.
+  if ('upload' in admission) e = { ...e, upload: admission.upload ?? null };
+  else if (e.upload) throw new Error('upload_admission_unavailable');
   let bytes: Uint8Array;
   let counted: number | null = null;
   if (e.upload) {
@@ -322,13 +349,7 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
     ? await deps.rpc<PaperEntry>('worker_pipeline_upload_original', { ...original, p_upload_id: e.upload.id })
     : await deps.rpc<PaperEntry>('worker_pipeline_original', original);
   deps.log('original', { paper: e.id, bytes: bytes.length, pages, stage: entry.stage, upload: !!e.upload });
-  // The upload is spent: delete its object now (the upload sweep retries anything left).
-  if (e.upload && deps.uploads) {
-    try {
-      await deps.uploads.remove([e.upload.path]);
-      await deps.rpc('worker_confirm_pdf_uploads_deleted', { p_object_ids: [e.upload.object_id] });
-    } catch { deps.log('upload_cleanup_deferred', { paper: e.id }); }
-  }
+  // Terminal-only batch cleanup runs separately; an old uncertain chunk PUT can still be in flight.
   return { entry };
 }
 

@@ -1,308 +1,131 @@
--- PDF uploads (migration 039; docs/architecture/PDF_UPLOADS.md): owner-only sessions, size/quota/
--- credit limits, idempotent begin and finalize, an uploaded paper through the pipeline to the
--- library (v4 only), a reader's PDF supplying a failed or closed web paper, the read-level rule,
--- the janitor, and account deletion.
+-- Local synthetic Storage receipts; actual one-send network ordering is tested in Node.
 begin;
-insert into auth.users values('31000000-0000-0000-0000-00000000000a'),('31000000-0000-0000-0000-00000000000b'),('31000000-0000-0000-0000-00000000000c');
-set role service_role;
-select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,10000000,true);
-select public.worker_grant_credits('31000000-0000-0000-0000-00000000000a','adjustment','upload-test-a',200,now()-interval '1 day',null,'Upload test grant');
-select public.worker_grant_credits('31000000-0000-0000-0000-00000000000b','adjustment','upload-test-b',200,now()-interval '1 day',null,'Upload test grant');
+create schema if not exists test;
+grant usage on schema test to anon,authenticated,service_role;
+create or replace function test.assert(ok boolean,label text) returns void language plpgsql as $$
+begin if ok is distinct from true then raise exception 'ASSERTION FAILED: %',label; end if; end $$;
+create or replace function test.reject(statement text,expected text) returns void language plpgsql as $$
+declare rejected boolean:=false;
+begin begin execute statement; exception when others then
+ if position(expected in sqlerrm)=0 then raise exception 'Unexpected rejection: % (wanted %)',sqlerrm,expected; end if; rejected:=true; end;
+ if not rejected then raise exception 'Expected rejection: %',expected; end if; end $$;
+insert into auth.users values('39000000-0000-0000-0000-000000000001'),('39000000-0000-0000-0000-000000000002'),('39000000-0000-0000-0000-000000000003');
+\set A '39000000-0000-0000-0000-000000000001'
+\set B '39000000-0000-0000-0000-000000000002'
+\set C '39000000-0000-0000-0000-000000000003'
+\set U '39000000-0000-0000-0000-000000000011'
+\set sha '\\x1111111111111111111111111111111111111111111111111111111111111111'
+select public.worker_grant_credits(:'A','adjustment','chunk-fixture-a',1000,now()-interval '1 day',null,'Chunk fixture');
+select public.worker_grant_credits(:'B','adjustment','chunk-fixture-b',1000,now()-interval '1 day',null,'Chunk fixture');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,array[%L::bytea],''paper'')',:'A',:'U',:'sha',:'sha'),'upload_disabled');
+select test.reject('select public.worker_pdf_upload_policy(true)','asset_inventory_incomplete');
+update app_private.paper_asset_policy set enforced=true,inventory_verified_at=clock_timestamp(),inventory_scope=2;
+select public.worker_pdf_upload_policy(true);
 select public.worker_set_pipeline_enabled(true);
-reset role;
--- Earlier suites' papers never get in the way of this suite's claims.
-update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day';
-update app_private.pipeline_imports set next_sync_at=now()+interval '1 day',retry_requested=false;
-
-\set A '31000000-0000-0000-0000-00000000000a'
-\set B '31000000-0000-0000-0000-00000000000b'
-\set C '31000000-0000-0000-0000-00000000000c'
-\set U1 '31000000-0000-0000-0000-0000000000a1'
-\set sha1 '\\x1111111111111111111111111111111111111111111111111111111111111111'
-
--- Only the Edge function (service role) begins and finalizes; readers read their own sources only.
 set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'A',:'U1',:'sha1','paper','A draft'),'permission denied');
-select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,1000)',:'A',:'U1'),'permission denied');
-select test.reject($q$select public.worker_claim_stale_pdf_uploads(10)$q$,'permission denied');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,array[%L::bytea],''paper'')',:'A',:'U',:'sha',:'sha'),'permission denied');
+select test.reject('select * from app_private.pdf_upload_write_attempts','permission denied');
 reset role;
-set role anon;
-select test.reject('select public.v5_library_page()','permission denied');
-select test.reject($q$select public.v1_import_pdf_sources(gen_random_uuid())$q$,'permission denied');
-reset role;
-
 set role service_role;
--- Validation, size and credits.
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,67108865,%L,null,null,null,%L)',:'A',:'U1',:'sha1','paper','A draft'),'upload_too_large');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'A',:'U1',:'sha1','paper',''),'invalid_upload');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'A',:'U1',:'sha1','paper',E'A\u0007draft'),'invalid_upload');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,%L,null)',:'A',:'U1',:'sha1','source','2305.18290'),'invalid_web_source_id');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'A',:'U1','\x11','paper','A draft'),'invalid_upload');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'C',:'U1',:'sha1','paper','A draft'),'insufficient_credits');
--- A paper of its own: the session names the private object path.
-select public.worker_begin_pdf_upload(:'A',:'U1',:'sha1',1000,'paper',null,null,null,'  A   workshop draft ') as began \gset
-select test.assert(:'began'::jsonb->>'bucket'='paper-uploads' and :'began'::jsonb->>'path'=:'A'||'/'||:'U1'||'.pdf' and :'began'::jsonb->>'state'='pending',
- 'session names its private object');
-select test.assert(public.worker_begin_pdf_upload(:'A',:'U1',:'sha1',1000,'paper',null,null,null,'A workshop draft')->>'path'=:'began'::jsonb->>'path','begin is idempotent');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1001,%L,null,null,null,%L)',:'A',:'U1',:'sha1','paper','A workshop draft'),'upload_id_conflict');
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,%L,null,null,null,%L)',:'B',:'U1',:'sha1','paper','A workshop draft'),'upload_id_conflict');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1000,array[%L::bytea],''paper'')',:'C',:'U',:'sha',:'sha'),'insufficient_credits');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,4194305,array[%L::bytea],''paper'')',:'A',:'U',:'sha',:'sha'),'invalid_upload');
+select public.worker_begin_pdf_upload(:'A',:'U',:'sha',1000,array[:'sha'::bytea],'paper') as began \gset
+select test.assert(:'began'::jsonb->>'protocol'='upload-chunks-v1' and :'began'::jsonb->>'state'='receiving' and not(:'began'::jsonb ? 'path'),'no Storage credential or path issued');
+select test.assert(public.worker_begin_pdf_upload(:'A',:'U',:'sha',1000,array[:'sha'::bytea],'paper')=:'began'::jsonb,'same request replay');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,1001,array[%L::bytea],''paper'')',:'A',:'U',:'sha',:'sha'),'upload_id_conflict');
+select test.reject(format('select public.worker_pdf_upload_status(%L,%L)',:'B',:'U'),'upload_unavailable');
 reset role;
-select test.assert((select state='pending' and owner_id=:'A' and byte_count=1000 from app_private.stored_objects where path=:'A'||'/'||:'U1'||'.pdf'),'pending owner object');
-select test.assert((select metadata->>'title'='A workshop draft' from app_private.pdf_uploads where id=:'U1'),'title tidied');
-
--- Quota: the owner's private originals plus unfinished uploads stay within the private quota.
-update app_private.pipeline_policy set private_bytes_per_owner=1500;
-set role service_role;
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,600,%L,null,null,null,%L)',:'A',gen_random_uuid(),:'sha1','paper','Another'),'upload_quota');
-reset role;
+select test.assert((select sum(bytes)=159908840 and sum(objects)=519 from app_private.pdf_upload_holds where upload_id=:'U'),'staging and complete future phases reserved');
+select test.assert(not exists(select 1 from app_private.stored_objects where bucket='paper-uploads'),'begin promises capacity without inventing physical objects');
+update app_private.pipeline_policy set private_bytes_per_owner=159908840;
+select test.reject(format('select public.worker_begin_pdf_upload(%L,gen_random_uuid(),%L,1,array[%L::bytea],''paper'')',:'A',:'sha',:'sha'),'paper_owner_storage_capacity');
 update app_private.pipeline_policy set private_bytes_per_owner=1073741824;
-update app_private.pdf_upload_policy set account_active=1;
-set role service_role;
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,600,%L,null,null,null,%L)',:'A',gen_random_uuid(),:'sha1','paper','Another'),'upload_limit');
-reset role;
-update app_private.pdf_upload_policy set account_active=10;
-
--- Finalize: the import appears for v4 readers only, with the reader's title; finalizing again replays.
-set role service_role;
-select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,1000)',:'B',:'U1'),'upload_unavailable');
-select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,null)',:'A',:'U1'),'upload_incomplete');
-select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,999)',:'A',:'U1'),'upload_incomplete');
-select public.worker_finalize_pdf_upload(:'A',:'U1',0,1000) as finalized \gset
-select test.assert(:'finalized'::jsonb->'result'->>'status'='applied' and :'finalized'::jsonb->'entry'->>'source'='upload'
- and :'finalized'::jsonb->'entry'->>'source_id'='upload:'||:'U1' and :'finalized'::jsonb->'entry'->'metadata'->>'title'='A workshop draft'
- and :'finalized'::jsonb->'entry'->'source_url'='null'::jsonb and :'finalized'::jsonb->'entry'->>'source_revision'='1','upload import entry');
-select test.assert((public.worker_finalize_pdf_upload(:'A',:'U1',0,1000)->>'replayed')::boolean,'finalize replays');
-reset role;
-select test.assert((select stage='download' and owner_id=:'A' and revision=1 and metadata_id is not null from app_private.pipeline_papers where source_id='upload:'||:'U1'),
- 'the private paper starts at download');
-select test.assert((select metadata->>'title'='Uploaded PDF' from app_private.catalog_metadata where source_id='upload:'||:'U1'),'the catalog keeps a neutral placeholder');
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select test.assert(exists(select 1 from jsonb_array_elements(public.v5_library_page()->'entries') e where e->>'source'='upload' and e->'metadata'->>'title'='A workshop draft'),
- 'v5 shows the upload');
-select test.assert(not exists(select 1 from jsonb_array_elements(public.v3_library_page()->'entries') e where e->>'source'='upload')
- and not exists(select 1 from jsonb_array_elements(public.v2_library_page()->'entries') e where e->>'source'='upload'),'v2/v3 never see uploads');
-select test.assert(not exists(select 1 from jsonb_array_elements(public.v3_library_changes(0)->'changes') c, jsonb_array_elements(c->'entries') e where e->>'source'='upload')
- and exists(select 1 from jsonb_array_elements(public.v5_library_changes(0)->'changes') c, jsonb_array_elements(c->'entries') e where e->>'source'='upload'),
- 'changes by read level');
--- Compact v4 (031) carries the upload too; its metadata and query rows show the owner's own title.
-select public.v4_library_page() as v4 \gset
-select (select e->>'metadata_id' from jsonb_array_elements(:'v4'::jsonb->'entries') e where e->>'source'='upload') as upmeta \gset
-select test.assert(:'upmeta' is not null and not exists(select 1 from jsonb_array_elements(:'v4'::jsonb->'entries') e where e ? 'metadata'),'compact v4 upload entry');
-select public.v4_library_metadata((:'v4'::jsonb->>'dataset_epoch')::uuid,array[:'upmeta'::uuid]) as hydrated \gset
-select test.assert(:'hydrated'::jsonb->'records'->0->>'source'='upload' and :'hydrated'::jsonb->'records'->0->'metadata'->>'title'='A workshop draft','v4 metadata: the owner title');
-select test.assert((public.v4_library_query('{"text":"workshop draft","source":"upload"}')->'rows'->0->'summary'->>'title')='A workshop draft'
- and jsonb_array_length(public.v4_library_query('{"text":"Uploaded PDF"}')->'rows')=0,'v4 queries find the owner title, not the placeholder');
-select set_config('request.jwt.claim.sub',:'B',false);
-select test.assert(jsonb_array_length(public.v5_library_page()->'entries')=0,'another account sees nothing');
-select test.reject(format('select public.v4_library_metadata(%L,array[%L]::uuid[])',:'v4'::jsonb->>'dataset_epoch',:'upmeta'),'library_metadata_unavailable');
-reset role;
-
--- The worker verifies the bytes before they become the private original.
-select id as up_paper from app_private.pipeline_papers where source_id='upload:'||:'U1' \gset
-update app_private.pipeline_papers set next_attempt_at=now() where id=:'up_paper';
-set role service_role;
+select gen_random_uuid() as lost,gen_random_uuid() as replacement \gset
+select test.assert((public.worker_pdf_upload_part(:'A',:'U',1,0,:'lost')->>'receive')::boolean,'part admission precedes body');
+select test.reject(format('select public.worker_pdf_upload_write(%L,%L,1,0,%L,%L,999)',:'A',:'U',:'lost',:'sha'),'upload_mismatch');
+select public.worker_pdf_upload_write(:'A',:'U',1,0,:'lost',:'sha',1000) as first_write \gset
+select test.assert((:'first_write'::jsonb->>'write')::boolean,'one durable physical send');
+select test.assert(not (public.worker_pdf_upload_write(:'A',:'U',1,0,:'lost',:'sha',1000)->>'write')::boolean,'exact replay cannot authorize a second send');
+select test.reject(format('select public.worker_freeze_pdf_upload(%L,%L,1,1,0)',:'A',:'U'),'upload_incomplete');
+select public.worker_pdf_upload_write(:'A',:'U',1,0,:'replacement',:'sha',1000) as replacement_write \gset
+select test.assert((select sum(byte_count)=2000 from app_private.stored_objects where owner_id=:'A' and bucket='paper-uploads'),'replacement retains unknown old physical liability');
+select test.assert(not exists(select 1 from app_private.pdf_upload_holds where upload_id=:'U' and kind='staging'),'exact first write consumed only its staging hold');
+select public.worker_pdf_upload_written(:'replacement',:'sha',1000);
+select test.assert((public.worker_pdf_upload_status(:'A',:'U')->'parts'->0->>'uncertain')::integer=1,'status exposes unresolved outcome without private paths');
+select test.reject(format('select public.worker_freeze_pdf_upload(%L,%L,1,1,0)',:'A',:'U'),'upload_revision_conflict');
+insert into app_private.library_descriptors(account_id,source_id,id,revision,mutation_id,device_id,epoch,format,ciphertext,sha256)
+ values(:'A','upload:'||:'U',gen_random_uuid(),1,gen_random_uuid(),gen_random_uuid(),1,1,decode(repeat('11',28),'hex'),sha256(decode(repeat('11',28),'hex')));
+select public.worker_freeze_pdf_upload(:'A',:'U',1,2,0);
+select test.assert((select state='frozen' and selection_sha256 is not null from app_private.pdf_uploads where id=:'U'),'freeze records exact selection');
+select test.assert(not exists(select 1 from app_private.import_requests where id=:'U'),'freeze alone creates no visible import');
+select test.assert((select count(*)=3 from app_private.pdf_upload_holds where upload_id=:'U'),'all future capacity retained during saga gap');
+select public.worker_finalize_pdf_upload(:'A',:'U',1) as receipt \gset
+select test.assert(:'receipt'::jsonb->'result'->>'status'='applied','attached import');
+select test.assert((public.worker_finalize_pdf_upload(:'A',:'U',1)->>'replayed')::boolean,'lost attach response replays same result');
+select test.assert((select count(*)=1 from app_private.import_requests where account_id=:'A' and source_id='upload:'||:'U'),'no duplicate import');
+select test.reject(format('select public.worker_cancel_pdf_upload(%L,%L,1)',:'A',:'U'),'upload_already_attached');
+select id as paper from app_private.pipeline_papers where source_id='upload:'||:'U' \gset
 select gen_random_uuid() as claim \gset
-select public.worker_pipeline_claim(:'claim') as entry \gset
-select (:'entry'::jsonb->>'generation')::bigint as gen \gset
-select test.assert(:'entry'::jsonb->>'id'=:'up_paper' and :'entry'::jsonb->>'source_kind'='upload' and :'entry'::jsonb->>'title'='A workshop draft'
- and :'entry'::jsonb->'upload'->>'path'=:'A'||'/'||:'U1'||'.pdf' and :'entry'::jsonb->'upload'->>'sha256'=repeat('11',32)
- and (:'entry'::jsonb->'upload'->>'bytes')::int=1000,'the worker sees the upload');
-select test.assert((public.worker_pipeline_admit_download(:'up_paper',:'claim',:'gen')->>'admitted')::boolean,'admitted');
-select test.reject(format('select public.worker_pipeline_upload_original(%L,%L,%s,%L,%L,1000,3,%L)',:'up_paper',:'claim',:'gen',:'U1',
- '\x'||repeat('12',32),'private/'||:'A'||'/originals/'||repeat('12',32)||'.pdf'),'upload_mismatch');
-select test.assert(public.worker_pipeline_upload_original(:'up_paper',:'claim',:'gen',:'U1',:'sha1',1000,3,
- 'private/'||:'A'||'/originals/'||repeat('11',32)||'.pdf')->>'stage'='ocr_fund','upload became the private original');
-reset role;
-select test.assert((select state='consumed' from app_private.pdf_uploads where id=:'U1')
- and (select state='deleting' from app_private.stored_objects where path=:'A'||'/'||:'U1'||'.pdf'),'upload spent, its object queued for deletion');
-select test.assert((select policy_version='owner-upload-v1' and license_uri='reader-upload' and evidence->>'supplied'='reader_upload' and evidence->>'upload_id'=:'U1'
- and not evidence ? 'title' from app_private.catalog_asset_approvals where id=(select approval_id from app_private.pipeline_papers where id=:'up_paper')),'upload provenance');
-select test.assert((select scope='owner_private' and owner_id=:'A' from app_private.documents where id=(select document_id from app_private.pipeline_papers where id=:'up_paper')),
- 'converted privately');
-set role service_role;
-select test.assert(public.worker_pipeline_fund(:'up_paper',:'claim',:'gen',3,('\x'||repeat('31',32))::bytea,('\x'||repeat('32',32))::bytea)->>'funding'='funded','metered like any private conversion');
-select public.worker_pipeline_begin_submit(:'up_paper',:'claim',:'gen')->>'attempt_id' as attempt \gset
-select public.worker_pipeline_submitted(:'attempt','upload-job-1');
-select public.worker_pipeline_collected(:'up_paper',:'claim',:'gen',3,('\x'||repeat('3a',32))::bytea,2048);
-select test.assert(public.worker_pipeline_published(:'up_paper',:'claim',:'gen',('\x'||repeat('3b',32))::bytea,2048,'timestep-mathpix-mathml-v1')->>'stage'='done','published');
-select test.assert(public.worker_pipeline_sync_imports(:'up_paper',:'claim',:'gen')=1,'resolved');
-select public.worker_pipeline_release(:'up_paper',:'claim',:'gen');
-reset role;
-select library_item_id as up_item from app_private.import_requests where id=:'U1' \gset
-select test.assert(app_private.library_item_entry(:'A',:'up_item')->>'source'='upload' and app_private.library_item_entry(:'A',:'up_item')->'metadata'->>'title'='A workshop draft'
- and app_private.library_item_entry(:'A',:'up_item')->'source_url'='null'::jsonb and app_private.library_item_entry(:'A',:'up_item')->>'readiness'='converted_ready','upload item entry');
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select test.assert(not exists(select 1 from jsonb_array_elements(public.v3_library_page()->'entries') e where e->>'library_item_id'=:'up_item' or e->>'id'=:'up_item'),
- 'v3 sees no upload item and no reference to one');
-reset role;
+update app_private.pipeline_papers set claim_id=:'claim',generation=1,lease_until=clock_timestamp()+interval '10 minutes' where id=:'paper';
+select test.reject(format('select public.worker_pdf_upload_read(gen_random_uuid(),%L,1,%L,%L,1)',:'U',:'paper',:'claim'),'upload_not_admitted');
+select test.assert((public.worker_pipeline_admit_download(:'paper',:'claim',1)->>'admitted')::boolean,'worker takes exact session');
+select test.assert((select upload_id=:'U' and upload_generation=1 from app_private.pipeline_papers where id=:'paper'),'session/generation pinned');
+select test.assert(not exists(select 1 from app_private.pdf_upload_holds where upload_id=:'U') and (select count(*)=3 from app_private.paper_asset_holds where paper_id=:'paper'),'future holds atomically transferred');
+select gen_random_uuid() as read \gset
+select public.worker_pdf_upload_read(:'read',:'U',1,:'paper',:'claim',1) as read_receipt \gset
+select test.assert(:'read_receipt'::jsonb->'objects'->0->>'id'=:'replacement_write'::jsonb->>'object_id','assembly uses frozen selected replacement');
+select test.assert(not (public.worker_pdf_upload_read(:'read',:'U',1,:'paper',:'claim',1)->>'read')::boolean,'read grant cannot replay');
+select public.worker_pdf_upload_read_observed(:'read',1000);
+select test.assert((select authorized_bytes=1000 and upstream_bytes=1000 from app_private.reader_transfer_months where scope_id=:'A' and kind='backend'),'GET cost recorded separately from observation');
+update app_private.reader_delivery_policy set backend_account_bytes_month=1000;
+select test.reject(format('select public.worker_pdf_upload_read(gen_random_uuid(),%L,1,%L,%L,1)',:'U',:'paper',:'claim'),'reader_transfer_limit');
+update app_private.reader_delivery_policy set backend_account_bytes_month=268435456;
 
--- The same bytes through arXiv (a private, non-CC copy) never resolve onto the upload-pinned item.
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select public.v2_begin_import('31000000-0000-0000-0000-0000000000b1','2006.11239',(public.v5_library_page()->>'baseline_cursor')::bigint);
-reset role;
-select id as ax from app_private.pipeline_papers where owner_id is null and source_id='2006.11239' \gset
-update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day';
-update app_private.pipeline_papers set next_attempt_at=now() where id=:'ax';
-set role service_role;
-select gen_random_uuid() as claim \gset
-select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
-select public.worker_pipeline_metadata(:'ax',:'claim',:'gen',2,'{"title":"Denoising Diffusion Probabilistic Models","authors":["Jonathan Ho"],"categories":["cs.LG"]}',
- false,'http://arxiv.org/licenses/nonexclusive-distrib/1.0/');
-select public.worker_pipeline_split_private(:'ax',:'claim',:'gen');
-select public.worker_pipeline_release(:'ax',:'claim',:'gen');
-reset role;
-select id as ax2 from app_private.pipeline_papers where owner_id=:'A' and source_id='2006.11239' \gset
-update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day' where id<>:'ax2';
-update app_private.pipeline_papers set next_attempt_at=now() where id=:'ax2';
-set role service_role;
-select gen_random_uuid() as claim \gset
-select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
-select test.assert(public.worker_pipeline_original(:'ax2',:'claim',:'gen',:'sha1',1000,3,'private/'||:'A'||'/originals/'||repeat('11',32)||'.pdf')->>'stage'='done',
- 'identical bytes reuse the render');
-select public.worker_pipeline_sync_imports(:'ax2',:'claim',:'gen');
-reset role;
-select test.assert((select phase='membership_conflict' and library_item_id is null from app_private.import_requests where id='31000000-0000-0000-0000-0000000000b1'),
- 'arXiv import does not adopt the upload item');
+-- Publish the fully verified original through035 inventory, never raw staging bytes.
+select gen_random_uuid() as planned,gen_random_uuid() as original_write \gset
+select 'private/'||:'A'||'/originals/'||repeat('1',64)||'.pdf' as original_path \gset
+select public.worker_pipeline_asset_plan(:'paper',:'claim',1,:'planned','original',jsonb_build_array(jsonb_build_object('path',:'original_path','sha256',repeat('1',64),'bytes',1000,'media_type','application/pdf')),3) as plan \gset
+select public.worker_pipeline_asset_write(:'paper',:'claim',1,:'planned',(:'plan'::jsonb->'objects'->0->>'id')::uuid,:'original_write');
+select public.worker_pipeline_asset_written(:'original_write',true);
+select test.assert(public.worker_pipeline_upload_original(:'paper',:'claim',1,:'U',:'sha',1000,3,:'original_path')->>'stage'='ocr_fund','private verified original published');
+select test.assert((select state='consumed' from app_private.pdf_uploads where id=:'U'),'session consumed');
+select test.assert((select policy_version='owner-upload-v1' and evidence->>'upload_id'=:'U' from app_private.catalog_asset_approvals where id=(select approval_id from app_private.pipeline_papers where id=:'paper')),'exact owner-upload provenance');
+select test.assert(public.worker_claim_stale_pdf_uploads(50)='[]'::jsonb,'unknown original PUT blocks ALL physical chunk deletion');
+select gen_random_uuid() as probe \gset
+select public.worker_pdf_upload_read(:'probe',:'U',1,null,null,null,:'lost');
+select test.reject(format('select public.worker_pdf_upload_written(%L,%L,1000,''matching_object'',%L)',:'lost',:'sha',:'probe'),'upload_write_proof_required');
+select public.worker_pdf_upload_read_observed(:'probe',1000);
+select public.worker_pdf_upload_written(:'lost',:'sha',1000,'matching_object',:'probe');
+select public.worker_claim_stale_pdf_uploads(50) as batches \gset
+select test.assert(jsonb_array_length(:'batches'::jsonb)=1 and jsonb_array_length(:'batches'::jsonb->0->'objects')=2,'terminal batch includes selected and superseded physical objects');
+select test.assert((select sum(byte_count)=2000 from app_private.stored_objects where owner_id=:'A' and state='deleting'),'delete admission retains capacity');
+select test.assert(public.worker_confirm_pdf_uploads_deleted((:'batches'::jsonb->0->>'batch_id')::uuid)=2,'exact batch confirmation releases capacity');
+select test.assert(public.worker_confirm_pdf_uploads_deleted((:'batches'::jsonb->0->>'batch_id')::uuid)=0,'delete replay harmless');
 
--- Device fallback: a web paper with no open copy fails at download (`not_open`); the reader's own PDF
--- supplies that same import, which is retried at once.
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select public.v2_begin_web_import('31000000-0000-0000-0000-0000000000c1','openalex:W3100000001',(public.v5_library_page()->>'baseline_cursor')::bigint);
-reset role;
-select id as w from app_private.pipeline_papers where owner_id is null and source_id='openalex:W3100000001' \gset
-update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day';
-update app_private.pipeline_papers set next_attempt_at=now() where id=:'w';
-set role service_role;
-select gen_random_uuid() as claim \gset
-select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
-select test.reject(format('select public.worker_pipeline_web_metadata(%L,%L,%s,%L,null,%L,null)',:'w',:'claim',:'gen',
- '{"title":"A closed paper","authors":[],"categories":[]}','{{https://a.example.org/x.pdf},{https://b.example.org/y.pdf}}'),'invalid_pipeline_metadata');
-select test.assert(public.worker_pipeline_web_metadata(:'w',:'claim',:'gen','{"title":"A closed paper","authors":["Ada Lovelace"],"categories":[]}','10.5555/closed.1',
- '{}','https://publisher.example.com/closed-1')->>'stage'='private_split','a work with no open copy keeps its metadata');
-select public.worker_pipeline_split_private(:'w',:'claim',:'gen');
-select public.worker_pipeline_release(:'w',:'claim',:'gen');
-reset role;
-select id as wp from app_private.pipeline_papers where owner_id=:'A' and source_id='openalex:W3100000001' \gset
-select test.assert((select pdf_urls is null and landing_url='https://publisher.example.com/closed-1' from app_private.pipeline_papers where id=:'wp'),'no locations');
-update app_private.pipeline_papers set next_attempt_at=now()+interval '1 day' where id<>:'wp';
-update app_private.pipeline_papers set next_attempt_at=now() where id=:'wp';
-set role service_role;
-select gen_random_uuid() as claim \gset
-select public.worker_pipeline_claim(:'claim') as entry \gset
-select (:'entry'::jsonb->>'generation')::bigint as gen \gset
-select test.assert(:'entry'::jsonb->'upload'='null'::jsonb,'no upload yet');
-select public.worker_pipeline_defer(:'wp',:'claim',:'gen',0,'not_open',true,'download');
-reset role;
--- Project the failure onto the import (a fresh claim projects it).
-set role service_role;
-select gen_random_uuid() as claim \gset
-select (public.worker_pipeline_claim(:'claim')->>'generation')::bigint as gen \gset
-select public.worker_pipeline_sync_imports(:'wp',:'claim',:'gen');
-select public.worker_pipeline_release(:'wp',:'claim',:'gen');
-reset role;
-select test.assert((select phase='failed' and error_code='not_open' and retryable from app_private.import_requests where id='31000000-0000-0000-0000-0000000000c1'),
- 'failed: not openly available, retryable');
-select test.assert((select auto_retry_at is null from app_private.pipeline_papers where id=:'wp'),'no automatic retry for a closed paper');
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select public.v1_import_pdf_sources('31000000-0000-0000-0000-0000000000c1') as sources \gset
-select test.assert(:'sources'::jsonb->'links'='["https://publisher.example.com/closed-1","https://doi.org/10.5555/closed.1"]'::jsonb
- and :'sources'::jsonb->>'title'='A closed paper','device links: the landing page, then the DOI');
-select set_config('request.jwt.claim.sub',:'B',false);
-select test.reject($q$select public.v1_import_pdf_sources('31000000-0000-0000-0000-0000000000c1')$q$,'import_unavailable');
-reset role;
-\set U2 '31000000-0000-0000-0000-0000000000a2'
-\set sha2 '\\x2222222222222222222222222222222222222222222222222222222222222222'
-select intent_revision as rev from app_private.import_requests where id='31000000-0000-0000-0000-0000000000c1' \gset
-set role service_role;
-select test.reject(format('select public.worker_begin_pdf_upload(%L,%L,%L,2000,%L,%L,%s,null,null)',:'B',:'U2',:'sha2','import','31000000-0000-0000-0000-0000000000c1',:'rev'),'upload_target_unavailable');
-select public.worker_begin_pdf_upload(:'A',:'U2',:'sha2',2000,'import','31000000-0000-0000-0000-0000000000c1',:'rev',null,null);
-select public.worker_finalize_pdf_upload(:'A',:'U2',0,2000) as attached \gset
-select test.assert(:'attached'::jsonb->'result'->>'status'='applied' and :'attached'::jsonb->'entry'->>'phase'='acquiring','the failed import is retried');
-select test.assert((public.worker_finalize_pdf_upload(:'A',:'U2',0,null)->>'replayed')::boolean,'finalize replays even after the object is gone');
-reset role;
-set role service_role;
-select gen_random_uuid() as claim \gset
-select public.worker_pipeline_claim(:'claim') as entry \gset
-select (:'entry'::jsonb->>'generation')::bigint as gen \gset
-select test.assert(:'entry'::jsonb->>'id'=:'wp' and :'entry'::jsonb->>'stage'='download' and :'entry'::jsonb->'upload'->>'id'=:'U2','the retried paper uses the upload');
-select test.assert((public.worker_pipeline_admit_download(:'wp',:'claim',:'gen')->>'admitted')::boolean,'admitted');
-select test.assert(public.worker_pipeline_upload_original(:'wp',:'claim',:'gen',:'U2',:'sha2',2000,4,
- 'private/'||:'A'||'/originals/'||repeat('22',32)||'.pdf')->>'stage'='ocr_fund','supplied original');
-select public.worker_pipeline_release(:'wp',:'claim',:'gen');
-reset role;
-select test.assert((select policy_version='owner-private-v1' and evidence->>'supplied'='reader_upload' and evidence->'pdf_urls'='null'::jsonb
- and evidence->>'source_url'='https://publisher.example.com/closed-1'
- from app_private.catalog_asset_approvals where id=(select approval_id from app_private.pipeline_papers where id=:'wp')),'web provenance records the reader upload');
+-- Lifetime caps limit new evidence rows, never replay or terminal progress.
+update app_private.pdf_upload_policy set account_sessions=1,environment_sessions=1,session_reads=1;
+select test.assert(public.worker_begin_pdf_upload(:'A',:'U',:'sha',1000,array[:'sha'::bytea],'paper')->>'state'='consumed','exact begin replay bypasses exhausted lifetime capacity');
+select test.reject(format('select public.worker_begin_pdf_upload(%L,gen_random_uuid(),%L,1,array[%L::bytea],''paper'')',:'A',:'sha',:'sha'),'upload_receipt_capacity');
+select test.assert(not (public.worker_pdf_upload_read(:'probe',:'U',1,null,null,null,:'lost')->>'read')::boolean,'read replay does not require new receipt headroom');
+select public.worker_pdf_upload_written(:'lost',:'sha',1000,'matching_object',:'probe');
+select public.worker_pdf_upload_read_observed(:'probe',1000);
+select test.assert(public.worker_confirm_pdf_uploads_deleted((:'batches'::jsonb->0->>'batch_id')::uuid)=0,'terminal cleanup bypasses new-receipt caps');
+update app_private.pdf_upload_policy set account_sessions=2000,environment_sessions=20000,session_reads=128;
 
--- A closed paper the reader names (Add → "isn't openly available" → Upload): a new web import supplied at once.
-\set U3 '31000000-0000-0000-0000-0000000000a3'
-set role service_role;
-select public.worker_begin_pdf_upload(:'A',:'U3',:'sha2',2000,'source',null,null,'openalex:w3100000002',null);
-select public.worker_finalize_pdf_upload(:'A',:'U3',0,2000) as sourced \gset
-reset role;
-select test.assert(:'sourced'::jsonb->'entry'->>'source'='web' and :'sourced'::jsonb->'entry'->>'source_id'='openalex:W3100000002'
- and (select count(*)=1 from app_private.pipeline_imports pi join app_private.pipeline_papers pp on pp.id=pi.paper_id
-  where pi.import_id=:'U3' and pp.owner_id is null),'a web import linked to the shared paper');
-
--- Rejected bytes are spent, so a retry goes back to the paper's locations.
-\set U4 '31000000-0000-0000-0000-0000000000a4'
-set role service_role;
-select public.worker_begin_pdf_upload(:'A',:'U4',:'sha2',2000,'source',null,null,'openalex:W3100000002',null);
-select public.worker_finalize_pdf_upload(:'A',:'U4',0,2000);
-reset role;
-select test.assert((select state='abandoned' from app_private.pdf_uploads where id=:'U3') and (select state='finalized' from app_private.pdf_uploads where id=:'U4'),
- 'a newer upload for the same paper replaces the older one');
-
--- Janitor: expired sessions, spent uploads and uploads no import wants are deleted after confirmation.
-\set U5 '31000000-0000-0000-0000-0000000000a5'
-set role service_role;
-select public.worker_begin_pdf_upload(:'B',:'U5',:'sha2',2000,'paper',null,null,null,'Never sent');
-reset role;
-update app_private.pdf_uploads set expires_at=now()-interval '1 hour' where id=:'U5';
-set role service_role;
-select test.reject(format('select public.worker_finalize_pdf_upload(%L,%L,0,2000)',:'B',:'U5'),'upload_expired');
-select public.worker_claim_stale_pdf_uploads(100) as stale \gset
-select test.assert(exists(select 1 from jsonb_array_elements(:'stale'::jsonb) x where x->>'path'=:'B'||'/'||:'U5'||'.pdf')
- and exists(select 1 from jsonb_array_elements(:'stale'::jsonb) x where x->>'path'=:'A'||'/'||:'U1'||'.pdf')
- and exists(select 1 from jsonb_array_elements(:'stale'::jsonb) x where x->>'path'=:'A'||'/'||:'U3'||'.pdf')
- and not exists(select 1 from jsonb_array_elements(:'stale'::jsonb) x where x->>'path'=:'A'||'/'||:'U4'||'.pdf'),'stale objects claimed; the wanted upload kept');
-select test.assert(public.worker_confirm_pdf_uploads_deleted(array(select (x->>'id')::uuid from jsonb_array_elements(:'stale'::jsonb) x))=jsonb_array_length(:'stale'::jsonb),
- 'deletions confirmed');
-reset role;
-select test.assert((select state='deleted' from app_private.stored_objects where path=:'B'||'/'||:'U5'||'.pdf'),'capacity released after deletion');
-set role authenticated;
-select set_config('request.jwt.claim.sub',:'A',false);
-select public.v2_cancel_import('31000000-0000-0000-0000-0000000000d1',:'U3',1);
-select public.v2_cancel_import('31000000-0000-0000-0000-0000000000d2',:'U4',1);
-reset role;
-set role service_role;
-select test.assert(exists(select 1 from jsonb_array_elements(public.worker_claim_stale_pdf_uploads(100)) x where x->>'path'=:'A'||'/'||:'U4'||'.pdf'),
- 'an upload whose import was cancelled is deleted');
-reset role;
-
--- Account deletion removes upload sessions (their titles are personal) and returns their objects.
-\set U6 '31000000-0000-0000-0000-0000000000a6'
-\set U7 '31000000-0000-0000-0000-0000000000a7'
-set role service_role;
-select public.worker_begin_pdf_upload(:'B',:'U6',:'sha2',2000,'paper',null,null,null,'Private draft title');
-select public.worker_begin_pdf_upload(:'B',:'U7',:'sha1',1000,'paper',null,null,null,'Another private title');
-select public.worker_finalize_pdf_upload(:'B',:'U7',0,1000);
-reset role;
-select test.assert((select summary->>'title'='Another private title' from app_private.library_query_metadata
- where metadata_id=(select id from app_private.catalog_metadata where source_id='upload:'||:'U7')),'query projection has the title');
-set role service_role;
-select public.worker_delete_account_begin(:'B') as deleted \gset
-reset role;
-select test.assert(not exists(select 1 from app_private.pdf_uploads where account_id=:'B'),'upload rows deleted');
-select test.assert((select summary->>'title'='Uploaded PDF' from app_private.library_query_metadata
- where metadata_id=(select id from app_private.catalog_metadata where source_id='upload:'||:'U7')),'the query projection forgets the title');
-select test.assert(exists(select 1 from jsonb_array_elements(:'deleted'::jsonb->'objects') o where o->>'bucket'='paper-uploads' and o->>'path'=:'B'||'/'||:'U6'||'.pdf')
- and exists(select 1 from jsonb_array_elements(:'deleted'::jsonb->'prefixes') p where p->>'bucket'='paper-uploads' and p->>'prefix'=:'B'||'/'),
- 'upload objects and folder returned for removal');
+-- Closure persists but offers no erase authority while a PUT remains unknown.
+select gen_random_uuid() as closed_upload,gen_random_uuid() as closed_write \gset
+select public.worker_begin_pdf_upload(:'B',:'closed_upload',:'sha',1000,array[:'sha'::bytea],'paper');
+select public.worker_pdf_upload_write(:'B',:'closed_upload',1,0,:'closed_write',:'sha',1000);
+select public.worker_delete_account_begin(:'B') as closed \gset
+select test.assert(:'closed'::jsonb->>'blocked'='asset_write_uncertain' and :'closed'::jsonb->'objects'='[]'::jsonb,'closure blocks physical deletion');
+select test.assert((select closed_at is not null from app_private.accounts where id=:'B'),'closure is durable');
+select test.reject(format('select public.worker_pdf_upload_write(%L,%L,1,0,gen_random_uuid(),%L,1000)',:'B',:'closed_upload',:'sha'),'account_unavailable');
+select test.reject(format('select public.worker_delete_account_finish(%L)',:'B'),'asset_write_uncertain');
+select public.worker_pdf_upload_written(:'closed_write',:'sha',1000);
+select test.assert((select selected_object_id is null from app_private.pdf_upload_parts where upload_id=:'closed_upload'),'late terminal callback does not revive cancelled selection');
+select public.worker_delete_account_begin(:'B') as closed \gset
+select test.assert(jsonb_array_length(:'closed'::jsonb->'objects')=1 and exists(select 1 from jsonb_array_elements(:'closed'::jsonb->'prefixes') p where p->>'bucket'='paper-uploads'),'later complete erase includes staging bucket');
+select public.worker_delete_account_finish(:'B');
+select test.assert(not exists(select 1 from app_private.pdf_uploads where account_id=:'B'),'session personal references erased after terminal deletion');
+select test.assert(not exists(select 1 from app_private.reader_transfer_months where scope_id=:'B'),'no personal counters recreated');
 rollback;

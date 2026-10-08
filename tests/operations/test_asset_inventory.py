@@ -35,7 +35,7 @@ class Fixture:
         self.mutate_on_second = False
         self.reject_import = False
 
-    def listing(self, prefix, offset):
+    def listing(self, prefix, offset, bucket='paper-assets'):
         self.calls.append(('list', prefix, offset))
         if prefix == '':
             self.snapshots += 1
@@ -64,12 +64,47 @@ class Fixture:
         if name == 'worker_asset_inventory_finish': return {'complete': not any(args['p_discrepancies'].values())}
         raise AssertionError(name)
 
-    def blob(self, path, size, retain=False):
+    def blob(self, path, size, retain=False, bucket='paper-assets'):
         self.calls.append(('blob', path, size))
         data = self.objects[path]
         self.downloaded += len(data)
         if len(data) > size: raise ASSETS.InventoryError('response_limit')
         return data if retain else (len(data), hashlib.sha256(data).hexdigest())
+
+
+class TwoBuckets(Fixture):
+    def __init__(self):
+        super().__init__()
+        self.row['bucket'] = 'paper-assets'
+        self.staging = b'chunk fixture'
+        self.staging_path = f"{self.row['owner_id']}/{uuid.uuid4()}/0/{uuid.uuid4()}.chunk"
+        self.upload_objects = {self.staging_path: self.staging}
+        self.rows.append({'id': str(uuid.uuid4()), 'bucket': 'paper-uploads', 'path': self.staging_path,
+                          'document_id': None, 'document_sha256': None, 'scope': None, 'owner_id': self.row['owner_id'],
+                          'state': 'verified', 'sha256': hashlib.sha256(self.staging).hexdigest(),
+                          'bytes': len(self.staging), 'media_type': 'application/octet-stream'})
+        self.upload_snapshots = 0
+
+    def rpc(self, name, args):
+        result = super().rpc(name, args)
+        if name == 'worker_asset_inventory_begin': result.update(scope=2, buckets=['paper-assets', 'paper-uploads'])
+        return result
+
+    def listing(self, prefix, offset, bucket='paper-assets'):
+        if bucket == 'paper-assets': return super().listing(prefix, offset, bucket)
+        # Reuse the exact folder/paging fixture with isolated bucket contents.
+        original, snapshots = self.objects, self.snapshots
+        self.objects, self.snapshots = self.upload_objects, self.upload_snapshots
+        try: return super().listing(prefix, offset, bucket)
+        finally:
+            self.upload_objects, self.upload_snapshots = self.objects, self.snapshots
+            self.objects, self.snapshots = original, snapshots
+
+    def blob(self, path, size, retain=False, bucket='paper-assets'):
+        if bucket == 'paper-assets': return super().blob(path, size, retain, bucket)
+        original = self.objects; self.objects = self.upload_objects
+        try: return super().blob(path, size, retain, bucket)
+        finally: self.objects = original
 
 
 class AssetInventoryTests(unittest.TestCase):
@@ -89,6 +124,35 @@ class AssetInventoryTests(unittest.TestCase):
         self.assertEqual(result['report_sha256'], hashlib.sha256(ASSETS.canonical(result['report'])).hexdigest())
         encoded = json.dumps(result)
         for private in (client.manifest_path, client.member_path, client.row['owner_id']): self.assertNotIn(private, encoded)
+
+    def test_two_bucket_scope_hashes_staging_and_checks_both_complete_snapshots(self):
+        client = TwoBuckets()
+        result = self.run_scan(client)
+        self.assertTrue(result['recorded']); self.assertTrue(result['report']['complete'])
+        self.assertEqual(result['report']['scope'], 2)
+        self.assertEqual(result['report']['object_count'], 3)
+        self.assertEqual((client.snapshots, client.upload_snapshots), (2, 2))
+        self.assertEqual(client.downloaded, len(client.data) + len(client.manifest) + len(client.staging))
+        self.assertNotIn(client.staging_path, json.dumps(result))
+
+    def test_staging_unknown_objects_and_ownerless_rows_cannot_be_backfilled(self):
+        client = TwoBuckets(); client.upload_objects['unknown'] = b'unknown'
+        self.assertEqual(self.run_scan(client)['report']['discrepancies']['untracked'], 1)
+        client = TwoBuckets(); client.rows[-1]['owner_id'] = None
+        result = self.run_scan(client)
+        self.assertEqual(result['report']['discrepancies']['unowned'], 1)
+        self.assertFalse(any(call[0] == 'blob' and call[1] == client.staging_path for call in client.calls))
+        client = TwoBuckets(); client.rows[-1]['state'] = 'pending'
+        self.assertFalse(self.run_scan(client)['report']['complete'])
+
+    def test_same_path_in_different_buckets_never_shadows_inventory_or_ownership(self):
+        client = TwoBuckets()
+        client.upload_objects = {client.manifest_path: client.staging}
+        client.rows[-1]['path'] = client.manifest_path
+        result = self.run_scan(client)
+        self.assertTrue(result['report']['complete'])
+        self.assertEqual(result['report']['object_count'], 3)
+        self.assertEqual(result['report']['imported_manifests'], 1)
 
     def test_manifest_is_not_authority_until_its_trusted_digest_matches(self):
         client = Fixture()
@@ -132,13 +196,13 @@ class AssetInventoryTests(unittest.TestCase):
 
     def test_nested_folder_and_byte_limits_are_explicit_incomplete_scans(self):
         class Fanout:
-            def listing(self, prefix, offset):
+            def listing(self, prefix, offset, bucket='paper-assets'):
                 return [{'name': f'folder{n:03}', 'id': None} for n in range(5)] if prefix == '' else []
         with mock.patch.object(ASSETS, 'MAX_OBJECTS', 4):
             with self.assertRaisesRegex(ASSETS.InventoryError, 'listing_incomplete'): ASSETS.bucket_snapshot(Fanout(), 100)
         with self.assertRaisesRegex(ASSETS.InventoryError, 'listing_incomplete'): ASSETS.bucket_snapshot(Fixture(), 1)
         class Repeats:
-            def listing(self, prefix, offset):
+            def listing(self, prefix, offset, bucket='paper-assets'):
                 return [{'name': f'object{n:03}', 'id': str(n), 'metadata': {'size': 1}} for n in range(500)]
         with self.assertRaisesRegex(ASSETS.InventoryError, 'unstable_listing'): ASSETS.bucket_snapshot(Repeats(), 1000)
 

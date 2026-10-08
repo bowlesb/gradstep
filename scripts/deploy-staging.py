@@ -78,7 +78,7 @@ if storage_config['fileSizeLimit'] < config['paper_bucket']['file_size_limit']:
     print('Raised the project upload limit to', config['paper_bucket']['file_size_limit'], 'bytes')
 storage_headers = {'Authorization': 'Bearer ' + env['SUPABASE_SERVICE_ROLE_KEY'], 'apikey': env['SUPABASE_SERVICE_ROLE_KEY']}
 bucket_url = env['SUPABASE_URL'] + '/storage/v1/bucket'
-# The paper store, and readers' PDF uploads (private, PDFs only, 64 MiB; docs/architecture/PDF_UPLOADS.md).
+# The paper store and immutable private 4 MiB upload chunks (ASSET_SPENDING.md).
 for key in ['paper_bucket', 'upload_bucket']:
     expected = config.get(key)
     if not expected: continue

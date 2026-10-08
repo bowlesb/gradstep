@@ -5,15 +5,14 @@
 > worker changes (not deployed), app changes and the Share extension (Simulator only; needs provisioning).
 > Decisions: [DECISIONS](../DECISIONS.md#adding-any-paper-identifiers-uploads-device-downloads-sharing-owner-asked-2026-10-07).
 
-**Integration review, 2026-10-07:** this branch is not ready to enable uploads. Migration 039 replaces the
-never-applied 033 and must follow provider, asset, Sandbox and diagnostic migrations 034–038. Number 033 stays
-unused; the migration ledger validates the sorted source prefix, not consecutive numbers. Applied migrations are
-unchanged. The reusable signed-upload design below is historical branch implementation: it does not yet bound
-actual staging writes against shared asset capacity or safely resolve late writes during account deletion.
-Authenticated chunk admission and worker assembly are under review in the spending branch's `ASSET_SPENDING.md`.
-The proposed server-visible custom title is also unapproved; the original encrypted-title design remains the
-accepted privacy contract unless the owner changes it. Do not deploy this branch until those gaps are resolved.
-Main was integrated as `386a2b6`; the earlier test totals below predate that integration.
+**Integration review, 2026-10-07:** migration039 follows provider, asset, Sandbox and diagnostic prerequisites
+034–038; never-applied033 stays unused. The reusable signed/upsert implementation has been replaced locally with
+bounded authenticated chunks and exact session/intent binding. Custom titles preserve the approved encrypted-title
+contract. The server/worker implementation and recovery tests are local; the original native upload queue still
+uses the obsolete protocol and must be migrated before enabling uploads. V5 compatibility, encrypted descriptor
+outbox/hydration, resumed workflows and Edge load evidence remain gates. The detailed authoritative contract and
+local evidence are in [Asset spending](ASSET_SPENDING.md#local-ingress-implementation-checkpoint--2026-10-07).
+No hosted upload schema, function, bucket or worker changes have been deployed by this work.
 
 Owner, 2026-10-07: "adding a pdf needs to be absolutely bullet proof." About 17 publishers refuse downloads from
 cloud servers (our worker runs on Google Cloud; [self-healing downloads](PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027)),
@@ -51,52 +50,52 @@ App: `AddInput` (arXiv stays local), `AddOutcome.from` (the reader's words and n
 
 ## 2. Upload sessions (migration 039, `upload-pdf`)
 
-The upload session designed in [DATA_MODEL](DATA_MODEL.md#import-identity-and-membership), built:
+The session keeps the import identity from [DATA_MODEL](DATA_MODEL.md#import-identity-and-membership), with
+storage admission shared by migration035. The 64 MiB PDF is transported in fixed 4 MiB chunks; the final chunk
+has its exact remaining length. The private `paper-uploads` bucket accepts only octet-stream objects up to4 MiB.
 
-1. **Begin** (`worker_begin_pdf_upload`, service role via the function for the authenticated account): upload ID
-   (the client's operation ID), declared SHA-256 and size, target. Checks: ≤ 64 MiB (`pipeline_policy.max_pdf_bytes`);
-   the owner's **private storage quota** (1 GiB: their private originals plus every upload object not yet deleted);
-   at most 10 unfinished uploads per account and 200 per environment; 4 GiB of upload objects per environment;
-   **credits ≥ 1** (conversion is metered later, exactly like other private conversions); rate route `pdf-upload`
-   (40/h). Creates a pending `stored_objects` row in bucket `paper-uploads` at `<account>/<upload>.pdf` and the
-   `pdf_uploads` row (expires in 24 h). Idempotent: the same ID and request returns the session; a different
-   request is `upload_id_conflict`. The function returns a **signed upload token** (Storage `createSignedUploadUrl`,
-   upsert) while the session is pending.
-2. **Send**: the app PUTs the file straight to Storage (`/storage/v1/object/upload/sign/paper-uploads/<path>`);
-   bytes never pass through a function. A failed PUT is retried by beginning again (a fresh token, same session).
-3. **Finalize** (`worker_finalize_pdf_upload`): the function first reads the object's size from Storage; the
-   database requires it to equal the declared size (`upload_incomplete` otherwise), then in one transaction creates
-   or retries the import and marks the upload finalized. A repeated finalize returns the first answer (also after
-   the object is gone). A newer upload for the same paper abandons an unused older one.
-4. **Verify** (pipeline worker, download stage): the paper's supplied upload (`pipeline_entry.upload`) is read from
-   the uploads bucket and must match the declared size and SHA-256, start `%PDF-`, parse, and have 1–250 pages;
-   then it becomes the owner-private original (`worker_pipeline_upload_original` → 014's `worker_pipeline_original`)
-   and the upload object is deleted. Bytes that fail spend the upload (`worker_pipeline_upload_rejected`) and the
-   paper fails resumably (`upload_failed`, `pdf_invalid`, `too_large`); a Storage outage is retried.
-5. **Sweep** (`worker_claim_stale_pdf_uploads` / `worker_confirm_pdf_uploads_deleted`, every worker run): spent or
-   abandoned uploads, sessions expired unfinished (after a 10-minute grace), finalized uploads no import wants (cancelled, ready
-   through another copy) or unused for 7 days.
+1. **Begin** admits the complete SHA-256, byte count, each chunk hash and exact target identity. It reserves both
+   staging and future original/raw/reader capacity under the common ledger. No physical object or Storage token
+   is returned. The same ID and request replay; changing the request under that ID conflicts.
+2. **Send** uses authenticated Edge PUT requests. Preflight precedes body reading; exact bounded size and hash
+   precede a durable one-send grant. Each attempt writes one immutable path without retry, redirect or upsert.
+   A lost acknowledgment remains uncertain and separately charged. A replacement needs a new admitted attempt.
+3. **Freeze then attach** are two durable transactions. Freeze binds exact positively verified selected objects,
+   session generation and original target revision. Attachment creates/retries the exact import without holding
+   the capacity mutex. A stale target fails; retries recover the same receipt. A download already admitted by a
+   worker defers attachment while preserving the frozen session. No newest-upload lookup substitutes identity.
+4. **Verify** begins only after the worker atomically transfers future holds to its paper and receives the exact
+   committed source descriptor. Every assembly GET is admitted/accounted before transfer. Ordered part hashes,
+   total hash/length, PDF structure and pages must all match before the inventoried private original is published.
+   Invalid bytes abandon that selection; a replacement binds a new wanted intent and leaves old bytes charged.
+5. **Recover and sweep** retain unknown writes, even after expiry/cancellation. Paced positive GET evidence can
+   settle a lost write receipt; absence never proves that a delayed write cannot land. Exact deletion batches are
+   issued only after all sends terminate. Future-unused holds may be removed, but physical capacity releases only
+   after confirmed deletion. Already-clean or unknown-only terminal receipts cannot starve later cleanup work.
 
-**Targets.** `paper`: a paper of its own, source `upload:<upload id>`, created at download for the owner (no metadata
-or private-split stage). `import`: a failed (or running) web or upload import of the same account — device fallback
-and "Upload PDF" on a row; finalize retries it through the reader's own retry command. `source`: a closed web paper
-named by Add (`openalex:W…`); finalize creates its web import. A supplied PDF is keyed by **(account, source)**: the
-account's private paper for that source uses the newest finalized upload when it reaches download. Web papers are
-always private, so a reader's bytes are never shared or reused by another account.
+Admission also enforces owner/environment byte and object capacity, 10 active sessions per account/200 per
+environment, at least one available credit, separate begin/chunk/status rates, and lifetime evidence/read ceilings.
+Receiving/frozen sessions expire after24 hours. A checking session becomes stale after7 days only when no active
+claim or exact wanted bound intent still uses it. These database ceilings bound application admission; they do not
+claim that rejected platform invocations or every possible infrastructure charge are free.
 
-**Uploaded papers in the library.** A new source kind `upload` appears only in **v5** reads (`v5_library_page`,
-`v5_library_changes`: v3's full entries, every source; the app reads v5 and falls back to v3 on a server without it)
-and in the compact **v4** reads of migration 031 (every source already; `v4_library_metadata` returns `source: upload`
-and the owner's title, and 032's query projection and `source: upload` filter use it too). v3 (installed builds) and v2
-never return upload entries, and an import never resolves onto an item its read version can't see (`source_level`:
-arXiv 2, web 3, upload 4; generalizes 019's rule). Entries carry
-`source: "upload"`, `source_url: null`, revision 1. The **title is personal**: it lives on the upload row (from the
-PDF's own title, else the file name; the reader's typed title when known) and replaces the catalog's neutral
-"Uploaded PDF" placeholder in the owner's entries and the reader attribution ("… uploaded by its reader. Converted for
-the personal use of one Gradstep account; not redistributed."). Upload rows are deleted with the account; their
-objects are owner-scoped, so account deletion already returns them for removal (and the `paper-uploads/<account>/`
-folder), and the v4 query projection of their titles goes back to the placeholder. Uploaded papers are not sent for
-catalog tagging. Approval policy `owner-upload-v1`.
+**Targets.** `paper` creates an owner-private `upload:<id>` at download. `import` supplies an exact revision of an
+existing web/upload import for device fallback; a failed import is retried through the existing library command.
+`source` creates the known closed web paper's import. Only one checking selection exists per owner/source, and the
+worker pins an exact session/generation/intent. Web papers and reader-supplied PDFs remain owner-private.
+
+**Uploaded papers in the library.** Uploaded sources and descriptor refs require additive v5 full and compact/query
+capabilities. Existing v2/v3/v4 views must consistently hide unsupported entries and tombstones, including query
+counts/hydration, while preserving installed cursor semantics. V5 has its own dataset epoch/cursor binding and
+requires a fresh baseline on capability transition. This compatibility integration is still an enablement gate.
+
+Custom title and optional original filename live only in an authenticated, versioned encrypted descriptor derived
+from the account's device-held epoch keys. Catalog metadata remains the immutable neutral “Uploaded PDF” record;
+server-side title search never sees the personal title. Clients resolve descriptor refs, retain opaque ciphertext
+when keys are unavailable/corrupt, and display a neutral placeholder without breaking library sync. Accurate custom
+title search/sort requires the complete decrypted local descriptor index. Descriptor bytes share the encrypted
+storage allowance and are included in additive usage totals. Session cleanup keeps the descriptor; account deletion
+erases it. Uploaded papers are not sent for catalog tagging; the approval policy remains `owner-upload-v1`.
 
 **Closed web papers.** A work with no open PDF now records its metadata and splits privately; its private paper
 fails at download as **`not_open`** (resumable, no automatic retry), so the reader can supply the PDF to the same paper.
