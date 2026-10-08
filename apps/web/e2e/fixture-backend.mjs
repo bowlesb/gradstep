@@ -247,7 +247,7 @@ createServer(async (request, response) => {
   if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
-    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
+    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
     return send(response, 200, { ok: true });
   }
@@ -355,7 +355,7 @@ createServer(async (request, response) => {
       if (index < chunks.length) { event('delta', { text: chunks[index++] }); if (mode === 'eof' && index === 2) return response.end(); return setTimeout(tick, mode === 'slow' ? 500 : 15); }
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
-click B "https://attacker.invalid/open"` : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
+click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
       event('done', { stop_reason: 'end_turn', credits: 3 }); response.end();
     };
     setTimeout(tick, 200); return;

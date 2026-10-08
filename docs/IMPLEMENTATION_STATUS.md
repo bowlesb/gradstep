@@ -22,6 +22,12 @@ removed executor work) is retained below where useful and in git history.
   and abstracts. Six Library workflows include 4,000-entry desktop/390 px libraries; four combined column/Feed
   workflows pass. Production build and live HTTP/CSP/HSTS/no-console-error check pass (`web-columns-live-smoke.json`).
   Earlier browser chat and hosted encrypted-history evidence below remain applicable, with their stated limits.
+- **Real hosted chat/diagram proof:** a disposable account received a general-chat answer in 4.9 s, drew its
+  five-node Mermaid diagram in an isolated frame, and recovered both after reload. The successful request used
+  2 credits / $0.006266 provider cost / zero outstanding holds. Including harness retries: two paid answers,
+  $0.012572 total, all three test accounts deleted (`hosted-browser-diagram-total-cost.json`). Auth UI was seeded;
+  email/OAuth UI, Safari and physical camera remain unverified. Visual review prompted a whole-graph Fit view
+  with bounded zoom; six local production-CSP diagram journeys pass, with four intentional phone skips.
 - **iOS and Mac TestFlight build 19**, source `b4b7ad7`, uploaded October 7 at 22:56 PDT. App Store Connect
   confirms both **VALID / IN_BETA_TESTING**: iOS `6bda87b4-c0b8-45e4-a760-a6328beb979d`,
   Mac `d6bf3f5e-8d8f-4936-a0fa-039d2369651b`. Evidence:
@@ -41,7 +47,7 @@ removed executor work) is retained below where useful and in git history.
   question acknowledgement before insufficient-credit refusal, reload and second-browser recovery/history.
   Server accounting confirms zero provider attempts/usage/cost/holds; account deletion completed 200. Evidence:
   `.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. Its real Auth session was seeded via
-  synthetic-account password login; email/OAuth UI and a paid answer were not tested. Safari's secure-key
+  synthetic-account password login; email/OAuth UI was not tested, and this earlier journey made no paid request. Safari's secure-key
   persistence gate and tab-memory drafts/outbox remain. [Browser contract](architecture/BROWSER_READER.md).
 - **Staging schema through 042 is applied.** Before 042, encrypted checkpoint
   `20261008T051522Z-5ffa9efe26a9` captured the database and 1,332 objects; migration hash, grants and search paths

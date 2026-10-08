@@ -408,6 +408,9 @@ progress.mini { height: 3px; margin-top: 4px; }
 .selection-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
 @media(max-width: 600px) { .history-paper { display: none; } .chat-message { font-size: 15px; } .chat-pane .segment { min-height: 32px; } }
 
-.diagram-frame { width: 100%; height: 55dvh; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.diagram-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
+.diagram-tools button { min-width: 36px; }
+.diagram-viewport { width: 100%; height: 55dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.diagram-frame { display: block; max-width: none; border: 0; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
