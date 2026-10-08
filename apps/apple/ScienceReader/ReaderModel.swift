@@ -439,6 +439,13 @@ final class ReaderModel {
                 resolvedConfiguration = nil; resolvedClient = nil; fixtureFailed = true
             }
         }
+        if LibraryV5Fixture.isEnabled {
+            // An activated account on a scripted upload-capable (v5) library; never the bundled backend.
+            do {
+                let fixture = try LibraryV5Fixture.makeBackend()
+                resolvedConfiguration = fixture.configuration; resolvedClient = fixture.client
+            } catch { resolvedConfiguration = nil; resolvedClient = nil; fixtureFailed = true }
+        }
         #endif
         self.configuration = resolvedConfiguration; self.backend = resolvedClient
         self.chatTransportOverride = resolvedTransport; self.chatConsentStore = resolvedConsentStore

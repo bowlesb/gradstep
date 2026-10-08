@@ -39,6 +39,7 @@ private final class LibraryModelServer: @unchecked Sendable {
     private var staleCapabilities = 0
     private var previousEpoch: UUID?
     private var capturedPages: [(endpoint: String, epoch: String?)] = []
+    private var v5CommandsAvailable = true
 
     init(activated: Bool = false, pendingFailed: Bool = false, uploadEpoch: UUID? = nil) {
         self.pendingFailed = pendingFailed; self.epoch = uploadEpoch
@@ -62,6 +63,7 @@ private final class LibraryModelServer: @unchecked Sendable {
     func enqueueCommand(_ step: CommandStep) { lock.withLock { commandSteps.append(step) } }
     func holdNextChanges(_ expectation: XCTestExpectation) { lock.withLock { holdChanges = expectation } }
     func commands() -> [CapturedCommand] { lock.withLock { capturedCommands } }
+    func setV5CommandsAvailable(_ available: Bool) { lock.withLock { v5CommandsAvailable = available } }
     func pages() -> [(endpoint: String, epoch: String?)] { lock.withLock { capturedPages } }
     var currentEpoch: UUID? { lock.withLock { epoch } }
     /// Restore quarantine: a new dataset identity. The next `stale` capability reads still name the old one.
@@ -112,10 +114,15 @@ private final class LibraryModelServer: @unchecked Sendable {
                 if let arrival = holdChanges {
                     holdChanges = nil; heldChanges = (request, response.0); arrival.fulfill()
                 } else { request.respond(response.0, status: response.1) }
-            case "v2_begin_import", "v2_cancel_import", "v2_retry_import", "v2_set_library_item", "v2_set_item_tags": handleCommand(request)
-            case "v5_begin_import", "v5_cancel_import", "v5_retry_import", "v5_set_library_item", "v5_set_item_tags":
+            case "v2_begin_import", "v2_cancel_import", "v2_retry_import", "v2_set_library_item", "v2_set_item_tags", "v2_set_item_archived": handleCommand(request)
+            case "v5_begin_import", "v5_cancel_import", "v5_retry_import", "v5_set_library_item", "v5_set_item_tags", "v5_set_item_archived":
                 // Migration 042: the v2 command plus its observed dataset, checked in the same transaction.
                 guard let epoch else { request.respond(Data("{}".utf8), status: 404); return }
+                guard v5CommandsAvailable else {
+                    capturedCommands.append(.init(endpoint: request.request.url!.lastPathComponent, body: body(request.request)))
+                    request.respond(bytes(["code": "PGRST202", "message": "Could not find the function in the schema cache"]), status: 404)
+                    return
+                }
                 guard fields(request.request)["p_dataset_epoch"] as? String == epoch.wire else {
                     capturedCommands.append(.init(endpoint: request.request.url!.lastPathComponent, body: body(request.request)))
                     resync(request); return
@@ -213,20 +220,36 @@ private final class LibraryModelServer: @unchecked Sendable {
                 row["error_code"] = NSNull(); row["retryable"] = false
                 entry = row
             case "v2_set_library_item":
+                var row = changedEntries[itemID.wire] ?? item()
                 guard input["p_document_id"] as? String == documentID.wire, input["p_present"] as? Bool == false,
-                      input["p_expected_revision"] as? Int == 1 else {
+                      input["p_expected_revision"] as? Int == row["membership_revision"] as? Int else {
                     request.respond(Data("{}".utf8), status: 409); return
                 }
-                revision = 2; entry = item(state: cursor, visible: false)
+                revision = (row["membership_revision"] as! Int) + 1
+                row["membership_revision"] = revision; row["state_seq"] = cursor
+                row["visible"] = false; row["last_remove_seq"] = cursor
+                row.removeValue(forKey: "user_tags"); row.removeValue(forKey: "hidden_tags")
+                entry = row
             case "v2_set_item_tags":
-                guard input["p_document_id"] as? String == documentID.wire, input["p_expected_revision"] as? Int == 1,
+                var row = changedEntries[itemID.wire] ?? item()
+                guard input["p_document_id"] as? String == documentID.wire,
+                      input["p_expected_revision"] as? Int == row["membership_revision"] as? Int,
                       let own = input["p_tags"] as? [String], let hidden = input["p_hidden_tags"] as? [String] else {
                     request.respond(Data("{}".utf8), status: 409); return
                 }
-                revision = 2
-                var row = item(state: cursor); row["membership_revision"] = 2
-                if !own.isEmpty { row["user_tags"] = own }
-                if !hidden.isEmpty { row["hidden_tags"] = hidden }
+                revision = (row["membership_revision"] as! Int) + 1
+                row["membership_revision"] = revision; row["state_seq"] = cursor
+                row["user_tags"] = own; row["hidden_tags"] = hidden
+                entry = row
+            case "v2_set_item_archived":
+                var row = changedEntries[itemID.wire] ?? item()
+                guard input["p_document_id"] as? String == documentID.wire,
+                      input["p_expected_revision"] as? Int == row["membership_revision"] as? Int,
+                      let archived = input["p_archived"] as? Bool else {
+                    request.respond(Data("{}".utf8), status: 409); return
+                }
+                revision = (row["membership_revision"] as! Int) + 1
+                row["membership_revision"] = revision; row["state_seq"] = cursor; row["archived"] = archived
                 entry = row
             default: request.respond(Data("{}".utf8), status: 404); return
             }
@@ -789,6 +812,77 @@ final class LibraryModelTests: XCTestCase {
         XCTAssertEqual(body["p_dataset_epoch"] as? String, rotated.wire)
         XCTAssertNotEqual(body["p_operation_id"] as? String, kept.id.wire)
         XCTAssertEqual(model.libraryCommands.map(\.id), [kept.id], "The refused change stays for review until dismissed")
+    }
+
+    func testV5RetryCancelTagsArchiveAndRemoveUseCurrentObservedRevisions() async throws {
+        let epoch = UUID(), server = LibraryModelServer(activated: true, pendingFailed: true, uploadEpoch: epoch)
+        server.catalogTags = ["Machine learning", "Transformers"]
+        let f = try fixture(server), model = f.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        let failed = try XCTUnwrap(model.libraryImports.first { $0.id == server.importID })
+        await model.changeImport(failed, retry: true)
+        try await observe("v5 Retry catches up") {
+            model.libraryCommands.isEmpty && model.libraryImports.first { $0.id == server.importID }?.phase == .acquiring
+        }
+        let retried = try XCTUnwrap(model.libraryImports.first { $0.id == server.importID })
+        await model.changeImport(retried, retry: false)
+        try await observe("v5 Cancel catches up") {
+            model.libraryCommands.isEmpty && !model.libraryImports.contains { $0.id == server.importID }
+        }
+
+        var paper = try XCTUnwrap(model.papers.first { $0.id == server.documentID })
+        let tagProblem = await model.saveTags(["Transformers", "Reading group"], for: paper)
+        XCTAssertNil(tagProblem)
+        try await observe("v5 tags catch up") {
+            model.libraryCommands.isEmpty && model.papers.first?.ownTags == ["Reading group"]
+        }
+        paper = try XCTUnwrap(model.papers.first { $0.id == server.documentID })
+        await model.setArchived(paper, archived: true)
+        try await observe("v5 archive catches up") { model.libraryCommands.isEmpty && model.papers.first?.archived == true }
+        paper = try XCTUnwrap(model.papers.first { $0.id == server.documentID })
+        XCTAssertEqual(paper.tags, ["Transformers", "Reading group"], "Archiving retains the synced tag edit")
+        await model.setArchived(paper, archived: false)
+        try await observe("v5 unarchive catches up") { model.libraryCommands.isEmpty && model.papers.first?.archived == false }
+        await model.removePaper(try XCTUnwrap(model.papers.first { $0.id == server.documentID }))
+        try await observe("v5 Remove catches up after other item changes") {
+            model.libraryCommands.isEmpty && !model.papers.contains { $0.id == server.documentID }
+        }
+        let sent = server.commands()
+        XCTAssertEqual(sent.map(\.endpoint), ["v5_retry_import", "v5_cancel_import", "v5_set_item_tags",
+                                               "v5_set_item_archived", "v5_set_item_archived", "v5_set_library_item"])
+        let bodies = try sent.map { try XCTUnwrap(JSONSerialization.jsonObject(with: $0.body) as? [String: Any]) }
+        XCTAssertEqual(bodies.map { $0["p_expected_revision"] as? Int }, [1, 2, 1, 2, 3, 4])
+        XCTAssertTrue(bodies.allSatisfy { $0["p_dataset_epoch"] as? String == epoch.wire })
+        XCTAssertNil(model.error); XCTAssertNil(model.libraryCommandIssue)
+        XCTAssertEqual(try f.savedCommandCount(), 0)
+    }
+
+    func testMissingV5CommandsPreserveTheRequestAndNeverFallBackToV2() async throws {
+        let epoch = UUID(), server = LibraryModelServer(activated: true, uploadEpoch: epoch), f = try fixture(server)
+        server.setV5CommandsAvailable(false)
+        let model = f.model
+        model.importPollDelay = { _ in 3600 }
+        await model.start()
+        try await model.importPaper("2610.01234")
+        try await observe("A missing command endpoint keeps the saved request") {
+            model.libraryCommands.first?.failure == .connection && model.libraryCommandIssue != nil
+        }
+        let pending = try XCTUnwrap(model.libraryCommands.first), initial = try XCTUnwrap(server.commands().first)
+        XCTAssertEqual(pending.phase, .submittedUnknown)
+        XCTAssertEqual(initial.endpoint, "v5_begin_import")
+        XCTAssertEqual(pending.request?.body, initial.body)
+        XCTAssertFalse(model.libraryImports.contains { $0.sourceID == "2610.01234" })
+        // Model the additive migration becoming available, then the user's explicit Refresh.
+        server.setV5CommandsAvailable(true)
+        await model.refreshLibrary()
+        try await observe("The exact saved request succeeds once the v5 endpoint is available") {
+            model.libraryCommands.isEmpty && model.libraryImports.contains { $0.sourceID == "2610.01234" }
+        }
+        let attempts = server.commands()
+        XCTAssertEqual(attempts.map(\.endpoint), ["v5_begin_import", "v5_begin_import"])
+        XCTAssertEqual(attempts[0].body, attempts[1].body)
+        XCTAssertNil(model.error); XCTAssertNil(model.libraryCommandIssue)
     }
 
     @MainActor private final class Fixture {
