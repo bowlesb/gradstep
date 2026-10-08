@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 
 async function signIn(page: Page) {
   await page.goto('/');

@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 
 test('a full library stays searchable while an import progresses', async ({ page, request, context, browserName }, info) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
