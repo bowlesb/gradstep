@@ -31,9 +31,9 @@ Current offers and purchased benefits must survive any accepted change. The exis
 `credits.400`; a 250-credit pack needs a new product ID, not a changed meaning for existing receipts. Pin
 allowance policy by verified product/transaction, preserve nonexpiring pack balances, and do not silently
 reduce an existing subscriber's renewal benefit. A public offer transition needs StoreKit disclosures and
-an explicit legacy-product policy. There is also an existing unresolved upgrade discrepancy: the owner
-approved keeping prior-period credits, whereas the recorder currently ends the replaced period's unused
-credits. Resolve and test that policy separately; neither outcome is hidden in this model.
+an explicit legacy-product policy. The prior upgrade discrepancy was repaired separately by migration044:
+the owner's approved prior-period credits now retain their original expiry. That reviewed repair changed no
+prices or allowances; it does not establish real StoreKit subscription acceptance or alter this model.
 
 ## Evidence and limits
 

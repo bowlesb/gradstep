@@ -70,7 +70,7 @@ renderer fix, with #3/#10.
 | 6 | "Little options in the bottom right that make the text a little bigger and smaller" | Feed / reader | Small A− / A+ controls | In build 19 for Feed and reader; expanded-abstract-specific feedback below remains separate |
 | 7 | "As a PDF is downloading, very briefly something appears for 5 ms right below Unread … the text flashes and all items move" | Library during a download | Remove the transient row/banner that shifts the list | In build 19: delayed overlay for background updates, preserving table geometry |
 | 8 | "Is text streamed as it comes? It's too long before text starts coming" | Chat time-to-first-text (Related with web search) | Measure; show progress immediately; reduce latency before first token | Server part on staging 2026-10-08 (chat function): policy lookup overlaps the body read; action instructions after the paper's cache breakpoint; search results without citations so the prompt cache survives the search round |
-| 9 | "Please remove Open and just put arXiv and it can link out" | Papers in this answer | Replace Open with the arXiv ID as a link; keep Add to library | In build 19. The later request for separate Library and website destinations is still pending below |
+| 9 | "Please remove Open and just put arXiv and it can link out" | Papers in this answer | Replace Open with the arXiv ID as a link; keep Add to library | In build 19; separate Library and website destinations follow in build 20 (see below) |
 | 10 | "Ingestion failure" (arXiv 2207.00729 at "Finding 99% · Taking longer than usual") | Import metadata | Completed after 7 min: arXiv rate-limited the metadata lookup (`rate_limited`, backoff). Add a metadata fallback when arXiv throttles; don't show 99% while waiting | On staging 2026-10-08: arXivRaw (OAI-PMH) fallback when the Atom API throttles; a throttled source shows "waiting", not 99 % (migration 040 + worker) |
 
 ## Build 17, 2026-10-08 (iPhone, 3 items)
@@ -82,7 +82,7 @@ renderer fix, with #3/#10.
 | 3 | "Table still sucks why are they're so few options" | Feed table (Title, Published, Add on phone) | Column chooser (topic, authors, updated, arXiv ID, abstract, in library, relevance), horizontal scroll with pinned title, more sorts and filters, as for the library and chats tables | In build 19: chooser, pinned title/Add, horizontal scrolling, additional supported fields, and Hide papers in my library. Expanded-title/abstract feedback below is not covered by this claim |
 
 Also requested with this batch: a personalized feed ("relevant to a users interests … kept up to date and
-changing but have cost under control"). Design and the reviewed zero-paid-API implementation are merged. Migration 043 remains **unapplied/default-off**,
+changing but have cost under control"). Design and the reviewed zero-paid-API implementation are merged. Migration 043 is **applied with serving and refresh off**,
 with For You as default and server-visible metadata use awaiting the owner's answer. No paid ranking is enabled.
 [Feed plan](architecture/PERSONALIZED_FEED.md).
 

@@ -1,12 +1,13 @@
 # Browser reader
 
 Status, 2026-10-08 UTC: **milestone 2 and Library columns/full abstracts deployed to https://app.gradstep.ai
-against staging**, latest Pages `67f5547c` from `0fb60c7`. Encrypted browser chat first shipped in `68faefdb`
-from `b4b7ad7`; the follow-up retains it. Latest deployment/smoke:
-`.artifacts/takeover-20261008/{web-columns-deploy.log,web-columns-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
+against staging**, latest Pages `e15a5614` from `0db9809` adds fitted diagrams and zoom. Library columns shipped
+in `67f5547c`; encrypted browser chat first shipped in `68faefdb` from `b4b7ad7`. Latest deployment/smoke:
+`.artifacts/takeover-20261008/{web-diagram-deploy.log,web-diagram-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
 errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
-real key setup, reading and encrypted question/history recovery. Auth was seeded; email/OAuth UI, paid answers,
-Safari support and an E2EE claim remain outside that proof. Key-storage/draft limits are below. Original reader/M1 deployment
+real key setup, reading and encrypted question/history recovery. A later [hosted diagram journey](#hosted-answer-and-diagram--2026-10-08-utc)
+verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; email/OAuth UI,
+Safari support and a comprehensive E2EE claim remain outside those proofs. Key-storage/draft limits are below. Original reader/M1 deployment
 history is retained in [deployment evidence](#deployment--2026-10-07).
 
 ## Scope
@@ -512,6 +513,8 @@ The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) an
   result with this frame's `contentWindow` and fresh request ID; SVG never enters the account DOM. A ten-second
   presentation timeout retires the frame, but is not a hard CPU/process-isolation guarantee. Broken/unsupported
   diagrams keep their source and show failure. No automatic metered repair request is made in this milestone.
+  The viewport initially fits the whole graph; Fit and bounded 1–4× zoom preserve the visible center while
+  enlarging text. Zoom resizes the opaque frame, without changing its permissions or reading its DOM.
 
 ### Bounds, durability and remaining gaps
 
@@ -528,7 +531,7 @@ At most three local streams run at once, each ≤2 MiB of SSE, ≤200 KB saved t
 1,000 macro expansions; unsupported output remains readable source. These local bounds complement server controls.
 The full native query/history cache capacity has not been benchmarked in this browser.
 
-Still separate: durable encrypted browser drafts/outbox/offline history, provider-backed live browser smoke,
+Still separate: durable encrypted browser drafts/outbox/offline history, broader provider-backed acceptance,
 rendered-diagram automatic repair, answer-quote actions, richer reference actions and cross-device reading positions.
 Safari's non-extractable X25519 persistence blocker is unchanged: the existing capability gate refuses enrollment;
 Chromium fixture results do not establish Safari support or a new E2EE/provider-retention guarantee.
@@ -562,7 +565,7 @@ second browser profile at desktop/phone sizes; selection→chat→passage; strea
 valid, malformed and directive-refused Mermaid; continuous 15 ms chunks; and blocked diagram links/media/remote
 CSS. The two frame script hashes were rebuilt from that exact bridge and pinned Mermaid asset. Screenshots remain
 under the recovered web worktree's `.artifacts/web-chat/`. Hosting is confirmed separately by Pages deployment
-`68faefdb` and the live HTTP 200/header/no-error smoke. No successful paid hosted browser chat is claimed.
+`68faefdb` and the live HTTP 200/header/no-error smoke. The later paid journey is recorded separately below.
 
 ### Hosted milestone 2 zero-credit journey — 2026-10-08 UTC
 
@@ -578,3 +581,24 @@ encrypted events. Account deletion returned 200/complete; no page or console err
 `.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. This used a real Auth session seeded by
 an admin-created synthetic account's password login: it does **not** verify the email-code/OAuth interface,
 email delivery, Safari key persistence, physical-device approval or a paid streamed answer.
+
+### Hosted answer and diagram — 2026-10-08 UTC
+
+On Pages `67f5547c` / source `0fb60c7`, a disposable staging account generated a real general-chat answer with
+`create_diagram` in 4.9 seconds. Its five-node Mermaid graph rendered in the opaque frame, which could access
+neither parent DOM nor storage. Four acknowledged ciphertext events recovered the answer and diagram after
+reload. The completed request charged 2 test credits and recorded $0.006266 provider spend, with no outstanding
+reservation. Account deletion completed. Auth was seeded by synthetic-account password login; this does not
+verify email/OAuth UI, a physical camera, Safari, automatic diagram repair, or a comprehensive cryptographic audit.
+
+Evidence: `.artifacts/takeover-20261008/hosted-browser-diagram-summary.json` and screenshots. Including two earlier
+harness corrections (one stopped before the provider; one drew the graph but raced the reload-panel assertion),
+the session made two paid requests totaling **$0.012572**, with zero remaining reservations, test Auth accounts
+or private events (`hosted-browser-diagram-total-cost.json`). No recurring service, offer, or budget changed.
+
+Visual inspection found that a tall graph's final node could be clipped. The fit/zoom follow-up has six passing
+production-CSP journeys: tall seven-node graphs at desktop and 390 px, zoom/scroll/Fit/return to chat, normal and
+malformed/directive-refused rendering, and remote media/link/CSS isolation. Four desktop-only repeats skip on
+the phone project. Screenshots `.artifacts/web-chat/{desktop,phone}-tall-diagram{,-zoomed}.png` were visually
+reviewed; all nodes fit initially and enlarged labels remain scrollable. These are local fixture checks, not
+additional paid requests. Deployment of the follow-up is recorded in implementation status.

@@ -186,12 +186,15 @@ def verify(bin_path, db, base):
                 print(f'PASS {environment} actual closure/funding/purchase RPCs: '
                       f'{"recorded restore" if previously_recorded else "first-seen deleted-token binding"} completes without account inversion', flush=True)
 
-            # An upgrade can revoke a historical bucket on a former account even
-            # though neither the current owner nor the new signed token names it.
+            # Preserve the complete historical-account lock union even though
+            # an upgrade now leaves earlier buckets unchanged. Refunds still
+            # operate on those buckets and must use the same account ordering.
             old, new = sorted([new_account(), new_account()])
             earlier = tx(old, environment, product='standard.monthly')
             earlier['purchase_date'] -= 86400_000
             sql('set role service_role; ' + record(old, earlier) + f"select public.worker_delete_account_begin('{old}');" + record(new, earlier))
+            historical_bucket = sql(f"select to_jsonb(b) from app_private.credit_buckets b join app_private.store_transactions t on t.bucket_id=b.id "
+                                    f"where t.environment='{environment}' and t.transaction_id='{earlier['transaction_id']}';")
             upgrade = tx(new, environment, original=earlier['original_transaction_id'], product='pro.monthly')
             upgrade['app_transaction_id'] = earlier['app_transaction_id']
             account_locker, purchasing = Session(), Session()
@@ -202,9 +205,10 @@ def verify(bin_path, db, base):
             result = json.loads(purchasing.until(pm)[-1])
             purchasing.complete('commit;')
             assert result['credits'] == (1800 if environment == 'Production' else 200), result
-            assert sql(f"select revoked_at is not null from app_private.credit_buckets where id=(select bucket_id "
-                       f"from app_private.store_transactions where environment='{environment}' and transaction_id='{earlier['transaction_id']}');") == 't'
-            print(f'PASS {environment} historical upgrade bucket owner is prelocked (composed funding account prefix); grant rules preserved', flush=True)
+            assert sql(f"select to_jsonb(b) from app_private.credit_buckets b join app_private.store_transactions t on t.bucket_id=b.id "
+                       f"where t.environment='{environment}' and t.transaction_id='{earlier['transaction_id']}';") == historical_bucket
+            print(f'PASS {environment} historical upgrade bucket owner is prelocked (composed funding account prefix); '
+                  'prior credits unchanged', flush=True)
 
         # Unknown attribution preserves newest signed state. Account creation can
         # happen between requests, but a late account cannot be locked mid-request.

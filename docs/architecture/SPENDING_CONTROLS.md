@@ -101,6 +101,48 @@ The operating forecast includes the full provider allocation plus dated overhead
 remain **not recorded** and make the forecast incomplete. The dashboard does not manufacture invoices from metrics
 or promise an infrastructure-wide vendor spending cap. External cost observations remain append-only.
 
+#### Owner evidence entry (local implementation, not deployed)
+
+The Spending page gains a small form for reporting month, component, measure, USD amount, completeness and an
+evidence reference. A reporting month is an allocation bucket, not an inferred invoice service interval. Record
+commitments/forecasts separately from invoices/metrics: only the latest commitment or forecast per component feeds
+the plan, so an invoice does not charge the provider budget or add the same subscription a second time. Unknown
+amounts and partial evidence remain explicit. For example, the owner's paid October 6 Tavily invoice establishes
+$30 paid, but not its prior service interval; the separately supplied upcoming November 6–December 6 interval is
+known. Neither observation invents coverage for October 6–November 6.
+
+The new `admin-spending` Edge route validates Auth through `userClient`, then runs `v1_admin_actor` on that same
+caller's token and checks the returned account. Only an owner with real `aal2` can reach the service-role client.
+It consumes the existing `admin-spending` rate window, then calls the already applied
+`worker_record_spending_observation`, which rechecks that the actor is an open owner. An owner UUID or a service
+credential alone is not the browser authorization path. The request has a closed, 4 KiB schema; actor, source
+(`owner-entry`) and empty numeric units are set by the server. Responses and logs carry finite outcomes, never
+evidence text, amounts, accounts, tokens or raw database errors. No migration or budget/credit mutation is needed.
+
+Each submission freezes its UUID, observation timestamp and fields until acknowledged. A bounded, account-scoped
+session retry journal stores only the fields' SHA-256 digest, UUID and timestamp; evidence and other form contents
+stay in memory. Re-entering the same fields after a reload uses that exact retry identity. An unavailable journal
+fails before sending. A successful exact replay is acknowledged once; a lost response never silently creates a
+new observation. Different entries are explicit new actions. The supplied invoice has not been entered: a real
+owner/MFA session and separately reviewed deployment remain required.
+
+The form records the component's amount for the reporting month; a planning entry replaces that component's
+previous total, rather than summing individual line items. It supports the existing eight cost components and
+four measures without arbitrary unit/source editing. Current observation browsing still shows the newest 40 rows
+for the current UTC month only; past/future month entries are acknowledged with their month, not presented as
+currently visible records. The session journal holds at most 32 unconfirmed intents and is not a cross-tab or
+permanent receipt archive. Closing the browser session can remove it; a mounted form always retries its frozen
+request even if a concurrent acknowledgment already removed that journal entry.
+
+Independent review checked caller-token MFA, the service-only writer, closed inputs, immutable exact retries and
+financial isolation. Local verification covers the actual PostgreSQL RPC's role boundaries, replay/conflict,
+invoice-versus-allocation separation and unchanged budget/credit tables; 21 focused Node tests (including the
+existing admin-accounts gate) pass. The new loopback `check-spending-entry.mjs` journey covers a committed request
+whose response is lost, retry after reload, private-free journal metadata, full-component allocation replacement,
+unknown amount, keyboard focus and desktop/390px light/dark forms. The existing spending-dashboard journey,
+production admin build and Deno entrypoint check also pass. Screenshots and the synthetic summary are in
+`.artifacts/spending-entry/`; these are not hosted owner/MFA evidence or vendor invoices.
+
 Local PostgreSQL checks pass for MFA/role boundaries, account scope, held versus expensed cost, refunds,
 immutable evidence, bounded pagination and unresolved attempts older than the selected window. The admin production
 build and `node scripts/check-spending-dashboard.mjs` pass. The loopback-only journey uses synthetic data to check
@@ -122,6 +164,9 @@ plan/900 allowance is not applied, and later usage must be read before any new a
 
 The private Apple verifier (033) and purchase observations (038) are deployed. Staging records three real
 Sandbox credit-pack grants **400 + 400 + 200 = 1,000**, with replays recorded separately. This verifies that
-observed Sandbox path, not Production purchases, subscriptions, renewals or refunds. The subscription upgrade
-policy discrepancy remains open: owner-approved retained prior-period credits versus the recorder expiring the
-replaced period's unused credits. Do not hide that business-rule decision inside accounting changes.
+observed Sandbox path, not Production purchases, subscriptions, renewals or refunds. Independently reviewed
+**migration044 now enforces the approved upgrade policy**: each period's credits keep their original expiry.
+It also rejects malformed copied receipts that could produce a nonexpiring subscription grant. Staging rollout
+used a verifier pause/drain, encrypted backup, zero-history guard, unchanged purchase/grant terms and exact
+function/permission readback before restoring both channels. No price, allowance, balance backfill or provider
+limit changed. [Retention contract and evidence](../reviews/SUBSCRIPTION_UPGRADE_RETENTION_20261008.md).

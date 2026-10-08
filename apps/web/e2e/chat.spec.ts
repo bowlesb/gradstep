@@ -138,3 +138,39 @@ test('opaque diagram blocks embedded media, source navigation and remote CSS', a
   expect(popups).toEqual([]); expect(network).toEqual([]);
   await page.getByRole('button', { name: 'Done', exact: true }).click();
 });
+
+test('a tall diagram fits its viewport with every node visible on desktop and phone', async ({ page, request }, info) => {
+  test.skip(info.project.name === 'webkit', 'Existing key-persistence gate remains in force.');
+  await request.post(`${API}/__chat-fixture`, { data: { mode: 'tall_diagram' } });
+  await login(page); await send(page, 'Draw the complete gradient descent loop', true);
+  await page.getByRole('button', { name: /View diagram/ }).click();
+  const frame = page.frameLocator('iframe[title=Diagram]');
+  await expect(frame.locator('#diagram svg')).toBeVisible();
+  const geometry = await frame.locator('body').evaluate(() => ({
+    width: innerWidth, height: innerHeight,
+    nodes: [...document.querySelectorAll('#diagram svg .node')].map(node => {
+      const box = node.getBoundingClientRect(); return { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+    }),
+  }));
+  expect(geometry.nodes).toHaveLength(7);
+  for (const box of geometry.nodes) {
+    expect(box.left).toBeGreaterThanOrEqual(0); expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(geometry.width); expect(box.bottom).toBeLessThanOrEqual(geometry.height);
+  }
+  await expect(frame.locator('#diagram')).toContainText('Finish');
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram.png` });
+  const firstNode = frame.locator('#diagram svg .node').first();
+  const beforeZoom = (await firstNode.boundingBox())!;
+  await page.getByRole('button', { name: 'Zoom in diagram', exact: true }).click();
+  await page.getByRole('button', { name: 'Zoom in diagram', exact: true }).click();
+  expect((await firstNode.boundingBox())!.height).toBeGreaterThan(beforeZoom.height * 1.8);
+  const viewport = page.getByRole('region', { name: 'Diagram viewport', exact: true });
+  const scroll = await viewport.evaluate(node => ({ left: node.scrollLeft, top: node.scrollTop, extra: node.scrollHeight - node.clientHeight }));
+  expect(scroll.left).toBeGreaterThan(0); expect(scroll.top).toBeGreaterThan(0); expect(scroll.extra).toBeGreaterThan(0);
+  await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-tall-diagram-zoomed.png` });
+  await page.getByRole('button', { name: 'Fit diagram', exact: true }).click();
+  expect(await viewport.evaluate(node => node.scrollTop + node.scrollLeft)).toBe(0);
+  expect((await firstNode.boundingBox())!.height).toBeCloseTo(beforeZoom.height, 0);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByTestId('chat-assistant')).toBeVisible();
+});

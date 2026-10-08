@@ -161,22 +161,22 @@ reset role;
 select test.assert((select count(*)=2 from app_private.store_notifications where notification_uuid in
  ('18900000-0000-0000-0000-000000000006','18900000-0000-0000-0000-000000000007')),'notifications logged');
 
--- Upgrade: Standard then Pro mid-period gives Pro's credits; Standard's unspent credits end.
+-- Upgrade: Standard then Pro retains both allowances until their own expiries.
 set role service_role;
 select public.worker_record_store_transaction(:G,pg_temp.tx('9001','9001',:standard,now()-interval '10 days',now()+interval '20 days',now(),:G));
 select test.assert(public.worker_record_store_transaction(:G,pg_temp.tx('9002','9001',:pro,now(),now()+interval '30 days',now(),:G))
  @> '{"outcome":"recorded","credits":1800}','upgrade grants Pro');
 reset role;
-select test.assert(pg_temp.available(:G)=1800,'the replaced Standard period''s credits ended');
--- Reported in the other order: the replaced Standard period grants nothing.
+select test.assert(pg_temp.available(:G)=2600,'upgrade retains the old period until its original expiry');
+-- Reported in the other order: the unexpired Standard period still grants once.
 set role service_role;
 select public.worker_record_store_transaction(:H,pg_temp.tx('9102','9101',:pro,now(),now()+interval '30 days',now(),:H));
 select test.assert(public.worker_record_store_transaction(:H,pg_temp.tx('9101','9101',:standard,now()-interval '10 days',now()+interval '20 days',now(),:H))
- @> '{"outcome":"recorded","credits":0}','a replaced period reported late grants nothing');
+ @> '{"outcome":"recorded","credits":800}','an unexpired old period grants once when reported late');
 reset role;
-select test.assert(pg_temp.available(:H)=1800,'H has Pro''s credits only');
+select test.assert(pg_temp.available(:H)=2600,'H retains both valid periods regardless of report order');
 
--- A refunded Standard period replaced by Pro stays ended when Apple reverses the refund.
+-- Reversing a Standard refund after upgrading restores its still-valid allowance.
 set role service_role;
 select public.worker_record_store_transaction(:K,pg_temp.tx('9201','9201',:standard,now()-interval '10 days',now()+interval '20 days',now(),:K));
 select public.worker_record_store_transaction(:K,pg_temp.tx('9201','9201',:standard,now()-interval '10 days',now()+interval '20 days',now()+interval '1 second',:K,now()));
@@ -184,7 +184,7 @@ select public.worker_record_store_transaction(:K,pg_temp.tx('9202','9201',:pro,n
 select test.assert(public.worker_record_store_transaction(:K,pg_temp.tx('9201','9201',:standard,now()-interval '10 days',now()+interval '20 days',now()+interval '2 seconds',:K))
  ->>'outcome'='updated','reversal of a replaced period recorded');
 reset role;
-select test.assert(pg_temp.available(:K)=1800,'a reversed refund does not restore a period an upgrade replaced');
+select test.assert(pg_temp.available(:K)=2600,'old-period refund reversal restores its valid credits after upgrade');
 -- A downgrade takes effect at renewal (reason RENEWAL), even if charged early: both periods keep their credits.
 set role service_role;
 select public.worker_record_store_transaction(:N,pg_temp.tx('9301','9301',:pro,now()-interval '28 days',now()+interval '2 days',now(),:N));
