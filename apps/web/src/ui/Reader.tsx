@@ -1,7 +1,7 @@
 // A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
 // contents tree in the left rail with the current section, citation jumps with Back, find in the
 // paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
-import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { BackendError, functionPost } from '../lib/backend';
@@ -47,7 +47,7 @@ function failure(error: unknown): string {
   return 'Couldn’t open this paper. Try again.';
 }
 
-type ReaderProps = { cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
+type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
@@ -63,7 +63,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -252,6 +252,7 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
         <h1 className="reader-title" title={title}>{title}</h1>
         <div className="reader-actions">
+          {listenAction}
           {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back" aria-label="Back to where you were" title="Back to where you were"><Icon name="chevronLeft" size={14} />Back</button>}
           <button className={`icon-button${finding ? ' on' : ''}`} onClick={() => (finding ? closeFind() : openFind())} disabled={!srcdoc} aria-label="Find in paper" title="Find in paper (⌘F)" data-testid="find"><Icon name="search" /></button>
           <button className="tool-button" onClick={() => setFigure({ id: null, open: true })} disabled={!figures.length} title="Figures" data-testid="figures">

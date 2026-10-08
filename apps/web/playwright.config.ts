@@ -11,6 +11,7 @@ const appCommand = process.env.WEB_E2E_DEV === '1'
 
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: ['**/podcast-client.spec.ts'], // standalone audio harness uses podcast.playwright.config.ts
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

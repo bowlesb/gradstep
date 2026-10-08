@@ -17,13 +17,18 @@ function useAccountOwner(account: string) {
   return useMemo(() => snapshot, [account, snapshot.generation]);
 }
 
+// Older deployments may not have the podcast function yet. Keep this distinct from a failed
+// download or an uncertain paid request; only read-only catalog/paper discovery uses it.
+const featureUnavailable = (error: unknown) => error instanceof BackendError
+  && (error.status === 404 || error.status === 405 || error.code === 'podcast_unavailable');
+
 // ---------- Catalog ----------
 
 export function usePodcasts(account: string) {
   const owner = useAccountOwner(account);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'failed' | 'unavailable'>('idle');
   const [next, setNext] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
   const load = useCallback((more = false) => {
@@ -41,7 +46,7 @@ export function usePodcasts(account: string) {
         return [...previous, ...catalog.episodes.filter(e => !known.has(e.releaseID))].slice(0, 500);
       });
       setNext(catalog.next); setState('loaded');
-    }, () => { if (!controller.signal.aborted && !owner.signal.aborted) setState('failed'); });
+    }, error => { if (!controller.signal.aborted && !owner.signal.aborted) setState(featureUnavailable(error) ? 'unavailable' : 'failed'); });
   }, [account, next, owner]);
   useEffect(() => {
     const retire = () => { request.current?.abort(); setEpisodes([]); setCapabilities(null); setNext(null); setState('idle'); };
@@ -76,7 +81,7 @@ export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; play
   if (state === 'loading' && !episodes.length) return <div className="empty"><div className="spinner" aria-label="Loading episodes" /></div>;
   if (state === 'failed' && !episodes.length) return (
     <div className="empty"><p>Episodes aren’t available right now. Try again in a moment.</p><button className="secondary" onClick={() => load()}>Try again</button></div>);
-  if (capabilities && (!capabilities.catalog || !capabilities.delivery)) return (
+  if (state === 'unavailable' || (capabilities && (!capabilities.catalog || !capabilities.delivery))) return (
     <div className="empty" data-testid="podcast-unavailable"><p><strong>Listening isn’t available yet.</strong></p>
       <p className="muted">Shared paper episodes appear here once they’re published. Reading and chat are unaffected.</p></div>);
   if (state === 'loaded' && !episodes.length) return (
@@ -316,8 +321,8 @@ export function usePodcastPlayer(account: string) {
 }
 export type PlayerModel = ReturnType<typeof usePodcastPlayer>;
 
-/** The docked player. `onEvidence` opens the cited passage (true) or reports that the paper isn't in the library (false). */
-export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean; onAdd?: (episode: Episode) => Promise<void> }) {
+/** Evidence: true opens the passage, false offers Add, null means the navigation was superseded. */
+export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean | null | Promise<boolean | null>; onAdd?: (episode: Episode) => Promise<void> }) {
   const { episode, detail, status, issue, playing, positionMs, rate } = player;
   const [expanded, setExpanded] = useState(false);
   const [notice, setNotice] = useState<Episode | null>(null);
@@ -411,9 +416,14 @@ export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel
                         <span className="dock-line">{s.text}</span></button>
                       {s.evidence.length > 0 && (
                         <div className="dock-evidence">{s.evidence.map(ev => (
-                          <button key={ev.id} className="tag evidence" onClick={() => {
-                              // Jumping to the paper folds the dock back to its bar, so the passage gets the room.
-                              if (onEvidence(episode, ev)) setExpanded(false); else setNotice(episode);
+                          <button key={ev.id} className="tag evidence" onClick={async () => {
+                              const owner = auth.snapshot(), releaseID = episode.releaseID;
+                              try {
+                                const opened = await onEvidence(episode, ev);
+                                if (owner.signal.aborted || auth.snapshot().generation !== owner.generation || evidenceOwner.current !== releaseID) return;
+                                // Only the winning navigation folds the dock. Superseded navigation is neither a jump nor a missing paper.
+                                if (opened === true) setExpanded(false); else if (opened === false) setNotice(episode);
+                              } catch { /* The host owns navigation/save errors; preserve the transcript. */ }
                             }}
                             title={`From the paper: “${ev.quote}”`} aria-label={`Open the cited passage${ev.section ? ` in section ${ev.section}` : ''}: ${ev.quote}`} data-testid="podcast-evidence">
                             “{ev.quote.length > 72 ? ev.quote.slice(0, 70) + '…' : ev.quote}”{ev.section ? ` · §${ev.section}` : ''}</button>))}</div>)}
@@ -459,6 +469,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const [busy, setBusy] = useState<'paper' | 'quote' | 'start' | 'status' | 'cancel' | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [uncertainStart, setUncertainStart] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [pollPaused, setPollPaused] = useState(false);
   const [wakeRevision, setWakeRevision] = useState(0);
   const requestID = useRef<string | null>(null);
@@ -466,7 +477,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const visible = useRef(shown); visible.current = shown;
   const startedPolling = useRef(0);
   const reset = useCallback(() => { pending.current?.abort(); pending.current = null; requestID.current = null;
-    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); }, []);
+    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); setUnavailable(false); }, []);
   useEffect(() => {
     reset(); owner.signal.addEventListener('abort', reset, { once: true });
     return () => { owner.signal.removeEventListener('abort', reset); reset(); };
@@ -483,12 +494,14 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   };
   const load = async () => {
     const c = begin('paper'); if (!c) return;
-    visible.current = true; setShown(true);
+    // Reopening requires a fresh positive capability answer. Preserve an uncertain request ID,
+    // but never expose its paid confirmation under stale paper capabilities after a failed read.
+    visible.current = true; setShown(true); setUnavailable(false); setPaper(null);
     try {
       const result = await podcastPaper(account, itemID, c.signal); if (!live(c)) return;
       setPaper(result); setQuote(null); setJob(result.job); setUncertainStart(false); setPollPaused(false); startedPolling.current = Date.now();
       requestID.current = result.job?.requestID ?? crypto.randomUUID();
-    } catch (e) { if (live(c)) setIssue(generationMessage(e)); }
+    } catch (e) { if (live(c)) { if (featureUnavailable(e)) setUnavailable(true); else setIssue(generationMessage(e)); } }
     finally { if (live(c)) setBusy(null); }
   };
   const estimate = async () => {
@@ -559,7 +572,8 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
         <strong>{title}</strong>
         {busy && <p role="status"><span className="spinner small" /> {busy === 'quote' ? 'Getting an estimate…' : busy === 'start' ? 'Starting…' : busy === 'cancel' ? 'Canceling…' : 'Checking availability…'}</p>}
         {issue && <p className="issue" role="alert">{issue}</p>}
-        {!paper && !busy && <button className="secondary" onClick={() => void load()}>Check availability</button>}
+        {unavailable && <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
+        {!paper && !busy && !unavailable && <button className="secondary" onClick={() => void load()}>Check availability</button>}
         {paper && ready && <><p>Your episode is ready. AI audio and a source-linked transcript.</p><button className="primary" disabled={!paper.capabilities.delivery || !!busy} onClick={() => void play()}>Play episode</button>
           {!paper.capabilities.delivery && <p>Listening is temporarily unavailable.</p>}</>}
         {paper && job && <>

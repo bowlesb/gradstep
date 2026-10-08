@@ -85,6 +85,29 @@ test('For you, precise topics, popularity and optional table columns follow the 
   expect(errors).toEqual([]);
 });
 
+test('leaving a cached feed during refresh keeps Refresh usable on return', async ({ page }) => {
+  let requests = 0, release: (() => void) | undefined;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/functions/v1/discover?**', async route => {
+    if (++requests === 2) await held;
+    await route.fulfill({ json: personal() }).catch(() => {}); // navigation can abort the held response
+  });
+  await signIn(page);
+  await expect(page.locator('.feed-card').first()).toContainText('Reasoning without shortcuts');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => requests).toBe(2);
+  await expect(page.getByRole('button', { name: 'Refreshing…', exact: true })).toBeDisabled();
+  await page.getByTestId('back-to-library').click();
+  await expect(page.getByTestId('library-table')).toBeVisible();
+  release!();
+  await page.getByRole('link', { name: 'Feed', exact: true }).click();
+  await expect(page.locator('.feed-card').first()).toContainText('Reasoning without shortcuts');
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => requests).toBe(3);
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+});
+
 test('feed feedback waits for server acceptance, supports Undo and never sends chat', async ({ page }) => {
   const hidden = new Set<string>();
   await page.route('**/functions/v1/discover?**', route => route.fulfill({ json: { ...personal(), results: results.filter(p => !hidden.has(p.source_id)) } }));

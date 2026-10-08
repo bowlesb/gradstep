@@ -3,6 +3,8 @@ import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { type Session, auth, config } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
+import type { Episode, Evidence } from '../lib/podcast';
+import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext } from './ChatPane';
@@ -11,6 +13,7 @@ import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
 import type { TextAnchor } from '../lib/events';
 import { Brand, Dialog } from './common';
 import { FeedRail, FeedView, useFeed } from './Feed';
+import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
@@ -75,16 +78,17 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [path, moveTo] = usePath();
   const [navigationIssue, setNavigationIssue] = useState(false);
   const navigationIntent = useRef(0);
-  const navigate = useCallback((next: string) => {
+  const navigate = useCallback(async (next: string, arriving?: () => void): Promise<boolean> => {
     const intent = ++navigationIntent.current, owner = auth.snapshot();
-    void (async () => {
-      let failed = false;
-      try { await chat?.flushCheckpoints(); } catch { failed = true; }
-      if (owner.signal.aborted || navigationIntent.current !== intent) return;
-      // A failed local save stays in the account-owned controller and All chats; navigation still
-      // honors the click. A later click or sign-out supersedes this continuation.
-      setNavigationIssue(failed); moveTo(next);
-    })();
+    let failed = false;
+    try { await chat?.flushCheckpoints(); } catch { failed = true; }
+    if (owner.signal.aborted || navigationIntent.current !== intent) return false;
+    // Install a passage only when this navigation wins. A later click, Back or sign-out cannot
+    // leave a deferred passage behind to jump during an unrelated future paper open.
+    arriving?.();
+    // A failed local save stays in the account-owned controller and All chats; navigation still
+    // honors the click. A later click or sign-out supersedes this continuation.
+    setNavigationIssue(failed); moveTo(next); return true;
   }, [chat, moveTo]);
   useEffect(() => {
     const pop = () => {
@@ -115,7 +119,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const readerCommands = useRef<ReaderCommands | null>(null);
-  const openPaper = useCallback((paper: Item) => { setLastPaper(paper.id); navigate(`/paper/${paper.id}`); }, [navigate]);
+  const openPaper = useCallback((paper: Item, anchor?: TextAnchor) => navigate(`/paper/${paper.id}`, () => {
+    setLastPaper(paper.id);
+    setPassage(anchor ? { id: crypto.randomUUID(), documentID: paper.document_id, anchor, at: Date.now() } : null);
+  }), [navigate]);
 
   useEffect(() => {
     let live = true;
@@ -157,6 +164,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   latest.current = { ws, route, paperID };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
   const feed = useFeed(account, library.entries);
+  const podcasts = usePodcasts(account);
+  const player = usePodcastPlayer(account);
+  const [listening, setListening] = useState(false);
 
   const shortcut = useCallback((key: FrameKey) => {
     const { ws, route } = latest.current;
@@ -204,6 +214,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       else if (device && ready.local) await saveActivity(device, activity, ready.local).catch(() => {});
       if (!forget) await chat?.retireJournal();
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
+      if (forget) clearPositions(account);
       ++navigationIntent.current;
       moveTo('/'); // settleBeforeSignOut already drained; the journal is now retired
       await auth.signOut(owner.generation);
@@ -230,18 +241,18 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const railVisible = ws.left.open && ws.left.inline;
   const paperContext = orphanPaper ?? (item?.document_id ? { documentID: item.document_id, title: item.metadata?.title ?? 'Paper', available: item.readiness === 'converted_ready' && item.render_availability === 'available' } : null);
   const paperNames = useMemo(() => new Map(library.entries.filter((e): e is Item => e.kind === 'item' && e.visible).map(e => [e.document_id, e.metadata?.title ?? 'Paper'])), [library.entries]);
-  const openChatDocument = (documentID: string | null) => {
+  const openChatDocument = async (documentID: string | null, anchor?: TextAnchor) => {
     if (!documentID) setChatMode('general');
     else {
       const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === documentID);
-      if (paper) { openPaper(paper); setOrphanPaper(null); }
+      if (paper) { if (!await openPaper(paper, anchor)) return; setOrphanPaper(null); }
       else setOrphanPaper({ documentID, title: 'Paper no longer in library', available: false });
       setChatMode('paper');
     }
-    ws.show('right');
+    latest.current.ws.show('right');
   };
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
-    openChatDocument(documentID); setPassage({ id: crypto.randomUUID(), documentID, anchor, at: Date.now() });
+    void openChatDocument(documentID, anchor);
   };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
     if (!chat || chat.storageRetired || !item?.document_id) return; // the storage notice explains why nothing is sent
@@ -266,6 +277,15 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   };
   const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === item?.document_id && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, item?.document_id]);
 
+  const openPodcastEvidence = async (episode: Episode, evidence: Evidence): Promise<boolean | null> => {
+    const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === episode.documentID);
+    if (!paper) return false;
+    return await openPaper(paper, evidenceAnchor(evidence)) ? true : null;
+  };
+  const addPodcastPaper = async (episode: Episode) => {
+    if (!episode.source.arxivID) throw new Error('source_unavailable');
+    await library.addArxiv(episode.source.arxivID, episode.source.version);
+  };
 
   const left = route === 'paper' ? (
     <>
@@ -281,7 +301,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
     </>
   );
 
@@ -290,7 +310,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // A direct paper URL can finish loading the library before local decryption. Mounting the
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-      : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+      : item ? <Reader listenAction={<PaperListen key={item.id} account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
         passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
         onDiscuss={discuss} onReferenceAdded={() => { void library.refresh().catch(() => {}); }}
@@ -298,7 +318,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
-    center = <FeedView model={feed} library={library} showChips={!railVisible} />;
+    center = <FeedView model={feed} library={library} showChips={!railVisible}
+      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible}
       currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
@@ -350,6 +371,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </div>}
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
+      <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">

@@ -247,7 +247,7 @@ table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-
     display: block; height: auto; min-height: 0; max-height: none; overflow: visible; contain: none; container-type: normal;
   }
   .app:has(.library) .topbar, .app:has(.library) .pane, .app:has(.library) .splitter,
-  .app:has(.library) .collapse-handle, .library-table-tools, .library .chips { display: none; }
+  .app:has(.library) .collapse-handle, .app:has(.library) .podcast-dock, .library-table-tools, .library .chips { display: none; }
   .library { page: library; }
   .library .papers { width: 100%; }
   .library .papers thead { display: table-header-group; }

@@ -7,6 +7,7 @@ import { type DiscoveryResult, type FeedFeedback, type FeedPage, type FeedSelect
 import type { Entry } from '../lib/library';
 import { FeedCards, FeedTable, useFeedColumns } from './FeedResults';
 import { Icon } from './icons';
+import { type ListenFilter, ListenFilterButton } from './Podcast';
 import { type Library, commandError } from './Library';
 import { useStored } from './prefs';
 import './feed.css';
@@ -37,6 +38,7 @@ export function useFeed(account: string, entries: Entry[]) {
     request.current?.abort();
     if (pendingSelection.current) attempted.current.delete(pendingSelection.current);
     request.current = null; pendingSelection.current = null;
+    setState('idle'); // a cached page remains usable when its refresh is interrupted by navigation
   }, []);
   const load = useCallback((which: FeedSelection) => {
     cancel();
@@ -93,16 +95,17 @@ export function useFeed(account: string, entries: Entry[]) {
 export type FeedModel = ReturnType<typeof useFeed>;
 
 /** A failed request waits for an explicit retry. Merely re-rendering must not create a request loop. */
-export function useFeedLoading(model: FeedModel) {
+export function useFeedLoading(model: FeedModel, active = true) {
   const { selected, loaded, load, cancel, attempted } = model;
-  useEffect(() => { if (!loaded.has(selected) && !attempted.current.has(selected)) load(selected); }, [selected, loaded, load, attempted]);
-  useEffect(() => cancel, [cancel]);
+  useEffect(() => { if (active && !loaded.has(selected) && !attempted.current.has(selected)) load(selected); }, [active, selected, loaded, load, attempted]);
+  useEffect(() => { if (!active) cancel(); return cancel; }, [active, cancel]);
 }
 
-function FeedChoices({ model, rail = false }: { model: FeedModel; rail?: boolean }) {
+function FeedChoices({ model, rail = false, listen }: { model: FeedModel; rail?: boolean; listen?: ListenFilter }) {
+  const select = (value: FeedSelection) => { listen?.select(false); model.select(value); };
   const button = (value: FeedSelection, title: string, count?: number) => <button key={value}
-    className={`${rail ? 'rail-item' : 'chip'}${model.selected === value ? ' selected' : ''}`} aria-pressed={model.selected === value}
-    onClick={() => model.select(value)}><span className="rail-label">{title}</span>{rail && count !== undefined && <span className="rail-count">{count}</span>}</button>;
+    className={`${rail ? 'rail-item' : 'chip'}${model.selected === value && !listen?.selected ? ' selected' : ''}`} aria-pressed={model.selected === value && !listen?.selected}
+    onClick={() => select(value)}><span className="rail-label">{title}</span>{rail && count !== undefined && <span className="rail-count">{count}</span>}</button>;
   const extraCategories = useMemo(() => {
     const names = new Set<string>();
     return [...new Set([...model.categories, 'cs.LG', 'cs.CL', 'cs.AI', 'cs.CV', 'stat.ML', 'cs.RO', 'cs.IR', 'cs.NE'])].filter(c => {
@@ -110,12 +113,13 @@ function FeedChoices({ model, rail = false }: { model: FeedModel; rail?: boolean
     });
   }, [model.categories]);
   return <>
+    {listen && <ListenFilterButton selected={listen.selected} onSelect={() => listen.select(true)} rail={rail} />}
     {model.offered ? <>
       {button('for_you', 'For you')}
       {model.topics.map(t => button(`topic:${t.name}`, t.name, t.papers))}
       {model.selected.startsWith('category:') && button(model.selected, selectionName(model.selected))}
       <label className={`feed-more-topics${rail ? ' rail-item' : ''}`}><span className="visually-hidden">More topics</span>
-        <select aria-label="More topics" value="" onChange={e => { if (e.target.value) model.select(`category:${e.target.value}`); }}>
+        <select aria-label="More topics" value="" onChange={e => { if (e.target.value) select(`category:${e.target.value}`); }}>
           <option value="">More topics…</option>{extraCategories.map(c => <option key={c} value={c}>{topicName(c)}</option>)}
         </select>
       </label>
@@ -123,9 +127,9 @@ function FeedChoices({ model, rail = false }: { model: FeedModel; rail?: boolean
   </>;
 }
 
-export function FeedRail({ model }: { model: FeedModel }) {
+export function FeedRail({ model, listen }: { model: FeedModel; listen?: ListenFilter }) {
   return <nav className="rail-nav" aria-label="Feed topics"><div className="rail-section"><div className="rail-heading">Topics</div>
-    <FeedChoices model={model} rail />
+    <FeedChoices model={model} rail listen={listen} />
   </div>{!model.offered && <p className="fine rail-note">Topics come from your library’s arXiv categories.</p>}</nav>;
 }
 
@@ -133,8 +137,8 @@ const ago = (at: number) => { const m = Math.max(0, Math.round((Date.now() - at)
 const sorts: { value: FeedSort; label: string }[] = [ { value: 'suggested', label: 'Suggested' }, { value: 'newest', label: 'Newest' },
   { value: 'popularity', label: 'Popularity' }, { value: 'title', label: 'Title' }, { value: 'authors', label: 'Authors' }, { value: 'topic', label: 'Topics' } ];
 
-export function FeedView({ model, library, showChips }: { model: FeedModel; library: Library; showChips: boolean }) {
-  useFeedLoading(model);
+export function FeedView({ model, library, showChips, listen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter }) {
+  useFeedLoading(model, !listen?.selected);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [lastFeedback, setLastFeedback] = useState<{ source: string; kind: FeedFeedback } | null>(null);
@@ -172,9 +176,10 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
   const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
   const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
     feedback: model.offered ? feedback : undefined, feedbackBusy, feedbackState: model.feedback };
-  return <section className={`feed${layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
-    <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
-    {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} /></div>}
+  return <section className={`feed${!listen?.selected && layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
+    <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{listen?.selected ? 'Listen to papers' : personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
+    {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} listen={listen} /></div>}
+    {listen?.selected ? listen.view : <>
     <div className="feed-controls">
       <div className="feed-layout" role="group" aria-label="Feed layout"><button aria-pressed={layout === 'cards'} onClick={() => setLayout('cards')}>Cards</button><button aria-pressed={layout === 'table'} onClick={() => setLayout('table')}>Table</button></div>
       <label className="feed-sort"><span className="visually-hidden">Sort feed</span><select aria-label="Sort feed" value={sort.key} onChange={e => setSort(e.target.value as FeedSort)}>
@@ -195,5 +200,6 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
     {current && shown.length === 0 && <div className="empty"><p>{current.results.length ? 'No papers match your filters.' : 'No new papers in this topic right now.'}</p>{hideLibrary && current.results.length > 0 && <button className="link" onClick={() => setHideLibrary(false)}>Show papers in your library</button>}</div>}
     {layout === 'table' ? <FeedTable results={shown} columns={columnSettings} sort={sort} setSort={setSort} actions={actions} toolsSlot={tableTools} />
       : shown.length > 0 && <FeedCards results={shown} actions={actions} />}
+    </>}
   </section>;
 }
