@@ -358,7 +358,8 @@ cross-client verification has already passed.
   For a new PDF it is `upload:<client-upload-UUID>`. A revised name retains descriptor/source identity and increments
   revision exactly once. No timestamp participates in conflict resolution.
 - **AAD:** the exact UTF-8 text below, replacing angle-bracket values and including the final newline. Source IDs are
-  already canonical ASCII and contain no newline. This binds the encrypted value to its account, source, identity,
+  already canonical, 1–128 printable ASCII bytes (U+0021–007E), preserving case and excluding whitespace. Their
+  source-specific grammar remains the authorized source resolver's responsibility. This binds the encrypted value to its account, source, identity,
   revision, logical mutation, author, epoch and format.
 
 ```text
@@ -448,6 +449,16 @@ the test nonce; modification of every AAD field, nonce, ciphertext or tag fails 
 wrong digest/length, unknown format, unavailable historical key, revoked author, rotation-vs-create/rename races,
 exact lost-response replay, concurrent rename CAS, account switch, descriptor deletion and v3/v4/v5 mixed libraries.
 Persist encrypted local outbox data before sending and reconcile accepted mutations before resealing after rotation.
+
+Local codec verification, 2026-10-07: Swift CryptoKit and browser WebCrypto both reproduce all three independent
+frozen vectors exactly. They reject modified identities/ciphertext, Base64 aliases, invalid UTF-8, noncanonical
+JSON (including duplicate keys, escape alternatives and BOM), and unavailable keys; historical reads survive key
+rotation. Swift explicitly compares payload text by UTF-8 bytes rather than canonical-equivalence String equality.
+Browser descriptor keys are separately derived and nonextractable, with the same account lifetime as existing
+event keys. Core223 and web131 tests pass, including existing Swift/WebCrypto interoperability, and the browser
+production build passes. The native codec also received independent browser-side review. This is codec evidence
+only: server authorization/races, encrypted outbox persistence, mixed-version reads and client UI remain activation
+requirements. No descriptor data has been written to hosted infrastructure.
 
 ### UX, cost and operational evidence
 
