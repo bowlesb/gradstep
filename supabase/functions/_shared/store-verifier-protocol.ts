@@ -31,10 +31,10 @@ function fields(value: Record<string, unknown>, required: string[], optional: st
 export function parseRequest(value: unknown): VerificationRequest | null {
   if (!object(value) || !fields(value, ['version', 'attempt_id', 'kind', 'policy_id', 'signed_payload', 'signed_sha256'])) return null;
   if (value.version !== 1 || value.policy_id !== POLICY_ID || (value.kind !== 'transaction' && value.kind !== 'notification')
-    || typeof value.attempt_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.attempt_id)
-    || typeof value.signed_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.signed_sha256)
+    || typeof value.attempt_id !== 'string' || value.attempt_id.length !== 36 || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.attempt_id)
+    || typeof value.signed_sha256 !== 'string' || value.signed_sha256.length !== 64 || !/^[0-9a-f]{64}$/.test(value.signed_sha256)
     || typeof value.signed_payload !== 'string' || value.signed_payload.length < 20 || value.signed_payload.length > MAX_SIGNED_BYTES
-    || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.signed_payload)) return null;
+    || /[^A-Za-z0-9_.-]/.test(value.signed_payload) || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.signed_payload)) return null;
   if (createHash('sha256').update(value.signed_payload, 'ascii').digest('hex') !== value.signed_sha256) return null;
   return value as unknown as VerificationRequest;
 }

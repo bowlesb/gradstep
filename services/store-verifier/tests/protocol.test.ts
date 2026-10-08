@@ -13,10 +13,10 @@ export const record = { environment: 'Sandbox', transaction_id: '2001', original
 test('request binds exact ASCII bytes and a closed version/kind/policy envelope', () => {
   assert.deepEqual(parseRequest(request()), request());
   for (const change of [{ version: 2 }, { policy_id: 'production' }, { kind: 'other' }, { online_checks: false }, { signed_sha256: 'a'.repeat(64) },
-    { attempt_id: '01000000-0000-0000-0000-00000000000A' }, { signed_sha256: request().signed_sha256.toUpperCase() }]) {
+    { attempt_id: '01000000-0000-0000-0000-00000000000A' }, { signed_sha256: request().signed_sha256.toUpperCase() }, { attempt_id: request().attempt_id + '\n' }, { signed_sha256: request().signed_sha256 + '\n' }]) {
     assert.equal(parseRequest({ ...request(), ...change }), null);
   }
-  for (const signed of ['a.b.c', 'a..b', '.a.b', 'a.b.', 'a.b.c.d', 'a+.b.c', 'a=.b.c', 'a/.b.c', 'a\n.b.c', 'é.b.c', 'a.b.👩', 'a'.repeat(64_001) + '.b.c']) {
+  for (const signed of ['a.b.c', 'a..b', '.a.b', 'a.b.', 'a.b.c.d', 'a+.b.c', 'a=.b.c', 'a/.b.c', 'a\n.b.c', 'a'.repeat(20) + '.b.c\n', 'a'.repeat(20) + '.b.c\u2028', 'é.b.c', 'a.b.👩', 'a'.repeat(64_001) + '.b.c']) {
     assert.equal(parseRequest(request(signed)), null);
   }
   const max = request('a'.repeat(63_996) + '.b.c');
