@@ -390,8 +390,8 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 | `GET ?action=episode&release_id=` | — | `{ episode: Episode & { chapters: [Chapter], transcript: Transcript } }` |
 | `GET ?action=paper&item_id=` | — | `{ episode: Episode\|null, job: Job\|null, capabilities }` (shared or own private release for that library item) |
 | `POST ?action=quote` | `{ item_id, request_id }` | `{ quote: Quote }` or `{ reuse: { release_id } }` or `{ join: { request_id } }` |
-| `POST ?action=start` | `{ quote_id, request_id, consent_version }` | `{ job: Job }` |
-| `GET ?action=status&request_id=` | — | `{ job: Job }` |
+| `POST ?action=start` | `{ quote_id, request_id, consent_version }` | `{ job: Job }`, or `{ reuse: { release_id } }` if an identical private release became ready |
+| `GET ?action=status&request_id=` | — | `{ job: Job }` (or `{ reuse: { release_id } }` for a request that reused a release) |
 | `POST ?action=cancel` | `{ request_id }` | `{ job: Job }` |
 | `POST ?action=download` | `{ release_id }` | `{ grant: { expires_at, members: [Member] } }` |
 | `POST ?action=states` | `{ release_ids: [uuid] }` (≤ 100) | `{ states: { [release_id]: { state, replacement_id } } }` |
@@ -410,7 +410,7 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 - **Quote** `{ id, expires_at, max_credits: 150, estimate: "Estimate — you're charged actual usage, maximum 150 credits",
   providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consent_version: "podcast-private-v1", target_seconds: 300 }`.
 - **Job** `{ request_id, state, stage_entered_at, release_id|null, held_credits, charged_credits|null,
-  released_credits|null, failure|null }`; state is one of `queued, scripting, checking, synthesizing, verifying,
+  released_credits|null, failure|null, cancel_requested: bool }`; state is one of `queued, scripting, checking, synthesizing, verifying,
   publishing, ready, canceled, failed, capacity_wait, unknown_provider, quarantined`. Poll status; never infer
   completion or charges from elapsed time.
 - **Member** `{ role: "audio", url, bytes, sha256, media_type }`. The client downloads into protected local storage,
