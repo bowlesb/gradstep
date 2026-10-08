@@ -114,7 +114,52 @@ export class PrivateState {
     }
   }
 
+  /** Whether a batch would apply (conflicts, cycles, invalid payloads), without changing this state. */
+  check(events: AppliedEvent[]): void {
+    const added: string[] = [], before = this.nextArrival;
+    try {
+      for (const event of events) { const exists = this.events.has(event.id); this.apply(event); if (!exists) added.push(event.id); }
+    } finally {
+      for (const id of added) { this.events.delete(id); this.arrival.delete(id); }
+      this.nextArrival = before;
+    }
+  }
+
+  /** Local rebase mappings (retired pending event → its fresh-ID replacement), as PrivateState.applyLocalReplacements. */
+  private replacements = new Map<string, string>();
+  resolve(id: string): string { let next = id; for (let i = 0; i < 64 && this.replacements.has(next); i++) next = this.replacements.get(next)!; return next; }
+  /** Restores mappings committed earlier (the retired events themselves are not loaded). */
+  restoreReplacements(mapping: Map<string, string>) { for (const [old, next] of mapping) this.replacements.set(old, next); }
+  /** Prove a local rebase is valid before its transaction commits. */
+  checkLocalReplacements(events: AppliedEvent[], mapping: Map<string, string>): void {
+    const staged = new PrivateState();
+    staged.applyBatch([...this.events.values(), ...events]);
+    staged.applyLocalReplacements(mapping);
+  }
+  /**
+   * Replaces retired local events by already applied replacements: content must match with parents remapped, and no
+   * retained event may still refer to a retired one. A replacement keeps its original's place in the arrival order.
+   */
+  applyLocalReplacements(mapping: Map<string, string>): void {
+    if (!mapping.size || new Set(mapping.values()).size !== mapping.size || [...mapping.keys()].some(k => [...mapping.values()].includes(k))) fail('corrupt_data');
+    for (const [oldID, newID] of mapping) {
+      const old = this.events.get(oldID), next = this.events.get(newID);
+      if (!old || !next || this.replacements.has(oldID)) fail('corrupt_data');
+      const expected = { ...old!.payload, parents: old!.payload.parents.map(p => mapping.get(p) ?? p) };
+      if (JSON.stringify(encodeEvent(expected)) !== JSON.stringify(encodeEvent(next!.payload))) fail('corrupt_data');
+    }
+    const retired = new Set(mapping.keys());
+    for (const e of this.events.values()) if (!retired.has(e.id) && e.payload.parents.some(p => retired.has(p))) fail('corrupt_data');
+    for (const [oldID, newID] of mapping) {
+      this.events.delete(oldID); this.replacements.set(oldID, newID);
+      const original = this.arrival.get(oldID);
+      this.arrival.delete(oldID);
+      if (original !== undefined) this.arrival.set(newID, Math.min(original, this.arrival.get(newID) ?? original));
+    }
+  }
+
   apply(event: AppliedEvent): void {
+    if (this.replacements.has(event.id)) fail('event_conflict');
     validateEvent(event.payload);
     const existing = this.events.get(event.id);
     if (existing) { if (!same(existing, event)) fail('event_conflict'); return; }

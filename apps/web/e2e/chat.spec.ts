@@ -98,7 +98,8 @@ test('dark streaming updates at a steady cadence, retry never duplicates a faile
   const first = await page.getByTestId('chat-streaming').textContent();
   await expect(page.getByTestId('chat-streaming')).not.toHaveText(first!);
   await page.getByRole('button', { name: 'Stop', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toContainText('Answer interrupted');
-  const e = await evidence(request); expect(e.events).toHaveLength(3); expect(e.requests).toHaveLength(1);
+  await expect.poll(async () => (await evidence(request)).events.length).toBe(3);
+  expect((await evidence(request)).requests).toHaveLength(1);
   await page.screenshot({ path: '../../.artifacts/web-chat/dark-partial.png' });
   // An explicitly confirmed sign-out retires the stream and the page, without saving draft plaintext.
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'Sign out' }).click();

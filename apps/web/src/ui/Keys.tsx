@@ -2,7 +2,7 @@
 // the primary path) or the recovery code.
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BackendError } from '../lib/backend';
-import { StorageError } from '../lib/idb';
+import { StorageError, activateJournal, storage } from '../lib/idb';
 import { type Preparation, bootstrap, prepare, recoverWithCode } from '../lib/keys';
 import { WireError, generateBundle, generateRecoveryCode, recoveryCodeBytes } from '../lib/wire';
 import { ApproveFromPhone } from './Approve';
@@ -10,7 +10,7 @@ import { Brand } from './common';
 import { storageGuidance, useStorageLifecycle } from './StorageNotice';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
-type View = { kind: 'preparing' } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean };
+type View = { kind: 'preparing' } | { kind: 'activation'; ready: Ready } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean };
 
 function message(error: unknown): string {
   // Another tab changed or closed storage: say what to do, rather than blaming the browser's capabilities.
@@ -39,11 +39,15 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   const [attempt, setAttempt] = useState(0);
   const [method, setMethod] = useState<'phone' | 'code'>('phone');
   const [phoneAttempt, setPhoneAttempt] = useState(0);
+  const [closedTabs, setClosedTabs] = useState(false);
   const { issue: storageIssue } = useStorageLifecycle();
 
   const route = useCallback((result: Preparation, signal: AbortSignal) => {
     if (signal.aborted) return;
-    if (result.kind === 'ready') onReady(result); else setView({ kind: result.kind });
+    if (result.kind === 'ready') {
+      if (storage.snapshot().version === 1) setView({ kind: 'activation', ready: result });
+      else onReady(result);
+    } else setView({ kind: result.kind });
   }, [onReady]);
 
   const approved = useCallback((result: Preparation) => route(result, lifetime.current!.signal), [route]);
@@ -64,6 +68,26 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
     <main className="auth-shell">
       <section className="card auth-card keys-card" aria-live="polite">
         <Brand />
+        {view.kind === 'activation' && <>
+          <h1>Keep drafts in this browser</h1>
+          <p>Gradstep can now keep encrypted drafts, pending chat saves and interrupted answers on this device. Sending still needs a connection. Clearing this browser’s site data can remove work that hasn’t synced.</p>
+          <p>First finish or copy unsent work in every other Gradstep tab, then close those tabs. Older tabs cannot tell us whether their work is saved.</p>
+          <label className="check"><input type="checkbox" checked={closedTabs} onChange={e => setClosedTabs(e.target.checked)} disabled={busy} /> I finished or copied that work and closed my other Gradstep tabs</label>
+          {issue && <p className="issue" role="alert">{issue}</p>}
+          {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}
+          <button className="primary" disabled={!closedTabs || busy} onClick={async () => {
+            setBusy(true); setIssue(null);
+            const signal = lifetime.current!.signal;
+            try {
+              const result = await activateJournal();
+              if (signal.aborted) return;
+              if (result === 'deferred') setIssue('Another Gradstep tab still has unsent work. Finish or copy it, then close that tab and try again.');
+              else { try { await navigator.storage?.persist?.(); } catch { /* browser may decline */ } onReady(view.ready); }
+            } catch (error) { if (!signal.aborted) setIssue(message(error)); }
+            finally { if (!signal.aborted) setBusy(false); }
+          }}>{busy ? 'Preparing storage…' : 'Enable device drafts'}</button>
+          <button className="secondary" disabled={busy} onClick={() => onReady(view.ready)}>Continue without device drafts</button>
+        </>}
         {view.kind === 'preparing' && <><h1>Preparing this browser…</h1><div className="spinner" aria-label="Preparing" />
           {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}</>}
         {view.kind === 'failed' && <>

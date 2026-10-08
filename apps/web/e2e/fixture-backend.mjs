@@ -249,6 +249,7 @@ createServer(async (request, response) => {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
+    if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
@@ -331,6 +332,9 @@ createServer(async (request, response) => {
     if (!rpcs[name] || body === null) return send(response, 404, { code: 'PGRST202', message: 'not found' });
     try {
       const result = rpcs[name](id, a, body);
+      // The row commits but the caller receives no append receipt. A finite 503 avoids Chromium's transport-level
+      // retry of a dropped reused socket, making exact-ID recovery deterministic.
+      if (name === 'v1_append_event' && a.loseAppendAck) { a.loseAppendAck = false; return send(response, 503, { code: 'service_unavailable' }); }
       return result === null && ['v1_approve_enrollment'].includes(name) ? send(response, 204) : send(response, 200, result ?? null);
     } catch (error) {
       if (error.pg) return send(response, 400, { code: 'P0001', message: error.message });
