@@ -31,6 +31,7 @@ one-line reason a person can act on.
 | `store.app-price` / `store.products` | app price schedule and availability; the three products at READY_TO_SUBMIT or later | Get credits empty (no price; MISSING_METADATA) | daily, weekly | 0 |
 | `import.arxiv` | add DPO (shared conversion) → ready; reader bundle downloaded and every member's SHA-256 verified; time to ready | worker/trigger/sync broken | all | 0 |
 | `library.sync` | archive, unarchive, remove, re-add each applied once (replays identical) and visible in `v3_library_changes`; stale revision → `revision_conflict` | sync regressions | all | 0 |
+| `library.v5-commands` | upload-capable baseline → cached-paper Add → archive/unarchive, tags, remove/re-add, matching v5 deltas and idempotent receipts; another dataset is refused | missing migration 042 or a broken v5 write contract (build 18 regression); native button journeys remain separate | all | 0; synthetic account gets no credits |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
 | `admin.accounts-gate` | `admin-accounts` refuses an anonymous caller (401) and a customer (403 `owner_mfa_required`); the refused grant changes nothing | admin function missing or its owner gate broken | all | 0 |
 | `chat.smoke` | general answer streams, ends with `done`, settles | chat down | daily, weekly (+deploy when `chat` is deployed) | ≈ $0.005 |

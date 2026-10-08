@@ -634,6 +634,46 @@ check('library.sync', { title: 'Archive/unarchive and remove/re-add reach v3_lib
   return pass('archive, unarchive, remove, re-add each applied once (replays identical) and appeared in v3_library_changes; stale revision refused');
 });
 
+// Upload-capable clients use a different dataset family: exercising only legacy v2 writes missed
+// build 18's disabled controls. No credits are granted here; only an existing shared conversion can finish.
+check('library.v5-commands', { title: 'Upload-capable Add, archive, tags and membership use epoch-bound commands', suites: ALL, timeout: 180 }, async ({ signal }) => {
+  const acct = await account('v5-library', 0);
+  const page = () => acct.rpc('v5_library_page', { p_cursor: null, p_limit: 100 }, signal);
+  const initial = await page(), epoch = initial.dataset_epoch;
+  if (typeof epoch !== 'string' || !initial.entries || initial.entries.length) throw new Error('a new v5 library has no valid empty baseline');
+  const begin = { p_operation_id: randomUUID(), p_source_id: '2305.18290', p_observed_cursor: initial.baseline_cursor, p_requested_revision: null };
+  try {
+    await acct.rpc('v5_begin_import', { ...begin, p_dataset_epoch: randomUUID() }, signal);
+    throw new Error('an old dataset command was accepted');
+  } catch (error) { if (error.dbMessage !== 'library_resync_required') throw error; }
+  if ((await page()).entries.length) throw new Error('a refused old-epoch Add changed the library');
+  const replay = async (name, params) => {
+    const body = { p_dataset_epoch: epoch, ...params };
+    const first = await acct.rpc(name, body, signal), again = await acct.rpc(name, body, signal);
+    if (first.dataset_epoch !== epoch || first.result?.status !== 'applied' || !again.replayed || again.dataset_epoch !== epoch
+      || JSON.stringify(first.result) !== JSON.stringify(again.result)) throw new Error(`${name}: epoch, outcome or replay mismatch`);
+    return first.result.revision;
+  };
+  await replay('v5_begin_import', begin);
+  const { item } = await waitForReady(acct, e => e.source_id === begin.p_source_id, { timeoutS: 90, signal, label: 'v5 cached DPO' });
+  let revision = item.membership_revision, cursor = (await page()).baseline_cursor;
+  const command = async (name, params, predicate, label) => {
+    revision = await replay(name, { p_operation_id: randomUUID(), p_document_id: item.document_id, p_expected_revision: revision, ...params });
+    const delta = await acct.rpc('v5_library_changes', { p_dataset_epoch: epoch, p_after: cursor, p_limit: 100, p_through: null }, signal);
+    const latest = delta.changes.flatMap(c => c.entries).filter(e => e.kind === 'item' && e.id === item.id).at(-1);
+    if (delta.dataset_epoch !== epoch || !latest || !predicate(latest)) throw new Error(`v5 changes do not show ${label}`);
+    cursor = delta.next_cursor;
+  };
+  await command('v5_set_item_archived', { p_archived: true }, e => e.archived === true && e.visible, 'archive');
+  await command('v5_set_item_archived', { p_archived: false }, e => !e.archived && e.visible, 'unarchive');
+  await command('v5_set_item_tags', { p_tags: ['Workflow check'], p_hidden_tags: [] }, e => e.user_tags?.includes('Workflow check'), 'tags');
+  await command('v5_set_library_item', { p_present: false, p_approval_id: null }, e => !e.visible, 'remove');
+  await command('v5_set_library_item', { p_present: true, p_approval_id: null }, e => e.visible && e.readiness === 'converted_ready', 're-add');
+  const balance = await acct.balance();
+  if (balance.available !== 0 || balance.held !== 0) throw new Error('the zero-credit fixture acquired a balance or hold');
+  return pass('v5 Add, archive, unarchive, tags, remove and re-add applied once and synced; old dataset rejected; no credit grant or paid work');
+});
+
 check('credits.store', { title: 'Credits readable; purchase endpoints refuse forged data', suites: ALL, timeout: 90 }, async ({ signal }) => {
   const acct = await account('library', 60);
   const balance = await acct.balance();
