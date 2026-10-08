@@ -88,6 +88,14 @@ function openAt(version: number | undefined): Promise<IDBDatabase> {
     request.onblocked = () => { if (lifecycle.phase === 'open') update({ issue: 'blocked' }); };
     request.onsuccess = () => {
       const db = request.result;
+      // Without version enumeration, open(NAME) can return a newer database without VersionError.
+      // Refuse it before exposing a connection: this release cannot safely write or Forget unknown stores.
+      if (db.version > VERSION) {
+        db.close();
+        update({ phase: 'retired', issue: 'upgraded', proposal: false });
+        reject(refusal());
+        return;
+      }
       db.onversionchange = event => retire(event.newVersion === null ? 'closed' : 'update', db);
       db.onclose = () => retire('closed', null);
       update({ version: db.version, ...(lifecycle.issue === 'blocked' ? { issue: null } : {}) });
