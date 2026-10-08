@@ -1,6 +1,6 @@
 -- Personalized feed, option A (docs/architecture/PERSONALIZED_FEED.md): a shared pool of new arXiv
 -- papers refreshed on a schedule, ranked per reader from server-visible signals only, with
--- "Not interested" / "More like this" feedback. No paid provider is called. Additive over 001-043.
+-- "Not interested" / "More like this" feedback. No paid provider is called. Additive over 001-042.
 --
 -- Switches (both off): feed_policy.serving ('off' | 'staff' | 'all') gates For you, pool-served
 -- category chips and feedback; feed_policy.refresh_enabled gates the arXiv refresh. The refresh is
@@ -317,7 +317,7 @@ $$;
 create function public.worker_feed_candidates(p_account_id uuid) returns jsonb
 language plpgsql stable security definer set search_path='' as $$
 declare pol app_private.feed_policy; today date:=(now() at time zone 'UTC')::date; since date; pool_rows integer;
- seed text; t_topics text[]; t_own text[]; t_authors text[]; t_categories text[]; t_excluded text[]; empty_profile boolean;
+ seed text; t_topics text[]; t_own text[]; t_authors text[]; t_categories text[]; empty_profile boolean;
  candidates jsonb; refreshed timestamptz;
 begin
  if p_account_id is null or not exists(select 1 from app_private.accounts where id=p_account_id and closed_at is null) then
@@ -338,13 +338,22 @@ begin
   coalesce((select array_agg(distinct k) from (select unnest(author_keys) k from prof union all
     select unnest(author_keys) from fb where kind='more_like_this') x where k<>''),'{}'),
   coalesce((select array_agg(distinct c) from (select unnest(categories) c from prof union all
-    select unnest(categories) from fb where kind='more_like_this') x),'{}'),
-  coalesce((select array_agg(distinct s) from (select source_id s from prof where source_id is not null union all
-    select source_id from fb where kind='not_interested') x),'{}')
- into t_topics,t_own,t_authors,t_categories,t_excluded;
+    select unnest(categories) from fb where kind='more_like_this') x),'{}')
+ into t_topics,t_own,t_authors,t_categories;
  empty_profile:=cardinality(t_topics)=0 and cardinality(t_own)=0 and cardinality(t_authors)=0 and cardinality(t_categories)=0;
 
- with own_q as (
+ -- Ranking uses a bounded recent profile; eligibility must cover the entire account. Otherwise
+ -- older owned/dismissed papers (and failed imports still in the library) reappear after the cap.
+ with excluded as materialized (
+  select cm.source_id from app_private.library_items li
+   join app_private.catalog_asset_approvals ca on ca.id=li.approval_id
+   join app_private.catalog_metadata cm on cm.id=ca.metadata_id
+   where li.account_id=p_account_id and li.removed_at is null
+  union select i.source_id from app_private.import_requests i
+   where i.account_id=p_account_id and i.desired_present
+  union select f.source_id from app_private.feed_feedback f
+   where f.account_id=p_account_id and f.kind='not_interested'),
+ own_q as (
   select t,phraseto_tsquery('english'::regconfig,t) q from unnest(t_own) t
   where t ~ '[[:alpha:]]' and lower(t) not in ('to read','read later','read','reading','important','favorite','favorites','todo','to do',
    'later','reviewed','review','starred','misc','other','paper','papers','work','thesis')),
@@ -360,7 +369,7 @@ begin
    case when p.categories&&t_categories then (select count(*) from unnest(p.categories) x where x=any(t_categories))::integer else 0 end category_hits,
    md5(seed||p.source_id) shuffle
   from app_private.feed_papers p left join phrase ph on ph.source_id=p.source_id
-  where p.announced_on>=since and p.source_id<>all(t_excluded)),
+  where p.announced_on>=since and not exists(select 1 from excluded x where x.source_id=p.source_id)),
  strong as (
   select source_id from win where topic_hits>0 or author_hits>0 or cardinality(matched_tags)>0
   order by 3*topic_hits+4*author_hits+3*cardinality(matched_tags)+category_hits desc,announced_on desc,shuffle limit 250),
@@ -436,6 +445,11 @@ begin
  if not app_private.feed_valid_source(p_source_id) or (p_kind is not null and p_kind not in ('not_interested','more_like_this')) then
   raise exception 'invalid_feed_feedback';
  end if;
+ -- Hold an account fence through commit. The closure UPDATE either waits for this write and
+ -- deletes it, or finishes first and the rechecked row refuses the late write. KEY SHARE would
+ -- not fence a non-key closed_at update. Account -> rate windows -> feedback is the lock order.
+ perform 1 from app_private.accounts where id=a and closed_at is null for share;
+ if not found then raise exception 'account_unavailable' using errcode='42501'; end if;
  select * into strict pol from app_private.feed_policy where singleton;
  if not app_private.feed_serves(a) then raise exception 'feed_unavailable'; end if;
  perform public.worker_consume_request(a,'feed-feedback');

@@ -803,11 +803,11 @@ Private upload titles use the encrypted library descriptors (Codex), so they are
 Owner: "I think we need to also invest in a better feed, it should feel relevant to a users interests and be kept up
 to date and changing but have cost under control". Design and cost table: [Personalized feed](architecture/PERSONALIZED_FEED.md).
 
-- **Built locally, switched off (option A, no paid API, $0 incremental):** a shared pool of new arXiv papers refreshed
+- **Backend built locally, switched off (option A, no paid API; infrastructure capacity unmeasured):** a shared pool of new arXiv papers refreshed
   from one conditional RSS request every 2 hours (pg_cron waking an Edge function only when due), heuristic ranking
   from server-visible signals (library papers, their categories/authors/catalog tags, personal tags, imports in
   flight, Not interested / More like this), freshness decay, diversity, daily exploration, and a reason per paper.
-  Migration 044 (number assigned by the lead). Not applied or deployed.
+  Migration 043 (renumbered from the never-applied 044, after 042). Native/web For you UI remains a proposal. Not applied or deployed.
 - **Awaiting the owner:** rollout of A; "For you" as the first, default chip with a why line and More like this /
   Not interested actions; keeping Feed feedback on the server (like tags) with the proposed privacy text; serving the
   category chips from the pool; later, option B (shared embeddings, $1/month cap). An LLM in the loop (option C) is

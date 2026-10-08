@@ -1,5 +1,5 @@
 // Refreshes the Feed's shared pool (docs/architecture/PERSONALIZED_FEED.md). Woken by pg_cron
-// (app_private.feed_refresh_kick, migration 044) only when refreshing is on and the source is due;
+// (app_private.feed_refresh_kick, migration 043) only when refreshing is on and the source is due;
 // authenticated by the dedicated FEED_REFRESH_SECRET header, never a user token. Claims the source,
 // answers 202, and finishes the fetch in the background under the claim's lease.
 import { rpc, serviceClient } from '../_shared/backend.ts';

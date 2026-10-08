@@ -122,7 +122,7 @@ def deploy(args):
         os.chmod(env_path, 0o600)
         env['PIPELINE_SECRET'] = value
         print('Generated a new dedicated pipeline secret in the local environment file')
-    # The Feed's pool refresh (migration 044, docs/architecture/PERSONALIZED_FEED.md) has its own
+    # The Feed's pool refresh (migration 043, docs/architecture/PERSONALIZED_FEED.md) has its own
     # dedicated secret: pg_cron posts it from Vault, the feed-refresh function compares it.
     if 'feed-refresh' in selected_functions and not env.get('FEED_REFRESH_SECRET'):
         if args.defer_activation:
@@ -176,14 +176,14 @@ def deploy(args):
         for name, value in [('science_reader_pipeline_url', worker_url), ('science_reader_pipeline_secret', env['PIPELINE_SECRET'])]:
             sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
             sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
-        # The feed's database schedule (migration 044) wakes feed-refresh only when the pool is due
+        # The feed's database schedule (migration 043) wakes feed-refresh only when the pool is due
         # and refreshing is switched on; it needs the function URL and secret in Vault.
         if env.get('FEED_REFRESH_SECRET'):
             feed_url = env['SUPABASE_URL'].rstrip('/') + '/functions/v1/feed-refresh'
             for name, value in [('science_reader_feed_url', feed_url), ('science_reader_feed_secret', env['FEED_REFRESH_SECRET'])]:
                 sql(f"select vault.update_secret((select id from vault.secrets where name={literal(name)}),{literal(value)}) where exists(select 1 from vault.secrets where name={literal(name)})")
                 sql(f"select vault.create_secret({literal(value)},{literal(name)}) where not exists(select 1 from vault.secrets where name={literal(name)})")
-            print('Stored the feed refresh URL and secret in Vault (the schedule is in migration 044; refreshing stays off until switched on)')
+            print('Stored the feed refresh URL and secret in Vault (the schedule is in migration 043; refreshing stays off until switched on)')
         if args.rotate_pipeline_secret:
             sql("select extensions.pg_stat_statements_reset()")
             print('Rotated the pipeline secret and reset query statistics')

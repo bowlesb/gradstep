@@ -1,8 +1,7 @@
 # Personalized feed ("For you")
 
-Status, 2026-10-07: **design written; option A (no paid API) built and tested locally behind a server switch that
-is off.** Nothing is applied to staging or deployed. Migration `202610070044_personalized_feed.sql` (number assigned
-by the lead; 040–043 are other work). The owner decisions this needs are listed at the end.
+Status, 2026-10-08 UTC: **option A backend built and tested locally; native/web For you UI remains a proposal.
+Both server switches default off.** Nothing is applied to staging or deployed. Migration `202610070043_personalized_feed.sql` (renumbered from the never-applied 044 during takeover; follows 042). The owner decisions this needs are listed at the end.
 
 Owner request (2026-10-07): "I think we need to also invest in a better feed, it should feel relevant to a users
 interests and be kept up to date and changing but have cost under control".
@@ -14,10 +13,10 @@ interests and be kept up to date and changing but have cost under control".
 | What the reader sees | Category chips (at most six arXiv categories from the library's own papers — a category needs two papers unless it is core ML — else cs.LG, cs.CL, cs.AI, cs.CV), named with the tag vocabulary ("Natural language processing"); List or Table; Add; Refresh in the "…" menu (`ReaderModel.feedCategories`, `FeedView`, `FeedTable`) |
 | Sourcing | Every chip load calls `discover?category=X` (Edge). The function rate-limits (`discover`: 60/account/h, 600/environment/h), reserves the shared arXiv pacing slot (`worker_pipeline_arxiv_slot`, 3 s spacing shared with the pipeline and arXiv search, at most 8 s wait), then **fetches `rss.arxiv.org/rss/X` live** and returns the first 25 `new`/`cross` announcements |
 | Caching | None on the server. The app keeps the last list in memory only; opening the Feed with no results, changing chip, pulling to refresh or Refresh each fetch arXiv again |
-| Charging | No credits; one Edge invocation (inside the Pro plan's quota) and one arXiv request per load. Cost is $0, but **arXiv traffic scales per user per refresh**, and a busy pacing slot shows "Feed unavailable" |
+| Charging | No credits; one Edge invocation (inside the Pro plan's quota) and one arXiv request per load. No arXiv/provider fee, but database/Edge/egress consume plan capacity and **arXiv traffic scales per user per refresh**, and a busy pacing slot shows "Feed unavailable" |
 | Personalization | Only the choice of categories. No ranking, reasons, dismissals or "new since last visit" |
 | Legacy web app | Topic feed from the library's top 8 keywords via Semantic Scholar, last 30 days, refreshed per topic after 6 h, items pruned after 45 days, papers already in the library hidden, chips with counts, "Updated Xh ago" ([gap audit](../LEGACY_GAP_AUDIT.md)) |
-| Browser reader | Has no Feed yet (Phase 2 of [Browser reader](BROWSER_READER.md)) |
+| Browser reader | Category Feed shipped with milestone 1 at app.gradstep.ai; personalized For you is not implemented |
 
 **arXiv volume, measured** (one request from a workstation, 2026-10-07 21:31 PDT, the 2026-10-08 announcement):
 `rss.arxiv.org/rss/cs.LG+cs.CL+cs.CV+cs.AI+stat.ML+cs.RO+cs.IR+cs.NE+cs.MA+cs.SD+eess.AS+eess.IV` is one
@@ -150,27 +149,27 @@ invocations, $0.09/GB egress, $0.125/GB disk); Anthropic Haiku 4.5 $1/$5 and Son
 input/output tokens, Message Batches −50 %; embeddings $0.02 per million tokens (OpenAI `text-embedding-3-small`,
 Voyage `voyage-3.5-lite`; third-party price listings — confirm on the vendor page before approval).
 
-| Cost line (per month) | A: heuristic, no paid API — **built** | B: + shared embeddings via an API | C: + an LLM in the loop |
+| Cost line (per month) | A: heuristic, no paid API — **backend built** | B: + shared embeddings via an API | C: + an LLM in the loop |
 |---|---|---|---|
 | arXiv (RSS) | $0 — 360 requests, ~55 MB | same as A | same as A |
 | Provider API, 20 readers | $0 | $0.08–0.11 (4–5.4 M tokens: every pool paper once, ~300 tokens; library papers once ≈ $0.01) | C1 tag every pool paper with Haiku (measured $0.0038/paper): **$25–68** (Batches–standard; 6,600–18,000 papers). C2 per-reader LLM re-rank + generated reasons (Haiku, ~6k in/1k out per refresh, daily): **$6.60** |
 | Provider API, 1,000 readers | $0 | $0.10–0.15 + one-time ≈ $0.30 for ~50k library papers | C1 unchanged ($25–68); C2 **$330** |
 | Edge Functions | $0 — refresh ~360 + reader 6,000 invocations (1,000 readers: 300,000), inside 2 M | same as A + ~30 embedding batches | same as A |
-| Supabase database compute | $0 incremental — existing Micro ($10, already committed). Candidate query measured locally (below); 1,000 readers ≈ 10k queries/day | +vector similarity, ~5–20 ms/query | same as A |
+| Supabase database compute | $0 incremental — existing Micro ($10, already committed). Hosted candidate-query capacity has not been measured; 1,000 readers ≈ 10k queries/day | +vector similarity, ~5–20 ms/query | same as A |
 | Database storage | $0 — pool ≤ 60k rows ≈ 180 MB worst case (≈ 75 MB typical); feedback ≤ 1,000 rows/account | +~80 MB (512-dim vectors + index) | same as A |
 | Egress | $0 — 0.33 GB (20 readers), 16.5 GB (1,000 readers) of 250 GB | same as A | same as A |
 | Cloud Run | $0 — not used | $0 (B′ alternative below) | $0 |
-| **Total incremental** | **$0 at 20 and at 1,000 readers** | **≈ $0.10 (20) / ≈ $0.15 (1,000); hard cap $1** | **C1 $25–68 regardless of readers (exceeds the $30 provider allocation); C2 $6.60 → $330** |
+| **Total incremental** | **No provider fee; expected $0 additional within remaining plan capacity, not a capacity guarantee** | **≈ $0.10 (20) / ≈ $0.15 (1,000); hard cap $1** | **C1 $25–68 regardless of readers (can exceed the $25 provider limit); C2 $6.60 → $330** |
 
-- **Recommended: A now** ($0, built), then **B** after two weeks of measuring A, with a **$1/month** feed embedding
-  allowance inside the existing $30 provider allocation — or **B′** (a small open embedding model in the request-billed
+- **Recommended: A now** (no provider fee, backend built), then consider **B** after two weeks of measuring A, with a **$1/month** feed embedding
+  allowance inside the existing $25 provider limit — or **B′** (a small open embedding model in the request-billed
   worker on refresh: ~825 papers × ~15 ms ≈ 12 vCPU-s a day, inside Cloud Run's free tier, but it waits for the
   wake-on-work decision and adds ~130 MB to the worker image). On-device embeddings (Apple NaturalLanguage) are the
   way to use reading activity and chats privately (Phase 3).
 - **C is not justified.** C1 costs more than the whole AI/OCR allocation for a quality gain the keyword rules and
   embeddings mostly cover; C2 is the per-reader scaling the owner asked to avoid. A narrower C (Haiku tags only for
   papers that reach someone's top 50, ≈ 200–400/day ≈ $10–25/month) still fails the cost test.
-- At 1,000 readers the only line that might move is database compute: if the candidate query's measured CPU passes
+- Database, shared Edge/egress allowance and feedback storage must be measured with the rest of the product. At 1,000 readers, up to one million retained feedback rows are possible; the pool-only estimate above excludes them. Do not assume all Pro allowance remains available. If database compute becomes the bottleneck, if the candidate query's measured CPU passes
   ~50 % of Micro sustained, cache each reader's ranked list for 10 minutes before considering a compute upgrade
   (Small, +$15/month, an owner decision).
 
@@ -203,8 +202,8 @@ Voyage `voyage-3.5-lite`; third-party price listings — confirm on the vendor p
 - **Cold start**: one info line atop For you.
 - **Mac**: same SwiftUI code (Catalyst); the menu bar gets no new items (row actions are context menus, like the
   Library's).
-- **Web (plan only; the browser reader has no Feed yet):** the Feed tab arrives with the browser's Phase 2 with the
-  same chips and For you first, the same `discover?feed=for_you` and `v1_feed_feedback` calls, the reason line under
+- **Web (For you proposal; the category Feed is already live):** extend the existing Feed tab with
+  For you first, the same `discover?feed=for_you` and `v1_feed_feedback` calls, the reason line under
   each row, a row "…" menu with the same actions, keyboard support (↑/↓, Return to expand, `x` Not interested), and
   "new since last visit" from IndexedDB. Device-local reading activity in the browser could later re-rank the list
   on the page.
@@ -225,9 +224,10 @@ Voyage `voyage-3.5-lite`; third-party price listings — confirm on the vendor p
 ## Rollout
 
 1. Owner reviews this document and the decisions below.
-2. Lead applies 044 to staging after an encrypted backup (after 040–043), generates `FEED_REFRESH_SECRET`
-   (`.env.staging`), and deploys `feed-refresh` and `discover` (`scripts/deploy-staging.py` stores the Vault URL and
-   secret and the function secret).
+2. Lead applies 043 to staging after an encrypted backup (after 042), generates `FEED_REFRESH_SECRET`
+   (`.env.staging`), and deploys `feed-refresh` and `discover` (explicit `scripts/deploy-staging.py staging --skip-migrations --functions feed-refresh discover`; the routine
+   function list deliberately does not include the unpublished refresh function yet). This command stores the
+   Vault URL and dedicated secret and the function secret.
 3. `select public.worker_set_feed_policy('off', true)` — refresh on, serving off. After 24 h check
    `worker_feed_status()`: one successful refresh per announcement day, mostly `not_modified`, pool ≈ 800 papers/day.
 4. `worker_set_feed_policy('staff', true)` with a TestFlight build containing the app change: owner and support/tester
@@ -243,17 +243,26 @@ feedback stay until pruned (30 days) or account deletion; nothing else depends o
 
 | Piece | Where |
 |---|---|
-| Schema, RPCs, cron kick, account-closure cleanup | `supabase/migrations/202610070044_personalized_feed.sql` |
+| Schema, RPCs, cron kick, account-closure cleanup | `supabase/migrations/202610070043_personalized_feed.sql` |
 | Pool refresh (RSS parse, topic rules, refresh loop) | `supabase/functions/feed-refresh/index.ts`, `_shared/feed-pool.ts`, `_shared/feed-topics.ts` |
 | Ranking and reasons; For you and pool-served chips | `_shared/feed-rank.ts`, `supabase/functions/discover/index.ts` |
-| Deployment wiring | `infra/staging.json` (`feed-refresh`), `supabase/config.toml`, `scripts/deploy-staging.py` (Vault + secret when `FEED_REFRESH_SECRET` is set) |
-| App | `ScienceReaderCore/Discovery.swift` (reasons, `first_seen`, `feed` info), `Services/FeedPersonalization.swift`, `Views/ForYouViews.swift`, small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView`, `DiscoveryRow`), `FeedTableView`, `BackendClient` |
+| Deployment wiring | `supabase/config.toml` (explicit refresh-function deploy only until rollout), `scripts/deploy-staging.py` (Vault + secret when `FEED_REFRESH_SECRET` is set) |
+| App — planned, not implemented | `ScienceReaderCore/Discovery.swift` (reasons, `first_seen`, `feed` info), `Services/FeedPersonalization.swift`, `Views/ForYouViews.swift`, small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView`, `DiscoveryRow`), `FeedTableView`, `BackendClient` |
 
-Test evidence is recorded in [implementation status](../IMPLEMENTATION_STATUS.md) and below as it is produced.
+Local takeover validation (2026-10-08 UTC): the full database/upgrade/concurrency suite passed before final
+hardening; focused `test_feed.sql` plus `feed_concurrency.py` pass again after fixing full-account exclusions
+and both account-closure race orders. Backend feed tests pass (23). Evidence is in the branch's private
+`.artifacts/takeover/` logs. No hosted capacity or user-facing For you journey is claimed.
+
+Ranking inputs stay capped at the newest 300 library papers, 50 active imports and 300 feedback choices.
+Eligibility is separate: **all** owned papers (including archived), desired-present imports (including failed)
+and retained Not interested choices are excluded through an account-indexed set. Feedback takes an account
+share lock before rate windows and the per-account feedback lock, so closure either cleans a committed write
+or causes a late write to fail; deleted feedback cannot be recreated by an in-flight request.
 
 ## Decisions for the owner
 
-1. **Approve option A for staging rollout** (no paid API, $0 incremental) and the rollout steps above.
+1. **Approve option A for staging rollout** (no paid API; expected to fit existing infrastructure, to be measured) and the rollout steps above.
 2. **UI**: "For you" as the first chip and the Feed's default when available; the why line; More like this / Not
    interested in the long-press menu and the Not interested swipe; the "New" marker. (Additive; the Feed's
    arrangement is unchanged.)

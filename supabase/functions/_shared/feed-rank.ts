@@ -1,5 +1,5 @@
 // For you ranking (docs/architecture/PERSONALIZED_FEED.md, option A: heuristic, no paid API).
-// `worker_feed_candidates` (migration 044) returns the reader's server-visible profile, their Feed
+// `worker_feed_candidates` (migration 043) returns the reader's server-visible profile, their Feed
 // feedback and a bounded, prefiltered candidate set; this module scores, diversifies, explores and
 // explains. Ranking lives here, not in SQL, so it can change without a migration. Pure (Deno + Node).
 import { TAG_VOCABULARY, tagsFromCategories } from './tag-vocabulary.ts';

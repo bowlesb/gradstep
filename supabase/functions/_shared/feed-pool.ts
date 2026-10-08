@@ -1,6 +1,6 @@
 // The Feed's shared pool (docs/architecture/PERSONALIZED_FEED.md): one conditional request to
 // arXiv's combined RSS for the pool's categories, parsed into strict items, tagged with the keyword
-// topic rules, and written through fenced service RPCs (migration 044). Pure helpers (Deno + Node);
+// topic rules, and written through fenced service RPCs (migration 043). Pure helpers (Deno + Node);
 // the `feed-refresh` function supplies the transport and database.
 import { arxivReference } from './arxiv.ts';
 import { xmlText } from './discover.ts';
@@ -51,7 +51,7 @@ export function poolAuthors(names: readonly string[]): string[] {
 }
 
 /** Parses arXiv's RSS into pool items: only `new` and `cross` announcements (replacements are old
- * papers), every field bounded and validated as migration 044 requires; anything else is skipped.
+ * papers), every field bounded and validated as migration 043 requires; anything else is skipped.
  * Bounded text extraction (no DTD, no entity expansion). Topics are added by `withTopics`. */
 export function parsePoolRSS(bytes: Uint8Array, options: { limit: number; today: string }): { items: PoolItem[]; skipped: number } {
   if (bytes.length > POOL_MAX_BYTES) throw new Error('feed_too_large');

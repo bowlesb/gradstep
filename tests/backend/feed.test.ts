@@ -120,7 +120,7 @@ test('limits, unsafe XML and the announcement day', () => {
   assert.throws(() => poolFeedURL([]), /invalid_categories/);
 });
 
-test('items match the database rules (migration 044 feed_valid_item)', () => {
+test('items match the database rules (migration 043 feed_valid_item)', () => {
   const tagged = withTopics(parsePoolRSS(rss([item('2610.00004', 'cross', { title: 'Mixture of experts for RAG' })]), { limit: 10, today: '2026-10-08' }).items);
   const keys = Object.keys(tagged[0]).sort();
   assert.deepEqual(keys, ['abstract', 'announce_type', 'announced_on', 'authors', 'categories', 'revision', 'source_id', 'title', 'topics']);
@@ -217,6 +217,7 @@ const library: ProfilePaper = { source_id: '2401.00001', title: 'Our own paper a
   author_keys: ['ada lovelace', 'alan turing'] };
 function set(candidates: FeedCandidate[], extra: Partial<CandidateSet> = {}): CandidateSet {
   return { now: NOW, today: '2026-10-08', seed: 'reader-a:2026-10-08', window_days: 14, pool: candidates.length, refreshed_at: NOW,
+    categories: ['cs.LG', 'cs.CL', 'cs.CV', 'cs.AI', 'stat.ML', 'cs.RO'],
     profile: [library], feedback: [], candidates, ...extra };
 }
 
@@ -273,15 +274,31 @@ test('diversity spreads authors and topics; every fifth slot explores', () => {
     { topics: ['Diffusion models'], authors: ['Mei Lin'], days: 0 }));
   const others = Array.from({ length: 6 }, (_, i) => candidate(`2610.${String(200 + i).padStart(5, '0')}`,
     { matched_tags: ['RLHF'], authors: [`Author ${i}`], days: 1 }));
-  const explore = Array.from({ length: 3 }, (_, i) => candidate(`2610.${String(300 + i).padStart(5, '0')}`, { categories: ['cs.CL'], authors: [`Other ${i}`] }));
+  const explore = Array.from({ length: 3 }, (_, i) => candidate(`2610.${String(300 + i).padStart(5, '0')}`, { categories: ['cs.RO'], authors: [`Other ${i}`] }));
   const { results } = rankForYou(set([...crowd, ...others, ...explore]), 10);
   assert.equal(results.length, 10);
   const top5 = results.slice(0, 5).map(r => r.authors[0]);
   assert.ok(top5.filter(a => a === 'Mei Lin').length <= 3, String(top5));
   assert.equal(results[4].reason.kind, 'explore');
-  assert.equal(results[4].reason.text, 'Something different: Natural language processing');
+  assert.equal(results[4].reason.text, 'Something different: Robotics');
   assert.equal(results[9].reason.kind, 'explore');
   assert.ok(results.slice(0, 4).every(r => r.reason.kind !== 'explore'));
+});
+
+test('a category already in the library is not misleadingly called something different', () => {
+  const candidates = Array.from({ length: 12 }, (_, i) => candidate(`2610.${String(700 + i).padStart(5, '0')}`,
+    { categories: ['cs.CL'], authors: [`Unfamiliar author ${i}`] }));
+  const { results } = rankForYou(set(candidates), 10);
+  assert.equal(results.length, 10);
+  assert.ok(results.every(r => r.reason.kind === 'category' && r.reason.text === 'New in Natural language processing'));
+});
+
+test('a cross-list reason names the relevant ML category instead of an unrelated primary category', () => {
+  const candidates = [candidate('2610.00720', { categories: ['math.PR', 'cs.LG'] })];
+  const cold = rankForYou(set(candidates, { profile: [] })).results[0];
+  const familiar = rankForYou(set(candidates)).results[0];
+  assert.equal(cold.reason.label, 'cs.LG');
+  assert.equal(familiar.reason.label, 'cs.LG');
 });
 
 test('stable within a day for a reader, different across readers or days', () => {

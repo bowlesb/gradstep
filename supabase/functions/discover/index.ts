@@ -2,7 +2,7 @@
 // global arXiv request pacing with the paper pipeline.
 //   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata)
 //   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
-//                   (migration 044), else arXiv's live RSS as before
+//                   (migration 043), else arXiv's live RSS as before
 //   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool
 // Feed responses carry `feed.for_you: true` when For you is offered, so the app can show the chip.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';

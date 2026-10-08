@@ -1,4 +1,4 @@
--- Personalized feed (migration 044): switches off by default, a fenced refresh claim with
+-- Personalized feed (migration 043): switches off by default, a fenced refresh claim with
 -- backoff and pruning, strict pool upserts, For you inputs from server-visible signals only
 -- (library, tags, imports in flight, feedback), pool-served category chips, feedback limits and
 -- account-closure cleanup.
@@ -302,9 +302,36 @@ select test.assert((public.worker_feed_status()->'pool'->>'rows')::integer=37 an
  and jsonb_array_length(public.worker_feed_status()->'sources')=1,'status');
 reset role;
 
+-- Eligibility covers the whole library/feedback, independently of the recent ranking profile.
+-- Three hundred newer items must not make the older paper or dismissal eligible again.
+savepoint large_library;
+update app_private.library_items set added_at=now()-interval '20 days',archived_at=now()
+ where account_id='44000000-0000-0000-0000-00000000000a';
+insert into app_private.library_items(account_id,document_id,approval_id,added_at)
+ select '44000000-0000-0000-0000-00000000000a',p.doc,p.approval,now()
+ from generate_series(1,300) n cross join lateral test.paper(format('2610.%s',30000+n),'Recent paper','[]','["cs.LG"]') p;
+update app_private.feed_feedback set created_at=now()-interval '20 days'
+ where account_id='44000000-0000-0000-0000-00000000000a';
+insert into app_private.feed_feedback(account_id,source_id,kind)
+ select '44000000-0000-0000-0000-00000000000a',format('2610.%s',40000+n),'more_like_this'
+ from generate_series(1,300) n;
+-- A failed import is no longer a ranking signal, but it still occupies a visible library row.
+update app_private.import_requests set phase='failed',error_code='metadata_unavailable',retryable=true
+ where account_id='44000000-0000-0000-0000-00000000000a' and source_id='2410.99999';
+select public.worker_feed_candidates('44000000-0000-0000-0000-00000000000a') as large_fy \gset
+select test.assert(jsonb_array_length(:'large_fy'::jsonb->'profile')=300
+ and jsonb_array_length(:'large_fy'::jsonb->'feedback')=300,'ranking inputs remain bounded');
+select test.assert(not test.ids(:'large_fy'::jsonb->'candidates') && '{2401.00001,2410.99999,2610.00007}',
+ 'old archived library paper, failed visible import and old dismissal stay excluded beyond profile caps');
+rollback to large_library;
+
 -- Closing an account forgets its Feed choices and stops serving it.
 update app_private.accounts set closed_at=now() where id='44000000-0000-0000-0000-00000000000a';
 select test.assert(not exists(select 1 from app_private.feed_feedback where account_id='44000000-0000-0000-0000-00000000000a'),'feedback deleted on closure');
 select test.reject($q$select public.worker_feed_candidates('44000000-0000-0000-0000-00000000000a')$q$,'account_unavailable');
 select test.assert((select count(*) from app_private.feed_feedback where account_id='44000000-0000-0000-0000-00000000000b')=10,'other readers keep theirs');
+set role authenticated;
+select set_config('request.jwt.claim.sub','44000000-0000-0000-0000-00000000000a',false);
+select test.reject($q$select public.v1_feed_feedback('2610.00001','not_interested')$q$,'authentication_required');
+reset role;
 rollback;
