@@ -52,6 +52,8 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   page.on('request', request => { if (request.url().includes('/functions/v1/reader-artifact?')) descriptors++; });
   await signIn(page, 'returning@example.test');
   await expect(page.getByRole('heading', { name: 'Restore your private library' })).toBeVisible();
+  await expect(page.getByTestId('approval-qr')).toBeVisible(); // the default: approve from a phone
+  await page.getByTestId('use-recovery-code').click();
   // Password AutoFill shape: a username for the account and a current-password field.
   await expect(page.locator('input[autocomplete="username"]')).toHaveValue('returning@example.test');
   await expect(page.getByTestId('recovery-code')).toHaveAttribute('autocomplete', 'current-password');
@@ -75,7 +77,7 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await page.getByTestId('add-paper').click();
   await page.getByTestId('arxiv-input').fill('not a paper');
   await page.getByTestId('arxiv-add').click();
-  await expect(page.getByText(/Enter an arXiv identifier or link/)).toBeVisible();
+  await expect(page.getByTestId('add-outcome')).toContainText('Couldn’t find a paper for this.'); // free text goes to add-paper
   await page.getByTestId('arxiv-input').fill('https://arxiv.org/abs/1706.03762');
   await page.getByTestId('arxiv-add').click();
   await expect(page.getByTestId('import-progress').first()).toBeVisible();
@@ -92,12 +94,15 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await expect(page.getByTestId('contents')).toBeEnabled();
   await shot(page, 'reader');
 
-  await page.getByTestId('contents').click();
+  // Wide windows keep the contents in the side panel; narrow ones open it as a drawer that closes on a jump.
   const contents = page.getByRole('navigation', { name: 'Contents' });
+  const drawer = !await contents.isVisible();
+  if (drawer) await page.getByTestId('contents').click();
   const headings = await contents.getByRole('button').allTextContents();
   expect(headings.length).toBeGreaterThan(5);
-  await contents.getByRole('button', { name: headings[3] }).click();
-  await expect(contents).toBeHidden();
+  await contents.getByRole('button', { name: headings[3], exact: true }).click();
+  if (drawer) await expect(contents).toBeHidden();
+  else await expect(contents.getByRole('button', { name: headings[3], exact: true })).toHaveAttribute('aria-current', 'location');
 
   const citation = frame.locator('.sr-cite').first();
   await citation.scrollIntoViewIfNeeded();
@@ -110,8 +115,11 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await expect(page.locator('iframe.figure-frame')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
-  await page.getByTestId('ask').click({ force: true }); // aria-disabled: explains instead of acting
-  await expect(page.getByText(/Chat is not yet available in the browser/)).toBeVisible();
+  // The chat pane beside the paper (a drawer on narrow windows) explains that chat isn't in the browser yet.
+  const chat = page.getByTestId('pane-right');
+  if (!await chat.isVisible()) await page.getByTestId('ask').click();
+  await expect(chat).toContainText('Chat is not yet available in the browser');
+  if (drawer) { await page.keyboard.press('Escape'); await expect(chat).toHaveCount(0); }
 
   await frame.locator('body').evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
   await page.waitForTimeout(2600);
@@ -177,6 +185,7 @@ test('live tags preserve the open document, selection, reading place and citatio
   const problems = watch(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -241,6 +250,7 @@ test('live tags preserve the open document, selection, reading place and citatio
 test('tags arriving during paper download appear before restoring the saved reading place', async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -298,6 +308,7 @@ test('reopening a paper waits for its encrypted reading place before starting th
   const problems = watch(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -377,6 +388,7 @@ test('choosing another email cancels a verification that already reached the ser
 test('a late encrypted reading-place save cannot recreate a forgotten device or its data', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
@@ -406,6 +418,7 @@ test('a late encrypted reading-place save cannot recreate a forgotten device or 
 test('a delayed sign-out cannot end a newer login from another tab', async ({ page, context, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();

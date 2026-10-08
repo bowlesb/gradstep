@@ -8,7 +8,7 @@ import {
 } from '../../supabase/functions/_shared/anthropic.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
-  canonicalRequest, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
+  canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
   type ChatDependencies, type ChatEvent, type LogEntry,
 } from '../../supabase/functions/_shared/chat.ts';
 
@@ -903,7 +903,7 @@ test('consent v2 is accepted alongside v1 and keeps its own request digest', () 
   assert.throws(() => validateChatRequest(paperBody({ consent_version: 'cloud-ai-v3' })), { code: 'invalid_request' });
 });
 
-test('Tavily searches run between rounds, are cited, and are priced for the reader but not as provider spend', async () => {
+test('Tavily searches run between rounds as search results (not citable: no cache-breaking switch) and are priced for the reader but not as provider spend', async () => {
   const sent: Sent[] = [];
   const h = harness({ generate: async (params, stream) => {
     sent.push(structuredClone(params) as unknown as Sent);
@@ -915,7 +915,7 @@ test('Tavily searches run between rounds, are cited, and are priced for the read
   await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
   assert.deepEqual(runs, [{ query: 'IPO preference optimization', academic: true }]);
   assert.deepEqual(sent[0].tools?.map(t => t.name), ['create_diagram', 'search_web'], 'Tavily, not Anthropic search');
-  // Round two: the first round's content, then the results as citable search results with a cache breakpoint.
+  // Round two: the first round's content, then the results as search results (citations off) with a cache breakpoint.
   const [assistant, results] = sent[1].messages.slice(-2) as { role: string; content: Record<string, unknown>[] }[];
   assert.equal(assistant.role, 'assistant'); assert.equal(assistant.content[1].id, 'toolu_s1');
   assert.equal(results.role, 'user');
@@ -923,7 +923,7 @@ test('Tavily searches run between rounds, are cited, and are priced for the read
   assert.equal(result.type, 'tool_result'); assert.equal(result.tool_use_id, 'toolu_s1');
   assert.deepEqual(result.cache_control, { type: 'ephemeral' });
   assert.equal(result.content[0].type, 'search_result'); assert.equal(result.content[0].source, 'https://arxiv.org/abs/2310.12036');
-  assert.deepEqual(result.content[0].citations, { enabled: true });
+  assert.deepEqual(result.content[0].citations, { enabled: false });
   assert.match(result.content[0].content[0].text, /^Published 2023-10-18\. A general paradigm\./);
   assert.equal(sent[1].max_tokens, CHAT_MAX_TOKENS - 120, 'one output allowance across rounds');
   // The continuation starts a new paragraph.
@@ -1109,8 +1109,9 @@ test('a Tavily round reports searching with its query, then reading; the query i
   } });
   searching(h, [found]);
   await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
-  assert.deepEqual(h.events.map(e => e.event), ['delta', 'status', 'status', 'delta', 'delta', 'done'], 'searching and reading come between the rounds');
-  assert.deepEqual(statuses(h), [{ kind: 'searching', query: secretQuery }, { kind: 'reading' }]);
+  assert.deepEqual(h.events.map(e => e.event), ['status', 'delta', 'status', 'status', 'delta', 'delta', 'done'],
+    'Related says it is searching at once; searching and reading come between the rounds');
+  assert.deepEqual(statuses(h), [{ kind: 'searching' }, { kind: 'searching', query: secretQuery }, { kind: 'reading' }]);
   noPlaintext([...h.logs, ...h.answers]);
   assert.ok(!JSON.stringify(h.calls).includes('private-question-marker'), 'no query reaches the database');
 });
@@ -1265,4 +1266,75 @@ test('a repair round cannot exceed its output allowance', async () => {
   assert.deepEqual(rounds, [DIAGRAM_FIX_MAX_TOKENS], 'one round, no continuation');
   assert.ok(!h.events.some(e => e.event === 'diagram'));
   assert.equal(h.events.at(-1)?.event, 'done');
+});
+
+test('time to first feedback: Related says it is searching before the paper loads; reads start together', async () => {
+  const timeline: string[] = [];
+  const h = harness({ generate: async (_params, stream) => { timeline.push('generate'); stream.onText('a'); return completeOutcome(); } });
+  const rpc = h.deps.rpc;
+  h.deps.rpc = async (name, params) => { timeline.push(name); return rpc(name, params); };
+  h.deps.availableCredits = async () => { timeline.push('balance'); return 500; };
+  const emit = h.emit;
+  searching(h, []);
+  const ready = h.deps.search!.ready;
+  h.deps.search!.ready = async () => { timeline.push('search_policy'); return ready(); };
+  await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), event => { if (event.event === 'status') timeline.push('status'); emit(event); },
+    new AbortController().signal);
+  // The rate limit, search policy and balance are requested together, before any of them answers.
+  assert.deepEqual(timeline.slice(0, 3), ['worker_consume_request', 'search_policy', 'balance']);
+  assert.ok(timeline.indexOf('status') < timeline.indexOf('worker_chat_context'), 'the reader sees "Searching the web…" before the paper is fetched');
+  assert.ok(timeline.indexOf('worker_chat_context') < timeline.indexOf('worker_reserve_operation') && timeline.indexOf('worker_reserve_operation') < timeline.indexOf('generate'));
+  // Other questions do not claim to search before the model decides to.
+  const plain = harness(); searching(plain, []);
+  await runChat(plain.deps, v2(paperBody()), plain.emit, new AbortController().signal);
+  assert.equal(statuses(plain).length, 0);
+  // A rate-limited request is still reported as such, whatever its body.
+  const limited = harness({ script: { worker_consume_request: () => { throw new RpcFailure('request_rate_limit'); } } });
+  await runChat(limited.deps, { not: 'a request' }, limited.emit, new AbortController().signal);
+  assert.deepEqual(limited.events, [{ event: 'error', data: { code: 'rate_limited' } }]);
+});
+
+test('the paper is cached with the shared instructions; a selection action\'s own instructions follow it', () => {
+  const turns = [{ role: 'user' as const, text: 'q' }];
+  const paper = { title: 'T', text: paperText };
+  const request = (action: 'related' | 'relevance' | null, search: boolean, tools = [CREATE_DIAGRAM_TOOL]) => {
+    const parts = chatInstructionParts('paper', action, search);
+    return chatRequestParams({ instructions: parts.shared, actionInstructions: parts.action, paper, turns, selection: 'DPO', tools });
+  };
+  const plain = request(null, true), related = request('related', true);
+  const system = (params: ReturnType<typeof request>) => params.system as { text: string; cache_control?: unknown }[];
+  assert.deepEqual(system(related).slice(0, 2), system(plain).slice(0, 2), 'a question and Related share the cached prefix');
+  assert.deepEqual(system(related)[1].cache_control, { type: 'ephemeral' });
+  assert.equal(system(related).length, 3); assert.match(system(related)[2].text, /The reader used "Related"/);
+  assert.equal(system(plain).length, 2);
+  assert.match(system(request('relevance', true))[2].text, /Why it matters/);
+  // The combined text is unchanged (chatInstructions), and without a paper the action stays in the one block.
+  assert.equal(`${chatInstructionParts('paper', 'related', true).shared}\n\n${chatInstructionParts('paper', 'related', true).action}`, chatInstructions('paper', 'related', true));
+  const general = chatRequestParams({ instructions: chatInstructionParts('general', 'related', true).shared, actionInstructions: chatInstructionParts('general', 'related', true).action,
+    paper: null, turns, selection: 'DPO' });
+  assert.deepEqual((general.system as { text: string }[]).map(block => block.text), [chatInstructions('general', 'related', true)]);
+});
+
+test('without citations, an answer that names no sources gets the searched pages, each search\'s best first', async () => {
+  let calls = 0;
+  const h = harness({ generate: async (_params, stream) => {
+    if (++calls === 1) return searchRound([{ id: 'a', input: { query: 'one' } }, { id: 'b', input: { query: 'two' } }]);
+    stream.onText('IPO and KTO both relate.'); return completeOutcome({ messageID: 'msg_final' });
+  } });
+  const page = (url: string, title: string) => ({ url, title, text: 'x', published: null });
+  searching(h, [{ status: 'ok', credits: 1, results: [page('https://arxiv.org/abs/2310.12036', 'IPO'), page('https://example.org/a', 'A')] },
+    { status: 'ok', credits: 1, results: [page('https://arxiv.org/abs/2402.01306', 'KTO'), page('https://arxiv.org/abs/2310.12036', 'IPO again')] }]);
+  await runChat(h.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), h.emit, new AbortController().signal);
+  const text = h.events.filter(e => e.event === 'delta').map(e => (e.data as { text: string }).text).join('');
+  assert.match(text, /\n\nSources:\n1\. IPO — https:\/\/arxiv\.org\/abs\/2310\.12036\n2\. KTO — https:\/\/arxiv\.org\/abs\/2402\.01306\n3\. A — https:\/\/example\.org\/a$/);
+  // An answer that ends with its own Sources list gets nothing appended.
+  let again = 0;
+  const own = harness({ generate: async (_params, stream) => {
+    if (++again === 1) return searchRound([{ id: 'a', input: { query: 'one' } }]);
+    stream.onText('IPO.\n\nSources:\n1. IPO — https://arxiv.org/abs/2310.12036'); return completeOutcome({ messageID: 'msg_final' });
+  } });
+  searching(own, [found]);
+  await runChat(own.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), own.emit, new AbortController().signal);
+  const ownText = own.events.filter(e => e.event === 'delta').map(e => (e.data as { text: string }).text).join('');
+  assert.equal(ownText.match(/Sources:/g)?.length, 1);
 });

@@ -13,6 +13,10 @@ The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST
 - Tavily prepaid usage reserves exact units in a verified dated billing period and per-account UTC-day allowance. Unknown attempts retain units. Period starts/ends and baseline usage must be configured from provider evidence; migration default disabled. Legacy usage is not silently treated as complete.
 - Table capacity100k attempts/environment,20k/account,64/operation; bounded JSON/events. Growth stops admission instead of erasing financial/replay history. New analytics distinguishes coverage cutoff/historical legacy-only records.
 - Financial operations take budget -> account -> attempt-policy/provider-period -> operation/attempt. Pipeline funding and settlement acquire budget/account locks before the paper fence. Tag claim/record retains its existing tag-row serialization; generic financial RPCs never acquire a tag row afterward.
+- The credit-resume sweep (040) restarts imports waiting on credits without reserving anything: it locks accounts
+  (id order, NO KEY UPDATE, so grants/purchases/reservations, which take them FOR UPDATE, cannot change a balance
+  under it), then the pipeline policy throttle row, then library locks; never budget, bucket, purchase gate or paper
+  rows. Funding later reserves once per paper as before; suspended and closed accounts are never restarted.
 - Accounts can be suspended for new spending. Existing owner disable action sets that guard transactionally before the Auth API, and grant/read admissions honor it. Known in-flight liabilities still reconcile.
 - Read-only MFA-owner investigation APIs will expose incurred/reserved/uncertain costs, provider units, operation attempts, anomalies, overhead evidence freshness and reconciliation, separate from customer credits and vendor invoices. No claim of whole-system100USD guarantee absent vendor/infra limits.
 

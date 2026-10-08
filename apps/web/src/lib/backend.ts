@@ -26,7 +26,7 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'too_many_enrollment_requests', 'enrollment_mismatch', 'enrollment_conflict', 'enrollment_id_conflict', 'invalid_management_token',
   'reader_not_ready', 'reader_integrity_failed', 'reader_unavailable', 'item_unavailable', 'origin_unavailable', 'insufficient_credits',
   'account_busy', 'platform_budget_exhausted', 'import_unavailable', 'reader_transfer_limit', 'reader_upgrade_required',
-  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete']);
+  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete', 'rate_limited', 'invalid_category', 'service_unavailable']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 
@@ -230,7 +230,7 @@ function authFailure(status: number, body: Uint8Array, headers: Headers, verifyi
 
 // ---------- Authorized calls ----------
 
-async function authorized(path: string, init: { method?: string; body?: string; maximum?: number; account?: string; signal?: AbortSignal }): Promise<Uint8Array<ArrayBuffer>> {
+async function authorized(path: string, init: { method?: string; body?: string; maximum?: number; account?: string; signal?: AbortSignal; timeout?: number }): Promise<Uint8Array<ArrayBuffer>> {
   init.signal?.throwIfAborted();
   const account = current?.user.id, before = generation;
   const sessionSignal = lifetime.signal;
@@ -262,6 +262,13 @@ export async function rpc<T>(name: string, params: Record<string, unknown> = {},
 
 export async function functionGet<T>(path: string, options: { maximum?: number; account?: string; signal?: AbortSignal } = {}): Promise<T> {
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'GET', ...options }));
+  if (value === null) throw new BackendError('invalid_response');
+  return value as T;
+}
+
+/** An Edge function POST with a JSON body (e.g. `add-paper`). */
+export async function functionPost<T>(path: string, body: unknown, options: { maximum?: number; account?: string; signal?: AbortSignal; timeout?: number } = {}): Promise<T> {
+  const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
 }

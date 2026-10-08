@@ -148,7 +148,9 @@ const SNAPSHOT_SQL = `with resting as (
   and not exists(select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)
    where pi.paper_id=pp.id and i.desired_present and i.phase in ('accepted','resolving','acquiring'))),
 working as (select pp.* from app_private.pipeline_papers pp where pp.stage not in ('done','failed','source_only','needs_credits')
- and pp.id not in (select id from resting))
+ and pp.id not in (select id from resting)),
+waiting as (select * from working where error_code in ('service_paused','storage_full')),
+moving as (select * from working where id not in (select id from waiting))
 select jsonb_build_object(
  'source','management',
  'pipeline_url',(select decrypted_secret from vault.decrypted_secrets where name='science_reader_pipeline_url'),
@@ -163,13 +165,16 @@ select jsonb_build_object(
    from app_private.platform_budgets where period=date_trunc('month',now() at time zone 'UTC')::date),
  'stuck',(select coalesce(jsonb_agg(jsonb_build_object('source',source_id,'private',owner_id is not null,'stage',stage,
    'minutes',floor(extract(epoch from (now()-stage_entered_at))/60),'claims',stage_claims,'crashes',stage_crashes) order by stage_entered_at),'[]')
-   from working where stage_entered_at<now()-interval '15 minutes'),
+   from moving where stage_entered_at<now()-interval '15 minutes'),
  'looping',(select coalesce(jsonb_agg(jsonb_build_object('source',source_id,'stage',stage,'claims',stage_claims,'crashes',stage_crashes)),'[]')
-   from working where stage_crashes>=2 or (stage<>'ocr_wait' and stage_claims>=30)),
+   from moving where stage_crashes>=2 or (stage<>'ocr_wait' and stage_claims>=30)),
+ 'waiting',(select jsonb_build_object('papers',count(*),'oldest_minutes',floor(extract(epoch from (now()-min(stage_entered_at)))/60),
+   'causes',coalesce(jsonb_object_agg(error_code,1),'{}')) from waiting),
  'resting_split',(select count(*) from resting),
  'uncertain_ocr',(select count(*) from app_private.ocr_attempts where state='uncertain'),
- 'stale_imports',(select count(*) from app_private.import_requests where desired_present and phase in ('accepted','resolving','acquiring')
-   and created_at<now()-interval '60 minutes'),
+ 'stale_imports',(select count(*) from app_private.import_requests i where i.desired_present and i.phase in ('accepted','resolving','acquiring')
+   and coalesce(i.progress_at,i.created_at)<now()-interval '60 minutes'
+   and not exists(select 1 from app_private.pipeline_imports pi join waiting w on w.id=pi.paper_id where (pi.account_id,pi.import_id)=(i.account_id,i.id))),
  'crashes_24h',(select coalesce(jsonb_object_agg(stage,n),'{}') from (select stage,count(*) n from app_private.pipeline_events
    where kind='crash' and at>now()-interval '24 hours' group by stage) c),
  'import_failures_24h',(select coalesce(jsonb_object_agg(cause,n),'{}') from (select coalesce(error_code,'unknown') cause,count(*) n
@@ -287,7 +292,8 @@ async function chat(acct, body, { signal, timeoutMs = 180_000 } = {}) {
     body: JSON.stringify({ operation_id: operation, consent_version: CONSENT, ...body }),
     signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) });
   acct.touched = true;
-  const result = { operation, status: response.status, answer: '', done: null, error: null, diagram: null, firstTokenMs: null, ms: 0 };
+  const result = { operation, status: response.status, answer: '', done: null, error: null, diagram: null, firstTokenMs: null, firstStatusMs: null,
+    headersMs: Date.now() - started, statuses: [], ms: 0 };
   if (response.status !== 200) { result.error = { code: (await response.json().catch(() => ({}))).code ?? `http_${response.status}` }; return result; }
   const decoder = new TextDecoder(); let buffer = '';
   for await (const chunk of response.body) {
@@ -299,6 +305,8 @@ async function chat(acct, body, { signal, timeoutMs = 180_000 } = {}) {
       if (!event || !data) continue;
       const value = JSON.parse(data);
       if (event === 'delta') { result.firstTokenMs ??= Date.now() - started; result.answer += value.text; }
+      // Progress lines (kinds only, never the query): when the reader first sees that work started.
+      else if (event === 'status') { result.firstStatusMs ??= Date.now() - started; if (result.statuses.length < 16) result.statuses.push([value.kind, Date.now() - started]); }
       else if (event === 'done') result.done = value; else if (event === 'error') result.error = value; else if (event === 'diagram') result.diagram = value;
     }
   }
@@ -450,10 +458,14 @@ check('pipeline.stuck', { title: 'No import stuck or crash-looping', suites: ALL
   for (const p of s.stuck ?? []) problems.push(`${p.source}${p.private ? ' (private)' : ''} in ${p.stage} for ${p.minutes} min (${p.claims} claims, ${p.crashes} crashes)`);
   for (const p of s.looping ?? []) if (!(s.stuck ?? []).some(x => x.source === p.source && x.stage === p.stage)) problems.push(`${p.source} looping in ${p.stage} (${p.claims} claims, ${p.crashes} crashes)`);
   if (s.uncertain_ocr) problems.push(`${s.uncertain_ocr} OCR submission(s) uncertain (operator: pipeline-ops.py resolve)`);
-  if (s.stale_imports) problems.push(`${s.stale_imports} import(s) unresolved for over an hour`);
+  if (s.stale_imports) problems.push(`${s.stale_imports} import(s) unchanged for over an hour`);
+  // Self-healing (migration 041): every retryable failure has a schedule, and schedules run.
+  if (s.unscheduled_failures) problems.push(`${s.unscheduled_failures} retryable failure(s) without an automatic retry`);
+  if (s.overdue_retries) problems.push(`${s.overdue_retries} automatic retr${s.overdue_retries === 1 ? 'y' : 'ies'} overdue by 15 min (is the worker sweeping?)`);
   const crashes = Object.entries(s.crashes_24h ?? {}).map(([stage, n]) => `${stage} ${n}`).join(', ');
   const failures = Object.entries(s.import_failures_24h ?? {}).map(([code, n]) => `${code} ${n}`).join(', ');
-  const context = `24 h: crashes ${crashes || 'none'}; failed imports ${failures || 'none'}; ${s.resting_split} idle shared private_split rows not counted`;
+  const waiting = s.waiting?.papers ? `; ${s.waiting.papers} paper(s) deliberately waiting (${Object.keys(s.waiting.causes ?? {}).join(', ')}, oldest ${s.waiting.oldest_minutes} min)` : '';
+  const context = `24 h: crashes ${crashes || 'none'}; failed imports ${failures || 'none'}; ${s.resting_split} idle shared private_split rows not counted${waiting}`;
   const metrics = { stuck: (s.stuck ?? []).length, crashes_24h: Object.values(s.crashes_24h ?? {}).reduce((a, b) => a + b, 0) };
   if (problems.length) return fail(`${problems.slice(0, 4).join('; ')}${problems.length > 4 ? `; +${problems.length - 4} more` : ''} — ${context}`, metrics);
   // A cluster of one failure cause is usually a systematic bug, not a paywalled paper.
@@ -684,10 +696,14 @@ check('chat.related', { title: 'Related (web search) answer lists linked sources
   const r = await chat(acct, { mode: 'paper', document_id: (await chatDocument(acct, signal)).document_id, selection: { quote }, action: 'related',
     messages: [{ role: 'user', text: `Find related papers, earlier and recent, with links: ${quote}` }] }, { signal, timeoutMs: 280_000 });
   const links = [...new Set(r.answer.match(/https:\/\/[^\s)\]>"]+/g) ?? [])];
-  const metrics = { credits: r.done?.credits ?? 0, links: links.length, total_s: r.ms / 1000 };
+  const seconds = ms => ms === null ? null : Math.round(ms / 100) / 10;
+  const metrics = { credits: r.done?.credits ?? 0, links: links.length, total_s: r.ms / 1000,
+    // Time to first feedback (owner feedback build 16 #8): the first status line and the first answer text.
+    first_status_s: seconds(r.firstStatusMs), first_token_s: seconds(r.firstTokenMs) };
   if (r.error || !r.done) return fail(`${chatSummary(r)} after ${(r.ms / 1000).toFixed(1)} s`, metrics);
   if (links.length < 2) return fail(`only ${links.length} link(s) in the answer: web search returned no sources`, metrics);
-  return pass(`${links.length} links${/\n\nSources:\n/.test(r.answer) ? ' and a Sources list' : ''}; ${chatSummary(r)} in ${(r.ms / 1000).toFixed(0)} s`, metrics);
+  return pass(`${links.length} links${/\n\nSources:\n/.test(r.answer) ? ' and a Sources list' : ''}; ${chatSummary(r)}; first status ${seconds(r.firstStatusMs) ?? '–'} s,`
+    + ` first text ${seconds(r.firstTokenMs) ?? '–'} s, total ${(r.ms / 1000).toFixed(0)} s`, metrics);
 });
 
 // The Add paper (Ingest) corpus. `after`: what a queued import must do in this suite —

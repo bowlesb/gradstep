@@ -188,12 +188,10 @@ function supportedLicense(value: string): string | null {
   return null;
 }
 
-// This consumes a response obtained from the derived OAI URL by a trusted,
-// rate-limited worker. It is never an endpoint accepting client license claims.
-// A hash is evidence provenance, not a signature from arXiv or byte verification.
-export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord, observedAt: string): Promise<ArxivReuse> {
-  const ref = validated(pinned);
-  if (ref.revision === null || !catalogInstant(observedAt)) throw new SourceError('invalid_source_metadata');
+interface RawRecord { raw: XMLNode; versions: { revision: number; submittedAt: string | null }[] }
+
+// The arXivRaw record in a GetRecord response for exactly this identifier, with its version history.
+function oaiRawRecord(bytes: Uint8Array, ref: ArxivReference): RawRecord {
   const root = sourceXML(bytes);
   if (root.uri !== OAI || root.local !== 'OAI-PMH') throw new SourceError('invalid_source_metadata');
   const errors = children(root, OAI, 'error');
@@ -222,6 +220,57 @@ export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord,
     return { revision, submittedAt: rawVersionDate(one(version, RAW, 'date', false)) };
   });
   if (!versions.length || versions.length > 4096 || new Set(versions.map(v => v.revision)).size !== versions.length) throw new SourceError('invalid_source_metadata');
+  return { raw, versions };
+}
+
+// arXivRaw lists authors as one string ("A, B and C"), sometimes with affiliations in parentheses.
+function rawAuthors(value: string | null): string[] {
+  let text = value ?? '';
+  for (let depth = 0; depth < 3 && /\([^()]*\)/.test(text); depth++) text = text.replace(/\s*\([^()]*\)/g, '');
+  const names: string[] = [];
+  for (const part of text.split(/\s*,\s*|\s+and\s+/)) {
+    const name = part.replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    // "Smith, Jr." is one author.
+    if (/^(?:Jr|Sr|II|III|IV)\.?$/.test(name) && names.length) { names[names.length - 1] += `, ${name}`; continue; }
+    if (new TextEncoder().encode(name).length > 256) throw new SourceError('invalid_source_metadata');
+    names.push(name);
+  }
+  return names;
+}
+
+/** The catalog record from arXiv's OAI-PMH arXivRaw response: the fallback when the Atom API is throttled
+ * (owner feedback build 16 #10). Same identity checks and the same dates as the Atom record (version 1's
+ * submission, the pinned version's), so the license evidence below verifies against it unchanged. */
+export function arxivRawRecord(bytes: Uint8Array, expected: ArxivReference): ArxivRecord {
+  const ref = validated(expected);
+  const { raw, versions } = oaiRawRecord(bytes, ref);
+  if (versions.some(version => version.submittedAt === null)) throw new SourceError('invalid_source_metadata');
+  const latest = versions.reduce((a, b) => a.revision > b.revision ? a : b);
+  const first = versions.reduce((a, b) => a.revision < b.revision ? a : b);
+  const pinned = ref.revision === null ? latest : versions.find(version => version.revision === ref.revision);
+  if (!pinned) throw new SourceError('source_not_found');
+  const authors = rawAuthors(plain(one(raw, RAW, 'authors', false), 64_000, false));
+  const terms = (plain(one(raw, RAW, 'categories', false), 4096, false) ?? '').split(' ').filter(Boolean);
+  if (authors.length > 512 || terms.length > 64) throw new SourceError('metadata_size_limit');
+  for (const term of terms) if (!/^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(term)) throw new SourceError('invalid_source_metadata');
+  const metadata: ArxivMetadata = {
+    title: plain(one(raw, RAW, 'title'), 2000)!, authors,
+    abstract: plain(one(raw, RAW, 'abstract', false), 24_000, false),
+    published_at: first.submittedAt, updated_at: pinned.submittedAt,
+    categories: [...new Set(terms)], venue: plain(one(raw, RAW, 'journal-ref', false), 1024, false),
+  };
+  if (new TextEncoder().encode(JSON.stringify(metadata)).length > 30_000) throw new SourceError('metadata_size_limit');
+  return { sourceID: ref.sourceID, revision: pinned.revision, metadata };
+}
+
+// This consumes a response obtained from the derived OAI URL by a trusted,
+// rate-limited worker. It is never an endpoint accepting client license claims.
+// A hash is evidence provenance, not a signature from arXiv or byte verification.
+export async function arxivReuseEvidence(bytes: Uint8Array, pinned: ArxivRecord, observedAt: string): Promise<ArxivReuse> {
+  const ref = validated(pinned);
+  if (ref.revision === null || !catalogInstant(observedAt)) throw new SourceError('invalid_source_metadata');
+  const { raw, versions } = oaiRawRecord(bytes, ref);
   // OAI describes the latest version. Its history does not prove the license
   // of an older revision; never reuse the latest license for an older PDF.
   const latest = versions.reduce((a, b) => a.revision > b.revision ? a : b);

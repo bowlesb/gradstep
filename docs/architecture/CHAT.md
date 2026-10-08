@@ -112,7 +112,9 @@ on in staging since 2026-10-05). Two providers (owner decision 2026-10-06, [deci
 - **Tavily, primary** — `search_web`, a client tool the chat function runs (`_shared/tavily.ts`): a basic search
   (1 Tavily credit), 5 results, each cut to 1,500 characters (≈2.5k tokens per search, against ~10k for Anthropic's
   search), `academic: true` restricts to scholarly sites (arXiv, OpenReview, ACL Anthology, proceedings, journals).
-  Results return as `search_result` blocks with citations on, so Claude cites them like Anthropic's search results.
+  Results return as `search_result` blocks with citations **off** (2026-10-08): turning citations on mid-answer
+  invalidated the prompt cache after the tool definitions, so the round after the searches rewrote the whole paper
+  (staging: `cache_read` 0 and ~15k–56k tokens written again). Claude names its sources itself (below).
   Used only when the request carries consent `cloud-ai-v2` (whose text names Tavily), `TAVILY_API_KEY` is set, this
   instance has not paused Tavily after a failure, and the Tavily credits recorded in the last 31 days are under
   `TAVILY_SEARCH_ALLOWANCE` (default 3,900 of the plan's 4,000; `worker_provider_units_recent`, migration 021).
@@ -149,8 +151,8 @@ answer (12–24 credits), mostly result tokens (15–35k input tokens). Tavily f
 [decisions](../DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
 
 Sources: answers end with a "Sources:" list (`N. Title — https://…`) that the app shows as tappable sources (a tap
-shows the full address and asks before opening Safari); when the model cites results but writes no list, the server
-appends one from the citations. Consent `cloud-ai-v2` (build 12+) says queries go to Tavily, or Anthropic's search
+shows the full address and asks before opening Safari); when the answer writes no list, the server appends Anthropic
+search's citations or, for Tavily, the searched pages (each search's best first, at most 8). Consent `cloud-ai-v2` (build 12+) says queries go to Tavily, or Anthropic's search
 provider as a backup, and that search services see only the searches; accepting v1 does not cover Tavily, so newer
 builds ask once more.
 
@@ -220,3 +222,30 @@ that sends it ships. **Explain** on a single equation (displayed, or inline with
 ‹formula›" followed by one line asking for the background needed, its overall message, each symbol and how its
 notation compares with ML conventions (the legacy equation prompt, shortened); other selections keep "Explain in plain
 terms, including any symbols: ".
+
+## Time to first text (owner feedback build 16 #8, 2026-10-08)
+
+Measured on staging before the change (`chat.related`, Mistral 7B paper, client on a home connection, server times
+from `provider_attempts`): first `status` 4.3 s, first text 15.2 s, done 18 s. Server timeline from the reservation:
+round 0 (thinking and choosing queries) 2.9 s; three parallel Tavily searches 3.3–3.9 s; round 1 to its first text
+~6.9 s; about 1.3 s before the reservation (auth, policy, rate limit, balance, paper context and download, reserve).
+Round 1 read nothing from the prompt cache on every multi-round answer on staging (`cache_read` 0): citable search
+results switched citations on and invalidated the cached paper.
+
+Changes (server only; deployed with 040):
+
+- Related emits `status {kind: "searching"}` as soon as the rate limit and the search policy answer, before the
+  paper loads and the first model round (fakes: ~1 RPC after the request instead of after round 0).
+- The search-policy lookup starts with the request and the balance read runs alongside the rate limit; the paper's
+  context still follows the credit check because it authorizes and accounts the Storage read (fakes, 40 ms RPCs:
+  first provider call 293 → 208 ms; 80 ms RPCs: 563 → 398 ms).
+- Search results with citations off, so round 1 reads tools + instructions + paper from the cache (verify after
+  deploy: round 2's `cache_read_tokens` ≈ the paper). Saves the uncached prefill (largest on long papers) and about
+  $0.13 per Related answer on a 56k-token paper.
+- A selection action's own instructions (Related, Why it matters) follow the paper after its cache breakpoint, so
+  Related right after a question on the same paper reuses that question's cache.
+- Related asks for its searches together in one step (it usually did already: 3–4 parallel searches, two rounds).
+
+Not changed: the model's thinking before round 1's text and Tavily's ~3.5 s are now the largest parts. Options for
+later, each needing a measured check: show thinking progress (`thinking.display: "updates"` notes as status lines;
+app work), a shorter search allowance for Related, or a per-search time limit.
