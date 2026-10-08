@@ -18,6 +18,8 @@ actor PodcastFixtureTransport: PodcastTransport {
     enum GenerationMode { case succeeds, fails }
     private let generation: GenerationMode
     private let empty: Bool
+    /// `--podcast-fixture-outcome-pending`: the previous private episode's provider outcome is unresolved (quote refused).
+    private let outcomePending: Bool
     private var episodes: [UUID: (episode: PodcastEpisode, audio: Data)] = [:]
     private var jobs: [UUID: (itemID: UUID, steps: Int, releaseID: UUID?)] = [:]
     private var quotes: [UUID: UUID] = [:]
@@ -25,6 +27,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         generation = arguments.contains("--podcast-fixture-generation=fail") ? .fails : .succeeds
         empty = arguments.contains("--podcast-fixture-empty")
+        outcomePending = arguments.contains("--podcast-fixture-outcome-pending")
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
@@ -51,6 +54,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome {
+        if outcomePending { throw BackendError.rejected("podcast_outcome_pending") }
         if let existing = episodes.values.map(\.episode).first(where: { $0.documentID == itemID }) { return .reuse(releaseID: existing.id) }
         let id = UUID(); quotes[id] = itemID
         return .quote(PodcastQuote(id: id, expiresAt: "2026-10-08T12:15:00Z", maxCredits: 150,

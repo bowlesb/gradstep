@@ -78,7 +78,7 @@ extension BackendError {
     static let podcastCodes: Set<String> = [
         "podcast_unavailable", "source_unavailable", "source_too_large", "rights_unavailable", "release_unavailable",
         "quote_expired", "quote_unavailable", "consent_required", "request_id_conflict", "job_unavailable",
-        "active_generation_limit", "generation_capacity", "platform_paused", "storage_full",
+        "active_generation_limit", "generation_capacity", "platform_paused", "storage_full", "podcast_outcome_pending",
         "podcast_transfer_limit", "podcast_grant_unavailable", "podcast_grant_consumed", "podcast_integrity_failed",
     ]
 
@@ -93,6 +93,8 @@ extension BackendError {
         case "quote_expired", "quote_unavailable": return "The estimate expired. Get a new estimate to continue."
         case "consent_required": return "Confirm the estimate and providers to create an episode."
         case "active_generation_limit": return "An episode is already being made for your account. Try again when it finishes."
+        case "podcast_outcome_pending":
+            return "Your previous episode’s charge is still being confirmed. You can make another once it’s settled. Nothing new was held."
         case "generation_capacity", "platform_paused", "platform_budget_exhausted":
             return "Episode creation is paused right now. Nothing was charged, and reading is unaffected."
         case "storage_full": return "Episode storage is full right now. Nothing was charged."

@@ -109,6 +109,7 @@ final class PodcastTransportTests: XCTestCase {
         let cases: [(Int, String, String)] = [
             (402, #"{"code":"insufficient_credits"}"#, "insufficient_credits"),
             (409, #"{"code":"active_generation_limit"}"#, "active_generation_limit"),
+            (409, #"{"code":"podcast_outcome_pending"}"#, "podcast_outcome_pending"),
             (503, #"{"code":"platform_paused"}"#, "platform_paused"),
             (500, #"{"code":"Something private happened: <paper title>"}"#, "request_failed"),
             (502, "<html>gateway</html>", "request_failed"),

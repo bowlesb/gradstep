@@ -259,6 +259,20 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["podcast.generate.play"].exists)
     }
 
+    func testUnresolvedPreviousOutcomeIsExplainedBeforeAnythingIsHeld() {
+        let app = launch(["--library-metadata-fixture", "--podcast-fixture-outcome-pending"])
+        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
+        XCTAssertTrue(lora.waitForExistence(timeout: 10))
+        lora.press(forDuration: 1.2)
+        app.buttons["Listen"].tap()
+        let quote = app.buttons["podcast.generate.quote"]
+        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
+        let message = app.staticTexts["podcast.generate.error"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.label.hasPrefix("Your previous episode’s charge is still being confirmed."), message.label)
+        XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "No quote, so nothing to start")
+    }
+
     /// Light and dark screenshots of the Listen feed, the player and transcript, and the mini-player (VISUAL_CHECK.md).
     func testScreenshotsLightAndDark() {
         let app = launch()
