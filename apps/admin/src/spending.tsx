@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { rpc, type Budget } from './backend';
+import { adminSpendingObservation, rpc, type Budget } from './backend';
+import { SpendingEntry } from './spending-entry';
+import type { SpendingObservationRequest, SpendingObservationReceipt } from '../../../supabase/functions/_shared/spending-observations.ts';
 
 type Cursor = { created_at: string; account_id: string; id: string };
 type RecordCursor = { at: string; id: string };
@@ -32,12 +34,14 @@ export interface SpendingDetail {
 }
 export interface SpendingRecords { kind: RecordKind; records: Array<{ at: string; key: string; entry: Record<string, unknown> }>; next: RecordCursor | null }
 export interface SpendingApi {
+  record(ownerID: string, observation: SpendingObservationRequest): Promise<SpendingObservationReceipt>;
   summary(days: number, account: string | null): Promise<SpendingSummary>;
   operations(days: number, account: string | null, cursor: Cursor | null, unresolved: boolean): Promise<{ operations: SpendingOperation[]; next: Cursor | null }>;
   detail(account: string, operation: string): Promise<SpendingDetail>;
   records(account: string, operation: string, kind: RecordKind, cursor: RecordCursor | null): Promise<SpendingRecords>;
 }
 export const liveSpendingApi: SpendingApi = {
+  record: adminSpendingObservation,
   summary: (days, account) => rpc('v1_admin_spending', { p_days: days, p_account_id: account }),
   operations: (days, account, cursor, unresolved) => rpc('v1_admin_spending_operations', { p_days: days, p_account_id: account,
     p_before_created_at: cursor?.created_at ?? null, p_before_account_id: cursor?.account_id ?? null, p_before_id: cursor?.id ?? null, p_limit: 25, p_unresolved_only: unresolved }),
@@ -45,7 +49,7 @@ export const liveSpendingApi: SpendingApi = {
   records: (account, operation, kind, cursor) => rpc('v1_admin_spending_records', { p_account_id: account, p_operation_id: operation, p_kind: kind,
     p_before_at: cursor?.at ?? null, p_before_id: cursor?.id ?? null, p_limit: 50 }),
 };
-const money = (n: number | null | undefined) => n == null ? 'Not recorded' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(n / 1e6);
+const money = (n: number | null | undefined) => n == null ? 'Not recorded' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(n / 1e6);
 const date = (s: string | null | undefined) => s ? new Date(s).toLocaleString() : '—';
 const name = (s: string) => s.replaceAll('_', ' ');
 const short = (s: string) => s.slice(0, 8);
@@ -53,7 +57,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const recordNames: Record<RecordKind, string> = { events: 'Attempt history', credits: 'Customer credits', adjustments: 'Reconciliation', legacy_usage: 'Earlier usage records' };
 const errorText = (e: unknown) => e instanceof Error ? e.message : 'Spending records could not be loaded.';
 
-export function Spending({ api = liveSpendingApi, reloadKey = 0 }: { api?: SpendingApi; reloadKey?: number }) {
+export function Spending({ ownerID, api = liveSpendingApi, reloadKey = 0 }: { ownerID: string; api?: SpendingApi; reloadKey?: number }) {
   const [days, setDays] = useState(30), [account, setAccount] = useState<string | null>(null), [draft, setDraft] = useState('');
   const [summary, setSummary] = useState<SpendingSummary | null>(null), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<{ account: string; operation: string } | null>(null);
@@ -101,6 +105,7 @@ export function Spending({ api = liveSpendingApi, reloadKey = 0 }: { api?: Spend
       <Forecast summary={summary} />
       <p className="footnote">Customer refunds do not erase possible provider charges. These records contain financial metadata; private prompts, chats and papers are not included.</p>
     </>}
+    <SpendingEntry ownerID={ownerID} record={api.record} onRecorded={() => setRetry(n => n + 1)} />
   </div>;
 }
 function CostMetric({ title, value, note }: { title: string; value: string; note: string }) {

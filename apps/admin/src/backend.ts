@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { spendingReceipt, type SpendingObservationRequest, type SpendingObservationReceipt } from '../../../supabase/functions/_shared/spending-observations.ts';
 
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -46,6 +47,47 @@ export async function adminAccounts<T>(body: Record<string, unknown>): Promise<T
   const json = await response.json().catch(() => null) as { code?: string } | null;
   if (!response.ok) throw new Error(accountErrors[json?.code ?? ''] ?? 'The request could not be completed. Your change was not confirmed.');
   return json as T;
+}
+
+const observationErrors: Record<string, string> = {
+  authentication_required: 'Sign in again, then retry the same entry.',
+  account_unavailable: 'This owner account is unavailable. The entry was not confirmed.',
+  owner_mfa_required: 'An owner account with two-factor authentication is required.',
+  rate_limited: 'Too many spending requests. Wait a minute, then retry the same entry.',
+  invalid_component: 'This cost component is unavailable.',
+  invalid_period: 'Choose a reporting month from October 2026 through twelve months ahead.',
+  invalid_measure: 'Choose a supported observation type.',
+  invalid_amount: 'Enter USD from 0 to 10,000 with at most six decimal places, or leave it unknown.',
+  invalid_completeness: 'A complete commitment, forecast or invoice needs a known amount.',
+  invalid_evidence: 'Use a reference of 3–256 letters, numbers, spaces or . _ : / - characters.',
+  invalid_observed_at: 'The observation time was refused. Check this device’s clock before continuing.',
+  observation_id_conflict: 'This entry conflicts with its recorded receipt. Keep its request ID for review; do not resubmit it as a new entry.',
+  observation_capacity: 'This component has reached its monthly evidence-entry limit. Review its existing records.',
+};
+const unconfirmedObservation = 'The observation was not confirmed. Retry the same entry; it will not be added twice.';
+export async function adminSpendingObservation(ownerID: string, body: SpendingObservationRequest): Promise<SpendingObservationReceipt> {
+  if (!backend || !url || !key) throw new Error('The backend has not been configured for this build.');
+  const { data } = await backend.auth.getSession();
+  if (!data.session || data.session.user.id !== ownerID) throw new Error('Sign in as the same owner, then retry this entry.');
+  let response: Response, value: unknown;
+  try {
+    response = await fetch(new URL('/functions/v1/admin-spending', url), { method: 'POST', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(30_000),
+      headers: { apikey: key, Authorization: `Bearer ${data.session.access_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if ((response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase() !== 'application/json' || !response.body) throw new Error();
+    const reader = response.body.getReader(); const parts: Uint8Array[] = []; let count = 0;
+    try { for (;;) { const { done, value } = await reader.read(); if (done) break; count += value.length;
+      if (count > 2048) { await reader.cancel().catch(() => {}); throw new Error(); } parts.push(value); } }
+    finally { reader.releaseLock(); }
+    const joined = new Uint8Array(count); let offset = 0; for (const part of parts) { joined.set(part, offset); offset += part.length; }
+    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(joined));
+  } catch { throw new Error(unconfirmedObservation); }
+  if (!response.ok) {
+    const code = value && typeof value === 'object' && !Array.isArray(value) ? (value as { code?: unknown }).code : null;
+    throw new Error(typeof code === 'string' && Object.hasOwn(observationErrors, code) ? observationErrors[code] : unconfirmedObservation);
+  }
+  const result = spendingReceipt(value, body.request_id);
+  if (!result) throw new Error(unconfirmedObservation);
+  return result;
 }
 
 export async function rpc<T>(name: string, parameters: Record<string, unknown> = {}): Promise<T> {

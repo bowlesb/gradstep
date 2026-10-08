@@ -74,6 +74,34 @@ select test.assert((:'with_overhead'::jsonb->'forecast'->>'overhead_allocation_m
 select test.assert((:'with_overhead'::jsonb->'forecast'->>'funded_plan_microusd')::bigint=31000000,'provider allocation counted once alongside prepaid subscription');
 reset role;
 
+-- The new owner/MFA Edge entry uses this unchanged service-only writer. Even
+-- an authenticated owner cannot skip the Edge gate by calling it directly.
+select format('select public.worker_record_spending_observation(%L,%L,%L,%L,%L,30000000,false,%L,%L,%L,%L)',
+ :'C','37000000-0000-0000-0002-000000000002','tavily_subscription',date_trunc('month',now() at time zone 'UTC')::date,
+ 'invoice',now(),'owner-entry','owner-supplied-paid-invoice-no-service-period','{}') as invoice_call \gset
+set role authenticated;
+select test.reject(:'invoice_call','permission denied');
+reset role;
+set role anon;
+select test.reject(:'invoice_call','permission denied');
+reset role;
+select (select coalesce(jsonb_agg(to_jsonb(b)),'[]') from app_private.platform_budgets b) as before_budgets,
+ (select count(*) from app_private.credit_ledger) as before_credit_entries \gset
+set role service_role;
+:invoice_call;
+select test.reject(replace(:'invoice_call', '30000000', '31000000'),'spending_observation_id_conflict');
+select test.reject(replace(:'invoice_call', :'C', :'B'),'owner_required');
+reset role;
+select test.assert((select coalesce(jsonb_agg(to_jsonb(b)),'[]') from app_private.platform_budgets b)=:'before_budgets'::jsonb,
+ 'invoice evidence never changes provider budget limits, expense, holds or enabled state');
+select test.assert((select count(*) from app_private.credit_ledger)=:'before_credit_entries'::bigint,'invoice evidence never grants or debits customer credits');
+set role authenticated;
+select public.v1_admin_spending(30,:'A') as with_invoice \gset
+select test.assert((:'with_invoice'::jsonb->'forecast'->>'funded_plan_microusd')::bigint=31000000,
+ 'a 30 USD invoice does not add the same subscription a second time');
+select test.assert(jsonb_array_length(:'with_invoice'::jsonb->'external_observations')=2,'invoice and commitment remain separately inspectable');
+reset role;
+
 -- A short reporting window must not hide a much older unresolved vendor charge
 -- or a prepaid search whose dollar ceiling is zero. Exercise real admissions.
 set role service_role;
