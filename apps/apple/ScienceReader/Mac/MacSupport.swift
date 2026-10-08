@@ -342,7 +342,10 @@ final class WindowHookView: UIView {
     }
 
     func update(mode: WideMode, settingsShown: Bool) {
-        if let index = WideMode.allCases.firstIndex(of: mode), modes?.selectedIndex != index { modes?.selectedIndex = index }
+        // Settings is outside the five workspace panes; keeping the previous pane selected makes
+        // clicking its toolbar segment a no-op on Catalyst's select-one group.
+        let index = settingsShown ? -1 : (WideMode.allCases.firstIndex(of: mode) ?? 1)
+        if modes?.selectedIndex != index { modes?.selectedIndex = index }
     }
 
     // MARK: NSToolbarDelegate
