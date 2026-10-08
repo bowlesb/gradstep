@@ -216,6 +216,53 @@ final class TableColumnsTests: XCTestCase {
         waitFor("And back") { abs(paragraph.frame.height - height) < 2 }
     }
 
+    func testExpandedFeedShowsFullTitleAndAbstractEndingAndScales() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--feed-fixture", "--feed-full-abstract-fixture", "--feed-layout=table", "--start-tab=feed"]
+        app.launch()
+        let row = app.descendants(matching: .any)["feed.table.2610.03011"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        let collapsed = row.frame.height
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        let ending = "The final limitation is that results have not been evaluated on physical robots."
+        let abstract = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@", ending)).firstMatch
+        XCTAssertTrue(abstract.waitForExistence(timeout: 5), "The full abstract survives the legacy 700-character preview")
+        XCTAssertGreaterThan(abstract.label.count, 700)
+        waitFor("Expanded title is no longer limited to two lines") { row.frame.height > collapsed + 25 }
+        attach(app, "Expanded full Feed title")
+        let before = abstract.frame.height
+        app.buttons["feed.textSize.larger"].tap(); app.buttons["feed.textSize.larger"].tap()
+        waitFor("A+ scales the complete abstract") { abstract.frame.height > before + 20 }
+        app.buttons["feed.textSize.smaller"].tap(); app.buttons["feed.textSize.smaller"].tap()
+        waitFor("A- restores the complete abstract") { abs(abstract.frame.height - before) < 3 }
+        let bottom = app.buttons["tab.feed"].exists ? app.buttons["tab.feed"].frame.minY : app.windows.firstMatch.frame.maxY - 30
+        for _ in 0..<6 where abstract.frame.maxY > bottom { app.swipeUp(velocity: .slow) }
+        XCTAssertLessThanOrEqual(abstract.frame.maxY, bottom, "The ending can be brought above the floating controls")
+        attach(app, "Full Feed abstract ending")
+        XCTAssertFalse(app.links["Read the full abstract on arXiv"].exists, "A complete abstract has no excerpt warning")
+    }
+
+    func testFeedListExpandsAndCollapsesTheFullAbstract() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--feed-fixture", "--feed-full-abstract-fixture", "--feed-layout=list", "--start-tab=feed"]
+        app.launch()
+        let toggle = app.buttons["discover.abstract.2610.03011"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 15)); XCTAssertEqual(toggle.label, "Full abstract")
+        let abstract = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH %@",
+            "The final limitation is that results have not been evaluated on physical robots.")).firstMatch
+        XCTAssertTrue(abstract.exists)
+        let collapsed = abstract.frame.height
+        toggle.tap()
+        waitFor("List abstract expands beyond its two-line preview") { abstract.frame.height > collapsed + 100 }
+        XCTAssertEqual(toggle.label, "Less")
+        XCTAssertGreaterThan(abstract.label.count, 700)
+        attach(app, "List with full Feed abstract")
+        for _ in 0..<6 where !toggle.isHittable { app.swipeUp(velocity: .slow) }
+        XCTAssertTrue(toggle.isHittable); toggle.tap()
+        XCTAssertEqual(toggle.label, "Full abstract")
+        waitFor("Collapsing restores the compact preview") { abs(abstract.frame.height - collapsed) < 3 }
+    }
+
     func testOneWideColumnKeepsItsHeaderAndPinnedAction() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture",

@@ -3115,6 +3115,9 @@ final class ReaderModel {
             accountID: fixtureAccount, localKey: fixtureDevice.localStoreKey, keys: bundle)
         restoreReadingActivity(await localPersistence.readingStore?.load() ?? [])
         openSample()
+        if let kind = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--chat-paper-navigation-fixture=") }) {
+            try configureChatPaperNavigationFixture(pending: kind.hasSuffix("=pending"))
+        }
         if Self.chatHistoryFixtureEnabled { try await installChatHistoryFixture(into: local, deviceID: fixtureDevice.deviceID) }
         let snapshot = await local.snapshot()
         prepareDrafts(snapshot: snapshot, scope: sessionID)
@@ -3227,6 +3230,16 @@ extension ReaderModel {
          {"source_id":"2001.08361","revision":1,"title":"Scaling Laws for Neural Language Models","authors":["Jared Kaplan","Sam McCandlish"],"year":2020,"abstract":"An existing import is already part of the library.","categories":["cs.LG"]}]
         """
         feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
+        if ProcessInfo.processInfo.arguments.contains("--feed-full-abstract-fixture") {
+            let full = String(repeating: "We evaluate a compact policy across several model sizes and datasets, reporting accuracy, latency, and uncertainty. ", count: 8)
+                + "The final limitation is that results have not been evaluated on physical robots."
+            let row: [String: Any] = ["source_id": "2610.03011", "revision": 1,
+                "title": "Diffusion Policies with Consistency Distillation for Real-Robot Manipulation Across Long-Horizon Tasks and Unseen Environments",
+                "authors": ["Hiro Tanaka", "Lena Fischer"], "year": 2026, "categories": ["cs.RO", "cs.LG"],
+                "abstract": String(full.prefix(700)), "full_abstract": full, "abstract_truncated": false]
+            if let data = try? JSONSerialization.data(withJSONObject: row),
+               let result = try? JSONDecoder().decode(DiscoveryResult.self, from: data) { feedResults = [result] }
+        }
         feedCategory = feedCategories.first; feedState = .loaded
     }
 

@@ -5,6 +5,46 @@ import XCTest
 
 @MainActor
 final class WorkflowSafetyTests: XCTestCase {
+    #if DEBUG && (targetEnvironment(simulator) || targetEnvironment(macCatalyst))
+    func testAnswerLibraryActionOpensCurrentPaperAndPreservesOriginalChat() throws {
+        let model = ReaderModel(configuration: nil)
+        try model.configureWorkflowFixture()
+        let original = try XCTUnwrap(model.selectedPaper), conversation = try XCTUnwrap(model.activeConversation)
+        let messages = model.chatMessages.map(\.id)
+        model.chatInput = "Keep this original draft"
+        try model.configureChatPaperNavigationFixture(pending: false)
+        let mention = ChatPaperMention(identity: .arxiv(try ArxivReference("2310.12036")), title: nil)
+        let actions = ChatPaperActions()
+        actions.openLibrary(mention, model: model)
+        XCTAssertEqual(model.selectedPaper?.sourceID, "2310.12036")
+        XCTAssertEqual(model.tab, .paper); XCTAssertEqual(model.wideMode, .reader)
+        model.select(original); model.openConversation(conversation)
+        XCTAssertEqual(model.chatInput, "Keep this original draft")
+        XCTAssertEqual(model.chatMessages.map(\.id), messages)
+        // A membership disappearing between drawing and tapping is not opened from stale UI state.
+        model.papers.removeAll { $0.sourceID == "2310.12036" }
+        actions.openLibrary(mention, model: model)
+        XCTAssertEqual(model.selectedPaper?.id, original.id); XCTAssertEqual(model.tab, .chat)
+    }
+
+    func testAnswerLibraryActionShowsPendingImportInWideLayoutWithoutChangingChat() throws {
+        let model = ReaderModel(configuration: nil)
+        try model.configureWorkflowFixture(); try model.configureChatPaperNavigationFixture(pending: true)
+        let original = try XCTUnwrap(model.selectedPaper), conversation = model.activeConversation
+        let messages = model.chatMessages.map(\.id)
+        model.chatInput = "Keep this while the paper converts"
+        model.tab = .chat; model.wideMode = .reader
+        model.searchExternal = true; model.libraryFilter = .archived; model.libraryTagFilter = "Other"; model.libraryQuery = "Hidden"
+        ChatPaperActions().openLibrary(ChatPaperMention(identity: .arxiv(try ArxivReference("2310.12036")), title: nil), model: model)
+        XCTAssertEqual(model.tab, .library); XCTAssertEqual(model.wideMode, .library)
+        XCTAssertFalse(model.searchExternal); XCTAssertEqual(model.libraryFilter, .all); XCTAssertNil(model.libraryTagFilter)
+        XCTAssertEqual(model.libraryQuery, "2310.12036")
+        XCTAssertEqual(model.selectedPaper?.id, original.id); XCTAssertEqual(model.activeConversation, conversation)
+        XCTAssertEqual(model.chatInput, "Keep this while the paper converts")
+        XCTAssertEqual(model.chatMessages.map(\.id), messages)
+    }
+    #endif
+
     func testChangingArtifactClearsOldReaderActionsWithoutLosingItsLocation() throws {
         let model = ReaderModel(configuration: nil)
         model.openSample()

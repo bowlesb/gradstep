@@ -620,7 +620,7 @@ struct ChatPaperContext {
             model.select(paper)
         } else {
             model.searchExternal = false; model.libraryFilter = .all; model.libraryTagFilter = nil
-            model.libraryQuery = source; model.tab = .library
+            model.libraryQuery = source; model.tab = .library; model.wideMode = .library
         }
     }
 
@@ -745,6 +745,7 @@ struct ChatAnswerPapersView: View {
                     Button { context.actions.openLibrary(mention, model: context.model) } label: {
                         Label("Library", systemImage: "books.vertical")
                     }
+                    .labelStyle(.titleAndIcon)
                     .buttonStyle(.borderless)
                     .lineLimit(1)
                     .accessibilityLabel("Open in Library")

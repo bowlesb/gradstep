@@ -543,10 +543,10 @@ final class WorkflowJourneyTests: XCTestCase {
 
     /// Launches the chat fixture in `mode` and asks one question in chat (the
     /// wide iPad layout has no tab bar; its general chat is a segment).
-    private func askChatFixture(_ mode: String, _ question: String) -> XCUIApplication {
+    private func askChatFixture(_ mode: String, _ question: String, extraArguments: [String] = []) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"]
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-mode=\(mode)", "--chat-fixture-consented", "--reset-draft-fixture"] + extraArguments
         app.launch()
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
         if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
@@ -678,6 +678,43 @@ final class WorkflowJourneyTests: XCTestCase {
         app.buttons["chat.paper.1.add"].tap()
         XCTAssertTrue(app.staticTexts["chat.paper.1.notice"].waitForExistence(timeout: 5))
         capture(app, "Add outcome on the row")
+    }
+
+    func testAnswerLibraryActionOpensSavedPaperAndRetainsOriginalDraft() throws {
+        let app = askChatFixture("research", "A question before opening a saved paper", extraArguments: ["--chat-paper-navigation-fixture=ready"])
+        let target = app.buttons["chat.paper.2.inLibrary"]
+        XCTAssertTrue(target.waitForExistence(timeout: 20)); XCTAssertEqual(target.label, "Open in Library")
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        composer.tap(); composer.typeText("Keep my follow-up draft")
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(target, in: app, up: false)
+        capture(app, "Answer paper has an explicit Library action")
+        target.tap()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 10), "The saved paper opens inside the reader")
+        if app.buttons["tab.library"].exists { app.buttons["tab.library"].tap() } else { app.segmentedControls.buttons["Library"].tap() }
+        XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 5)); app.buttons[sampleID].tap()
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() }
+        XCTAssertEqual(composer.value as? String, "Keep my follow-up draft")
+        XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5), "The original answer remains in its conversation")
+        capture(app, "Original conversation and draft after Library action")
+    }
+
+    func testAnswerLibraryActionShowsPendingImportAndRetainsDraft() throws {
+        let app = askChatFixture("research", "A question while a paper is importing", extraArguments: ["--chat-paper-navigation-fixture=pending"])
+        let target = app.buttons["chat.paper.2.inLibrary"]
+        XCTAssertTrue(target.waitForExistence(timeout: 20))
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        composer.tap(); composer.typeText("Keep this while it imports")
+        if app.buttons["chat.dismissKeyboard"].exists { app.buttons["chat.dismissKeyboard"].tap() }
+        reveal(target, in: app, up: false); target.tap()
+        let search = app.searchFields["library.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); XCTAssertEqual(search.value as? String, "2310.12036")
+        let progress = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS[c] %@", "importProgress", "Reading equations and figures")).firstMatch
+        XCTAssertTrue(progress.waitForExistence(timeout: 5), "A queued paper opens its current progress")
+        capture(app, "Answer Library action shows pending import")
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["Reader"].tap() }
+        XCTAssertEqual(composer.value as? String, "Keep this while it imports")
+        XCTAssertTrue(app.buttons["chat.paper.2.inLibrary"].waitForExistence(timeout: 5))
     }
 
     /// Discovery audit (records every issue, fails on none): Library, reader,

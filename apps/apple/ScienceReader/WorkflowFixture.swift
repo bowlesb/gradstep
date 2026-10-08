@@ -5,6 +5,28 @@ import ScienceReaderCore
 /// Synthetic UI journeys only. Compiled out of physical-device and release builds;
 /// the launch branch returns before constructing any network or account services.
 extension ReaderModel {
+    /// A real in-memory membership for the answer's IPO link; the body reuses only the local sample bundle.
+    /// The pending variation exercises navigation to status without a server or an artificially enabled button.
+    func configureChatPaperNavigationFixture(pending: Bool) throws {
+        guard let sample = selectedPaper else { return }
+        let title = "A General Theoretical Paradigm to Understand Learning from Human Preferences"
+        if pending {
+            let row: [String: Any] = ["kind": "import", "id": "bbbbbbbb-0000-4000-8000-000000000003",
+                "created_seq": 1, "state_seq": 1, "source": "arxiv", "source_revision": 1,
+                "metadata_id": "bbbbbbbb-0000-4000-8000-000000000004", "version_id": "bbbbbbbb-0000-4000-8000-000000000005",
+                "source_id": "2310.12036", "source_url": "https://arxiv.org/abs/2310.12036", "phase": "acquiring", "progress": "converting", "visible": true,
+                "intent_revision": 1, "retryable": false, "metadata": ["title": title, "authors": ["Mohammad Azar"],
+                    "published_at": "2023-10-18", "categories": ["cs.LG"]], "metadata_recorded_at": "2026-10-01T09:00:00Z"]
+            insertFixtureImport(try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: row)))
+        } else {
+            var paper = Paper(id: UUID(uuidString: "bbbbbbbb-0000-4000-8000-000000000002")!, title: title,
+                authors: "Mohammad Azar", year: 2023, abstract: "Synthetic saved-paper navigation fixture.", keywords: [],
+                fileURL: sample.fileURL, artifactID: sample.artifactID, isSample: true, sourceID: "2310.12036")
+            paper.readerBundle = sample.readerBundle
+            papers.append(paper)
+        }
+    }
+
     func configureWorkflowFixture() throws {
         openSample()
         guard let sample = selectedPaper else { return }

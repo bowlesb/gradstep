@@ -66,6 +66,8 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["Add to library"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Copy"].exists)
         XCTAssertTrue(app.buttons["Open on arXiv"].exists, "Reference 11 names arXiv:2204.02311")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[11]")).count, 1,
+                       "The reference stays in the paper and is not repeated as a tall menu message")
         let actions = XCTAttachment(screenshot: app.screenshot()); actions.name = "Reference actions"; actions.lifetime = .keepAlways; add(actions)
         app.buttons["Copy"].tap()
         XCTAssertTrue(app.buttons["Copy"].waitForNonExistence(timeout: 5))
