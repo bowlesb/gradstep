@@ -1265,6 +1265,7 @@ begin
  episode:=app_private.podcast_insert_episode('private',a,spec,pin);
  insert into app_private.podcast_jobs(episode_id,origin,funding_kind,operation_account_id,operation_id,epoch)
   values(episode,'generated','customer',a,op,pol.epoch) returning * into j;
+ update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id returning * into j;
  insert into app_private.podcast_asset_holds(job_id,owner_id,bytes,objects)
   values(j.id,a,(spec->'storage'->>'bytes')::bigint,(spec->'storage'->>'objects')::integer);
  begin perform app_private.paper_asset_check_capacity(a);
@@ -1286,7 +1287,25 @@ begin
  if not found then raise exception 'podcast_request_unavailable'; end if;
  if req.outcome='reused' then return jsonb_build_object('reuse',jsonb_build_object('release_id',req.release_id)); end if;
  select * into strict j from app_private.podcast_jobs where id=req.job_id;
+ -- Polling is the recovery wake-up (no always-on loop): a queued job or an
+ -- expired lease asks the worker again, at most once a minute.
+ if j.finished_at is null and (j.state='queued' or j.lease_until<=clock_timestamp())
+  and (j.kicked_at is null or j.kicked_at<clock_timestamp()-interval '60 seconds') then
+  update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id and (kicked_at is null or kicked_at<clock_timestamp()-interval '60 seconds');
+  if found then perform app_private.podcast_kick(); end if;
+ end if;
  return jsonb_build_object('job',app_private.podcast_job_public(j,p_request_id));
+end $$;
+
+-- Operator/maintenance wake-up for queued or expired work (seed pilot, lost kicks).
+create function public.worker_podcast_kick_due() returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare due integer;
+begin
+ select count(*) into due from app_private.podcast_jobs where finished_at is null
+  and (state='queued' or (claim_id is not null and lease_until<=clock_timestamp()));
+ if due>0 then perform app_private.podcast_kick(); end if;
+ return jsonb_build_object('due',due);
 end $$;
 
 create function public.v1_podcast_cancel(p_request_id uuid) returns jsonb
@@ -1381,7 +1400,7 @@ begin
  return jsonb_build_object('recovered',true,'job_id',j.id,'state',j.state,'more',true);
 end $$;
 
-create function public.worker_podcast_claim(p_claim_id uuid) returns jsonb
+create function public.worker_podcast_claim(p_claim_id uuid,p_generated boolean default true) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare pol app_private.podcast_policy; candidate uuid; j app_private.podcast_jobs; spec jsonb; src app_private.podcast_sources; t app_private.stored_objects;
  meta jsonb;
@@ -1390,6 +1409,7 @@ begin
  select * into strict pol from app_private.podcast_policy where singleton;
  select x.id into candidate from app_private.podcast_jobs x where x.state='queued' and x.claim_id is null
   and ((x.funding_kind='customer' and pol.generation_enabled) or (x.funding_kind='platform_seed' and pol.seed_enabled) or (x.funding_kind='fixture' and pol.fixtures_enabled))
+  and (x.origin='fixture' or coalesce(p_generated,false))
   order by x.created_at,x.id limit 1;
  if candidate is null then return jsonb_build_object('claimed',false); end if;
  j:=app_private.podcast_lock_job(candidate);
@@ -1415,7 +1435,8 @@ begin
  select jsonb_build_object('title',left(cm.metadata->>'title',500),'authors',cm.metadata->'authors') into meta
   from app_private.catalog_metadata cm where cm.id=src.metadata_id;
  return jsonb_build_object('claimed',true,'job_id',j.id,'claim_id',p_claim_id,'generation',j.claim_generation,'origin',j.origin,
-  'funding_kind',j.funding_kind,'scope',(select scope from app_private.podcast_episode_keys where id=j.episode_id),'episode_id',j.episode_id,
+  'funding_kind',j.funding_kind,'scope',(select scope from app_private.podcast_episode_keys where id=j.episode_id),
+  'owner_id',(select owner_id from app_private.podcast_episode_keys where id=j.episode_id),'episode_id',j.episode_id,
   'lease_until',j.lease_until,'spec',spec,'metadata',meta,
   'source',jsonb_build_object('document_id',src.document_id,'bucket',t.bucket,'path',t.path,'sha256',encode(t.sha256,'hex'),'bytes',t.byte_count,
    'normalization_version',src.normalization_version));
@@ -1898,7 +1919,7 @@ begin
    'worker_podcast_recover','worker_podcast_claim','worker_podcast_advance','worker_podcast_attempt_begin','worker_podcast_fail','worker_podcast_asset_plan',
    'worker_podcast_asset_write','worker_podcast_asset_written','worker_podcast_publish','worker_podcast_release','worker_podcast_delivery_expire',
    'worker_podcast_delivery_create','worker_podcast_delivery_redeem','worker_podcast_delivery_observed','worker_podcast_cleanup','worker_podcast_cleanup_confirm',
-   'worker_podcast_status','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
+   'worker_podcast_status','worker_podcast_kick_due','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
    'worker_asset_inventory_begin','worker_asset_inventory_page','worker_asset_inventory_finish','worker_pdf_upload_policy','worker_asset_spending_status') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role',f);
   execute format('grant execute on function %s to service_role',f);

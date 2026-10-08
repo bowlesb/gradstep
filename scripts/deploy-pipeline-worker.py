@@ -43,7 +43,7 @@ def secrets():
 def context():
     """The build context: the worker directory plus the shared pipeline modules (no tests, no apps)."""
     target = Path(tempfile.mkdtemp(prefix='gradstep-pipeline-'))
-    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts']:
+    for name in ['Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts']:
         shutil.copy(ROOT / 'services/pipeline-worker' / name, target / name)
     shutil.copytree(ROOT / 'supabase/functions/_shared', target / 'supabase/functions/_shared',
                     ignore=shutil.ignore_patterns('node_modules', '*.test.ts'))
@@ -63,14 +63,31 @@ def run():
 def gcloud(*args, input=None, capture=False):
     return subprocess.run(['gcloud', *args], check=True, input=input, text=True, capture_output=capture)
 
-def deployment_args(project, region, image, account, mapping, *, deferred=False):
+PODCAST_ENV = ('PODCAST_SPEECH_SERVICE_ACCOUNT', 'PODCAST_GCP_PROJECT')
+
+def podcast_env():
+    """Nonsecret speech identity (docs/architecture/PAPER_PODCASTS.md): the dedicated service account the
+    worker impersonates for Vertex AI. Absent until the operator creates it; generated podcast jobs then stay queued."""
+    config = json.loads((ROOT / 'infra/staging.json').read_text()).get('podcast_speech') or {}
+    account, project = config.get('service_account'), config.get('project', 'gradstep')
+    if not account: return {}
+    if not re.fullmatch(r'[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com', account) \
+            or not re.fullmatch(r'[a-z][a-z0-9-]{4,28}[a-z0-9]', project):
+        raise SystemExit('invalid podcast_speech configuration')
+    return {'PODCAST_SPEECH_SERVICE_ACCOUNT': account, 'PODCAST_GCP_PROJECT': project}
+
+def deployment_args(project, region, image, account, mapping, *, deferred=False, extra_env=None):
     # Request-based billing depends on server.ts awaiting and joining its bounded worker thread.
     # Set both scopes: a revision-only maximum leaves the service ceiling at its old value.
+    env = 'PIPELINE_MAINTENANCE=' + ('true' if deferred else 'false')
+    for name, value in sorted((extra_env or {}).items()):
+        if name not in PODCAST_ENV: raise ValueError('unexpected environment variable')
+        env += f',{name}={value}'
     return ['run', 'deploy', SERVICE, '--project', project, '--region', region, '--image', image,
             '--memory', '2Gi', '--cpu', '1', '--concurrency', '1', '--max', '3', '--min', '0',
             '--max-instances', '3', '--min-instances', '0', '--timeout', '900', '--cpu-throttling',
             '--allow-unauthenticated', '--service-account', account, '--set-secrets', mapping,
-            '--update-env-vars', 'PIPELINE_MAINTENANCE=' + ('true' if deferred else 'false'), '--quiet']
+            '--update-env-vars', env, '--quiet']
 
 def deployment_policy(service):
     """Allowlisted, nonsecret shape used by deployment verification and spending inspection."""
@@ -173,7 +190,7 @@ def deploy(project, region, *, deferred=False):
     gcloud('auth', 'configure-docker', f'{region}-docker.pkg.dev', '--quiet', capture=True)
     subprocess.run(['docker', 'build', '--platform', 'linux/amd64', '-t', image, str(context())], check=True)
     subprocess.run(['docker', 'push', image], check=True)
-    gcloud(*deployment_args(project, region, image, account, mapping, deferred=deferred))
+    gcloud(*deployment_args(project, region, image, account, mapping, deferred=deferred, extra_env=podcast_env()))
     service = describe_service(project, region)
     policy = deployment_policy(service)
     verify_policy(policy, maintenance=deferred)
