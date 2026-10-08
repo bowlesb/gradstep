@@ -1,4 +1,4 @@
--- Self-healing imports (migration 043; owner feedback build 17): bounded automatic retries for metadata and
+-- Self-healing imports (migration 041; owner feedback build 17): bounded automatic retries for metadata and
 -- render failures (downloads keep 027's), none for paid stages or permanent refusals; every retryable failure
 -- someone waits for gets a schedule; papers silently stalled in a non-paid stage for 6 h fail with their reason
 -- and follow the same retries; a scheduled non-download retry keeps its own reason. Real RPCs throughout.
@@ -94,7 +94,7 @@ select test.assert((select auto_retry_at is null from app_private.pipeline_paper
 select test.assert((select phase='failed' and retryable and desired_present and auto_retry_at is null from app_private.import_requests
  where account_id=:'A' and id='43000000-0000-0000-0000-0000000000a1'),'still in the library with Retry');
 
--- 3. Unscheduled failures (from before 043, or any path around the trigger) are scheduled by the heal sweep.
+-- 3. Unscheduled failures (from before 041, or any path around the trigger) are scheduled by the heal sweep.
 update app_private.pipeline_papers set auto_retries=0 where id=:'p';
 select test.assert(public.worker_pipeline_heal(0)->>'swept'='true','swept');
 select test.assert((select auto_retry_at<=clock_timestamp() from app_private.pipeline_papers where id=:'p'),'an unscheduled retryable failure is due at once');

@@ -167,7 +167,7 @@ def verify(bin_path, db, base):
         print('PASS deploy retry rechecks closed accounts after the captured-account lock wait', flush=True)
 
         #201 wanted metadata failures exceed the200-candidate snapshot. The final deferred paper keeps its
-        # same-deploy retry (since 043 it also has its own automatic-retry timer; this checks the deploy path).
+        # same-deploy retry (since 041 it also has its own automatic-retry timer; this checks the deploy path).
         owner = account()
         sql('update app_private.library_policy set account_active_imports=1000,environment_active_imports=10000; select 1;')
         sql(f"""select set_config('request.jwt.claim.sub','{owner}',false);

@@ -459,7 +459,7 @@ check('pipeline.stuck', { title: 'No import stuck or crash-looping', suites: ALL
   for (const p of s.looping ?? []) if (!(s.stuck ?? []).some(x => x.source === p.source && x.stage === p.stage)) problems.push(`${p.source} looping in ${p.stage} (${p.claims} claims, ${p.crashes} crashes)`);
   if (s.uncertain_ocr) problems.push(`${s.uncertain_ocr} OCR submission(s) uncertain (operator: pipeline-ops.py resolve)`);
   if (s.stale_imports) problems.push(`${s.stale_imports} import(s) unchanged for over an hour`);
-  // Self-healing (migration 043): every retryable failure has a schedule, and schedules run.
+  // Self-healing (migration 041): every retryable failure has a schedule, and schedules run.
   if (s.unscheduled_failures) problems.push(`${s.unscheduled_failures} retryable failure(s) without an automatic retry`);
   if (s.overdue_retries) problems.push(`${s.overdue_retries} automatic retr${s.overdue_retries === 1 ? 'y' : 'ies'} overdue by 15 min (is the worker sweeping?)`);
   const crashes = Object.entries(s.crashes_24h ?? {}).map(([stage, n]) => `${stage} ${n}`).join(', ');

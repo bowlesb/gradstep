@@ -1,5 +1,5 @@
 """Import maintenance on real sessions: credit resume (migration 040) against concurrent grants, reservations, the
-policy row and itself; the heal sweep (043) against a claim in progress."""
+policy row and itself; the heal sweep (041) against a claim in progress."""
 import json
 import os
 import select

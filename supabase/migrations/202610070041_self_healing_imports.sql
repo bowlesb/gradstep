@@ -263,7 +263,7 @@ begin
    'stale_imports',(select count(*) from app_private.import_requests i where i.desired_present and i.phase in ('accepted','resolving','acquiring')
      and coalesce(i.progress_at,i.created_at)<now()-interval '60 minutes'
      and not exists(select 1 from app_private.pipeline_imports pi join waiting w on w.id=pi.paper_id where (pi.account_id,pi.import_id)=(i.account_id,i.id))),
-   -- Self-healing (043): retryable failures someone waits for must have a schedule, and schedules must run.
+   -- Self-healing (041): retryable failures someone waits for must have a schedule, and schedules must run.
    'unscheduled_failures',(select count(*) from app_private.pipeline_papers pp where pp.stage='failed' and pp.auto_retry_at is null
      and app_private.pipeline_auto_retry_delay(pp.resume_stage,pp.error_code,pp.auto_retries) is not null
      and exists(select 1 from app_private.pipeline_imports pi join app_private.import_requests i on (i.account_id,i.id)=(pi.account_id,pi.import_id)

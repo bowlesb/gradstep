@@ -366,7 +366,7 @@ With several locations, transient wins (the stage retries soon); otherwise the m
   DSpace 7, PMC, PMLR, JMLR, ACL Anthology, CVF; OpenReview expected `source_blocked`; arXiv refused on the web
   path) through `fetchFirstWebPDF`, plus one arXiv-path PDF. Run locally 2026-10-07: 13/13 as expected, 28 s, 10.5 MB.
 
-## Self-healing imports (migrations 040, 043; owner, build 17)
+## Self-healing imports (migrations 040, 041; owner, build 17)
 
 Owner, 2026-10-08: "we need to build maintenance and this type of cleanup into general use so these things are self
 cleaning or fixing but never just sitting there." Every waiting or failed import is now either moving, visibly
@@ -376,14 +376,14 @@ waiting with a reason, or failed with a reason and an action; the server retries
 |---|---|---|
 | Needs credits (040) | Restarted once the account's spendable balance (less restarted, unfunded needs) covers it, oldest first, skipping what does not fit; sweep before each claim, wakeup when a balance grows | "Needs credits", then progress |
 | arXiv throttles the metadata lookup (040 + worker) | Atom API throttled: the record comes from arXivRaw. Both throttled: waits (Retry-After honored) for ~55 min before failing | "Waiting to continue" (step `waiting`, `reason: source_busy`) |
-| Budget pause / account at its operation limit at funding | Retried every 5 min by the normal claim (034) | "Waiting to continue" at once (043) |
-| Failed: details unavailable, throttled, unreachable (resume at metadata) | Retried 10 min, 30 min, 1 h, 3 h, 6 h, 12 h (043) | Its own reason + Retry (entry carries `auto_retry_at`) |
-| Failed: re-render (resume at render; stored OCR, nothing charged) | Same six retries (043) | "Conversion failed" + Retry |
+| Budget pause / account at its operation limit at funding | Retried every 5 min by the normal claim (034) | "Waiting to continue" at once (041) |
+| Failed: details unavailable, throttled, unreachable (resume at metadata) | Retried 10 min, 30 min, 1 h, 3 h, 6 h, 12 h (041) | Its own reason + Retry (entry carries `auto_retry_at`) |
+| Failed: re-render (resume at render; stored OCR, nothing charged) | Same six retries (041) | "Conversion failed" + Retry |
 | Failed download (027) | 15 min, 2 h, 12 h | "Couldn't download yet · Trying again automatically" |
 | Failed at a paid stage (OCR funding or submission) | No automatic retry (a failed OCR may already be billed) | Reason + Retry |
 | Permanent (too large, sign-in, not open, not a PDF, invalid, license) | No automatic retry | Reason + Retry where it can help, supply the PDF when not open, Remove |
 | A non-paid stage unchanged for 6 h while someone waits (silent loop) | Failed with the stage's code by `worker_pipeline_heal`, then the retries above | Reason + Retry |
-| Retryable failure without a schedule (before 043, e.g. 2610.07426) | Scheduled at once by `worker_pipeline_heal` (and by 043 itself) | Retried |
+| Retryable failure without a schedule (before 041, e.g. 2610.07426) | Scheduled at once by `worker_pipeline_heal` (and by 041 itself) | Retried |
 | Expired claim | 022's crash sweep before each claim | — |
 
 Retries are 027's restart (the reader's Retry as a worker checkpoint): the normal claim, funding, credit checks and

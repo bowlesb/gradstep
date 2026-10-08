@@ -179,7 +179,7 @@ test('the pipeline sweeps automatic retries and credit resumes before it claims,
     'worker_pipeline_resume_credits', 'worker_pipeline_heal', 'worker_pipeline_claim']);
   assert.ok(swept.logs.includes('auto_retry') && swept.logs.includes('credit_resume') && swept.logs.includes('heal'));
   const broken = await run(true, () => { throw new Error('function missing (027 not applied)'); }, () => { throw new Error('function missing (040 not applied)'); },
-    () => { throw new Error('function missing (043 not applied)'); });
+    () => { throw new Error('function missing (041 not applied)'); });
   assert.ok(broken.calls.includes('worker_pipeline_claim') && broken.logs.includes('auto_retry_failed') && broken.logs.includes('credit_resume_failed')
     && broken.logs.includes('heal_failed'));
   const off = await run(false, () => null);
