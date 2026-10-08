@@ -139,7 +139,7 @@ describe('authentication lifetimes', () => {
     const { generateDeviceKeyPair, generateBundle, generateRecoveryCode } = await import('../src/lib/wire');
     const device = { ...await generateDeviceKeyPair(), accountID: first, deviceID, challenge: new Uint8Array(32),
       localKey: await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']) };
-    vi.doMock('../src/lib/idb', () => ({ idb: { get: async () => device } }));
+    vi.doMock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: { get: async () => device } }));
     vi.doMock('../src/lib/wire', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/wire')>(),
       wrapRecovery: () => { started.resolve(); return wrapping.promise; } }));
     try {

@@ -2,15 +2,20 @@
 // the primary path) or the recovery code.
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BackendError } from '../lib/backend';
+import { StorageError } from '../lib/idb';
 import { type Preparation, bootstrap, prepare, recoverWithCode } from '../lib/keys';
 import { WireError, generateBundle, generateRecoveryCode, recoveryCodeBytes } from '../lib/wire';
 import { ApproveFromPhone } from './Approve';
 import { Brand } from './common';
+import { storageGuidance, useStorageLifecycle } from './StorageNotice';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
-type View = { kind: 'preparing' } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string };
+type View = { kind: 'preparing' } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' } | { kind: 'failed'; message: string; title?: string; reload?: boolean };
 
 function message(error: unknown): string {
+  // Another tab changed or closed storage: say what to do, rather than blaming the browser's capabilities.
+  const guidance = storageGuidance(error);
+  if (guidance) return guidance.text;
   if (error instanceof WireError) {
     if (error.code === 'unsupported_browser') return 'This browser can’t save the keys needed for your private library. Try another browser, or use Gradstep on iPhone, iPad or Mac.';
     if (error.code === 'invalid_recovery_code') return 'That recovery code doesn’t match this account. Check it and try again.';
@@ -34,6 +39,7 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   const [attempt, setAttempt] = useState(0);
   const [method, setMethod] = useState<'phone' | 'code'>('phone');
   const [phoneAttempt, setPhoneAttempt] = useState(0);
+  const { issue: storageIssue } = useStorageLifecycle();
 
   const route = useCallback((result: Preparation, signal: AbortSignal) => {
     if (signal.aborted) return;
@@ -48,7 +54,8 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
     lifetime.current = controller;
     setView({ kind: 'preparing' }); setIssue(null);
     prepare(account, controller.signal).then(result => route(result, controller.signal), error => {
-      if (!controller.signal.aborted) setView({ kind: 'failed', message: message(error) });
+      const guidance = storageGuidance(error);
+      if (!controller.signal.aborted) setView({ kind: 'failed', message: message(error), title: guidance?.title, reload: !!guidance?.reload });
     });
     return () => controller.abort();
   }, [account, attempt, route]);
@@ -57,11 +64,13 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
     <main className="auth-shell">
       <section className="card auth-card keys-card" aria-live="polite">
         <Brand />
-        {view.kind === 'preparing' && <><h1>Preparing this browser…</h1><div className="spinner" aria-label="Preparing" /></>}
+        {view.kind === 'preparing' && <><h1>Preparing this browser…</h1><div className="spinner" aria-label="Preparing" />
+          {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}</>}
         {view.kind === 'failed' && <>
-          <h1>Couldn’t prepare this browser</h1>
+          <h1>{view.title ?? 'Couldn’t prepare this browser'}</h1>
           <p className="issue" role="alert">{view.message}</p>
-          <button className="primary" onClick={() => setAttempt(a => a + 1)}>Try again</button>
+          {view.reload ? <button className="primary" onClick={() => location.reload()}>Reload this page</button>
+            : <button className="primary" onClick={() => setAttempt(a => a + 1)}>Try again</button>}
         </>}
         {view.kind === 'recovery_required' && method === 'phone' && <>
           {issue ? <>

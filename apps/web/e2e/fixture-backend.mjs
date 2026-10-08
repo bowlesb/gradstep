@@ -14,9 +14,6 @@ const PORT = Number(process.env.FIXTURE_PORT ?? 54329);
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
-// The chat function's published profile table (GET functions/v1/chat), exactly as the server sends it (checked against
-// publishedProfiles() by tests/backend/chat-profiles-fixture.test.ts).
-const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -29,7 +26,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 const sessions = new Map(); // token -> account
 const state = new Map();
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set() });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -252,10 +249,6 @@ createServer(async (request, response) => {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
-    // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
-    if (typeof p?.labels === 'boolean') a.chatLabels = p.labels;
-    // profiles: false answers GET functions/v1/chat with 404, as a server before profiles does.
-    if (typeof p?.profiles === 'boolean') a.chatProfiles = p.profiles;
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
@@ -344,17 +337,9 @@ createServer(async (request, response) => {
       throw error;
     }
   }
-  if (url.pathname === '/functions/v1/chat' && request.method === 'GET') {
-    return a.chatProfiles ? send(response, 200, CHAT_PROFILES) : send(response, 404, { code: 'method_unavailable' });
-  }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
     if (!body?.operation_id || body.consent_version !== 'cloud-ai-v2' || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
-    // As chat.ts validates: a profile is exactly {model, effort, length} with known values; topic_title is a boolean.
-    const p = body.profile;
-    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
-      || !['low', 'medium', 'high'].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
-    if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -371,10 +356,7 @@ createServer(async (request, response) => {
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
-      if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
-      const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';
-      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }[body.profile?.model ?? 'sonnet'];
-      event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();
+      event('done', { stop_reason: 'end_turn', credits: 3 }); response.end();
     };
     setTimeout(tick, 200); return;
   }

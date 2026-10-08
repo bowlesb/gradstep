@@ -4,7 +4,7 @@ import type { DeviceRecord } from '../src/lib/keys';
 import { generateDeviceKeyPair } from '../src/lib/wire';
 
 const stored = vi.hoisted(() => new Map<string, unknown>());
-vi.mock('../src/lib/idb', () => ({ idb: {
+vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
   get: async (_store: string, key: string) => stored.get(key),
   putActivity: async (key: string, _deviceID: string, value: unknown) => { stored.set(key, value); },
 } }));

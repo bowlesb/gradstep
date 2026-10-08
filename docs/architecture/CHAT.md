@@ -369,9 +369,11 @@ before; Rename writes `renamed` (≤ 80 characters; an empty name is ignored).
   long-press (and VoiceOver actions). Without the table (an older server or offline) the control shows the chat's
   choice with "Couldn't load the answer choices" and Try again, and requests stay exactly as before. Mac menu commands
   for these controls are left to the Mac work.
-- **Web.** Ownership moved to Codex on 2026-10-08. A first implementation of the same contract is on this branch
-  (commits `338e628`, `c286bdf`: composer control and panel, answer labels, titles with Rename, account menu › Chat
-  defaults; vitest 206, build and Playwright passing at the time); Codex may build on or replace it.
+- **Web.** Ownership moved to Codex on 2026-10-08, so this branch leaves `apps/web` exactly as on main (its web
+  work was removed when main was merged in). A first implementation of this contract, written before the handover,
+  remains in history for reference: commits `338e628` and `c286bdf` (composer control and panel, answer labels, titles
+  with Rename, account menu › Chat defaults, an e2e fixture serving the profile table; vitest 206, build and Playwright
+  passed at the time, against the pre-merge web). It is not part of the branch's result; Codex may reuse or replace it.
 
 ### Deploy order
 

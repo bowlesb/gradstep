@@ -3,6 +3,7 @@ import { auth, BackendError } from '../lib/backend';
 import { cancellation } from '../lib/cancellation';
 import { ChatSession } from '../lib/chat-session';
 import { History } from '../lib/history';
+import { storage } from '../lib/idb';
 import { prepare, type Preparation } from '../lib/keys';
 
 export function useChat(account: string, ready: Extract<Preparation, { kind: 'ready' }>) {
@@ -16,12 +17,17 @@ export function useChat(account: string, ready: Extract<Preparation, { kind: 're
     });
     const session = new ChatSession(account, history, owner.signal);
     setChat(session);
+    // A newer tab proposing a storage update waits while this page holds unsent work (BROWSER_OFFLINE_STORAGE.md).
+    const unregister = storage.registerWork(() => session.hasVolatileContent);
+    const review = () => storage.reviewProposal();
+    const unwatchSession = session.subscribe(review), unwatchHistory = history.subscribe(review);
+    const unwatch = () => { unwatchSession(); unwatchHistory(); };
     const refresh = () => { if (document.visibilityState === 'visible') { void history.sync().catch(() => {}); void session.refreshBalance(); } };
     refresh();
     const timer = setInterval(refresh, 30_000);
     const beforeUnload = (e: BeforeUnloadEvent) => { if (session.hasVolatileContent) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', refresh); window.addEventListener('beforeunload', beforeUnload);
-    return () => { owner.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('beforeunload', beforeUnload); };
+    return () => { unwatch(); unregister(); owner.abort(); clearInterval(timer); window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('beforeunload', beforeUnload); };
   }, [account, ready]);
   return chat;
 }
