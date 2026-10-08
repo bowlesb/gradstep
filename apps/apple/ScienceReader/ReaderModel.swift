@@ -3271,6 +3271,7 @@ extension ReaderModel {
          {"source_id":"2001.08361","revision":1,"title":"Scaling Laws for Neural Language Models","authors":["Jared Kaplan","Sam McCandlish"],"year":2020,"abstract":"An existing import is already part of the library.","categories":["cs.LG"]}]
         """
         feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
+        Self.fixtureCategoryJSON = json
         if ProcessInfo.processInfo.arguments.contains("--feed-full-abstract-fixture") {
             let full = String(repeating: "We evaluate a compact policy across several model sizes and datasets, reporting accuracy, latency, and uncertainty. ", count: 8)
                 + "The final limitation is that results have not been evaluated on physical robots."
@@ -3291,6 +3292,9 @@ extension ReaderModel {
         }
     }
 
+    /// The category fixture's rows (`installFeedFixture`), for More topics.
+    nonisolated(unsafe) static var fixtureCategoryJSON = "[]"
+
     static let fixtureFeedTopics = [FeedTopic(name: "RL for reasoning", kind: "combined", papers: 41),
                                     FeedTopic(name: "Mechanistic interpretability", kind: "topic", papers: 12),
                                     FeedTopic(name: "Tokenization", kind: "topic", papers: 9),
@@ -3300,7 +3304,11 @@ extension ReaderModel {
     /// For you and topic responses for UI checks (`--feed-for-you-fixture`): synthetic papers with reasons, specific
     /// topics and upvotes (one unknown, shown as a dash). Categories keep the ordinary fixture.
     func fixtureFeedResponse(_ selection: FeedSelection) -> DiscoveryResponse? {
-        guard ProcessInfo.processInfo.arguments.contains("--feed-for-you-fixture"), selection.isPersonal else { return nil }
+        guard ProcessInfo.processInfo.arguments.contains("--feed-for-you-fixture") else { return nil }
+        if case .category = selection {
+            // More topics: the ordinary category fixture, from a server that offers For you.
+            return try? JSONDecoder().decode(DiscoveryResponse.self, from: Data(#"{"feed":{"for_you":true},"results":\#(Self.fixtureCategoryJSON)}"#.utf8))
+        }
         let rows: [[String: Any]] = [
             ["source_id": "2610.08448", "revision": 1, "title": "Cross-Tokenizer On-Policy Distillation for Reasoning Models",
              "authors": ["Mei Lin", "Jonas Weber", "Ana Costa"], "year": 2026, "categories": ["cs.CL", "cs.LG"],

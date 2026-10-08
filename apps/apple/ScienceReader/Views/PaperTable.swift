@@ -229,6 +229,8 @@ struct PaperTableTitle {
     /// The open paper where it is shown beside the table (iPad Browse).
     var highlighted = false
     var expanded = false
+    /// Lines the second line may take (the Feed's "why" line needs two).
+    var subtitleLines = 1
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -555,7 +557,7 @@ struct PaperTableTitleCell: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
             if let subtitle = title.subtitle {
-                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(title.subtitleLines).truncationMode(.tail)
             }
         }
     }
