@@ -1,15 +1,20 @@
 # Workflow checks
 
-> **Status 2026-10-07:** runner `scripts/workflow-checks.mjs` built and run against staging (results below);
-> deploy hooks added to `deploy-staging.py` and `deploy-pipeline-worker.py`; migration
-> `202610070024_workflow_checks.sql` written and tested locally, **not applied**; Cloud Scheduler jobs
-> written (`scripts/schedule-workflow-checks.py`), **not created**.
+> **Status, 2026-10-08 UTC:** runner and deploy hooks are implemented and exercised on staging; migration
+> `202610070024_workflow_checks.sql` is **applied**. Scheduler tooling exists, but the current Cloud Scheduler
+> job configuration, recurrence and email delivery were **not re-audited in this takeover**. Do not infer that
+> a scheduled run happened from the existence of the script or an older handoff.
+>
+> Latest targeted hosted proof: `.artifacts/workflow-checks/2026-10-08T05-42-22-627Z.json`, **2 pass, 0 fail,
+> $0 spent/reserved**. A zero-credit synthetic account exercised v5 Add, archive/unarchive, tags, remove/re-add,
+> exact receipt replay, matching deltas and stale-epoch refusal, then was deleted. Migration 042 was backed up,
+> applied and ledger-verified before this run. Native button/reader journeys remain separate evidence.
 
 Owner, 2026-10-07: "we need better integration tests … to catch these things proactively … if they don't work,
 users will abandon immediately … it needs to be bulletproof."
 
 The checks exercise what a tester does — add a paper, read it, ask, Add paper from a reference, Related, archive,
-buy credits — through the **same endpoints the app uses** (`v2_begin_import`, `v3_library_page/changes`,
+buy credits — through the **same endpoints the app uses** (`v2_begin_import`, `v3_library_page/changes`, epoch-bound v5 reads/writes,
 `reader-artifact`, `chat` with the app's exact request bodies, `store-sync`), with disposable synthetic accounts.
 Configuration guards cover what a deploy or a console change can silently break. Every check has a timeout and a
 one-line reason a person can act on.
@@ -51,7 +56,7 @@ While an import is awaited, a step that does not move for 7 min (20 min while co
 "stuck in <step>", and a `crash` event for that paper fails it as "the worker died in <stage>" — the loop shows up
 in minutes, not at the timeout.
 
-## Suites, schedule and cost
+## Suites, configured schedule options and cost
 
 | Suite | When | Provider spend | Runtime |
 |---|---|---|---|
@@ -59,31 +64,32 @@ in minutes, not at the timeout.
 | `daily` | 14:00 UTC, Monday–Saturday | measured ≈ $0.27 per run (first run) | ≈ 4 min |
 | `weekly` | Sundays 15:00 UTC | ≈ $0.63 (daily + large PDF $0.13 + Adam/Dropout to ready $0.23) | ≈ 6 min |
 
-Monthly ≈ $9.50 (26 × $0.27 + 4 × $0.63) plus cents for chat deploys. **That does not fit the current staging
-provider cap** ($9.80 for October, $1.38 left on 2026-10-07): it needs the owner's decision on November's cap, or
-the paid daily suite on fewer days (`schedule-workflow-checks.py --daily-days=1,3,5` ≈ $6/month). The free
-6-hourly canary keeps catching loops, configuration drift and broken imports either way. Nothing here raises a
-budget.
+The original schedule estimate was about $9.50/month (26 × $0.27 + 4 × $0.63) plus chat deploys; fewer paid days
+(`--daily-days=1,3,5`) estimated about $6/month. These are planning estimates from early runs, not measured current
+recurrence or an authorization to schedule paid work. The October provider budget snapshot at 05:14 UTC on October 8
+is $13.677389 spent, $0 reserved, $25 limit. Re-read headroom and actual scheduling before changing it; all workflow
+expense shares that allocation. The six-hourly canary design has no AI/OCR calls, but infrastructure use is not an
+invoice-level zero-cost guarantee. Nothing here raises a budget.
 
-Spending is bounded three ways: (1) each paid check declares an estimate and is skipped once the run's credits ×
+The runner applies three local admission checks in addition to server provider-attempt admission: (1) each paid check declares an estimate and is skipped once the run's credits ×
 $0.005 plus the estimate would pass the cap (`--cap-usd`, defaults $0.05 / $0.50 / $1.00); (2) a paid check is
 skipped if it would take the platform budget below a $0.50 reserve, so testers keep paid features; (3) the
-synthetic accounts' credit grants (60 / 200 / 150) bound what the server lets them spend. Credits × $0.005 is an
-upper bound of provider spend (chat credits are ⌈µ$ / 5,000⌉; Tavily searches are priced but prepaid); with a
-management token the runner also reports the settled spend from `metered_operations`.
+synthetic accounts' credit grants (60 / 200 / 150) bound what the server lets them spend. Credits × $0.005 is a rounded customer-usage estimate, not proof that unknown provider liability or infrastructure
+cost is zero; Tavily units and fixed prepaid fees are separate. With a management token the runner also reports
+settled spend and reserved liability from `metered_operations`. Server 034 admission remains authoritative.
 
 Real App Store purchases, Apple/Google sign-in pages, email arriving in an inbox and the physical iPhone are
-not automated (the store check proves the products are purchasable in sandbox and the endpoints refuse forgeries).
+not automated. The store checks inspect product configuration and refusal of forged payloads; they do not prove a successful purchase. Actual observed Sandbox grants are recorded separately in [purchase status](PURCHASES.md).
 
 ## How failures surface
 
 - **Terminal**: a table (check, result, time, cost, reason) and `.artifacts/workflow-checks/<timestamp>.json`
   (secrets and tokens redacted; no emails or account IDs). Exit code 1 on any failure.
 - **Deploys**: the deploy scripts end with "Deployed, but workflow checks FAILED" and exit non-zero.
-- **Admin Reliability tab** (after migration 024): `--record` stores each run (`worker_record_workflow_check_run`,
+- **Admin Reliability tab** (migration 024 applied): `--record` stores each run (`worker_record_workflow_check_run`,
   service role, idempotent per run ID); `v1_admin_workflow_checks(p_days)` (owner with MFA) returns the last run per
-  suite, recent runs, and per check its latest status/reason, history and counts. The tab needs a small panel
-  reading it ("Workflow checks: last run, pass/fail per check") — not built here.
+  suite, recent runs, and per check its latest status/reason, history and counts. The panel is implemented in
+  `apps/admin/src/checks.tsx`; this takeover does not claim a fresh hosted owner/MFA session.
 - **Owner email**: scheduled runs pass `--notify`; failures are emailed through Resend (verified `gradstep.ai`
   sender) to `WORKFLOW_ALERT_EMAIL`. Unset → no email.
 - **Known, accepted failures**: `infra/workflow-checks.json` `{"acknowledged": {"<check>": {"reason": "…", "until":
@@ -104,16 +110,18 @@ access token is redacted from logs and the report. The project ref is asserted (
 
 Without a management token (the Cloud Run job) the runner reads `worker_workflow_snapshot()` (migration 024) and
 public endpoints; `config.function-secrets`, the email sender check, the ingest find timings and the crash watch
-are skipped. Before 024 is applied it runs the same snapshot query through the Management API.
+are skipped. The pre-024 Management API fallback is retained for older environments; staging has 024.
 
 ## Scheduling
+
+These are the supported provisioning settings, not a fresh assertion of the live job schedule.
 
 `python3 scripts/schedule-workflow-checks.py plan` prints, and `apply` creates, in Google Cloud project `gradstep`
 (us-west1): a runtime service account that can read only its five secrets (three already exist for the pipeline
 worker; the anon key and Resend key are added), a Cloud Run job from `services/workflow-checks/Dockerfile` (Node 24,
 512 MiB, 45 min, **no retries** so a paid check never re-runs by itself), and three Cloud Scheduler HTTP jobs
 calling the Jobs API `:run` with argument overrides, through a scheduler identity holding only
-`roles/run.jobsExecutorWithOverrides` on that job. Cost: within the Cloud Run and Scheduler free tiers (three jobs).
+`roles/run.jobsExecutorWithOverrides` on that job. Actual Cloud Run/Scheduler charges depend on account-wide free-tier allocation and execution; read billing evidence rather than assuming these three jobs are free.
 
 ## Adding a check
 

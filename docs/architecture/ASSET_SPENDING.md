@@ -1,8 +1,16 @@
 # Paper storage and delivery spending
 
-Status: migration 035 and its worker/client transition are locally implemented and independently reviewed, 2026-10-07.
-The upload proposal below is design only and still needs review before implementation. Neither describes a deployed
-limit. The [cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md)
+Status, 2026-10-08 UTC: **035 storage accounting and 039 bounded PDF uploads are applied on staging** with the
+worker/Edge integration. The takeover policy snapshot records enforcement on, scope-2 inventory certification at
+**03:09:31.700048 UTC**, zero discrepancies and **delivery mode `legacy`**
+(`.artifacts/takeover-20261008/spending-policies.json`). Both `paper-assets` and `paper-uploads` are in the certified
+inventory. The upload policy was enabled after the scope-2 rollout. Reader signed-URL replay remains an open gap;
+none of this establishes a bounded-only delivery cutover, live mobile upload acceptance or invoice-level limits.
+
+Native descriptor/epoch/queue adoption subsequently shipped in the build-17/18 lineage; 042 repairs v5 library
+writes in build 19. The browser remains on its supported v3 library path and does not expose PDF upload. The
+2026-10-07 design and implementation checkpoints below are retained history, not instructions to reapply or
+renumber migrations. Current release evidence is in [implementation status](../IMPLEMENTATION_STATUS.md). The [cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md)
 identified incomplete storage accounting and replayable reader URLs (F5/F6).
 
 ## Inventory and admission
@@ -57,23 +65,36 @@ URLs are not included in telemetry. Offline installed bundles and their hash ver
 
 ## Compatibility and deployment
 
-Existing native and web builds reject member URLs outside `/storage/v1/object/sign/`. A server-only switch cannot
+Older installed native and web builds reject member URLs outside `/storage/v1/object/sign/`. Current native/browser
+source accepts the two reviewed paths and requests `bounded-v1`; the observed server mode still serves legacy
+descriptors. A server-only switch cannot
 both preserve those downloads and enforce a replay limit. Policy therefore explicitly distinguishes `legacy`, `dual`
-and `bounded` transport. New clients accept both known paths and request bounded delivery. The legacy response remains
+and `bounded` transport. The new-client contract accepts both known paths and requests bounded delivery. The legacy response remains
 available only during the declared transition and is counted separately as **unbounded replay exposure**. Bounded-only
 mode returns an explicit upgrade-required result for a legacy descriptor request. Already installed offline bundles
 continue to work. A new descriptor must never masquerade as a Storage signed URL to bypass a client's trust checks.
 
-Deployment order:
+Remaining cutover must preserve this rollout order (schema/inventory/worker gates already completed on staging):
 
 1. Apply the additive schema and deploy dual-transport clients/endpoints with the legacy mode explicitly visible.
 2. Pause/drain old worker invocations. They upload before recording and must not run alongside enforced admission.
 3. Inventory every existing tracked manifest, hash-check its members, and compare a complete bucket listing against
    the database. Report missing, mismatched, unowned and unresolved objects. Do not guess private ownership.
 4. Deploy the inventoried worker, verify a no-paid-call fixture journey and account deletion, then enable enforcement.
-5. Release the compatible client build and deliberately switch the server to bounded-only delivery. Wait out all
-   previously issued signed URLs (currently 15 minutes; the separate Mathpix original URL has its own purpose/expiry).
-6. Only after those gates claim the replay gap closed. Record hosted evidence and outstanding reconciliation items.
+5. Release compatible clients and complete a reviewed bounded-only cutover, including proof that old/in-flight
+   descriptor issuers can no longer mint legacy URLs. Nominal 15-minute token expiry alone does **not** retire
+   already-cached URLs. Establish verified CDN invalidation/cache treatment for that outstanding population;
+   keep the Mathpix original URL's separate purpose/expiry distinct.
+6. Record hosted proof of issuer fencing and cached-URL retirement, as well as new bounded redemption behavior,
+   before claiming the replay gap closed. Until then, report the residual legacy exposure explicitly.
+
+**CDN boundary, independently reviewed 2026-10-08:** Supabase documents that a cached signed response can remain
+servable after its token expires; token expiry does not purge the cache. The pipeline currently uploads with
+`cacheControl: '31536000'` (`pipeline-runtime.ts`), so no 15-minute retirement claim is justified. Observe the
+actual cached path and use a reviewed invalidation/cache plan; that option is not authorization to delete paper
+artifacts. Auth-key rotation does not revoke Storage signed URLs. No delivery-policy change, deletion or credential
+rotation accompanies this documentation correction. [Smart CDN](https://supabase.com/docs/guides/storage/cdn/smart-cdn),
+[Storage signing keys](https://supabase.com/docs/guides/storage/serving/downloads#signing-urls).
 
 ## Investigation and verification
 
@@ -89,6 +110,9 @@ simultaneous token redemption, expiry/removal/closure/range rejection before Sto
 quota races, lost-response retries, legacy-client behavior and unchanged offline installation.
 
 ## Reconciliation interfaces and operator tool
+
+The hosted rollout used `scripts/asset-inventory.py` and subsequently certified scope 2. The scoped verification
+utility below remains available; its local tests and safety contract are distinct from that deployment evidence.
 
 `scripts/reconcile-paper-assets.py` defaults to a read-only spending-status report. Its explicit `--apply` mode uses
 the configured Science Reader project from `infra/account.json` and `SCIENCE_READER_SERVICE_ROLE_KEY` from the process
@@ -137,25 +161,18 @@ backend delivery/deletion fixtures, complete web unit tests and production build
 a Catalyst compile against a fixture backend. No hosted scan, deployment, signed-URL retirement, or production-client
 cutover has been performed by this work.
 
-## PDF-upload proposal (design review, 2026-10-07)
+## PDF-upload proposal (historical design review, 2026-10-07)
 
 ### Existing branch and migration order
 
-The separate upload candidate is now `7bab6af`, after its main merge `386a2b6`. It renames never-applied migration 033
-to 039 without changing the upload implementation reviewed at `2ce8f81`/`fed8075`, and introduces `paper-uploads`.
-Its current handler returns a Supabase signed upload token with `upsert: true`, while its
-row/quota uses the caller-declared size. A caller can reserve one byte and upload the bucket maximum of 64 MiB;
-finalization detects the mismatch after storage. Its separate upload-policy mutex does not serialize with migration
-035's paper reservations, and 035 currently sums only `paper-assets`. The existing upsert token can also overwrite
-the staged file after finalization. These are implementation gaps to replace before the feature is enabled.
+The original candidate `7bab6af` renamed a never-applied upload migration from 033 to 039. Its reusable signed
+upload token with `upsert: true` and caller-declared size were rejected: a one-byte reservation could admit a much
+larger physical upload, and the token could overwrite bytes after finalization. The bounded chunk implementation
+below replaced that path before the 039 staging rollout; do not restore the rejected transport.
 
-Keep the never-applied upload migration at **039**, after safeguards 034–038. Leave 033 unused, with no placeholder.
-The repository's migration-ledger check verifies a sorted source prefix; it does not require contiguous numbering.
-This lets the reviewed cost controls ship independently while uploads remain disabled. Before renaming, verify that
-no target database has recorded the old version; an applied migration must instead be preserved and corrected
-forward. Root completed the rename and the branch's documentation/test references at `7bab6af`, with an explicit
-blocked-rollout note. This document does not change that upload branch, and deploying 039 will need its own reviewed
-prerequisite/worker transition.
+Migration **033 was later assigned to the private purchase-verifier transport** and is applied. Migrations
+034–038 are applied safeguards/diagnostics; **039** is the applied PDF-upload migration. Applied files are immutable.
+The earlier plan to leave 033 unused is superseded; no renumbering or placeholder is required.
 
 ### Transport choice
 
@@ -313,7 +330,7 @@ write path. Verify the actual deployed configuration, not only the handler's cod
 
 The initial upload branch copied the PDF/file/typed title into plaintext metadata and library projections. That
 proposal conflicted with the [private display-name and filename plan](DATA_MODEL.md#import-identity-and-membership)
-and has been replaced in local server code by the encrypted descriptor below. Uploaded PDF content itself remains service-readable for
+and was replaced before deployment by the encrypted descriptor below. Uploaded PDF content itself remains service-readable for
 the authorized verification/OCR pipeline; encrypting a custom title does not make the PDF end-to-end encrypted.
 
 The reviewed descriptor design uses an account-owned, versioned encrypted envelope containing display name and
@@ -458,7 +475,7 @@ frozen vectors exactly. They reject modified identities/ciphertext, Base64 alias
 JSON (including duplicate keys, escape alternatives and BOM), and unavailable keys; historical reads survive key
 rotation. Swift explicitly compares payload text by UTF-8 bytes rather than canonical-equivalence String equality.
 Browser descriptor keys are separately derived and nonextractable, with the same account lifetime as existing
-event keys. Core223 and web131 tests pass, including existing Swift/WebCrypto interoperability, and the browser
+event keys. Core 223 and web131 tests pass, including existing Swift/WebCrypto interoperability, and the browser
 production build passes. The native codec also received independent browser-side review. This is codec evidence
 only: server authorization/races, encrypted outbox persistence, mixed-version reads and client UI remain activation
 requirements. No descriptor data has been written to hosted infrastructure.
@@ -529,10 +546,10 @@ measurement, client compatibility and explicit rollout gates above.
 
 ### Local ingress implementation checkpoint — 2026-10-07
 
-Migration039 and the upload Edge/worker code now implement receiving → frozen → checking → consumed,
-with abandoned as a terminal cancellation/expiry state. The new transport remains disabled by default.
-The old signed/upsert transport and plaintext title parameters have been removed from server ingress.
-Current Apple upload UI still needs migration to this protocol before any feature enablement.
+At this pre-deployment checkpoint, migration 039 and the upload Edge/worker code implemented receiving → frozen →
+checking → consumed, with abandoned as a terminal cancellation/expiry state and a disabled migration default.
+The old signed/upsert transport and plaintext title parameters were removed from server ingress. Native adoption
+and hosted enablement followed; current rollout status is at the top of this document.
 
 Freeze records the selected immutable part identities and their digest, session generation, original target
 revision and observed library cursor. A separate idempotent attachment transaction uses the existing library
@@ -598,12 +615,12 @@ surviving device resolving an old author's accepted mutation after rotation.
 
 The inventory utility negotiates one-bucket scope on035 or two-bucket scope on039. Both complete listings are
 compared before/after, and all verified staging bytes are hashed against their preexisting owner-bound inventory.
-An unknown staging pathname never becomes ownership authority. Only a complete scope2 scan can enable ingress.
+An unknown staging pathname never becomes ownership authority. Only a complete scope 2 scan can enable ingress.
 
-Validation at this checkpoint: full fresh local PostgreSQL suites through039 plus14 real upload/descriptor/append
-interleavings and replacement/cleanup progress fixtures;280 backend tests (51 targeted worker/pipeline/ingress);
+Validation at this checkpoint: full fresh local PostgreSQL suites through 039 plus14 real upload/descriptor/append
+interleavings and replacement/cleanup progress fixtures; 280 backend tests (51 targeted worker/pipeline/ingress);
 15 inventory utility tests and the upload Edge Deno type check. An independent reviewer reproduced the lifecycle,
-descriptor and14-race checkpoint; deletion retry pacing received a further focused review. These are synthetic local
+descriptor and 14-race checkpoint; deletion retry pacing received a further focused review. These are synthetic local
 receipts/fetches, not hosted Edge CPU/memory or slow-mobile-body evidence. Hosted measurements, full client
 protocol/descriptor integration, capability rollout and an explicitly reviewed feature enablement remain gates.
 
@@ -615,15 +632,17 @@ used. Restore quarantine now atomically closes current pipeline, upload, tagging
 as legacy gates, and rotates both library epochs. Full-schema preservation tests keep all other records, counters,
 leases and holds unchanged; malformed present policy tables roll back every gate change.
 
-The original native upload queue and optimistic `libraryReadVersion = 5` transport have not yet been migrated to
-this server contract. They must not ship against039 until durable epoch/capability adoption, chunk/resume state,
-encrypted descriptor outbox/hydration, busy-finalize retries, usage totals and custom-title local search are complete.
-An upload feature flag alone is not evidence that those original branch clients implement the new protocol.
+At that checkpoint the original native queue and optimistic `libraryReadVersion = 5` transport had not yet been
+migrated. The adoption work below subsequently supplied the capability/epoch, encrypted queue/descriptor and
+resume contracts; build 19 additionally fixes v5 ordinary library writes with 042. Preserve those contracts when
+reviewing later clients. A feature flag alone never proves protocol adoption or real-device upload acceptance.
 
 ## Native adoption implementation design — approved locally, 2026-10-07
 
-This is the next local implementation stage after `5fdd261`. It covers Swift/Core, the Apple app and fixture-only
-tests. It does not enable 039, create Apple identifiers/profiles, deploy functions or change the browser. The existing
+Historical implementation contract after `5fdd261`, subsequently adopted in native source. The paragraphs below
+retain the design's imperative wording and local acceptance gates; they do not mean 039 is still unapplied.
+The original scope covered Swift/Core, the Apple app and fixture-only tests, without provisioning Apple identifiers
+or changing the browser. The existing
 Add sheet, file picker/drop/share entry points, Library upload banners and paper navigation remain in place.
 
 ### Capability and replicated-library boundary

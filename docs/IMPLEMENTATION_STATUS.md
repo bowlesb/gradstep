@@ -1,9 +1,54 @@
 # Implementation status
 
-Updated 2026-10-08 UTC (Claude takeover; migration 042 on staging, native/table release and browser chat in final validation). A development checkpoint, not a release declaration. Earlier
-checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
+Updated 2026-10-08 UTC. **Build 19 is available for internal iOS and Mac testing; browser chat is deployed.**
+This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
+removed executor work) is retained below where useful and in git history.
 
-## Credits resume, arXiv fallback, faster chat — staging 2026-10-08
+## Current rollout — 2026-10-08 UTC
+
+- **iOS and Mac TestFlight build 19**, source `b4b7ad7`, uploaded October 7 at 22:56 PDT. App Store Connect
+  confirms both **VALID / IN_BETA_TESTING**: iOS `6bda87b4-c0b8-45e4-a760-a6328beb979d`,
+  Mac `d6bf3f5e-8d8f-4936-a0fa-039d2369651b`. Evidence:
+  `.artifacts/takeover-20261008/build-19-processing.json`. This does not mean the owner installed or tested build 19.
+- **Native changes in 19:** epoch-checked Add/Retry/tags/archive/remove; configurable horizontally scrolling tables
+  with pinned columns; newest-first discovery; native paper/equation selection menus; clearer chat links;
+  Feed/reader text-size controls; stable background-update layout; automatic-retry status and improved dark Feed
+  Add contrast. Purchase copy reports actual granted credits, including Sandbox allowance outcomes.
+  Native candidate `650d1dc`: Core 248, app 379 (5 skips), Catalyst 351 (4 skips), 27 focused UI journeys and
+  iPhone/iPad Feed Add journeys pass. Physical-phone work remains paused.
+- **Browser milestone 2 is live at https://app.gradstep.ai**, Pages `68faefdb` from `b4b7ad7`: encrypted
+  paper/general chat and history, streaming/Stop, selection/passage tools, Markdown/math and isolated Mermaid.
+  Local evidence: 189 unit/Swift-interop checks; production build; combined shared-bridge journeys: 9 pass / 7
+  intentional phone skips; earlier StrictMode 3 and WebKit refusal 1 pass. Hosted smoke confirms HTTP 200,
+  CSP/HSTS and no browser errors (`.artifacts/takeover-20261008/web-live-smoke.json`). A separate hosted Chromium
+  journey passed real key bootstrap, cached DPO Add/read (4.9 s, 271 MathML nodes), passage selection, encrypted
+  question acknowledgement before insufficient-credit refusal, reload and second-browser recovery/history.
+  Server accounting confirms zero provider attempts/usage/cost/holds; account deletion completed 200. Evidence:
+  `.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. Its real Auth session was seeded via
+  synthetic-account password login; email/OAuth UI and a paid answer were not tested. Safari's secure-key
+  persistence gate and tab-memory drafts/outbox remain. [Browser contract](architecture/BROWSER_READER.md).
+- **Staging schema through 042 is applied.** Before 042, encrypted checkpoint
+  `20261008T051522Z-5ffa9efe26a9` captured the database and 1,332 objects; migration hash, grants and search paths
+  were read back. Targeted hosted v5 Add/archive/unarchive/tags/remove/re-add, exact replay, deltas and
+  stale-epoch refusal pass with a zero-credit synthetic account, then cleanup: **2 pass, 0 fail, $0 spent/reserved**
+  (`.artifacts/workflow-checks/2026-10-08T05-42-22-627Z.json`). Build 18's disabled-v5-write regression is addressed
+  by the build 19 client plus 042; the ordinary hosted command test does not invoke OCR or chat.
+- **Spending controls 033–038 and uploads 039 are deployed.** Provider attempt coverage starts
+  2026-10-08 02:40:51.785121 UTC; asset enforcement is on with complete scope-2 inventory and zero discrepancies.
+  **Reader delivery remains `legacy`**, so replayable signed-URL exposure is still open; token expiry alone does not retire CDN-cached responses. The 05:14 UTC provider
+  snapshot is **$13.677389 spent / $0 reserved / $25 limit**; it is not an invoice or total infrastructure cost.
+  [Spending evidence and limits](architecture/SPENDING_CONTROLS.md).
+- **Purchases:** three observed real Sandbox packs granted 400 + 400 + 200 = 1,000, with replays recorded separately.
+  Production subscriptions/renewals/refunds remain unverified. The prior-period-credit upgrade policy discrepancy
+  remains unresolved; exact purchase recording and actual credits granted are distinct.
+- **Personalized Feed 043:** merged and locally reviewed/tested, **unapplied and default-off**. For You as default
+  and use of server-visible metadata await the owner's answer; no paid ranking is enabled.
+- **Pricing and podcasts:** research/model and reviewed design merged; live offers are unchanged. Podcast v1
+  scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
+  schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
+  [podcast proposal](architecture/PAPER_PODCASTS.md).
+
+## Earlier backend and build 18 rollout — retained evidence
 
 - **Migration 040** (`credit_resume_and_source_waits`) applied to staging with the pipeline paused (migrate-supabase.py:
   earlier applied files verified, 040 applied and verified), then the pipeline re-enabled.
@@ -22,22 +67,22 @@ checkpoint prose (including the removed Linux executor work) is in git history b
   build 18 first, then the web reader. Not yet tried against staging or with a physical camera.
 - **TestFlight build 18** (iOS and Mac, main `08381c7`): build 17 plus QR device approval. Both confirmed VALID by
   App Store Connect on takeover. The owner installed 18 and confirms Add remains disabled and tables inadequate.
-  The unfinished 042 client and table work are required in the next build; 18 contains neither fix.
+  Build 18 contains neither fix; the client/table changes are in build 19 above.
 - **Browser reader redesign, milestone 1**, live at https://app.gradstep.ai (Pages deployment `a405d26c`, same
   commit). Layout: side panel, the paper or library in the centre, a chat panel, as in the legacy web app. Also: a
   full-width library table, a contents tree, find in paper, a figure gallery, the Feed, Add paper by DOI or link, and
   QR approval on the restore screen. Before deploying: web tests 152/152, Playwright 51 passed with 27 skipped. After
-  deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel is
-  still a placeholder; milestone 2 (encrypted chat) is in progress.
+  deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel
+  was a placeholder in that deployment; milestone 2 is now deployed as recorded above.
 - **Migration 042 (`library_v5_commands`) is now on staging**, merged in main `b993c23` after independent review.
   Encrypted checkpoint `20261008T051522Z-5ffa9efe26a9` includes the database and 1,332 objects. The migration
   ledger checksum and all six authenticated RPC grants/search paths were read back. Zero-provider-cost
   deployment checks: **10 pass, 0 fail, 1 warning** (7 imports waiting for credits), evidence
   `.artifacts/workflow-checks/2026-10-08T05-26-28-507Z.json`. Live paid import/chat journeys were not run.
   Client validation: Core 245 + 4 OAuth, native 373 (5 expected skips), all 39 SQL suites plus upgrade/concurrency,
-  restore 20, iPhone/iPad Add → In library → Library journeys, and Catalyst build. **Build 18 still disables
-  library writes; the next TestFlight build must carry the client fix.** Combined table/retry UX remains in
-  final validation; nothing here claims the owner has received that build.
+  restore 20, iPhone/iPad Add → In library → Library journeys, and Catalyst build. Build 18 still disables
+  library writes; build 19 carries the client fix. The later zero-cost hosted command proof and final native
+  release checks are recorded above; owner installation is not claimed.
 
 ## Library foundation and independent reviews — 2026-10-07
 
@@ -52,14 +97,15 @@ benchmarks do not establish end-to-end product capacity.
 The requested [credit, identity and cost audit](reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) is complete, with
 open findings and local reproductions. Priorities include live Cloud Run billing, Tavily admission coverage,
 invisible provider retries, unresolved Mathpix liability, and storage/download accounting. Fixed-cost forecasts
-were corrected; no cost fixes or continuous monitoring were deployed by this audit. Heavy-user estimates separate
+were corrected. The audit itself deployed nothing; reviewed fixes 033–039 were subsequently deployed. Continuous
+monitoring and invoice completeness do not follow from that rollout, and legacy delivery remains open. Heavy-user estimates separate
 credits, provider expense, platform overhead and store commission. The $100 incremental beta budget is unchanged.
 
 The [paper-podcast feasibility report](research/PAPER_PODCAST_FEASIBILITY_20261007.md) recommends a metered,
 paper-only experiment after spending-control repairs. It compares two-speaker APIs, scientific fidelity, source
 rights, private/shared reuse, latency and 5/10/20-minute costs. Research only: no audio generation or deployment.
 
-## Native takeover checkpoint — 2026-10-07
+## Historical native takeover checkpoint — 2026-10-07
 
 Build **16 uploaded** at 16:13 PDT from main `1aeaea2`; Apple read-back confirms **VALID / IN_BETA_TESTING**. It includes the
 floating chrome and feedback #4–#6, reviewed offline-save compatibility repair (`cf67138` → `274366b`) and
@@ -72,17 +118,18 @@ figure gallery and the resizable/hideable iPad/Mac chat column. Its independent 
 accounting. Chat quality `80724a5` is reviewed and merged as `2b5d7d4`: narrow titles fit, paper-specific history is
 available, equation prompts are clearer and diagram repairs require a complete validated response. Combined checks
 pass 224 backend, 213 Core, 48 app regressions, eight iPhone journeys, iPad resize/rotation/relaunch and a universal
-Catalyst build. Matching backend deployment is required before shipping these actions in build 17.
-See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
+Catalyst build. The matching backend was subsequently deployed; build 17/18 and now19 supersede this checkpoint.
+See the current section of the [handoff](HANDOFF_20261007.md) for the latest deployment boundaries.
 
 **Purchase incident, updated at takeover:** the earlier `store-sync` v36 probe identified missing Edge certificate
 operations; the private Node verifier and 033–038 were subsequently deployed. At 05:14 UTC on October 8,
 read-only staging evidence confirms three Sandbox packs granted 400 + 400 + 200 credits, with exact replays
 recorded separately. The last grant reached the Sandbox monthly allowance. No production purchase claim follows.
-The applied migration ledger contains 39 files through 041, all matching main's SHA-256 checksums.
+At that 05:14 UTC snapshot the applied ledger contained39 files through 041, all matching main's SHA-256 checksums;
+042 was applied and verified afterward.
 See [current purchase status](architecture/PURCHASES.md) and [original incident](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
 
-## Browser reader live and Mac on TestFlight — 2026-10-07
+## First browser/Mac release — historical evidence, 2026-10-07
 
 - **Browser reader: https://app.gradstep.ai** (Cloudflare Pages `gradstep-app`, free tier, staging backend), deployed
   with the new `scripts/deploy-web.mjs` (public-value gates, strict CSP/HSTS). `gradstep.ai/app` redirects there.
@@ -93,7 +140,7 @@ See [current purchase status](architecture/PURCHASES.md) and [original incident]
 - **Mac TestFlight build 17** (main `937ef34`): uploaded, VALID, internal testing (group "Owner"). Not yet installed or
   signed in on a Mac. See [Mac TestFlight](architecture/MAC_APP.md#testflight--2026-10-07).
 
-## Browser/Mac integration checkpoint — local, not deployed
+## Earlier Browser/Mac integration validation — local evidence
 
 The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at
 `/Users/benbowlwes/science-reader-web-mac`, recovering the browser and floating-control branches. Integration
@@ -136,11 +183,10 @@ The [capacity plan](architecture/LIBRARY_CAPACITY.md) records the path to larger
 compact sync, consistent paged queries and reviewed record retirement. The first backend foundation is implemented
 on staging in 031/032; client adoption, larger limits and record retirement remain separate acceptance gates.
 
-Next: implement accessible windowing, refine the large-library protocol before schema work, validate native/Mac workflows,
-and verify browser deployment separately. Existing staging
-evidence below does not assert that this integration branch is deployed.
+Remaining larger-library work includes accessible windowing and client adoption of the reviewed compact/query
+protocols. This earlier fixture checkpoint is separate from the later hosted release evidence above.
 
-## Works end to end on staging
+## Earlier hosted end-to-end evidence
 
 **Add paper → paid conversion → offline reader → paid answer** is implemented and verified against
 hosted staging (`coxhjvqpflgxkleydati`) with real arXiv, Mathpix and Anthropic calls:
@@ -180,9 +226,9 @@ Copy; a year · venue · arXiv line follows the authors ([reader](architecture/R
 be archived (synced, migration 020) from the row menu or a swipe. Selection actions read Explain, Why it matters,
 Related and Add paper; Related searches the web for related papers.
 
-**Web search: Tavily first, Anthropic's search as the backup** (owner decision 2026-10-06, migration 021): one rate
-card whichever provider serves; Tavily's prepaid searches are a fixed commitment, not metered spend; a 31-day
-allowance keeps within the plan. Live on staging: the same Related request cost $0.047 with Tavily against $0.111
+**Web search (original2026-10-06 comparison, migration 021):** the owner selected Tavily first with Anthropic's
+search as a backup. The later 034 rollout gates Anthropic native search off pending a proven cost bound; Tavily now
+uses an evidence-dated calendar-month allowance. The prepaid subscription is a fixed commitment, not metered spend. Live on staging: the same Related request cost $0.047 with Tavily against $0.111
 with Anthropic's search (15 vs 23 credits). Consent v2 names Tavily. **TestFlight build 12** (uploaded 2026-10-06 18:39 PDT, processed VALID) carries citations, archive, the selection-action changes and consent v2; unit 256, Core 170, backend 181, database suites pass; full iPhone and iPad UI suites pass except the known rotation flake, which passed after a Simulator reboot. See [chat](architecture/CHAT.md#web-search-on-in-staging)
 and [decisions](DECISIONS.md#web-search-providers-and-pricing-owner-decided-2026-10-06).
 
@@ -257,7 +303,7 @@ the answer and an entry in All diagrams; the source is stored encrypted on devic
 sandboxed Mermaid. Verified live on staging (a DPO loss-flow diagram, rendered) and by a Simulator journey with
 the chat fixture.
 
-**Chat quality (2026-10-07, built and tested locally; the `chat` function is not yet deployed):** the legacy Mermaid
+**Chat quality (2026-10-07 local checkpoint, subsequently deployed):** the legacy Mermaid
 label rules in the diagram instructions; each diagram parsed on device before it is kept, with one metered
 `diagram_fix` retry and "Couldn't draw this diagram" (source collapsed) when that fails too; "Why it matters" without
 web search (`action: "relevance"`); a dedicated prompt for Explain on a single equation; a "This paper" filter in All
@@ -269,10 +315,11 @@ journey, three inspected dark screens and a universal Mac Catalyst build. No liv
 made. Evidence and deployment ordering: [chat validation](architecture/CHAT.md#chat-quality-validation--2026-10-07-local-only). See
 [decisions](DECISIONS.md#chat-quality-equations-diagrams-why-it-matters-a-papers-chats-owner-asked-2026-10-07-agent-decisions-reversible).
 
-**Web search in chat** is on in staging (owner decision 2026-10-05): up to three Anthropic searches per answer,
+**Original web-search proof (2026-10-05, superseded routing):** up to three Anthropic searches per answer,
 a consent line naming it, and tappable Sources under the answer that show the full address before opening Safari.
-Verified live (searches charged at tokens + $0.01 each; the hold covers them) and by a Simulator UI test with the
-chat fixture. The per-question hold is capped at the reader's balance once it is at least 50 credits.
+That path was verified live and with a Simulator fixture. Current 034 policy keeps native Anthropic search disabled
+because its internal token bound is unresolved; use the current provider contract, not this historical price/hold
+observation, when changing search. Tavily remains the admitted search path.
 
 **Account deletion** (App Store requirement; owner decision 2026-10-05: billing records are kept de-identified):
 Settings › Account › Delete account… (type DELETE) calls `account-delete`, which closes the account, deletes personal rows,
@@ -289,8 +336,9 @@ no personal rows, no files, login gone, billing kept) and an in-app Simulator ru
 transaction grants once; refunds, reversals, upgrades and deleted-account restores are handled; Sandbox (free)
 purchases are capped at 1,000 credits per account and Apple Account per month. Two independent reviews' findings were
 fixed. Verified: local database/backend/app tests and a staging smoke test (forged and malformed data refused,
-nothing granted). **Not yet verified with a real sandbox purchase** (needs the subscriptions out of Missing Metadata; TestFlight
-build 4 has the store). See [purchases](architecture/PURCHASES.md).
+nothing granted). Later033–038 runtime/accounting repairs produced the observed real Sandbox pack grants recorded
+above. Production subscriptions/renewals/refunds and the upgrade-credit policy remain separate gaps. See
+[purchases](architecture/PURCHASES.md).
 
 **TestFlight**: App Store Connect record "Gradstep" (owner decision 2026-10-06; renamed from "Paperstep"), bundle
 `com.sciencereader.ios`, manual App Store signing, builds 1–5 uploaded to the internal "Owner" group (build 3 adds account
@@ -357,20 +405,21 @@ only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHi
 and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
 `chat-history-actions`. Not yet seen with a real signed-in history or on a device.
 
-## Adding any paper (2026-10-07, built, not deployed)
+## Adding any paper (039 deployed; device acceptance remains)
 
 Owner: "adding a pdf needs to be absolutely bullet proof." Add takes an arXiv ID, a DOI or any link
 (`functions/v1/add-paper`); PDFs upload from Files, by drag and drop, or through Share › Gradstep, into private
 upload sessions (migration `202610070039_pdf_uploads.sql`, `functions/v1/upload-pdf`, bucket `paper-uploads`)
 verified by the Cloud Run worker and converted privately with credits; failed web imports a website refused
 offer Download on this device. Uploaded papers reach the app through new v5 library reads (and compact v4).
-Design: [PDF uploads](architecture/PDF_UPLOADS.md). Verified locally only (2026-10-07, after merging main's
+Design: [PDF uploads](architecture/PDF_UPLOADS.md). Original local checkpoint (2026-10-07, after merging main's
 031/032): every database suite including `test_pdf_uploads.sql`; 234 backend tests; Core 205; app unit 336 (5
 skipped; one web-view load timeout under Simulator load that passes alone); UI `AddPaperFlowTests` (6) and
 `LibraryLayoutTests` on iPhone 17 Pro, light and dark, and two Add journeys on iPad Pro 11"; Mac Catalyst builds
-(the extension is iOS only). Screens: `.artifacts/visual/pdf-uploads-2026-10-07/`. Not yet: deployment (migration, two functions, bucket, worker), provisioning for the Share
-extension (App Group, new App ID, profiles), a real upload or device download against staging, the Share
-extension through the system share sheet, a device check.
+(the extension is iOS only). Screens: `.artifacts/visual/pdf-uploads-2026-10-07/`. Migration 039, functions, bucket and worker were subsequently
+deployed with scope-2 inventory. Remaining acceptance: Share extension provisioning (App Group, App ID/profiles),
+real upload/device-download and system-share journeys, and physical-device checks. Do not treat hosted ordinary
+v5 commands as proof of those PDF paths.
 
 **Passage-linked conversations** (owner request 2026-10-07, [decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible),
 legacy gap 1): selection actions save a `TextAnchor` (artifact, block, quote, 32 characters each side) inside the
@@ -381,9 +430,10 @@ custom highlights, no DOM change) and a tap opens the chat, or a chooser when se
 hide the underlines; All chats shows the passage as a wide row's second line. Verified in the Simulator only (iPhone
 17 Pro, iPad Pro 11"): Core `PassageAnchorTests`, app `PaperPassageTests` (bridge: context, cascade, short quotes,
 formulas, marks vs selection/citations/layout/position, taps, native request), UI `PassageJourneyTests`; screenshots
-light, dark and iPad. Not yet seen with real synced history, on a device, in the browser reader or run on the Mac.
+light, dark and iPad. Browser passage actions/marks are now implemented and locally exercised in milestone 2.
+Real cross-device passage-history and signed-in Mac interaction/device checks remain separate evidence.
 
-## Verified locally
+## Earlier local verification (historical counts)
 
 - Database: full local PostgreSQL suite including `tests/database/test_pipeline.sql` (shared/private
   flows, reuse, credit holds and settlement, single submission grant, lost acknowledgements, operator
@@ -401,16 +451,19 @@ Dedicated Supabase Pro organization with staging on Micro compute and database T
 provisioned. Device-held encryption keys with recovery code, cross-runtime crypto envelopes, encrypted
 SQLite journal, two-device hosted sync check, encrypted-history quotas. Screenshot feedback with private
 support storage and MFA-gated admin dashboard (now including a pipeline/paid-attempt panel). Native Apple
-capability and six-digit email-code settings configured (real provider sign-in still unverified).
+capability and six-digit email-code settings configured. The owner subsequently confirmed native Apple/Google
+sign-in; browser OAuth and current-release device acceptance remain separate.
 
 ## Spending (October 2026, staging)
 
-Provider spend is capped by `platform_budgets` (October limit $9.80 after the first manual test).
-Recorded 2026-10-05 23:10 PDT: $5.32 of provider spend for October (Mathpix for the real-paper conversions and
-smoke tests, Anthropic for answers, Ingest, diagram and web-search tests, the web-import check), nothing reserved;
-$4.48 left under the cap. On 2026-10-06 at 17:20 PDT the cap showed $6.56 spent. Fixed commitments (Supabase ≈ $35,
-Tavily Project plan $30 from 2026-10-06) are recorded in [operations](architecture/OPERATIONS_AND_BILLING.md#fixed-commitments).
-Run `python3 scripts/pipeline-ops.py status` or the admin Processing/Usage tabs for live numbers.
+The October provider budget snapshot at **2026-10-08 05:14 UTC** is **$13.677389 spent, $0 reserved, $25 limit**
+(`.artifacts/takeover-20261008/budget.json`). This supersedes the earlier $9.80 cap/$5.32–$6.56 observations.
+Headroom at that moment is not a fresh authorization to spend. Fixed subscriptions, infrastructure allocations,
+prepaid search units and provider liability remain separate; keep the approved $100/month incremental beta ceiling.
+Supabase invoice attribution is incomplete; do not retain the old approximately-$35 guess as a verified bill.
+See [operations](architecture/OPERATIONS_AND_BILLING.md) and [spending controls](architecture/SPENDING_CONTROLS.md).
+Use the owner Spending/Processing views or `python3 scripts/pipeline-ops.py status` for current observations;
+legacy signed-URL delivery remains the explicit open replay/egress gap.
 
 ## Sign-in on TestFlight (owner report 2026-10-06)
 
@@ -433,20 +486,19 @@ Email" relay address would create a separate account (no linking); testers shoul
 ## Still required
 
 **Queued follow-ups (owner approved 2026-10-07, "item 5"; collected from finished agents' reports so none is stranded):**
-- Workflow check `pipeline.stuck` flags an import while an automatic retry is running (count from the paper's last
-  stage change, not the import's creation).
+
 - A full private storage quota shows "too large"; give it its own reason and message.
 - Reliability charts count each automatic retry's failure again.
-- Show when the next automatic download retry happens (`auto_retry_at`) on the row.
+- Exact automatic-retry countdown remains optional: build 19 now shows scheduled retry state without misleading percentages or a competing Retry button.
 - Failure wording pass ("Conversion failed", "…to convert this paper").
 - VoiceOver: the new chat selection/formula actions and the library rows' swipe and long-press actions.
 - Library: tap a tag chip to filter by it; remember filters between launches; show tags on papers still importing.
 - Admin: disabling sign-in should also end open sessions (today an open session lasts until its token expires).
 
 
-- **Real sign-in**: Apple/Google provider journeys on a device; email codes need a verified Resend domain before
-  testers other than the owner can receive them. Sign-up is invite-only. Simulator tests use a Debug-only
-  synthetic-account hook.
+- **Sign-in/recovery:** native Apple/Google and invited-address email delivery were confirmed earlier; browser
+  OAuth, camera QR approval and Passwords save/fill still need their own acceptance. Sign-up is invite-only;
+  Simulator fixture results are not current physical-device proof.
 - **Chat polish**: long papers raise the per-question hold (context is the
   whole paper's MMD). Math that SwiftMath cannot parse is now rewritten first, and symbols it lacks are
   registered (57 of 904 real-paper equations fell back to source before; none fail to parse now).
@@ -461,12 +513,16 @@ Email" relay address would create a separate account (no linking); testers shoul
   titles lead; arXiv's own search is the fallback. Checked live on staging for CNN, vision transformer, diffusion
   models, LoRA, RLHF, DPO, Mamba, GNNs, mixture of experts. Queries are sent from the server to OpenAlex and arXiv
   with no account or device data. Ambiguous short terms can still mix fields; no judged benchmark yet.
-- **Operations**: hold-cleanup sweep for chat requests killed mid-stream, storage quotas/cleanup for
-  paper assets, independent backups, admin hosting, production environment.
-- **Purchases**: a real sandbox purchase end to end (Apple's online revocation check has not run in Edge yet);
-  subscriptions in App Store Connect still show Missing Metadata; App Store Server API reconciliation and refund
-  consumption answers need an In-App Purchase key (owner action); final review screenshots.
-- **Product**: browser reader, accessibility pass on real papers, physical-device checks (paused by the owner).
+- **Operations:** bound the remaining legacy reader-delivery exposure; re-audit scheduled checks/alerts and
+  invoice attribution; exercise owner/MFA admin flows against hosting; complete production provisioning only after
+  review. Existing hold cleanup, storage admission and encrypted backup tooling must remain intact.
+- **Purchases:** Production subscription/renewal/refund acceptance, current product-metadata readiness, and the
+  prior-period-credit upgrade decision. App Store Server API reconciliation/refund-consumption responses need
+  an In-App Purchase key; final review screenshots remain. Observed Sandbox pack grants are already verified
+  through the private Node verifier, not unsupported Edge certificate primitives.
+- **Product:** browser OAuth/Safari secure-key persistence, durable encrypted browser drafts/offline support,
+  latest build 18 feedback not covered by build 19, accessibility on real papers and physical-device checks (paused).
+  Feed 043 activation, podcast scope/privacy/pilot and public-pricing changes remain owner decisions.
 - **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
   release a deleted account's App Store subscription binding, and expire deleted data from backups.
 - **App Store listing**: final name and icon (the legacy artwork is a placeholder), privacy label from the

@@ -1,7 +1,9 @@
 # Provider spending admission and investigation
 
-Status: implemented locally with adapter and concurrency checks, 2026-10-07; integration review and
-hosted rollout remain pending. This design addresses the provider-call gaps in the
+Status, 2026-10-08 UTC: **migration 034 and the admitted Edge/Cloud Run call paths are deployed on staging**.
+Takeover readback records provider admission enabled, coverage starting **2026-10-08 02:40:51.785121 UTC**, and
+native Anthropic search disabled (`.artifacts/takeover-20261008/spending-policies.json`). Coverage before that
+cutoff remains historical/legacy; this observation is not proof of every vendor invoice. This design addresses the provider-call gaps in the
 [independent cost audit](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md). It is additive to the
 credit ledger: customer charges, provider expense and unresolved provider liability remain distinct.
 
@@ -50,8 +52,10 @@ the SDK makes one transport attempt. Tavily uses one shared admitted adapter for
 reference lookup. Its prepaid units are reserved globally and per account before the HTTP call;
 the old snapshot readiness check is no longer an admission decision. A prepaid-only call may be
 attached to an already-settled chat operation so Ingest's free lookup phase remains compatible.
-Tavily starts disabled until an operator records the actual billing period, existing usage and
-disabled-overage setting from dated provider evidence. No new allowance is invented at deployment.
+The migration starts Tavily disabled until an operator records the actual allowance period, existing usage and
+disabled-overage setting from dated provider evidence. The staging rollout configured October 1–November 1 UTC,
+limit 3,900, baseline 37 against the 4,000-credit plan; the owner confirmed PAYGO off. This is rollout evidence,
+not a fresh usage reading. No new allowance is invented at deployment.
 
 Model input admission uses the complete serialized UTF-8 input as a conservative token bound,
 including nested tool results. Output is bounded by `max_tokens`. Every later round must fit the
@@ -84,7 +88,7 @@ consent does not silently opt into Tavily. Changing a policy flag alone cannot e
 native-search bound. See the official [search-tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool)
 and [fallback](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback) contracts.
 
-## Validation required before rollout
+## Validation contract and local evidence
 
 Use fake transports with the locked production SDK defaults: no grant means no POST; lost grant
 acknowledgement and replay never resend; a lost response produces one attempt with full unresolved
@@ -118,4 +122,7 @@ versus funding/closure, and the policy/paper lock interaction. The 201-candidate
 The populated-upgrade test applies 034 to historical submitted OCR and tag operations: both become unknown
 attempts without changing their existing platform holds; a customer refund retains the liability; late usage
 records expense exactly once. The integrated database suite, 253 backend checks and 214 Swift Core tests pass.
-These are local fixtures and concurrency checks, not hosted rollout or evidence of live provider billing.
+These are local fixtures and concurrency checks. The later staging rollout applied 034; the hosted policy and
+coverage evidence is above. Local passes do not establish final vendor billing or a whole-system spend ceiling.
+The observed October provider budget was $13.677389 spent / $0 reserved / $25 limit at 05:14 UTC on October 8;
+see [spending controls](SPENDING_CONTROLS.md#current-evidence-and-remaining-limits--2026-10-08-utc).

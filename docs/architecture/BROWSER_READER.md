@@ -1,10 +1,12 @@
 # Browser reader
 
-Status, 2026-10-07: **Phase 1 deployed to https://app.gradstep.ai against staging** (implementation in `apps/web/`;
-see [deployment evidence](#deployment--2026-10-07)). Authorized by the owner (2026-10-03,
-[implementation plan §6](../IMPLEMENTATION_PLAN.md#6-browser-reader)); home decided by the owner 2026-10-07:
-**app.gradstep.ai**. Deployment evidence covers hosting, headers and reaching the email-code step only; nothing below
-is a claim of E2EE or sync, and a full signed-in hosted journey has not been run.
+Status, 2026-10-08 UTC: **milestone 2 deployed to https://app.gradstep.ai against staging**, Pages `68faefdb`
+from combined source `b4b7ad7`. It adds encrypted browser chat to the existing reader workspace. Deployment log and
+live smoke: `.artifacts/takeover-20261008/{web-deploy.log,web-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
+errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
+real key setup, reading and encrypted question/history recovery. Auth was seeded; email/OAuth UI, paid answers,
+Safari support and an E2EE claim remain outside that proof. Key-storage/draft limits are below. Original reader/M1 deployment
+history is retained in [deployment evidence](#deployment--2026-10-07).
 
 ## Scope
 
@@ -16,7 +18,7 @@ Large-screen workspace, milestone 1 (**deployed 2026-10-07**, Pages deployment `
 [Workspace](#workspace-legacy-large-screen-layout)): the legacy three-pane layout, a dense library table, contents tree,
 find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-paper`).
 
-Milestone 2 (built locally, not deployed by this change): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
+Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
 
 Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
 Apple/Google web sign-in, device list and revocation, offline reading and purchases.
@@ -45,7 +47,7 @@ frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx
 
 The frame script hash changes with the shim and is computed at build for both CSPs, as before. Local verification
 (production CSP, Chromium): `e2e/layout.spec.ts` at 1440×900 and 1920×1080 in light and dark, plus a 390 px journey;
-the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. Claude subsequently deployed milestone 1 as Pages `a405d26c`; these layout journeys remain local fixture evidence, not a hosted signed-in test. Milestone 2 below is still local.
+the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. Claude subsequently deployed milestone 1 as Pages `a405d26c`; these layout journeys remain local fixture evidence, not a hosted signed-in test. Milestone 2 was subsequently deployed as recorded above.
 
 ## Where it lives
 
@@ -295,9 +297,10 @@ pending request. A persistent command outbox needs the account/deployment and at
   against the app's real DPO sample bundle, frame document sanitization.
 - **End to end (Playwright, local fixture backend).** Sign-in, new keys and recovery, library table, add paper with
   progress, reader contents/citations/figures, sign-out; 390 px phone and desktop widths, light and dark.
-- **Live, planned (not implemented).** A fresh synthetic invited account, a real Auth verification flow and a
-  pre-existing eligible shared paper, followed by verified account cleanup. `scripts/web-live-journey.mjs` does not
-  yet exist. Local browser fixtures do not establish hosted sign-in, reading or email delivery.
+- **Hosted zero-credit journey (2026-10-08).** Real staging-backed key setup, cached-paper reading, encrypted
+  question persistence and recovery passed in Chromium with complete account cleanup; details below. Real Auth
+  credentials were seeded through a synthetic-account password login. Email-code/OAuth UI and a paid answer
+  remain separate acceptance, and no reusable `scripts/web-live-journey.mjs` command is claimed here.
 
 ## Evidence
 
@@ -320,8 +323,8 @@ $0/month. Checked live:
   test inbox) entered on the live page; `POST /auth/v1/otp` returned 200 and the page reached "Enter your code" with
   the `one-time-code` field focused. The account row and Auth user were then deleted (admin `deleteUser` needs the
   `app_private.accounts` row removed first, as in `scripts/check-native-sync.mjs`); a follow-up query found no rows.
-- Not yet verified on the hosted build: code verification, key setup/recovery, library, adding a paper, reading,
-  or Safari (see the WebKit release gate below). A deep link's HTML response carries only `no-transform` (no
+- At this first-deployment checkpoint, code verification, key setup/recovery, library, Add, reading and Safari
+  had not been verified. The later milestone 2 proof below closes only its stated scope. A deep link's HTML response carried only `no-transform` (no
   `no-cache`), so browsers may revalidate it less eagerly than `/`.
 
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
@@ -432,8 +435,9 @@ including import intents and removed items; it is not a 4,000-visible-paper enti
 
 ## Chat (milestone 2)
 
-Local implementation on the recovered web branch, 2026-10-07; no hosted deployment or live provider request in
-this review. Uses the existing right panel and the unchanged wire/RPC contracts in [Chat](CHAT.md) and
+Recovered implementation `167d0a1` merged into main and deployed 2026-10-08 as Pages `68faefdb` from `b4b7ad7`.
+The implementation review/tests used local fixtures without paid provider requests; hosted smoke is separate.
+The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) and
 [Privacy and sync](PRIVACY_AND_SYNC.md). No schema, identity, key-custody or browser-library-command change.
 
 - **Paper and General** keep separate composers, drafts and selected conversations. History opens a searchable
@@ -517,3 +521,28 @@ loaded on the sign-in/library path.
 
 Screenshots: `.artifacts/web-chat/desktop-paper.png`, `phone-paper.png`, `diagram.png`, `credit-error.png` and
 `dark-partial.png`; no customer data or paid requests.
+
+### Combined release verification — 2026-10-08 UTC
+
+After merging the native selection-menu changes to the shared `reader-bridge.js`, combined main `b4b7ad7`
+passes 9 targeted production-CSP journeys with 7 intentional phone skips: paper/general encrypted reload and a
+second browser profile at desktop/phone sizes; selection→chat→passage; streaming/navigation/Stop and credit error;
+valid, malformed and directive-refused Mermaid; continuous 15 ms chunks; and blocked diagram links/media/remote
+CSS. The two frame script hashes were rebuilt from that exact bridge and pinned Mermaid asset. Screenshots remain
+under the recovered web worktree's `.artifacts/web-chat/`. Hosting is confirmed separately by Pages deployment
+`68faefdb` and the live HTTP 200/header/no-error smoke. No successful paid hosted browser chat is claimed.
+
+### Hosted milestone 2 zero-credit journey — 2026-10-08 UTC
+
+On Pages `68faefdb` / source `b4b7ad7`, a disposable staging account with zero credits exercised Chromium:
+real key generation/persistence and server bootstrap through the UI; cached DPO Add ready in 4.9 s; verified
+reader with 271 MathML nodes; passage actions; and two acknowledged ciphertext appends before the server's
+insufficient-credit refusal. The unanswered question decrypted after reload and in a second isolated browser
+recovering the real keys through the UI. Persistent browser storage did not contain the plaintext test question.
+No successful AI answer was generated.
+
+Server readback recorded zero provider attempts, usage events, charged micro-USD or credit holds, and two
+encrypted events. Account deletion returned 200/complete; no page or console errors were observed. Evidence:
+`.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. This used a real Auth session seeded by
+an admin-created synthetic account's password login: it does **not** verify the email-code/OAuth interface,
+email delivery, Safari key persistence, physical-device approval or a paid streamed answer.

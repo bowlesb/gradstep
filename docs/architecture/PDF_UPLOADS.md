@@ -1,18 +1,18 @@
 # Adding any paper: identifiers, PDF uploads, device downloads, sharing
 
-> **Status 2026-10-07:** built on branch, not deployed. Migration `202610070039_pdf_uploads.sql` (not applied),
-> Edge functions `add-paper` and `upload-pdf` (not deployed), bucket `paper-uploads` (not created), pipeline
-> worker changes (not deployed), app changes and the Share extension (Simulator only; needs provisioning).
-> Decisions: [DECISIONS](../DECISIONS.md#adding-any-paper-identifiers-uploads-device-downloads-sharing-owner-asked-2026-10-07).
+> **Status, 2026-10-08 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
+> `upload-pdf`, the private `paper-uploads` bucket and the bounded worker transport are deployed. Scope-2 inventory
+> completed with zero discrepancies and upload admission was enabled. Native epoch/descriptor/chunk adoption
+> is in the build-17/18 lineage; build 19 also carries 042's v5 ordinary library-write repair. Browser PDF upload
+> remains unavailable. The Share extension's App Group/App ID/profiles and real system-share/device journeys
+> remain separate acceptance gates; these are not claims that every upload path has been exercised on a device.
 
-**Integration review, 2026-10-07:** migration039 follows provider, asset, Sandbox and diagnostic prerequisites
-034–038; never-applied033 stays unused. The reusable signed/upsert implementation has been replaced locally with
-bounded authenticated chunks and exact session/intent binding. Custom titles preserve the approved encrypted-title
-contract. The server/worker implementation and recovery tests are local; the original native upload queue still
-uses the obsolete protocol and must be migrated before enabling uploads. V5 compatibility, encrypted descriptor
-outbox/hydration, resumed workflows and Edge load evidence remain gates. The detailed authoritative contract and
-local evidence are in [Asset spending](ASSET_SPENDING.md#local-ingress-implementation-checkpoint--2026-10-07).
-No hosted upload schema, function, bucket or worker changes have been deployed by this work.
+The signed/upsert candidate was replaced by the bounded authenticated protocol below before deployment.
+Migration 033 is now the applied purchase-verifier transport, followed by safeguards 034–038 and uploads 039;
+do not reuse the old “033 unused” plan. Applied migrations are immutable. Current rollout evidence and remaining
+legacy reader-delivery exposure: [Asset spending](ASSET_SPENDING.md) and
+[implementation status](../IMPLEMENTATION_STATUS.md). The detailed sections retain the original implementation
+contract and local checks; historical wording there does not override this current deployment checkpoint.
 
 Owner, 2026-10-07: "adding a pdf needs to be absolutely bullet proof." About 17 publishers refuse downloads from
 cloud servers (our worker runs on Google Cloud; [self-healing downloads](PIPELINE_RELIABILITY.md#self-healing-downloads-migration-027)),

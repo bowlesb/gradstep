@@ -2,9 +2,11 @@
 
 TestFlight screenshot feedback is read from App Store Connect (`betaFeedbackScreenshotSubmissions`; screenshots are
 saved under `.artifacts/feedback/`, which is not committed). Each item gets a plan and is closed with the build that
-fixes it.
+fixes it. “In build 19” below means the reviewed change is included in both internal TestFlight builds, confirmed
+VALID / IN_BETA_TESTING on 2026-10-08 UTC; it does not claim the owner has installed or accepted it.
+Source `b4b7ad7`; release evidence `.artifacts/takeover-20261008/build-19-processing.json`.
 
-## Purchase credits, 2026-10-07 (TestFlight build 13; still reported failing)
+## Purchase credits, 2026-10-07 (TestFlight build 13; observed Sandbox path repaired)
 
 Report `APgSDbWf0gMbTamRckWVdHs`, submitted 08:09 PDT, says:
 “We should never be in a situation where credits were added but they can’t use them”.
@@ -24,8 +26,8 @@ Read-only takeover verification on 2026-10-08 05:14 UTC found three Sandbox cred
 grants totaling 1,000 credits: 400 + 400 + 200. The last is a partial grant under the 1,000-credit monthly Sandbox
 allowance, not a verification failure. Replayed reports returned `already_recorded`; six app verifier attempts
 succeeded. Evidence: `.artifacts/takeover-20261008/{purchase_grants,purchase_observations,sandbox_decisions}.json`.
-The tester-facing allowance explanation still needs review. Receipt recording and credits granted remain distinct
-states; this evidence does not verify production subscriptions, renewals or refunds.
+Build 19 adds actual-granted-credit and Sandbox allowance wording; a real tester review of that new copy remains.
+Receipt recording and credits granted remain distinct states; this evidence does not verify production subscriptions, renewals or refunds.
 
 ## Build 14, 2026-10-07 (iPhone, 11 items)
 
@@ -37,11 +39,11 @@ states; this evidence does not verify production subscriptions, renewals or refu
 | 4 | "Ask a question is bad language, you can just have chat" | Chat composer placeholder | Placeholder "Chat" | Done (merged from floating chrome): placeholder "Chat" |
 | 5 | "Space below chat box not well used … the paper vs general option needs to be in a menu … can't take away screen real estate for chatting" | Chat screen: the Paper chat / General chat segmented row; gap under the composer | Move the switch into the chat title menu; tighten the composer to the tab bar | Done (merged from floating chrome): the switch is the chat title's menu (subtitle shows the paper or "General chat"); message box 10 pt above the floating tab bar, the conversation under both |
 | 6 | "The icon choice is bad it looks like a refresh icon, it probably needs to have lines in it" | Chat: the All chats button (clock-arrow) | A list icon with lines | Done (merged from floating chrome): a list icon (bullets and lines, the first bullet amber) for All chats in the top bar and menus |
-| 7 | "A really good table view should be the default, sort by recently, added, length, paper or general, topics" | All chats | Table landed after build 14 (sort by last used / started / messages / paper, filter paper/general); topics come with tags. Also: chat titles show prompt prefixes and raw LaTeX ("Explain in plain terms…: \[\begin{equation*}") → shown as "Explain · Attention(Q, K, V)…", "Add paper · [3] T. D. Lee…" in All chats and the chat title (display only) | Titles in build 15 (2026-10-07); topics with tags remain planned |
+| 7 | "A really good table view should be the default, sort by recently, added, length, paper or general, topics" | All chats | Table landed after build 14 (sort by last used / started / messages / paper, filter paper/general); topics come with tags. Also: chat titles show prompt prefixes and raw LaTeX ("Explain in plain terms…: \[\begin{equation*}") → shown as "Explain · Attention(Q, K, V)…", "Add paper · [3] T. D. Lee…" in All chats and the chat title (display only) | Titles in build 15; configurable Topics, Kind and Answer length columns plus horizontal scrolling in build 19 |
 | 8 | "The account option tells me nothing, sync? Sign out and delete … should be hidden away? What does appearance mean to the user?" | Settings | Account row opens an Account page (email, sign-in methods, sync state in words, Sign out, Delete account); "Appearance" becomes "Theme: Light / Dark / Match device" | In build 15 (2026-10-07); Sync now moved to the Account page |
 | 9 | "This doesn't look like it should be there, seems cool" | Settings → Acknowledgements | Move under an About page with version and privacy | In build 15 (2026-10-07); "About Gradstep", last row, with "readable versions of papers" wording |
 | 10 | "Trying to select some chat text to reference it … it just says copy" | Chat answers: text selection offers only Copy | Selection in answers offers Ask about this (quotes it into the composer), Explain, Define, Copy | In build 15 (2026-10-07) |
-| 11 | "Why is it Answer: … seems not needed" | Chat answers start with a bold "Answer:" label | Tell the model not to label the answer; strip a leading "Answer:" label on display | Display cleanup in build 15 (2026-10-07); the model instruction still needs the chat function deployed |
+| 11 | "Why is it Answer: … seems not needed" | Chat answers start with a bold "Answer:" label | Tell the model not to label the answer; strip a leading "Answer:" label on display | Display cleanup in build 15; the chat function/model instruction was subsequently deployed |
 
 Also seen in the screenshots: `**$n = 0$:**` shows literal asterisks (bold around math isn't parsed) — chat
 renderer fix, with #3/#10.
@@ -50,35 +52,51 @@ renderer fix, with #3/#10.
 
 | Owner feedback | Plan | Status |
 |---|---|---|
-| Offline library save fails on every launch, and downloads stop until relaunch | Version the decoded cache fields; repair only display metadata while preserving availability history | Verified locally, not shipped: format 3 and retained quarantine/identity checks; 211 Core tests, 321 iOS unit tests (5 opt-in skips), both encrypted relaunch journeys, and 298 Catalyst unit tests (4 opt-in skips) pass. See [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review) |
+| Offline library save fails on every launch, and downloads stop until relaunch | Version the decoded cache fields; repair only display metadata while preserving availability history | Shipped in build 16: format 3 and retained quarantine/identity checks; 211 Core tests, 321 iOS unit tests (5 opt-in skips), both encrypted relaunch journeys, and 298 Catalyst unit tests (4 opt-in skips) pass. See [Native offline bundles](architecture/NATIVE_OFFLINE_BUNDLES.md#build-14--15-cache-upgrade-2026-10-07-local-review) |
 | Topic tags feel generic | Review feed-chip priority and tag vocabulary/prompt; estimate any re-tagging cost before running it | Pending; no paid re-tagging in this fix |
 | Chat top is too cluttered | Recheck main's chat title-menu change on the current build before proposing another layout change | Pending owner-current-build comparison |
-| More All chats columns / horizontal scrolling | Coordinate with the chat-quality workstream and its existing table changes | Pending integration review |
-| Model / effort selection | Prepare UX and cost proposal before changing provider routing or prices | Proposal only; owner approval still needed |
+| More All chats columns / horizontal scrolling | Coordinate with the chat-quality workstream and its existing table changes | In build 19: chooser, pinned title/Last used, horizontal scrolling and retained per-device choices |
+| Model / effort selection | Prepare UX and cost proposal before changing provider routing or prices | [Economics/profile proposal](research/PRICING_RECOMMENDATION_20261008.md) merged; no live model, allowance or price change |
 
 ## Build 16, 2026-10-07 evening (iPhone, 10 items)
 
 | # | Owner said | Where | Plan | Status |
 |---|---|---|---|---|
 | 1 | "If I have credits now after adding new credits, ones should just start downloading if they were explicitly added before" | Library rows stuck on "Needs credits" | When credits arrive (purchase, restore, grant), resume the account's imports waiting on credits automatically, oldest first, within balance | On staging 2026-10-08 (migration 040 + worker): a sweep before each claim and a wakeup when a balance grows |
-| 2 | "Recent articles should be shown first" | Library search › arXiv scope | Order arXiv results newest first (keep relevance as a tie-breaker or an option) | Open |
-| 3 | "So many criteria we could be adding as columns … choose which columns to show and also allow horizontal scrolling" | All chats table (and library table) | Column chooser + horizontal scrolling with the title column pinned | Open |
-| 4 | "Make it more clear that we have the option to copy and reference in the chat box. When you click on equations in the paper itself we should see the same type of pop options" | Chat text/formula menu; paper equations | Same native menu for paper equations; clearer "Ask about this" | Open |
-| 5 | "The options are at the bottom, that's awkward; use the regular menu with Copy … with the extra options, make the options clear, 'Explain in Chat'" | Paper selection bar | Replace the bottom selection bar with the system edit menu: Copy + Explain in Chat / Why it matters / Related / Add paper | Open |
-| 6 | "Little options in the bottom right that make the text a little bigger and smaller" | Feed / reader | Small A− / A+ controls | Open |
-| 7 | "As a PDF is downloading, very briefly something appears for 5 ms right below Unread … the text flashes and all items move" | Library during a download | Remove the transient row/banner that shifts the list | Open |
+| 2 | "Recent articles should be shown first" | Library search › arXiv scope | Order arXiv results newest first (keep relevance as a tie-breaker or an option) | In build 19: Newest is the default; Relevance remains available |
+| 3 | "So many criteria we could be adding as columns … choose which columns to show and also allow horizontal scrolling" | All chats table (and library table) | Column chooser + horizontal scrolling with the title column pinned | In build 19 across Library, Feed and All chats; chosen columns remain reachable, with per-device settings |
+| 4 | "Make it more clear that we have the option to copy and reference in the chat box. When you click on equations in the paper itself we should see the same type of pop options" | Chat text/formula menu; paper equations | Same native menu for paper equations; clearer "Ask about this" | In build 19: paper equation/text edit menus and Quote in Chat wording; current selection is captured at action time |
+| 5 | "The options are at the bottom, that's awkward; use the regular menu with Copy … with the extra options, make the options clear, 'Explain in Chat'" | Paper selection bar | Replace the bottom selection bar with the system edit menu: Copy + Explain in Chat / Why it matters / Related / Add paper | In build 19; equation menu dismissal clears only the matching selection |
+| 6 | "Little options in the bottom right that make the text a little bigger and smaller" | Feed / reader | Small A− / A+ controls | In build 19 for Feed and reader; expanded-abstract-specific feedback below remains separate |
+| 7 | "As a PDF is downloading, very briefly something appears for 5 ms right below Unread … the text flashes and all items move" | Library during a download | Remove the transient row/banner that shifts the list | In build 19: delayed overlay for background updates, preserving table geometry |
 | 8 | "Is text streamed as it comes? It's too long before text starts coming" | Chat time-to-first-text (Related with web search) | Measure; show progress immediately; reduce latency before first token | Server part on staging 2026-10-08 (chat function): policy lookup overlaps the body read; action instructions after the paper's cache breakpoint; search results without citations so the prompt cache survives the search round |
-| 9 | "Please remove Open and just put arXiv and it can link out" | Papers in this answer | Replace Open with the arXiv ID as a link; keep Add to library | Open |
+| 9 | "Please remove Open and just put arXiv and it can link out" | Papers in this answer | Replace Open with the arXiv ID as a link; keep Add to library | In build 19. The later request for separate Library and website destinations is still pending below |
 | 10 | "Ingestion failure" (arXiv 2207.00729 at "Finding 99% · Taking longer than usual") | Import metadata | Completed after 7 min: arXiv rate-limited the metadata lookup (`rate_limited`, backoff). Add a metadata fallback when arXiv throttles; don't show 99% while waiting | On staging 2026-10-08: arXivRaw (OAI-PMH) fallback when the Atom API throttles; a throttled source shows "waiting", not 99 % (migration 040 + worker) |
 
 ## Build 17, 2026-10-08 (iPhone, 3 items)
 
 | # | Owner said | Where | Cause / plan | Status |
 |---|---|---|---|---|
-| 1 | "The Add is all greyed out?" | Feed Add buttons (also Retry, tags, archive) | Regression: when uploads went live (039, upload policy on) the app adopted the full-v5 library, and library writes were deliberately disabled in v5 until an epoch-checked write path existed. Fix: v5 command RPCs that check the dataset epoch in the same transaction (migration 042) and the app sending them; needs a new build. The disabled capsule is also too similar to the enabled one in dark mode | 042 applied on staging after backup; native fix merged b993c23 and verified on iPhone/iPad fixtures. Build 18 stays disabled; next TestFlight build pending combined UX checks |
+| 1 | "The Add is all greyed out?" | Feed Add buttons (also Retry, tags, archive) | Regression: when uploads went live (039, upload policy on) the app adopted the full-v5 library, and library writes were deliberately disabled in v5 until an epoch-checked write path existed. Fix: v5 command RPCs that check the dataset epoch in the same transaction (migration 042) and the app sending them; needs a new build. The disabled capsule is also too similar to the enabled one in dark mode | 042 applied and hosted zero-credit command journey passed; build 19 carries the native fix and darker enabled Add styling. iPhone/iPad Feed Add journeys pass; build 18 remains affected |
 | 2 | "I still have these stray items that weren't properly ingested … self cleaning or fixing but never just sitting there" | Library: "arXiv 2610.07426 · Details unavailable · Retry", "Needs credits" rows, Failed 5 | Needs-credits rows now resume by themselves (040). Next: a server sweep that re-attempts transient failures with backoff and requeues stale claims; permanent failures show a plain reason and one action (migration 041). Retry itself was blocked by #1 | 040 and 041 on staging (see below) |
-| 3 | "Table still sucks why are they're so few options" | Feed table (Title, Published, Add on phone) | Column chooser (topic, authors, updated, arXiv ID, abstract, in library, relevance), horizontal scroll with pinned title, more sorts and filters, as for the library and chats tables | In progress (UX batch) |
+| 3 | "Table still sucks why are they're so few options" | Feed table (Title, Published, Add on phone) | Column chooser (topic, authors, updated, arXiv ID, abstract, in library, relevance), horizontal scroll with pinned title, more sorts and filters, as for the library and chats tables | In build 19: chooser, pinned title/Add, horizontal scrolling, additional supported fields, and Hide papers in my library. Expanded-title/abstract feedback below is not covered by this claim |
 
 Also requested with this batch: a personalized feed ("relevant to a users interests … kept up to date and
-changing but have cost under control"). Design and a zero-paid-API first version are in progress; any paid
-ranking option comes back for approval with a cost table ([plan](architecture/PERSONALIZED_FEED.md) when written).
+changing but have cost under control"). Design and the reviewed zero-paid-API implementation are merged. Migration 043 remains **unapplied/default-off**,
+with For You as default and server-visible metadata use awaiting the owner's answer. No paid ranking is enabled.
+[Feed plan](architecture/PERSONALIZED_FEED.md).
+
+## Build 18, new screenshot feedback reviewed 2026-10-08 UTC
+
+Root downloaded and inspected the five TestFlight screenshots. Metadata:
+`.artifacts/takeover-20261008/latest-owner-feedback.json`; private local images:
+`.artifacts/feedback/build18/<report-id>.png`. These reports arrived from build 18; distinguish a fix already
+in 19 from the follow-up work started afterward.
+
+| Report | Owner feedback / observed issue | Status and next action |
+|---|---|---|
+| `AGd2CKOBGtQ2_DixxpXTxxg` | “No if there’s room. Find a way to make horizontal scrolling a good UX pls” | Covered by build 19's chosen-column horizontal scrolling and pinned columns; owner acceptance remains. |
+| `ALdL2H9qgXauIAihHJQz8J8` | Expanded Feed row should show the entire title and abstract, with abstract text-size control | Follow-up in progress after 19; do not mark fixed by the general table/text-size work. |
+| `AAWbg6g4dUfzp4mwU1x5u14` | “It looks like this is a bad UX please fix”; screenshot shows truncated expanded abstract | Same expanded Feed workflow follow-up; not yet verified or shipped. |
+| `ABHWnLf34Hf5ty2J-F3Blv4` | Reference popover repeats the visible bibliography text; buttons/options are liked | Preserve the useful actions and remove duplicate presentation; follow-up in progress, not in 19. |
+| `AH_QWMX10xPbqz3-10h1WGk` | Ingested-paper links need explicit Library and arXiv website destinations; “Open” is vague | Build 19 replaces the generic Open label with the identifier, but the separate in-library navigation request still needs verification/fix. |

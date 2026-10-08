@@ -1,6 +1,11 @@
 # Spending controls and investigation
 
-Status: design approved for implementation by the owner, 2026-10-07; not yet deployed.
+Status, 2026-10-08 UTC: **migrations 034–038 and their provider/worker controls are deployed on staging**;
+039 upload accounting is also applied. Read-only takeover evidence at
+`.artifacts/takeover-20261008/spending-policies.json` records provider admission enabled with coverage beginning
+**2026-10-08 02:40:51.785121 UTC**, asset enforcement on, scope-2 inventory verified at 03:09:31.700048 UTC with
+zero discrepancies, and **reader delivery still `legacy`**. Storage admission is enforced; the signed-URL replay
+exposure is not closed. This is a dated configuration observation, not a continuous monitor or vendor invoice.
 
 The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md) and transparent records for investigating unexpected costs. Customer credits, provider expense, unresolved liability, prepaid units and infrastructure bills remain distinct. The incremental beta budget stays $100/month.
 
@@ -18,19 +23,20 @@ The owner requested closing the [audit findings](../reviews/CREDIT_IDENTITY_COST
   under it), then the pipeline policy throttle row, then library locks; never budget, bucket, purchase gate or paper
   rows. Funding later reserves once per paper as before; suspended and closed accounts are never restarted.
 - Accounts can be suspended for new spending. Existing owner disable action sets that guard transactionally before the Auth API, and grant/read admissions honor it. Known in-flight liabilities still reconcile.
-- Read-only MFA-owner investigation APIs will expose incurred/reserved/uncertain costs, provider units, operation attempts, anomalies, overhead evidence freshness and reconciliation, separate from customer credits and vendor invoices. No claim of whole-system100USD guarantee absent vendor/infra limits.
+- Read-only MFA-owner investigation APIs expose incurred/reserved/uncertain costs, provider units, operation attempts, anomalies, overhead evidence freshness and reconciliation, separate from customer credits and vendor invoices. No claim of whole-system100USD guarantee absent vendor/infra limits.
 
 ## Coordinated rollout
 
 Provider attempt admission (034), complete asset accounting and bounded delivery (035), Sandbox identity allowances (036), and owner investigation APIs (037) are additive. Existing applied migrations stay immutable. Drain old workers before enabling new accounting: rejecting their final writes cannot undo already-sent provider calls or unregistered uploads. Verify vendor allowance baselines and reconcile the existing bucket inventory before enabling enforcement.
 
-Existing Apple/web readers validate only Storage signed URLs. Implement and test dual-transport clients before retiring legacy issuance; existing downloaded bundles remain readable offline. The legacy path cannot be described as a hard replay cap, and a cutover needs explicit minimum-client handling plus expiry of previously issued URLs.
+Older installed Apple/web readers validate only Storage signed URLs. Current native and browser source accepts both authorized transports and requests `bounded-v1`, but the observed server policy still returns the legacy path. Complete the reviewed client/expiry cutover before retiring legacy issuance; existing downloaded bundles remain readable offline. The legacy path cannot be described as a hard replay cap, and a cutover needs explicit minimum-client handling, old/in-flight issuer fencing and verified CDN cache retirement.
+Nominal token expiry is insufficient: cached signed responses may outlive it. See the [CDN cutover boundary](ASSET_SPENDING.md#compatibility-and-deployment).
 
 Cloud Run request-based billing requires a bounded awaited execution lifecycle. A parent request waits for its isolated worker to finish or terminate before replying, with its deadline below the platform request timeout. Confirm live flags and observed allocation after deployment; forecast amounts and measured instance allocation are not invoices.
 
 ## Investigation and monitoring
 
-The existing Usage tab reports monthly provider/model aggregates. Replace that limited view with bounded time-window summaries and paged operation detail: account, feature, provider/model, attempt ID, provider request ID, timestamps, outcome, numeric units, customer credits, known cost, held liability, and reconciliation history. Keep private content out of these records. Show platform-funded work and uncertain failures rather than making them disappear after a customer refund.
+The implemented owner-only Spending page replaces the former Usage tab with bounded time-window summaries and paged operation detail: account, feature, provider/model, attempt ID, provider request ID, timestamps, outcome, numeric units, customer credits, known cost, held liability, and reconciliation history. Keep private content out of these records. Show platform-funded work and uncertain failures rather than making them disappear after a customer refund.
 
 Track fixed commitments, infrastructure observations and invoice adjustments with source/evidence dates; unknown or stale components make the forecast explicitly incomplete. Include thresholds and computed anomalies for budget utilization, provider allowance, aged unknown attempts, unmatched legacy usage, asset discrepancies and infrastructure drift. Alerts visible in the dashboard do not replace admission controls or imply an external notification was delivered.
 
@@ -53,7 +59,7 @@ There is no global Production admission mutex.
 With that original stable, recording captures the caller, signed token, current/previous owner and every historical
 transaction owner for the original, then locks existing account rows in UUID order. Those historical accounts matter:
 a later upgrade can still revoke an older bucket belonging to a deleted account. Only afterward may recording lock
-`store_seen`, ownership and buckets or acquire their implicit foreign-key locks. This agrees with034's multi-account
+`store_seen`, ownership and buckets or acquire their implicit foreign-key locks. This agrees with 034's multi-account
 funding order. Account closure takes an account first and does not acquire purchase gates, ownership or financial
 history rows; it therefore completes or waits without adding the opposite ordering.
 
@@ -83,7 +89,7 @@ with the same Apple identity, plus a shared account using distinct Apple identit
 either allowance. Replays, missing/changed identities, unattributed-first reports, refunds/reversals, deleted-account
 restore and Production regression cases must preserve that invariant. The plan-change credit policy is unchanged.
 
-### Owner spending investigation (037, local verification)
+### Owner spending investigation (037 applied; UI locally verified)
 
 The owner-only **Spending** page replaces Usage and requires the existing MFA gate. Its 7/30/90-day summaries
 separate reported provider costs, conservative estimates, customer debits, and unresolved liabilities. An all-date
@@ -100,4 +106,22 @@ immutable evidence, bounded pagination and unresolved attempts older than the se
 build and `node scripts/check-spending-dashboard.mjs` pass. The loopback-only journey uses synthetic data to check
 details/history paging, keyboard focus and return, filters with delayed responses, zero-dollar unresolved work,
 empty/error states, phone-width layout and dark appearance. Screenshots under `.artifacts/spending-dashboard/`
-were inspected; development fixtures are excluded from production. Nothing in this checkpoint was deployed.
+were inspected; development fixtures are excluded from production. Migration 037 and its APIs were subsequently
+applied to staging. This UI proof remains local fixture evidence; a live owner/MFA dashboard journey has not been
+re-audited in this takeover.
+
+## Current evidence and remaining limits — 2026-10-08 UTC
+
+The 05:14 UTC budget snapshot is **$13.677389 spent, $0 reserved, $25 limit** for October; recorded provider
+headroom was $11.322611 at that instant (`.artifacts/takeover-20261008/budget.json`). It is not the remaining
+whole-system budget. Fixed subscriptions, runtime, Storage/egress, logs and invoices remain separate evidence;
+keep the approved $100/month incremental beta ceiling and [operations record](OPERATIONS_AND_BILLING.md).
+Tavily's observed configured period is October 1–November 1 UTC, limit 3,900 and baseline 37 of the 4,000-credit
+Project plan; PAYGO was confirmed off by the owner. Native Anthropic search remains disabled. The proposed Free
+plan/900 allowance is not applied, and later usage must be read before any new allocation.
+
+The private Apple verifier (033) and purchase observations (038) are deployed. Staging records three real
+Sandbox credit-pack grants **400 + 400 + 200 = 1,000**, with replays recorded separately. This verifies that
+observed Sandbox path, not Production purchases, subscriptions, renewals or refunds. The subscription upgrade
+policy discrepancy remains open: owner-approved retained prior-period credits versus the recorder expiring the
+replaced period's unused credits. Do not hide that business-rule decision inside accounting changes.
