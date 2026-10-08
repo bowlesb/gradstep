@@ -122,6 +122,9 @@ plan/900 allowance is not applied, and later usage must be read before any new a
 
 The private Apple verifier (033) and purchase observations (038) are deployed. Staging records three real
 Sandbox credit-pack grants **400 + 400 + 200 = 1,000**, with replays recorded separately. This verifies that
-observed Sandbox path, not Production purchases, subscriptions, renewals or refunds. The subscription upgrade
-policy discrepancy remains open: owner-approved retained prior-period credits versus the recorder expiring the
-replaced period's unused credits. Do not hide that business-rule decision inside accounting changes.
+observed Sandbox path, not Production purchases, subscriptions, renewals or refunds. Independently reviewed
+**migration044 now enforces the approved upgrade policy**: each period's credits keep their original expiry.
+It also rejects malformed copied receipts that could produce a nonexpiring subscription grant. Staging rollout
+used a verifier pause/drain, encrypted backup, zero-history guard, unchanged purchase/grant terms and exact
+function/permission readback before restoring both channels. No price, allowance, balance backfill or provider
+limit changed. [Retention contract and evidence](../reviews/SUBSCRIPTION_UPGRADE_RETENTION_20261008.md).

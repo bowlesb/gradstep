@@ -1,7 +1,11 @@
 # Personalized feed ("For you")
 
 Status, 2026-10-08 UTC: **option A backend built and tested locally; native/web For you UI remains a proposal.
-Both server switches default off.** Nothing is applied to staging or deployed. Migration `202610070043_personalized_feed.sql` (renumbered from the never-applied 044 during takeover; follows 042). The owner decisions this needs are listed at the end.
+Both server switches remain off.** Migration `202610070043_personalized_feed.sql` was applied to staging at
+2026-10-08 07:42 UTC as the prerequisite to subscription repair044, after encrypted backup. Readback confirms
+`serving=off`, `refresh_enabled=false`, an empty pool/feedback and no sources. The scheduled gate returns before
+network work; no refresh function or personalized UI was deployed. Evidence:
+`.artifacts/takeover-20261008/feed-dark-deployment.json`. The owner decisions this needs are listed at the end.
 
 Owner request (2026-10-07): "I think we need to also invest in a better feed, it should feel relevant to a users
 interests and be kept up to date and changing but have cost under control".

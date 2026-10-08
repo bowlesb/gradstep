@@ -6,6 +6,16 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current rollout — 2026-10-08 UTC
 
+- **Subscription credit retention 044 is live on staging** (07:42 UTC, reviewed source `1a10051`). Upgrades
+  retain each period's credits until its original expiry; malformed copied receipts cannot create perpetual
+  subscription credits or fill identity after refusal. Full database/lifecycle/concurrency and independent
+  review pass. Both verifier channels were CAS-paused, with complete session visibility and a satisfied
+  ten-minute admission quiet window. Encrypted backup `20261008T073303Z-950e99dcb0da` contains 1,346 verified
+  objects and a 2,698,364-byte database dump. Ledger and all three exact function bodies/permissions read back;
+  purchase records, grant terms, products, allowances and provider limit are unchanged. Both channels restored
+  enabled at revision 4. Hosted checks: **4 pass / 0 fail / 1 warning** (7 imports waiting for credits), no paid
+  provider cost or reservation, test account deleted. Evidence: `subscription-rollout-state.json`,
+  `subscription-postdeploy.log`, `.artifacts/workflow-checks/2026-10-08T07-43-26-051Z.json`.
 - **iOS and Mac TestFlight build 20**, source `bd2e0f2`, uploaded October 7 at 23:43 PDT. Apple confirms both
   **VALID / IN_BETA_TESTING**: iOS `74725990-aedc-4ac3-b609-347cb4d2a0e6`, Mac
   `cea77106-c5e9-45f4-9245-3759a0816f5e`; `.artifacts/takeover-20261008/build-20-processing.json`.
@@ -51,7 +61,8 @@ removed executor work) is retained below where useful and in git history.
   `.artifacts/takeover-20261008/hosted-browser-zero-credit-summary.json`. Its real Auth session was seeded via
   synthetic-account password login; email/OAuth UI was not tested, and this earlier journey made no paid request. Safari's secure-key
   persistence gate and tab-memory drafts/outbox remain. [Browser contract](architecture/BROWSER_READER.md).
-- **Staging schema through 042 is applied.** Before 042, encrypted checkpoint
+- **Staging schema through 044 is applied.** 043 was applied disabled as a prerequisite to 044; see below.
+  Before the earlier 042, encrypted checkpoint
   `20261008T051522Z-5ffa9efe26a9` captured the database and 1,332 objects; migration hash, grants and search paths
   were read back. Targeted hosted v5 Add/archive/unarchive/tags/remove/re-add, exact replay, deltas and
   stale-epoch refusal pass with a zero-credit synthetic account, then cleanup: **2 pass, 0 fail, $0 spent/reserved**
@@ -63,10 +74,12 @@ removed executor work) is retained below where useful and in git history.
   snapshot is **$13.677389 spent / $0 reserved / $25 limit**; it is not an invoice or total infrastructure cost.
   [Spending evidence and limits](architecture/SPENDING_CONTROLS.md).
 - **Purchases:** three observed real Sandbox packs granted 400 + 400 + 200 = 1,000, with replays recorded separately.
-  Production subscriptions/renewals/refunds remain unverified. The prior-period-credit upgrade policy discrepancy
-  remains unresolved; exact purchase recording and actual credits granted are distinct.
-- **Personalized Feed 043:** merged and locally reviewed/tested, **unapplied and default-off**. For You as default
-  and use of server-visible metadata await the owner's answer; no paid ranking is enabled.
+  Production subscriptions/renewals/refunds remain unverified. 044 fixes the prior-period-credit policy discrepancy;
+  exact purchase recording and actual credits granted remain distinct.
+- **Personalized Feed 043:** **applied with serving off and refresh disabled**, pool and feedback empty, no sources.
+  The scheduled gate exists but returns before network/profile work. Hosted readback: `feed-dark-deployment.json`.
+  For You as default and use of server-visible metadata await the owner's answer; no Feed refresh function or
+  personalized UI was deployed, and no paid ranking is enabled.
 - **Pricing and podcasts:** research/model and reviewed design merged; live offers are unchanged. Podcast v1
   scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
@@ -361,7 +374,8 @@ transaction grants once; refunds, reversals, upgrades and deleted-account restor
 purchases are capped at 1,000 credits per account and Apple Account per month. Two independent reviews' findings were
 fixed. Verified: local database/backend/app tests and a staging smoke test (forged and malformed data refused,
 nothing granted). Later033–038 runtime/accounting repairs produced the observed real Sandbox pack grants recorded
-above. Production subscriptions/renewals/refunds and the upgrade-credit policy remain separate gaps. See
+above. Production subscriptions/renewals/refunds remain unverified; 044 later repaired the approved upgrade-credit
+policy as recorded above. See
 [purchases](architecture/PURCHASES.md).
 
 **TestFlight**: App Store Connect record "Gradstep" (owner decision 2026-10-06; renamed from "Paperstep"), bundle
@@ -540,12 +554,13 @@ Email" relay address would create a separate account (no linking); testers shoul
 - **Operations:** bound the remaining legacy reader-delivery exposure; re-audit scheduled checks/alerts and
   invoice attribution; exercise owner/MFA admin flows against hosting; complete production provisioning only after
   review. Existing hold cleanup, storage admission and encrypted backup tooling must remain intact.
-- **Purchases:** Production subscription/renewal/refund acceptance, current product-metadata readiness, and the
-  prior-period-credit upgrade decision. App Store Server API reconciliation/refund-consumption responses need
+- **Purchases:** Production subscription/renewal/refund acceptance and current product-metadata readiness.
+  Prior-period-credit retention is now implemented in 044; the local lifecycle proof is not a real StoreKit
+  subscription purchase. App Store Server API reconciliation/refund-consumption responses need
   an In-App Purchase key; final review screenshots remain. Observed Sandbox pack grants are already verified
   through the private Node verifier, not unsupported Edge certificate primitives.
 - **Product:** browser OAuth/Safari secure-key persistence, durable encrypted browser drafts/offline support,
-  latest build 18 feedback not covered by build 19, accessibility on real papers and physical-device checks (paused).
+  owner acceptance of build 20's screenshot fixes, accessibility on real papers and physical-device checks (paused).
   Feed 043 activation, podcast scope/privacy/pilot and public-pricing changes remain owner decisions.
 - **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
   release a deleted account's App Store subscription binding, and expire deleted data from backups.

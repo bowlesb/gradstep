@@ -1,9 +1,22 @@
 # Subscription upgrade credit retention
 
-Status: independently reviewed, promoted locally to migration044, not deployed. The baseline regression
+Status: independently reviewed, **migration044 deployed to staging 2026-10-08 07:42 UTC**. The baseline regression
 reproduced the defect. The final normal database command passes after removal of temporary candidate
 selectors; focused migration, lifecycle and concurrency checks also pass. Independent review and its
 focused rerun include the additional malformed-receipt guard. Prices and allowances stay unchanged.
+
+Root deployment evidence: `.artifacts/takeover-20261008/subscription-rollout-state.json`. Both verifier channels
+were CAS-disabled from revision 2 to 3; all-session stats visibility was proven, no recorder transaction remained,
+and no admitted start occurred within ten minutes. Encrypted checkpoint `20261008T073303Z-950e99dcb0da` captured
+the database and 1,346 verified objects. After 043 applied with both Feed switches off, 044 applied and its ledger,
+three exact function bodies, definer/search paths and private permissions matched reviewed source. Purchase
+records, original grant/bucket terms, allowances, products and the $25 provider cap were unchanged; current
+spendable balances were allowed to follow ordinary hold/settlement activity. Both channels restored enabled at
+revision 4. Hosted checks: 4 pass, 0 fail, 1 known insufficient-credit-import warning; forged purchases/admin
+requests refused, synthetic account deleted, zero provider spend/holds. No real subscription was bought.
+
+The following deployment procedure records the reviewed requirements, not remaining rollout work. Local fixture
+verification below remains distinct from hosted purchase/refund acceptance.
 
 ## Approved behavior and defect
 

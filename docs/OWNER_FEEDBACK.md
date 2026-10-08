@@ -82,7 +82,7 @@ renderer fix, with #3/#10.
 | 3 | "Table still sucks why are they're so few options" | Feed table (Title, Published, Add on phone) | Column chooser (topic, authors, updated, arXiv ID, abstract, in library, relevance), horizontal scroll with pinned title, more sorts and filters, as for the library and chats tables | In build 19: chooser, pinned title/Add, horizontal scrolling, additional supported fields, and Hide papers in my library. Expanded-title/abstract feedback below is not covered by this claim |
 
 Also requested with this batch: a personalized feed ("relevant to a users interests … kept up to date and
-changing but have cost under control"). Design and the reviewed zero-paid-API implementation are merged. Migration 043 remains **unapplied/default-off**,
+changing but have cost under control"). Design and the reviewed zero-paid-API implementation are merged. Migration 043 is **applied with serving and refresh off**,
 with For You as default and server-visible metadata use awaiting the owner's answer. No paid ranking is enabled.
 [Feed plan](architecture/PERSONALIZED_FEED.md).
 
