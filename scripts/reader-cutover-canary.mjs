@@ -388,7 +388,7 @@ export class ReaderCutoverCanary {
     if (success.length !== 1 || consumed.length !== 1 || json(consumed[0].bytes)?.code !== 'reader_grant_consumed') fail('first_redemption_race_outcome');
     const fresh = success[0];
     if (sha(fresh.bytes) !== member.sha256 || fresh.bytes.length !== member.bytes
-      || fresh.response.headers.get('content-length') !== String(member.bytes)
+      || (fresh.response.headers.has('content-length') && fresh.response.headers.get('content-length') !== String(member.bytes))
       || fresh.response.headers.get('cache-control') !== 'private, no-store'
       || fresh.response.headers.get('x-content-type-options') !== 'nosniff'
       || fresh.response.headers.get('referrer-policy') !== 'no-referrer') fail('fresh_bounded_probe_failed');

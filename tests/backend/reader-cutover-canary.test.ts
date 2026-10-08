@@ -194,7 +194,7 @@ test('fenced first redemption overlaps both sends and requires exactly one downl
   run.http = async (url: string) => {
     assert.equal(url, member.url.href); const ordinal = calls++; if (calls === 2) release();
     await barrier; // A sequential implementation would time out instead of passing.
-    return ordinal === 0 ? { bytes, response: new Response(bytes, { headers: { 'content-length': String(bytes.length),
+    return ordinal === 0 ? { bytes, response: new Response(bytes, { headers: {
       'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } }) }
       : { bytes: Buffer.from('{"code":"reader_grant_consumed"}'), response: new Response(null, { status: 409 }) };
   };

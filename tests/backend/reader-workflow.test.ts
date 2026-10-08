@@ -96,6 +96,24 @@ test('only the configured standard hosted bounded endpoint accepts HTML served a
   await assert.rejects(jsonAsText.run(), /reader_member_type/);
 });
 
+test('streamed bounded members may omit Content-Length but still require exact byte count and hash', async () => {
+  for (const mutation of ['none', 'short', 'long', 'corrupt', 'wrong-declared'] as const) {
+    const f = fixture('bounded-v1');
+    f.response((i, url) => {
+      const original = f.content[i];
+      const body = mutation === 'short' ? original.subarray(1)
+        : mutation === 'long' ? Buffer.concat([original, Buffer.from('x')])
+        : mutation === 'corrupt' ? Buffer.alloc(original.length, 120) : original;
+      const headers: Record<string, string> = { 'content-type': f.value.members[i].path.endsWith('.html') ? 'text/html' : 'application/json',
+        'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' };
+      if (mutation === 'wrong-declared') headers['content-length'] = String(original.length + 1);
+      return withURL(new Response(body, { headers }), url);
+    });
+    if (mutation === 'none') assert.equal((await f.run()).bytes, f.content.reduce((n, b) => n + b.length, 0));
+    else await assert.rejects(f.run(), /reader_response_size|reader_response_read_failed|reader_member_integrity/);
+  }
+});
+
 test('current and pre-035 legacy descriptors retain hash checks without forwarding account headers to Storage', async () => {
   for (const old of [false, true]) {
     const f = fixture('legacy'); if (old) delete f.value.transport;

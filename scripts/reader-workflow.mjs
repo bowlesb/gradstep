@@ -143,8 +143,10 @@ export async function verifyReaderDelivery({ backendURL, anonKey, token, item, s
       && !backend.port && member.media_type === 'text/html' && servedType === 'text/plain';
     if (servedType !== member.media_type && !hostedHTML) fail('reader_member_type');
     const cache = result.response.headers.get('cache-control')?.toLowerCase().split(',').map(value => value.trim()) ?? [];
-    if (verified.transport === 'bounded-v1' && (result.response.headers.get('content-length') !== String(member.bytes)
-      || cache.length !== 2 || !cache.includes('private') || !cache.includes('no-store')
+    // Hosted gateways may omit Content-Length on streamed responses. readBounded
+    // still requires the exact manifest length and validates any declared length;
+    // the hash below verifies every byte. Missing framing metadata is not bad data.
+    if (verified.transport === 'bounded-v1' && (cache.length !== 2 || !cache.includes('private') || !cache.includes('no-store')
       || result.response.headers.get('x-content-type-options')?.toLowerCase() !== 'nosniff'
       || result.response.headers.get('referrer-policy')?.toLowerCase() !== 'no-referrer')) fail('reader_member_response_contract');
     if (hash(result.bytes) !== member.sha256) fail('reader_member_integrity');
