@@ -65,6 +65,11 @@ verify_jwt = false
 # Called by Apple; authenticated by verifying Apple's signature on the payload.
 verify_jwt = false
 
+[functions.store-verifier-health]
+# Operator-only receipt-free probe. Exact service-role secret comparison inside
+# the handler; ordinary user/anon JWTs cannot invoke Google or the private service.
+verify_jwt = false
+
 [functions.admin-accounts]
 # Called from the admin site (browser preflights carry no token). The handler verifies the
 # token with Auth.getUser and requires an owner with MFA (v1_admin_actor) before any change.
