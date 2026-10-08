@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fromBase64, toBase64, toHex, canonicalJSON, utf8 } from '../src/lib/bytes';
 import { approvalPayload } from '../src/lib/approval';
+import { type PrivateEvent, decodeEvent, encodeDiagram, encodeEvent } from '../src/lib/events';
 import { type KeyBundle, decodeBundle, enrollmentFingerprint, generateDeviceKeyPair, importTestPrivateKey, keyRing, openEvent, recover, sealEvent,
   unwrapForDevice, wrapForDevice, wrapRecovery } from '../src/lib/wire';
 
@@ -96,5 +97,30 @@ describe.runIf(swift)('Swift CryptoKit ⇄ WebCrypto, fresh random envelopes bot
     expect(browser.privateKey.extractable).toBe(false);
     expect(await unwrapForDevice(fromBase64(output.approval.envelope), account, device, 1, browser.privateKey, browser.publicKey, browserChallenge)).toEqual(keys);
     expect(output.fingerprint).toBe(await enrollmentFingerprint(account, device, recipient.publicKey, challenge));
+  }, 600_000);
+
+  // Browser chat history: events the web writes (a conversation with its passage, a question, an interrupted answer
+  // with a time, a diagram) decode in Swift's PrivateEvent, and Swift's re-sealed copies decode here to the same events.
+  it('Swift decodes the browser’s chat events and the browser decodes Swift’s', async () => {
+    const keys = bundle(), ring = await keyRing(keys), recipient = await importTestPrivateKey(rawPrivate);
+    const conversation = 'cccccccc-0000-4000-8000-000000000001', documentID = 'dddddddd-0000-4000-8000-000000000002', answer = 'eeeeeeee-0000-4000-8000-000000000003';
+    const events: PrivateEvent[] = [
+      { kind: 'conversation', entityID: conversation, parents: [], documentID, text: 'Explain in plain terms, including any symbols: \\(\\beta\\) controls…', createdAt: 1_791_400_000_000,
+        anchor: { artifactID: 'aaaaaaaa-0000-4000-8000-000000000004', quote: '\\(\\beta\\) controls the deviation', prefix: 'the parameter ', suffix: ' from the base', elementID: 'b-e8b10bc14510-24' } },
+      { kind: 'message', entityID: 'bbbbbbbb-0000-4000-8000-000000000005', parents: [event], conversationID: conversation, documentID, text: 'What is β? “quoted” – ∑ 中文', role: 'user', status: 'complete', createdAt: 1_791_400_000_001 },
+      { kind: 'message', entityID: answer, parents: [event], conversationID: conversation, text: 'Partial **answer** with \\[x^2\\]', role: 'assistant', status: 'interrupted', createdAt: 1_791_400_000_002 },
+      { kind: 'diagram', entityID: 'ffffffff-0000-4000-8000-000000000006', parents: [], conversationID: conversation, text: encodeDiagram({ title: 'Flow', source: 'graph TD; A-->B', messageID: answer }) },
+    ];
+    for (const payload of events) {
+      const input = {
+        keys: fixture.keys, payload: encodeEvent(payload), eventID: event, deviceID: device, challenge: fixture.challenge, privateKey: fixture.privateKey,
+        recoveryCode: fixture.recoveryCode, eventCiphertext: toBase64((await sealEvent(encodeEvent(payload), event, device, ring)).ciphertext),
+        recoveryPackage: toBase64(await wrapRecovery(keys, fixture.recoveryCode)), deviceEnvelope: toBase64(await wrapForDevice(keys, device, recipient.publicKey, challenge)),
+      };
+      const stdout = execFileSync('swift', ['run', '--package-path', fileURLToPath(core), 'ScienceReaderWireCheck'],
+        { input: JSON.stringify(input), encoding: 'utf8', timeout: 600_000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'ignore'] });
+      const output = JSON.parse(stdout);
+      expect(decodeEvent(await openEvent({ id: event, deviceID: device, epoch: 1, format: 1, ciphertext: fromBase64(output.eventCiphertext) }, ring))).toEqual(decodeEvent(encodeEvent(payload)));
+    }
   }, 600_000);
 });
