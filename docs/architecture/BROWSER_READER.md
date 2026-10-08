@@ -8,13 +8,13 @@ is a claim of E2EE or sync, and a full signed-in hosted journey has not been run
 
 ## Scope
 
-Phase 1 (this design): sign in with an email code → this browser becomes a device (recovery code, or new keys for an
-account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
+Phase 1 (this design): sign in with an email code → this browser becomes a device (approved from an iPhone/iPad by
+QR code, the recovery code, or new keys for an account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
 the same verified bundles and `reader-bridge.js` behavior → sign out.
 
 Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history,
-selection actions, reference actions, tag editing, web search/Feed, Apple/Google web sign-in, approving a browser from
-an existing device, device list and revocation, offline reading, credits and purchases.
+selection actions, reference actions, tag editing, web search/Feed, Apple/Google web sign-in, device list and
+revocation, offline reading, credits and purchases.
 
 ## Where it lives
 
@@ -130,9 +130,8 @@ succeeding is insufficient.
   `v1_request_enrollment`, self-approve with `v1_approve_enrollment` (management token from the recovered bundle),
   then activate it only after its server envelope authenticates. A lost reply or reload resumes the pending
   candidate; only a positive revocation retires it.
-- **Approval by an existing device.** The RPC contract supports it (`v1_enrollment_requests` +
-  `v1_approve_enrollment` from any device holding the bundle), but no device has an approval UI yet; Phase 1 does not
-  offer the action. Adding it is native work (Phase 2).
+- **Approval by an existing device (QR), the default on the restore screen.** See
+  [Approving this browser from another device](#approving-this-browser-from-another-device).
 - **Password AutoFill.** The recovery field is `<input type="password" autocomplete="current-password">` in a form
   whose hidden username is the account email, so a code the iPhone saved for `gradstep.ai` can be offered on
   `app.gradstep.ai` (Safari and Chrome match the registrable domain; unverified until tried on real devices).
@@ -155,6 +154,28 @@ succeeding is insufficient.
   waits for this local load before mounting, including on a direct paper URL, so a fast bundle cannot overwrite a
   saved place before it is restored. Missing/unreadable activity settles to an empty map and still permits reading.
   Every bounded bridge position report updates memory; encrypted writes are debounced and serialized separately.
+
+## Approving this browser from another device
+
+Built 2026-10-07 (not yet deployed; needs an iPhone/iPad build with Settings › Account › **Add a device**). Protocol and
+limits: [PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
+
+- **Restore screen** (`ui/Keys.tsx`, `ui/Approve.tsx`). "Restore your private library" leads with the QR code, the
+  six-digit number ("Your phone should show 275 895") and "Waiting for approval…". **Use recovery code instead** switches
+  to the existing form (Password AutoFill unchanged), which has **Approve from your phone instead**. Both paths share one
+  pending recipient and request under the key lock, so switching never creates a second device.
+- **QR** (`lib/approval.ts`): the 97-character `GSDA1` payload drawn locally as an inline SVG path by `uqr` 0.1.3 (MIT,
+  zero dependencies, a port of Nayuki's generator; ECC M, version 6, white quiet zone in both themes). No network
+  request, canvas, inline script or CSP change. Rendered screenshots decode with CoreImage's QR detector.
+- **Polling** (`checkApproval`): `v1_key_state` for the pending device with bounded backoff (2 s, ×1.5, at most 10 s);
+  about once a minute `requestApproval` re-checks the request and renews it for the same recipient if it expired. A
+  connection failure shows "Can't reach Gradstep. Still trying…" and keeps waiting; after 30 minutes it stops with
+  **Show a new code**. An envelope that doesn't open with this browser's key is an error and the pending recipient is
+  kept.
+- **Tests**: `tests/approval.test.ts` (fixture vectors, request/renew/approve/refuse flow), the Swift interop test (Swift
+  approves a non-extractable WebCrypto key from its QR text), and `e2e/approval.spec.ts` (the fixture's "iPhone" reads the
+  rendered QR text, checks the fingerprint independently in Node, and approves; reload resumes the same QR; switching to
+  the recovery code approves the same request).
 
 ## Authentication
 

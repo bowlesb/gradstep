@@ -20,13 +20,30 @@ mkdirSync(directory,{recursive:true});
 const fixture=new URL('envelopes-v1.json',directory),encoded=JSON.stringify(input,null,2)+'\n';
 if(process.argv.includes('--write-fixture')) {writeFileSync(fixture,encoded); console.log('Recorded deterministic, public protocol fixture');}
 else assert.equal(readFileSync(fixture,'utf8'),encoded,'Wire fixture changed; review the protocol before regenerating it');
-const output=JSON.parse(execFileSync('swift',['run','--package-path',new URL('apps/apple/ScienceReaderCore',root).pathname,'ScienceReaderWireCheck'],{input:JSON.stringify(input),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));
+// QR device approval (DeviceApproval.swift / apps/web/src/lib/approval.ts), computed independently here.
+const b64url=b=>Buffer.from(b).toString('base64url');
+const requestID='12345678-abcd-4abc-8def-123456789abc';
+const fingerprint=sha256(Buffer.concat([Buffer.from(`science-reader/enrollment/v1/${account}/${device}/`),publicBytes(rawPrivate),challenge]));
+const accountTag=sha256(Buffer.from(`science-reader/device-approval/v1/account/${account}`)).subarray(0,16);
+const codeOf=f=>String(sha256(Buffer.concat([Buffer.from('science-reader/device-approval/v1/code/'),f])).readUInt32BE(0)%1000000).padStart(6,'0');
+const approval={accountID:account,deviceID:device,requestID,publicKey:publicBytes(rawPrivate).toString('base64'),challenge:challenge.toString('base64'),kind:'w',
+  accountTag:b64url(accountTag),fingerprint:fingerprint.toString('hex'),code:codeOf(fingerprint),
+  payload:['GSDA1',b64url(Buffer.from(requestID.replace(/-/g,''),'hex')),b64url(accountTag),b64url(fingerprint),'w'].join('.'),
+  // Leading zeros survive: the fingerprint of 32 bytes of 0x07 has a code below 100000.
+  codeVectors:Object.fromEntries([0x00,0x07,0x2a,0xff].map(v=>[Buffer.alloc(32,v).toString('hex'),codeOf(Buffer.alloc(32,v))]))};
+const approvalFixture=new URL('device-approval-v1.json',directory),approvalEncoded=JSON.stringify(approval,null,2)+'\n';
+if(process.argv.includes('--write-fixture')) writeFileSync(approvalFixture,approvalEncoded);
+else assert.equal(readFileSync(approvalFixture,'utf8'),approvalEncoded,'Device approval fixture changed; review the protocol before regenerating it');
+const output=JSON.parse(execFileSync('swift',['run','--package-path',new URL('apps/apple/ScienceReaderCore',root).pathname,'ScienceReaderWireCheck'],{input:JSON.stringify({...input,approval:{payload:approval.payload,requestID,deviceID:device,publicKey:approval.publicKey,challenge:approval.challenge}}),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));
 const ciphertext=Buffer.from(output.eventCiphertext,'base64');
 assert.deepEqual(open(content,ciphertext,eventAAD(account,event,device)),payload);
 assert.deepEqual(open(recoveryKey(code,account),Buffer.from(output.recoveryPackage,'base64'),recoveryAAD(account)),keys);
 assert.deepEqual(unwrapDevice(Buffer.from(output.deviceEnvelope,'base64'),account,device,1,rawPrivate,challenge),keys);
 assert.equal(output.fingerprint,sha256(Buffer.concat([Buffer.from(`science-reader/enrollment/v1/${account}/${device}/`),publicBytes(rawPrivate),challenge])).toString('hex'));
+assert.equal(output.approval.code,approval.code);
+assert.equal(output.approval.refusedSubstitute,true);
+assert.deepEqual(unwrapDevice(Buffer.from(output.approval.envelope,'base64'),account,device,1,rawPrivate,challenge),keys);
 assert.throws(()=>open(content,ciphertext,eventAAD('00000000-0000-4000-8000-000000000001',event,device)));
 const damaged=Buffer.from(output.deviceEnvelope,'base64');damaged[damaged.length-1]^=1;
 assert.throws(()=>unwrapDevice(damaged,account,device,1,rawPrivate,challenge));
-console.log('PASS Node → Swift and Swift → Node event, recovery, device envelopes, Unicode/anchor payload, enrollment fingerprint, and identity/tamper rejection');
+console.log('PASS Node → Swift and Swift → Node event, recovery, device envelopes, Unicode/anchor payload, enrollment fingerprint, QR approval (payload, code, envelope, substitute refusal), and identity/tamper rejection');

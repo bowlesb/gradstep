@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
 const PORT = Number(process.env.FIXTURE_PORT ?? 54329);
@@ -52,6 +53,7 @@ function seedReturning() {
   if (a.seq) return;
   const keys = returningKeyring();
   a.keyring = { epoch: 1, recovery_package: keys.recoveryPackage, verifier: verifier(ACCOUNTS['returning@example.test'], keys.managementToken) };
+  a.phone = { bundle: keys.keys, managementToken: keys.managementToken }; // what the "iPhone" holds, for /__approve
   // The "iPhone" that created the keyring.
   a.devices.set(keys.deviceID, { id: keys.deviceID, public_key: keys.publicKey, challenge: keys.challenge, revoked_at: null });
   a.envelopes.set(`${keys.deviceID}:1`, keys.envelope);
@@ -242,6 +244,29 @@ createServer(async (request, response) => {
     const id = ACCOUNTS['returning@example.test'], a = account(id), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
     rpcs.v2_cancel_import(id, a, { p_operation_id: randomUUID(), p_import_id: imp.id, p_expected_revision: imp.intent_revision });
     return send(response, 200, { ok: true });
+  }
+  // The returning account's "iPhone" scans the browser's QR text and approves it as the app does (DeviceApproval.swift),
+  // independently in Node: same account, the named (or renewed) request must hash to the scanned fingerprint.
+  if (url.pathname === '/__approve' && request.method === 'POST') {
+    const body = await read(request), id = ACCOUNTS['returning@example.test'], a = account(id);
+    const parts = typeof body?.payload === 'string' ? body.payload.split('.') : [];
+    if (parts.length !== 5 || parts[0] !== 'GSDA1' || parts[4] !== 'w') return send(response, 400, { error: 'unrecognized' });
+    const requestID = Buffer.from(parts[1], 'base64url').toString('hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+    if (sha(Buffer.from(`science-reader/device-approval/v1/account/${id}`)).subarray(0, 16).toString('base64url') !== parts[2]) return send(response, 409, { error: 'different_account' });
+    const print = r => sha(Buffer.concat([Buffer.from(`science-reader/enrollment/v1/${id}/${r.device_id}/`), unhex(r.public_key), unhex(r.challenge)])).toString('base64url');
+    const pending = [...a.requests.values()].filter(r => !r.approved_at);
+    const r = pending.find(r => r.id === requestID) ?? pending.find(r => print(r) === parts[3]);
+    if (!r) return send(response, 404, { error: 'expired_or_used' });
+    if (print(r) !== parts[3]) return send(response, 409, { error: 'key_mismatch' });
+    const code = String(sha(Buffer.concat([Buffer.from('science-reader/device-approval/v1/code/'), Buffer.from(parts[3], 'base64url')])).readUInt32BE(0) % 1e6).padStart(6, '0');
+    const envelope = wrapDevice(a.phone.bundle, r.device_id, unhex(r.public_key), unhex(r.challenge));
+    rpcs.v1_approve_enrollment(id, a, { p_request_id: r.id, p_epoch: 1, p_management_token: hex(a.phone.managementToken),
+      p_expected_public_key: r.public_key, p_expected_challenge: r.challenge, p_envelope: hex(envelope) });
+    return send(response, 200, { ok: true, code });
+  }
+  if (url.pathname === '/__pending-requests' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, [...a.requests.values()].map(r => ({ id: r.id, approved: Boolean(r.approved_at) })));
   }
   if (url.pathname === '/__another-paper' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']);

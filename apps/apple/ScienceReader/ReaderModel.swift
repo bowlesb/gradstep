@@ -1159,6 +1159,30 @@ final class ReaderModel {
         } catch { if sessionID == scope { show(error) } }
     }
 
+    /// Device approval (DeviceApprovalViews.swift): the account, while this device holds active keys to share.
+    var deviceApprovalAccount: UUID? {
+        guard let accountID, let device, device.accountID == accountID, device.bundle != nil else { return nil }
+        return accountID
+    }
+
+    /// Settings › Account › Add a device and the waiting-device banner. Nil until this device's keys are active.
+    func makeDeviceApprover() -> DeviceApprover? {
+        guard let account = deviceApprovalAccount else { return nil }
+        let keys: @MainActor () -> KeyBundle? = { [weak self] in
+            guard let self, self.accountID == account, self.device?.accountID == account else { return nil }
+            return self.device?.bundle
+        }
+        #if FIXTURE_HOST
+        if DeviceApprovalFixture.isEnabled {
+            return DeviceApprover(accountID: account, transport: DeviceApprovalFixture.shared, currentKeys: keys, refreshKeys: { keys() })
+        }
+        #endif
+        guard let backend else { return nil }
+        // A refresh runs the ordinary key preparation (CloudSync), which updates `device` when keys rotated.
+        return DeviceApprover(accountID: account, transport: LiveDeviceApprovalTransport(backend: backend, accountID: account),
+                              currentKeys: keys, refreshKeys: { [weak self] in await self?.synchronize(); return keys() })
+    }
+
     @discardableResult
     func activate(_ device: LocalDevice, scope: UUID) async throws -> ReaderWorkOwnership.StoreScope {
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }

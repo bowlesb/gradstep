@@ -52,6 +52,8 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   page.on('request', request => { if (request.url().includes('/functions/v1/reader-artifact?')) descriptors++; });
   await signIn(page, 'returning@example.test');
   await expect(page.getByRole('heading', { name: 'Restore your private library' })).toBeVisible();
+  await expect(page.getByTestId('approval-qr')).toBeVisible(); // the default: approve from a phone
+  await page.getByTestId('use-recovery-code').click();
   // Password AutoFill shape: a username for the account and a current-password field.
   await expect(page.locator('input[autocomplete="username"]')).toHaveValue('returning@example.test');
   await expect(page.getByTestId('recovery-code')).toHaveAttribute('autocomplete', 'current-password');
@@ -177,6 +179,7 @@ test('live tags preserve the open document, selection, reading place and citatio
   const problems = watch(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -241,6 +244,7 @@ test('live tags preserve the open document, selection, reading place and citatio
 test('tags arriving during paper download appear before restoring the saved reading place', async ({ page, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -298,6 +302,7 @@ test('reopening a paper waits for its encrypted reading place before starting th
   const problems = watch(page);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await page.getByRole('link', { name: /Direct Preference Optimization/ }).click();
@@ -377,6 +382,7 @@ test('choosing another email cancels a verification that already reached the ser
 test('a late encrypted reading-place save cannot recreate a forgotten device or its data', async ({ page }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
@@ -406,6 +412,7 @@ test('a late encrypted reading-place save cannot recreate a forgotten device or 
 test('a delayed sign-out cannot end a newer login from another tab', async ({ page, context, request }) => {
   test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys (WebKit 312279); refusal is verified separately.');
   await signIn(page, 'returning@example.test');
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
   await expect(page.getByTestId('library-table')).toBeVisible();
