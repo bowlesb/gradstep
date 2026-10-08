@@ -273,6 +273,32 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["podcast.generate.start"].exists, "No quote, so nothing to start")
     }
 
+    /// The iPad's wide layout (no tab bar): the player docks along the bottom, below every pane, so the chat column's
+    /// message box stays above it.
+    func testWideLayoutDocksThePlayerBelowThePanes() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Wide iPad layout")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--feed-fixture", "--podcast-fixture", "--reset-podcast-fixture", "--start-tab=feed",
+                               "--podcast-listen", "--podcast-autoplay", "--podcast-autoplay-mini"]
+        app.launch()
+        let mini = element(app, "podcast.miniPlayer")
+        XCTAssertTrue(mini.waitForExistence(timeout: 15))
+        XCTAssertGreaterThan(mini.frame.minY, app.windows.firstMatch.frame.maxY - 120, "Docked at the bottom")
+        capture(app, "iPad wide layout with the docked player")
+        // The Reader (paper beside its chat column), playing.
+        app.terminate()
+        app.launchArguments = ["--workflow-fixture", "--feed-fixture", "--podcast-fixture", "--reset-podcast-fixture", "--start-tab=chat",
+                               "--podcast-autoplay", "--podcast-autoplay-mini"]
+        app.launch()
+        XCTAssertTrue(mini.waitForExistence(timeout: 20))
+        let composer = element(app, "chat.composer")
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        waitFor("The chat column's message box is above the docked player") { composer.frame.maxY <= mini.frame.minY + 1 }
+        capture(app, "iPad reader and chat with the docked player")
+    }
+
     /// Light and dark screenshots of the Listen feed, the player and transcript, and the mini-player (VISUAL_CHECK.md).
     func testScreenshotsLightAndDark() {
         let app = launch()

@@ -93,6 +93,10 @@ final class PodcastCenter {
         #if DEBUG && FIXTURE_HOST
         // Quick visual checks (`simctl launch … --podcast-fixture --podcast-listen`): open on the Listen filter.
         if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-listen") { listenSelected = true }
+        // Autoplay needs the catalog, whichever tab the check opens on.
+        if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-autoplay") {
+            Task { [weak self] in self?.loadCatalog() }
+        }
         #endif
     }
 
