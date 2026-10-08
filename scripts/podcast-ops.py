@@ -10,6 +10,7 @@
   python3 scripts/podcast-ops.py review --actor <owner-account> --release <release-id> --publish|--reject --reason "..."
   python3 scripts/podcast-ops.py rights --actor <owner-account> --episode <episode-id> --state quarantined --reason "..."
   python3 scripts/podcast-ops.py cleanup
+  python3 scripts/podcast-ops.py resolve-write --actor <owner-account> --write <write-id> --outcome not_written|verified --evidence <reference>
 
 Every mutating call takes an explicit owner account (the database rechecks the owner role) and a request id; the id
 is printed before the call so a lost reply can be replayed with --request-id (the database returns the same result
@@ -92,6 +93,9 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('status'); sub.add_parser('kick'); sub.add_parser('cleanup')
     c = sub.add_parser('candidates'); c.add_argument('--limit', type=int, default=20)
+    w = sub.add_parser('resolve-write', help='settle an uncertain upload with evidence (bucket listing / readback)')
+    w.add_argument('--actor', type=uuid_arg, required=True); w.add_argument('--write', type=uuid_arg, required=True)
+    w.add_argument('--outcome', choices=['verified', 'not_written'], required=True); w.add_argument('--evidence', required=True)
     for name in ('policy', 'seed-period', 'seed', 'review', 'rights'):
         p = sub.add_parser(name)
         p.add_argument('--actor', type=uuid_arg, required=True, help='your owner account id')
@@ -135,6 +139,9 @@ def main(argv=None):
     elif args.command == 'rights':
         result = rpc(env, 'worker_podcast_rights', {'p_actor': args.actor, 'p_request_id': request_id(args), 'p_episode_id': args.episode,
                                                    'p_state': args.state, 'p_reason': args.reason})
+    elif args.command == 'resolve-write':
+        result = rpc(env, 'worker_podcast_write_resolve', {'p_actor': args.actor, 'p_write_id': args.write, 'p_outcome': args.outcome,
+                                                          'p_evidence': args.evidence})
     elif args.command == 'cleanup':
         result = rpc(env, 'worker_podcast_cleanup', {'p_limit': 50})
         objects = result.get('objects') or []

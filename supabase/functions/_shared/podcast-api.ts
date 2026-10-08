@@ -21,6 +21,7 @@ const STATUS: Record<string, number> = {
   podcast_unavailable: 503, podcast_release_unavailable: 404, podcast_request_unavailable: 404, podcast_request_conflict: 409,
   quote_unavailable: 404, quote_expired: 410, consent_required: 400, source_unavailable: 404, source_too_large: 413,
   active_generation_limit: 429, podcast_busy: 429, podcast_daily_limit: 429, podcast_paused: 503, storage_full: 507,
+  podcast_outcome_pending: 409,
   insufficient_credits: 402, platform_budget_exhausted: 503, too_many_active_operations: 429,
   podcast_transfer_limit: 429, podcast_grant_unavailable: 403, podcast_grant_consumed: 409,
   invalid_podcast_request: 400, invalid_podcast_cursor: 400, invalid_podcast_grant: 400, invalid_id: 400,

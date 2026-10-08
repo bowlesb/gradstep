@@ -220,6 +220,9 @@ create table app_private.podcast_jobs (
  failure_code text check(failure_code ~ '^[a-z][a-z0-9_]{0,63}$'),
  charged_credits bigint check(charged_credits between 0 and 150),
  quality_loss_microusd bigint not null default 0 check(quality_loss_microusd>=0),
+ -- Every known cost of a customer job charged zero credits (quality, interruption,
+ -- unknown outcome): counted with unresolved ceilings against the allocation.
+ platform_loss_microusd bigint not null default 0 check(platform_loss_microusd>=0),
  kicked_at timestamptz,
  created_at timestamptz not null default now(),
  finished_at timestamptz,
@@ -375,7 +378,10 @@ create table app_private.podcast_asset_writes (
  object_id uuid not null references app_private.stored_objects(id),
  started_at timestamptz not null default clock_timestamp(), finished_at timestamptz,
  outcome text check(outcome in ('verified','not_written')),
- check((finished_at is null)=(outcome is null))
+ resolved_by uuid references app_private.accounts(id),
+ resolution_evidence text check(length(resolution_evidence) between 3 and 256),
+ check((finished_at is null)=(outcome is null)),
+ check((resolved_by is null)=(resolution_evidence is null))
 );
 create index podcast_asset_write_unresolved on app_private.podcast_asset_writes(object_id,started_at) where finished_at is null;
 
@@ -825,6 +831,7 @@ begin
  update app_private.podcast_jobs set state=p_state,stage_entered_at=clock_timestamp(),failure_code=p_failure,
   claim_id=null,lease_until=null,charged_credits=case when j.funding_kind='customer' then credits end,
   quality_loss_microusd=case when j.funding_kind='customer' and p_quality then known else 0 end,
+  platform_loss_microusd=case when j.funding_kind='customer' and credits=0 then known else 0 end,
   finished_at=case when p_state in ('ready','canceled','failed') then clock_timestamp() end
  where id=j.id returning * into result;
  -- Future storage reservations are returned; planned/pending objects stay inventoried.
@@ -857,6 +864,25 @@ language sql stable security definer set search_path='' as $$
   'replacement_id',r.replacement_id)
 $$;
 
+-- Platform-funded losses of customer jobs this month: known costs charged zero
+-- credits plus every unresolved provider ceiling still held for such jobs.
+create function app_private.podcast_customer_losses(p_month date) returns bigint
+language sql stable security definer set search_path='' as $$
+ select coalesce(sum(j.platform_loss_microusd+coalesce((select sum(a.ceiling_microusd) from app_private.provider_attempts a
+   where (a.account_id,a.operation_id)=(j.operation_account_id,j.operation_id) and a.state in ('admitted','unknown')),0)),0)::bigint
+ from app_private.podcast_jobs j where j.funding_kind='customer' and j.created_at>=p_month
+  and (j.finished_at is not null or j.state in ('unknown_provider','quarantined'))
+$$;
+
+-- An account whose earlier private job still holds an unknown provider outcome
+-- cannot start another until it is reconciled (no overlapping unknown work).
+create function app_private.podcast_account_unresolved(p_account uuid) returns boolean
+language sql stable security definer set search_path='' as $$
+ select exists(select 1 from app_private.podcast_jobs j join app_private.provider_attempts a
+   on (a.account_id,a.operation_id)=(j.operation_account_id,j.operation_id)
+  where j.funding_kind='customer' and j.operation_account_id=p_account and j.state='unknown_provider' and a.state in ('admitted','unknown'))
+$$;
+
 -- Whether an account can play this release now (rights, scope, policy).
 create function app_private.podcast_release_visible(p_account uuid,r app_private.podcast_releases) returns boolean
 language sql stable security definer set search_path='' as $$
@@ -874,13 +900,15 @@ $$;
 -- Bounded audio transfer: separate podcast counters per account and
 -- environment, also charged to 035's shared reader environment capacity.
 create function app_private.podcast_transfer_adjust(p_account uuid,p_period date,p_reserved bigint,p_authorized bigint,
- p_upstream bigint default 0,p_response bigint default 0) returns void
+ p_upstream bigint default 0,p_response bigint default 0,p_environment_only boolean default false) returns void
 language plpgsql security definer set search_path='' as $$
 declare pol app_private.podcast_policy; rpol app_private.reader_delivery_policy; r app_private.reader_transfer_months; maximum bigint; s text;
 begin
  select * into strict rpol from app_private.reader_delivery_policy where singleton for update;
  select * into strict pol from app_private.podcast_policy where singleton;
- foreach s in array array['environment',p_account::text] loop
+ -- Account deletion has already erased the account's own counters: only the
+ -- environment totals are released then (never a re-created negative row).
+ foreach s in array case when p_environment_only then array['environment'] else array['environment',p_account::text] end loop
   maximum:=case when s='environment' then pol.environment_transfer_bytes_month
    when exists(select 1 from app_private.entitlements e where e.account_id=p_account and e.state in ('active','grace') and e.expires_at>now())
     then pol.paid_account_transfer_bytes_month else pol.account_transfer_bytes_month end;
@@ -933,8 +961,9 @@ begin
  perform app_private.require_owner_account(p_actor);
  if p_request_id is null or p_changes is null or jsonb_typeof(p_changes)<>'object' or p_changes='{}'::jsonb or octet_length(p_changes::text)>2048
   or p_reason is null or length(trim(p_reason)) not between 3 and 500 then raise exception 'invalid_podcast_policy'; end if;
- perform 1 from app_private.paper_storage_capacity where singleton for update;
+ -- Podcast policy before storage capacity, as every other podcast path.
  select * into strict pol from app_private.podcast_policy where singleton for update;
+ perform 1 from app_private.paper_storage_capacity where singleton for update;
  select * into prior from app_private.podcast_policy_events where id=p_request_id;
  if found then
   if prior.changes<>p_changes or prior.actor_id<>p_actor then raise exception 'podcast_policy_id_conflict'; end if;
@@ -1088,6 +1117,9 @@ begin
   return app_private.podcast_episode_public(r)||jsonb_build_object('replayed',true);
  end if;
  if r.state<>'pending_review' then raise exception 'podcast_release_state'; end if;
+ perform 1 from app_private.podcast_policy where singleton for share;
+ if p_decision='publish' and (select epoch from app_private.podcast_jobs where id=r.job_id)<>(select epoch from app_private.podcast_policy where singleton)
+ then raise exception 'podcast_epoch_changed'; end if;
  if p_decision='publish' then
   if not app_private.podcast_rights_current(r.episode_id,null) then raise exception 'rights_unavailable'; end if;
   update app_private.podcast_releases set state='ready',published_seq=nextval('app_private.podcast_publication_seq'),published_at=now(),reviewed_by=p_actor
@@ -1214,6 +1246,7 @@ begin
    select request_id into req from app_private.podcast_requests where account_id=a and job_id=j.id order by created_at limit 1;
    return jsonb_build_object('join',jsonb_build_object('request_id',req));
   end if;
+  if app_private.podcast_account_unresolved(a) then raise exception 'podcast_outcome_pending'; end if;
   if (select count(*) from app_private.podcast_quotes where account_id=a and created_at>now()-interval '1 day')>=50 then raise exception 'request_rate_limit'; end if;
   insert into app_private.podcast_quotes(account_id,request_id,item_id,work_sha256,pin,profile_id,profile_version,max_credits,max_microusd,epoch,consent_version,expires_at)
    values(a,p_request_id,p_item_id,key,pin,spec->>'id',(spec->>'version')::integer,(spec->>'max_credits')::bigint,(spec->>'hold_microusd')::bigint,
@@ -1273,8 +1306,8 @@ begin
  if (select count(*) from app_private.podcast_jobs where state in ('queued','scripting','checking','synthesizing','verifying','publishing'))>=pol.max_active_environment
   then raise exception 'podcast_busy'; end if;
  if (select count(*) from app_private.podcast_jobs where created_at>now()-interval '1 day')>=pol.max_jobs_day_environment then raise exception 'podcast_daily_limit'; end if;
- if (select coalesce(sum(quality_loss_microusd),0) from app_private.podcast_jobs where created_at>=month)>=pol.quality_allocation_microusd
-  then raise exception 'podcast_paused'; end if;
+ if app_private.podcast_customer_losses(month)>=pol.quality_allocation_microusd then raise exception 'podcast_paused'; end if;
+ if app_private.podcast_account_unresolved(a) then raise exception 'podcast_outcome_pending'; end if;
  op:=gen_random_uuid();
  perform public.worker_reserve_operation(a,op,'podcast',sha256(convert_to(jsonb_build_array('gradstep/podcast-private/v1',a,p_request_id,q.id,encode(q.work_sha256,'hex'))::text,'UTF8')),
   'beta-credits-v1',q.max_credits,q.max_microusd);
@@ -1307,8 +1340,11 @@ begin
  -- expired lease asks the worker again, at most once a minute.
  if j.finished_at is null and (j.state='queued' or j.lease_until<=clock_timestamp())
   and (j.kicked_at is null or j.kicked_at<clock_timestamp()-interval '60 seconds') then
-  update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id and (kicked_at is null or kicked_at<clock_timestamp()-interval '60 seconds');
-  if found then perform app_private.podcast_kick(); end if;
+  perform 1 from app_private.podcast_jobs where id=j.id for update skip locked;
+  if found then
+   update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id and (kicked_at is null or kicked_at<clock_timestamp()-interval '60 seconds');
+   if found then perform app_private.podcast_kick(); end if;
+  end if;
  end if;
  return jsonb_build_object('job',app_private.podcast_job_public(j,p_request_id));
 end $$;
@@ -1430,6 +1466,10 @@ begin
  if candidate is null then return jsonb_build_object('claimed',false); end if;
  j:=app_private.podcast_lock_job(candidate);
  if j.state<>'queued' or j.claim_id is not null then return jsonb_build_object('claimed',false,'more',true); end if;
+ -- A scan in progress would refuse this job's uploads after its paid calls.
+ if (select reconciliation_id is not null from app_private.paper_asset_policy where singleton for share) then
+  return jsonb_build_object('claimed',false,'reason','asset_inventory_reconciling');
+ end if;
  if j.epoch<>(select epoch from app_private.podcast_policy where singleton) then
   j:=app_private.podcast_settle(j,'failed','podcast_epoch_changed'); return jsonb_build_object('claimed',false,'more',true);
  end if;
@@ -1518,7 +1558,9 @@ begin
  perform set_config('app_private.podcast_profile',(spec->>'id')||':'||(spec->>'version'),true);
  admission:=public.worker_provider_attempt_begin(j.operation_account_id,j.operation_id,p_attempt_id,provider,p_route,model,p_request_sha256,ceiling,units);
  perform set_config('app_private.podcast_attempt','',true);
- insert into app_private.podcast_job_attempts(job_id,route,attempt_id) values(j.id,p_route,p_attempt_id);
+ if exists(select 1 from app_private.provider_attempts where id=p_attempt_id) then
+  insert into app_private.podcast_job_attempts(job_id,route,attempt_id) values(j.id,p_route,p_attempt_id);
+ end if;
  update app_private.podcast_jobs set lease_until=clock_timestamp()+interval '15 minutes' where id=j.id;
  perform app_private.podcast_event(j.id,'attempt',jsonb_build_object('route',p_route,'attempt_id',p_attempt_id,'granted',admission->'granted','reason',admission->'reason'));
  if not (admission->>'granted')::boolean then
@@ -1632,6 +1674,35 @@ begin
  if o.state='pending' then update app_private.stored_objects set state='verified',verified_at=clock_timestamp() where id=o.id;
  elsif o.state not in ('verified','deleting') then raise exception 'asset_unavailable'; end if;
  update app_private.podcast_asset_writes set finished_at=clock_timestamp(),outcome='verified' where id=w.id;
+end $$;
+
+-- An unresolved write keeps its capacity and blocks inventory and the owner's
+-- deletion until evidence settles it: the exact bytes present (verified) or a
+-- definitive absence after the issuing worker has stopped (not_written). Owner
+-- operator only; the evidence reference names a bucket listing/readback record.
+create function public.worker_podcast_write_resolve(p_actor uuid,p_write_id uuid,p_outcome text,p_evidence text) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare w app_private.podcast_asset_writes; o app_private.stored_objects; j app_private.podcast_jobs;
+begin
+ perform app_private.require_owner_account(p_actor);
+ if p_write_id is null or p_outcome is null or p_outcome not in ('verified','not_written') or p_evidence is null
+  or length(p_evidence) not between 3 and 256 or p_evidence !~ '^[a-zA-Z0-9._:/ -]+$' then raise exception 'invalid_write_resolution'; end if;
+ select * into w from app_private.podcast_asset_writes where id=p_write_id;
+ if not found then raise exception 'podcast_write_unavailable'; end if;
+ select j2.* into strict j from app_private.podcast_asset_uploads u join app_private.podcast_jobs j2 on j2.id=u.job_id where u.id=w.upload_id;
+ -- The issuing worker may still be writing while its job holds a live claim.
+ if j.claim_id is not null and j.lease_until>clock_timestamp() then raise exception 'podcast_write_in_progress'; end if;
+ perform 1 from app_private.paper_storage_capacity where singleton for update;
+ select * into strict w from app_private.podcast_asset_writes where id=p_write_id for update;
+ if w.finished_at is not null then
+  if w.outcome<>p_outcome then raise exception 'podcast_write_conflict'; end if;
+  return jsonb_build_object('write_id',w.id,'outcome',w.outcome,'replayed',true);
+ end if;
+ select * into strict o from app_private.stored_objects where id=w.object_id for update;
+ if p_outcome='verified' and o.state='pending' then update app_private.stored_objects set state='verified',verified_at=clock_timestamp() where id=o.id; end if;
+ update app_private.podcast_asset_writes set finished_at=clock_timestamp(),outcome=p_outcome,resolved_by=p_actor,resolution_evidence=p_evidence where id=w.id;
+ perform app_private.podcast_event(j.id,'write_resolved',jsonb_build_object('write_id',w.id,'outcome',p_outcome,'actor_id',p_actor));
+ return jsonb_build_object('write_id',w.id,'outcome',p_outcome,'replayed',false);
 end $$;
 
 -- Publication: verified complete objects, recorded provider usage for every call,
@@ -1839,6 +1910,35 @@ begin
  return n;
 end $$;
 
+-- Account deletion first commits this step (the Edge function and the sweep call
+-- it before worker_delete_account_begin, which refuses while any operation is
+-- unsettled): queued jobs settle as canceled now, running ones stop at their next
+-- fenced step. Repeatable; returns how many are still running.
+create function public.worker_podcast_account_closing(p_account_id uuid) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare period_key date; j app_private.podcast_jobs; canceled integer:=0; running integer:=0;
+begin
+ for period_key in select distinct period from (select app_private.podcast_month() period union all
+  select op.period from app_private.podcast_jobs x join app_private.metered_operations op on (op.account_id,op.id)=(x.operation_account_id,x.operation_id)
+  where x.operation_account_id=p_account_id and x.finished_at is null) p order by period loop
+  perform 1 from app_private.platform_budgets where period=period_key for update;
+ end loop;
+ perform 1 from app_private.accounts where id=p_account_id for update;
+ if not found then raise exception 'account_unavailable'; end if;
+ perform 1 from app_private.provider_spending_policy where singleton for update;
+ perform 1 from app_private.podcast_policy where singleton for share;
+ for j in select x.* from app_private.podcast_jobs x where x.operation_account_id=p_account_id and x.finished_at is null
+  and x.state not in ('unknown_provider','quarantined') order by x.id for update loop
+  if j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id) then
+   perform app_private.podcast_settle(j,'canceled','owner_deleted'); canceled:=canceled+1;
+  else
+   if not j.cancel_requested then update app_private.podcast_jobs set cancel_requested=true where id=j.id; end if;
+   running:=running+1;
+  end if;
+ end loop;
+ return jsonb_build_object('canceled',canceled,'running',running);
+end $$;
+
 alter function public.worker_delete_account_begin(uuid) rename to delete_account_begin_before_048;
 alter function public.delete_account_begin_before_048(uuid) set schema app_private;
 create function public.worker_delete_account_begin(p_account_id uuid) returns jsonb
@@ -1870,7 +1970,7 @@ begin
  delete from app_private.podcast_asset_holds where owner_id=p_account_id and job_id in (select id from app_private.podcast_jobs where finished_at is not null);
  perform 1 from app_private.reader_delivery_policy where singleton for update;
  for g in select * from app_private.podcast_delivery_grants where account_id=p_account_id for update loop
-  if g.remaining_bytes>0 then perform app_private.podcast_transfer_adjust(p_account_id,g.period,-g.remaining_bytes,0); end if;
+  if g.remaining_bytes>0 then perform app_private.podcast_transfer_adjust(p_account_id,g.period,-g.remaining_bytes,0,0,0,true); end if;
   delete from app_private.podcast_delivery_redemptions where grant_id=g.id;
  end loop;
  delete from app_private.podcast_delivery_grants where account_id=p_account_id;
@@ -1954,7 +2054,7 @@ begin
    'worker_podcast_recover','worker_podcast_claim','worker_podcast_advance','worker_podcast_attempt_begin','worker_podcast_fail','worker_podcast_asset_plan',
    'worker_podcast_asset_write','worker_podcast_asset_written','worker_podcast_publish','worker_podcast_release','worker_podcast_delivery_expire',
    'worker_podcast_delivery_create','worker_podcast_delivery_redeem','worker_podcast_delivery_observed','worker_podcast_cleanup','worker_podcast_cleanup_confirm',
-   'worker_podcast_status','worker_podcast_kick_due','worker_podcast_seed_candidates','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
+   'worker_podcast_status','worker_podcast_kick_due','worker_podcast_seed_candidates','worker_podcast_write_resolve','worker_podcast_account_closing','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',
    'worker_asset_inventory_begin','worker_asset_inventory_page','worker_asset_inventory_finish','worker_pdf_upload_policy','worker_asset_spending_status') loop
   execute format('revoke all on function %s from public,anon,authenticated,service_role',f);
   execute format('grant execute on function %s to service_role',f);

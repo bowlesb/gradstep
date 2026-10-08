@@ -84,11 +84,11 @@ call('worker_podcast_seed_period', { p_actor: fixture.owner, p_request_id: rando
   p_enabled: true, p_evidence: 'journey-fixture', p_max_episodes: 2 });
 const fixtureJob = call<{ id: string }>('worker_podcast_seed_admit', { p_actor: fixture.owner, p_request_id: randomUUID(), p_approval_id: fixture.approval,
   p_reason: 'Labeled synthetic fixture', p_fixture: true });
-let run = await runPodcast(deps(), Date.now() + 120_000, { generated: false });
+let run = await runPodcast(deps(), Date.now() + 780_000, { generated: false });
 assert.equal(run.state, 'ready', `fixture job: ${run.failure}`);
 const seed = call<{ id: string }>('worker_podcast_seed_admit', { p_actor: fixture.owner, p_request_id: randomUUID(), p_approval_id: fixture.approval,
   p_reason: 'Generated seed with fake providers' });
-run = await runPodcast(deps(), Date.now() + 120_000, { generated: true });
+run = await runPodcast(deps(), Date.now() + 780_000, { generated: true });
 assert.equal(run.state, 'ready', `seed job: ${run.failure}`);
 assert.equal(scriptCalls, 2); assert.equal(speechCalls, 1);
 const status = call<{ recent_jobs: { id: string; attempts: { route: string; state: string; actual_microusd: number }[]; release_id: string }[]; seed_periods: { period: string; committed_microusd: number; episodes: number }[] }>('worker_podcast_status', {});
@@ -144,7 +144,7 @@ assert.equal(quote.quote.max_credits, 150);
 const started = await get(fixture.account, 'action=start', { method: 'POST', body: JSON.stringify({ quote_id: quote.quote.id, request_id: requestID,
   consent_version: 'podcast-private-v1' }) });
 assert.equal(started.job.state, 'queued'); assert.equal(started.job.held_credits, 150);
-run = await runPodcast(deps(), Date.now() + 120_000, { generated: true });
+run = await runPodcast(deps(), Date.now() + 780_000, { generated: true });
 assert.equal(run.state, 'ready', `private job: ${run.failure}`);
 const done = await get(fixture.account, `action=status&request_id=${requestID}`);
 assert.equal(done.job.state, 'ready');

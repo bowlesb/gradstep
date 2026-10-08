@@ -120,8 +120,10 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       const request = speechRequest(script, spec.speech.voices, spec.speech.max_output_tokens);
       if (request.bytes > spec.speech.max_input_tokens) throw new Failure('script_too_long_for_speech', true);
       if (!deps.speech) throw new Failure('speech_unavailable', false);
+      // Never send a paid call that cannot finish inside this request: that would only create an unknown liability.
+      const window = callWindow(remaining(), 120_000, SPEECH_CALL_MS);
       const admission = await admit(deps, fence, 'podcast_speech', request.body);
-      const result: SpeechResult = await deps.speech.generate(request, AbortSignal.timeout(Math.max(1_000, Math.min(300_000, remaining() - 120_000))));
+      const result: SpeechResult = await deps.speech.generate(request, AbortSignal.timeout(window));
       models.speech = result.model;
       await finishAttempt(deps, admission, result.state, result.requestID,
         result.state === 'succeeded' ? speechCost(result.usage!, spec.speech.rates_microusd_per_token) : result.state === 'rejected' ? 0 : null,
@@ -182,7 +184,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
         // A lost reply may still have written: prove the exact bytes before recording.
         if (!await sameObject(deps, object)) { log('podcast_upload_uncertain', { role: object.role }); throw new Failure('upload_failed', false); }
       }
-      await deps.rpc('worker_podcast_asset_written', { p_write_id: writeID, p_verified: true });
+      await recordWritten(deps, writeID);
     }
     const published = await deps.rpc<{ state: string; canceled: boolean; release?: { release_id: string; state: string } }>('worker_podcast_publish', {
       ...fence, p_upload_id: uploadID, p_release: { script_sha256: scriptDigest, ...(draftDigest ? { draft_sha256: draftDigest } : {}),
@@ -205,6 +207,23 @@ function ownerFromSource(claim: Claim): string {
   // The database plan check binds private paths to the private episode's owner.
   if (!claim.owner_id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(claim.owner_id)) throw new Failure('owner_unavailable', false);
   return `${claim.owner_id}/`;
+}
+
+/** Each paid call needs its full typical duration plus the reserve for later stages; otherwise stop at zero charge. */
+export const SCRIPT_CALL_MS = 240_000, SPEECH_CALL_MS = 240_000;
+function callWindow(remaining: number, reserve: number, wanted: number): number {
+  const window = Math.min(300_000, remaining - reserve);
+  if (window < wanted) throw new Failure('deadline_before_paid_call', false);
+  return window;
+}
+
+/** The confirmation is replay-safe; a lost reply must not leave a write unresolved. */
+async function recordWritten(deps: PodcastDeps, writeID: string): Promise<void> {
+  for (let n = 0; n < 3; n++) {
+    try { await deps.rpc('worker_podcast_asset_written', { p_write_id: writeID, p_verified: true }); return; }
+    catch (error) { if (FENCE.has(code(error))) throw error; }
+  }
+  throw new Failure('write_unrecorded', false);
 }
 
 async function sameObject(deps: PodcastDeps, object: { path: string; sha256: string; bytes: number }): Promise<boolean> {
@@ -253,8 +272,9 @@ async function scriptCall(deps: PodcastDeps, fence: Record<string, unknown>, rou
   const counted = bytes <= inputCap ? null : await deps.script.countTokens(params, AbortSignal.timeout(30_000));
   // Refuse before any paid call; never truncate the paper silently.
   if (!fitsInput(bytes, counted, inputCap)) throw new Failure('source_too_large', false);
+  const window = callWindow(remaining(), 180_000, SCRIPT_CALL_MS);
   const admission = await admit(deps, fence, route, params);
-  const result: ScriptCallResult = await deps.script.generate(params, AbortSignal.timeout(Math.max(1_000, Math.min(300_000, remaining() - 180_000))));
+  const result: ScriptCallResult = await deps.script.generate(params, AbortSignal.timeout(window));
   models[route] = result.model;
   const cost = result.state === 'succeeded' ? scriptCost(result) : null;
   await finishAttempt(deps, admission, result.state, result.requestID, result.state === 'rejected' ? 0 : cost?.microusd ?? null, cost?.units ?? {}, result.failure);

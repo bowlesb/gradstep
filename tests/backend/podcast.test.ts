@@ -413,6 +413,20 @@ test('upload with a lost response is recorded only after the exact bytes are pro
   assert.ok(!missing.names().includes('worker_podcast_asset_written'), 'an unproven write is never marked written');
 });
 
+test('a paid call that cannot finish inside the request is never sent', async () => {
+  const h = harness();
+  const result = await runPodcast(h.deps, Date.now() + 300_000);
+  assert.equal(result.failure, 'deadline_before_paid_call');
+  assert.ok(!h.names().includes('worker_podcast_attempt_begin'), 'no grant, no POST, zero charge');
+});
+
+test('a lost write confirmation is retried (replay-safe), never left unresolved', async () => {
+  let lost = 0;
+  const h = harness({ failRpc: name => name === 'worker_podcast_asset_written' && lost++ === 0 ? new Error('network_lost') : null });
+  assert.equal((await runPodcast(h.deps, Date.now() + 600_000)).state, 'ready');
+  assert.equal(h.calls.filter(c => c.name === 'worker_podcast_asset_written').length, 4);
+});
+
 test('without provider credentials generated jobs are not claimed', async () => {
   const h = harness({ claimed: false });
   const result = await runPodcast(h.deps, Date.now() + 600_000, { generated: false });

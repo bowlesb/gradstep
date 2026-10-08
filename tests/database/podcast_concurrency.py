@@ -128,6 +128,16 @@ def verify(bin_path, db, base):
         assert sql(f"select string_agg(outcome,',' order by outcome) from app_private.podcast_requests where account_id='{account}';") == 'joined,started'
         assert sql(actor(account) + "select (public.v1_credit_balance()->>'reserved');") == '150'
 
+        # 1b. The operator policy call takes podcast policy before storage capacity, as every other path does:
+        # a start/asset-plan path holding policy and then asking for capacity cannot deadlock with it.
+        holder, operator = Session(), Session()
+        holder.complete("begin; select 1 from app_private.podcast_policy where singleton for update;")
+        marker = operator.send(f"select public.worker_podcast_policy_set('{owner}','{uuid.uuid4()}','{{\"max_jobs_day_environment\":200}}','Race fixture');")
+        blocked(operator, holder)
+        holder.complete("select 1 from app_private.paper_storage_capacity where singleton for update; commit;")
+        operator.until(marker)
+        assert 'deadlock' not in operator.errors()
+
         # 2. Two workers claim the one queued job: exactly one owns it.
         a, b = Session(), Session()
         a_claim = json.loads(a.complete('begin; reset role; ' + f"select public.worker_podcast_claim('{uuid.uuid4()}');")[-1])

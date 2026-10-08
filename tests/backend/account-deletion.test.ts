@@ -85,7 +85,8 @@ test('the worker sweep resumes pending deletions', async () => {
   const { service, rpcs } = fakeService({ 'paper-assets': [`private/${account}/originals/a.pdf`] });
   const logs: Record<string, unknown>[] = [];
   await sweepAccountDeletions(service, fields => logs.push(fields));
-  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_delete_account_begin', 'worker_delete_account_finish']);
+  // Podcast work is closed in its own committed step before deletion begins (migration 048).
+  assert.deepEqual(rpcs, ['worker_account_deletions_pending', 'worker_podcast_account_closing', 'worker_delete_account_begin', 'worker_delete_account_finish']);
   assert.deepEqual(logs, [{ event: 'account_deletion_swept', account_id: account, step: undefined }]);
 });
 

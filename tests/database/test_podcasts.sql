@@ -290,7 +290,15 @@ set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
 select test.assert((public.v1_podcast_status(:'r2')->'job'->>'state')='unknown_provider','status reports the holding state');
 select test.assert((public.v1_credit_balance()->>'available')::integer=:'avail_a'::integer and (public.v1_credit_balance()->>'reserved')::integer=:'held_a'::integer,'customer hold released');
+-- No overlapping unknown work: the account waits until the outcome is reconciled.
+select test.reject(format('select public.v1_podcast_quote(%L,%L)',:'item','46000000-0000-0000-0006-000000000009'),'podcast_outcome_pending');
 reset role;
+select test.assert((select platform_loss_microusd=190000 and quality_loss_microusd=0 from app_private.podcast_jobs where id=:'j2'),'zero-charge known cost is a platform loss');
+select test.assert(app_private.podcast_customer_losses(:'month')=190000+303104,'losses count the held unknown ceiling');
+select ja.attempt_id as speech2 from app_private.podcast_job_attempts ja where ja.job_id=:'j2' and ja.route='podcast_speech' \gset
+select public.worker_provider_attempt_reconcile(:'O','46000000-0000-0000-0009-000000000001',:'speech2',0,'{"text_input_tokens":0,"audio_output_tokens":0}',
+ 'vertex-billing-fixture','Provider reports no charge for the lost request');
+select test.assert(not app_private.podcast_account_unresolved(:'A'),'reconciled outcome releases the account');
 
 -- Completed private job: actual usage charged within the maximum; owner-only.
 set role authenticated;
@@ -354,6 +362,9 @@ select test.reject(format('select public.worker_podcast_advance(%L,%L,%s,%L)',:'
 select test.assert((public.worker_podcast_recover()->>'state')='unknown_provider','expired lease with an admitted call becomes unknown');
 select test.assert((select pa.state='unknown' and pa.failure_code='worker_interrupted' from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id where ja.job_id=:'jb'),'attempt liability retained');
 select test.assert((select op.actual_credits=0 from app_private.metered_operations op join app_private.podcast_jobs j on (op.account_id,op.id)=(j.operation_account_id,j.operation_id) where j.id=:'jb'),'interrupted job charges nothing');
+select ja.attempt_id as crashed from app_private.podcast_job_attempts ja where ja.job_id=:'jb' \gset
+select public.worker_provider_attempt_reconcile(:'O','46000000-0000-0000-0009-000000000002',:'crashed',0,'{"input_tokens":0,"output_tokens":0}',
+ 'anthropic-console-fixture','No request reached the provider');
 
 -- Expired lease before any paid call is requeued safely.
 set role authenticated;
@@ -406,6 +417,43 @@ select test.assert((public.v1_credit_balance()->>'reserved')::integer=0,'refused
 reset role;
 update app_private.paper_storage_capacity set max_bytes=536870912;
 
+-- Provider attempt capacity: a denial that records no attempt row fails the job cleanly.
+set role authenticated;
+select set_config('request.jwt.claim.sub',:'B',false);
+select public.v1_podcast_quote(:'itemb','46000000-0000-0000-0007-000000000010')->'quote'->>'id' as quoteb10 \gset
+select public.v1_podcast_start(:'quoteb10','46000000-0000-0000-0007-000000000010','podcast-private-v1');
+reset role;
+select id as jcap from app_private.podcast_jobs where funding_kind='customer' and state='queued' \gset
+select gen_random_uuid() as pccap \gset
+select (public.worker_podcast_claim(:'pccap')->>'generation')::bigint as pgcap \gset
+select test.podcast_attempt(:'jcap',:'pccap',:'pgcap','podcast_script',50000);
+select public.worker_podcast_advance(:'jcap',:'pccap',:'pgcap','checking');
+update app_private.provider_spending_policy set operation_attempt_limit=1;
+select test.assert((public.worker_podcast_attempt_begin(:'jcap',:'pccap',:'pgcap',gen_random_uuid(),'podcast_review',sha256('cap'))->>'reason')='attempt_capacity','capacity denial');
+update app_private.provider_spending_policy set operation_attempt_limit=64;
+select test.assert((select state='failed' and failure_code='provider_admission_refused' and platform_loss_microusd=50000 from app_private.podcast_jobs where id=:'jcap'),
+ 'job settles (no foreign-key error); its known cost is a platform loss');
+
+-- Account closing commits before deletion: a queued job is canceled, a running one stops at its next step.
+set role authenticated;
+select set_config('request.jwt.claim.sub',:'B',false);
+select public.v1_podcast_quote(:'itemb','46000000-0000-0000-0007-000000000011')->'quote'->>'id' as quoteb11 \gset
+select public.v1_podcast_start(:'quoteb11','46000000-0000-0000-0007-000000000011','podcast-private-v1');
+reset role;
+select id as jq from app_private.podcast_jobs where funding_kind='customer' and state='queued' \gset
+select test.assert(public.worker_podcast_account_closing(:'B')=jsonb_build_object('canceled',1,'running',0),'queued job canceled at once');
+select test.assert((select state='canceled' and charged_credits=0 from app_private.podcast_jobs where id=:'jq'),'nothing charged');
+set role authenticated;
+select set_config('request.jwt.claim.sub',:'B',false);
+select public.v1_podcast_quote(:'itemb','46000000-0000-0000-0007-000000000012')->'quote'->>'id' as quoteb12 \gset
+select public.v1_podcast_start(:'quoteb12','46000000-0000-0000-0007-000000000012','podcast-private-v1');
+reset role;
+select id as jr from app_private.podcast_jobs where funding_kind='customer' and state='queued' \gset
+select gen_random_uuid() as pcr \gset
+select (public.worker_podcast_claim(:'pcr')->>'generation')::bigint as pgr \gset
+select test.assert(public.worker_podcast_account_closing(:'B')=jsonb_build_object('canceled',0,'running',1),'running job asked to stop');
+select test.assert((public.worker_podcast_advance(:'jr',:'pcr',:'pgr','checking')->>'canceled')::boolean,'running job stops at its next fenced step');
+
 -- Seed allowance cannot be exceeded; a fixture never shares a seed work key.
 select public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000003',:'month',1000000,true,'owner-lowered-for-test');
 select test.reject(format('select public.worker_podcast_seed_admit(%L,gen_random_uuid(),%L,%L)',:'O',:'approval','Second seed over allowance'),'seed_allowance_exhausted');
@@ -416,6 +464,9 @@ select public.worker_podcast_seed_admit(:'O','46000000-0000-0000-0003-0000000000
 select test.assert((:'fx'::jsonb->>'origin')='fixture' and (:'fx'::jsonb->>'operation_id') is null,'fixture job has no paid operation');
 select (:'fx'::jsonb->>'id') as fxj \gset
 select gen_random_uuid() as pcf \gset
+update app_private.paper_asset_policy set reconciliation_id=gen_random_uuid();
+select test.assert(public.worker_podcast_claim(gen_random_uuid())->>'reason'='asset_inventory_reconciling','no claim during an inventory scan');
+update app_private.paper_asset_policy set reconciliation_id=null;
 select (public.worker_podcast_claim(:'pcf')->>'generation')::bigint as pgf \gset
 select test.reject(format('select public.worker_podcast_attempt_begin(%L,%L,%s,gen_random_uuid(),%L,sha256(%L))',:'fxj',:'pcf',:'pgf','podcast_script','none'),'invalid_provider_route');
 select public.worker_podcast_advance(:'fxj',:'pcf',:'pgf','checking');
@@ -423,6 +474,9 @@ select public.worker_podcast_advance(:'fxj',:'pcf',:'pgf','synthesizing');
 select public.worker_podcast_advance(:'fxj',:'pcf',:'pgf','verifying');
 select public.worker_podcast_advance(:'fxj',:'pcf',:'pgf','publishing');
 select test.podcast_publish(:'fxj',:'pcf',:'pgf',null,repeat('f',64)) as fxp \gset
+update app_private.podcast_jobs set epoch=gen_random_uuid() where id=:'fxj';
+select test.reject(format('select public.worker_podcast_review(%L,gen_random_uuid(),%L,%L,%L)',:'O',:'fxp'::jsonb->'release'->>'release_id','publish','Pre-restore release'),'podcast_epoch_changed');
+update app_private.podcast_jobs set epoch=(select epoch from app_private.podcast_policy) where id=:'fxj';
 select public.worker_podcast_review(:'O',gen_random_uuid(),(:'fxp'::jsonb->'release'->>'release_id')::uuid,'publish','Fixture visible for staged journey');
 set role authenticated;
 select set_config('request.jwt.claim.sub',:'B',false);
@@ -434,6 +488,24 @@ reset role;
 -- Cleanup schedules objects of terminal jobs without a release; pending never-written objects close.
 select public.worker_podcast_cleanup(50) as cleanup \gset
 select test.assert(jsonb_array_length(:'cleanup'::jsonb->'objects')=0,'no orphaned objects in this fixture');
+
+-- An uncertain write keeps capacity and blocks inventory until resolved with evidence.
+insert into app_private.stored_objects(id,bucket,path,document_id,sha256,byte_count,media_type)
+ values('46000000-0000-0000-000a-000000000001','podcast-assets','shared/'||repeat('9',64)||'/audio.m4a',:'doc',decode(repeat('9',64),'hex'),10,'audio/mp4');
+insert into app_private.podcast_asset_uploads(id,job_id,claim_id,claim_generation,request_sha256,release_key)
+ values('46000000-0000-0000-000a-000000000002',:'S1',gen_random_uuid(),9,sha256('uncertain'),repeat('9',64));
+insert into app_private.podcast_asset_upload_members values('46000000-0000-0000-000a-000000000002','audio','46000000-0000-0000-000a-000000000001');
+insert into app_private.podcast_asset_writes(id,upload_id,object_id) values('46000000-0000-0000-000a-000000000003','46000000-0000-0000-000a-000000000002','46000000-0000-0000-000a-000000000001');
+select public.worker_set_pipeline_enabled(false);
+update app_private.pipeline_papers set claim_id=null,lease_until=null;
+select test.reject('select public.worker_asset_inventory_begin(gen_random_uuid())','asset_workers_not_drained');
+select test.reject(format('select public.worker_podcast_write_resolve(%L,%L,%L,%L)',:'A','46000000-0000-0000-000a-000000000003','not_written','listing-fixture'),'owner_required');
+select test.assert(not (public.worker_podcast_write_resolve(:'O','46000000-0000-0000-000a-000000000003','not_written','storage-listing-fixture')->>'replayed')::boolean,'resolved with evidence');
+select test.assert((public.worker_podcast_write_resolve(:'O','46000000-0000-0000-000a-000000000003','not_written','storage-listing-fixture')->>'replayed')::boolean,'resolution replay');
+select test.reject(format('select public.worker_podcast_write_resolve(%L,%L,%L,%L)',:'O','46000000-0000-0000-000a-000000000003','verified','listing-fixture'),'podcast_write_conflict');
+select public.worker_podcast_cleanup(50) as cleanup2 \gset
+select test.assert(:'cleanup2'::jsonb->'objects'->0->>'id'='46000000-0000-0000-000a-000000000001','orphan scheduled for confirmed deletion');
+select test.assert(public.worker_podcast_cleanup_confirm(array['46000000-0000-0000-000a-000000000001'::uuid])=1,'deletion confirmed');
 
 -- Inventory scope 3 includes the podcast bucket; scope-2 upload gates still open.
 select public.worker_set_pipeline_enabled(false);
@@ -452,7 +524,13 @@ set role authenticated;
 select set_config('request.jwt.claim.sub',:'A',false);
 reset role;
 select test.assert((select count(*)>0 from app_private.podcast_quotes where account_id=:'A'),'quotes exist before deletion');
+select public.worker_podcast_delivery_create(:'A',:'rel1',sha256('a-unredeemed'));
+select reserved_bytes as env_reserved from app_private.reader_transfer_months where period=:'month' and scope_id='environment' and kind='podcast' \gset
+select public.worker_podcast_account_closing(:'A');
 select public.worker_delete_account_begin(:'A') as del \gset
+select test.assert((select reserved_bytes=:'env_reserved'::bigint-2400000 from app_private.reader_transfer_months
+ where period=:'month' and scope_id='environment' and kind='podcast'),'unredeemed grant released from the environment total');
+select test.assert(not exists(select 1 from app_private.reader_transfer_months where scope_id=:'A'),'no account counter re-created');
 select test.assert(not exists(select 1 from app_private.podcast_quotes where account_id=:'A') and not exists(select 1 from app_private.podcast_requests where account_id=:'A'),'quotes and requests deleted');
 select test.assert((select state='withdrawn' from app_private.podcast_releases where id=:'rel3'),'private release withdrawn');
 select test.assert((select count(*)=3 from app_private.stored_objects where bucket='podcast-assets' and owner_id=:'A' and state='deleting'),'private audio scheduled for deletion');
