@@ -74,9 +74,18 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertTrue(element(app, otherEpisode).label.contains("2017"))
         capture(app, "Listen filter")
         // A topic chip returns to the topic's papers; Listen comes back with one tap.
-        app.buttons["feed.topic.cs.LG"].tap()
+        // The Feed's chips are shown, none selected, while Listen is (For you when offered, else the categories).
+        let feedChip = app.buttons["feed.forYou"].exists ? app.buttons["feed.forYou"] : app.buttons["feed.topic.cs.LG"]
+        XCTAssertTrue(feedChip.exists)
+        XCTAssertFalse(feedChip.isSelected, "Listen deselects the Feed's chips")
+        XCTAssertTrue(app.buttons["feed.listen"].isSelected)
+        feedChip.tap()
         XCTAssertTrue(card.waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.buttons["feed.listen"].isHittable)
+        XCTAssertFalse(app.buttons["feed.listen"].isSelected)
+        // The signed-out fixture can't reload a feed (its header then shows "Feed unavailable" without chips); when the
+        // chips are there, the chosen one is selected again.
+        if feedChip.exists { XCTAssertTrue(feedChip.isSelected, "The chosen Feed chip is selected again") }
     }
 
     func testPlayDismissKeepsPlayingInMiniPlayerAboveTabBar() {

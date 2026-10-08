@@ -110,11 +110,13 @@ struct PodcastListenView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     PodcastListenChip(model: model)
-                    ForEach(model.feedCategories, id: \.self) { category in
-                        ChipButton(title: ArxivTopics.name(for: category), selected: false) {
+                    // The Feed's own chips (FeedChipsBar's: For you, the reader's topics, or the categories), none selected
+                    // while Listen is; choosing one leaves Listen for that feed.
+                    ForEach(FeedChips.chips(personal: model.feedPersonal, categories: model.feedCategories, selected: model.currentFeedSelection)) { chip in
+                        ChipButton(title: chip.title, selected: false) {
                             center.listenSelected = false
-                            model.selectFeedCategory(category)
-                        }.accessibilityIdentifier("feed.topic.\(category)")
+                            model.selectFeed(chip.selection)
+                        }.accessibilityIdentifier(chip.id)
                     }
                 }
             }
