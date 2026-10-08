@@ -128,6 +128,11 @@ final class LibraryServiceTests: XCTestCase {
         XCTAssertEqual(requests[5].readContext, .uploadFull5(datasetEpoch: two))
         let permitsWrites = await service.permitsLegacyCommands()
         XCTAssertFalse(permitsWrites)
+        // Writes follow the current dataset only (migration 042); old v3/v5 observations are refused.
+        let current = await service.permitsCommands(in: .uploadFull5(datasetEpoch: two))
+        let replaced = await service.permitsCommands(in: .uploadFull5(datasetEpoch: one))
+        let legacyWrites = await service.permitsCommands(in: .legacyFull3)
+        XCTAssertTrue(current); XCTAssertFalse(replaced); XCTAssertFalse(legacyWrites)
     }
 
     func testRememberedV5CannotDowngradeWhenDiscoveryIsMissingOrTransient() async throws {

@@ -769,6 +769,13 @@ public struct LibraryCommandResponse: Decodable, Equatable, Sendable {
     public let replayed: Bool
     /// This is current state, not the historical state recorded by result.seq.
     public let entry: LibraryEntry?
+    /// v5 commands (migration 042) name the upload dataset the receipt committed in; v2 commands omit it.
+    public let datasetEpoch: UUID?
+    private enum CodingKeys: String, CodingKey { case result, replayed, entry, datasetEpoch = "dataset_epoch" }
+
+    init(result: LibraryCommandResult, replayed: Bool, entry: LibraryEntry?, datasetEpoch: UUID? = nil) {
+        self.result = result; self.replayed = replayed; self.entry = entry; self.datasetEpoch = datasetEpoch
+    }
 
     func validate() throws {
         guard result.revision >= 0, result.sequence.map({ $0 > 0 }) ?? true else { throw LibraryProtocolError.invalidCommand }
