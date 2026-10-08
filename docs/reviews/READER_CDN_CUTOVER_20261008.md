@@ -192,20 +192,29 @@ For the explicitly authorized public DPO canary only, initial success also write
 `verified-bundle.json` (0600, create-only) beside the report. That bounded snapshot
 has only source ID, manifest digest/base64 and member path/base64 values. It never
 serializes the descriptor, URL or session. Other source IDs refuse export before
-account creation. This enables a separate **local-only** rendering command without
-another hosted descriptor/member read; the browser command is still being prepared.
+account creation. Run this **local-only** command with the already installed web
+dependencies; it makes no hosted descriptor/member read:
 
-The small harness should build a temporary entry with the existing Vite reader
-plugin, import the production `verifyBundle` and `frameDocument`, and receive that
-memory payload through Playwright. Re-run browser manifest/provenance/image checks;
-never manufacture a `VerifiedBundle` or replace the renderer. Mount its document in
-the same `sandbox="allow-scripts"` iframe and production frame CSP. Serve only from
-a fresh `127.0.0.1` listener; reject every browser request outside that exact origin,
-block service workers, and give the harness no session or Supabase credentials.
-Close browser/server in `finally`.
+```sh
+node scripts/reader-render-proof.mjs .artifacts/reader-cutover/<run>/verified-bundle.json
+```
 
-Check bridge-ready, real paper text, expected equation/figure counts, nonzero MathML
-layout, loaded local images, and the existing selection bridge on a real paragraph.
-Save light/dark viewport screenshots and finite metrics below the safe run directory.
-This proves the hosted bounded bytes render through the current web frame; it does
-not prove hosted sign-in, library navigation, native rendering or global CDN edges.
+The harness builds an in-memory entry through the existing Vite reader plugin,
+imports production `verifyBundle` and `frameDocument`, and passes the artifact
+through Playwright. It repeats manifest/provenance/image verification and mounts
+the same `sandbox="allow-scripts"` iframe and frame CSP. A fresh `127.0.0.1`
+listener serves exactly `/` and `/proof.js`; browser routing denies everything
+else. The parent CSP additionally has `connect-src 'none'` and `worker-src 'none'`.
+No session or Supabase credentials are supplied. Browser execution has a 60-second
+deadline; browser/server close in `finally`.
+
+It checks every indexed heading/equation/figure, nonzero MathML layout, decoded
+data-URI images, horizontal overflow, bridge headings and selection of real prose.
+Six light/dark screenshots and finite `report.json` metrics go into a new
+`render-proof/` directory next to the artifact (0700 directory, 0600 files).
+That directory must not already exist. A local committed DPO sample passed with
+36 headings, 270 equations/MathML nodes, four figures/images, selection in both
+themes and zero browser errors; screenshots were visually reviewed. This local
+sample validates the harness only. Running on a successful hosted canary artifact
+proves those bounded bytes render through the current web frame; it does not prove
+hosted sign-in, library navigation, native rendering or global CDN edges.
