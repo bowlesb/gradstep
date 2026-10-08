@@ -316,8 +316,8 @@ export function usePodcastPlayer(account: string) {
 }
 export type PlayerModel = ReturnType<typeof usePodcastPlayer>;
 
-/** The docked player. `onEvidence` opens the cited passage (true) or reports that the paper isn't in the library (false). */
-export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean; onAdd?: (episode: Episode) => Promise<void> }) {
+/** Evidence: true opens the passage, false offers Add, null means the navigation was superseded. */
+export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel; onEvidence: (episode: Episode, evidence: Evidence) => boolean | null | Promise<boolean | null>; onAdd?: (episode: Episode) => Promise<void> }) {
   const { episode, detail, status, issue, playing, positionMs, rate } = player;
   const [expanded, setExpanded] = useState(false);
   const [notice, setNotice] = useState<Episode | null>(null);
@@ -411,9 +411,14 @@ export function PodcastDock({ player, onEvidence, onAdd }: { player: PlayerModel
                         <span className="dock-line">{s.text}</span></button>
                       {s.evidence.length > 0 && (
                         <div className="dock-evidence">{s.evidence.map(ev => (
-                          <button key={ev.id} className="tag evidence" onClick={() => {
-                              // Jumping to the paper folds the dock back to its bar, so the passage gets the room.
-                              if (onEvidence(episode, ev)) setExpanded(false); else setNotice(episode);
+                          <button key={ev.id} className="tag evidence" onClick={async () => {
+                              const owner = auth.snapshot(), releaseID = episode.releaseID;
+                              try {
+                                const opened = await onEvidence(episode, ev);
+                                if (owner.signal.aborted || auth.snapshot().generation !== owner.generation || evidenceOwner.current !== releaseID) return;
+                                // Only the winning navigation folds the dock. Superseded navigation is neither a jump nor a missing paper.
+                                if (opened === true) setExpanded(false); else if (opened === false) setNotice(episode);
+                              } catch { /* The host owns navigation/save errors; preserve the transcript. */ }
                             }}
                             title={`From the paper: “${ev.quote}”`} aria-label={`Open the cited passage${ev.section ? ` in section ${ev.section}` : ''}: ${ev.quote}`} data-testid="podcast-evidence">
                             “{ev.quote.length > 72 ? ev.quote.slice(0, 70) + '…' : ev.quote}”{ev.section ? ` · §${ev.section}` : ''}</button>))}</div>)}
