@@ -125,11 +125,14 @@ their old contracts and grants. Cross-table source/owner checks need composite f
 with transactionally enforced residual predicates and adversarial tests. Count quotes/events/attempts and
 private object inventory against capacity; do not build an unlimited ancillary table behind a bounded audio table.
 
-No new cleartext server table for listening positions/bookmarks. Extend the existing encrypted client event
-format with account-bound opaque entity IDs and payloads containing release, position, play session/sequence,
-completed state and saved status. Verify unknown-kind behavior on older clients before sending new events;
-use capability/format negotiation or a separately versioned encrypted stream if old clients cannot skip
-unknown events without losing data. Do not break chat decryption/replay to add audio.
+No new cleartext server table for listening positions/bookmarks. Use a **separately versioned encrypted
+podcast stream** with the existing account/device key custody, account-bound opaque entity IDs and payloads
+containing release, position, play session/sequence, completed state and saved status. Independent review
+confirmed that current Swift `PrivateEvent.Kind` is a closed Codable enum and web `decodeEvent` rejects
+unknown kinds: adding podcast events to the existing stream would stall older clients' chat/history replay.
+Keep that stream and its cursor unchanged. Before SQL, specify a domain-separated authenticated envelope,
+independent cursor, bounded event retention/compaction, key-rotation/recovery behavior and old-client tests.
+Sharing key custody does not mean reusing an encryption nonce or its associated-data domain.
 
 ### Exact integration points and migration order
 
@@ -171,6 +174,16 @@ grants/locks/limits, deploy dark with zero paid allowance, certify all buckets, 
 activation is explicit. Rollback disables admission and catalog publication while allowing settlement,
 deletion and safe reads of already-verified downloads; applied migrations remain immutable.
 
+**Restore quarantine is an implementation gate.** `scripts/restore-local.py` explicitly enumerates policies;
+it will not disable a new `podcast_policy` automatically. Extend restore quarantine and its tests to disable
+podcast admission, worker grants, uploads, publication and delivery, rotate execution/dataset epochs, and
+retain outstanding provider and object liabilities. Every quote/start/claim/provider-grant/write-grant/
+publication/delivery mutation must transactionally check the current epoch, not merely copy an epoch into
+the quote. A restored backup may predate an already-consumed grant; neither the restored row nor its absence
+can authorize another paid call or upload. Reconcile post-checkpoint provider attempts and physical objects
+before re-enabling the affected work. Require real-session restore/claim/cancellation races and stale-worker
+tests, including an upload authorized before quarantine that completes afterward.
+
 ## Financial and job lifecycle
 
 `quoted -> queued -> scripting -> checking -> synthesizing -> verifying -> publishing -> ready`.
@@ -196,7 +209,10 @@ returned model identities. New rounds may use only the unspent parent envelope. 
 its full provider ceiling and pauses paid continuation; a lease expiry does not mean the vendor did no work.
 Finishing the same attempt is replay-safe; retrying a finish never sends speech again. Recovery with no
 provider query API may require audited vendor evidence/manual reconciliation, and never automatically costs
-another generation. Stale workers cannot upload/publish after a new claim or canceled request.
+another generation. Stale workers cannot obtain a new upload grant or publish after a new claim, restored
+epoch or canceled request. An already-issued Storage PUT cannot be retracted by changing a database row;
+retain its planned bytes and uncertain liability until terminal-writer evidence permits reconciliation or
+reclamation. Lease expiry and cancellation alone never prove the object cannot still arrive.
 
 Before submission, cancel releases the customer's unused hold and detaches interest. During a provider
 call, mark cancel requested, stop future calls, collect/settle confirmed usage where possible; no promised

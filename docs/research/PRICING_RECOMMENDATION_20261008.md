@@ -125,8 +125,9 @@ observed rates separately and stop generation when its quality/sub-budget gate i
 
 ## Fixed costs, free users and Tavily
 
-Illustrative monthly envelope: $25 Supabase + $30 Tavily + $2 request-based worker allowance + $8 for
-backup/build/registry/secrets/domain allocation + **$2 podcast seed allocation = $67**. Only the $30 Tavily
+Illustrative first-month envelope: $25 Supabase + $30 Tavily + $2 request-based worker allowance + $8 for
+backup/build/registry/secrets/domain allocation + **$2 one-time podcast pilot = $67**. Later months in this
+example total $65 before variable provider use, with no recurring podcast seed allowance. Only the $30 Tavily
 commitment is taken directly from the owner's invoice; Supabase may be incremental $10 for another project
 in an already-paid organization instead of $25, and the remaining numbers are placeholders requiring invoice
 attribution. The $2 podcast allocation is **inside** the existing $25 provider cap, never on top of it;
@@ -144,7 +145,8 @@ of the calendar month, separate from the sixth-of-month invoice. Record the actu
 used baseline before switching; never reset the allowance because a subscription changed. Exhaustion should
 disable extra web search clearly while paper-only answers and free metadata remain usable. Native Anthropic
 search is currently gated off because its hidden result-token cost lacks a proven bound; it is not an
-automatic uncapped fallback. A free-plan scenario lowers the illustrative fixed envelope from $67 to $37.
+automatic uncapped fallback. A free-plan scenario lowers this illustrative first-month envelope from $67
+to $37, and later fixed months from $65 to $35; variable provider use remains separate.
 [Tavily pricing and resets](https://www.tavily.com/pricing).
 
 Free download should permit reading retained papers and a small shared podcast sample, with **no automatic
