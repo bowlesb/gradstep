@@ -155,8 +155,8 @@ test('download locations: open hosts first, PubMed Central through open data, re
   assert.deepEqual(downloadLocations(null), []);
 });
 
-test('the pipeline sweeps automatic retries before it claims, and never stops on that sweep', async () => {
-  const run = async (enabled: boolean, sweep: () => unknown) => {
+test('the pipeline sweeps automatic retries and credit resumes before it claims, and never stops on those sweeps', async () => {
+  const run = async (enabled: boolean, sweep: () => unknown, resume: () => unknown = () => null, heal: () => unknown = () => null) => {
     const calls: string[] = [];
     const logs: string[] = [];
     const deps = {
@@ -164,6 +164,8 @@ test('the pipeline sweeps automatic retries before it claims, and never stops on
         calls.push(name);
         if (name === 'worker_pipeline_policy') return { enabled, max_pdf_bytes: 1, max_ocr_pages: 1, renderer_version: 'v' };
         if (name === 'worker_pipeline_auto_retry') { assert.deepEqual(params, { p_min_interval_seconds: 20 }); return sweep(); }
+        if (name === 'worker_pipeline_resume_credits') { assert.deepEqual(params, { p_min_interval_seconds: 10 }); return resume(); }
+        if (name === 'worker_pipeline_heal') { assert.deepEqual(params, { p_min_interval_seconds: 60 }); return heal(); }
         return null;
       },
       log(event: string) { logs.push(event); }, uuid: () => '33333333-3333-4333-8333-333333333333', now: () => 0,
@@ -171,10 +173,16 @@ test('the pipeline sweeps automatic retries before it claims, and never stops on
     await runPipeline(deps, 1e12);
     return { calls, logs };
   };
-  const swept = await run(true, () => ({ retried: 2, healed: 1, postponed: 0 }));
-  assert.deepEqual(swept.calls, ['worker_pipeline_policy', 'worker_expire_stale_chat_operations', 'worker_asset_maintenance', 'worker_pipeline_auto_retry', 'worker_pipeline_claim']);
-  assert.ok(swept.logs.includes('auto_retry'));
-  const broken = await run(true, () => { throw new Error('function missing (027 not applied)'); });
-  assert.ok(broken.calls.includes('worker_pipeline_claim') && broken.logs.includes('auto_retry_failed'));
-  assert.ok(!(await run(false, () => null)).calls.includes('worker_pipeline_auto_retry'), 'nothing is retried while the pipeline is off');
+  const swept = await run(true, () => ({ retried: 2, healed: 1, postponed: 0 }), () => ({ swept: true, resumed: 1, limited: 0 }),
+    () => ({ swept: true, scheduled: 1, stalled: 1 }));
+  assert.deepEqual(swept.calls, ['worker_pipeline_policy', 'worker_expire_stale_chat_operations', 'worker_asset_maintenance', 'worker_pipeline_auto_retry',
+    'worker_pipeline_resume_credits', 'worker_pipeline_heal', 'worker_pipeline_claim']);
+  assert.ok(swept.logs.includes('auto_retry') && swept.logs.includes('credit_resume') && swept.logs.includes('heal'));
+  const broken = await run(true, () => { throw new Error('function missing (027 not applied)'); }, () => { throw new Error('function missing (040 not applied)'); },
+    () => { throw new Error('function missing (041 not applied)'); });
+  assert.ok(broken.calls.includes('worker_pipeline_claim') && broken.logs.includes('auto_retry_failed') && broken.logs.includes('credit_resume_failed')
+    && broken.logs.includes('heal_failed'));
+  const off = await run(false, () => null);
+  assert.ok(!off.calls.some(name => ['worker_pipeline_auto_retry', 'worker_pipeline_resume_credits', 'worker_pipeline_heal'].includes(name)),
+    'nothing is retried, resumed or healed while the pipeline is off');
 });

@@ -136,6 +136,10 @@ struct AccountView: View {
             } header: { Text("Sync") } footer: {
                 Text("Sync keeps your library, chats and notes the same on every device where you sign in.")
             }
+            // QR device approval (DeviceApprovalViews.swift): add a browser or another device without the recovery code.
+            Section {
+                NavigationLink("Add a device") { AddDeviceView(model: model) }.accessibilityIdentifier("account.addDevice")
+            } footer: { Text("Approve a browser or another device by scanning the code it shows, instead of typing your recovery code.") }
             Section {
                 Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
             } footer: { Text("Encrypted pending work stays on this device for your next sign-in.") }

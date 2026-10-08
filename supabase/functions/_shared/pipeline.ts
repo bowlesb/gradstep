@@ -3,7 +3,7 @@
 // returned by worker_pipeline_claim; see migration 014. Dependencies are
 // injected so Node tests can drive the stages with fakes.
 import { PDFDocument } from 'pdf-lib';
-import { arxivAtomRecord, arxivCatalogArguments, arxivReuseEvidence, arxivURLs } from './arxiv.ts';
+import { arxivAtomRecord, arxivCatalogArguments, arxivRawRecord, arxivReuseEvidence, arxivURLs } from './arxiv.ts';
 import { unpackReaderZip } from './archive.ts';
 import { uploadInventoried } from './asset-upload.ts';
 import { sha256 } from './http.ts';
@@ -100,6 +100,19 @@ export function contentType(path: string): string {
     ?? 'application/octet-stream';
 }
 
+/** arXiv answered 429 or 5xx: it is throttling us or busy. Transient (`rate_limited`), with the wait it
+ * asked for when it said (Retry-After), bounded to an hour. */
+export class SourceBusy extends Error {
+  readonly host: string;
+  readonly retryAfterSeconds: number | null;
+  constructor(host: string, retryAfterSeconds: number | null) { super('rate_limited'); this.host = host; this.retryAfterSeconds = retryAfterSeconds; }
+}
+export function retryAfterSeconds(value: string | null, now: number): number | null {
+  if (!value) return null;
+  const seconds = /^\s*\d{1,6}\s*$/.test(value) ? Number(value) : Math.ceil((Date.parse(value) - now) / 1000);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds, 3600) : null;
+}
+
 /** Bounded GET restricted to arXiv hosts; follows at most three same-site redirects. */
 export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: number, accept: string): Promise<Uint8Array> {
   let current = new URL(url);
@@ -117,7 +130,10 @@ export async function fetchArxiv(fetcher: typeof fetch, url: string, maximum: nu
       current = new URL(location, current); continue;
     }
     if (response.status === 404) { void response.body?.cancel().catch(() => {}); throw new PermanentFailure('metadata_unavailable'); }
-    if (response.status === 429 || response.status >= 500) { void response.body?.cancel().catch(() => {}); throw new Error('rate_limited'); }
+    if (response.status === 429 || response.status >= 500) {
+      void response.body?.cancel().catch(() => {});
+      throw new SourceBusy(current.hostname, retryAfterSeconds(response.headers.get('retry-after'), Date.now()));
+    }
     if (response.status !== 200 || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error('download_failed'); }
     const declared = response.headers.get('content-length');
     if (declared && Number(declared) > maximum) { void response.body.cancel().catch(() => {}); throw new PermanentFailure('too_large'); }
@@ -217,13 +233,26 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
   if (isWeb(e)) return stageWebMetadata(deps, e, claim);
   const reference = { sourceID: e.source_id, revision: e.requested_revision > 0 ? e.requested_revision : null };
   const urls = arxivURLs(reference);
+  // Two arXiv requests in two reserved slots of the global pacing gate: the Atom API (catalog record) and
+  // OAI-PMH arXivRaw (license evidence). When the Atom API throttles us or is unreachable, the record comes
+  // from arXivRaw instead (same identity, same dates), so a paper is not held up for minutes by one busy
+  // endpoint. arXivRaw itself is required: the license evidence exists nowhere else.
   const spacing = await arxivWait(deps, 2);
-  const atom = await fetchArxiv(deps.fetch, urls.atom, MiB, 'application/atom+xml');
-  let record;
-  try { record = arxivAtomRecord(atom, reference); }
-  catch (error) { if (error instanceof SourceError && error.message === 'source_not_found') throw new PermanentFailure('metadata_unavailable'); throw error; }
+  const notFound = (error: unknown): never => {
+    if (error instanceof SourceError && error.message === 'source_not_found') throw new PermanentFailure('metadata_unavailable');
+    throw error;
+  };
+  let atom: Uint8Array | null = null;
+  try { atom = await fetchArxiv(deps.fetch, urls.atom, MiB, 'application/atom+xml'); }
+  catch (error) {
+    if (!(error instanceof SourceBusy) && !(error instanceof Error && error.message === 'source_unavailable')) throw error;
+    deps.log('arxiv_busy', { paper: e.id, endpoint: 'atom', fallback: 'oai' });
+  }
+  let fromAtom: ReturnType<typeof arxivAtomRecord> | null = null;
+  if (atom) { try { fromAtom = arxivAtomRecord(atom, reference); } catch (error) { notFound(error); } }
   await deps.sleep(spacing);
   const raw = await fetchArxiv(deps.fetch, urls.raw, MiB, 'application/xml');
+  const record = fromAtom ?? (() => { try { return arxivRawRecord(raw, reference); } catch (error) { return notFound(error); } })();
   const reuse = await arxivReuseEvidence(raw, record, new Date(deps.now()).toISOString());
   const args = arxivCatalogArguments(record);
   // Ineligible papers are converted privately; keep the observed license URL
@@ -231,7 +260,7 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
   const observedLicense = /<license>\s*(https?:\/\/[A-Za-z0-9.-]+\/[ -~]{0,400}?)\s*<\/license>/.exec(new TextDecoder().decode(raw))?.[1] ?? null;
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_metadata', { ...claim, p_revision: record.revision, p_metadata: args.p_metadata,
     p_eligible: reuse.eligible, p_license_uri: reuse.eligible ? reuse.licenseURI : observedLicense, p_evidence: reuse.eligible ? reuse.evidence : null });
-  deps.log('metadata', { paper: e.id, eligible: reuse.eligible, reason: reuse.eligible ? null : reuse.reason });
+  deps.log('metadata', { paper: e.id, eligible: reuse.eligible, reason: reuse.eligible ? null : reuse.reason, record: fromAtom ? 'atom' : 'oai' });
   return { entry };
 }
 
@@ -366,6 +395,8 @@ async function stageFund(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy
   const entry = await deps.rpc<PaperEntry & { funding: string }>('worker_pipeline_fund', { ...claim, p_page_limit: pageLimit,
     p_options_sha256: hex(identity.optionsSHA256), p_request_sha256: hex(identity.requestSHA256) });
   deps.log('fund', { paper: e.id, funding: entry.funding, page_limit: pageLimit });
+  // A budget or active-operation pause (retried every 5 min) reads as waiting at once (migration 041).
+  if (entry.funding === 'paused') await projectWait(deps, e.id);
   return { entry, stop: entry.funding === 'waiting' || entry.funding === 'paused' ? 'release' : undefined };
 }
 
@@ -590,6 +621,7 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
     if (error instanceof Deferral) {
       await sync();
       await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: Math.min(error.seconds, 3600) }).catch(() => {});
+      await projectWait(deps, claimed.id);
       return;
     }
     const permanent = error instanceof PermanentFailure;
@@ -605,17 +637,33 @@ export async function processPaper(deps: PipelineDeps, claimed: PaperEntry, poli
     }
     // Provider-side stages hold credits: never fail them on transient errors.
     const failable = ['metadata', 'private_split', 'download', 'ocr_fund', 'render'].includes(entry.stage);
-    const fail = failable && (permanent || failures >= 5);
+    // A source throttling (or unreachable for) the metadata lookup is waited out, with the wait it asked for,
+    // for about an hour before the import fails; meanwhile readers see "Waiting to continue" (migration 040).
+    const throttled = entry.stage === 'metadata' && ['rate_limited', 'source_unavailable'].includes(code);
+    const fail = failable && (permanent || failures >= (throttled ? THROTTLED_METADATA_FAILURES : 5));
+    const backoff = Math.min(600, 15 * 2 ** Math.min(failures, 6));
+    const asked = error instanceof SourceBusy && error.retryAfterSeconds !== null ? Math.min(error.retryAfterSeconds, 3600) : 0;
     // A download that kept failing because its host was busy or unreachable says so (and is
     // retried automatically later; migration 027).
     const unreachable = entry.stage === 'download' && ['rate_limited', 'download_failed', 'source_unavailable'].includes(code);
     const stageCode = unreachable ? 'source_unavailable'
       : ({ metadata: 'metadata_unavailable', download: 'download_failed' } as Record<string, string>)[entry.stage] ?? 'conversion_failed';
     const resume = permanent ? error.resume : entry.stage === 'private_split' ? 'metadata' : entry.stage;
-    await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: fail ? 0 : Math.min(600, 15 * 2 ** Math.min(failures, 6)),
+    await deps.rpc('worker_pipeline_defer', { ...claim, p_seconds: fail ? 0 : Math.max(backoff, asked),
       p_error_code: fail ? (permanent ? code : stageCode) : code.slice(0, 64), p_fail: fail,
       p_resume_stage: fail ? (['metadata', 'download', 'ocr_fund', 'render'].includes(resume ?? '') ? resume : null) : null }).catch(() => {});
+    if (!fail) await projectWait(deps, claimed.id);
   }
+}
+
+/** Metadata failures tolerated while the source is throttling us (30 s … 10 min apart: about an hour). */
+export const THROTTLED_METADATA_FAILURES = 10;
+
+/** Readers see a wait as it starts (migration 040), not an estimate counting on towards 99 %. Best effort:
+ * older databases without the RPC, or a skipped projection, change nothing. */
+async function projectWait(deps: PipelineDeps, paperID: string): Promise<void> {
+  try { await deps.rpc('worker_pipeline_project_progress', { p_paper_id: paperID }); }
+  catch (error) { deps.log('progress_failed', { paper: paperID, code: error instanceof PipelineRPCError ? error.code : 'unknown' }); }
 }
 
 /** Advances one claimed paper per invocation, then hands off to a fresh
@@ -634,6 +682,17 @@ export async function runPipeline(deps: PipelineDeps, deadline: number): Promise
   await deps.rpc<{ retried?: number; healed?: number; postponed?: number } | null>('worker_pipeline_auto_retry', { p_min_interval_seconds: 20 })
     .then(r => { if (r && (r.retried || r.healed || r.postponed)) deps.log('auto_retry', { retried: r.retried ?? 0, healed: r.healed ?? 0, postponed: r.postponed ?? 0 }); })
     .catch(() => deps.log('auto_retry_failed'));
+  // Imports waiting on credits restart once the account's balance covers them (migration 040), oldest
+  // first, so this claim can already pick them up. At most one sweep every 10 s; never blocks the pipeline.
+  await deps.rpc<{ resumed?: number; limited?: number } | null>('worker_pipeline_resume_credits', { p_min_interval_seconds: 10 })
+    .then(r => { if (r && (r.resumed || r.limited)) deps.log('credit_resume', { resumed: r.resumed ?? 0, limited: r.limited ?? 0 }); })
+    .catch(() => deps.log('credit_resume_failed'));
+  // Maintenance (migration 041): every retryable failure gets its bounded automatic retries, and a paper that
+  // has sat in a non-paid stage for hours while someone waits is failed with its reason and retried. At most
+  // once a minute; never blocks the pipeline.
+  await deps.rpc<{ scheduled?: number; stalled?: number } | null>('worker_pipeline_heal', { p_min_interval_seconds: 60 })
+    .then(r => { if (r && (r.scheduled || r.stalled)) deps.log('heal', { scheduled: r.scheduled ?? 0, stalled: r.stalled ?? 0 }); })
+    .catch(() => deps.log('heal_failed'));
   const claimed = await deps.rpc<PaperEntry | null>('worker_pipeline_claim', { p_claim_id: deps.uuid() });
   if (!claimed) return { processed: 0 };
   await processPaper(deps, claimed, policy, deadline);

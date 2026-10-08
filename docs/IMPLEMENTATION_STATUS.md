@@ -1,7 +1,36 @@
 # Implementation status
 
-Updated 2026-10-07 (library foundation deployed to staging; cost work and takeover in progress). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-08 UTC (Claude takeover; build 18 installed, library-write and table fixes in validation). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
+
+## Credits resume, arXiv fallback, faster chat — staging 2026-10-08
+
+- **Migration 040** (`credit_resume_and_source_waits`) applied to staging with the pipeline paused (migrate-supabase.py:
+  earlier applied files verified, 040 applied and verified), then the pipeline re-enabled.
+- **Pipeline worker** `gradstep-pipeline-00011-lmv` (normal deploy): its workflow checks passed 13/13 with one warning
+  (7 imports waiting on credits). Within minutes the new sweep resumed one owner-account import (2508.02518, 13 pages)
+  that had been waiting on credits since 2026-10-07 23:49.
+- **Chat function** deployed. Its checks passed 15 of 16 (`chat.smoke` 2.6 s, `ingest.not-found`; $0.007 settled).
+  `pipeline.stuck` failed on that same resumed import: it counts age from the original Add, and the import was then
+  waiting out an OCR funding pause. Fixed by the self-healing work (041).
+- **Migration 041** (self-healing imports) applied the same night, then worker `gradstep-pipeline-00012-9xj`
+  (checks 13/13, one warning: 7 imports waiting on credits). The owner's stray import 2610.07426 ("Details
+  unavailable") is now `done`.
+- **QR device approval** shipped in build 18 and the browser reader (no migration): a browser shows a QR and a six-digit number,
+  and the phone approves it under Settings › Account › Add a device. Tests: web 146/146; wire check passes, including
+  Swift approving a Node key and refusing a substituted one; the iOS Simulator build succeeds. Ship order: iOS/Mac
+  build 18 first, then the web reader. Not yet tried against staging or with a physical camera.
+- **TestFlight build 18** (iOS and Mac, main `08381c7`): build 17 plus QR device approval. Both confirmed VALID by
+  App Store Connect on takeover. The owner installed 18 and confirms Add remains disabled and tables inadequate.
+  The unfinished 042 client and table work are required in the next build; 18 contains neither fix.
+- **Browser reader redesign, milestone 1**, live at https://app.gradstep.ai (Pages deployment `a405d26c`, same
+  commit). Layout: side panel, the paper or library in the centre, a chat panel, as in the legacy web app. Also: a
+  full-width library table, a contents tree, find in paper, a figure gallery, the Feed, Add paper by DOI or link, and
+  QR approval on the restore screen. Before deploying: web tests 152/152, Playwright 51 passed with 27 skipped. After
+  deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel is
+  still a placeholder; milestone 2 (encrypted chat) is in progress.
+- **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
+  build are in progress).
 
 ## Library foundation and independent reviews — 2026-10-07
 
@@ -39,12 +68,12 @@ pass 224 backend, 213 Core, 48 app regressions, eight iPhone journeys, iPad resi
 Catalyst build. Matching backend deployment is required before shipping these actions in build 17.
 See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
 
-**Purchase incident:** owner's TestFlight screenshot was found and inspected. Staging returned `invalid`
-and has never recorded a successful App Store receipt. Reviewed diagnostic-only `store-sync` v36 is live
-(17:50 PDT, source `834db5e`); its public-certificate probe confirms missing certificate operations in the
-hosted runtime. The database remains through032 and credit/verification rules are unchanged. A supported
-runtime repair is being designed; purchases are not fixed yet. Main `64c0873` corrects misleading native
-retry wording for the next build. See [evidence](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
+**Purchase incident, updated at takeover:** the earlier `store-sync` v36 probe identified missing Edge certificate
+operations; the private Node verifier and 033–038 were subsequently deployed. At 05:14 UTC on October 8,
+read-only staging evidence confirms three Sandbox packs granted 400 + 400 + 200 credits, with exact replays
+recorded separately. The last grant reached the Sandbox monthly allowance. No production purchase claim follows.
+The applied migration ledger contains 39 files through 041, all matching main's SHA-256 checksums.
+See [current purchase status](architecture/PURCHASES.md) and [original incident](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
 
 ## Browser reader live and Mac on TestFlight — 2026-10-07
 

@@ -6,6 +6,7 @@
   <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>NSCameraUsageDescription</key><string>Scan the code a new device shows, to add it to your account.</string>
   <key>NSMicrophoneUsageDescription</key><string>Test builds only: your voice is recorded with a test session you start in Settings, to explain what you see. It stays on this device until you share the session.</string>
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>

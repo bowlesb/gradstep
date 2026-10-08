@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { arxivAtomRecord, arxivCatalogArguments, arxivReference, arxivReuseEvidence, arxivURLs } from '../../supabase/functions/_shared/arxiv.ts';
+import { readFileSync } from 'node:fs';
+import { arxivAtomRecord, arxivCatalogArguments, arxivRawRecord, arxivReference, arxivReuseEvidence, arxivURLs } from '../../supabase/functions/_shared/arxiv.ts';
 import { sourceXML } from '../../supabase/functions/_shared/source-xml.ts';
 
 const bytes = (value: string) => new TextEncoder().encode(value);
@@ -196,4 +197,39 @@ test('OAI identity, duplicates, deleted records and malformed version history ca
   await assert.rejects(arxivReuseEvidence(deleted, pinned(), observed), /source_not_found/);
   const spoofed = bytes(new TextDecoder().decode(raw()).replace('http://arxiv.org/OAI/arXivRaw/', 'https://evil.test/Raw'));
   await assert.rejects(arxivReuseEvidence(spoofed, pinned(), observed), /invalid_source_metadata/);
+});
+
+test('arXivRaw gives the same catalog record as the Atom API (the fallback when Atom is throttled)', async () => {
+  const fixtures = new URL('../fixtures/arxiv/', import.meta.url);
+  const realAtom = new Uint8Array(readFileSync(new URL('2305.18290-atom.xml', fixtures)));
+  const realOAI = new Uint8Array(readFileSync(new URL('2305.18290-oai.xml', fixtures)));
+  const fromAtom = arxivAtomRecord(realAtom, arxivReference('2305.18290'));
+  const fromRaw = arxivRawRecord(realOAI, arxivReference('2305.18290'));
+  assert.deepEqual(fromRaw, fromAtom);
+  assert.equal((await arxivReuseEvidence(realOAI, fromRaw, observed)).eligible, true, 'license evidence verifies against the fallback record');
+  // An older pinned version: its own date, never eligible for reuse (the license describes the latest).
+  const older = arxivRawRecord(realOAI, arxivReference('2305.18290v1'));
+  assert.equal(older.revision, 1);
+  assert.equal(older.metadata.updated_at, '2023-05-29T17:57:46.000Z');
+  assert.equal((await arxivReuseEvidence(realOAI, older, observed)).eligible, false);
+  assert.throws(() => arxivRawRecord(realOAI, arxivReference('2305.18290v9')), /source_not_found/);
+  assert.throws(() => arxivRawRecord(realOAI, arxivReference('2305.18291')), /source_identity_mismatch/);
+});
+
+test('arXivRaw authors, categories and journal reference are parsed into the catalog shape', () => {
+  const record = arxivRawRecord(raw(undefined, ['v1', 'v2'], '1706.03762', `<title>A  raw
+    title</title><authors>Ada Example (Example Lab), Bob Smith, Jr. and Cy D. Moe (Univ. (East))</authors>
+    <categories>cs.LG stat.ML cs.LG</categories><journal-ref>NeurIPS 2017</journal-ref><abstract> An abstract. </abstract>`),
+  arxivReference('1706.03762'));
+  assert.equal(record.revision, 2);
+  assert.equal(record.metadata.title, 'A raw title');
+  assert.deepEqual(record.metadata.authors, ['Ada Example', 'Bob Smith, Jr.', 'Cy D. Moe']);
+  assert.deepEqual(record.metadata.categories, ['cs.LG', 'stat.ML']);
+  assert.equal(record.metadata.venue, 'NeurIPS 2017');
+  assert.equal(record.metadata.abstract, 'An abstract.');
+  assert.throws(() => arxivRawRecord(raw(undefined, ['v1'], '1706.03762', '<authors>A</authors>'), arxivReference('1706.03762')), /invalid_source_metadata/, 'a title is required');
+  assert.throws(() => arxivRawRecord(raw(undefined, ['v1'], '1706.03762', '<title>T</title><categories>cs.LG $bad</categories>'), arxivReference('1706.03762')),
+    /invalid_source_metadata/);
+  assert.throws(() => arxivRawRecord(bytes(`<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"><error code="idDoesNotExist">no</error></OAI-PMH>`),
+    arxivReference('1706.03762')), /source_not_found/);
 });
