@@ -131,6 +131,17 @@ removed executor work) is retained below where useful and in git history.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Feed topics and popularity on staging — 2026-10-08
+
+- **Encrypted backup:** checkpoint `.artifacts/backups/20261008T184847Z-234de2ccffd2` (1,405 objects).
+- **Migration 046** (`feed_topics_popularity`, renumbered from 048) applied and verified, then `discover` and
+  `feed-refresh` deployed.
+- **Workflow checks:** 16/16 pass, $0 provider cost.
+- **Live policy:** pool refresh is on (every 120 min via the existing 30-min cron) and Hugging Face popularity is on.
+  **Serving is off.** For you and topic chips reach readers only after `worker_set_feed_policy('staff', true)`, which
+  waits for an iOS build containing the app change.
+- **Local tests before deploy:** backend 413/413, database suite 226 PASS, Simulator build OK.
+
 ## Ownership split and browser durability handover — 2026-10-08
 
 - **Ownership:** at the owner's direction, Codex owns the web app (`apps/web`) and Mac-specific work. Claude owns
