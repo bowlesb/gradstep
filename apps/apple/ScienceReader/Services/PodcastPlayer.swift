@@ -227,7 +227,7 @@ final class PodcastPlayer {
     private func updateNowPlaying() {
         guard let episode else { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
         var info: [String: Any] = [
-            MPMediaItemPropertyTitle: episode.title,
+            MPMediaItemPropertyTitle: episode.displayTitle,
             MPMediaItemPropertyArtist: episode.fixture ? "Gradstep · Synthetic fixture" : "Gradstep · AI audio",
             MPMediaItemPropertyPlaybackDuration: Double(durationMS) / 1000,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: Double(currentMS) / 1000,

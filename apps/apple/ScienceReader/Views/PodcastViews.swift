@@ -140,7 +140,7 @@ struct PodcastEpisodeRow: View {
                 .background(Color.accentColor.opacity(0.14), in: Circle())
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(episode.title).font(.headline).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                Text(episode.displayTitle).font(.headline).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Text(metadata).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 PodcastBadges(episode: episode, kept: center.isKept(episode.id),
                               remainingMS: center.resumePosition(episode.id).map { episode.durationMS - $0 },
@@ -176,7 +176,7 @@ struct PodcastEpisodeRow: View {
     }
 
     private var spokenLabel: String {
-        var parts = [episode.title]
+        var parts = [episode.displayTitle]
         if let year = episode.year { parts.append(String(year)) }
         parts.append(PodcastDuration.spoken(milliseconds: episode.durationMS))
         if let topic = episode.topic { parts.append(topic) }

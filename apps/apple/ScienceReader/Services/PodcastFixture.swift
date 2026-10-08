@@ -33,7 +33,8 @@ actor PodcastFixtureTransport: PodcastTransport {
 
     func catalog(after: String?, limit: Int) async throws -> PodcastCatalogPage {
         try await Task.sleep(for: .milliseconds(150))
-        let shared = empty ? [] : episodes.values.map(\.episode).filter { $0.scope == .shared }.sorted { $0.title < $1.title }
+        let order = Self.catalogSpecs.map(\.id)
+        let shared = empty ? [] : order.compactMap { episodes[$0]?.episode }.filter { $0.scope == .shared }
         return PodcastCatalogPage(episodes: shared.map(\.summary), next: nil, capabilities: Self.capabilities)
     }
 
@@ -118,7 +119,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     struct Line { let speaker: PodcastSpeaker; let text: String; let seconds: Double; var chapter: String? = nil; var evidence: [String] = []; var math: [PodcastMath] = [] }
-    struct Spec { let id: UUID; let scope: PodcastScope; let document: UUID; let title: String; let year: Int?; let topic: String?
+    struct Spec { let id: UUID; let scope: PodcastScope; let document: UUID; let title: String?; let year: Int?; let topic: String?
         let authors: [String]; let source: PodcastSource?; let chapters: [(String, String)]; let lines: [Line] }
 
     static let catalogSpecs: [Spec] = [
@@ -152,7 +153,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     ]
 
     static func privateSpec(document: UUID) -> Spec {
-        Spec(id: UUID(), scope: .private, document: document, title: "Synthetic fixture: your private episode", year: 2026, topic: nil,
+        Spec(id: UUID(), scope: .private, document: document, title: nil, year: nil, topic: nil,
              authors: [], source: nil, chapters: [("c1", "Summary")], lines: [
                 Line(speaker: .explainer, text: "A labeled synthetic private episode, made with zero spend.", seconds: 5, chapter: "c1"),
                 Line(speaker: .skeptic, text: "Only this account can play it.", seconds: 4, chapter: "c1"),

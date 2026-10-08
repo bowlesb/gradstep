@@ -135,7 +135,9 @@ public enum PodcastReleaseState: Equatable, Sendable, Codable {
 public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
     public let id: UUID
     public let scope: PodcastScope
-    public let title: String
+    /// Always present for shared episodes. A private episode's title isn't server-visible (private papers' titles live
+    /// in the encrypted library), so the app supplies the library item's own title (`resolvingTitle`).
+    public let title: String?
     public let year: Int?
     public let authors: [String]
     public let topic: String?
@@ -153,7 +155,7 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
     public let chapters: [PodcastChapter]?
     public let transcript: PodcastTranscript?
 
-    public init(id: UUID, scope: PodcastScope, title: String, year: Int?, authors: [String], topic: String?, durationMS: Int,
+    public init(id: UUID, scope: PodcastScope, title: String?, year: Int?, authors: [String], topic: String?, durationMS: Int,
                 language: String = "en", aiAudio: Bool = true, fixture: Bool, documentID: UUID, publishedAt: String?,
                 state: PodcastReleaseState = .ready, source: PodcastSource?, audio: PodcastAudio,
                 chapters: [PodcastChapter]? = nil, transcript: PodcastTranscript? = nil) {
@@ -171,7 +173,7 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id); scope = try c.decode(PodcastScope.self, forKey: .scope)
-        title = try c.decode(String.self, forKey: .title); year = try c.decodeIfPresent(Int.self, forKey: .year)
+        title = try c.decodeIfPresent(String.self, forKey: .title); year = try c.decodeIfPresent(Int.self, forKey: .year)
         authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
         topic = try c.decodeIfPresent(String.self, forKey: .topic)
         durationMS = try c.decode(Int.self, forKey: .durationMS)
@@ -196,7 +198,7 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
 
     public func validate() throws {
         let fine = { (value: String, limit: Int) in !value.isEmpty && value.utf8.count <= limit }
-        guard fine(title, 1_000), authors.count <= 200, authors.allSatisfy({ fine($0, 300) }),
+        guard title.map({ fine($0, 1_000) }) ?? (scope == .private), authors.count <= 200, authors.allSatisfy({ fine($0, 300) }),
               topic.map({ fine($0, 120) }) ?? true, year.map({ (1000...3000).contains($0) }) ?? true,
               (1...Self.maximumDurationMS).contains(durationMS), fine(language, 16), aiAudio,
               (1...Self.maximumAudioBytes).contains(audio.bytes), PodcastHex.isSHA256(audio.sha256),
@@ -224,6 +226,17 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
                   }),
                   zip(segments, segments.dropFirst()).allSatisfy({ $0.startMS <= $1.startMS }) else { throw ReaderError.corruptData }
         }
+    }
+
+    /// What lists and Now Playing show: the server's title, else the one the app resolved, else a neutral name.
+    public var displayTitle: String { title ?? (scope == .private ? "Your private episode" : "Paper episode") }
+
+    /// A private episode titled from the account's own library (its title isn't sent by the server). Shared titles stay.
+    public func resolvingTitle(_ libraryTitle: String?) -> PodcastEpisode {
+        guard title == nil, let libraryTitle, !libraryTitle.isEmpty else { return self }
+        return PodcastEpisode(id: id, scope: scope, title: String(libraryTitle.prefix(1_000)), year: year, authors: authors, topic: topic,
+                              durationMS: durationMS, language: language, aiAudio: aiAudio, fixture: fixture, documentID: documentID,
+                              publishedAt: publishedAt, state: state, source: source, audio: audio, chapters: chapters, transcript: transcript)
     }
 
     /// The catalog form (no chapters or transcript) of an episode, for lists and the downloads index.

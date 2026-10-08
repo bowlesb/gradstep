@@ -66,6 +66,26 @@ struct PodcastContractTests {
         #expect((try? JSONDecoder().decode(PodcastEpisode.self, from: Data(fixture.utf8)))?.fixture == true)
     }
 
+    @Test func privateEpisodesMayOmitServerInvisibleMetadata() throws {
+        // A private paper's title (and year, authors, topic, source) isn't server-visible: the app titles it itself.
+        let json = """
+        {"release_id":"\(Self.release)","scope":"private","title":null,"year":null,"authors":null,"topic":null,"duration_ms":300000,
+         "ai_audio":true,"fixture":false,"document_id":"\(Self.document)","state":"ready","source":null,
+         "audio":{"bytes":2400000,"sha256":"\(Self.sha)","media_type":"audio/mp4"}}
+        """
+        let episode = try JSONDecoder().decode(PodcastEpisode.self, from: Data(json.utf8))
+        #expect(episode.title == nil && episode.authors.isEmpty && episode.displayTitle == "Your private episode")
+        let titled = episode.resolvingTitle("My uploaded draft")
+        #expect(titled.displayTitle == "My uploaded draft" && titled.audio == episode.audio)
+        // A shared episode always carries its title.
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(PodcastEpisode.self, from: Data(json.replacingOccurrences(of: #""scope":"private""#, with: #""scope":"shared""#).utf8))
+        }
+        // An explicit server title is never replaced by a library title.
+        let shared = try JSONDecoder().decode(PodcastEpisode.self, from: Data(Self.episodeJSON().utf8))
+        #expect(shared.resolvingTitle("Something else").title == "Attention as a reading exercise")
+    }
+
     @Test func quoteOutcomesAreExclusive() throws {
         let quote = try JSONDecoder().decode(PodcastQuoteOutcome.self, from: Data("""
         {"quote":{"id":"\(Self.release)","expires_at":"2026-10-08T12:15:00Z","max_credits":150,

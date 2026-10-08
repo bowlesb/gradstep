@@ -23,6 +23,7 @@ struct PodcastPlayerSheet: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             heading(episode)
+                            if let notice = center.notice { PodcastNoticeBanner(center: center, message: notice) }
                             controls(episode)
                             if let notice = player.notice {
                                 Text(notice).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("podcast.player.notice")
@@ -58,17 +59,20 @@ struct PodcastPlayerSheet: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             }
         }
-        .accessibilityIdentifier("podcast.player")
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .background { keyboardShortcuts }
+        // Over the player: an evidence quote from a paper that isn't in the library.
+        .sheet(item: Binding(get: { center.evidenceElsewhere }, set: { center.evidenceElsewhere = $0 })) { item in
+            PodcastEvidenceElsewhereSheet(model: model, item: item).macSheetKeys()
+        }
     }
 
     // MARK: Heading and controls
 
     private func heading(_ episode: PodcastEpisode) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(episode.title).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            Text(episode.displayTitle).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("podcast.player.title")
             let line = ([episode.year.map(String.init)] + [authorsLine(episode)] + [episode.topic]).compactMap { $0 }.filter { !$0.isEmpty }
             if !line.isEmpty { Text(line.joined(separator: " · ")).font(.subheadline).foregroundStyle(.secondary) }
@@ -373,7 +377,7 @@ struct PodcastMiniPlayer: View {
                         }
                         .frame(width: 32, height: 32).accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(episode.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            Text(episode.displayTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
                             Text(subtitle(episode)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -381,7 +385,7 @@ struct PodcastMiniPlayer: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Now playing: \(episode.title), \(PodcastDuration.spoken(milliseconds: max(0, player.durationMS - player.currentMS))) left")
+                .accessibilityLabel("Now playing: \(episode.displayTitle), \(PodcastDuration.spoken(milliseconds: max(0, player.durationMS - player.currentMS))) left")
                 .accessibilityHint("Opens the player")
                 .accessibilityIdentifier("podcast.miniPlayer.open")
                 Button { player.toggle() } label: {
@@ -422,7 +426,7 @@ struct PodcastEvidenceElsewhereSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text("This passage is from “\(item.episode.title)”, which isn’t in your library.").font(.headline)
+                Text("This passage is from “\(item.episode.displayTitle)”, which isn’t in your library.").font(.headline)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("“\(item.quote)”").font(.body).padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -453,6 +457,18 @@ struct PodcastEvidenceElsewhereSheet: View {
     }
 }
 
+/// A podcast notice inside a podcast sheet, with its own dismiss.
+struct PodcastNoticeBanner: View {
+    let center: PodcastCenter
+    let message: String
+    var body: some View {
+        StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: message, messageID: "podcast.notice") {
+            Button { center.notice = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)) }
+                .accessibilityLabel("Dismiss").tint(.secondary)
+        }
+    }
+}
+
 /// The podcast sheets and notices, attached once at the root.
 struct PodcastPresenter: ViewModifier {
     @Bindable var model: ReaderModel
@@ -461,8 +477,9 @@ struct PodcastPresenter: ViewModifier {
         content
             .sheet(isPresented: $center.showPlayer) { PodcastPlayerSheet(model: model).macSheetKeys() }
             .sheet(item: $center.generation) { _ in PodcastGenerateSheet(model: model).macSheetKeys() }
-            .sheet(item: $center.evidenceElsewhere) { item in PodcastEvidenceElsewhereSheet(model: model, item: item).macSheetKeys() }
-            .alert("Listen", isPresented: Binding(get: { model.podcasts.notice != nil }, set: { if !$0 { model.podcasts.notice = nil } })) {
+            // While the player or generation sheet is up, they show the notice themselves (a root alert can't present).
+            .alert("Listen", isPresented: Binding(get: { center.notice != nil && !center.showPlayer && center.generation == nil },
+                                                  set: { if !$0 { center.notice = nil } })) {
                 Button("OK") { model.podcasts.notice = nil }
             } message: { Text(model.podcasts.notice ?? "") }
     }

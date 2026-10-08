@@ -15,6 +15,7 @@ struct PodcastGenerateSheet: View {
                 if let generation = center.generation {
                     VStack(alignment: .leading, spacing: 16) {
                         Text(generation.paperTitle).font(.headline).fixedSize(horizontal: false, vertical: true)
+                        if let notice = center.notice { PodcastNoticeBanner(center: center, message: notice) }
                         content(generation)
                     }
                     .padding(DesignMetrics.margin)
@@ -28,7 +29,6 @@ struct PodcastGenerateSheet: View {
                 }
             }
         }
-        .accessibilityIdentifier("podcast.generate")
         .presentationDetents([.large])
     }
 
@@ -121,6 +121,7 @@ struct PodcastGenerateSheet: View {
                     .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("podcast.generate.progress")
     }
 

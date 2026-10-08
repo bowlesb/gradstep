@@ -90,7 +90,20 @@ final class PodcastCenter {
         backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.player.saveNow(); self?.flushHistory() }
         }
+        #if DEBUG && FIXTURE_HOST
+        // Quick visual checks (`simctl launch … --podcast-fixture --podcast-listen`): open on the Listen filter.
+        if PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-listen") { listenSelected = true }
+        #endif
     }
+
+    #if DEBUG && FIXTURE_HOST
+    /// `--podcast-autoplay` (visual checks): play the sample fixture episode once the Listen list has loaded.
+    func fixtureAutoplay() {
+        guard PodcastFixtureTransport.isEnabled, ProcessInfo.processInfo.arguments.contains("--podcast-autoplay"),
+              nowPlaying == nil, let episode = catalog.first(where: { $0.id == PodcastFixtureTransport.sampleRelease }) else { return }
+        play(episode, at: 9_000)
+    }
+    #endif
 
     /// The Listen chip is offered when listening could work for this account (or the fixture).
     var listenAvailable: Bool {
@@ -181,7 +194,10 @@ final class PodcastCenter {
                 let page = try await account.transport.catalog(after: nil, limit: 50)
                 guard self.account?.id == account.id, !Task.isCancelled else { return }
                 capabilities = page.capabilities ?? capabilities
-                catalog = page.episodes; catalogNext = page.next; catalogState = .loaded
+                catalog = page.episodes.map { resolve($0) }; catalogNext = page.next; catalogState = .loaded
+                #if DEBUG && FIXTURE_HOST
+                fixtureAutoplay()
+                #endif
                 await refreshDownloadedStates()
             } catch {
                 guard self.account?.id == account.id, !Task.isCancelled else { return }
@@ -198,7 +214,7 @@ final class PodcastCenter {
                 let page = try await account.transport.catalog(after: next, limit: 50)
                 guard self.account?.id == account.id else { return }
                 let known = Set(catalog.map(\.id))
-                catalog += page.episodes.filter { !known.contains($0.id) }; catalogNext = page.next
+                catalog += page.episodes.filter { !known.contains($0.id) }.map { resolve($0) }; catalogNext = page.next
             } catch { catalogNext = next }
         }
     }
@@ -210,7 +226,7 @@ final class PodcastCenter {
         guard let states = try? await account.transport.states(Array(downloads.keys)), self.account?.id == account.id else { return }
         for (releaseID, status) in states {
             if status.state.blocksPlayback {
-                let title = downloads[releaseID]?.episode.title
+                let title = downloads[releaseID]?.episode.displayTitle
                 if nowPlaying?.id == releaseID { player.stop() }
                 removeFile(releaseID)
                 notice = "“\(title ?? "An episode")” is no longer available and was removed from this device."
@@ -287,16 +303,25 @@ final class PodcastCenter {
     func stop() { player.stop(); showPlayer = false; session = nil; flushHistory() }
 
     private func fullEpisode(_ episode: PodcastEpisode, account: PodcastAccount) async throws -> PodcastEpisode {
+        let episode = resolve(episode)
         if episode.transcript != nil, episode.chapters != nil { return episode }
         if let stored = downloads[episode.id]?.episode, stored.transcript != nil { return stored }
         let full = try await account.transport.episode(episode.id)
         guard full.audio == episode.audio, full.documentID == episode.documentID else { throw ReaderError.corruptData }
-        return full
+        return full.resolvingTitle(episode.title)
+    }
+
+    /// A private episode's title comes from this account's library (the server doesn't have it); `fallback` is the
+    /// title already known for it (the paper a generation was started from).
+    func resolve(_ episode: PodcastEpisode, fallback: String? = nil) -> PodcastEpisode {
+        guard episode.title == nil else { return episode }
+        return episode.resolvingTitle(host?.papers.first { $0.id == episode.documentID }?.title ?? fallback)
     }
 
     private func refreshEpisode(_ releaseID: UUID) async {
-        guard let account, let full = try? await account.transport.episode(releaseID), var record = downloads[releaseID],
-              full.audio == record.episode.audio else { return }
+        guard let account, let fetched = try? await account.transport.episode(releaseID), var record = downloads[releaseID],
+              fetched.audio == record.episode.audio else { return }
+        let full = fetched.resolvingTitle(record.episode.title)
         record = PodcastDownloadRecord(episode: full, fileName: record.fileName, bytes: record.bytes, sha256: record.sha256,
                                        mediaType: record.mediaType, kept: record.kept, verifiedAt: record.verifiedAt, lastUsedAt: record.lastUsedAt)
         downloads[releaseID] = record; persistDownloads()
@@ -316,7 +341,7 @@ final class PodcastCenter {
             }
             removeFile(episode.id)
         }
-        transfer = Transfer(releaseID: episode.id, title: episode.title, received: 0, total: episode.audio.bytes, keep: keep)
+        transfer = Transfer(releaseID: episode.id, title: episode.displayTitle, received: 0, total: episode.audio.bytes, keep: keep)
         let grant = try await account.transport.download(episode.id)
         guard let member = grant.audio, member.bytes == episode.audio.bytes, member.sha256 == episode.audio.sha256,
               member.mediaType == episode.audio.mediaType else { throw ReaderError.corruptData }
@@ -411,7 +436,7 @@ final class PodcastCenter {
                 guard self.account?.id == account.id else { return }
                 if let capabilities = lookup.capabilities { self.capabilities = capabilities }
                 if let episode = lookup.episode, !episode.state.blocksPlayback {
-                    play(episode)
+                    play(resolve(episode, fallback: paper.title))
                 } else if let job = lookup.job, job.state.isActive {
                     generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job))
                     poll(job.requestID)
@@ -438,9 +463,11 @@ final class PodcastCenter {
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)
                 case .reuse(let releaseID):
-                    generation = nil
                     let episode = try await account.transport.episode(releaseID)
-                    play(episode)
+                    generation = nil
+                    // After the sheet has gone: one sheet presents at a time.
+                    try? await Task.sleep(for: .milliseconds(600))
+                    play(resolve(episode, fallback: current.paperTitle))
                 case .join(let requestID):
                     let job = try await account.transport.status(requestID: requestID)
                     generation?.phase = job.state.isActive ? .running(job) : .finished(job)
@@ -508,11 +535,15 @@ final class PodcastCenter {
     }
 
     func playGenerated(_ job: PodcastJob) {
-        guard let releaseID = job.releaseID, let account else { return }
+        guard let releaseID = job.releaseID, let account, let title = generation?.paperTitle else { return }
         generation = nil
         Task {
-            do { play(try await account.transport.episode(releaseID)) }
-            catch { notice = error.podcastMessage }
+            do {
+                let episode = try await account.transport.episode(releaseID)
+                // After the generation sheet has gone: one sheet presents at a time.
+                try? await Task.sleep(for: .milliseconds(600))
+                play(resolve(episode, fallback: title))
+            } catch { notice = error.podcastMessage }
         }
     }
 

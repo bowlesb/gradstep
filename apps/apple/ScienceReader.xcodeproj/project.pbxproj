@@ -84,6 +84,7 @@
 		4BD806BAAF0C323660176CEB /* PaperView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBA5A7FE1780246822D83E36 /* PaperView.swift */; };
 		4F864AA15454DA20379860BF /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = E46D8BD9CFBC5DF7CFE72894 /* ShareInbox.swift */; };
 		5308EDFADB8ED35DE33DF84B /* LibraryCommandTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FFD1CF64C0018E8ECC3BEF3 /* LibraryCommandTransport.swift */; };
+		53D1DFDCE4EC6DE9D6692AB4 /* PodcastJourneyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0262E2EB54398E982E38EF /* PodcastJourneyTests.swift */; };
 		53F6B0333B096066D8F7E8E1 /* DiagramView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F00A3E50BBA6CA58D4062C /* DiagramView.swift */; };
 		544B4EF00D3E1B3B563FCBFF /* ScienceReaderCore in Frameworks */ = {isa = PBXBuildFile; productRef = 82D9235A6CA3B3BDF2D9E379 /* ScienceReaderCore */; };
 		55DA6256ED1C7BBF35C1A472 /* reader-bridge.js in Resources */ = {isa = PBXBuildFile; fileRef = 0CF87627F536131311AEBD1D /* reader-bridge.js */; };
@@ -381,6 +382,7 @@
 		8970BBF3454BEE534D3E1521 /* GoogleSans-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "GoogleSans-Medium.ttf"; sourceTree = "<group>"; };
 		8AD4A50DF52EC7728E0DEEA1 /* LibraryWritesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryWritesTests.swift; sourceTree = "<group>"; };
 		8C75FAC2E3329F50F2ABBE87 /* AuthenticationBackendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthenticationBackendTests.swift; sourceTree = "<group>"; };
+		8D0262E2EB54398E982E38EF /* PodcastJourneyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PodcastJourneyTests.swift; sourceTree = "<group>"; };
 		909987028A72FA23FF5EE030 /* LibraryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryPresentation.swift; sourceTree = "<group>"; };
 		927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderNavigationTests.swift; sourceTree = "<group>"; };
 		9300C7CCC4755D769A6097C5 /* TableColumns.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableColumns.swift; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 				65E8583F2C3ACA4E4A436C6B /* OfflineResourcePerformanceTests.swift */,
 				AB50594F18333FAC43C49A3E /* PaperToolsTests.swift */,
 				F9DCACE306F3B111C9FA0B7B /* PassageJourneyTests.swift */,
+				8D0262E2EB54398E982E38EF /* PodcastJourneyTests.swift */,
 				E61EED8F75AB3E87D3E66455 /* ReaderMenuSupport.swift */,
 				927651579602AF85B302C4E4 /* ReaderNavigationTests.swift */,
 				7B887E2558BFA8E755D098C6 /* SessionCaptureTests.swift */,
@@ -1120,6 +1123,7 @@
 				043FF13ACE81D5850398D086 /* MacKeyboardTests.swift in Sources */,
 				8A6532BE7FD6319E612CA4A2 /* PaperToolsTests.swift in Sources */,
 				A786E485E3FC0D9E6BC4447B /* PassageJourneyTests.swift in Sources */,
+				53D1DFDCE4EC6DE9D6692AB4 /* PodcastJourneyTests.swift in Sources */,
 				6EF77A533AC2660F96B84615 /* ReaderMenuSupport.swift in Sources */,
 				F1EF137F6929F074F6ED9354 /* ReaderNavigationTests.swift in Sources */,
 				F3A9F9A825586ABD0390AADD /* SessionCaptureTests.swift in Sources */,
