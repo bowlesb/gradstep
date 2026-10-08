@@ -16,7 +16,8 @@ const PROJECT = 'coxhjvqpflgxkleydati', ORGANIZATION = 'mhiweqpcwyqtyorgqhla';
 const ORIGIN = `https://${PROJECT}.supabase.co`, MANAGEMENT = `https://api.supabase.com/v1/projects/${PROJECT}`;
 const MiB = 1_048_576, MAX_BUNDLE = MiB, MAX_MANIFEST = 65_536, MAX_TINY = 16_384;
 const CLEANUP_RESERVE = 65_536, FINAL_RESERVE = 2 * MiB, MAX_PATHS = 5000;
-export const LIMITS = Object.freeze({ bodyBytes: 8 * MiB, descriptors: 6, requests: 5500,
+export const REVIEWED_PRIOR_USAGE = Object.freeze({ bytes: 912_206, requests: 88, descriptors: 5 });
+export const LIMITS = Object.freeze({ bodyBytes: 8 * MiB, descriptors: 6, aggregateDescriptors: 11, requests: 5500,
   drainMs: (400 + 900 + 30) * 1000, propagationMs: 75_000, durationMs: 105 * 60_000 });
 const sha = value => createHash('sha256').update(value).digest('hex');
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -78,24 +79,40 @@ export class BodyBudget {
     if (!prior || typeof prior !== 'object' || Array.isArray(prior)
       || Object.keys(prior).some(k => !['bytes', 'requests', 'descriptors'].includes(k))) fail('prior_usage_invalid');
     this.priorBytes = integer(prior.bytes ?? 0); this.priorDescriptors = integer(prior.descriptors ?? 0);
-    this.bytes = this.priorBytes; this.requests = integer(prior.requests ?? 0);
-    if (this.priorBytes > MiB || this.requests > 100 || this.priorDescriptors > 2) fail('prior_usage_review_required');
+    this.priorRequests = integer(prior.requests ?? 0); this.bytes = this.priorBytes; this.requests = this.priorRequests;
+    if (this.priorBytes > REVIEWED_PRIOR_USAGE.bytes || this.priorRequests > REVIEWED_PRIOR_USAGE.requests
+      || this.priorDescriptors > REVIEWED_PRIOR_USAGE.descriptors) fail('prior_usage_review_required');
   }
   remaining(cleanup = false) { return LIMITS.bodyBytes - this.bytes - (cleanup ? 0 : this.reserve); }
   admit(maximum, descriptor, cleanup = false) {
     if (!Number.isSafeInteger(maximum) || maximum < 0 || maximum > this.remaining(cleanup)) fail('payload_budget_before_request');
     if (++this.requests > LIMITS.requests - (cleanup ? 0 : 15)) fail('request_budget');
-    if (descriptor && (++this.descriptors > LIMITS.descriptors || this.descriptors + this.priorDescriptors > 8)) fail('descriptor_budget');
+    if (descriptor && (++this.descriptors > LIMITS.descriptors
+      || this.descriptors + this.priorDescriptors > LIMITS.aggregateDescriptors)) fail('descriptor_budget');
   }
   consume(count, cleanup = false) {
     this.bytes += count;
     if (this.remaining(cleanup) < 0) fail('payload_budget');
   }
   snapshot() { return { delivered_payload_bytes: this.bytes, requests: this.requests, descriptor_attempts: this.descriptors,
-    prior_payload_bytes: this.priorBytes, prior_descriptor_attempts: this.priorDescriptors,
+    prior_payload_bytes: this.priorBytes, prior_requests: this.priorRequests, prior_descriptor_attempts: this.priorDescriptors,
     aggregate_descriptor_attempts: this.descriptors + this.priorDescriptors,
-    conservative_reader_admission_bytes: (this.descriptors + this.priorDescriptors) * MiB + 3 * MAX_BUNDLE,
-    admission_includes_three_whole_bundle_reservations: true }; }
+    // Earlier runs' consumed members still count after their synthetic accounts are
+    // deleted. All prior payloads safely overcount those bytes (including Auth and
+    // Management); three whole bundles cover this run's possible member reservations.
+    conservative_reader_admission_bytes: (this.descriptors + this.priorDescriptors) * MiB + 3 * MAX_BUNDLE + this.priorBytes,
+    admission_includes_three_whole_bundle_reservations: true, admission_includes_all_prior_payloads: true }; }
+}
+
+export function reviewedPriorUsage(raw) {
+  if (typeof raw !== 'string' || !raw) fail('prior_usage_required');
+  let prior;
+  try { prior = JSON.parse(raw); } catch { fail('prior_usage_invalid'); }
+  new BodyBudget(prior); // Reject unexpected fields and usage beyond the reviewed ceilings.
+  // The hosted entry point must carry the exact last report. Zero baselines remain
+  // available only to local fixtures, never as an implicit reset of this cutover.
+  if (Object.entries(REVIEWED_PRIOR_USAGE).some(([key, value]) => prior[key] !== value)) fail('prior_usage_review_required');
+  return prior;
 }
 
 export async function boundedBody(response, maximum, budget, cleanup = false, scalarRPC = false) {
@@ -425,17 +442,25 @@ export class ReaderCutoverCanary {
     for (const record of this.urls) await this.warm(record, 'initial_warm');
   }
   async warm(record, label) {
+    if (!['initial_warm', 'post_probe_rewarm'].includes(label)) fail('invalid_cache_proof_phase');
+    const postPurge = label === 'post_probe_rewarm';
     for (let attempt = 0; attempt < 3; attempt++) {
       if (record.expiry < this.now() + 120_000) fail('legacy_expiry_too_close');
       const r = await this.http(record.member.url.href, { maximum: record.member.bytes });
       if (r.response.status !== 200 || r.bytes.length !== record.member.bytes || sha(r.bytes) !== record.member.sha256) fail('legacy_warm_integrity');
       const evidence = cacheEvidence(r.response);
+      // First prove this exact token was cached. After the explicit purge, an
+      // origin-confirmed cached response is also valid rewarm evidence, but is not
+      // labelled HIT. Final retirement still requires an explicit expiry denial.
+      const proof = evidence.cf_cache_status === 'HIT' ? 'cache_hit'
+        : postPurge && evidence.cf_cache_status === 'REVALIDATED' ? 'origin_revalidated' : null;
       this.report(label, { url_sha256: sha(record.member.url.href), path_sha256: sha(record.fullPath),
-        token_expires_at: new Date(record.expiry).toISOString(), ...evidence });
-      if (evidence.cf_cache_status === 'HIT') return;
-      await delay(1200);
+        token_expires_at: new Date(record.expiry).toISOString(), ...evidence, cache_proof: proof });
+      if (proof) return;
+      if (!['MISS', 'EXPIRED', 'REVALIDATED'].includes(evidence.cf_cache_status)) fail('legacy_cache_evidence_ambiguous');
+      if (attempt < 2) await delay(1200);
     }
-    fail('legacy_cache_hit_not_observed');
+    fail(postPurge ? 'legacy_cache_rewarm_not_observed' : 'legacy_cache_hit_not_observed');
   }
   async start() {
     this.require('new'); await this.project(); this.initial = await this.snapshot('dual');
@@ -651,7 +676,7 @@ async function main() {
   let canary, timer, input; const stop = new AbortController();
   const signal = () => stop.abort(); process.once('SIGINT', signal); process.once('SIGTERM', signal);
   try {
-    const priorUsage = JSON.parse(process.env.GRADSTEP_READER_CANARY_PRIOR_USAGE ?? '{}');
+    const priorUsage = reviewedPriorUsage(process.env.GRADSTEP_READER_CANARY_PRIOR_USAGE);
     canary = new ReaderCutoverCanary({ env: credentials(), emit, signal: stop.signal, priorUsage,
       saveBundle: (bundle, sourceID) => saveVerifiedBundle(join(reportDir, 'verified-bundle.json'), bundle, sourceID) });
     timer = setTimeout(() => stop.abort(), LIMITS.durationMs);

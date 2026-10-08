@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BodyBudget, boundedBody, cacheEvidence, expiredTokenResponse, LIMITS, ReaderCutoverCanary, readerPath,
-  saveVerifiedBundle, validateScope } from '../../scripts/reader-cutover-canary.mjs';
+  REVIEWED_PRIOR_USAGE, reviewedPriorUsage, saveVerifiedBundle, validateScope } from '../../scripts/reader-cutover-canary.mjs';
 
 const origin = 'https://coxhjvqpflgxkleydati.supabase.co';
 const env = { SUPABASE_URL: origin, SUPABASE_PROJECT_REF: 'coxhjvqpflgxkleydati',
@@ -51,14 +51,35 @@ test('actual streams count toward the budget, oversized bodies are cancelled, an
 });
 
 test('carried diagnostic usage reduces the remaining payload and request budget without resetting hosted counters', () => {
-  const b = new BodyBudget({ bytes: 85_695, requests: 43, descriptors: 2 });
-  assert.equal(b.remaining(), LIMITS.bodyBytes - 85_695 - 65_536);
-  assert.equal(b.snapshot().requests, 43);
+  const b = new BodyBudget({ bytes: 912_206, requests: 88, descriptors: 5 });
+  assert.equal(b.remaining(), LIMITS.bodyBytes - 912_206 - 65_536);
+  assert.equal(b.snapshot().requests, 88); assert.equal(b.snapshot().prior_requests, 88);
   for (let i = 0; i < 6; i++) b.admit(4096, true);
-  assert.equal(b.snapshot().aggregate_descriptor_attempts, 8);
+  assert.equal(b.snapshot().descriptor_attempts, 6); assert.equal(b.snapshot().aggregate_descriptor_attempts, 11);
+  assert.equal(b.snapshot().requests, 94);
+  // Descriptor ceilings + three new bundles + all prior payloads (including
+  // non-reader bytes) conservatively retain the earlier consumed member liability.
+  assert.equal(b.snapshot().conservative_reader_admission_bytes, 14 * 1_048_576 + 912_206);
+  assert.ok(b.snapshot().conservative_reader_admission_bytes < 15 * 1_048_576);
+  assert.equal(b.snapshot().admission_includes_all_prior_payloads, true);
   assert.throws(() => b.admit(4096, true), /descriptor_budget/);
-  for (const prior of [{ bytes: -1 }, { requests: 101 }, { descriptors: 3 }, { other: 1 }])
+  for (const prior of [{ bytes: -1 }, { bytes: 912_207 }, { requests: 89 }, { descriptors: 6 }, { other: 1 }])
     assert.throws(() => new BodyBudget(prior), /invalid_counter|prior_usage_/);
+  const payload = new BodyBudget(REVIEWED_PRIOR_USAGE);
+  payload.consume(LIMITS.bodyBytes - 912_206 - 65_536);
+  assert.throws(() => payload.admit(1, false), /payload_budget_before_request/);
+  const requests = new BodyBudget(REVIEWED_PRIOR_USAGE);
+  for (let i = 88; i < LIMITS.requests - 15; i++) requests.admit(0, false);
+  assert.throws(() => requests.admit(0, false), /request_budget/);
+  requests.admit(0, false, true); assert.equal(requests.snapshot().requests, LIMITS.requests - 13);
+});
+
+test('hosted CLI requires the explicit reviewed predecessor totals; missing, stale or malformed usage never resets it', () => {
+  assert.deepEqual(reviewedPriorUsage('{"bytes":912206,"requests":88,"descriptors":5}'), REVIEWED_PRIOR_USAGE);
+  for (const raw of [undefined, '', 'broken', '{}', 'null', '[]', '{"bytes":912206,"requests":88}',
+    '{"bytes":85695,"requests":43,"descriptors":2}', '{"bytes":"912206","requests":88,"descriptors":5}',
+    '{"bytes":912207,"requests":88,"descriptors":5}', '{"bytes":912206,"requests":88,"descriptors":5,"extra":0}'])
+    assert.throws(() => reviewedPriorUsage(raw), /prior_usage_/);
 });
 
 test('network surface excludes providers, policy writes, object mutation and a different origin', async () => {
@@ -123,7 +144,7 @@ test('general canary start stops at bounded proof and never mints legacy URLs or
   await assert.rejects(run.command('fenced'), /wrong_phase/);
 });
 
-test('capability purge is explicitly scoped to one tiny object; only observed cache HIT passes rewarm', async () => {
+test('capability purge stays scoped to one tiny object and waits before checking both original tokens', async () => {
   const sent: any[] = [];
   const { run, events, advance } = canary(async (url, options) => {
     sent.push({ url, options }); return withURL(Response.json({ message: 'success' }), String(url));
@@ -141,6 +162,66 @@ test('capability purge is explicitly scoped to one tiny object; only observed ca
   assert.ok(output.includes(digest(objectPath)));
   assert.equal(cacheEvidence(new Response(null, { headers: { 'cf-cache-status': 'HIT', age: '5', location: 'private-token' } })).cf_cache_status, 'HIT');
   assert.equal(cacheEvidence(new Response(null, { headers: { 'cf-cache-status': 'private-token', age: 'private' } })).cf_cache_status, null);
+});
+
+test('initial warming requires an observed HIT and never relabels REVALIDATED as HIT', async t => {
+  t.mock.method(globalThis, 'setTimeout', (callback: () => void) => { queueMicrotask(callback); return 0 as any; });
+  const bytes = Buffer.from('tiny'); let status = 'REVALIDATED', requests = 0;
+  const { run, events } = canary(async url => {
+    requests++; return withURL(new Response(bytes, { headers: { 'cf-cache-status': status } }), String(url));
+  });
+  const record = { fullPath: objectPath, expiry: run.now() + 900_000,
+    member: { url: new URL(`${origin}/storage/v1/object/sign/paper-assets/${objectPath}?token=fixture-secret`), bytes: 4, sha256: digest('tiny') } };
+  await assert.rejects(run.warm(record, 'initial_warm'), /legacy_cache_hit_not_observed/);
+  assert.equal(requests, 3); assert.ok(events.every(e => e.cf_cache_status === 'REVALIDATED' && e.cache_proof === null));
+  status = 'HIT'; await run.warm(record, 'initial_warm');
+  assert.equal(events.at(-1).cf_cache_status, 'HIT'); assert.equal(events.at(-1).cache_proof, 'cache_hit');
+  assert.doesNotMatch(JSON.stringify(events), /fixture-secret|index.html|token=/);
+});
+
+test('post-purge rewarm accepts exact-byte HIT or synchronous REVALIDATED and preserves the evidence distinction', async t => {
+  t.mock.method(globalThis, 'setTimeout', (callback: () => void) => { queueMicrotask(callback); return 0 as any; });
+  for (const terminal of ['HIT', 'REVALIDATED']) {
+    const states = ['MISS', terminal], requests: string[] = [], { run, events } = canary(async url => {
+      requests.push(String(url));
+      return withURL(new Response('tiny', { headers: { 'cf-cache-status': states.shift()! } }), String(url));
+    });
+    const record = { fullPath: objectPath, expiry: run.now() + 900_000,
+      member: { url: new URL(`${origin}/storage/v1/object/sign/paper-assets/${objectPath}?token=fixture-secret`), bytes: 4, sha256: digest('tiny') } };
+    await run.warm(record, 'post_probe_rewarm');
+    assert.deepEqual(requests, [record.member.url.href, record.member.url.href]);
+    assert.equal(events[0].cache_proof, null); assert.equal(events.at(-1).cf_cache_status, terminal);
+    assert.equal(events.at(-1).cache_proof, terminal === 'HIT' ? 'cache_hit' : 'origin_revalidated');
+    assert.equal(events.at(-1).age_seconds, null); // Origin revalidation need not carry Age.
+    assert.doesNotMatch(JSON.stringify(events), /fixture-secret|index.html|token=/);
+  }
+});
+
+test('post-purge success requires unambiguous cache evidence and exact bytes; repeated origin misses do not pass', async t => {
+  t.mock.method(globalThis, 'setTimeout', (callback: () => void) => { queueMicrotask(callback); return 0 as any; });
+  for (const status of ['STALE', 'UPDATING', 'BYPASS', 'DYNAMIC', 'NONE', 'unrecognized', null, 'MISS', 'EXPIRED']) {
+    let requests = 0; const { run } = canary(async url => {
+      requests++; return withURL(new Response('tiny', { headers: status ? { 'cf-cache-status': status } : {} }), String(url));
+    });
+    const record = { fullPath: objectPath, expiry: run.now() + 900_000,
+      member: { url: new URL(`${origin}/storage/v1/object/sign/paper-assets/${objectPath}?token=fixture`), bytes: 4, sha256: digest('tiny') } };
+    await assert.rejects(run.warm(record, 'post_probe_rewarm'), /legacy_cache_evidence_ambiguous|legacy_cache_rewarm_not_observed/);
+    assert.equal(requests, status === 'MISS' || status === 'EXPIRED' ? 3 : 1);
+  }
+  for (const body of ['fake', 'shorter or longer']) {
+    const { run } = canary(async url => withURL(new Response(body, { headers: { 'cf-cache-status': 'REVALIDATED' } }), String(url)));
+    const record = { fullPath: objectPath, expiry: run.now() + 900_000,
+      member: { url: new URL(`${origin}/storage/v1/object/sign/paper-assets/${objectPath}?token=fixture`), bytes: 4, sha256: digest('tiny') } };
+    await assert.rejects(run.warm(record, 'post_probe_rewarm'), /legacy_warm_integrity|response_too_large/);
+  }
+});
+
+test('a post-purge 200 REVALIDATED can never replace final expired-token denial', async () => {
+  const { run } = canary(async url => withURL(Response.json({ error: 'InvalidJWT', message: 'jwt expired' },
+    { headers: { 'cf-cache-status': 'REVALIDATED' } }), String(url)));
+  run.phase = 'purged'; run.verifyAt = run.now(); run.stillFenced = async () => ({});
+  run.urls = [{ expiry: run.now() - 1, member: { url: new URL(`${origin}/storage/v1/object/sign/paper-assets/${objectPath}?token=fixture`) } }];
+  await assert.rejects(run.verifyRetired(), /expired_warmed_url_not_proved/);
 });
 
 test('404 and ambiguous success never retire an absent historical path', async () => {
