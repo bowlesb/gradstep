@@ -1,0 +1,108 @@
+// The chat session's use of profiles and topic titles (2026-10-08), against a fake encrypted history service.
+import { readFileSync } from 'node:fs';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { fromBytea, sha256, toBytea } from '../src/lib/bytes';
+import type { ChatRequest, StreamEvent } from '../src/lib/chat';
+const server = vi.hoisted(() => ({ rows: [] as any[], fail: false }));
+vi.mock('../src/lib/backend', async original => {
+  const mod = await original<typeof import('../src/lib/backend')>();
+  return { ...mod, rpc: async (name: string, p: any) => {
+    if (name === 'v1_append_event') {
+      if (server.fail) throw new mod.BackendError('connection');
+      const old = server.rows.find(e => e.id === p.p_id);
+      if (old) return old.cursor;
+      server.rows.push({ id: p.p_id, device_id: p.p_device_id, epoch: p.p_epoch, format: p.p_format, ciphertext: p.p_ciphertext,
+        ciphertext_sha256: toBytea(await sha256(fromBytea(p.p_ciphertext))), cursor: server.rows.length + 1 }); return server.rows.length;
+    }
+    if (name === 'v2_pull_events') { const events = server.rows.filter(r => r.cursor > p.p_after).slice(0, p.p_limit); return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: false }; }
+    if (name === 'v1_credit_balance') return { available: 100, reserved: 0 };
+    return null;
+  } };
+});
+const { ChatSession } = await import('../src/lib/chat-session');
+const { History } = await import('../src/lib/history');
+const { keyRing, generateBundle } = await import('../src/lib/wire');
+const published = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
+const account = '11111111-2222-4333-8444-555555555555', device = 'aaaaaaaa-0000-4000-8000-000000000001';
+type Script = (request: ChatRequest) => StreamEvent[];
+
+async function setup(script: Script, options: { table?: unknown; saved?: any } = {}) {
+  const owner = new AbortController(), ring = await keyRing(generateBundle(account));
+  const history = new History(account, device, ring, owner.signal, async () => ring); await history.sync();
+  const requests: ChatRequest[] = [], written: any[] = [];
+  const chat = new ChatSession(account, history, owner.signal, {
+    readConsent: () => true, writeConsent: () => {},
+    fetchProfiles: async () => { if (options.table === null) throw new Error('old server'); return options.table ?? published; },
+    readDefault: () => options.saved ?? null, writeDefault: choice => written.push(choice),
+    stream: async function* (_account, request) { requests.push(request); for (const event of script(request)) yield event; },
+  });
+  await chat.profiles.load();
+  return { chat, history, requests, written };
+}
+const answer = (title?: string, done: Partial<Extract<StreamEvent, { type: 'done' }>> = {}): Script => request => [
+  { type: 'delta', text: 'An answer.' }, ...(title ? [{ type: 'title', text: title } as StreamEvent] : []),
+  { type: 'done', stopReason: 'end_turn', credits: 2, model: 'claude-sonnet-5-5', profile: `${request.profile.model}-${request.profile.effort}-${request.profile.length}`, ...done },
+];
+beforeEach(() => { server.rows = []; server.fail = false; });
+
+it('a new chat asks for a title, seals it with the answer and stops asking; the answer keeps its model and profile', async () => {
+  const { chat, history, requests } = await setup(answer('Scaled attention explained'));
+  const c = chat.current(null);
+  chat.edit(c, 'Why scale by √d?'); await chat.send(c);
+  expect(requests[0].topicTitle).toBe(true);
+  expect(server.rows).toHaveLength(4); // root, question, answer and its title revision
+  const summary = history.state.conversationSummaries()[0];
+  expect([summary.title, summary.titleSource]).toEqual(['Scaled attention explained', 'generated']);
+  expect(chat.branch(c)?.messages.at(-1)?.payload).toMatchObject({ model: 'claude-sonnet-5-5', profile: 'sonnet-low-standard' });
+  chat.edit(c, 'And for small d?'); await chat.send(c);
+  expect(requests[1].topicTitle).toBe(false);
+  expect(history.state.revisions(c.conversationID!)).toHaveLength(1);
+});
+
+it('a renamed chat is never retitled; an untitled older chat gets one lazily', async () => {
+  const { chat, history, requests } = await setup(answer('Generated later'));
+  const c = chat.current(null);
+  chat.edit(c, 'First'); await chat.send(c);
+  expect(await chat.rename(c.conversationID!, '  My own name  ')).toBe(true);
+  expect(history.state.conversationSummaries()[0]).toMatchObject({ title: 'My own name', titleSource: 'renamed' });
+  // A title arriving for a chat renamed meanwhile is dropped.
+  chat.edit(c, 'Again'); await chat.send(c);
+  expect(requests[1].topicTitle).toBe(false);
+  expect(history.state.conversationSummaries()[0].title).toBe('My own name');
+});
+
+it('the chat follows its newest answer\'s profile; a change applies to the next answer; new chats use the browser default', async () => {
+  const { chat, requests, written } = await setup(answer(), { saved: { model: 'haiku', effort: 'medium', length: 'brief' } });
+  const c = chat.current(null);
+  expect(chat.profileFor(c)).toEqual({ model: 'haiku', effort: 'medium', length: 'brief' });
+  chat.setProfile(c, { model: 'opus', effort: 'high', length: 'detailed' });
+  chat.edit(c, 'Q1'); await chat.send(c);
+  expect(requests[0].profile).toEqual({ model: 'opus', effort: 'high', length: 'detailed' });
+  c.profile = null; // a reload: the chat's choice comes back from its answer
+  expect(chat.profileFor(c)).toEqual({ model: 'opus', effort: 'high', length: 'detailed' });
+  const fresh = chat.newChat(null);
+  expect(chat.profileFor(fresh)).toEqual({ model: 'haiku', effort: 'medium', length: 'brief' });
+  chat.setDefaultProfile({ model: 'sonnet', effort: 'high', length: 'standard' });
+  expect(written.at(-1)).toEqual({ model: 'sonnet', effort: 'high', length: 'standard' });
+  expect(chat.profileFor(chat.newChat(null))).toEqual({ model: 'sonnet', effort: 'high', length: 'standard' });
+  // A selection action carries the visible choice.
+  expect(chat.profileFor(chat.newChat('dddddddd-0000-4000-8000-000000000001', { model: 'opus', effort: 'low', length: 'brief' }))).toEqual({ model: 'opus', effort: 'low', length: 'brief' });
+});
+
+it('without the published table (an older server) requests stay exactly as before', async () => {
+  const { chat, requests, history } = await setup(answer('Never used'), { table: null });
+  const c = chat.current(null);
+  expect(chat.profileTable).toBeNull();
+  chat.setProfile(c, { model: 'opus', effort: 'high', length: 'detailed' });
+  chat.edit(c, 'Q'); await chat.send(c);
+  expect(requests[0].topicTitle).toBe(false); expect(requests[0].profile).toEqual({ model: 'sonnet', effort: 'low', length: 'standard' });
+  // A title nobody asked for is ignored.
+  expect(history.state.conversationSummaries()[0].titleSource).toBeUndefined();
+});
+
+it('a title is kept only with a complete answer', async () => {
+  const { chat, history } = await setup(answer('Partial title', { stopReason: 'max_tokens' }));
+  const c = chat.current(null); chat.edit(c, 'Q'); await chat.send(c);
+  expect(chat.branch(c)?.messages.at(-1)?.payload.status).toBe('interrupted');
+  expect(history.state.conversationSummaries()[0].titleSource).toBeUndefined();
+});

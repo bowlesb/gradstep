@@ -252,7 +252,7 @@ export class ChatSession {
           c.liveText = next; c.progress = null;
         } else if (event.type === 'status') c.progress = event.progress;
         else if (event.type === 'diagram') diagram = event;
-        else if (event.type === 'title') topicTitle = event.text;
+        else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; break; }
         else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
