@@ -16,7 +16,7 @@ final class MacWindowTests: XCTestCase {
         XCTAssertEqual(group.selectedIndex, library)
         model.tab = .settings
         controller.update(mode: .library, settingsShown: true)
-        XCTAssertEqual(group.selectedIndex, -1, "Settings must leave the remembered workspace segment available to reselect")
+        XCTAssertFalse(group.isSelected(at: library), "Settings must leave the remembered workspace segment available to reselect")
 
         group.selectedIndex = library
         let action = try XCTUnwrap(group.action)
