@@ -12,7 +12,8 @@ import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-d
 import type { Script } from '../../supabase/functions/_shared/podcast-script.ts';
 
 const [psql, db, fixtureJSON] = [process.env.PODCAST_PSQL!, process.env.PODCAST_DB!, process.env.PODCAST_FIXTURE!];
-const fixture = JSON.parse(fixtureJSON) as { owner: string; account: string; other: string; approval: string; item: string; paper: string };
+const fixture = JSON.parse(fixtureJSON) as { owner: string; account: string; other: string; approval: string; item: string; paper: string;
+  document: string; committed_before: number; episodes_before: number };
 const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 
 function literal(value: unknown): string {
@@ -90,12 +91,13 @@ const seed = call<{ id: string }>('worker_podcast_seed_admit', { p_actor: fixtur
 run = await runPodcast(deps(), Date.now() + 120_000, { generated: true });
 assert.equal(run.state, 'ready', `seed job: ${run.failure}`);
 assert.equal(scriptCalls, 2); assert.equal(speechCalls, 1);
-const status = call<{ recent_jobs: { id: string; attempts: { route: string; state: string; actual_microusd: number }[]; release_id: string }[]; seed_periods: { committed_microusd: number; episodes: number }[] }>('worker_podcast_status', {});
+const status = call<{ recent_jobs: { id: string; attempts: { route: string; state: string; actual_microusd: number }[]; release_id: string }[]; seed_periods: { period: string; committed_microusd: number; episodes: number }[] }>('worker_podcast_status', {});
 const seedJob = status.recent_jobs.find(j => j.id === seed.id)!;
 assert.deepEqual(seedJob.attempts.map(a => [a.route, a.state]), [['podcast_script', 'succeeded'], ['podcast_review', 'succeeded'], ['podcast_speech', 'succeeded']]);
 assert.deepEqual(seedJob.attempts.map(a => a.actual_microusd), [61_000, 61_000, 64_400]);
-assert.equal(status.seed_periods[0].committed_microusd, 186_400);
-assert.equal(status.seed_periods[0].episodes, 1, 'fixtures never count against the seed episode cap');
+const period = status.seed_periods.find((p: { period?: string }) => p.period === month)!;
+assert.equal(period.committed_microusd - fixture.committed_before, 186_400);
+assert.equal(period.episodes - fixture.episodes_before, 1, 'fixtures never count against the seed episode cap');
 for (const job of [fixtureJob.id, seed.id]) {
   const release = status.recent_jobs.find(j => j.id === job)!.release_id;
   call('worker_podcast_review', { p_actor: fixture.owner, p_request_id: randomUUID(), p_release_id: release, p_decision: 'publish', p_reason: 'Journey review' });
@@ -114,9 +116,11 @@ const get = async (account: string, query: string, init?: RequestInit) => {
   return value;
 };
 const catalog = await get(fixture.other, 'action=catalog&limit=10');
-assert.equal(catalog.episodes.length, 2);
-assert.equal(catalog.episodes[1].fixture, true, 'fixture labeled');
-const generated = catalog.episodes[0];
+// Other suites may have committed their own releases into this database: look only at this document's.
+const ours = catalog.episodes.filter((e: { document_id: string }) => e.document_id === fixture.document);
+assert.equal(ours.length, 2);
+assert.equal(ours[1].fixture, true, 'fixture labeled');
+const generated = ours[0];
 assert.equal(generated.fixture, false); assert.equal(generated.title, 'Journey fixture paper'); assert.equal(generated.audio.media_type, 'audio/mp4');
 const episode = await get(fixture.other, `action=episode&release_id=${generated.release_id}`);
 assert.equal(episode.episode.chapters.length, 3);

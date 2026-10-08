@@ -61,7 +61,11 @@ def verify(bin_path, db, base):
       select public.worker_set_platform_budget(date_trunc('month',now() at time zone 'UTC')::date,30000000,true);
       select public.worker_grant_credits('{account}','adjustment','podcast-journey-{account}',1000,now()-interval '1 day',null,'Podcast journey fixture');
       commit;""")
-    fixture = {'owner': owner, 'account': account, 'other': other, 'approval': appr, 'item': item, 'paper': text_path + '|' + PAPER}
+    month = sql("select date_trunc('month',now() at time zone 'UTC')::date;")
+    committed = int(sql(f"select app_private.podcast_seed_committed('{month}');"))
+    episodes = int(sql(f"select app_private.podcast_seed_episodes('{month}');"))
+    fixture = {'owner': owner, 'account': account, 'other': other, 'approval': appr, 'item': item, 'paper': text_path + '|' + PAPER,
+               'document': doc, 'committed_before': committed, 'episodes_before': episodes}
     result = subprocess.run(['node', str(ROOT / 'tests/database/podcast-worker-journey.ts')], cwd=ROOT, capture_output=True, text=True, timeout=300,
                             env={**env, 'PODCAST_PSQL': str(bin_path / 'psql'), 'PODCAST_DB': db, 'PODCAST_FIXTURE': json.dumps(fixture),
                                  **({'PODCAST_FIXTURE_OUT': os.environ['PODCAST_FIXTURE_OUT']} if os.environ.get('PODCAST_FIXTURE_OUT') else {})})
