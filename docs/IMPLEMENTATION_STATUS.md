@@ -46,6 +46,17 @@ hosted runtime. The database remains through032 and credit/verification rules ar
 runtime repair is being designed; purchases are not fixed yet. Main `64c0873` corrects misleading native
 retry wording for the next build. See [evidence](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
 
+## Browser reader live and Mac on TestFlight — 2026-10-07
+
+- **Browser reader: https://app.gradstep.ai** (Cloudflare Pages `gradstep-app`, free tier, staging backend), deployed
+  with the new `scripts/deploy-web.mjs` (public-value gates, strict CSP/HSTS). `gradstep.ai/app` redirects there.
+  Edge functions' allowed origins include it (they had been reset to local origins by later deploys); staging Auth's
+  redirect allowlist gained the reader URLs (appended). Live evidence: headers, sign-in page, and a synthetic invited
+  account reaching the email-code step (deleted afterwards). Code verification, keys, library and reading on the hosted
+  build are not yet run; Safari remains gated. See [deployment](architecture/BROWSER_READER.md#deployment--2026-10-07).
+- **Mac TestFlight build 17** (main `937ef34`): uploaded, VALID, internal testing (group "Owner"). Not yet installed or
+  signed in on a Mac. See [Mac TestFlight](architecture/MAC_APP.md#testflight--2026-10-07).
+
 ## Browser/Mac integration checkpoint — local, not deployed
 
 The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at

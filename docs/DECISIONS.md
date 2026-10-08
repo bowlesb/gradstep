@@ -784,3 +784,16 @@ Migration 039 applied (backup first); functions `add-paper` and `upload-pdf` dep
 `paper-uploads` bucket (4 MiB authenticated chunks); worker revision gradstep-pipeline-00010 reads uploads. A
 scope-2 asset inventory (both buckets, 0 discrepancies) satisfied 039's gate and the PDF upload policy is enabled.
 Private upload titles use the encrypted library descriptors (Codex), so they are not server-visible.
+
+## Browser reader and Mac TestFlight shipped (owner authorized; agent decisions 2026-10-07, reversible)
+
+- Browser reader on its own origin `https://app.gradstep.ai` (Pages `gradstep-app`, staging backend);
+  `gradstep.ai/app/*` 301-redirects there. Deploys go through `scripts/deploy-web.mjs`, which refuses a non-staging URL,
+  a non-anon key, any `.env.staging` credential in the output or a weakened `_headers`.
+- `Cache-Control: no-transform` on all reader responses so Cloudflare's zone-level Web Analytics does not inject its
+  beacon (no third-party scripts in the reader; the CSP refused it anyway). The info site keeps the beacon.
+- `https://app.gradstep.ai` is in `infra/staging.json` `admin_origins` (the Edge `ADMIN_ORIGINS` list), and staging
+  Auth's redirect allowlist gained `https://app.gradstep.ai` and `/auth/callback` for later web OAuth (appended).
+- Mac TestFlight uses its own build-number train (Mac build 17 alongside iOS build 17), internal testing only; no
+  macOS App Store version was created because the upload did not require one.
+

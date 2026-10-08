@@ -1,8 +1,10 @@
 # Browser reader
 
-Status, 2026-10-07: **Phase 1 design; implementation in `apps/web/`.** Authorized by the owner (2026-10-03,
+Status, 2026-10-07: **Phase 1 deployed to https://app.gradstep.ai against staging** (implementation in `apps/web/`;
+see [deployment evidence](#deployment--2026-10-07)). Authorized by the owner (2026-10-03,
 [implementation plan §6](../IMPLEMENTATION_PLAN.md#6-browser-reader)); home decided by the owner 2026-10-07:
-**app.gradstep.ai**. Nothing below is a claim of E2EE, sync or deployment until the evidence section says so.
+**app.gradstep.ai**. Deployment evidence covers hosting, headers and reaching the email-code step only; nothing below
+is a claim of E2EE or sync, and a full signed-in hosted journey has not been run.
 
 ## Scope
 
@@ -19,22 +21,22 @@ an existing device, device list and revocation, offline reading, credits and pur
 | Surface | Origin | Host |
 |---|---|---|
 | Info site (`web/site/`) | `https://gradstep.ai` | Cloudflare Pages `gradstep-site` |
-| Browser reader (`apps/web/`) | Intended: `https://app.gradstep.ai` | Pages project `gradstep-app` exists; no deployment or custom domain verified as of 2026-10-07 |
+| Browser reader (`apps/web/`) | `https://app.gradstep.ai` | Cloudflare Pages `gradstep-app`, custom domain (proxied CNAME `app` → `gradstep-app.pages.dev`) |
 
-The intended `gradstep.ai/app` and `gradstep.ai/app/*` redirects have **not** been implemented:
-`web/site/_redirects` is absent. A
+`gradstep.ai/app`, `/app/` and `/app/*` redirect (301) to `https://app.gradstep.ai/` (path kept) via
+`web/site/_redirects`. A
 separate origin isolates the reader's IndexedDB keys, session and storage quota from the info site, and lets the app
 have a strict CSP without constraining the marketing pages. Both projects are on Cloudflare's free tier (static assets,
 no Functions): $0/month.
 
-Builds are local (`npm run build` in `apps/web`). Deployment should use the repository's locked Wrangler version
-and the dedicated Cloudflare credential; `scripts/deploy-web.mjs` is not yet implemented. A read-only hosting check
-on 2026-10-07 found no `gradstep-app` deployment, Pages custom domain or `app.gradstep.ai` DNS record. The intended
-build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned. Before publishing, validate
-public build-variable values, deep links, CSP/cache headers and a synthetic-account live journey.
+Deploy with `node scripts/deploy-web.mjs app` (reader) or `node scripts/deploy-web.mjs site` (info site): builds
+locally and uploads with the repository's locked Wrangler 4 and the dedicated Cloudflare credential in `.env.staging`.
+The build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned.
 The Supabase anon key is a public client identifier (as in the iOS binary and the admin site), embedded at build time.
-The build restricts exposed environment-variable names to the URL/anon key. It still needs value validation to
-reject a wrong project or a privileged key placed under an allowed public variable name; this is a deployment gate.
+The build restricts exposed environment-variable names to the URL/anon key, and the deploy script gates the values:
+the URL must be the staging project, the key must be a JWT with role `anon` for that project, no other
+`.env.staging` value may appear anywhere in the built output, and the generated `_headers` must carry the strict CSP
+for exactly that backend plus HSTS. Local `apps/web/.env*` files are refused so the deploy cannot pick up stray values.
 
 ## Stack
 
@@ -160,7 +162,9 @@ Phase 1 is the email code only: `POST /auth/v1/otp` (`create_user: false`; sign-
 created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`), six ASCII digits with
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
-sign-out signs this one out. No redirect URL is needed for the email code, so **no Supabase Auth setting changes**.
+sign-out signs this one out. No redirect URL is needed for the email code. For later web OAuth, staging's Auth redirect
+allowlist was extended on 2026-10-07 (appended, existing `sciencereader://auth/callback` kept) with
+`https://app.gradstep.ai` and `https://app.gradstep.ai/auth/callback`; `site_url` is unchanged.
 
 Each successful login receives an opaque client lifetime ID, stored alongside the tokens; refresh preserves that
 ID. This is local session metadata, not a server credential or backend format change. Legacy browser sessions
@@ -182,10 +186,13 @@ configuration separate from native Apple sign-in (see [native authentication](NA
 
 ## Edge function origin
 
-Edge functions use the `ADMIN_ORIGINS` secret. A read-only 2026-10-07 preflight against `reader-artifact` already
-allowed `https://app.gradstep.ai`, while `infra/staging.json` still listed only local origins. Reconcile that drift
-before any deployment; do not overwrite the live allowlist from the stale manifest or run a broad backend deploy
-solely for CORS. Origin permission does not replace authentication or artifact authorization.
+Edge functions use the `ADMIN_ORIGINS` secret, set from `infra/staging.json` `admin_origins` on every
+`deploy-staging.py` run. A probe before the 2026-10-07 reader deployment showed later function deploys had reset it to
+the local origins (preflight from `https://app.gradstep.ai` → 403), so the manifest now lists
+`https://app.gradstep.ai` and the functions were redeployed from main with
+`--skip-migrations --skip-checks --defer-activation` (pipeline worker untouched). Preflights from the reader origin now
+return 204 with `Access-Control-Allow-Origin: https://app.gradstep.ai`; other origins still get 403. Origin
+permission does not replace authentication or artifact authorization.
 
 ## Contracts reused unchanged
 
@@ -241,6 +248,29 @@ pending request. A persistent command outbox needs the account/deployment and at
   yet exist. Local browser fixtures do not establish hosted sign-in, reading or email delivery.
 
 ## Evidence
+
+### Deployment — 2026-10-07
+
+Deployed 21:00 PDT from `worktree-agent-a382af5d587717432` (main `937ef34` + deploy script/config). Pages free tier,
+$0/month. Checked live:
+
+- `https://app.gradstep.ai/` → 200 over HTTPS (Cloudflare edge certificate, Pages custom domain `active`);
+  `http://` → 301 to HTTPS. Response headers match the policy above: the CSP with the frame-script hash and
+  `connect-src https://coxhjvqpflgxkleydati.supabase.co`, HSTS, `X-Frame-Options: DENY`, nosniff, `no-referrer`,
+  COOP/CORP `same-origin`, the Permissions-Policy. `index.html`/`/` are `no-cache`; `/assets/*` are
+  `public, max-age=31536000, immutable`. Deep links (e.g. `/paper/x`) fall back to the app shell (200).
+- The zone has Cloudflare Web Analytics automatic injection enabled (gradstep.ai pages carry its beacon). On the
+  reader the CSP refused it; `_headers` now adds `Cache-Control: no-transform` on every path, after which no beacon is
+  injected and a Chromium load shows no console errors. The info site still has the beacon (unchanged).
+- `gradstep.ai/app`, `/app/`, `/app/papers/x` → 301 to `https://app.gradstep.ai/…`; in Chromium, `gradstep.ai/app`
+  lands on the reader's Sign in page.
+- Hosted email-code step: a synthetic invited account (Auth admin API, address in Resend's `delivered+…@resend.dev`
+  test inbox) entered on the live page; `POST /auth/v1/otp` returned 200 and the page reached "Enter your code" with
+  the `one-time-code` field focused. The account row and Auth user were then deleted (admin `deleteUser` needs the
+  `app_private.accounts` row removed first, as in `scripts/check-native-sync.mjs`); a follow-up query found no rows.
+- Not yet verified on the hosted build: code verification, key setup/recovery, library, adding a paper, reading,
+  or Safari (see the WebKit release gate below). A deep link's HTML response carries only `no-transform` (no
+  `no-cache`), so browsers may revalidate it less eagerly than `/`.
 
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
 2026-10-07. Merging current `main` through `5f95c97` preserved these changes; the combined source passed a fresh

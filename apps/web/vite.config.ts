@@ -51,7 +51,10 @@ function readerFrame(backend: string): Plugin {
     },
     generateBundle() {
       const values = headers(backend, frameScript().hash);
+      // no-transform stops the CDN from injecting its analytics beacon (zone-level Web Analytics), which the CSP
+      // would refuse anyway; Pages joins it with the per-path Cache-Control values below.
       const lines = ['/*', ...Object.entries(values).map(([k, v]) => `  ${k}: ${v}`), ...(backend.startsWith('https:') ? ['  Strict-Transport-Security: max-age=31536000'] : []),
+        '  Cache-Control: no-transform',
         '', '/index.html', '  Cache-Control: no-cache', '', '/', '  Cache-Control: no-cache', '', '/assets/*', '  Cache-Control: public, max-age=31536000, immutable', ''];
       this.emitFile({ type: 'asset', fileName: '_headers', source: lines.join('\n') });
     },
