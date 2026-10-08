@@ -7,6 +7,7 @@ import { MAX_TITLE_CHARACTERS, type ConversationSummary, type TextAnchor } from 
 import { ProfileControl } from './ChatProfile';
 import { safeLink } from '../lib/links';
 import { Dialog, formatDate } from './common';
+import { CopyButton } from './CopyButton';
 import { Diagram } from './Diagram';
 import { Icon } from './icons';
 import { PaneHeader, useWorkspaceControls } from './Shell';
@@ -121,8 +122,7 @@ function ConnectedChat({ chat, paper, mode, onMode, onAllChats, onPassage }: {
       {!messages.length && !composerBusy(c) && <div className="chat-empty"><Icon name="chat" size={28} /><p className="chat-empty-title">{mode === 'paper' ? 'A closer look at the paper' : 'What are you working on?'}</p>
         <p className="fine">{mode === 'paper' ? 'Ask a question, or select a passage to explore it.' : 'Discuss an idea, work through an equation, or ask for a diagram.'}</p></div>}
       {messages.map(m => <div key={m.payload.entityID} className={`chat-message ${m.payload.role}`} data-testid={`chat-${m.payload.role}`}>
-        <div className="message-label">{m.payload.role === 'user' ? 'You' : 'Gradstep'}</div>
-        {m.payload.role === 'user' ? <div className="question-text">{m.payload.text}</div> : <Answer text={m.payload.text ?? ''} />}
+        {m.payload.role === 'user' ? <><div className="message-label">You</div><div className="question-text">{m.payload.text}</div></> : <><div className="message-label-row"><div className="message-label">Gradstep</div><CopyButton text={m.payload.text ?? ''} label="Copy answer" /></div><Answer text={m.payload.text ?? ''} /></>}
         {m.payload.status === 'interrupted' && <span className="fine interrupted">Answer interrupted</span>}
         {m.payload.role === 'assistant' && answeredBy(m.payload.model, m.payload.profile, table) && <p className="fine answer-by" data-testid="answer-by">{answeredBy(m.payload.model, m.payload.profile, table)}</p>}
         {diagrams.has(m.payload.entityID) && <Diagram title={diagrams.get(m.payload.entityID)!.title} source={diagrams.get(m.payload.entityID)!.source} />}

@@ -393,7 +393,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; overscroll-behavior: contain; }
 .chat-transcript .chat-empty { min-height: 150px; padding: 12px; }
 .chat-message { margin: 0 0 24px; font-size: 14px; line-height: 1.62; overflow-wrap: anywhere; }
-.message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 7px; }
+.message-label-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; }
+.message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
+.message-label-row .link { margin-left: auto; opacity: .72; }
+.message-label-row .link:hover { opacity: 1; }
 .chat-message.user { margin-left: 16px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .question-text { white-space: pre-wrap; }
 .answer-markdown > :first-child { margin-top: 0; }
@@ -437,6 +440,7 @@ progress.mini { height: 3px; margin-top: 4px; }
 
 .diagram-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
 .diagram-tools button { min-width: 36px; }
+.diagram-source-tools { display: flex; justify-content: flex-end; margin: 8px 0 -2px; }
 .diagram-viewport { width: 100%; height: 55dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .diagram-frame { display: block; max-width: none; border: 0; }
 

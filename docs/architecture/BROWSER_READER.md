@@ -574,6 +574,10 @@ The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) an
   diagrams keep their source and show failure. No automatic metered repair request is made in this milestone.
   The viewport initially fits the whole graph; Fit and bounded 1–4× zoom preserve the visible center while
   enlarging text. Zoom resizes the opaque frame, without changing its permissions or reading its DOM.
+- **Copy affordances:** completed assistant answers have an explicit Copy answer control, and the collapsed Mermaid
+  source has a Copy Mermaid control. Both use the browser Clipboard API with a bounded user-invoked fallback and
+  expose success/failure through the button label; no answer or diagram is copied automatically. The production-CSP
+  desktop journey verifies both controls with a fixture answer and diagram (`chat.spec.ts`).
 
 ### Bounds, durability and remaining gaps
 

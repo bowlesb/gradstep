@@ -55,6 +55,23 @@ test('paper/general, consent, math, safe sources, encrypted reload and cross-bro
   await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-paper.png` }); expect(errors).toEqual([]); expect(remote).toEqual([]);
 });
 
+test('assistant answers and Mermaid diagrams can be copied by an explicit user action', async ({ page, request }, info) => {
+  test.skip(info.project.name !== 'desktop');
+  await request.post(`${API}/__chat-fixture`, { data: { mode: 'diagram' } });
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true,
+    get: () => ({ writeText: async (text: string) => { (window as any).__copied = text; } }) }));
+  await login(page); await send(page, 'Draw a preference diagram', true);
+  await expect(page.getByTestId('chat-assistant')).toBeVisible();
+  await page.getByTestId('copy-copy-answer').click();
+  await expect(page.getByTestId('copy-copy-answer')).toHaveText('Copied');
+  expect(await page.evaluate(() => (window as any).__copied)).toContain('preference');
+  await page.getByRole('button', { name: /View diagram/ }).click();
+  await page.getByText('Diagram source', { exact: true }).click();
+  await page.getByRole('button', { name: 'Copy Mermaid', exact: true }).click();
+  await expect(page.getByTestId('copy-copy-mermaid')).toHaveText('Copied');
+  expect(await page.evaluate(() => (window as any).__copied)).toContain('graph');
+});
+
 test('Stop, navigation while streaming and insufficient credits', async ({ page, request }, info) => {
   test.skip(info.project.name !== 'desktop'); await request.post(`${API}/__chat-fixture`, { data: { mode: 'slow' } });
   await login(page); await send(page, 'A slow answer', true); await expect(page.getByTestId('chat-streaming')).toContainText('objective');
