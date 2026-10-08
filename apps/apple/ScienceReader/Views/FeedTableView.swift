@@ -2,20 +2,64 @@ import SwiftUI
 import ScienceReaderCore
 
 /// What the Feed table sorts by.
-enum FeedSortKey: Hashable { case title, published, topic }
+enum FeedSortKey: Hashable, CaseIterable {
+    case published, title, topic, authors
+    var label: String {
+        switch self { case .published: "Published"; case .title: "Title"; case .topic: "Topic"; case .authors: "Authors" }
+    }
+    var ascendingFirst: Bool { self != .published }
+}
 
-/// The Feed's columns: Title (and first author), Topic, Published, and Add. Phone portrait has room for the title,
-/// Published and Add; wider screens add the topic.
-enum FeedTableColumn: String {
-    case topic, published, add
+/// The Feed's columns: Title (and first author) always, the reader's choice of Topic, Published, Authors, arXiv ID and
+/// Abstract (owner feedback, build 17: "why are there so few options"), and Add, which stays at the trailing end. When
+/// the chosen columns don't fit, they scroll sideways under the pinned title (`TableArrangement`).
+enum FeedTableColumn: String, CaseIterable, Identifiable, Sendable {
+    case topic, published, authors, arxiv, abstract, add
 
     typealias Column = PaperTableColumn<FeedSortKey>
     static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
-    static let all: [Column] = [
-        Column(id: topic.rawValue, title: "Topic", priority: 2, width: 130, sortKey: .topic, ascendingFirst: true),
-        Column(id: published.rawValue, title: "Published", priority: 1, width: 88, sortKey: .published),
-        Column(id: add.rawValue, title: "", priority: 0, width: 56, alignment: .trailing, isControl: true),
-    ]
+    var id: String { rawValue }
+
+    /// The columns the reader chooses (Add always shows).
+    static let choosable: [FeedTableColumn] = [.topic, .published, .authors, .arxiv, .abstract]
+    /// iPhone: Published and Topic (portrait fits Published; Topic scrolls in); iPad and Mac add the authors.
+    static let compactDefault: Set<FeedTableColumn> = [.published, .topic]
+    static let regularDefault: Set<FeedTableColumn> = [.topic, .published, .authors]
+
+    var title: String {
+        switch self {
+        case .topic: "Topic"; case .published: "Published"; case .authors: "Authors"; case .arxiv: "arXiv ID"; case .abstract: "Abstract"
+        case .add: ""
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .topic: "Its main arXiv category"
+        case .published: "Month it appeared on arXiv"
+        case .authors: "The first authors"
+        case .arxiv: "Its arXiv identifier"
+        case .abstract: "The abstract's first lines"
+        case .add: "Add to your library"
+        }
+    }
+
+    var column: Column {
+        switch self {
+        case .topic: Column(id: rawValue, title: title, priority: 2, width: 130, sortKey: .topic, ascendingFirst: true)
+        case .published: Column(id: rawValue, title: title, priority: 1, width: 88, sortKey: .published)
+        case .authors: Column(id: rawValue, title: title, priority: 3, width: 140, sortKey: .authors, ascendingFirst: true)
+        case .arxiv: Column(id: rawValue, title: title, priority: 4, width: 92)
+        case .abstract: Column(id: rawValue, title: title, priority: 5, width: 260)
+        case .add: Column(id: rawValue, title: "", priority: 0, width: 56, alignment: .trailing, isControl: true)
+        }
+    }
+
+    /// Every column, in row order.
+    static let all: [Column] = allCases.map(\.column)
+    /// The chosen columns and Add, in row order.
+    static func columns(_ enabled: Set<FeedTableColumn>) -> [Column] { allCases.filter { $0 == .add || enabled.contains($0) }.map(\.column) }
+
     /// Newest first, like the List.
     static let defaultSort = PaperTableSort(key: FeedSortKey.published, ascending: false)
 }
@@ -78,6 +122,16 @@ enum FeedFormat {
                 case (nil, _?): return false
                 default: break
                 }
+            case .authors:
+                let x = a.element.authors.first.map(LibraryFormat.familyName), y = b.element.authors.first.map(LibraryFormat.familyName)
+                switch (x, y) {
+                case let (x?, y?):
+                    let order = x.localizedStandardCompare(y)
+                    if order != .orderedSame { return sort.ascending ? order == .orderedAscending : order == .orderedDescending }
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: break
+                }
             case .topic:
                 switch (topic(a.element), topic(b.element)) {
                 case let (x?, y?):
@@ -104,8 +158,10 @@ struct FeedTable: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        PaperTable(rows: FeedFormat.ordered(model.feedResults, by: model.feedSort), titleColumn: FeedTableColumn.title,
-                   columns: FeedTableColumn.all, sort: $model.feedSort, identifier: "feed.table",
+        PaperTable(rows: FeedFormat.ordered(model.shownFeedResults, by: model.feedSort), titleColumn: FeedTableColumn.title,
+                   columns: FeedTableColumn.columns(model.feedColumns[.current]), sort: $model.feedSort,
+                   extraSortTitles: Dictionary(uniqueKeysWithValues: FeedSortKey.allCases.map { ($0, $0.label) }), horizontalScroll: true,
+                   identifier: "feed.table",
                    rowIdentifier: { "feed.table.\($0.sourceID)" },
                    title: { PaperTableTitle(title: $0.title, subtitle: LibraryFormat.firstAuthor($0.authors)) },
                    cell: { result, column in cell(result, column: FeedTableColumn(rawValue: column)) },
@@ -130,6 +186,9 @@ struct FeedTable: View {
         switch column {
         case .topic: Text(FeedFormat.topic(result) ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
         case .published: PaperTableText(text: FeedFormat.published(result))
+        case .authors: Text(LibraryFormat.shortAuthors(result.authors) ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+        case .arxiv: PaperTableText(text: result.sourceID)
+        case .abstract: Text(result.abstract ?? "").font(.footnote).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
         case .add:
             DiscoveryAddControl(sourceID: result.sourceID, inLibrary: model.librarySourceIDs.contains(result.sourceID),
                                 adding: adding.contains(result.id), enabled: model.canBeginImport) { add(result) }
@@ -141,6 +200,9 @@ struct FeedTable: View {
         switch column {
         case .topic: ArxivTopics.names(for: result.categories, limit: 2).joined(separator: ", ")
         case .published: FeedFormat.spokenPublished(result)
+        case .authors: LibraryFormat.shortAuthors(result.authors).map { "By \($0)" }
+        case .arxiv: "arXiv \(result.sourceID)"
+        case .abstract: nil   // the row's tap shows it in full
         case .add, nil: nil   // a control: the Add button (or "In library") is its own element
         }
     }
@@ -187,8 +249,12 @@ struct DiscoveryAddControl: View {
         } else if adding {
             ProgressView().frame(minWidth: 44, minHeight: 44)
         } else {
+            // Enabled: an accent capsule; unavailable: neutral gray with the system's disabled treatment. Avoid a
+            // second opacity reduction, which makes the label almost disappear in light mode.
             Button("Add", action: add)
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small).disabled(!enabled)
+                .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                .tint(enabled ? Color.accentColor : Color.gray)
+                .disabled(!enabled)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("discover.add.\(sourceID)")
         }

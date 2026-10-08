@@ -113,7 +113,7 @@ extension ReaderModel {
         papers.insert(sparse, at: 3); sequences[sparse.id] = 6
         func importRecord(_ n: Int, sequence: Int, phase: String, progress: String?, error: String?, title: String,
                           authors: [String], published: String, categories: [String], source: String,
-                          detail: [String: Any]? = nil) throws -> LibraryImportRecord {
+                          detail: [String: Any]? = nil, autoRetryAt: String? = nil) throws -> LibraryImportRecord {
             var value: [String: Any] = ["id": id(n).wire, "created_seq": sequence, "state_seq": sequence, "intent_revision": 1,
                 "visible": true, "phase": phase, "source": "arxiv", "source_id": source, "source_revision": 1,
                 "metadata_id": id(n + 50).wire, "version_id": id(n + 60).wire,
@@ -124,6 +124,7 @@ extension ReaderModel {
             if let progress { value["progress"] = progress }
             if let error { value["error_code"] = error }
             if let detail { value["progress_detail"] = detail }
+            if let autoRetryAt { value["auto_retry_at"] = autoRetryAt }
             return try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: value))
         }
         // `--import-progress-fixture` (import progress, 2026-10-07): imports at every step with the server's percent and
@@ -158,6 +159,10 @@ extension ReaderModel {
                 try importRecord(35, sequence: 10, phase: "failed", progress: nil, error: "download_retrying",
                     title: "Adam: A Method for Stochastic Optimization", authors: ["Diederik P. Kingma", "Jimmy Ba"],
                     published: "2014-12-22", categories: ["cs.LG"], source: "1412.6980"),
+                try importRecord(36, sequence: 9, phase: "failed", progress: nil, error: "metadata_unavailable",
+                    title: "Learning from Delayed Feedback", authors: ["Ada Example"],
+                    published: "2026-10-01", categories: ["cs.LG"], source: "2610.07426",
+                    autoRetryAt: "2026-10-08T01:00:00Z"),
                 try importRecord(21, sequence: 3, phase: "failed", progress: nil, error: "insufficient_credits",
                     title: "Constitutional AI: Harmlessness from AI Feedback", authors: ["Yuntao Bai", "Saurav Kadavath", "Sandipan Kundu"],
                     published: "2022-12-15", categories: ["cs.CL", "cs.AI"], source: "2212.08073"),

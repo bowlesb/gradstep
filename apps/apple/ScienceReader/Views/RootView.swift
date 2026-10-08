@@ -431,9 +431,7 @@ struct LibraryView: View {
         LibrarySearchSort.Field.allCases.filter { !$0.isTableOnly || table || model.librarySort.field == $0 }
     }
 
-    @ViewBuilder private var updatingIndicator: some View {
-        if model.librarySearchPending { ProgressView("Updating results…").padding(8).allowsHitTesting(false) }
-    }
+    private var updatingIndicator: some View { SlowSearchIndicator(pending: model.librarySearchPending) }
 
     /// The List layout (also the table's form at accessibility text sizes), with the same filters.
     private func libraryList() -> some View {
@@ -621,7 +619,10 @@ struct FeedView: View {
     @Bindable var model: ReaderModel
     @State private var issue: String?
     @State private var width: CGFloat = 0
+    @State private var showColumns = false
+    @ScaledMetric(relativeTo: .subheadline) private var columnScale: CGFloat = 1
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.tabBarReserve) private var tabBarReserve
     private var isFailed: Bool { if case .failed = model.feedState { true } else { false } }
     /// The table spans the pane (its header too); at accessibility text sizes it shows as the list.
     private var tableShown: Bool {
@@ -644,6 +645,15 @@ struct FeedView: View {
                 case .loaded:
                     if model.feedResults.isEmpty {
                         ContentUnavailableView("No new papers", image: GradstepSymbol.feed, description: Text("Check back later or pick another topic."))
+                    } else if model.shownFeedResults.isEmpty {
+                        // Every paper here is already in the library and the reader hides those.
+                        ContentUnavailableView {
+                            Label("All in your library", image: GradstepSymbol.feed)
+                        } description: {
+                            Text("Every new paper in this topic is already in your library.")
+                        } actions: {
+                            Button("Show them") { model.feedHidesLibrary = false }.accessibilityIdentifier("feed.showLibrary")
+                        }
                     } else if tableShown {
                         FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
                     } else {
@@ -651,7 +661,7 @@ struct FeedView: View {
                             if let issue {
                                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
                             }
-                            ForEach(model.feedResults) { result in
+                            ForEach(model.shownFeedResults) { result in
                                 DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false)
                                     .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
                             }
@@ -661,14 +671,47 @@ struct FeedView: View {
                     }
                 }
             }
+            // A− / A+ (build 16 #6): the Feed's text, in steps from the system's text size.
+            .dynamicTypeSize(dynamicTypeSize.stepped(by: model.feedTextStep))
+            // Room under the last row for the text size control.
+            .contentMargins(.bottom, model.feedState == .loaded ? 56 : 0, for: .scrollContent)
             // Owner feedback (2026-10-06): the Feed's top used space like the Library's used to. Same
             // header as the Library: one row — the topics (the feed's filter) and the "…" menu.
             .safeAreaInset(edge: .top, spacing: 0) { header }
             .tabBarSpace()
+            .overlay(alignment: .bottomTrailing) {
+                if model.feedState == .loaded && !model.feedResults.isEmpty {
+                    let current = dynamicTypeSize.stepped(by: model.feedTextStep)
+                    TextSizeControl(identifier: "feed.textSize",
+                                    canShrink: dynamicTypeSize.stepped(by: model.feedTextStep - 1) != current,
+                                    canGrow: dynamicTypeSize.stepped(by: model.feedTextStep + 1) != current,
+                                    shrink: { model.feedTextStep = max(-6, model.feedTextStep - 1) },
+                                    grow: { model.feedTextStep = min(6, model.feedTextStep + 1) })
+                        .padding(.trailing, DesignMetrics.margin).padding(.bottom, tabBarReserve + 8)
+                }
+            }
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .sheet(isPresented: $showColumns) { feedColumnsSheet }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
+    }
+
+    /// Feed options › Columns (build 17).
+    private var feedColumnsSheet: some View {
+        let width = LibraryColumnSettings.WidthClass.current
+        let chosen = model.feedColumns[width]
+        let fitting = Set(PaperTableLayout.visibleColumns(FeedTableColumn.columns(chosen), width: max(0, self.width - 2 * DesignMetrics.margin),
+                                                          scale: columnScale).map(\.id))
+        return ColumnChooserSheet(
+            identifier: "feed.columns", titleRow: ("Title", "With the first author"),
+            options: FeedTableColumn.choosable.map { .init(id: $0.rawValue, title: $0.title, explanation: $0.explanation) },
+            fixed: [("Add", FeedTableColumn.add.explanation)],
+            chosen: Binding(get: { Set(model.feedColumns[width].map(\.rawValue)) },
+                            set: { model.feedColumns[width] = Set($0.compactMap(FeedTableColumn.init(rawValue:))) }),
+            defaults: Set(model.feedColumns.defaults(width).map(\.rawValue)),
+            scrolling: Set(chosen.map(\.rawValue)).subtracting(fitting),
+            footer: TableColumnWording.footer(width))
     }
 
     private var header: some View {
@@ -702,7 +745,24 @@ struct FeedView: View {
                         Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
                     }
                 }
+                if model.feedLayout == .table {
+                    // The table's order and columns (build 17: "sort by Published, Title, Topic"; "choose which columns").
+                    Section {
+                        Menu {
+                            Picker("Sort by", selection: Binding(get: { model.feedSort.key }, set: { key in
+                                model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
+                            })) {
+                                ForEach(FeedSortKey.allCases, id: \.self) { Text($0.label).tag($0) }
+                            }.pickerStyle(.inline)
+                        } label: {
+                            Label { Text("Sort by"); Text(model.feedSort.key.label) } icon: { menuIcon("arrow.up.arrow.down") }
+                        }
+                        MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("feed.columns")
+                    }
+                }
                 Section {
+                    Toggle(isOn: $model.feedHidesLibrary) { Label("Hide papers in your library", systemImage: "checkmark.circle") }
+                        .accessibilityIdentifier("feed.hideLibrary")
                     MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }
@@ -847,7 +907,7 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 4) {
             TextField("Chat", text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Ask about this
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Quote in Chat
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 18).padding(.vertical, 14)
             Group {
@@ -1296,6 +1356,25 @@ struct RecoveryView: View {
     }
 }
 
+/// "Updating results…" over the Library, only when its search is slow enough to notice (owner feedback, build 16 #7).
+/// Every import progress update re-runs the library's search, which finishes in milliseconds; shown at once, the
+/// spinner and its words flashed under the filter chips several times a minute while a paper was being added.
+struct SlowSearchIndicator: View {
+    let pending: Bool
+    static let delay: Duration = .milliseconds(600)
+    @State private var shown = false
+    var body: some View {
+        Group {
+            if pending && shown { ProgressView("Updating results…").padding(8).allowsHitTesting(false).transition(.opacity) }
+        }
+        .task(id: pending) {
+            guard pending else { shown = false; return }
+            try? await Task.sleep(for: Self.delay)
+            if !Task.isCancelled { shown = true }
+        }
+    }
+}
+
 /// arXiv search results for the Library's "arXiv" segment. Adding stays in
 /// search and appears as a pending import in the library.
 struct DiscoveryList: View {
@@ -1319,13 +1398,28 @@ struct DiscoveryList: View {
                                        description: Text("Try fewer or different words, an author, or an arXiv ID."))
             } else {
                 List {
+                    orderChips
                     if let issue { Text(issue).font(.footnote).foregroundStyle(.secondary) }
-                    ForEach(model.discoveryResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
+                    ForEach(model.orderedDiscoveryResults) { result in DiscoveryRow(model: model, result: result, issue: $issue) }
                 }.listStyle(.plain)
             }
         }
     }
 
+    /// Newest first (the default) or arXiv's relevance order, as chips that scroll away with the results.
+    private var orderChips: some View {
+        HStack(spacing: 8) {
+            ForEach(DiscoveryOrder.allCases) { order in
+                ChipButton(title: order.title, selected: model.discoveryOrder == order) { model.discoveryOrder = order }
+                    .accessibilityIdentifier("discover.order.\(order.rawValue)")
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Order")
+        .listRowSeparator(.hidden)
+        .listRowInsets(EdgeInsets(top: 4, leading: DesignMetrics.margin, bottom: 4, trailing: DesignMetrics.margin))
+    }
 }
 
 /// One arXiv paper (search or Feed) with an Add action that stays in place.

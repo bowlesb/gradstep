@@ -59,6 +59,12 @@ final class LibraryLayoutTests: XCTestCase {
         element.tap()
     }
 
+    /// On screen without scrolling the columns sideways (build 16 #3: chosen columns that don't fit scroll in).
+    private func onScreen(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        let window = app.windows.firstMatch.frame
+        return element.exists && element.isHittable && element.frame.maxX <= window.maxX + 1 && element.frame.minX >= window.minX - 1
+    }
+
     private func filter(_ name: String, in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)["library.filter.\(name)"].firstMatch
     }
@@ -135,13 +141,15 @@ final class LibraryLayoutTests: XCTestCase {
         // Portrait (11": 834 pt) keeps the table, without the Tags column.
         XCUIDevice.shared.orientation = .portrait
         XCTAssertTrue(header("Opened", in: app).waitForExistence(timeout: 5), "Portrait iPad keeps the table")
-        XCTAssertFalse(header("Tags", in: app).exists, "Tags needs a wider screen")
+        XCTAssertTrue(header("Tags", in: app).exists, "Chosen Tags remains available by scrolling sideways")
+        XCTAssertFalse(onScreen(header("Tags", in: app), in: app), "Tags starts past the edge at this width")
         attach(app, "Library table (iPad portrait)")
         choose("List", in: app)
         XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 5))
     }
 
-    /// Library options › Columns: turning columns on and off changes the table at once; one that doesn't fit says so.
+    /// Library options › Columns: turning columns on and off changes the table at once; one that doesn't fit says it
+    /// scrolls sideways.
     func testColumnChooserTurnsColumnsOnAndOff() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = launch(["--library-layout=table"])
@@ -154,31 +162,33 @@ final class LibraryLayoutTests: XCTestCase {
         let phone = UIDevice.current.userInterfaceIdiom == .phone
         // By identifier, else by the label's first word (iPadOS sheets don't always carry the identifier).
         func columnSwitch(_ id: String, _ title: String) -> XCUIElement {
-            let byID = app.switches["library.columns.\(id)"].firstMatch
-            return byID.waitForExistence(timeout: 2) ? byID
-                : app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            app.switches.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", "library.columns.\(id)", title)).firstMatch
         }
-        let year = columnSwitch("year", "Year"), pages = columnSwitch("pages", "Pages"), added = columnSwitch("added", "Added")
+        let year = columnSwitch("year", "Year"), pages = columnSwitch("pages", "Pages")
         XCTAssertTrue(year.waitForExistence(timeout: 5))
         XCTAssertEqual(year.value as? String, "1")
-        if phone { XCTAssertTrue(added.label.contains("Shown when there’s room"), "Phone portrait: Added waits for room: \(added.label)") }
         toggle(year)
         XCTAssertEqual(year.value as? String, "0")
-        // The half-height sheet may end above Pages (iPad): scroll to it.
-        for _ in 0..<3 where !(pages.exists && pages.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        // A partially visible row reports hittable even when its trailing switch is below the sheet's edge.
+        let choices = app.collectionViews.firstMatch
+        for _ in 0..<3 where !(pages.exists && pages.isHittable && choices.frame.insetBy(dx: 0, dy: 24).contains(pages.frame)) {
+            choices.swipeUp()
+        }
         XCTAssertEqual(pages.value as? String, "0")
         toggle(pages)
         XCTAssertEqual(pages.value as? String, "1")
         if phone {
-            XCTAssertFalse(added.label.contains("Shown when there’s room"), "Year off makes room for Added")
-            XCTAssertTrue(pages.label.contains("Shown when there’s room"), "Pages is on but needs more room: \(pages.label)")
+            XCTAssertTrue(pages.label.contains("Scroll sideways to see it"), "Pages is on but scrolls in: \(pages.label)")
         }
         app.buttons["library.columns.done"].tap()
         XCTAssertTrue(app.navigationBars["Columns"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(header("Added", in: app).waitForExistence(timeout: 5), "Added in Year's place")
         XCTAssertFalse(header("Year", in: app).exists, "Year turned off never shows")
-        // Pages waits behind Tags for room (11" portrait), as the chooser says; it never shows on a phone in portrait.
-        if phone { XCTAssertFalse(header("Pages", in: app).exists, "Pages needs more room") }
+        // Pages scrolls in on a phone in portrait, as the chooser says.
+        if phone {
+            XCTAssertTrue(header("Pages", in: app).exists, "Every chosen column is in the table")
+            XCTAssertFalse(onScreen(header("Pages", in: app), in: app), "Pages is past the edge until the columns scroll")
+        }
         attach(app, "Table after choosing columns")
 
         // Restore defaults brings Year back.
@@ -196,7 +206,9 @@ final class LibraryLayoutTests: XCTestCase {
 
     /// A toggle row's switch sits at its trailing end.
     private func toggle(_ row: XCUIElement) {
+        let before = row.value as? String
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        if row.value as? String == before { row.switches.firstMatch.exists ? row.switches.firstMatch.tap() : row.tap() }
     }
 
     /// Filter chips scroll sideways on a phone: bring the chip into view, then tap it.
@@ -271,8 +283,10 @@ final class LibraryLayoutTests: XCTestCase {
         let app = launch()
         choose("Table", in: app, screenshot: "Library options menu (iPhone)")
         XCTAssertTrue(app.descendants(matching: .any)["library.table"].waitForExistence(timeout: 5), "A real table in portrait")
-        for title in ["Title", "Year", "Progress"] { XCTAssertTrue(header(title, in: app).exists, "Portrait shows \(title)") }
-        for title in ["Added", "Opened", "Chats"] { XCTAssertFalse(header(title, in: app).exists, "\(title) needs landscape") }
+        for title in ["Title", "Year", "Progress"] { XCTAssertTrue(onScreen(header(title, in: app), in: app), "Portrait shows \(title)") }
+        for title in ["Added", "Opened", "Chats"] {
+            XCTAssertFalse(onScreen(header(title, in: app), in: app), "\(title) scrolls in (or shows in landscape)")
+        }
         // The order (Recent: the Added column) still shows while its column is hidden.
         let indicator = app.descendants(matching: .any)["library.table.sortIndicator"].firstMatch
         XCTAssertEqual(indicator.label, "Sorted by Added")

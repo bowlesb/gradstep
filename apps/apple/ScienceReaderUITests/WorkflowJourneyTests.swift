@@ -336,8 +336,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: positioned, object: nil)], timeout: 5), .completed)
         let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
         web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width / 2, dy: y)).tap()
-        let define = app.buttons["reader.selection.define"]
-        XCTAssertTrue(define.waitForExistence(timeout: 5))
+        let define = app.revealEditMenuItem("Explain in Chat")
+        XCTAssertTrue(define.exists, "A tapped equation opens the edit menu")
         let paperOffset = before.frame.minY - web.frame.minY
         capture(app, "Equation actions from the encrypted installed paper after relaunch")
         define.tap()
@@ -588,8 +588,8 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Answer table")
     }
 
-    /// Owner feedback #10 and #3: selecting answer text offers Ask about this, Explain and Define next to
-    /// Copy; a formula offers Copy LaTeX and Copy as text.
+    /// Owner feedback #10 and #3 (build 14), #4 (build 16): selecting answer text offers Quote in Chat, Explain and
+    /// Define right after Copy; a formula offers Copy LaTeX and Copy as text, then the same actions.
     func testAnswerTextAndFormulasOfferChatActions() throws {
         let app = askChatFixture("answer", "Why scale by the square root of d_k?")
         let answer = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
@@ -600,11 +600,12 @@ final class WorkflowJourneyTests: XCTestCase {
         let item = { (title: String) in app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch }
         // Long-press the first word ("Scaling").
         answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 24, dy: 12)).press(forDuration: 1.2)
-        XCTAssertTrue(item("Ask about this").waitForExistence(timeout: 5))
+        XCTAssertTrue(item("Quote in Chat").waitForExistence(timeout: 5))
         XCTAssertTrue(app.menuItems["Copy"].exists, "Copy stays first")
+        XCTAssertLessThan(app.menuItems["Copy"].frame.minX, item("Quote in Chat").frame.minX)
         XCTAssertTrue(item("Explain").exists) // Define follows (on a narrow screen, after the menu's arrow)
         capture(app, "Answer text selection actions")
-        item("Ask about this").tap()
+        item("Quote in Chat").tap()
         let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
         let quoted = NSPredicate(format: "value BEGINSWITH %@", "About “Scaling”: ")
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: quoted, object: composer)], timeout: 5), .completed,
@@ -615,6 +616,7 @@ final class WorkflowJourneyTests: XCTestCase {
         answer.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 112, dy: 12)).press(forDuration: 1.2)
         XCTAssertTrue(item("Copy LaTeX").waitForExistence(timeout: 5))
         XCTAssertTrue(item("Copy as text").exists)
+        XCTAssertTrue(item("Quote in Chat").exists, "The same quote action as text")
         capture(app, "Formula actions")
     }
 
@@ -637,8 +639,8 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertFalse(progress.exists)
     }
 
-    /// Audit gap 2: papers an answer names are listed under it, to open (after
-    /// seeing the address) or add; one only in Sources is not repeated.
+    /// Audit gap 2: papers an answer names are listed under it, their identifier a link to the abstract page (after
+    /// seeing the address), with Add to library; one only in Sources is not repeated.
     func testAnswerPapersCanBeOpenedOrAdded() throws {
         let app = askChatFixture("research", "Which papers should I read next?")
         let papers = app.descendants(matching: .any)["chat.papers"]
@@ -649,7 +651,11 @@ final class WorkflowJourneyTests: XCTestCase {
         XCTAssertTrue(any["chat.paper.2"].label.contains("A General Theoretical Paradigm"))
         XCTAssertTrue(any["chat.paper.3"].label.contains("Rank Analysis of Incomplete Block Designs, DOI 10.2307/2334029"), any["chat.paper.3"].label)
         XCTAssertFalse(any["chat.paper.4"].exists, "A paper only in Sources is not listed again")
+        // Build 16 #9: no "Open" button; the identifier is the link to the abstract page.
         for number in 1...3 { XCTAssertTrue(app.buttons["chat.paper.\(number).open"].exists) }
+        XCTAssertEqual(app.buttons["chat.paper.1.open"].label, "arXiv 2305.18290")
+        XCTAssertEqual(app.buttons["chat.paper.3.open"].label, "DOI 10.2307/2334029")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Open", "Open arXiv")).firstMatch.exists)
         XCTAssertTrue(app.buttons["chat.paper.1.add"].exists)
         XCTAssertTrue(app.buttons["chat.paper.3.add"].exists, "A DOI can be added too")
         XCTAssertTrue(any["chat.paper.2.inLibrary"].exists)
@@ -948,7 +954,8 @@ final class WorkflowJourneyTests: XCTestCase {
             let y = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
             web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width / 2, dy: y)).tap()
         }
-        let define = app.buttons["reader.selection.define"]
+        // Build 16 #4: a tapped equation opens the same edit menu as selected text, beside it.
+        let define = app.editMenuItem("Explain in Chat")
         let equationY = (before.frame.maxY + after.frame.minY) / 2 - web.frame.minY
         let right = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.8, dy: equationY))
         let left = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: web.frame.width * 0.2, dy: equationY))
@@ -957,12 +964,17 @@ final class WorkflowJourneyTests: XCTestCase {
         capture(app, "Wide equation pans without activating actions")
         left.press(forDuration: 0.05, thenDragTo: right)
         tapEquation()
-        XCTAssertTrue(define.waitForExistence(timeout: 5), "A touch on SVG math must expose the native actions")
-        capture(app, "Touching an equation offers the paper selection actions")
-        app.buttons["reader.selection.clear"].tap()
-        XCTAssertFalse(define.exists)
+        XCTAssertTrue(app.revealEditMenuItem("Explain in Chat").exists, "A touch on SVG math must open the edit menu")
+        XCTAssertTrue(app.editMenuItem("Copy LaTeX").exists, "Copy comes first for an equation too")
+        let copyLatex = app.editMenuItem("Copy LaTeX").frame
+        XCTAssertTrue(copyLatex.minX < define.frame.minX || copyLatex.minY < define.frame.minY, "Copy LaTeX comes first")
+        XCTAssertFalse(app.buttons["reader.selection.define"].exists, "No selection bar under the paper")
+        capture(app, "Touching an equation offers the edit menu with the paper's actions")
+        // Tapping the page outside it closes the menu and unselects the equation.
+        web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+        XCTAssertTrue(define.waitForNonExistence(timeout: 5))
         let location = before.frame.minY - web.frame.minY
-        tapEquation(); XCTAssertTrue(define.waitForExistence(timeout: 5)); define.tap()
+        tapEquation(); XCTAssertTrue(app.revealEditMenuItem("Explain in Chat").exists); define.tap()
         let question = app.tables["chat.transcript"].descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "chat.message.text.", #"\begin{equation}"#)).firstMatch
         XCTAssertTrue(question.waitForExistence(timeout: 8), "The exact equation environment reaches encrypted local chat")
@@ -1019,23 +1031,29 @@ final class WorkflowJourneyTests: XCTestCase {
         let point = web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
             dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18))
         point.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5))
-        for action in ["define", "relevance", "similar", "ingest", "clear"] {
-            let button = app.buttons["reader.selection." + action]
-            XCTAssertTrue(button.isHittable)
-            XCTAssertGreaterThanOrEqual(button.frame.height, 44)
-            XCTAssertGreaterThanOrEqual(button.frame.minX, 0)
-            XCTAssertLessThanOrEqual(button.frame.maxX, app.frame.maxX)
+        // Build 16 #5: the system edit menu, Copy first, then the paper's actions in plain words; no bar under the paper.
+        let copy = app.editMenuItem("Copy"), explain = app.editMenuItem("Explain in Chat")
+        XCTAssertTrue(explain.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(copy.exists, "Copy stays in the menu")
+        XCTAssertTrue(copy.frame.minX < explain.frame.minX || copy.frame.minY < explain.frame.minY, "Copy comes first")
+        XCTAssertFalse(app.buttons["reader.selection.define"].exists, "No selection bar under the paper")
+        capture(app, "Native text selection with the paper's actions in the edit menu")
+        for title in ["Why it matters", "Related papers", "Add paper"] {
+            let item = app.revealEditMenuItem(title)
+            XCTAssertTrue(item.exists && item.isHittable, "\(title) is reachable in the menu")
         }
-        if app.buttons["reader.selection.relevance"].frame.minY >= app.buttons["reader.selection.define"].frame.maxY {
-            for action in ["relevance", "similar", "ingest"] {
-                XCTAssertGreaterThanOrEqual(app.buttons["reader.selection." + action].frame.width, app.frame.width - 56,
-                    "A full-width fallback row should be tappable across the row")
-            }
-        }
-        capture(app, "Native text selection with all paper actions reachable")
-        app.buttons["reader.selection.clear"].tap()
-        XCTAssertFalse(app.buttons["reader.selection.define"].exists)
+        capture(app, "Edit menu, every paper action reachable")
+        // Tapping elsewhere closes the menu and the selection.
+        web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        XCTAssertTrue(app.editMenuItem("Explain in Chat").waitForNonExistence(timeout: 5))
+        // An action runs on the passage.
+        point.press(forDuration: 1)
+        app.revealEditMenuItem("Explain in Chat").tap()
+        // Signed out (this fixture), the question waits in the message box behind Sign in.
+        let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+        let asked = NSPredicate(format: "value BEGINSWITH %@", "Explain in plain terms, including any symbols: useful")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: asked, object: composer)], timeout: 8), .completed,
+                       "Explain in Chat asks about the selected passage: " + String(describing: composer.value))
     }
 
     func testBrowseAskShowsPaperChatOnTablet() throws {

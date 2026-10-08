@@ -31,9 +31,10 @@ table keep the single combined element.
 formula as a private-use placeholder (`ChatRichText.styledRuns`), so emphasis spanning math applies; links stay inert
 (link attributes removed). In answers, paragraphs, headings and list items render through `ChatSelectableText`, a
 non-editable, non-scrolling `UITextView` (TextKit 2) sized to the proposed width, with inline formulas as
-`NSTextAttachment` images carrying their LaTeX (`.chatLatex`). Its edit menu adds Ask about this / Explain / Define
-before the system actions; a selection that is one formula, or a long press on it (`UITextItem` menu), offers Copy
-LaTeX, Copy as text, Explain, Define, Ask about this; display math has the same items as a context menu. Copy and
+`NSTextAttachment` images carrying their LaTeX (`.chatLatex`). Its edit menu keeps Copy first, then Quote in Chat /
+Explain / Define and the remaining system actions; a selection that is one formula, or a long press on it
+(`UITextItem` menu), offers Copy LaTeX, Copy as text, Quote in Chat, Explain, Define; display math has the same items
+as a context menu. Quote in Chat adds the selected text to the composer without sending. Copy and
 quotes write formulas as `\( … \)`. User messages, tables and streaming answers keep the earlier rendering/menus.
 `ChatRichText.withoutAnswerLabel` hides a leading "Answer:" label in answers.
 
@@ -44,7 +45,7 @@ counts as the arXiv paper). Bare numbers are ignored. On the device, no model ca
 order of first mention; a paper that appears only in the trailing Sources list is left out (Sources already shows
 it). A row's title is the Markdown link text around the ID, or the list item's leading bold/quoted title when the
 line names only that paper, else the library's title for an arXiv paper already in it, else the ID. Each row
-(`ChatAnswerPapersView`, styled like Sources) has **Open** (the same "Open … in Safari?" confirmation with the full
+(`ChatAnswerPapersView`, styled like Sources) has its **arXiv ID or DOI as a link** (the same "Open … in Safari?" confirmation with the full
 address: arXiv abstract page or `https://doi.org/…`) and **Add to library**: arXiv through `importPaper` (the Add
 sheet's library command, library search left as it is); a DOI through `add-reference` with the DOI as the reference
 text, showing the reader's `ReferenceNotice` wording on the row (working, added, already present, not openly

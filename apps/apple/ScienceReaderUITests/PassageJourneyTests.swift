@@ -51,7 +51,7 @@ final class PassageJourneyTests: XCTestCase {
 
         // 1. Select → Explain: a chat titled by the action and the passage.
         word().press(forDuration: 1)
-        let explain = app.buttons["reader.selection.define"]
+        let explain = app.editMenuItem("Explain in Chat")
         XCTAssertTrue(explain.waitForExistence(timeout: 5)); explain.tap()
         let title = app.buttons["chat.context"]
         waitFor("The question is saved as \"Explain · …\"", timeout: 10) { title.exists && title.label.hasPrefix("Conversation: Explain · ") }

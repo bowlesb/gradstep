@@ -55,6 +55,21 @@ import Testing
         #expect(try decode(importJSON(detail: ["step": String(repeating: "x", count: 65)])).progressDetail?.step == .other(""))
     }
 
+    @Test func automaticRetryTimeIsOptionalBoundedAndSurvivesEncoding() throws {
+        var row = importJSON()
+        row["phase"] = "failed"; row["error_code"] = "metadata_unavailable"; row["retryable"] = true
+        #expect(try decode(row).autoRetryAt == nil)
+        for invalid: Any in [NSNull(), "tomorrow", String(repeating: "x", count: 65), 123, ["at": "2026-10-08T01:00:00Z"]] {
+            row["auto_retry_at"] = invalid
+            #expect(try decode(row).autoRetryAt == nil)
+        }
+        row["auto_retry_at"] = "2026-10-08T01:00:00Z"
+        let value = try decode(row)
+        #expect(value.autoRetryAt != nil)
+        #expect(try JSONDecoder().decode(LibraryImportRecord.self, from: JSONEncoder().encode(value)) == value)
+        #expect(try OfflineCacheCodec.decode(LibraryImportRecord.self, from: OfflineCacheCodec.encode(value)) == value)
+    }
+
     @Test func survivesTheCacheEncodingExactly() throws {
         for detail in [["step": "reading_equations", "percent": 62, "eta_seconds": 40, "pages": 27, "pages_done": 17] as [String: Any],
                        ["step": "waiting", "percent": 30, "delayed": true], ["step": "finding", "percent": 0, "eta_seconds": 47]] {

@@ -1,6 +1,12 @@
 # Mac app
 
-Status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
+Native table UX validation (2026-10-08): the combined column-picker, scrolling-table and v5 library-command code
+passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **351 tests, 4 expected
+skips, no failures**. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
+`/private/tmp/gradstep-native-ux-mac-signed-unit.xcresult`; this is unit/runtime and compilation evidence,
+not a new manual keyboard/pointer or live-account verification.
+
+Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
 keyboard/UI runtime attempt reached no assertions and was interrupted, so those interaction checks remain open.
 Mac sign-in, sync and purchases remain unverified. **TestFlight: Mac build 17 uploaded 2026-10-07 and processed VALID,

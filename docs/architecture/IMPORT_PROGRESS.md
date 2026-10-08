@@ -26,6 +26,7 @@ Reading equations and figures (page 12 of 27)
 | `render`, `done` | Preparing it for reading | |
 | paused by the platform budget | Waiting to continue | |
 | failed download the server will retry (027) | Couldn't download yet | "Trying again automatically" |
+| failed metadata or free re-render the server will retry (041) | The failure's plain-language reason | "Trying again automatically" |
 
 Time: "A few seconds left", "About 40 s left" (5 s steps under 30 s, then 10 s), "About a minute left", "About 3 min
 left", "Almost done" once the estimate runs out, "Taking longer than usual" when the server says it is backing off or
@@ -101,7 +102,15 @@ at least 5 successful exits; `pipeline_measure_timing`, cached 15 min in `pipeli
   `.row` and `.compact` (a ~100 pt table column: "Reading 62%", the bar, "40 s left"); `ImportProgressBar`,
   `ImportProgressInfoButton`, `ImportProgressExplainer` (presented by `model.showImportHelp = true`).
 - `LibraryRowFacts.importProgress` and `ReaderModel.importProgress(for:)` give the table what it needs; List rows
-  use the view now. The Library keeps polling while a download waits for its automatic retry.
+  use the view now. The Library keeps polling while any failed import has a server retry scheduled. Such rows count
+  as underway rather than Failed and do not offer a competing Retry button. A scheduled retry has no percentage or
+  countdown; passing its time does not authorize the client to restart work.
+- `LibraryImportRecord.autoRetryAt` decodes optional `auto_retry_at` leniently, preserving older servers and dropping
+  malformed timestamps without rejecting the library. Download failures also retain the older `download_retrying`
+  fallback. Metadata/re-render retries keep their actual failure reason instead of saying the PDF download failed.
+  Presentation checkpoint format 5 forces one fresh snapshot after an app upgrade: older offline rows remain readable
+  but cannot seed a replica missing this newly decoded field at the same server sequence. The repair whitelist adds
+  only this presentation field; identity and artifact pins remain strict.
 - Tests: `ImportProgressTests` (app), `ImportProgressWireTests` (Core). Screens: `library-import-progress`,
   `library-import-progress-help`, `library-import-progress-table` (`--import-progress-fixture`).
 

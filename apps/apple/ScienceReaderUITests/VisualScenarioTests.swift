@@ -95,6 +95,12 @@ final class VisualScenarioTests: XCTestCase {
             "library-import-progress-table": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { _ in
                 sleep(2)
             },
+            "library-automatic-retry": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { app in
+                let retry = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",
+                    "importProgress", "details, trying again automatically")).firstMatch
+                for _ in 0..<8 where !(retry.exists && retry.isHittable) { app.swipeUp() }
+                XCTAssertTrue(retry.exists && retry.isHittable, "The metadata failure explains its automatic retry")
+            },
             "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
                 let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.swipeLeft(); sleep(1)
@@ -193,7 +199,7 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(paragraph.waitForExistence(timeout: 5))
                 web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
                     dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18)).press(forDuration: 1)
-                XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5)); sleep(1)
+                XCTAssertTrue(app.editMenuItem("Explain in Chat").waitForExistence(timeout: 5)); sleep(1)
             },
             // Citations and the publication line (owner feedback, build 11 session).
             "paper-top": Scenario(arguments: Self.mathpixFixture) { app in self.openMathpix(app) },

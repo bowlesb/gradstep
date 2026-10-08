@@ -17,20 +17,55 @@ struct ImportProgress: Equatable, Sendable {
     var floor = 0
     /// When this device first saw the import on its current step (for the fallback's elapsed time).
     var stepSince: Date? = nil
-    /// The download failed and the server will try again by itself (migration 027's `download_retrying`): not a dead
-    /// failure, so it is shown like work in progress.
+    /// The failed stage has a server retry scheduled (027/041): shown as work in progress, without a local retry.
     var retrying = false
+    /// Keep the reason that this step failed while telling the reader it is scheduled to try again.
+    var retryTitle: String? = nil
+    var retryCompactTitle: String? = nil
+    /// Where the paper's details come from, for a wait's wording ("Waiting for arXiv"); nil when unknown.
+    var sourceName: String? = nil
 
     /// The percent shown at `now`: the server's, moved on toward 99 % at the estimated finish (the same count-down
-    /// the server assumes when it decides whether a reader needs a new detail), never below `floor`, never 100 %
-    /// (the row turns into the paper then). Nil without a server percent.
+    /// the server assumes when it decides whether a reader needs a new detail), but never past where the current step
+    /// ends for a typical paper (`countCeiling`), never below `floor`, never 100 % (the row turns into the paper then).
+    /// Nil without a server percent.
     func percent(at now: Date) -> Int? {
         guard let detail else { return nil }
         var shown = Double(min(99, detail.percent))
         if let eta = detail.etaSeconds, eta > 0, !detail.delayed {
             shown += (99 - shown) * min(1, max(0, now.timeIntervalSince(receivedAt)) / Double(eta))
+            shown = min(shown, Double(max(detail.percent, Self.countCeiling(step))))
         }
         return min(99, max(floor, Int(shown.rounded(.down))))
+    }
+
+    /// The furthest the bar counts on its own during a step: about where the step ends for a typical paper (the
+    /// server's default stage times: details ~10 %, download ~25 %, reading ~75 %). A step that runs long then waits
+    /// there instead of reaching "Finding 99%" (owner feedback, build 16 #10); the server's next detail moves it on.
+    static func countCeiling(_ step: LibraryImportStep) -> Int {
+        switch step {
+        case .queued, .finding, .preparing: 15
+        case .downloading: 30
+        case .converting: 85
+        case .building: 99
+        case .waiting: 0
+        }
+    }
+
+    /// Backing off, paused, or well past the estimate: the row shows the step without a percent (an indeterminate
+    /// spinner) and says what it is waiting for.
+    func isWaiting(at now: Date) -> Bool {
+        guard let detail else { return false }
+        return detail.delayed || timeLeft(at: now) == .slow
+    }
+
+    /// What a waiting import is waiting for, in plain words.
+    var waitText: String {
+        switch step {
+        case .finding where detail?.delayed == true: sourceName.map { "Waiting for \($0) · retrying" } ?? "Waiting to retry"
+        case .preparing where detail?.delayed == true, .downloading where detail?.delayed == true: "Waiting to retry"
+        default: ImportTimeLeft.slow.text
+        }
     }
 
     /// The time part, if there is anything honest to say.
@@ -49,9 +84,10 @@ struct ImportProgress: Equatable, Sendable {
 
     func presentation(at now: Date) -> ImportProgressPresentation {
         if retrying {
-            return ImportProgressPresentation(step: .downloading, title: "Couldn’t download yet", detail: nil, percent: nil,
-                                              timeText: "Trying again automatically", compactTimeText: "Trying again", isSlow: false,
-                                              accessibilityLabel: "Couldn’t download yet, trying again automatically")
+            let reason = retryTitle ?? "Couldn’t download yet"
+            return ImportProgressPresentation(step: step, title: reason, detail: nil, percent: nil,
+                                              timeText: "Trying again automatically", compactTimeText: "Trying again automatically", isSlow: false,
+                                              accessibilityLabel: "\(reason), trying again automatically", compactTitleOverride: retryCompactTitle ?? "Retrying soon")
         }
         guard let detail else {
             // Older servers: the step and how long it has run here, exactly as before.
@@ -60,8 +96,16 @@ struct ImportProgress: Equatable, Sendable {
                                               compactTimeText: elapsed?.label, isSlow: elapsed?.isSlow ?? false,
                                               accessibilityLabel: step.spokenStatus(elapsed: elapsed))
         }
-        let percent = percent(at: now), time = timeLeft(at: now)
         let extra = Self.detailText(step: step, detail: detail)
+        if isWaiting(at: now) {
+            // No near-complete percent while nothing moves: the step, a spinner and what it waits for.
+            let wait = step == .waiting ? nil : waitText
+            let spoken = [step.title, extra, wait.map { ($0.prefix(1).lowercased() + $0.dropFirst()).replacingOccurrences(of: " · ", with: ", ") }]
+                .compactMap { $0 }.joined(separator: ", ")
+            return ImportProgressPresentation(step: step, title: step.title, detail: extra, percent: nil, timeText: wait,
+                                              compactTimeText: wait, isSlow: true, accessibilityLabel: spoken)
+        }
+        let percent = percent(at: now), time = timeLeft(at: now)
         let spoken = [step.title, extra, percent.map { "\($0) percent" }, time?.spoken].compactMap { $0 }.joined(separator: ", ")
         return ImportProgressPresentation(step: step, title: step.title, detail: extra, percent: percent, timeText: time?.text,
                                           compactTimeText: time?.compactText, isSlow: time == .slow, accessibilityLabel: spoken)
@@ -172,11 +216,12 @@ struct ImportProgressPresentation: Equatable, Sendable {
     let isSlow: Bool
     /// One sentence: "Reading equations and figures, page 12 of 27, 62 percent, about 40 seconds left".
     let accessibilityLabel: String
+    var compactTitleOverride: String? = nil
 
     /// The step line: "Reading equations and figures (page 12 of 27)".
     var line: String { detail.map { "\(title) (\($0))" } ?? title }
     /// One word for a narrow column: "Reading".
-    var compactTitle: String { step.tableTitle }
+    var compactTitle: String { compactTitleOverride ?? step.tableTitle }
     /// The bar's value, 0…1.
     var fraction: Double? { percent.map { Double($0) / 100 } }
     /// Beside the bar: "62% · About 40 s left".
@@ -191,6 +236,7 @@ struct ImportProgressPresentation: Equatable, Sendable {
 struct ImportProgressTracker: Equatable {
     private struct Mark: Equatable {
         let stateSequence: Int64, intentRevision: Int64
+        let step: LibraryImportStep
         let detail: LibraryImportProgressDetail?
         let receivedAt: Date
         let floor: Int
@@ -206,10 +252,10 @@ struct ImportProgressTracker: Equatable {
             if let old, old.stateSequence == item.stateSequence, old.intentRevision == item.intentRevision { next[item.id] = old; continue }
             var floor = 0
             if let old, old.intentRevision == item.intentRevision {
-                floor = ImportProgress(step: .queued, detail: old.detail, receivedAt: old.receivedAt, floor: old.floor).percent(at: now) ?? old.floor
+                floor = ImportProgress(step: old.step, detail: old.detail, receivedAt: old.receivedAt, floor: old.floor).percent(at: now) ?? old.floor
             }
-            next[item.id] = Mark(stateSequence: item.stateSequence, intentRevision: item.intentRevision, detail: item.progressDetail,
-                                 receivedAt: now, floor: floor)
+            next[item.id] = Mark(stateSequence: item.stateSequence, intentRevision: item.intentRevision, step: item.step ?? .queued,
+                                 detail: item.progressDetail, receivedAt: now, floor: floor)
         }
         marks = next
     }
@@ -217,22 +263,32 @@ struct ImportProgressTracker: Equatable {
     /// Fixtures: as if the import's current detail arrived at `receivedAt`.
     mutating func record(_ item: LibraryImportRecord, receivedAt: Date) {
         guard item.step != nil else { return }
-        marks[item.id] = Mark(stateSequence: item.stateSequence, intentRevision: item.intentRevision, detail: item.progressDetail,
-                              receivedAt: receivedAt, floor: marks[item.id]?.floor ?? 0)
+        marks[item.id] = Mark(stateSequence: item.stateSequence, intentRevision: item.intentRevision, step: item.step ?? .queued,
+                              detail: item.progressDetail, receivedAt: receivedAt, floor: marks[item.id]?.floor ?? 0)
     }
 
     /// The import's progress, or nil when it isn't in progress. `now` stands in for an import not yet observed.
     func progress(of item: LibraryImportRecord, stepSince: Date?, now: Date) -> ImportProgress? {
-        if item.isRetryingAutomatically { return ImportProgress(step: .downloading, detail: nil, receivedAt: now, retrying: true) }
+        if item.isRetryingAutomatically {
+            let download = item.errorCode == .downloadRetrying
+            let step: LibraryImportStep = item.errorCode == .conversionFailed ? .building : item.retryStep
+            return ImportProgress(step: download ? .downloading : step, detail: nil, receivedAt: now, retrying: true,
+                                  retryTitle: download ? nil : item.libraryStatus, retryCompactTitle: item.libraryShortStatus)
+        }
         guard let step = item.step else { return nil }
         let mark = marks[item.id].flatMap { $0.stateSequence == item.stateSequence && $0.intentRevision == item.intentRevision ? $0 : nil }
         return ImportProgress(step: step, detail: item.progressDetail, receivedAt: mark?.receivedAt ?? now, floor: mark?.floor ?? 0,
-                              stepSince: stepSince)
+                              stepSince: stepSince, sourceName: item.isArxivSource ? "arXiv" : nil)
     }
 }
 
 extension LibraryImportRecord {
-    /// Failed to download, and the server will try again by itself (migration 027): rows show it as under way,
-    /// and the library keeps polling for it.
-    var isRetryingAutomatically: Bool { phase == .failed && errorCode == .downloadRetrying }
+    /// The server will retry a failed step (027 downloads; 041 metadata/render): rows show the reason and scheduled
+    /// retry as under way, and the library keeps polling. A past timestamp stays scheduled until the server updates it.
+    var isRetryingAutomatically: Bool { phase == .failed && (autoRetryAt != nil || errorCode == .downloadRetrying) }
+    /// An arXiv paper (its details come from arXiv's API).
+    var isArxivSource: Bool {
+        if let source { return source.lowercased() == "arxiv" }
+        return sourceID.map { (try? ArxivReference($0)) != nil } ?? false
+    }
 }

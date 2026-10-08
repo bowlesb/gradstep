@@ -257,7 +257,8 @@ struct CachePresentationCheckpoint: Codable {
     /// Bump it whenever `LibraryItemRecord` or `LibraryImportRecord` decodes a new field
     /// (`OfflineCacheTests.snapshotFormatCoversEveryDecodedEntryField` pins the field list).
     /// 4: descriptor references, dataset-bound resume and retained offline safety policy.
-    static let currentFormat = 4
+    /// 5: `auto_retry_at` on failed imports (027/041); earlier caches cannot seed equal-revision reconciliation.
+    static let currentFormat = 5
     let format: Int
     let scope: LibraryCommandScope
     let cursor: Int64

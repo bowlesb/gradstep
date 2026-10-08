@@ -23,7 +23,8 @@ final class LibraryWritesTests: XCTestCase {
     func testFeedAddIsEnabledUnderV5AndTheLibraryShowsTheAddedPaper() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
-        app.launchArguments = ["--library-v5-fixture"]
+        app.launchArguments = ["--library-v5-fixture", "--library-layout=table", "--feed-layout=table",
+                               "--feed-columns=topic,published,authors,arxiv"]
         app.launch()
 
         // The signed-in library (v5) has loaded its saved paper.
@@ -40,6 +41,13 @@ final class LibraryWritesTests: XCTestCase {
         XCTAssertTrue(add.waitForExistence(timeout: 20), "The Feed lists the fixture's papers")
         XCTAssertTrue(wait(add, "isEnabled == true"), "Feed Add is enabled under the upload-capable library")
         XCTAssertTrue(app.buttons["discover.add.2610.02287"].isEnabled)
+        let row = app.descendants(matching: .any)["feed.table.2610.01234"].firstMatch
+        let addX = add.frame.minX
+        XCTAssertTrue(row.exists)
+        row.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).press(forDuration: 0.05,
+            thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)))
+        XCTAssertEqual(add.frame.minX, addX, accuracy: 1, "Add stays visible while the selected columns scroll")
+        XCTAssertTrue(add.isHittable && add.isEnabled)
         save(app, "library-v5-feed-add-enabled")
 
         add.tap()

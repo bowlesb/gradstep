@@ -96,7 +96,7 @@ struct CreditsStoreView: View {
                     Button("Manage") { manageSubscriptions = true }.font(.subheadline)
                 }
             }
-            Text("Credits pay for converting papers and for AI answers. A first question on a paper uses about 25 credits; follow-ups use fewer.")
+            Text("Credits pay for paper conversion and AI answers. Usage depends on paper length and the answer.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

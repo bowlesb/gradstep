@@ -66,7 +66,7 @@ final class ChatHistoryTableTests: XCTestCase {
 
         header("conversation", app).tap()
         assertAbove(row(27, app), row(17, app), "A–Z: “Batch norm…” before “Bottleneck…”")
-        if header("messages", app).exists {
+        if header("messages", app).isHittable {
             header("messages", app).tap()
             assertAbove(row(4, app), row(18, app), "Most messages first; equal counts by recency")
         }
@@ -197,12 +197,19 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertFalse(app.buttons["chat.history.filter.thisPaper"].exists)
     }
 
+    /// Delete is on the row's long-press menu; a sideways swipe offers it too while the columns don't scroll sideways
+    /// (iPhone portrait with the default columns scrolls them, so the swipe moves the columns there).
     func testDeletingAConversationAsksFirstAndRemovesIt() {
         let app = launch()
         let target = row(3, app)
-        target.swipeLeft()
-        let delete = app.buttons["Delete"].firstMatch
-        XCTAssertTrue(delete.waitForExistence(timeout: 5)); delete.tap()
+        let menuDelete = app.buttons["Delete conversation"].firstMatch, swipeDelete = app.buttons["Delete"].firstMatch
+        func askToDelete() {
+            target.swipeLeft()
+            if swipeDelete.waitForExistence(timeout: 2) { swipeDelete.tap(); return }
+            target.press(forDuration: 1.2)
+            XCTAssertTrue(menuDelete.waitForExistence(timeout: 5)); menuDelete.tap()
+        }
+        askToDelete()
         let alert = app.alerts["Delete this conversation?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5))
         attach("Delete confirmation")
@@ -210,8 +217,7 @@ final class ChatHistoryTableTests: XCTestCase {
         XCTAssertTrue(target.exists, "Cancel keeps it")
         XCTAssertEqual(count(app), "30 chats")
 
-        target.swipeLeft()
-        XCTAssertTrue(delete.waitForExistence(timeout: 5)); delete.tap()
+        askToDelete()
         XCTAssertTrue(alert.waitForExistence(timeout: 5)); alert.buttons["Delete"].firstMatch.tap()
         XCTAssertTrue(target.waitForNonExistence(timeout: 5))
         XCTAssertEqual(count(app), "29 chats")

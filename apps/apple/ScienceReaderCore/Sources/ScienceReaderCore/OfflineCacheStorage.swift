@@ -437,7 +437,7 @@ struct OfflineCacheStorage {
         func comparable(_ entry: LibraryEntry) throws -> NSDictionary {
             guard var value = try JSONSerialization.jsonObject(with: OfflineCacheCodec.encode(entry)) as? [String: Any]
             else { throw OfflineCacheError.corruptCache }
-            for field in ["tags", "user_tags", "hidden_tags", "progress_detail"] { value.removeValue(forKey: field) }
+            for field in ["tags", "user_tags", "hidden_tags", "progress_detail", "auto_retry_at"] { value.removeValue(forKey: field) }
             return value as NSDictionary
         }
         guard try comparable(old).isEqual(comparable(new)) else { throw OfflineCacheError.conflictingObservation }

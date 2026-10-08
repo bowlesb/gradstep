@@ -297,6 +297,30 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         }
     }
 
+    @Test func buildEighteenCacheRebasesRetryPresentationWithoutRevisionConflict() async throws {
+        try await withFixture { f in
+            let context = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            let library = try build15Library()
+            var row = try #require(library.entries.first { $0["kind"] as? String == "import" && $0["phase"] as? String == "failed" })
+            row["auto_retry_at"] = nil
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: library.cursor, context: context),
+                                                     scope: f.scope, format: 4)
+            let reopened = try f.reopen()
+            #expect(try await reopened.cachedLibraryPresentation(scope: f.scope)?.entries.count == 1, "Offline display stays available")
+            #expect(try await reopened.cachedLibraryReplicaSeed(scope: f.scope) == nil, "Older decoded fields require a fresh baseline")
+            row["auto_retry_at"] = "2026-10-08T01:00:00Z"
+            let current = try observation(f.account, rows: [row], cursor: library.cursor, context: context)
+            try await reopened.saveLibraryPresentation(current, scope: f.scope)
+            let again = try f.reopen()
+            #expect(try await again.cachedLibraryReplicaSeed(scope: f.scope)?.entries == current.entries)
+            // Once both copies include the field, equal-revision divergence remains a protocol violation.
+            row["auto_retry_at"] = "2026-10-08T02:00:00Z"
+            await #expect(throws: OfflineCacheError.conflictingObservation) {
+                try await again.saveLibraryPresentation(observation(f.account, rows: [row], cursor: library.cursor, context: context), scope: f.scope)
+            }
+        }
+    }
+
     @Test func retainedBlockCapacityPausesCheckpointAtomicallyWithoutEviction() async throws {
         try await withFixture { f in
             let bundle = try bundle(), oldContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
@@ -847,6 +871,7 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         active["requested_revision"] = active["source_revision"]
         active["document_id"] = UUID().wire; active["library_item_id"] = UUID().wire
         active["progress"] = "downloading"; active["progress_detail"] = ["step": "downloading", "percent": 12]
+        active["auto_retry_at"] = "2026-10-08T01:00:00Z"
         func keys(_ row: [String: Any]) throws -> Set<String> {
             let entry = try JSONDecoder().decode(LibraryEntry.self, from: json(row))
             return Set(try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any]).keys)
@@ -854,7 +879,7 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         let descriptor: [String: Any] = ["descriptor_id": UUID().wire, "revision": 1, "epoch": 1,
                                         "sha256": String(repeating: "a", count: 64)]
         item["descriptor_ref"] = descriptor; active["descriptor_ref"] = descriptor
-        #expect(CachePresentationCheckpoint.currentFormat == 4)
+        #expect(CachePresentationCheckpoint.currentFormat == 5)
         #expect(try keys(item) == ["kind", "id", "document_id", "created_seq", "state_seq", "membership_revision", "visible", "added_at",
             "last_remove_seq", "approval_id", "version_id", "metadata_id", "source", "source_id", "source_revision", "metadata",
             "metadata_recorded_at", "source_url", "scope", "page_count", "original_object_id", "artifact_id", "readiness",
@@ -862,7 +887,7 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             "archived", "tags", "user_tags", "hidden_tags", "descriptor_ref"])
         #expect(try keys(active) == ["kind", "id", "created_seq", "state_seq", "intent_revision", "visible", "phase", "source", "source_id",
             "requested_revision", "source_revision", "metadata_id", "version_id", "metadata", "metadata_recorded_at", "source_url",
-            "document_id", "library_item_id", "error_code", "retryable", "progress", "progress_detail", "descriptor_ref"])
+            "document_id", "library_item_id", "error_code", "retryable", "progress", "progress_detail", "auto_retry_at", "descriptor_ref"])
     }
 
     @Test func exactBindingScopeAndEmptyLibraryCannotAuthorizeDifferentInstall() async throws {

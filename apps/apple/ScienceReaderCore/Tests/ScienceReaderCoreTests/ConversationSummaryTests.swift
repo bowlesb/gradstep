@@ -52,6 +52,22 @@ import Testing
         #expect(summaries.first?.latestAnswer == nil)
     }
 
+    @Test func answerLengthCountsTheWholeNewestAnswerBeyondItsBoundedPreview() throws {
+        let conversation = UUID()
+        var state = PrivateState()
+        let start = root(conversation, "Long answer")
+        let question = message(conversation, after: start.id, .user, "Explain")
+        let answer = message(conversation, after: question.id, .assistant, Array(repeating: "word", count: 1_200).joined(separator: " "))
+        for event in [start, question, answer] { try state.apply(event) }
+        let summary = try #require(state.conversationSummaries().first)
+        #expect(summary.latestAnswerWords == 1_200)
+        #expect(summary.latestAnswer?.count == ConversationSummary.answerPrefix)
+        let followUp = message(conversation, after: answer.id, .user, "Summarize")
+        let shorter = message(conversation, after: followUp.id, .assistant, "Two words")
+        for event in [followUp, shorter] { try state.apply(event) }
+        #expect(state.conversationSummaries().first?.latestAnswerWords == 2)
+    }
+
     @Test func historyWithoutTimesFallsBackToArrivalOrder() throws {
         let older = UUID(), newer = UUID()
         var state = PrivateState()

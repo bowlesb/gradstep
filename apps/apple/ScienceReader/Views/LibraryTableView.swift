@@ -30,7 +30,7 @@ struct LibraryTableItem: Identifiable {
 /// The Library's columns beside Title (owner request 2026-10-07: "columns that can be turned on or off"). Cases are
 /// in row order; Progress is last: it carries an import's status and its Retry, the cell with the most to say.
 enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
-    case year, tags, source, pages, added, opened, chats, progress
+    case year, venue, tags, source, pages, added, opened, chats, progress
 
     typealias Column = PaperTableColumn<LibrarySearchSort.Field>
     static let title = Column(id: "title", title: "Title", sortKey: .title, ascendingFirst: true)
@@ -39,7 +39,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
 
     var title: String {
         switch self {
-        case .year: "Year"; case .tags: "Tags"; case .source: "Source"; case .pages: "Pages"; case .added: "Added"
+        case .year: "Year"; case .venue: "Venue"; case .tags: "Tags"; case .source: "Source"; case .pages: "Pages"; case .added: "Added"
         case .opened: "Opened"; case .chats: "Chats"; case .progress: "Progress"
         }
     }
@@ -48,6 +48,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     var explanation: String {
         switch self {
         case .year: "Year published"
+        case .venue: "Where it was published (NeurIPS, a journal)"
         case .tags: "Topics, as chips"
         case .source: "arXiv identifier or website"
         case .pages: "Length of the paper"
@@ -63,31 +64,33 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
     var priority: Int {
         switch self {
         case .progress: 0; case .year: 1; case .added: 2; case .opened: 3; case .chats: 4; case .tags: 5; case .pages: 6; case .source: 7
+        case .venue: 8
         }
     }
 
     /// At the default text size; grows with Dynamic Type.
     var width: CGFloat {
         switch self {
-        case .year: 40; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
+        case .year: 40; case .venue: 120; case .tags: 150; case .source: 88; case .pages: 44; case .added: 76; case .opened: 76; case .chats: 46
         case .progress: 100
         }
     }
 
-    var sortField: LibrarySearchSort.Field {
+    /// The order its header sets; nil for a column that doesn't sort (Venue).
+    var sortField: LibrarySearchSort.Field? {
         switch self {
         case .year: .year; case .tags: .tags; case .source: .source; case .pages: .pages; case .added: .recent
-        case .opened: .opened; case .chats: .chats; case .progress: .progress
+        case .opened: .opened; case .chats: .chats; case .progress: .progress; case .venue: nil
         }
     }
 
     var column: Column {
         Column(id: rawValue, title: title, priority: priority, width: width,
                alignment: self == .pages || self == .chats ? .trailing : .leading,
-               sortKey: sortField, ascendingFirst: sortField.defaultAscending)
+               sortKey: sortField, ascendingFirst: sortField?.defaultAscending ?? true)
     }
 
-    /// The columns turned on, in row order. Which of them show is up to the width (`PaperTableLayout`).
+    /// The columns turned on, in row order. Those that don't fit the width scroll sideways (`TableArrangement`).
     static func columns(_ enabled: Set<Self>) -> [Column] { allCases.filter(enabled.contains).map(\.column) }
 
     /// What VoiceOver reads for this column of a row.
@@ -95,6 +98,7 @@ enum LibraryTableColumn: String, CaseIterable, Identifiable, Sendable {
         let facts = item.facts
         switch self {
         case .year: return facts.year.map(String.init)
+        case .venue: return facts.paper?.venue.map { "Published in \($0)" }
         case .tags: return facts.tags.isEmpty ? nil : "Tags: " + facts.tags.joined(separator: ", ")
         case .source: return facts.spokenSource
         case .pages: return facts.pages.map { $0 == 1 ? "1 page" : "\($0) pages" }
@@ -137,7 +141,8 @@ struct LibraryPaperTable<Top: View>: View {
         let items = model.libraryRows.map { LibraryTableItem(entry: $0, facts: model.libraryFacts(for: $0)) }
         let enabled = model.libraryColumns[LibraryColumnSettings.WidthClass.current]
         PaperTable(rows: items, titleColumn: LibraryTableColumn.title, columns: LibraryTableColumn.columns(enabled),
-                   sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], identifier: "library.table",
+                   sort: sort, extraSortTitles: [.authors: LibrarySearchSort.Field.authors.label], horizontalScroll: true,
+                   identifier: "library.table",
                    rowIdentifier: { "library.table.\($0.id)" },
                    title: { item in
                        PaperTableTitle(title: item.facts.title, subtitle: item.firstAuthor, highlighted: isSelected(item.entry))
@@ -221,6 +226,7 @@ struct LibraryTableCell: View {
         let facts = item.facts
         switch column {
         case .year: PaperTableText(text: facts.year.map(String.init))
+        case .venue: Text(facts.paper?.venue ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(2).truncationMode(.tail)
         case .tags: PaperTableChips(tags: Array(facts.tags.prefix(4)), highlighted: highlightedTag)
         case .source: Text(facts.source ?? "").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
             .lineLimit(1).truncationMode(.middle)
@@ -546,7 +552,7 @@ struct LibraryFilterBar: View {
 // MARK: Columns
 
 /// Library options › Columns: a toggle per column (Title always shows), for this kind of device. Changes apply at
-/// once, so the table behind the half-height sheet shows them; columns turned on that don't fit say so.
+/// once, so the table behind the half-height sheet shows them; columns turned on that don't fit say they scroll.
 struct LibraryColumnsSheet: View {
     @Bindable var model: ReaderModel
     /// The table's row width (inside the margins), to say which chosen columns need more room.
@@ -574,16 +580,14 @@ struct LibraryColumnsSheet: View {
                         Toggle(isOn: binding(column)) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(column.title)
-                                Text(enabled.contains(column) && !fitting.contains(column.id) ? "Shown when there’s room" : column.explanation)
+                                Text(enabled.contains(column) && !fitting.contains(column.id) ? TableColumnWording.scrolls : column.explanation)
                                     .font(.footnote).foregroundStyle(.secondary)
                             }
                         }
                         .accessibilityIdentifier("library.columns.\(column.rawValue)")
                     }
                 } footer: {
-                    Text(widthClass == .compact
-                         ? "For iPhone; iPad keeps its own columns. Columns that don’t fit the width are left out until there’s room, as in landscape."
-                         : "For iPad and Mac; iPhone keeps its own columns. Columns that don’t fit the width are left out until there’s room.")
+                    Text(TableColumnWording.footer(widthClass))
                 }
                 Section {
                     Button("Restore defaults") { model.libraryColumns[widthClass] = LibraryColumnSettings.defaultColumns(widthClass) }
@@ -597,6 +601,7 @@ struct LibraryColumnsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .macSheetKeys()
     }
 
     private func binding(_ column: LibraryTableColumn) -> Binding<Bool> {

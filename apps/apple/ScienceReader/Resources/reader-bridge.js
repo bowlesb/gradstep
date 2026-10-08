@@ -1034,6 +1034,12 @@
     clearEquation();
     window.getSelection()?.removeAllRanges();
   };
+  // The equation's edit menu closed without an action: unselect it, unless another one has been tapped since.
+  window.__scienceReaderClearEquation = id => {
+    if (!selectedEquation || selectedEquation.getAttribute('data-reader-equation') !== id) return false;
+    clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}});
+    return true;
+  };
   // While "Back" is offered the reading position stays where the reader left
   // the text; it is reported again on Back or once they scroll away.
   const postPosition = () => {
@@ -1178,6 +1184,17 @@
       }
     },180);
   });
+  // The selection at this moment, for an action chosen in the native edit menu (owner feedback, build 16 #5): the menu
+  // can be open before the debounced report above arrives. A tapped equation when no text is selected; null for none.
+  window.__scienceReaderSelectionNow = () => {
+    if (!config || config.figure_id) return null;
+    if (selectedEquation && (window.getSelection()?.isCollapsed ?? true)) {
+      return {manifest_sha256:manifest,parts:[{kind:'equation',block_id:enclosingBlock(selectedEquation),
+        equation_id:selectedEquation.getAttribute('data-reader-equation')}],context:passageContext(selectedEquation)};
+    }
+    const parts = selectionParts();
+    return parts.length ? {manifest_sha256:manifest,parts,context:passageContext()} : null;
+  };
   // The bibliography entry under a tap (a paragraph may hold several).
   const referenceAt = (element, x, y) => {
     const found = references.entries.filter(entry => entry.element.contains(element));
@@ -1199,7 +1216,7 @@
     style.textContent = '.reader-selected-equation{outline:2px solid Highlight;outline-offset:4px;border-radius:3px}';
     document.head.append(style);
     // Keep the math/assistive MathML tree intact. A tap offers the same native
-    // actions as text selection; it does not send a question by itself.
+    // edit menu as text selection; it does not send a question by itself.
     let gesture;
     document.addEventListener('pointerdown',event => {
       gesture = {id:event.pointerId,x:event.clientX,y:event.clientY,moved:false};
@@ -1244,8 +1261,10 @@
         if (equationIDs.get(id) !== block) return;
         clearTimeout(selectionTimer); clearEquation();
         selectedEquation = equation; equation.classList.add('reader-selected-equation');
+        // Where it is on screen, so the native edit menu opens beside it (the same menu as selected text).
+        const rect = equation.getBoundingClientRect();
         post({type:'selection',selection:{manifest_sha256:manifest,parts:[{kind:'equation',block_id:block,equation_id:id}],
-          context:passageContext(equation)}});
+          context:passageContext(equation)},menu:{x:rect.left,y:rect.top,width:rect.width,height:rect.height}});
       } else if (selectedEquation) {
         clearEquation(); post({type:'selection',selection:{manifest_sha256:manifest,parts:[]}});
       }
