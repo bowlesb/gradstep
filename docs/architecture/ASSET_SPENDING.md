@@ -620,7 +620,7 @@ this server contract. They must not ship against039 until durable epoch/capabili
 encrypted descriptor outbox/hydration, busy-finalize retries, usage totals and custom-title local search are complete.
 An upload feature flag alone is not evidence that those original branch clients implement the new protocol.
 
-## Native adoption implementation design — awaiting lead review, 2026-10-07
+## Native adoption implementation design — approved locally, 2026-10-07
 
 This is the next local implementation stage after `5fdd261`. It covers Swift/Core, the Apple app and fixture-only
 tests. It does not enable 039, create Apple identifiers/profiles, deploy functions or change the browser. The existing
@@ -680,9 +680,11 @@ reject a restored lower baseline. Preserve installed ciphertext and exact docume
 transition ordinary previously readable bundles remain available offline. When the new complete observation arrives,
 missing/removed items become unavailable and changed artifacts stay blocked. Carry explicit quarantine/incompatibility
 and previously removed membership across domains; a lower restored revision alone cannot clear them. A previously
-blocked/removed installation needs a fresh current-domain artifact authorization and exact manifest validation before
-it can become readable again. Context changes do not discard sticky policy or treat cache repair as authorization.
-This is an explicit eligibility transition to review, not a `cursor >= old` exception sprinkled through the cache.
+blocked/removed installation remains blocked: the current reader-artifact endpoint is not epoch-bound and cannot
+prove current-domain authorization. A separately reviewed server proof plus current membership and exact
+manifest/files/renderer compatibility will be needed for recovery; authorization alone cannot clear a locally
+unsafe artifact. This first slice implements no such clearing path. Context changes do not discard sticky policy or
+treat cache repair as authorization; this is an explicit transition, not a global relaxation of cursor checks.
 
 Pending command receipts also carry their observation context. After an epoch change, an old numerical receipt floor
 cannot be compared with a new cursor. Retain the encrypted intent in needs-review rather than automatically replaying
@@ -743,7 +745,8 @@ part and is authenticated by the job manifest; the whole-file and per-part hashe
 selected file. A transaction publishes the job only after every bounded chunk is durable. Use opaque IDs, preserve
 the user's original file, and retain no private title/filename in local SQL columns, URLs, logs or unencrypted queue
 metadata. Intake reads one chunk at a time; it must not buffer every queued PDF. Local queue limits are separate
-device-disk safeguards (proposed 10 jobs and 512 MiB ciphertext), never representations of server storage allowance.
+logical queue allowances (10 jobs and 512 MiB ciphertext), never hard filesystem limits or representations of server
+storage allowance. SQLite WAL, temporary intake files and filesystem overhead require additional physical space.
 
 Extend the existing local store format transactionally with encrypted descriptor/outbox/upload manifests and tables;
 all current history/draft/library/cache records survive. Unknown/corrupt rows are preserved and stop affected work,
@@ -814,6 +817,8 @@ each slice, then full relevant suites and complete native journeys. Simulator UD
 boot/install; generic fixture-only builds need no physical phone. Browser follow-up must implement the same capability,
 epoch, descriptor outbox/hydration and complete private-title index contracts using its compact v5 wire and IndexedDB.
 
-**Review requested before code:** capability RPC ownership/shape; authenticated cached-seed resume; cross-epoch reader
-eligibility and old receipt handling; encrypted SQLite chunk storage/limits; and omission of plaintext PDF-share title
-metadata while preserving the share entry point. The crypto envelope and server ingress lifecycle remain unchanged.
+**Lead approved for local incremental implementation:** this subtask owns the small authenticated capability RPC,
+same-context sealed resume, conservative cross-epoch eligibility, encrypted chunk storage/limits and omission of
+plaintext PDF-share metadata. Account key-share precedes capability rate/transfer accounting. Old-domain commands
+remain review-required and previously blocked installations stay blocked without a separately reviewed recovery
+proof. Commit and test slice 1 before layering 2–4. The crypto envelope and server ingress lifecycle remain unchanged.

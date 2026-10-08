@@ -2200,6 +2200,29 @@ begin
  perform app_private.consume_library_transfer(a,result); return result;
 end $$;
 
+-- An account-bound protocol advertisement, never a physical-write grant.
+-- Existing upload rows/descriptors remain readable while new ingress is paused.
+create function public.v1_reader_capabilities() returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare a uuid:=app_private.require_actor(); suspended boolean; result jsonb;
+begin
+ select spending_suspended into suspended from app_private.accounts where id=a and closed_at is null for key share;
+ if not found then raise exception 'account_unavailable' using errcode='42501'; end if;
+ perform public.worker_consume_request(a,'library-read');
+ select jsonb_build_object('format',1,'account_id',a,
+  'library',jsonb_build_object('endpoint_family','full-v5','wire_format',2,'source_level',4,'dataset_epoch',v.upload_dataset_epoch),
+  'descriptors',jsonb_build_object('format',1,'maximum_batch',24),
+  'uploads',jsonb_build_object('protocol','upload-chunks-v1',
+   'enabled',u.enabled and not suspended and p.enforced and p.inventory_scope=2 and p.inventory_verified_at is not null
+    and p.inventory_discrepancies=0 and p.reconciliation_id is null,
+   'chunk_bytes',u.chunk_bytes,'maximum_bytes',67108864,'maximum_parts',16,'part_attempts',u.part_attempts))
+ into result from app_private.library_v4_config v cross join app_private.pdf_upload_policy u cross join app_private.paper_asset_policy p
+ where v.singleton and u.singleton and p.singleton;
+ if result is null then raise exception 'reader_capabilities_unavailable'; end if;
+ perform app_private.consume_library_transfer(a,result);
+ return result;
+end $$;
+
 revoke all on all functions in schema app_private from public,anon,authenticated,service_role;
 revoke all on function public.v2_library_page(jsonb,integer) from public,anon,authenticated,service_role;
 grant execute on function public.v2_library_page(jsonb,integer) to authenticated;
@@ -2221,6 +2244,8 @@ revoke all on function public.v5_library_metadata(uuid,uuid[]) from public,anon,
 grant execute on function public.v5_library_metadata(uuid,uuid[]) to authenticated;
 revoke all on function public.v5_library_query(jsonb,jsonb,integer) from public,anon,authenticated,service_role;
 grant execute on function public.v5_library_query(jsonb,jsonb,integer) to authenticated;
+revoke all on function public.v1_reader_capabilities() from public,anon,authenticated,service_role;
+grant execute on function public.v1_reader_capabilities() to authenticated;
 
 do $$ declare n text; begin
  foreach n in array array['pdf_upload_parts','pdf_upload_holds','pdf_upload_write_attempts','pdf_upload_delete_batches','pdf_upload_delete_members','pdf_upload_reads'] loop

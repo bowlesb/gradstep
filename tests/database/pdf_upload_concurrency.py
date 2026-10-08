@@ -285,6 +285,26 @@ def verify(bin_path, db, base):
         assert sql(f"select count(*) from app_private.sync_account_storage where account_id='{owner}';")=='0'
         print('PASS closure-first history append rejects after its account-lock wait without recreating data',flush=True)
 
+        # Capability reads take the account fence before any rate/transfer
+        # counter. Closure waits for the complete advice response transaction.
+        owner=account();reading,closing=Session(),Session()
+        reading.complete(f"begin;select set_config('request.jwt.claim.sub','{owner}',true);set local role authenticated;")
+        caps=json.loads(reading.complete('select public.v1_reader_capabilities();')[-1])
+        assert caps['account_id']==owner and caps['library']['endpoint_family']=='full-v5'
+        closed=closing.send(f"select public.worker_delete_account_begin('{owner}');");blocked(closing,reading)
+        reading.complete('commit;');closing.until(closed)
+        print('PASS capability-read account fence completes before concurrent account closure',flush=True)
+
+        # A read already waiting behind closure must recheck the row and must
+        # not recreate account transfer state after personal data was erased.
+        owner=account();closing,reading=Session(),Session()
+        closing.complete(f"begin;select public.worker_delete_account_begin('{owner}');")
+        reading.complete(f"select set_config('request.jwt.claim.sub','{owner}',false);")
+        result=reading.send(attempt('select public.v1_reader_capabilities()'));blocked(reading,closing)
+        closing.complete('commit;');reply=json.loads(reading.until(result)[-1]);assert reply['error']=='account_unavailable',reply
+        assert sql(f"select count(*) from app_private.library_transfer_months where scope_id='{owner}';")=='0'
+        print('PASS closure-first capability read rejects before recreating rate/transfer state',flush=True)
+
         # Concurrent edits of one encrypted title cannot both win the same CAS.
         # Public RPCs validate current authority and serialize account/keyring.
         owner=account();device=ident();descriptor_id=ident();source='2410.03988'
