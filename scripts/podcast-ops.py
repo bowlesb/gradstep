@@ -101,6 +101,7 @@ def main(argv=None):
         if name == 'seed-period':
             p.add_argument('--limit-usd', type=float, required=True); p.add_argument('--enable', action='store_true')
             p.add_argument('--evidence', required=True); p.add_argument('--period', help='YYYY-MM-01 (default: current UTC month)')
+            p.add_argument('--max-episodes', type=int, default=2, choices=[0, 1, 2], help='Decision 2 approves at most two seed episodes')
         if name == 'seed':
             p.add_argument('--approval', type=uuid_arg, required=True); p.add_argument('--fixture', action='store_true')
         if name == 'review':
@@ -123,7 +124,8 @@ def main(argv=None):
         if not 0 <= microusd <= 2_000_000: raise SystemExit('the approved seed allowance is at most $2')
         period = args.period or datetime.now(timezone.utc).strftime('%Y-%m-01')
         result = rpc(env, 'worker_podcast_seed_period', {'p_actor': args.actor, 'p_request_id': request_id(args), 'p_period': period,
-                                                        'p_limit_microusd': microusd, 'p_enabled': args.enable, 'p_evidence': args.evidence})
+                                                        'p_limit_microusd': microusd, 'p_enabled': args.enable, 'p_evidence': args.evidence,
+                                                        'p_max_episodes': args.max_episodes})
     elif args.command == 'seed':
         result = rpc(env, 'worker_podcast_seed_admit', {'p_actor': args.actor, 'p_request_id': request_id(args),
                                                        'p_approval_id': args.approval, 'p_reason': args.reason, 'p_fixture': args.fixture})

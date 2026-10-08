@@ -106,9 +106,12 @@ create trigger podcast_policy_events_immutable before update or delete on app_pr
  for each row execute function app_private.immutable_record();
 
 -- Dated seed allowance inside the platform budget period. Created disabled.
+-- Decision 2 (2026-10-08): at most $2 for the first two curated episodes; the
+-- remainder is for explicit QA, never a third episode without a new decision.
 create table app_private.podcast_seed_periods (
  period date primary key check(extract(day from period)=1),
  limit_microusd bigint not null check(limit_microusd between 0 and 2000000),
+ max_episodes integer not null default 2 check(max_episodes between 0 and 2),
  enabled boolean not null default false,
  evidence_reference text not null check(length(evidence_reference) between 3 and 256),
  configured_by uuid references app_private.accounts(id),
@@ -698,6 +701,16 @@ language sql stable security definer set search_path='' as $$
  where j.funding_kind='platform_seed' and j.seed_period=p_period
 $$;
 
+-- Seed episodes counted against the period's episode cap: every admitted seed
+-- job except one that ended without any admitted provider call.
+create function app_private.podcast_seed_episodes(p_period date) returns integer
+language sql stable security definer set search_path='' as $$
+ select count(*)::integer from app_private.podcast_jobs j
+ where j.funding_kind='platform_seed' and j.seed_period=p_period
+  and (j.finished_at is null or j.state='ready' or exists(select 1 from app_private.podcast_job_attempts ja
+   join app_private.provider_attempts pa on pa.id=ja.attempt_id where ja.job_id=j.id and pa.state<>'denied'))
+$$;
+
 -- Server-side pin resolution for an account's library item. The caller cannot
 -- assemble individually valid IDs: every relation is joined here.
 create function app_private.podcast_item_pin(p_account uuid,p_item uuid) returns jsonb
@@ -957,18 +970,20 @@ begin
 end $$;
 
 -- A dated seed allowance. The approved v1 ceiling is $2 per period at most.
-create function public.worker_podcast_seed_period(p_actor uuid,p_request_id uuid,p_period date,p_limit_microusd bigint,p_enabled boolean,p_evidence text) returns jsonb
+create function public.worker_podcast_seed_period(p_actor uuid,p_request_id uuid,p_period date,p_limit_microusd bigint,p_enabled boolean,p_evidence text,
+ p_max_episodes integer default 2) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare s app_private.podcast_seed_periods; changes jsonb; prior app_private.podcast_policy_events;
 begin
  perform app_private.require_owner_account(p_actor);
  if p_request_id is null or p_period is null or extract(day from p_period)<>1 or p_limit_microusd is null or p_limit_microusd not between 0 and 2000000
   or p_enabled is null or p_evidence is null or length(p_evidence) not between 3 and 256 or p_evidence !~ '^[a-zA-Z0-9._:/ -]+$'
+  or p_max_episodes is null or p_max_episodes not between 0 and 2
  then raise exception 'invalid_seed_period'; end if;
  perform 1 from app_private.platform_budgets where period=p_period for update;
  if not found then raise exception 'platform_budget_unavailable'; end if;
  perform 1 from app_private.podcast_policy where singleton for update;
- changes:=jsonb_build_object('seed_period',p_period,'limit_microusd',p_limit_microusd,'enabled',p_enabled,'evidence',p_evidence);
+ changes:=jsonb_build_object('seed_period',p_period,'limit_microusd',p_limit_microusd,'enabled',p_enabled,'evidence',p_evidence,'max_episodes',p_max_episodes);
  select * into prior from app_private.podcast_policy_events where id=p_request_id;
  if found then
   if prior.changes<>changes or prior.actor_id<>p_actor then raise exception 'podcast_policy_id_conflict'; end if;
@@ -976,9 +991,9 @@ begin
   return to_jsonb(s)||jsonb_build_object('committed_microusd',app_private.podcast_seed_committed(p_period),'replayed',true);
  end if;
  if p_enabled and not app_private.podcast_inventory_certified() then raise exception 'asset_inventory_incomplete'; end if;
- insert into app_private.podcast_seed_periods(period,limit_microusd,enabled,evidence_reference,configured_by)
-  values(p_period,p_limit_microusd,p_enabled,p_evidence,p_actor)
-  on conflict(period) do update set limit_microusd=excluded.limit_microusd,enabled=excluded.enabled,
+ insert into app_private.podcast_seed_periods(period,limit_microusd,max_episodes,enabled,evidence_reference,configured_by)
+  values(p_period,p_limit_microusd,p_max_episodes,p_enabled,p_evidence,p_actor)
+  on conflict(period) do update set limit_microusd=excluded.limit_microusd,max_episodes=excluded.max_episodes,enabled=excluded.enabled,
    evidence_reference=excluded.evidence_reference,configured_by=excluded.configured_by,configured_at=now()
   returning * into s;
  insert into app_private.podcast_policy_events(id,actor_id,changes,reason,revision)
@@ -1024,6 +1039,7 @@ begin
   select * into seed from app_private.podcast_seed_periods where period=month for update;
   if not found or not seed.enabled then raise exception 'seed_allowance_unavailable'; end if;
   if app_private.podcast_seed_committed(month)+(spec->>'hold_microusd')::bigint>seed.limit_microusd then raise exception 'seed_allowance_exhausted'; end if;
+  if app_private.podcast_seed_episodes(month)>=seed.max_episodes then raise exception 'seed_episode_limit'; end if;
  end if;
  episode:=app_private.podcast_insert_episode('shared',null,spec,pin);
  if exists(select 1 from app_private.podcast_releases where episode_id=episode and state in ('ready','pending_review')) then raise exception 'podcast_already_published'; end if;
@@ -1902,7 +1918,8 @@ language sql stable security definer set search_path='' as $$
  select jsonb_build_object('policy',(select to_jsonb(p) from app_private.podcast_policy p where singleton),
   'inventory_certified',app_private.podcast_inventory_certified(),
   'profile',app_private.podcast_spec(),
-  'seed_periods',coalesce((select jsonb_agg(to_jsonb(s)||jsonb_build_object('committed_microusd',app_private.podcast_seed_committed(s.period)) order by s.period desc)
+  'seed_periods',coalesce((select jsonb_agg(to_jsonb(s)||jsonb_build_object('committed_microusd',app_private.podcast_seed_committed(s.period),
+    'episodes',app_private.podcast_seed_episodes(s.period)) order by s.period desc)
    from app_private.podcast_seed_periods s),'[]'::jsonb),
   'jobs',coalesce((select jsonb_object_agg(state,n) from (select state,count(*) n from app_private.podcast_jobs group by state) x),'{}'::jsonb),
   'recent_jobs',coalesce((select jsonb_agg(jsonb_build_object('id',j.id,'state',j.state,'origin',j.origin,'funding',j.funding_kind,'failure',j.failure_code,
