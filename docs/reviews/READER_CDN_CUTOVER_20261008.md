@@ -1,9 +1,11 @@
 # Reader CDN cutover candidate
 
-Status: local review only. Pending migration `202610080045_reader_issuer_fence.sql.pending`
-is not deployed; assign its final number at promotion. No hosted policy, stored object,
-credential or cache was changed for this review. Build 20 supports bounded transport;
-the clearer quota errors in the build 21 candidate are not shipped evidence.
+Status: cutover incomplete. Pending migration `202610080045_reader_issuer_fence.sql.pending`
+is not deployed; assign its final number at promotion. The 08:36 UTC hosted canary
+proved bounded bytes and rendering, then stopped before fencing on an overly strict
+post-purge cache check. Both synthetic accounts were deleted; delivery remains `dual`.
+The revised harness below is local-only until independently reviewed. Build 20 supports
+bounded transport; clearer quota errors in a later candidate are not shipped evidence.
 
 ## Issuer boundary
 
@@ -46,8 +48,10 @@ fixtures use the supported guarded issuer; customer denial of the old RPC remain
    tokens and record actual cache-hit evidence without retaining bearer URLs in logs.
    **Before fencing**, explicitly purge only that tiny canary object, require the
    documented API success, wait 75 seconds, then require valid URLs to return the
-   same bytes and regain an observed HIT for both tokens. This separate capability
-   step is never part of general canary startup. If unsupported, stop before fencing.
+   same bytes and observe HIT or REVALIDATED for both tokens, recording which occurred.
+   Initial warming still requires an actual HIT for each token. This separate capability
+   step is never part of general canary startup and does not prove expired-token denial.
+   If unsupported, stop before fencing.
 3. **Fence.** Promote/apply the reviewed ACL migration and set delivery `bounded`,
    keeping enforcement true. Record database wall-clock time after the **later commit**
    as `T0`. Prove service-role direct legacy RPC denial, authenticated legacy descriptor
@@ -109,7 +113,7 @@ fixtures use the supported guarded issuer; customer denial of the old RPC remain
   a separately reviewed code rollback. Older clients must update for fresh downloads;
   compatible build 20 and installed offline bundles do not require object changes.
 
-## Canary runner (local candidate, not executed)
+## Canary runner
 
 `scripts/reader-cutover-canary.mjs` starts with one small proof and then pauses.
 The operator must already have set **dual**, with inventory enforcement still true.
@@ -119,12 +123,18 @@ accounts through password login without sending email; customer sign-in UI is no
 tested. Its account IDs are recorded for cleanup, and every exit attempts the real
 self-delete endpoint. A hard kill can leave a synthetic ID for operator cleanup.
 
-Run in a persistent interactive session (Node 24, normal staging environment and
-Supabase CLI Keychain token):
+After reviewing the cumulative evidence below, run in a persistent interactive session
+(Node 24, normal staging environment and Supabase CLI Keychain token):
 
 ```sh
+GRADSTEP_READER_CANARY_PRIOR_USAGE='{"bytes":912206,"requests":88,"descriptors":5}' \
 node scripts/reader-cutover-canary.mjs staging --execute
 ```
+
+The explicit prior-usage value is required and must match that reviewed predecessor
+report. Missing, malformed, older or larger totals refuse before credentials or hosted
+requests. Another interrupted run needs its resulting totals reviewed before a rerun;
+do not reuse this command to reset accounting.
 
 Initial work checks private Storage/RLS, existing allowances, a shared verified
 bundle at most 1 MiB and current completed model tags. A zero-credit account alone
@@ -143,7 +153,11 @@ Enter each command only after the previous phase succeeds:
    the same tiny member (at most 16 KiB). Tokens never leave process memory.
 2. `probe-purge` — explicitly purges that one object and reports `rewarm_after`.
    At that time, enter `probe-rewarm`; both still-valid URLs must return exact bytes
-   and HIT. There are no new descriptor attempts or hidden token refreshes.
+   and HIT or REVALIDATED. Reports distinguish `cache_hit` from `origin_revalidated`;
+   the latter is never labelled HIT. At most three requests per unchanged URL, with
+   1.2 seconds between attempts. MISS/EXPIRED can precede a successful observation;
+   STALE, UPDATING, BYPASS, DYNAMIC and absent/unknown cache status refuse. There are
+   no new descriptor attempts, cache-busters or hidden token refreshes.
 3. Apply the separately reviewed issuer ACL migration and bounded policy externally.
    Enter `fenced` to prove actual old-RPC denial, legacy HTTP 426 and fresh bounded
    delivery. Its existing tiny-member grant is requested twice concurrently: exactly
@@ -166,15 +180,22 @@ Enter each command only after the previous phase succeeds:
 105-minute process deadline ends the run and attempts cleanup. Signed URLs cannot
 be recovered after process loss; rerun evidence instead of claiming retirement.
 
-Hard bounds: six descriptor attempts total (initial bounded, two legacy, refused
-legacy, post-fence bounded, final bounded), 8 MiB response payloads across **all**
-HTTP calls, 5,500 requests including cleanup, at most 5,000 purge paths, one purge at
-a time and three bounded attempts only for HTTP 429 with a finite Retry-After.
-One MiB/member bundle and 64 KiB/manifest caps keep conservative reader admission
-under 9 MiB plus manifest backend admission under 384 KiB; actual consumed/reserved
-counters stay authoritative. This is not a bound on TLS/header overhead or invoices.
-Purge must fit the same budget with a reserved final verification and cleanup budget.
-No partial plan is reported complete when a bound is reached.
+Hard bounds for the next controlled run: six **new** descriptor attempts (initial
+bounded, two legacy, refused legacy, post-fence bounded, final bounded), eleven
+**aggregate** attempts including the five predecessors, 8 MiB cumulative response
+payloads across **all** HTTP calls and 5,500 cumulative requests including cleanup.
+At most 5,000 purge paths, one purge at a time and three bounded attempts only for
+HTTP 429 with a finite Retry-After. One MiB/bundle and 64 KiB/manifest caps bound the
+new run's conservative reader admission at 9 MiB and its manifest backend admission
+at 384 KiB. Aggregate reader admission is conservatively bounded by **eleven 1 MiB
+descriptor ceilings + three new 1 MiB bundle reservations + 912,206 prior payload
+bytes = 15,592,270 bytes, less than 15 MiB**. Counting all prior payloads deliberately
+overcounts Auth/Management/error responses while retaining earlier consumed member
+bytes after account cleanup. Actual hosted consumed/reserved counters remain
+authoritative and are never reset. These are not bounds on TLS/header overhead,
+all backend traffic or invoices. Purge must fit the same remaining budget with
+reserved final verification and cleanup headroom. No partial plan is reported
+complete when a bound is reached.
 
 Evidence is written with mode 0600 below `.artifacts/reader-cutover/<run>/`: an
 append-only `events.jsonl`, then `report.json` at exit. Normal stdout excludes the
@@ -182,6 +203,67 @@ per-object successful purge stream. Member paths and signed URLs are represented
 only by SHA-256; no tokens, credentials, URL query strings or server error bodies are
 written. A screenshot/browser check is a separate UI task; this runner proves the
 transport and accounting boundary.
+
+### Why post-purge revalidation is valid, and what it does not prove
+
+The prior run's report is
+`.artifacts/reader-cutover/2026-10-08T08-36-01.044Z-5cd2d3ba-7fe2-44ca-b88a-d447b816ed80/report.json`.
+Both 2,259-byte signed variants first produced MISS then HIT. The object purge
+returned the documented success at 08:42:54 UTC; the next first-token request was
+about 91 seconds later, beyond the 75-second propagation wait. It produced MISS,
+then REVALIDATED twice with exact bytes/hash. The harness required HIT and aborted;
+the second token's post-purge check never ran. This is partial capability evidence,
+not completed retirement. No issuer fence or bounded-only policy was applied.
+
+Supabase documents queued invalidation across edges, up to 60 seconds to propagate,
+and a subsequent origin fetch that repopulates cache. It does not require that every
+subsequent request report HIT. The existing 75-second wait remains; no blind longer
+wait or additional purge is added. [Supabase purge contract](https://supabase.com/docs/guides/storage/cdn/purge-cdn-cache).
+
+Cloudflare's REVALIDATED means cached content was served after synchronous origin
+confirmation. Its `no-cache`/zero-freshness behavior can repeat revalidation instead
+of producing HIT; absent Age is valid on that path. The observed headers do not
+establish which upstream cache directive caused this run's behavior. We accept the
+documented status, not an inferred configuration. [Cloudflare cache responses](https://developers.cloudflare.com/cache/concepts/cache-responses/).
+
+An initial HIT for each exact token remains mandatory. Post-purge HIT/REVALIDATED
+proves that the valid URLs still deliver those same cached or origin-confirmed
+bytes after an acknowledged purge. It does **not** by itself establish invalidation
+of every token/edge. Final proof is unchanged: after fencing, the full drain/expiry
+horizon, a complete reader-path purge and propagation wait, the exact two warmed
+expired URLs must return the specific expiry denial. Any 200, including HIT or
+REVALIDATED, fails. Supabase explicitly separates signed-token expiry from cache
+retirement. [Signed URL cache behavior](https://supabase.com/docs/guides/storage/cdn/smart-cdn).
+
+### Cumulative test usage and the one-run extension
+
+The first three local reports under `.artifacts/reader-cutover/` end at these usage
+totals; the 08:36 report already carries their subtotal, so do not add it twice:
+
+| Run start (UTC) | Additional payload bytes | Additional requests | Additional descriptor attempts |
+|---|---:|---:|---:|
+| 08:11:16 | 5,892 | 7 | 0 |
+| 08:28:04 | 39,822 | 18 | 1 |
+| 08:30:15 | 39,981 | 18 | 1 |
+| 08:36:01 | 826,511 | 45 | 3 |
+| **Inherited total** | **912,206** | **88** | **5** |
+
+The latter run stopped at the cache-status assertion and cleaned up its accounts;
+the URLs were held only in process memory and cannot be recovered from their hashes.
+The reviewed next run therefore needs two fresh warmed variants to carry through
+final expiry, plus the original bounded/replay/race checks. Its six new descriptor
+attempts extend the previous aggregate test ceiling of eight to eleven. This is an
+explicit verification allowance, **not** a project quota, spending-policy or counter
+change. The cumulative 8 MiB payload and 5,500-request limits remain unchanged.
+Earlier API/OCR costs are not inferred from these byte counters; the separate
+zero-provider checks remain mandatory.
+
+Local verification for this revision: 36/36 tests passed across
+`reader-cutover-canary.test.ts`, `reader-workflow.test.ts` and
+`reader-render-proof.test.ts`. New regressions distinguish initial and post-purge
+cache proof, reject ambiguous/corrupt responses, retain final expiry denial, and
+check exact CLI predecessor evidence plus cumulative payload/request/descriptor
+ceilings and conservative prior-member accounting. These tests make no hosted calls.
 
 ### Local browser proof using those exact bytes
 
