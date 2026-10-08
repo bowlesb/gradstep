@@ -20,6 +20,14 @@ checkpoint prose (including the removed Linux executor work) is in git history b
   and the phone approves it under Settings › Account › Add a device. Tests: web 146/146; wire check passes, including
   Swift approving a Node key and refusing a substituted one; the iOS Simulator build succeeds. Ship order: iOS/Mac
   build 18 first, then the web reader. Not yet tried against staging or with a physical camera.
+- **TestFlight build 18** (iOS and Mac, main `08381c7`): build 17 plus QR device approval. Both uploaded; not yet
+  installed or tried by the owner.
+- **Browser reader redesign, milestone 1**, live at https://app.gradstep.ai (Pages deployment `a405d26c`, same
+  commit). Layout: side panel, the paper or library in the centre, a chat panel, as in the legacy web app. Also: a
+  full-width library table, a contents tree, find in paper, a figure gallery, the Feed, Add paper by DOI or link, and
+  QR approval on the restore screen. Before deploying: web tests 152/152, Playwright 51 passed with 27 skipped. After
+  deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel is
+  still a placeholder; milestone 2 (encrypted chat) is in progress.
 - **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
   build are in progress).
 
