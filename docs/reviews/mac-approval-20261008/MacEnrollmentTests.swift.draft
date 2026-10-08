@@ -1,0 +1,308 @@
+#if targetEnvironment(macCatalyst)
+import CryptoKit
+import ScienceReaderCore
+import XCTest
+@testable import ScienceReader
+
+/// The exact recipient persists before enrollment and remains recoverable after renewal, restart,
+/// approval races and a switch to recovery. No live account, network, camera or provider.
+private final class MacEnrollmentServer: @unchecked Sendable {
+    struct Request: Codable, Equatable {
+        let p_request_id: UUID
+        let p_device_id: UUID
+        let p_public_key: String
+        let p_challenge: String
+    }
+    struct Pending: Codable {
+        let requestID: UUID
+        var candidate: LocalDevice
+        let envelope: Data
+        var createdAt: Date
+    }
+    let original: LocalDevice
+    let code = ReaderCrypto.recoveryCode()
+    private let lock = NSLock()
+    private var keys: KeyBundle
+    private var records: [UUID: Request] = [:]
+    private var active = Set<UUID>()
+    private var revoked = Set<UUID>()
+    private var envelopes: [UUID: String] = [:]
+    private var calls: [Request] = []
+    private var requestRead: (@Sendable (Request) -> Bool)?
+    private var persistedBeforeEverySend = true
+    private var failSend = false
+    private var approveOnRenewal: UUID?
+    private var corrupt = false
+    private var suspended: StubProtocol?
+    private var suspendNext = false
+    private var suspendSendNext = false
+    private var heldSend: (StubProtocol, UUID)?
+    let sent = XCTestExpectation(description: "persisted enrollment send suspended")
+    let arrived = XCTestExpectation(description: "state suspended")
+
+    init() { original = LocalDevice.create(accountID: UUID()); keys = KeyBundle.generate(accountID: original.accountID) }
+    func observePersistence(_ read: @escaping @Sendable (Request) -> Bool) { lock.withLock { requestRead = read } }
+    func snapshot() -> (requests: [Request], persisted: Bool, keys: KeyBundle) { lock.withLock { (calls, persistedBeforeEverySend, keys) } }
+    func expire(_ id: UUID) { _ = lock.withLock { active.remove(id) } }
+    func failNextSend() { lock.withLock { failSend = true } }
+    func revoke(_ id: UUID) { _ = lock.withLock { revoked.insert(id) } }
+    func rotate() throws { try lock.withLock { try keys.rotate() } }
+    func corruptEnvelope(_ value: Bool) { lock.withLock { corrupt = value } }
+    func approveDuringRenewal(_ id: UUID) { lock.withLock { approveOnRenewal = id; active.remove(id) } }
+    func holdNextState() { lock.withLock { suspendNext = true } }
+    func holdNextSend() { lock.withLock { suspendSendNext = true } }
+    func releaseSend() throws { try lock.withLock { if let (request, id) = heldSend { request.respond(try ReaderCrypto.encode(id)); heldSend = nil } } }
+    func approve(_ id: UUID) throws { try lock.withLock { try approveLocked(id) } }
+    private func approveLocked(_ id: UUID) throws {
+        let request = try XCTUnwrap(records[id])
+        let envelope = try ReaderCrypto.wrapForDevice(keys, deviceID: request.p_device_id,
+            recipientPublicKey: DeviceKeys.bytea(request.p_public_key), challenge: DeviceKeys.bytea(request.p_challenge))
+        envelopes[request.p_device_id] = DeviceKeys.hex(envelope); active.remove(id)
+    }
+    func release() throws { try lock.withLock { if let suspended { try state(suspended); self.suspended = nil } } }
+    func handle(_ request: StubProtocol) {
+        lock.withLock {
+            do {
+                let path = request.request.url!.path
+                if path == "/auth/v1/token" {
+                    request.respond(try ReaderCrypto.encode(AuthSession(access_token: "fixture", refresh_token: "fixture",
+                        expires_at: Date().timeIntervalSince1970 + 3600, user: .init(id: original.accountID, email: "fixture@example.invalid"))))
+                } else if path == "/auth/v1/logout" {
+                    request.respond(Data("{}".utf8))
+                } else if path.hasSuffix("v1_key_state") {
+                    if suspendNext { suspendNext = false; suspended = request; arrived.fulfill(); return }
+                    try state(request)
+                } else if path.hasSuffix("v1_devices") {
+                    request.respond(try ReaderCrypto.encode(revoked.map { ["id": $0.wire, "revoked_at": "2026-10-08T00:00:00Z"] }))
+                } else if path.hasSuffix("v1_request_enrollment") {
+                    let value = try JSONDecoder().decode(Request.self, from: body(request.request))
+                    calls.append(value)
+                    persistedBeforeEverySend = persistedBeforeEverySend && (requestRead?(value) ?? false)
+                    if records[value.p_request_id] == nil {
+                        if let old = approveOnRenewal { try approveLocked(old); approveOnRenewal = nil }
+                        records[value.p_request_id] = value; active.insert(value.p_request_id)
+                    }
+                    if suspendSendNext { suspendSendNext = false; heldSend = (request, value.p_request_id); sent.fulfill(); return }
+                    if failSend { failSend = false; request.respond(Data("{}".utf8), status: 503) }
+                    else { request.respond(try ReaderCrypto.encode(value.p_request_id)) }
+                } else if path.hasSuffix("v1_enrollment_requests") {
+                    request.respond(try ReaderCrypto.encode(active.map { ["id": $0.wire] }))
+                } else if path.hasSuffix("v1_approve_enrollment") {
+                    let value = try JSONSerialization.jsonObject(with: body(request.request)) as! [String: Any]
+                    let id = UUID(uuidString: value["p_request_id"] as! String)!
+                    let expected = try XCTUnwrap(records[id])
+                    guard value["p_management_token"] as? String == DeviceKeys.hex(keys.managementToken),
+                          value["p_epoch"] as? Int == keys.epoch,
+                          value["p_expected_public_key"] as? String == expected.p_public_key,
+                          value["p_expected_challenge"] as? String == expected.p_challenge else {
+                        request.respond(Data("{}".utf8), status: 400); return
+                    }
+                    envelopes[expected.p_device_id] = value["p_envelope"] as? String; active.remove(id)
+                    request.respond(Data(), status: 204)
+                } else { request.respond(Data("{}".utf8), status: 404) }
+            } catch { request.respond(Data("{}".utf8), status: 500) }
+        }
+    }
+    private func state(_ request: StubProtocol) throws {
+        let params = try JSONDecoder().decode([String: String].self, from: body(request.request))
+        let id = UUID(uuidString: params["p_device_id"]!)!
+        let value: [String: Any] = ["epoch": keys.epoch,
+            "recovery_package": DeviceKeys.hex(try ReaderCrypto.wrapRecovery(keys, code: code)),
+            "device_envelope": (corrupt && envelopes[id] != nil ? "\\x0001" : envelopes[id]) as Any? ?? NSNull()]
+        request.respond(try JSONSerialization.data(withJSONObject: value))
+    }
+    private func body(_ request: URLRequest) -> Data {
+        if let data = request.httpBody { return data }
+        guard let stream = request.httpBodyStream else { return Data() }
+        stream.open(); defer { stream.close() }
+        var buffer = [UInt8](repeating: 0, count: 4096), data = Data()
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }; data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
+    }
+}
+
+@MainActor
+final class MacEnrollmentTests: XCTestCase {
+    private struct Fixture {
+        let client: BackendClient
+        let manager: DeviceKeys
+        let vault: String
+        let environment: String
+        let host: String
+        let account: UUID
+        func reopened() throws -> DeviceKeys { try DeviceKeys(backend: client, accountID: account, environment: environment) }
+        func pending() throws -> MacEnrollmentServer.Pending {
+            try JSONDecoder().decode(MacEnrollmentServer.Pending.self, from: XCTUnwrap(KeychainVault.read(vault + ".pending-enrollment")))
+        }
+        func clean() throws {
+            StubProtocol.remove(host: host)
+            try KeychainVault.delete(environment + ".auth-session")
+            try KeychainVault.delete(vault)
+            try KeychainVault.delete(vault + ".pending-enrollment")
+            let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            try? FileManager.default.removeItem(at: support.appendingPathComponent(environment, isDirectory: true))
+        }
+    }
+    private func fixture(_ server: MacEnrollmentServer) async throws -> Fixture {
+        let environment = "mac-approval-" + UUID().wire, host = environment + ".invalid"
+        let vault = environment + "." + server.original.accountID.wire + ".device-keys"
+        StubProtocol.install(host: host) { server.handle($0) }
+        let session = URLSessionConfiguration.ephemeral; session.protocolClasses = [StubProtocol.self]
+        let client = try BackendClient(configuration: .init(url: URL(string: "https://" + host)!, anonKey: "fixture", environment: environment),
+                                       network: URLSession(configuration: session))
+        _ = try await client.signIn(email: "fixture", password: "fixture")
+        try KeychainVault.write(ReaderCrypto.encode(server.original), name: vault)
+        server.observePersistence { value in
+            guard let data = try? KeychainVault.read(vault + ".pending-enrollment"),
+                  let pending = try? JSONDecoder().decode(MacEnrollmentServer.Pending.self, from: data) else { return false }
+            return pending.requestID == value.p_request_id && pending.candidate.deviceID == value.p_device_id
+        }
+        return Fixture(client: client, manager: try DeviceKeys(backend: client, accountID: server.original.accountID, environment: environment),
+                       vault: vault, environment: environment, host: host, account: server.original.accountID)
+    }
+    private func waiting(_ value: DeviceKeys.MacApprovalCheck) throws -> DeviceApprovalPayload {
+        guard case .waiting(let payload) = value else { throw ReaderError.corruptData }; return payload
+    }
+
+    func testRecipientIsDurableBeforeSendAndApprovalRestoresAfterRestart() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let payload = try waiting(await test.manager.macApproval(refreshRequest: true))
+        let pending = try test.pending()
+        XCTAssertNil(pending.candidate.bundle); XCTAssertTrue(pending.envelope.isEmpty)
+        XCTAssertEqual(payload.kind, .mac); XCTAssertTrue(server.snapshot().persisted)
+        try server.approve(payload.requestID)
+        guard case .ready(let device) = try await test.reopened().prepare() else { return XCTFail("Approval must survive process termination") }
+        XCTAssertEqual(device.deviceID, pending.candidate.deviceID)
+        XCTAssertEqual(device.privateKey, pending.candidate.privateKey)
+        XCTAssertEqual(device.localStoreKey, server.original.localStoreKey)
+        XCTAssertEqual(device.bundle, server.snapshot().keys)
+        XCTAssertNil(try KeychainVault.read(test.vault + ".pending-enrollment"))
+    }
+
+    func testLostSendAndExpiredRequestReuseTheExactRecipient() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        server.failNextSend()
+        do { _ = try await test.manager.macApproval(refreshRequest: true); XCTFail("Expected transport refusal") } catch { }
+        let saved = try test.pending()
+        let first = try waiting(await test.reopened().macApproval(refreshRequest: true))
+        XCTAssertEqual(first.requestID, saved.requestID)
+        server.expire(first.requestID)
+        let renewed = try waiting(await test.reopened().macApproval(refreshRequest: true))
+        XCTAssertNotEqual(renewed.requestID, first.requestID)
+        XCTAssertEqual(renewed.fingerprint, first.fingerprint)
+        XCTAssertEqual(renewed.comparisonCode, first.comparisonCode)
+        XCTAssertEqual(try test.pending().candidate.privateKey, saved.candidate.privateKey)
+        XCTAssertTrue(server.snapshot().persisted)
+    }
+
+    func testLateOldApprovalStillOpensAfterRenewalAndKeyRotation() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let first = try waiting(await test.manager.macApproval(refreshRequest: true))
+        let saved = try test.pending()
+        try server.rotate(); server.approveDuringRenewal(first.requestID)
+        _ = try await test.manager.macApproval(refreshRequest: true)
+        guard case .ready(let device) = try await test.reopened().macApproval(refreshRequest: false) else { return XCTFail("Late old approval must open") }
+        XCTAssertEqual(device.privateKey, saved.candidate.privateKey)
+        XCTAssertEqual(device.bundle, server.snapshot().keys)
+    }
+
+    func testSwitchingToRecoveryKeepsTheQRRecipient() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let qr = try waiting(await test.manager.macApproval(refreshRequest: true))
+        let saved = try test.pending()
+        let restored = try await test.manager.recover(code: server.code)
+        XCTAssertEqual(restored.deviceID, saved.candidate.deviceID)
+        XCTAssertEqual(restored.privateKey, saved.candidate.privateKey)
+        XCTAssertEqual(restored.bundle, server.snapshot().keys)
+        XCTAssertEqual(Set(server.snapshot().requests.map(\.p_request_id)), [qr.requestID])
+    }
+
+    func testOnlyConfirmedRevocationChangesTheRecipient() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let first = try waiting(await test.manager.macApproval(refreshRequest: true))
+        let previous = try test.pending()
+        server.revoke(previous.candidate.deviceID)
+        let next = try waiting(await test.manager.macApproval(refreshRequest: true))
+        XCTAssertNotEqual(next.fingerprint, first.fingerprint)
+        XCTAssertNotEqual(try test.pending().candidate.privateKey, previous.candidate.privateKey)
+        XCTAssertEqual(try test.pending().candidate.localStoreKey, previous.candidate.localStoreKey)
+    }
+
+    func testCorruptEnvelopeKeepsPendingKeysAndCanBeRetried() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let qr = try waiting(await test.manager.macApproval(refreshRequest: true))
+        let before = try KeychainVault.read(test.vault + ".pending-enrollment")
+        try server.approve(qr.requestID); server.corruptEnvelope(true)
+        do { _ = try await test.manager.macApproval(refreshRequest: false); XCTFail("Corrupt envelope must fail authentication") } catch { }
+        XCTAssertEqual(try KeychainVault.read(test.vault + ".pending-enrollment"), before)
+        XCTAssertNil(try test.manager.cachedDevice())
+        server.corruptEnvelope(false)
+        guard case .ready = try await test.manager.macApproval(refreshRequest: false) else { return XCTFail("Retry should authenticate the original recipient") }
+    }
+
+    func testConcurrentRecoveryIsRefusedWhilePollOwnsTheKeys() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        _ = try await test.manager.macApproval(refreshRequest: true)
+        let before = try KeychainVault.read(test.vault + ".pending-enrollment")
+        server.holdNextState()
+        let polling = Task { try await test.manager.macApproval(refreshRequest: false) }
+        await fulfillment(of: [server.arrived], timeout: 2)
+        do { _ = try await test.manager.recover(code: server.code); XCTFail("Overlapping key mutation must fail") }
+        catch DeviceKeyError.operationInProgress { }
+        XCTAssertEqual(try KeychainVault.read(test.vault + ".pending-enrollment"), before)
+        try server.release()
+        _ = try await polling.value
+    }
+
+    func testCancelledSendKeepsThePersistedRecipientRestartable() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        server.holdNextSend()
+        let requesting = Task { try await test.manager.macApproval(refreshRequest: true) }
+        await fulfillment(of: [server.sent], timeout: 2)
+        let before = try test.pending()
+        requesting.cancel()
+        try server.releaseSend()
+        do { _ = try await requesting.value; XCTFail("A cancelled request must not publish a QR") } catch { }
+        let after = try test.pending()
+        XCTAssertEqual(after.requestID, before.requestID)
+        XCTAssertEqual(after.candidate.privateKey, before.candidate.privateKey)
+        let resumed = try waiting(await test.reopened().macApproval(refreshRequest: true))
+        XCTAssertEqual(resumed.requestID, before.requestID)
+        XCTAssertTrue(server.snapshot().persisted)
+    }
+
+    func testSameAccountReauthenticationRejectsTheOldModelsDelayedApproval() async throws {
+        let server = MacEnrollmentServer(), test = try await fixture(server); defer { try? test.clean() }
+        let configuration = BackendConfiguration(url: URL(string: "https://" + test.host)!, anonKey: "fixture", environment: test.environment)
+        let model = ReaderModel(configuration: configuration, client: test.client)
+        await model.authenticate(email: "fixture", password: "fixture", create: false)
+        XCTAssertTrue(model.needsRecovery)
+        let received = try await model.macApprovalStep(refreshRequest: true)
+        let payload = try XCTUnwrap(received)
+        try server.approve(payload.requestID)
+        server.holdNextState()
+        let oldScope = model.readerSessionID
+        let oldPoll = Task { try await model.macApprovalStep(refreshRequest: false) }
+        await fulfillment(of: [server.arrived], timeout: 2)
+        await model.signOut()
+        await model.authenticate(email: "fixture", password: "fixture", create: false)
+        let currentScope = model.readerSessionID
+        XCTAssertNotEqual(currentScope, oldScope)
+        XCTAssertTrue(model.isSignedIn)
+        XCTAssertFalse(model.needsRecovery, "The new manager independently authenticates the approved envelope")
+        model.newChat(general: true)
+        model.chatInput = "Draft in the newer account session"
+        try server.release()
+        do { _ = try await oldPoll.value; XCTFail("An old authentication generation must not activate a replacement manager") } catch { }
+        XCTAssertEqual(model.readerSessionID, currentScope)
+        XCTAssertTrue(model.isSignedIn)
+        XCTAssertFalse(model.needsRecovery)
+        XCTAssertEqual(model.chatInput, "Draft in the newer account session")
+        await model.signOut()
+    }
+
+}
+#endif

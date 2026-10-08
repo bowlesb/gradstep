@@ -5,7 +5,7 @@ import { mkdir } from 'node:fs/promises';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 const shots = '../../.artifacts/web-approval/';
 
 async function signIn(page: Page) {

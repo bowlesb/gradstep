@@ -920,7 +920,9 @@ struct ChatView: View {
         HStack(alignment: .bottom, spacing: 4) {
             TextField("Chat", text: $model.chatInput, axis: .vertical)
                 .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Quote in Chat
+                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
+                // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+                .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
                 .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
                 .padding(.leading, 18).padding(.vertical, 14)
             Group {
@@ -1333,6 +1335,11 @@ struct RecoveryView: View {
                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
                         Button("Recover this device") { Task { await model.finishRecovery(code: input) } }.disabled(input.isEmpty || model.isBusy)
                     }
+                    #if targetEnvironment(macCatalyst)
+                    MacDeviceApprovalSection { refresh in
+                        try await model.macApprovalPayload(refresh: refresh)
+                    }
+                    #endif
                 } else if let code = model.recoveryCode {
                     Section {
                         Text(code).font(.system(.body, design: .monospaced)).textSelection(.enabled).privacySensitive()

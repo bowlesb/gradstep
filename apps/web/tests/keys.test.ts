@@ -4,12 +4,21 @@ import { type DeviceRecord, bootstrap, prepare } from '../src/lib/keys';
 import { generateBundle, generateDeviceKeyPair, generateRecoveryCode } from '../src/lib/wire';
 
 const account = '11111111-2222-4333-8444-555555555555';
+const login = vi.hoisted(() => ({ signal: new AbortController().signal, generation: 0, session: { user: { id: '11111111-2222-4333-8444-555555555555' }, lifetime: 'test-login' } }));
 const storage = vi.hoisted(() => ({ record: undefined as DeviceRecord | undefined,
   corrupt: undefined as ((record: DeviceRecord) => DeviceRecord) | undefined }));
 const rpc = vi.hoisted(() => vi.fn(async () => null));
-vi.mock('../src/lib/backend', () => ({ config: { environment: 'test' }, rpc,
-  auth: { snapshot: () => ({ signal: new AbortController().signal }) } }));
+vi.mock('../src/lib/backend', () => ({ config: { environment: 'test', url: 'https://fixture.example' }, rpc, BackendError: class extends Error {},
+  auth: { snapshot: () => login } }));
 vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
+  reapWriters: async () => {},
+  admit: async (key: string, origin: string, lifetime: string, writer: string) => ({ key, origin, lifetime, writer, incarnation: crypto.randomUUID(), generation: 1 }),
+  retireWriter: async () => {},
+  putDevice: async (_fence: unknown, record: DeviceRecord, current: () => boolean) => {
+    if (!current()) return false;
+    const cloned = structuredClone(record);
+    storage.record = storage.corrupt ? storage.corrupt(cloned) : cloned; return true;
+  },
   get: async () => storage.record && structuredClone(storage.record),
   put: async (_store: string, _key: string, record: DeviceRecord) => {
     const cloned = structuredClone(record);
@@ -17,11 +26,11 @@ vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typ
   },
 } }));
 
-beforeEach(() => { storage.record = undefined; storage.corrupt = undefined; rpc.mockClear(); vi.stubGlobal('navigator', {}); });
+beforeEach(() => { storage.record = undefined; storage.corrupt = undefined; rpc.mockClear(); vi.stubGlobal('navigator', { locks: { request: async (_name: string, options: unknown, callback: (lock?: object) => unknown) => callback({}) } }); vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(login.session) }); });
 afterEach(() => { vi.unstubAllGlobals(); });
 
 async function device(): Promise<DeviceRecord> {
-  return { ...await generateDeviceKeyPair(), accountID: account, deviceID: crypto.randomUUID(), challenge: new Uint8Array(32),
+  return { ...await generateDeviceKeyPair(), origin: 'https://fixture.example', accountID: account, deviceID: crypto.randomUUID(), challenge: new Uint8Array(32),
     localKey: await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']) };
 }
 

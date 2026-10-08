@@ -33,7 +33,7 @@ async function setup() {
   const session: Session = { accessToken: 'access', refreshToken: 'refresh', expiresAt: Date.now() / 1000 + 3600, lifetime: 'test', user: { id: ACCOUNT, email: 'reader@example.test' } };
   values.set('gradstep.test.session', JSON.stringify(session));
   vi.stubGlobal('localStorage', { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key) });
+    removeItem: (key: string) => values.delete(key), get length() { return values.size; }, key: (index: number) => [...values.keys()][index] ?? null });
   vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('navigator', { locks: { request: async (_name: string, _options: unknown, body: () => Promise<unknown>) => body() } });
   vi.stubEnv('VITE_SUPABASE_URL', 'https://fixture.invalid');
@@ -42,7 +42,7 @@ async function setup() {
   return { podcast: await import('../src/lib/podcast'), playback: await import('../src/lib/podcast-playback'), values };
 }
 beforeEach(() => { vi.resetModules(); });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('podcast contract decoding', () => {
   it('keeps ready, well-formed episodes once and cleans their text', async () => {
@@ -185,11 +185,11 @@ describe('device-local listening places', () => {
     for (let i = 0; i < playback.MAX_POSITIONS + 5; i++) {
       playback.savePosition(ACCOUNT, `b0000000-0000-4000-8000-${String(i).padStart(12, '0')}`, at(1000, S1, 10 + i, 1));
     }
-    const stored = JSON.parse(values.get(playback.positionsKey(ACCOUNT))!);
-    expect(Object.keys(stored.positions)).toHaveLength(playback.MAX_POSITIONS);
-    expect(stored.positions[RELEASE]).toBeUndefined(); // the least recently saved went first
+    const keys = [...values.keys()].filter(k => k.startsWith(playback.positionsKey(ACCOUNT)));
+    expect(keys).toHaveLength(playback.MAX_POSITIONS);
+    expect(playback.loadPosition(ACCOUNT, RELEASE)).toBeNull(); // the least recently saved went first
     playback.clearPositions(ACCOUNT);
-    expect(values.has(playback.positionsKey(ACCOUNT))).toBe(false);
+    expect([...values.keys()].some(k => k.startsWith(playback.positionsKey(ACCOUNT)))).toBe(false);
     vi.stubGlobal('localStorage', { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => { throw new Error('blocked'); } });
     expect(playback.loadPosition(ACCOUNT, RELEASE)).toBeNull();
     expect(playback.savePosition(ACCOUNT, RELEASE, at(1000, S1, 1, 1))).toBe(false);
@@ -222,5 +222,190 @@ describe('transcript helpers', () => {
     expect(playback.durationLabel(301_000)).toBe('5 min');
     expect(playback.positionText(61_000, 300_000)).toBe('1:01 of 5:00');
     expect(playback.evidenceAnchor(d.transcript.segments[0].evidence[0])).toEqual({ artifactID: '', quote: 'can be optimized exactly with a simple binary cross-entropy objective', prefix: '', suffix: '' });
+  });
+});
+
+describe('current server contract and private generation', () => {
+  const requestID = 'c0000000-0000-4000-8000-000000000001';
+  const quote = () => ({ id: 'c0000000-0000-4000-8000-000000000002', expires_at: new Date(Date.now() + 60_000).toISOString(),
+    max_credits: 150, estimate: 'Estimate — actual usage, maximum 150 credits', providers: ['Anthropic (script)', 'Google Vertex AI (speech)'],
+    consent_version: 'podcast-private-v1', target_seconds: 300 });
+  const job = (extra = {}) => ({ request_id: requestID, state: 'queued', stage_entered_at: new Date().toISOString(), release_id: null,
+    held_credits: 150, charged_credits: null, released_credits: null, failure: null, ...extra });
+
+  it('accepts private metadata with no server title and fails closed on future release states', async () => {
+    const { podcast } = await setup();
+    expect(podcast.decodePaper({ episode: episode({ scope: 'private', title: null, source: null, authors: [], year: null }), job: null,
+      capabilities: {} }).episode).toMatchObject({ title: 'Private paper episode', scope: 'private', source: { url: null } });
+    expect(podcast.decodeCatalog({ episodes: [episode({ state: 'new_future_state' }), episode({ state: undefined })] }).episodes).toEqual([]);
+    expect(podcast.decodeCatalog({ episodes: [episode({ scope: 'private', title: null })] }).episodes).toEqual([]);
+  });
+  it('requires chapter zero, unique chapter/segment IDs and valid segment chapter references', async () => {
+    const { podcast } = await setup();
+    const noZero = detail(); noZero.episode.chapters[0].start_ms = 1;
+    const duplicate = detail(); duplicate.episode.chapters[1].id = 'c1';
+    const missing = detail(); missing.episode.transcript.segments[0].chapter = 'missing';
+    const duplicateSegment = detail(); duplicateSegment.episode.transcript.segments[1].id = 's1';
+    for (const value of [noZero, duplicate, missing, duplicateSegment]) expect(() => podcast.decodeEpisodeDetail(value)).toThrow();
+  });
+  it('requires the displayed v1 credit cap, provider identities and consent, and one quote outcome', async () => {
+    const { podcast } = await setup();
+    expect(podcast.decodeQuote({ quote: quote() })).toMatchObject({ kind: 'quote', quote: { maxCredits: 150, consentVersion: 'podcast-private-v1' } });
+    expect(podcast.decodeQuote({ reuse: { release_id: RELEASE } })).toEqual({ kind: 'reuse', releaseID: RELEASE });
+    expect(podcast.decodeQuote({ join: { request_id: requestID } })).toEqual({ kind: 'join', requestID });
+    for (const patch of [{ max_credits: 151 }, { consent_version: 'v2' }, { expires_at: 'later' }, { providers: ['other'] }, { target_seconds: 3600 }]) {
+      expect(() => podcast.decodeQuote({ quote: { ...quote(), ...patch } })).toThrow();
+    }
+    expect(() => podcast.decodeQuote({ quote: quote(), reuse: { release_id: RELEASE } })).toThrow();
+  });
+  it('preserves the quote request ID through start retries and checks every returned job owner', async () => {
+    const { podcast } = await setup();
+    const calls: { action: string | null; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const action = new URL(url).searchParams.get('action'); calls.push({ action, body: init.body ? JSON.parse(String(init.body)) : null });
+      return json(action === 'quote' ? { quote: quote() } : { job: job() });
+    }));
+    const result = await podcast.podcastQuote(ACCOUNT, DOCUMENT, requestID);
+    expect(result.kind).toBe('quote'); if (result.kind !== 'quote') return;
+    await podcast.podcastStart(ACCOUNT, result.quote, requestID);
+    await podcast.podcastStart(ACCOUNT, result.quote, requestID);
+    expect(calls).toHaveLength(3);
+    expect(calls[0].body).toEqual({ item_id: DOCUMENT, request_id: requestID });
+    expect(calls[1].body).toEqual({ quote_id: result.quote.id, request_id: requestID, consent_version: 'podcast-private-v1' });
+    expect(calls[2]).toEqual(calls[1]);
+    vi.stubGlobal('fetch', vi.fn(async () => json({ job: job({ request_id: DOCUMENT }) })));
+    await expect(podcast.podcastStatus(ACCOUNT, requestID)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+  it('accepts late start/status reuse while refusing ambiguous, malformed or wrong-request outcomes', async () => {
+    const { podcast } = await setup();
+    const result = podcast.decodeQuote({ quote: quote() }); if (result.kind !== 'quote') throw new Error('fixture');
+    const fetcher = vi.fn(async () => json({ reuse: { release_id: RELEASE } })); vi.stubGlobal('fetch', fetcher);
+    expect(await podcast.podcastStart(ACCOUNT, result.quote, requestID)).toEqual({ kind: 'reuse', releaseID: RELEASE });
+    expect(await podcast.podcastStatus(ACCOUNT, requestID)).toEqual({ kind: 'reuse', releaseID: RELEASE });
+    expect(fetcher).toHaveBeenCalledTimes(2); // no hidden paid retry, lookup or download
+    for (const value of [{ job: job(), reuse: { release_id: RELEASE } }, { reuse: { release_id: 'bad' } }, {}, { job: job({ request_id: DOCUMENT }) }]) {
+      expect(() => podcast.decodeRequestResult(value, requestID)).toThrow();
+    }
+    // Cancel is a job-only operation in the actual server contract.
+    await expect(podcast.podcastCancel(ACCOUNT, requestID)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
+  it('does not infer completion, uses bounded status cadence and treats unknown-provider outcome as terminal', async () => {
+    const { podcast } = await setup();
+    expect(podcast.statusPollDelay(59_999)).toBe(5_000); expect(podcast.statusPollDelay(60_000)).toBe(15_000);
+    expect(podcast.revocationPollDelay(false)).toBe(60_000); expect(podcast.revocationPollDelay(true)).toBe(300_000);
+    expect(podcast.jobTerminal(podcast.decodeJob(job({ state: 'capacity_wait' })))).toBe(false);
+    expect(podcast.jobTerminal(podcast.decodeJob(job({ state: 'unknown_provider', charged_credits: 0, released_credits: 150 })))).toBe(true);
+    expect(() => podcast.decodeJob(job({ state: 'ready' }))).toThrow();
+    expect(() => podcast.decodeJob(job({ state: 'magic' }))).toThrow();
+    expect(() => podcast.decodeJob(job({ charged_credits: 151 }))).toThrow();
+  });
+  it('keeps error text finite for quote limits and credit failures', async () => {
+    const { podcast } = await setup();
+    for (const code of ['quote_expired', 'insufficient_credits', 'active_generation_limit', 'podcast_paused']) {
+      vi.stubGlobal('fetch', vi.fn(async () => json({ code }, 429)));
+      await expect(podcast.podcastQuote(ACCOUNT, DOCUMENT, requestID)).rejects.toMatchObject({ code });
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => json({ code: 'podcast_arbitrary_provider_secret' }, 500)));
+    await expect(podcast.podcastQuote(ACCOUNT, DOCUMENT, requestID)).rejects.toMatchObject({ code: 'request_failed' });
+  });
+});
+
+describe('position ownership under concurrent tabs', () => {
+  const S1 = 'f0000000-0000-4000-8000-000000000001', S2 = 'f0000000-0000-4000-8000-000000000002';
+  const position = (session: string, start: number, sequence: number, positionMs = 1000) =>
+    ({ session, sessionStartedAt: start, sequence, positionMs, durationMs: 48_000, completed: false, savedAt: start + sequence });
+  it('interleaved saves for distinct episodes cannot discard one another', async () => {
+    const { playback, values } = await setup();
+    const second = 'a0000000-0000-4000-8000-000000000002'; let nested = false;
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (!nested) { nested = true; playback.savePosition(ACCOUNT, second, position(S2, 2000, 1)); }
+      values.set(key, value);
+    });
+    playback.savePosition(ACCOUNT, RELEASE, position(S1, 1000, 1));
+    expect(playback.loadPosition(ACCOUNT, RELEASE)?.session).toBe(S1);
+    expect(playback.loadPosition(ACCOUNT, second)?.session).toBe(S2);
+  });
+  it('a newer same-episode session wins even when the old tab finishes its write last', async () => {
+    const { playback, values } = await setup(); let nested = false;
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (!nested) { nested = true; playback.savePosition(ACCOUNT, RELEASE, position(S2, 2000, 1, 5000)); }
+      values.set(key, value);
+    });
+    expect(playback.savePosition(ACCOUNT, RELEASE, position(S1, 1000, 9, 40_000))).toBe(false);
+    expect(playback.loadPosition(ACCOUNT, RELEASE)).toMatchObject({ session: S2, positionMs: 5000 });
+  });
+  it('revocation tombstones reject stale tab saves and exact duplicate tombstones win', async () => {
+    const { playback } = await setup();
+    playback.savePosition(ACCOUNT, RELEASE, position(S1, 1000, 1)); playback.removePosition(ACCOUNT, RELEASE);
+    expect(playback.savePosition(ACCOUNT, RELEASE, position(S1, 1000, 2))).toBe(false);
+    expect(playback.loadPosition(ACCOUNT, RELEASE)).toBeNull();
+    expect(playback.newer({ ...position(S1, 1000, 1), removed: true }, position(S1, 1000, 1))).toBe(true);
+  });
+  it('old login cleanup never deletes a newer same-account lifetime', async () => {
+    const { playback } = await setup();
+    playback.savePosition(ACCOUNT, RELEASE, position(S1, 1000, 1), 'old-login');
+    playback.savePosition(ACCOUNT, RELEASE, position(S2, 2000, 1), 'new-login');
+    playback.clearPositions(ACCOUNT, 'old-login');
+    expect(playback.loadPosition(ACCOUNT, RELEASE, 'old-login')).toBeNull();
+    expect(playback.loadPosition(ACCOUNT, RELEASE, 'new-login')?.session).toBe(S2);
+  });
+});
+
+describe('audio cancellation and account fences', () => {
+  const grant = () => json({ grant: { expires_at: new Date(Date.now() + 60_000).toISOString(), members: [{ role: 'audio',
+    url: `https://fixture.invalid/functions/v1/podcast-member?grant=${'b'.repeat(64)}&member=${DOCUMENT}`, bytes: AUDIO.length, sha256: AUDIO_SHA, media_type: 'audio/wav' }] } });
+  it('cancellation during the member prevents a Blob, and retry asks for a new single-use grant', async () => {
+    const { podcast } = await setup(); const c = new AbortController(); let grants = 0, members = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('action=download')) { grants++; return grant(); }
+      members++; if (members === 1) c.abort(); return new Response(AUDIO);
+    }));
+    const episode = podcast.decodeCatalog({ episodes: [globalEpisode()] }).episodes[0];
+    await expect(podcast.downloadEpisodeAudio(ACCOUNT, episode, c.signal)).rejects.toThrow();
+    expect((await podcast.downloadEpisodeAudio(ACCOUNT, episode)).size).toBe(AUDIO.length);
+    expect([grants, members]).toEqual([2, 2]);
+  });
+  it('same-account logout/login during hashing rejects audio from the old lifetime', async () => {
+    const { podcast, values } = await setup(); const backend = await import('../src/lib/backend');
+    let releaseHash!: () => void; const hashing = new Promise<void>(resolve => { releaseHash = resolve; });
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (...args) => { await hashing; return realDigest(...args); });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('action=download') ? grant() : new Response(AUDIO)));
+    const episode = podcast.decodeCatalog({ episodes: [globalEpisode()] }).episodes[0];
+    const result = podcast.downloadEpisodeAudio(ACCOUNT, episode);
+    await vi.waitFor(() => expect(crypto.subtle.digest).toHaveBeenCalled());
+    const next = { ...backend.auth.session()!, lifetime: 'new-login' };
+    values.set('gradstep.test.session', JSON.stringify(next));
+    const event = new Event('storage'); Object.assign(event, { key: 'gradstep.test.session', newValue: JSON.stringify(next) }); window.dispatchEvent(event);
+    releaseHash(); await expect(result).rejects.toThrow();
+  });
+  it('requires an audio grant with the same MIME identity, no duplicate or hidden query parameters', async () => {
+    const { podcast } = await setup(); const e = podcast.decodeCatalog({ episodes: [globalEpisode()] }).episodes[0];
+    const raw = await grant().json(); raw.grant.members[0].media_type = 'audio/mp4';
+    expect(() => podcast.decodeGrant(raw, e)).toThrow();
+    expect(podcast.memberURL(`https://fixture.invalid/functions/v1/podcast-member?grant=${'b'.repeat(64)}&grant=${'b'.repeat(64)}`)).toBe(false);
+  });
+});
+const globalEpisode = episode;
+
+describe('deployment-scoped positions', () => {
+  it('identical account, lifetime and environment labels on different backends never share or clear positions', async () => {
+    const { playback } = await setup(); const { config } = await import('../src/lib/backend');
+    const saved = { positionMs: 1000, durationMs: 48_000, completed: false, session: 'f0000000-0000-4000-8000-000000000001', sessionStartedAt: 1000, sequence: 1, savedAt: 1001 };
+    playback.savePosition(ACCOUNT, RELEASE, saved); const firstKey = playback.positionsKey(ACCOUNT);
+    config.url = 'https://different-deployment.invalid';
+    expect(playback.positionsKey(ACCOUNT)).not.toBe(firstKey); expect(playback.loadPosition(ACCOUNT, RELEASE)).toBeNull();
+    playback.clearPositions(ACCOUNT); config.url = 'https://fixture.invalid';
+    expect(playback.loadPosition(ACCOUNT, RELEASE)).toEqual(saved);
+  });
+  it('documents the bounded tombstone limit: eviction can forget a place, never authorize playback', async () => {
+    const { playback } = await setup(); playback.removePosition(ACCOUNT, RELEASE);
+    for (let i = 0; i < playback.MAX_POSITIONS; i++) playback.savePosition(ACCOUNT, `b0000000-0000-4000-8000-${String(i).padStart(12, '0')}`, {
+      positionMs: 1000, durationMs: 48_000, completed: false, session: 'f0000000-0000-4000-8000-000000000001', sessionStartedAt: Date.now() + 100 + i, sequence: 1, savedAt: Date.now() + 100 + i,
+    });
+    // This disposable local ledger can forget a revoked episode under its explicit 200-entry bound.
+    expect(playback.loadPosition(ACCOUNT, RELEASE)).toBeNull();
+    expect(playback.savePosition(ACCOUNT, RELEASE, { positionMs: 1000, durationMs: 48_000, completed: false,
+      session: 'f0000000-0000-4000-8000-000000000001', sessionStartedAt: 1000, sequence: 2, savedAt: Date.now() + 1000 })).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { loadActivity, saveActivity } from '../src/lib/activity';
-import type { DeviceRecord } from '../src/lib/keys';
+import type { DeviceRecord, PreparedLocal } from '../src/lib/keys';
 import { generateDeviceKeyPair } from '../src/lib/wire';
 
 const stored = vi.hoisted(() => new Map<string, unknown>());
@@ -16,12 +16,14 @@ it('concurrent and stale reading snapshots retain the newest place and papers fr
   const device: DeviceRecord = { ...pair, accountID: '11111111-2222-4333-8444-555555555555',
     deviceID: crypto.randomUUID(), challenge: new Uint8Array(32),
     localKey: await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']) };
+  const local: PreparedLocal = { key: device.localKey, current: () => true, fence: { key: 'test', origin: 'https://fixture.invalid',
+    incarnation: crypto.randomUUID(), lifetime: 'test', generation: 1, writer: crypto.randomUUID() } };
   await Promise.all([
-    saveActivity(device, new Map([['paper-a', { opened: 100, progress: 0.1 }]])),
-    saveActivity(device, new Map([['paper-a', { opened: 200, progress: 0.8 }]])),
+    saveActivity(device, new Map([['paper-a', { opened: 100, progress: 0.1 }]]), local),
+    saveActivity(device, new Map([['paper-a', { opened: 200, progress: 0.8 }]]), local),
   ]);
   // Another view later writes an older snapshot and a paper this view did not have.
-  await saveActivity(device, new Map([['paper-a', { opened: 100, progress: 0.1 }], ['paper-b', { opened: 150, progress: 0.3 }]]));
+  await saveActivity(device, new Map([['paper-a', { opened: 100, progress: 0.1 }], ['paper-b', { opened: 150, progress: 0.3 }]]), local);
   expect(await loadActivity(device)).toEqual(new Map([
     ['paper-a', { opened: 200, progress: 0.8 }], ['paper-b', { opened: 150, progress: 0.3 }],
   ]));

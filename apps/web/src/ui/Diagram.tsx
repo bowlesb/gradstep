@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Dialog } from './common';
+import { CopyButton } from './CopyButton';
 
 export function Diagram({ title, source }: { title: string; source: string }) {
   const [open, setOpen] = useState(false);
   return <div className="chat-diagram"><button className="secondary small" onClick={() => setOpen(true)}><span aria-hidden="true">◇</span> View diagram · {title}</button>
     <Dialog open={open} onClose={() => setOpen(false)} title={title} wide><div className="dialog-heading"><h2>{title}</h2><button className="link" onClick={() => setOpen(false)}>Done</button></div>
-      <DiagramFrame source={source} /><details><summary>Diagram source</summary><pre>{source}</pre></details>
+      <DiagramFrame source={source} /><details><summary>Diagram source</summary><div className="diagram-source-tools"><CopyButton text={source} label="Copy Mermaid" /></div><pre>{source}</pre></details>
     </Dialog></div>;
 }
 function DiagramFrame({ source }: { source: string }) {

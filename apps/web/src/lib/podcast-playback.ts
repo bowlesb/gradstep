@@ -1,67 +1,92 @@
-// Podcast playback helpers: device-local listening positions (v1 keeps listening history in this browser only — no
-// server copy and no encrypted-history events) and transcript/chapter lookups. Pure apart from localStorage access.
-import { config } from './backend';
+// V1 device-local listening places. No audio or transcript is persisted. Each save has its own immutable key,
+// so concurrent tabs never read/modify/write a shared map (or overwrite another session's backward seek).
+import { auth, config } from './backend';
 import type { Chapter, Evidence, Segment } from './podcast';
 import type { TextAnchor } from './events';
 
 export interface SavedPosition {
   positionMs: number; durationMs: number; completed: boolean;
-  /** A play session (one open of an episode) and its save counter. Within a session the later save wins even when it is
-   * an earlier position (seeking back is intentional); between sessions the later session start wins. Never max(position). */
   session: string; sessionStartedAt: number; sequence: number; savedAt: number;
+  removed?: boolean;
 }
-interface Store { version: 1; positions: Record<string, SavedPosition> }
-
-/** At most this many episodes keep a position; the least recently saved is dropped first. */
 export const MAX_POSITIONS = 200;
-export const positionsKey = (account: string) => `gradstep.${config.environment}.podcast-positions.${account}`;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const whole = (v: unknown, max: number) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= max;
+const owner = (account: string) => auth.session()?.user.id === account ? auth.session()!.lifetime : 'signed-out';
+/** A prior login's delayed cleanup cannot erase a new login's positions, even for the same account. */
+const accountPrefix = (account: string) => `gradstep.${config.environment}.podcast-positions.${encodeURIComponent(new URL(config.url || 'https://unconfigured.invalid').origin)}.${account}.v2.`;
+export const positionsKey = (account: string, lifetime = owner(account)) => `${accountPrefix(account)}${encodeURIComponent(lifetime)}.`;
 
 function validPosition(v: unknown): v is SavedPosition {
   const p = v as SavedPosition;
-  return !!p && whole(p.positionMs, 86_400_000) && whole(p.durationMs, 86_400_000) && typeof p.completed === 'boolean'
-    && typeof p.session === 'string' && uuid.test(p.session) && whole(p.sessionStartedAt, 2 ** 52) && whole(p.sequence, 2 ** 31) && whole(p.savedAt, 2 ** 52);
+  return !!p && whole(p.positionMs, 86_400_000) && whole(p.durationMs, 86_400_000) && p.positionMs <= p.durationMs && typeof p.completed === 'boolean'
+    && typeof p.session === 'string' && uuid.test(p.session) && whole(p.sessionStartedAt, 2 ** 52) && whole(p.sequence, 2 ** 31) && whole(p.savedAt, 2 ** 52)
+    && (p.removed === undefined || typeof p.removed === 'boolean');
 }
-
-function read(account: string): Store {
+interface RecordEntry { key: string; releaseID: string; position: SavedPosition }
+function read(account: string, lifetime?: string): RecordEntry[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(positionsKey(account)) ?? 'null') as Store | null;
-    if (!raw || raw.version !== 1 || typeof raw.positions !== 'object' || !raw.positions) return { version: 1, positions: {} };
-    const positions: Record<string, SavedPosition> = {};
-    for (const [id, p] of Object.entries(raw.positions)) if (uuid.test(id) && validPosition(p)) positions[id] = p;
-    return { version: 1, positions };
-  } catch { return { version: 1, positions: {} }; }
+    const prefix = positionsKey(account, lifetime), records: RecordEntry[] = [];
+    // Snapshot keys before reading. A simultaneous writer has a different immutable key and cannot be erased by this snapshot.
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((k): k is string => !!k && k.startsWith(prefix));
+    for (const key of keys) {
+      const [releaseID, session, sequence, removed] = key.slice(prefix.length).split('.');
+      if (!uuid.test(releaseID) || !uuid.test(session)) continue;
+      let position: unknown;
+      try { position = JSON.parse(localStorage.getItem(key) ?? 'null'); } catch { continue; }
+      if (validPosition(position) && position.session === session && String(position.sequence) === sequence && (position.removed ? '1' : '0') === removed)
+        records.push({ key, releaseID, position });
+    }
+    return records;
+  } catch { return []; }
 }
 
-/** The deterministic merge rule: later session wins; within a session, the higher sequence; ties keep the stored one. */
+/** Later session wins; equal starts use session ID; same session uses sequence; an exact-tie tombstone wins. */
 export function newer(candidate: SavedPosition, stored: SavedPosition | undefined): boolean {
   if (!stored) return true;
-  if (candidate.session === stored.session) return candidate.sequence > stored.sequence;
-  if (candidate.sessionStartedAt !== stored.sessionStartedAt) return candidate.sessionStartedAt > stored.sessionStartedAt;
-  return candidate.session > stored.session;
+  if (candidate.session !== stored.session) return candidate.sessionStartedAt !== stored.sessionStartedAt
+    ? candidate.sessionStartedAt > stored.sessionStartedAt : candidate.session > stored.session;
+  return candidate.sequence !== stored.sequence ? candidate.sequence > stored.sequence : !!candidate.removed && !stored.removed;
+}
+function winners(records: RecordEntry[]) {
+  const result = new Map<string, RecordEntry>();
+  for (const entry of records) if (newer(entry.position, result.get(entry.releaseID)?.position)) result.set(entry.releaseID, entry);
+  return result;
+}
+export function loadPosition(account: string, releaseID: string, lifetime?: string): SavedPosition | null {
+  const p = winners(read(account, lifetime)).get(releaseID)?.position;
+  return p && !p.removed ? p : null;
 }
 
-export function loadPosition(account: string, releaseID: string): SavedPosition | null {
-  return read(account).positions[releaseID] ?? null;
-}
-
-/** Saves only if this write is newer under `newer`, so another tab's later session is never overwritten by a stale one. */
-export function savePosition(account: string, releaseID: string, position: SavedPosition): boolean {
+export function savePosition(account: string, releaseID: string, position: SavedPosition, lifetime?: string): boolean {
   if (!uuid.test(releaseID) || !validPosition(position)) return false;
-  const store = read(account);
-  if (!newer(position, store.positions[releaseID])) return false;
-  store.positions[releaseID] = position;
-  const ids = Object.keys(store.positions);
-  if (ids.length > MAX_POSITIONS) {
-    for (const old of ids.sort((a, b) => store.positions[a].savedAt - store.positions[b].savedAt).slice(0, ids.length - MAX_POSITIONS)) delete store.positions[old];
-  }
-  try { localStorage.setItem(positionsKey(account), JSON.stringify(store)); return true; } catch { return false; }
+  try {
+    const key = `${positionsKey(account, lifetime)}${releaseID}.${position.session}.${position.sequence}.${position.removed ? 1 : 0}`;
+    if (localStorage.getItem(key) !== null) return false;
+    localStorage.setItem(key, JSON.stringify(position));
+    const records = read(account, lifetime), latest = winners(records);
+    const kept = new Set([...latest.values()].sort((a, b) => b.position.savedAt - a.position.savedAt).slice(0, MAX_POSITIONS).map(e => e.key));
+    // Delete only immutable keys we observed, never an episode/session bucket another writer could have updated.
+    for (const entry of records) if (!kept.has(entry.key)) localStorage.removeItem(entry.key);
+    return kept.has(key);
+  } catch { return false; }
 }
 
-/** Sign-out removes this account's listening places from this browser. */
-export function clearPositions(account: string): void {
-  try { localStorage.removeItem(positionsKey(account)); } catch { /* storage unavailable: nothing was kept */ }
+/** A retained tombstone rejects stale tab saves. The 200-entry bound also evicts old tombstones; positions never authorize audio. */
+export function removePosition(account: string, releaseID: string, lifetime?: string): void {
+  const previous = winners(read(account, lifetime)).get(releaseID)?.position;
+  const at = Math.max(Date.now(), (previous?.sessionStartedAt ?? 0) + 1);
+  savePosition(account, releaseID, { positionMs: 0, durationMs: 0, completed: false, session: crypto.randomUUID(),
+    sessionStartedAt: at, sequence: 0, savedAt: at, removed: true }, lifetime);
+}
+
+/** Confirmed auth retirement passes its captured lifetime. Explicit Forget may omit it to remove all lifetimes for this deployment/account. */
+export function clearPositions(account: string, lifetime?: string): void {
+  try {
+    const prefix = lifetime === undefined ? accountPrefix(account) : positionsKey(account, lifetime);
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    for (const key of keys) if (key?.startsWith(prefix)) localStorage.removeItem(key);
+  } catch { /* storage unavailable */ }
 }
 
 /** Where to resume: a completed episode, or one within the last five seconds, starts again. */

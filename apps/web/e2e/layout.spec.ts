@@ -3,13 +3,14 @@ import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 const shots = '../../.artifacts/web-layout/';
 const shot = (page: Page, name: string) => page.screenshot({ path: `${shots}${name}.png` });
 
 function watch(page: Page) {
   const problems: string[] = [];
-  page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|422)/.test(m.text())) problems.push(m.text()); });
+  page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|422)/.test(m.text())
+    && !(m.text().includes('404') && m.location().url.includes('/functions/v1/discover?'))) problems.push(m.text()); });
   page.on('pageerror', e => problems.push(String(e)));
   return problems;
 }
@@ -138,7 +139,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(page.getByRole('navigation', { name: 'Feed topics' })).toBeVisible();
       const cards = page.getByTestId('feed-grid').locator('li');
       await expect(cards).toHaveCount(3);
-      await expect(cards.first().getByRole('button', { name: 'In library' })).toBeDisabled();
+      await expect(cards.filter({ hasText: 'Direct Preference Optimization' }).getByRole('button', { name: 'In library' })).toBeDisabled();
       if (width === 1440) await shot(page, `feed-${name}`);
       await cards.nth(1).getByRole('button', { name: '+ Add to library' }).click();
       await expect(cards.nth(1).getByRole('button', { name: 'In library' })).toBeVisible({ timeout: 10_000 });

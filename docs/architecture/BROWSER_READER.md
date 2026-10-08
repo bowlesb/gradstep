@@ -1,14 +1,21 @@
 # Browser reader
 
-Status, 2026-10-08 UTC: **milestone 2 and Library columns/full abstracts deployed to https://app.gradstep.ai
-against staging**, latest Pages `e15a5614` from `0db9809` adds fitted diagrams and zoom. Library columns shipped
-in `67f5547c`; encrypted browser chat first shipped in `68faefdb` from `b4b7ad7`. Latest deployment/smoke:
-`.artifacts/takeover-20261008/{web-diagram-deploy.log,web-diagram-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
-errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
+Status, 2026-10-08 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
+`e500c231` from source `d3fb7b3` against staging.** It includes the reviewed Feed, library actions/columns,
+encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
+output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
+Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
 real key setup, reading and encrypted question/history recovery. A later [hosted diagram journey](#hosted-answer-and-diagram--2026-10-08-utc)
-verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; email/OAuth UI,
+verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; live provider acceptance,
 Safari support and a comprehensive E2EE claim remain outside those proofs. Key-storage/draft limits are below. Original reader/M1 deployment
 history is retained in [deployment evidence](#deployment--2026-10-07).
+
+The [gate-1 encrypted browser journal](BROWSER_OFFLINE_STORAGE.md#gate-1-local-implementation-2026-10-08) is now
+wired into the deployed app. Its separate [verification record](../verification/2026-10-08-browser-journal-gate1.md)
+preserves the online Send requirement, legacy-profile activation, Safari gate and remaining cold offline-startup
+limitations. The local gate-2 schema-3 storage primitive and encrypted complete-checkpoint codec are implemented
+behind explicit activation, but complete v5 library sync, descriptor writes, saved copies and cold offline startup
+remain future work.
 
 ## Scope
 
@@ -22,8 +29,58 @@ find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-pape
 
 Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
 
-Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
-Apple/Google web sign-in, device list and revocation, offline reading and purchases.
+Remaining browser work (shown as unavailable where applicable): PDF upload and live provider acceptance for
+Apple/Google web sign-in,
+device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
+and tag editing are now deployed; they reuse the existing epoch-checked library command path.
+
+### Integrated draft and reader parity — local candidate, 2026-10-08
+
+The integration branch now includes the independently reviewed [gate-1 encrypted journal](../verification/2026-10-08-browser-journal-gate1.md)
+and the verified reference/figure actions. **Not deployed.** App navigation first drains accepted draft checkpoints;
+a failed save still honors the navigation, keeps the account-owned composer alive and offers Review drafts with
+a keep-this-tab-open notice. Later clicks, browser Back/Forward and authentication retirement supersede delayed
+navigation. Discuss in chat prepares an unsent paper draft, keeps the reader's earlier text, and focuses the composer
+after the figure/reference modal closes. The dialog remains recoverable if its draft cannot be saved. No model call
+is made until an explicit Send. A successful reference Add refreshes the complete library.
+
+Integrated production-CSP journeys: six pass on desktop and a 390 px viewport, covering figure Discuss/focus/reload,
+zero model requests, immediate navigation while typing's checkpoint timer is deliberately deferred, a quota failure
+with accessible unsaved text, and reference Add's exact operation replay. Four dev-only callback/forward-bridge
+journeys are deliberately excluded from that production run. Source: `e2e/reader-drafts.spec.ts` and
+`e2e/reader-reference.spec.ts`. New shared figure-reference link events still require Claude's bridge merge;
+the current gallery and bibliography actions work with the existing bridge. Discuss now seals its passage anchor
+with the draft, restores it after reload and attaches it to the conversation created by explicit Send. The combined
+desktop/390 px journey verifies that Go to passage returns to the selected figure without a model request during
+draft preparation. Safari, saved PDFs and cold offline startup are separate gates.
+
+The integrated podcast dock occupies its own row below the workspace, so the composer remains above it at narrow
+widths. Listen, reader and chat navigation await accepted draft checkpoints. A delayed podcast evidence jump
+cannot replace a newer navigation choice; its callback reports success only after the winning paper opens.
+All chats also offers **New general chat**, including when the compact toolbar has no chat-pane toggle.
+
+### Native Feed parity — local candidate, 2026-10-08
+
+Built on `codex/mac-web-integration-20261008`; **not deployed**. The browser now follows the native Feed contract
+from `feed-topics-popularity-20261008` (`a7320bf`): For you first when offered, specific interest topics, More topics
+for broad categories, recommendation reasons, and popularity attributed to Hugging Face Papers. Category browsing
+remains available when the personal feed is unavailable. Backend migration 048, the updated functions and their
+activation remain Claude's work; these browser tests use local fixtures and do not establish hosted readiness.
+
+Cards remain the initial presentation. Table offers optional Popularity, Topics, Published, Authors, arXiv ID and
+Abstract columns, a pinned title, horizontal scrolling and keyboard navigation. Column/layout/filter preferences
+contain only finite presentation choices. Suggested keeps the server order; Newest follows native arXiv submission
+month/serial ordering; unknown popularity stays last in either direction. Expanded abstracts remain complete.
+
+More like this and Not interested use the existing account-scoped feedback RPC only after a user action. The UI
+waits for acceptance before hiding a paper. Undo refetches the current selection, including when an intervening
+refresh already omitted the dismissed paper; each locally recorded positive preference also has its own Undo.
+Feed metadata stays in account-lifetime memory, bounded to 16 pages. No chat/provider request accompanies feedback.
+The one-time capability hint is per environment/account; an ordinary category response can announce newly available
+For you. Old/aborted topic replies cannot replace the selected feed.
+
+Verification: [local Feed evidence](../verification/2026-10-08-web-feed.md). Safari account/key support remains a
+separate gate. There is no new database layout, provider spend or deployment in this candidate.
 
 ## Workspace (legacy large-screen layout)
 
@@ -168,6 +225,9 @@ The native app loads a verified bundle into a `WKWebView` with content JavaScrip
 
 Contents, citation jumps with Back, the paper's own contents lists, figures and math fitting therefore behave as in
 the app. Selections offer Explain, Why it matters, Related and Add paper. Reference taps still report "Not yet available in the browser".
+The reader toolbar also exposes the same paper action menu as the Library: edit tags, archive/unarchive, and remove
+from the library. It uses the existing epoch-checked library commands and the same conflict/retry dialog; no new
+database layout or server capability is required.
 
 ## Keys in the browser
 
@@ -245,7 +305,7 @@ limits: [PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
 
 ## Authentication
 
-Phase 1 is the email code only: `POST /auth/v1/otp` (`create_user: false`; sign-up stays invite-only and testers are
+Email code sign-in uses `POST /auth/v1/otp` (`create_user: false`; sign-up stays invite-only and testers are
 created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`), six ASCII digits with
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
@@ -267,9 +327,17 @@ a newer login. Caller cancellation and request deadlines both remain active thro
 Cancellation does not undo an already-sent mutation; existing operation-ID replay and pending enrollment recovery
 still determine its outcome.
 
-Apple and Google web sign-in are Phase 2: Google needs `https://app.gradstep.ai/auth/callback` in the staging
-redirect allowlist (PKCE, code-only callback, validated as natively), Apple needs a reviewed Services ID
-configuration separate from native Apple sign-in (see [native authentication](NATIVE_AUTHENTICATION.md)).
+**Browser OAuth is implemented with the same bounded PKCE shape as native sign-in.** The sign-in page offers Google
+and Apple. The client creates a 256-bit verifier and state, stores only those short-lived values in session storage,
+opens Supabase's exact `/auth/v1/authorize` origin, and accepts a code-only callback at `/auth/callback`. It removes
+the callback query before the token exchange, verifies state, exchanges the one-use code at
+`/auth/v1/token?grant_type=pkce`, and publishes the session only after the bounded response validates. Provider
+errors are mapped to a finite local set; raw callback text never appears in the UI or logs. A missing, expired or
+substituted state is rejected before any session request. Local production-CSP Playwright covers a Google PKCE
+round-trip, the recovery handoff, and a state-less callback rejection on desktop and phone (WebKit's key-dependent
+round-trip remains skipped). The staging redirect allowlist already contains the exact app callback. Actual Google
+and Apple browser consent, Services ID configuration and provider identity linking remain live acceptance gates;
+Apple's web Services ID is separate from native Apple sign-in (see [native authentication](NATIVE_AUTHENTICATION.md)).
 
 ## Edge function origin
 
@@ -328,12 +396,12 @@ pending request. A persistent command outbox needs the account/deployment and at
   decrypted by WebCrypto; fingerprints match; wrong account/device/epoch and tampering are rejected.
 - **Unit (Vitest).** Library page validation and reconciliation, arXiv parsing, progress wording, bundle verification
   against the app's real DPO sample bundle, frame document sanitization.
-- **End to end (Playwright, local fixture backend).** Sign-in, new keys and recovery, library table, add paper with
+- **End to end (Playwright, local fixture backend).** Email sign-in, Google PKCE OAuth, new keys and recovery, library table, add paper with
   progress, reader contents/citations/figures, sign-out; 390 px phone and desktop widths, light and dark.
 - **Hosted zero-credit journey (2026-10-08).** Real staging-backed key setup, cached-paper reading, encrypted
   question persistence and recovery passed in Chromium with complete account cleanup; details below. Real Auth
-  credentials were seeded through a synthetic-account password login. Email-code/OAuth UI and a paid answer
-  remain separate acceptance, and no reusable `scripts/web-live-journey.mjs` command is claimed here.
+credentials were seeded through a synthetic-account password login. Live provider consent and a paid answer remain
+separate acceptance, and no reusable `scripts/web-live-journey.mjs` command is claimed here.
 
 ## Evidence
 
@@ -515,10 +583,30 @@ The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) an
   diagrams keep their source and show failure. No automatic metered repair request is made in this milestone.
   The viewport initially fits the whole graph; Fit and bounded 1–4× zoom preserve the visible center while
   enlarging text. Zoom resizes the opaque frame, without changing its permissions or reading its DOM.
+- **Copy affordances:** completed assistant answers have an explicit Copy answer control, and the collapsed Mermaid
+  source has a Copy Mermaid control. Both use the browser Clipboard API with a bounded user-invoked fallback and
+  expose success/failure through the button label; no answer or diagram is copied automatically. The production-CSP
+  desktop journey verifies both controls with a fixture answer and diagram (`chat.spec.ts`).
 
 ### Bounds, durability and remaining gaps
 
-History is **memory-only in this browser**: 20,000 retained events / 64 MiB ciphertext, failing visibly at the
+The local profile/title candidate ports the reviewed shared chat contract: the composer offers
+model, effort and length from the bounded `chat-profiles-v1` table, with server-provided credit
+estimates, a per-browser default, Reset and Retry loading options. Answer labels retain the
+actual serving model/profile; generated titles and Rename use encrypted conversation revisions.
+The requested choice is captured at Send/Get answer and kept in the local sealed journal through
+consent, edits, fresh-ID rebase and reload. It is separate from cloud serving metadata. A delayed
+generated title cannot overwrite a locally known concurrent rename. Discuss retains its passage
+anchor in the sealed draft and on the root created by Send.
+
+Until a server publishes the supported table, the visible offered request remains Sonnet · Low ·
+Standard and omits `profile`/`topic_title`, preserving the older server contract. A previously
+captured nondefault choice is refused if the table becomes unavailable, rather than silently
+requesting a different profile. This client work does not deploy migration 047 or the new chat
+function, and local fixture checks do not establish hosted pricing or provider behavior.
+
+In the deployed milestone-2 build and explicitly deferred version-1 profiles, history is **memory-only**:
+20,000 retained events / 64 MiB ciphertext, failing visibly at the
 bound instead of treating a partial pull as a complete history. Pending events are capped at 128 / 8 MiB.
 Unsent drafts are limited to 128, 200 KB each / 2 MiB combined, kept only in this tab. Visible copy, sign-out
 confirmation and a browser departure prompt warn about unsaved work. Reload/process loss before acknowledgement
@@ -526,15 +614,23 @@ can lose a pending edit or answer; there is no durable browser outbox, offline c
 journal's crash guarantees have been reproduced. Successfully acknowledged events can be decrypted after reload
 or on another approved/recovered device. Abrupt logout elsewhere may prevent a partial answer from being saved.
 
+The local gate-1 candidate keeps committed drafts, exact outbox ciphertext, validated history and turn
+checkpoints in authenticated encrypted IndexedDB records under the device's non-extractable AES key.
+The same live-history/draft bounds remain; journal records reserve bounded space for replacement history,
+draft receipts and discard tombstones. Failed writes keep the previous checkpoint and the current copyable
+text. Reload restores only committed work, and never starts a paid answer automatically. Cold startup still
+needs online key preparation and the library; device drafts are local-only and can be lost if site data or
+keys are cleared. This is local fixture evidence, not a deployment or Safari-support claim.
+
 At most three local streams run at once, each ≤2 MiB of SSE, ≤200 KB saved text, 45-second idle timeout and
 210-second total client deadline. Formula parsing limits individual source to 12,000 characters, 500 formulas and
 1,000 macro expansions; unsupported output remains readable source. These local bounds complement server controls.
 The full native query/history cache capacity has not been benchmarked in this browser.
 
-Still separate: durable encrypted browser drafts/outbox/offline history, broader provider-backed acceptance,
+Still separate: cold offline history/startup, saved papers/library, broader provider-backed acceptance,
 rendered-diagram automatic repair, answer-quote actions, richer reference actions and cross-device reading positions.
 The [browser durability proposal](BROWSER_OFFLINE_STORAGE.md) sequences the private journal, explicit saved
-papers and cold offline startup; it is a design only, not a claim those features have shipped. Its
+papers and cold offline startup; gate 1 is implemented locally, while gates 2/3 remain future work. Its
 [compatibility checkpoint](BROWSER_OFFLINE_STORAGE.md#compatibility-checkpoint--local-verification-2026-10-08)
 is implemented locally (not deployed): when a newer tab updates storage this tab stops sending, stops an active
 answer through the partial-save path, keeps unsent text readable to copy and explains what to close or reload.

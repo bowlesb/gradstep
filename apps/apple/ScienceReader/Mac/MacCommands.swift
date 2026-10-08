@@ -7,6 +7,8 @@ struct PaperMenuActions {
     var back: (() -> Void)?
     /// Runs a selection action on the text selected in the paper.
     var selection: ((SelectionAction) -> Void)?
+    /// The open paper's figure gallery; unavailable for a paper without figures.
+    var figures: (() -> Void)? = nil
 }
 
 private struct PaperMenuActionsKey: FocusedValueKey { typealias Value = PaperMenuActions }
@@ -78,6 +80,10 @@ struct GradstepCommands: Commands {
                 Button(model.wideMode == .browse ? "Hide Library Beside Paper" : "Show Library Beside Paper") {
                     model.showWideMode(model.wideMode == .browse ? .reader : .browse)
                 }.keyboardShortcut("s", modifiers: [.command, .control])
+                Button(model.readerChatHidden ? "Show Chat Beside Paper" : "Hide Chat Beside Paper") {
+                    model.readerChatHidden.toggle()
+                }.keyboardShortcut("h", modifiers: [.command, .control])
+                    .disabled(model.wideMode != .reader || model.tab == .settings)
             }
             Section {
                 Picker("Library As", selection: $model.libraryLayout) {
@@ -121,6 +127,7 @@ struct GradstepCommands: Commands {
         CommandMenu("Paper") {
             Button("Table of Contents") { paper?.contents?() }
                 .keyboardShortcut("t", modifiers: [.command, .option]).disabled(paper?.contents == nil)
+            Button("Figures") { paper?.figures?() }.disabled(paper?.figures == nil)
             Button("Back to Reading Position") { paper?.back?() }
                 .keyboardShortcut("[").disabled(paper?.back == nil)
             Divider()

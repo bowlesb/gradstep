@@ -1,10 +1,51 @@
 # Mac app
 
-Native table UX validation (2026-10-08): the combined column-picker, scrolling-table and v5 library-command code
-passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **351 tests, 4 expected
-skips, no failures**. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
-`/private/tmp/gradstep-native-ux-mac-signed-unit.xcresult`; this is unit/runtime and compilation evidence,
-not a new manual keyboard/pointer or live-account verification.
+## Mac-specific review — 2026-10-08
+
+Worktree `science-reader-mac-native-20261008`, branch `codex/mac-native-20261008`, based on `44bf3c2`.
+The current distributed checkpoint is **TestFlight 21** (`c10e54c`), VALID / IN_BETA_TESTING for Mac and iOS;
+the build-17 distribution details below are historical. No upload or hosted/paid request was made in this review.
+
+- The Mac toolbar now clears its workspace selection while Settings is shown, so the previously selected pane can
+  be chosen again. View adds **Hide/Show Chat Beside Paper** (⌃⌘H), using the existing remembered chat visibility.
+  `PaperMenuActions` has a figure-gallery callback ready for the shared paper view to publish.
+- The Mac approval section now connects to the shared `RecoveryView` and `DeviceKeys` path. When an existing account
+  has an approved device, the Mac creates a durable pending recipient, shows the GSDA1 QR payload and six-digit
+  comparison code, and polls the existing enrollment RPCs. Approval is then activated through the same encrypted
+  account key bundle used by recovery; there is no second key store. The poller backs off from 2 to 10 seconds,
+  checks request state each minute, stops after 30 minutes or while the scene is inactive, and fences older/cancelled
+  results. A first device with no key authority receives an actionable recovery-code message instead.
+- Five development-signed Catalyst unit tests pass on macOS 26.3.1: the rendered QR is independently decoded by
+  Vision back to its exact GSDA1 text; polling limits, cancellation, older-result fencing and error copy pass.
+  The enrollment safety suite adds five more signed tests covering pending-recipient renewal, epoch changes,
+  revocation and recovery races; all **10 focused tests passed** in the current signed Catalyst run. Evidence:
+  `/private/tmp/gradstep-mac-approval-signed-focused-20261008b.xcresult` and the earlier
+  `.artifacts/mac-native-20261008/MacApprovalUnits.xcresult` in the worktree. Later toolbar/UI assertions compile
+  but do not yet have runtime evidence.
+- A fresh signed **universal** Catalyst build-for-testing succeeds for arm64 and x86_64, using only `fixture.invalid`
+  and a public fixture key, with its own DerivedData and package checkout. The final build explicitly overrides
+  `SCIENCE_READER_ENVIRONMENT=mac-native-fixture-20261008` (the project otherwise overrides the xcconfig's
+  environment label) and uses `ENABLE_DEBUG_DYLIB=NO` only for the local test harness. No provisioning or security settings changed. Xcode 26.4's
+  missing local Metal-toolchain search-path warning and pre-existing test-concurrency warnings remain.
+- **UI runtime blocked before assertions:** the local MacKeyboardTests runner exited after 73.735 seconds with
+  “Timed out while enabling automation mode.” Computer Use separately reports pending **Accessibility and Screen
+  Recording permissions in the ChatGPT Computer Use window**. No menu/pointer/drag/drop, live sign-in or camera
+  workflow is claimed from this run. `BaselineKeyboard.xcresult` and `baseline-keyboard.log` preserve the failure.
+  Earlier unit-host starts also stalled before assertions; those logs are historical. The current merged-main
+  development-signed run is recorded below and passes the full native unit suite. No Mac UI automation or live
+  account workflow is claimed until the local permissions are available.
+- Shared PDF intake findings are handed to the shared-native owner: account/session fencing must begin before
+  provider loading, temporary drop copies need cleanup, and the Add sheet currently ignores PDFs after the first.
+  See [focused review and deterministic reproductions](../reviews/NATIVE_PDF_DROP_INTAKE_20261008.md).
+
+Native table UX validation (2026-10-08): the combined column-picker, scrolling-table, v5 library-command and Mac
+enrollment code passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **373 tests,
+4 expected skips, no failures**. The Settings toolbar regression is fixed in `beff20c`; its focused test and the
+complete signed suite pass. Column sheets also use the existing Mac ⌘W dismissal. Evidence for the current full run
+is `/private/tmp/gradstep-mac-approval-signed-full-20261008b.xcresult`; earlier evidence is local at
+`/Users/benbowlwes/science-reader/.artifacts/mac-main-20261008/signed-unit-after-fix.log` and the result bundle at
+`/private/tmp/gradstep-mac-main-20261008-signed-v3/Logs/Test/Test-ScienceReader-2026.10.08_15-47-25--0700.xcresult`;
+this is unit/runtime and compilation evidence, not a new manual keyboard/pointer or live-account verification.
 
 Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier

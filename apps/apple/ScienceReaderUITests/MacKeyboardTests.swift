@@ -54,5 +54,47 @@ final class MacKeyboardTests: XCTestCase {
         XCTAssertTrue(app.menuItems["Search Library"].exists)
         app.typeKey(.escape, modifierFlags: [])
     }
+
+    func testChatColumnShortcutAndSettingsReturnKeepThePaper() {
+        let app = reader()
+        app.typeKey("3", modifierFlags: .command)
+        let composer = app.descendants(matching: .any)["chat.composer"].firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(composer.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.webViews.firstMatch.exists)
+        app.typeKey("h", modifierFlags: [.command, .control])
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.staticTexts["Theme"].waitForExistence(timeout: 5))
+        app.segmentedControls.buttons["Reader"].click()
+        XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(composer.exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Mac Reader after chat shortcut and Settings return"; screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    func testLibrarySearchOwnsTypingAndAddShortcutClosesOnlyItsSheet() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--add-paper-fixture"]
+        app.launch()
+        let search = app.searchFields["library.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        app.typeKey("f", modifierFlags: .command)
+        app.typeText("Attention")
+        XCTAssertEqual(search.value as? String, "Attention")
+        app.typeKey(.downArrow, modifierFlags: [])
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(search.exists, "Search owns its navigation keys; typing must not open a table row")
+
+        app.typeKey("n", modifierFlags: .command)
+        XCTAssertTrue(app.textFields["import.reference"].waitForExistence(timeout: 5))
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.textFields["import.reference"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.windows.firstMatch.exists)
+        XCTAssertTrue(search.exists)
+    }
 }
 #endif

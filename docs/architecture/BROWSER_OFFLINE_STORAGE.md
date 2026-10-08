@@ -1,8 +1,10 @@
 # Browser durability and offline reading
 
-**Design proposal, 2026-10-08.** Reviewed against `d3eaf62`. **Compatibility checkpoint implemented
-locally on 2026-10-08 (not deployed)**; see [its verification](#compatibility-checkpoint--local-verification-2026-10-08).
-Durable journal, saved papers and offline startup are not implemented.
+**Design and deployed gate-1 implementation, 2026-10-08.** The compatibility checkpoint is retained, and the
+gate-1 encrypted private journal is integrated in browser release `a5c351a1`.
+See the [current local evidence](../verification/2026-10-08-browser-journal-gate1.md) and
+[gate-1 implementation details](#gate-1-local-implementation-2026-10-08). Saved papers, a durable library
+checkpoint and cold offline startup remain unimplemented.
 This extends [the browser reader](BROWSER_READER.md), follows the
 [native journal and recovery contract](PRIVACY_AND_SYNC.md), and carries over the
 [native offline-copy policy](NATIVE_OFFLINE_BUNDLES.md). It does not change navigation,
@@ -10,8 +12,9 @@ cloud encryption, credit admission, or the backend schema.
 
 Independent read-only review completed on 2026-10-08 against the current key, auth, history,
 composer and IDB contracts. Its writer-fencing, owned-turn recovery, legacy-tab and failed-logout
-findings are incorporated below; no blocking design findings remain. This is not an implementation
-test result. The compatibility-only checkpoint is the next proposed work, after the current release.
+findings are incorporated below. The later implementation review reproduced and corrected stale
+writer admission, delayed draft receipts, missing roots, rebase planning and restore ownership races;
+the local evidence records their regression tests. Design review alone is not runtime acceptance.
 
 ## Recommendation and first delivery
 
@@ -161,6 +164,11 @@ a remote deletion or quarantine until it reconnects; this matches the native off
 and introduces no new expiring offline lease.
 
 ## Saved papers and library authority
+
+The detailed gate-2 schema, transaction, v5/descriptor contracts and acceptance plan are in
+[BROWSER_LIBRARY_STORAGE](BROWSER_LIBRARY_STORAGE.md). The local foundation now includes an explicit schema-3
+activation and the fenced multi-head storage primitive, but it is not activated by the schema-2 journal or exposed
+to the deployed customer UI. The complete library protocol and descriptor/copy behavior remain separately gated.
 
 Use the existing epoch-aware **v5 full** library contract for the durable library slice, with
 encrypted upload descriptors and matching v5 online command adapters enabled together. Keep
@@ -325,7 +333,10 @@ releases it when the draft is cleared, with the database still at version 1. Lig
 `.artifacts/web-storage/`. These establish orderly retirement and honest warnings only, not
 durability or offline access. Safari remains a separate gate.
 
-### Status and handoff, 2026-10-08
+### Initial compatibility-only handoff, 2026-10-08
+
+This historical handoff predates the gate-1 work below. Its description of the untested WIP and
+tab-only drafts does not describe the current local gate-1 implementation.
 
 Work stopped here at the owner's request (web work moves to Codex). Branch
 `worktree-agent-a7d3a326272f0e9f4`, commit `76ad197` (on `42b8730`, no later `main` merged).
@@ -369,6 +380,64 @@ Not deployed.
     release would.
   - A probe that opens the database at a higher version fires `versionchange` and retires
     compatibility tabs. Read the version with `indexedDB.databases()` instead of opening it.
+
+## Gate 1 local implementation, 2026-10-08
+
+The reviewed implementation opens an authenticated version-2 journal from key preparation and
+restores History and ChatSession before admitting chat work. New profiles start at version 2.
+Existing version-1 profiles require a person's acknowledgement that they finished or copied work
+and closed other tabs; deferring leaves version 1 and its tab-only behavior intact. Cooperative
+messages cannot prove a noncooperating legacy tab has drained. There is no automatic reload,
+plaintext fallback or exportable-key fallback.
+
+The sealed head binds the exact backend origin, account, store incarnation, device and login
+generation. Its child manifests and event hash chain detect missing/substituted records. Key,
+reading-activity and journal writes compare the captured writer admission and synchronous
+live/persisted login predicate in their IndexedDB transactions. Forget removes key material,
+activity and journal data atomically, retaining only opaque retired-admission metadata with a
+fresh incarnation so suspended callbacks cannot recreate the partition.
+
+Draft checkpoints keep canonical text/branch revisions and submission receipts; delayed Send
+consumes only its captured edit. Exact pending ciphertext, complete pull cursors and fresh-ID
+replacement mappings are durable. Rebase validates the entire planned predecessor revision and
+replacement closure before commit, including draft receipts and turn parents. A conflicting
+descendant causes bounded replanning.
+
+The first deployed journal format also permits an optional draft `anchor` (the existing bounded
+`TextAnchor`), a draft `requestedAnswer` binding (question event ID plus model/effort/length), and
+an active turn's `requestedProfile`. Discuss saves its anchor with the draft and uses it for a
+new conversation's root. Send and explicit Get answer capture the visibly offered profile before
+their first suspension; the local binding survives text edits, receipt promotion, consent,
+fresh-ID rebase and reload. Discarding later text atomically transfers an existing question
+binding to a fresh, owned empty composer. A new question replaces that composer's latest binding.
+For a question without a local binding (including another device's question), Get answer visibly
+offers a new choice and captures it at the click. None of these fields assert which model actually
+served an answer: cloud message `model`/`profile` remain serving metadata from the final stream.
+
+These fields are optional so earlier, unshipped development checkpoints without them remain
+readable. Gate 1 has not shipped; this is the first deployed-format definition, not a guarantee
+that earlier writers preserve unknown fields. A future required field or changed write invariant
+must raise the format/minimum-reader gate and retire incompatible writers before mutation.
+
+Composer and turn owner locks remain held through accepted writes. Reopening reads each
+canonical checkpoint again after winning its owner lock. Recovering or removing a turn compares
+the exact captured checkpoint inside its committing transaction; changes trigger a fresh read.
+No reopening, sync, save retry or cleanup retry starts a paid request. Send remains online.
+Unknown formats and private-record integrity failures preserve bytes and refuse private writes.
+
+Generated conversation titles join a complete answer's local transaction. Title planning reads
+the latest authenticated history under the same revision compare-and-swap: a known rename or
+topic title omits the generated revision, and an explicit rename supersedes every current
+conversation revision. A concurrent writer forces replanning. No background title request or
+automatic answer request is introduced.
+
+Local unit/controller and persistent Chromium evidence, known skips and failed-write limitations
+are recorded in the [verification record](../verification/2026-10-08-browser-journal-gate1.md).
+The integration candidate invokes `flushCheckpoints()` before app-controlled navigation while keeping
+failed edits reachable. Navigation, browser Back/Forward and authentication changes fence delayed results;
+the newest intent wins. Integrated reload, lost-write and reader/Listen/Feed journeys exercise that boundary.
+This gate does not provide a durable library, downloaded reader copies, cached cold-start key
+authority or a service worker, and makes no cold offline-startup promise.
 
 ## Delivery gates and focused acceptance
 

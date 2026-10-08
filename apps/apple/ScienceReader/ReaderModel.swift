@@ -1243,6 +1243,23 @@ final class ReaderModel {
                               currentKeys: keys, refreshKeys: { [weak self] in await self?.synchronize(); return keys() })
     }
 
+    #if targetEnvironment(macCatalyst)
+    /// The Mac recovery sheet's QR path uses the same DeviceKeys pending enrollment as browser approval. A completed
+    /// poll is activated through the normal ReaderModel ownership path before the sheet is dismissed.
+    func macApprovalPayload(refresh: Bool) async throws -> DeviceApprovalPayload? {
+        guard let accountID, let keys else { throw BackendError.signInRequired }
+        let scope = sessionID
+        let payload = try await keys.macApprovalPayload(refresh: refresh)
+        guard sessionID == scope, self.accountID == accountID else { throw BackendError.signInRequired }
+        if payload == nil, let approved = try keys.cachedDevice() {
+            try await activate(approved, scope: scope)
+            guard sessionID == scope else { throw BackendError.signInRequired }
+            needsRecovery = false; recoveryCode = nil; showRecovery = false
+        }
+        return payload
+    }
+    #endif
+
     @discardableResult
     func activate(_ device: LocalDevice, scope: UUID) async throws -> ReaderWorkOwnership.StoreScope {
         guard sessionID == scope, accountID == device.accountID else { throw BackendError.signInRequired }
@@ -2406,8 +2423,33 @@ final class ReaderModel {
         var menuTitle: String { switch self { case .ask: "Quote in Chat"; case .explain: "Explain"; case .define: "Define" } }
         var symbol: String { switch self { case .ask: "quote.bubble"; case .explain: "text.magnifyingglass"; case .define: "character.book.closed" } }
     }
-    /// Changes when the composer should take focus (Quote in Chat).
+    /// Changes when the composer should take focus (Quote in Chat, Discuss in chat).
     private(set) var chatComposerFocusRequest = UUID()
+    /// A focus request no composer has taken yet: the Chat tab a request opens is created after it (iPhone), so it
+    /// takes the request when it appears instead of seeing it change.
+    @ObservationIgnored private var chatComposerFocusPending = false
+
+    private func requestComposerFocus() {
+        chatComposerFocusPending = true
+        chatComposerFocusRequest = UUID()
+    }
+
+    /// True once per request, for the composer that takes the focus.
+    func takeComposerFocusRequest() -> Bool {
+        defer { chatComposerFocusPending = false }
+        return chatComposerFocusPending
+    }
+
+    /// A bibliography entry's "Discuss in chat" (owner feedback, build 21): this paper's chat with the entry quoted in
+    /// the message box as Quote in Chat does, the cursor after it, nothing sent. A conversation already under way
+    /// keeps its own subject, so the entry starts a new one; an unsent message in a new chat follows the quote.
+    func discussReference(_ text: String) {
+        guard let paper = selectedPaper else { return }
+        chatPaperID = paper.id; generalChat = false
+        if activeConversation != nil { newChat(general: false) }
+        tab = .chat; wideMode = .reader; readerChatHidden = false
+        chatQuoteAction(.ask, quote: text.split(whereSeparator: \.isWhitespace).joined(separator: " "))
+    }
 
     func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {
         let quote = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(ChatGenerationRequest.maximumSelectionScalars))
@@ -2417,12 +2459,12 @@ final class ReaderModel {
         case .ask:
             // A reference the reader completes with their question; an existing draft follows it.
             chatInput = "About “\(quote)”: " + draft
-            chatComposerFocusRequest = UUID()
+            requestComposerFocus()
         case .explain, .define:
             // Explain is the reader's (an equation gets the equation prompt); Define is chat-only.
             let prompt = action == .explain ? SelectionAction.define.prompt(quote) : "Define the terms and symbols in: \(quote)"
             // Never overwrite a draft: with one, the question waits in the composer instead.
-            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; chatComposerFocusRequest = UUID(); return }
+            guard draft.isEmpty else { chatInput = prompt + "\n\n" + draft; requestComposerFocus(); return }
             chatInput = prompt
             if !isSignedIn { openSignIn(); return }
             let scope = sessionID, composer = chatComposerID

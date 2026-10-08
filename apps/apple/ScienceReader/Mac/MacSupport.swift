@@ -342,7 +342,21 @@ final class WindowHookView: UIView {
     }
 
     func update(mode: WideMode, settingsShown: Bool) {
-        if let index = WideMode.allCases.firstIndex(of: mode), modes?.selectedIndex != index { modes?.selectedIndex = index }
+        guard modes != nil else { return }
+        // Settings is outside the five workspace panes. Catalyst keeps reporting the last selected
+        // index for a native select-one group, so use select-any and clear every segment explicitly.
+        if settingsShown {
+            setModeSelection(nil)
+        } else {
+            setModeSelection(WideMode.allCases.firstIndex(of: mode) ?? 1)
+        }
+    }
+
+    private func setModeSelection(_ index: Int?) {
+        guard let modes else { return }
+        for candidate in WideMode.allCases.indices {
+            modes.setSelected(candidate == index, at: candidate)
+        }
     }
 
     // MARK: NSToolbarDelegate
@@ -360,13 +374,13 @@ final class WindowHookView: UIView {
         switch identifier {
         case Self.modesID:
             let titles = WideMode.allCases.map(\.rawValue)
-            let group = NSToolbarItemGroup(itemIdentifier: identifier, titles: titles, selectionMode: .selectOne,
+            let group = NSToolbarItemGroup(itemIdentifier: identifier, titles: titles, selectionMode: .selectAny,
                                            labels: titles, target: self, action: #selector(modeChosen(_:)))
             group.controlRepresentation = .expanded
             group.label = "View"
             group.toolTip = "Choose a view (⌘1–⌘5)"
-            group.selectedIndex = WideMode.allCases.firstIndex(of: model.wideMode) ?? 1
             modes = group
+            setModeSelection(WideMode.allCases.firstIndex(of: model.wideMode) ?? 1)
             return group
         case Self.settingsID:
             let item = NSToolbarItem(itemIdentifier: identifier)
@@ -384,7 +398,9 @@ final class WindowHookView: UIView {
 
     @objc private func modeChosen(_ sender: NSToolbarItemGroup) {
         guard WideMode.allCases.indices.contains(sender.selectedIndex) else { return }
-        model.showWideMode(WideMode.allCases[sender.selectedIndex])
+        let index = sender.selectedIndex
+        setModeSelection(index)
+        model.showWideMode(WideMode.allCases[index])
     }
 
     @objc private func settingsChosen(_ sender: NSToolbarItem) {

@@ -27,14 +27,15 @@ export function storageGuidance(error: unknown): { title: string; text: string; 
 
 /** A row under the top bar. The page and its unsent text stay as they are, so they can still be read and copied. */
 export function StorageNotice() {
-  const { phase, issue, proposal } = useStorageLifecycle();
+  const { phase, issue, proposal, version } = useStorageLifecycle();
+  const draftGuidance = version !== null && version >= 2 ? 'Committed device drafts are kept; the newest unsaved edits may need copying.' : NO_RELOAD_DRAFTS;
   if (phase !== 'open' && (issue === 'update' || issue === 'upgraded' || issue === 'closed')) {
     const closed = issue === 'closed';
     return <section className="storage-notice" role="alert" aria-labelledby="storage-notice-title" data-testid="storage-notice">
       <div className="storage-notice-text">
         <h2 id="storage-notice-title">{closed ? 'This browser closed Gradstep’s storage' : 'Gradstep was updated in another tab'}</h2>
         <p>{closed ? 'Site data may have been cleared. This tab has stopped sending and saving.' : 'This tab has stopped sending and saving so the update can finish safely.'}
-          {' '}Your unsent text is still shown here: copy what you want to keep, then {closed ? 'reload this tab' : 'close this tab and continue in the updated one'}. {NO_RELOAD_DRAFTS}</p>
+          {' '}Your unsent text is still shown here: copy what you want to keep, then {closed ? 'reload this tab' : 'close this tab and continue in the updated one'}. {draftGuidance}</p>
       </div>
       <button type="button" className="secondary small" onClick={() => location.reload()}>Reload this tab</button>
     </section>;
@@ -43,7 +44,7 @@ export function StorageNotice() {
     return <section className="storage-notice" role="status" aria-labelledby="storage-notice-title" data-testid="storage-notice">
       <div className="storage-notice-text">
         <h2 id="storage-notice-title">Another Gradstep tab is ready to update</h2>
-        <p>It’s waiting because this tab has unsent work. Send or copy it, then close this tab. {NO_RELOAD_DRAFTS}</p>
+        <p>It’s waiting because this tab has unsent work. Send or copy it, then close this tab. {draftGuidance}</p>
       </div>
     </section>;
   }

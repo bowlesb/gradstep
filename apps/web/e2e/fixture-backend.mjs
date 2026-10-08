@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Local, fail-closed stand-in for the Supabase routes the browser reader uses, for Playwright.
-// It follows the real contracts (migrations 002/006/010/019/029, reader-artifact) closely enough to
+// It follows the real contracts (migrations 002/006/010/019/020/029/030, reader-artifact) closely enough to
 // exercise the client, with public test data only. Unknown routes answer 404; nothing proxies out.
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -10,10 +10,12 @@ import { fileURLToPath } from 'node:url';
 import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
-const PORT = Number(process.env.FIXTURE_PORT ?? 54329);
+import { appOrigin, fixturePort as PORT } from './environment.ts';
 const SAMPLE = fileURLToPath(new URL('../../apple/ScienceReader/Resources/ReaderSamples/cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71/', import.meta.url));
 const SAMPLE_SHA = 'cd902bcdeeda373f6612f00221010f3fba918dcafbd500142d46ee53b2178a71';
 const CODE = '123456';
+// Public profile contract fixture from chat-controls-titles (3286b43); this browser fixture does not call a hosted server.
+const CHAT_PROFILES = JSON.parse(readFileSync(new URL('../tests/fixtures/chat-profiles-v1.json', import.meta.url), 'utf8'));
 export const ACCOUNTS = { 'returning@example.test': '11111111-2222-4333-8444-555555555555', 'new@example.test': '22222222-3333-4444-8555-666666666666' };
 
 const sha = bytes => createHash('sha256').update(bytes).digest();
@@ -24,9 +26,10 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 
 // ---------- State ----------
 const sessions = new Map(); // token -> account
+const oauthCodes = new Map(); // one-use PKCE authorization codes
 const state = new Map();
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set() });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set(), chatLabels: false, chatProfiles: true });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -132,8 +135,44 @@ function receipt(a, operation, digest, result) {
   return { ...response, entry: a.entries.get(result.kind + ':' + result.id) };
 }
 
+// 010/020/030: replay the historical result with the item's current projection; never apply a
+// retried operation twice. Archive, removal and tags all compete on membership_revision.
+function paperCommand(a, p, action) {
+  const allowed = ['p_operation_id', 'p_document_id', 'p_expected_revision', ...(action === 'tags' ? ['p_tags', 'p_hidden_tags'] : action === 'archive' ? ['p_archived'] : ['p_present'])];
+  if (Object.keys(p).some(key => !allowed.includes(key)) || !Number.isSafeInteger(p.p_expected_revision) || p.p_expected_revision < 1) throw pg('invalid_command');
+  const validTags = (tags, limit) => Array.isArray(tags) && tags.length <= limit && tags.every(tag => typeof tag === 'string' && tag === tag.trim()
+    && [...tag].length >= 1 && [...tag].length <= 40 && Buffer.byteLength(tag, 'utf8') <= 120 && !/[\p{Cc}\p{Cs}]|\s\s/u.test(tag))
+    && new Set(tags.map(tag => tag.toLowerCase())).size === tags.length;
+  if (action === 'tags' && (!validTags(p.p_tags, 12) || !validTags(p.p_hidden_tags, 8))) throw pg('invalid_tags_command');
+  if (action === 'archive' && typeof p.p_archived !== 'boolean') throw pg('invalid_archive_command');
+  if (action === 'remove' && p.p_present !== false) throw pg('invalid_membership_command');
+  const paper = [...a.entries.values()].find(entry => entry.kind === 'item' && entry.document_id === p.p_document_id);
+  if (!paper) throw pg('document_unavailable');
+  const digest = JSON.stringify(action === 'tags' ? ['tags-v1', p.p_document_id, p.p_tags, p.p_hidden_tags, p.p_expected_revision]
+    : action === 'archive' ? ['archive-v1', p.p_document_id, p.p_archived, p.p_expected_revision]
+      : ['membership-v2', p.p_document_id, false, p.p_expected_revision, null]);
+  if (a.receipts.has(p.p_operation_id)) return receipt(a, p.p_operation_id, digest);
+  if ((action !== 'remove' && !paper.visible) || paper.membership_revision !== p.p_expected_revision)
+    return receipt(a, p.p_operation_id, digest, { status: 'revision_conflict', kind: 'item', id: paper.id, revision: paper.membership_revision });
+  const updated = { ...paper, membership_revision: paper.membership_revision + 1 };
+  if (action === 'tags') {
+    if (p.p_tags.length) updated.user_tags = [...p.p_tags]; else delete updated.user_tags;
+    if (p.p_hidden_tags.length) updated.hidden_tags = [...p.p_hidden_tags]; else delete updated.hidden_tags;
+  } else if (action === 'archive') {
+    if (p.p_archived) updated.archived = true; else delete updated.archived;
+  } else {
+    updated.visible = false; updated.last_remove_seq = a.seq + 1;
+    delete updated.archived; delete updated.tags; delete updated.user_tags; delete updated.hidden_tags;
+  }
+  const seq = emit(a, [updated]);
+  return receipt(a, p.p_operation_id, digest, { status: 'applied', kind: 'item', id: paper.id, seq, revision: updated.membership_revision });
+}
+
 // ---------- RPCs ----------
 const rpcs = {
+  v2_set_item_tags: (_id, a, p) => paperCommand(a, p, 'tags'),
+  v2_set_item_archived: (_id, a, p) => paperCommand(a, p, 'archive'),
+  v2_set_library_item: (_id, a, p) => paperCommand(a, p, 'remove'),
   v1_key_state: (id, a, p) => a.keyring && {
     epoch: a.keyring.epoch, recovery_package: a.keyring.recovery_package,
     device_envelope: a.devices.get(p.p_device_id)?.revoked_at === null ? a.envelopes.get(`${p.p_device_id}:${a.keyring.epoch}`) ?? null : null,
@@ -221,60 +260,6 @@ const rpcs = {
   },
 };
 
-// ---------- Paper podcasts (labeled synthetic fixtures; docs/architecture/PAPER_PODCASTS.md) ----------
-// Audio is generated here at startup (no binary in the repository): 8 kHz mono 16-bit PCM WAV, a quiet tone per transcript
-// segment (the explainer lower, the skeptic higher) with short gaps between turns. Zero spend, no provider, no network.
-function synthWav(segments) {
-  const rate = 8000, total = Math.round(segments.at(-1).end_ms / 1000 * rate), data = Buffer.alloc(total * 2);
-  for (const s of segments) {
-    const from = Math.round(s.start_ms / 1000 * rate), to = Math.round(s.end_ms / 1000 * rate) - Math.round(0.25 * rate), hz = s.speaker === 'explainer' ? 220 : 330;
-    for (let i = from; i < to; i++) data.writeInt16LE(Math.round(Math.sin(2 * Math.PI * hz * (i - from) / rate) * 2500 * Math.min(1, (i - from) / 400, (to - i) / 400)), i * 2);
-  }
-  const header = Buffer.alloc(44);
-  header.write('RIFF', 0); header.writeUInt32LE(36 + data.length, 4); header.write('WAVE', 8); header.write('fmt ', 12); header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22); header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32);
-  header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(data.length, 40);
-  return Buffer.concat([header, data]);
-}
-const SPEAKERS = { explainer: 'Host 1 — explainer', skeptic: 'Host 2 — skeptical reader' };
-const DISCLOSURE = 'Synthetic fixture for testing: labeled tones, not speech. Real episodes are AI-generated audio from the paper’s own text and may contain errors.';
-const seg = (id, speaker, start, end, chapter, text, evidence = [], claim = 'paper_result') => ({ id, speaker, text, start_ms: start, end_ms: end, chapter, claim_type: claim, evidence, math: [] });
-const PODCASTS = [
-  { release_id: 'e0000000-0000-4000-8000-000000000001', member: 'e1000000-0000-4000-8000-000000000001', libraryItem: 'aaaaaaaa-0000-4000-8000-000000000001',
-    title: 'Synthetic fixture: ' + DPO.title, year: 2023, authors: DPO.authors, topic: 'Alignment', arxiv: '2305.18290', version: 3,
-    chapters: [{ id: 'c1', title: 'The result', start_ms: 0 }, { id: 'c2', title: 'How the objective works', start_ms: 16_000 }, { id: 'c3', title: 'Limitations', start_ms: 32_000 }],
-    segments: [
-      seg('s1', 'explainer', 0, 8000, 'c1', 'The paper shows that the usual reinforcement-learning objective for preference tuning can be optimized directly.',
-        [{ id: 'e1', quote: 'can be optimized exactly with a simple binary cross-entropy objective', section: '1' }]),
-      seg('s2', 'skeptic', 8000, 16_000, 'c1', 'So what actually gets simpler, in their own words?', [{ id: 'e2', quote: 'greatly simplifying the preference learning pipeline', section: '1' }], 'author_interpretation'),
-      seg('s3', 'explainer', 16_000, 24_000, 'c2', 'Instead of fitting a separate reward model, the loss compares how much the policy and a reference model prefer each answer.', [], 'explainer_analogy'),
-      seg('s4', 'skeptic', 24_000, 32_000, 'c2', 'Comparisons only mean something against the same reference model, though.', [], 'context'),
-      seg('s5', 'explainer', 32_000, 40_000, 'c3', 'The authors evaluate on a handful of tasks and model sizes.', [], 'paper_result'),
-      seg('s6', 'skeptic', 40_000, 48_000, 'c3', 'Which leaves how it behaves at larger scale as an open question.', [], 'context'),
-    ] },
-  { release_id: 'e0000000-0000-4000-8000-000000000002', member: 'e1000000-0000-4000-8000-000000000002', documentID: 'd0000000-0000-4000-8000-0000000000a1',
-    title: 'Synthetic fixture: ' + ATTENTION.title, year: 2017, authors: ATTENTION.authors, topic: 'Transformers', arxiv: '1706.03762', version: 7,
-    chapters: [{ id: 'c1', title: 'Attention only', start_ms: 0 }, { id: 'c2', title: 'What to question', start_ms: 15_000 }],
-    segments: [
-      seg('s1', 'explainer', 0, 15_000, 'c1', 'The model drops recurrence and convolution entirely.',
-        [{ id: 'e1', quote: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks', section: 'Abstract' }]),
-      seg('s2', 'skeptic', 15_000, 30_000, 'c2', 'The comparison is to the strongest baselines of 2017.', [], 'context'),
-    ] },
-].map(p => { const audio = synthWav(p.segments); return { ...p, audio, sha256: sha(audio).toString('hex'), duration_ms: p.segments.at(-1).end_ms }; });
-
-function podcastState(a) { a.podcast ??= { grants: new Map(), redemptions: [], mode: 'enabled' }; return a.podcast; }
-const podcastCapabilities = a => {
-  const on = podcastState(a).mode === 'enabled';
-  return { catalog: on, generation: false, delivery: on, max_credits: 150, target_seconds: 300, transfer: { remaining_bytes: 104_857_600, limit_bytes: 104_857_600 } };
-};
-function podcastEpisode(a, p) {
-  const documentID = p.libraryItem ? a.entries.get('item:' + p.libraryItem)?.document_id ?? randomUUID() : p.documentID;
-  return { release_id: p.release_id, scope: 'shared', title: p.title, year: p.year, authors: p.authors, topic: p.topic, duration_ms: p.duration_ms, language: 'en', ai_audio: true,
-    fixture: true, document_id: documentID, published_at: '2026-10-08T00:00:00Z', state: 'ready',
-    source: { arxiv_id: p.arxiv, version: p.version, url: `https://arxiv.org/abs/${p.arxiv}v${p.version}`, license: 'https://creativecommons.org/licenses/by/4.0/' },
-    audio: { bytes: p.audio.length, sha256: p.sha256, media_type: 'audio/wav' } };
-}
-
 // ---------- HTTP ----------
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, x-client-info', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 function send(response, status, body, type = 'application/json') {
@@ -298,11 +283,16 @@ createServer(async (request, response) => {
   const url = new URL(request.url, `http://127.0.0.1:${PORT}`);
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
-  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); oauthCodes.clear(); seedReturning(); return send(response, 200, { ok: true }); }
   if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
     const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
     if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'tall_diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
     if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
+    if (typeof p?.loseAppendAck === 'boolean') a.loseAppendAck = p.loseAppendAck;
+    // labels: answers name their model and profile, and a requested topic title is sent (servers from 2026-10-08).
+    if (typeof p?.labels === 'boolean') a.chatLabels = p.labels;
+    // profiles: false answers GET functions/v1/chat with 405, as a server before profiles does.
+    if (typeof p?.profiles === 'boolean') a.chatProfiles = p.profiles;
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
@@ -314,6 +304,26 @@ createServer(async (request, response) => {
   if (url.pathname === '/__removable-import' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']), imp = a.entries.get('import:bbbbbbbb-0000-4000-8000-000000000001');
     emit(a, [{ ...imp, retryable: false, error_code: 'pdf_invalid' }]);
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__paper-action' && request.method === 'POST') {
+    const body = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    const paper = a.entries.get('item:' + (body?.itemID ?? 'aaaaaaaa-0000-4000-8000-000000000001'));
+    if (!paper || !['tags', 'archive', 'remove'].includes(body?.action)) return send(response, 400, {});
+    const params = { p_operation_id: body.operationID ?? randomUUID(), p_document_id: paper.document_id, p_expected_revision: body.revision ?? paper.membership_revision,
+      ...(body.action === 'tags' ? { p_tags: body.tags ?? [], p_hidden_tags: body.hidden ?? [] } : body.action === 'archive' ? { p_archived: body.archived ?? true } : { p_present: false }) };
+    try { return send(response, 200, paperCommand(a, params, body.action)); } catch { return send(response, 400, {}); }
+  }
+  if (url.pathname === '/__library-action-evidence' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, { seq: a.seq, entries: [...a.entries.values()], receipts: [...a.receipts].map(([operationID, value]) => ({ operationID, result: value.response.result })) });
+  }
+  if (url.pathname === '/__mapped-imports' && request.method === 'POST') {
+    const a = account(ACCOUNTS['returning@example.test']), paper = a.entries.get('item:aaaaaaaa-0000-4000-8000-000000000001');
+    const base = { kind: 'import', intent_revision: 1, source: 'arxiv', source_id: '1706.03762', source_url: 'https://arxiv.org/abs/1706.03762',
+      retryable: false, document_id: paper.document_id, library_item_id: paper.id };
+    emit(a, [{ ...base, id: 'bbbbbbbb-0000-4000-8000-000000000010', visible: true, phase: 'acquiring' },
+      { ...base, id: 'bbbbbbbb-0000-4000-8000-000000000011', visible: false, phase: 'ready' }]);
     return send(response, 200, { ok: true });
   }
   if (url.pathname === '/__cancel-stopped-import' && request.method === 'POST') {
@@ -340,15 +350,6 @@ createServer(async (request, response) => {
       p_expected_public_key: r.public_key, p_expected_challenge: r.challenge, p_envelope: hex(envelope) });
     return send(response, 200, { ok: true, code });
   }
-  if (url.pathname === '/__podcast-fixture' && request.method === 'POST') {
-    const body = await read(request), state = podcastState(account(ACCOUNTS['returning@example.test']));
-    if (['enabled', 'disabled'].includes(body?.mode)) state.mode = body.mode;
-    return send(response, 200, { ok: true });
-  }
-  if (url.pathname === '/__podcast-evidence' && request.method === 'GET') {
-    const state = podcastState(account(ACCOUNTS['returning@example.test']));
-    return send(response, 200, { grants: state.grants.size, redemptions: state.redemptions });
-  }
   if (url.pathname === '/__pending-requests' && request.method === 'GET') {
     const a = account(ACCOUNTS['returning@example.test']);
     return send(response, 200, [...a.requests.values()].map(r => ({ id: r.id, approved: Boolean(r.approved_at) })));
@@ -374,6 +375,18 @@ createServer(async (request, response) => {
     if (url.searchParams.get('token') !== 'signed' || !memberFiles().includes(path)) return send(response, 400, { error: 'InvalidSignature' });
     return send(response, 200, readFileSync(join(SAMPLE, path)), 'application/octet-stream');
   }
+  // A local Supabase-style OAuth hop. It never contacts a provider: the authorization route issues a
+  // short-lived one-use code, then the token route verifies the S256 PKCE binding before minting the fixture session.
+  if (url.pathname === '/auth/v1/authorize' && request.method === 'GET') {
+    const provider = url.searchParams.get('provider'), redirect = url.searchParams.get('redirect_to');
+    const stateValue = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge');
+    if (!['google', 'apple'].includes(provider ?? '') || !redirect?.startsWith(`${appOrigin}/auth/callback`)
+      || !stateValue || !/^[A-Za-z0-9_-]{32,128}$/.test(stateValue) || !challenge || !/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) return send(response, 400, { error: 'invalid_request' });
+    const code = randomUUID().replaceAll('-', '');
+    oauthCodes.set(code, { account: ACCOUNTS['returning@example.test'], challenge, state: stateValue, expiresAt: Date.now() + 60_000 });
+    response.writeHead(302, { Location: `${redirect}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(stateValue)}`, 'Cache-Control': 'no-store' });
+    return response.end();
+  }
   if (request.headers.apikey !== 'fixture-anon') return send(response, 401, { message: 'No API key' });
   if (url.pathname === '/auth/v1/otp' && request.method === 'POST') {
     const body = await read(request);
@@ -385,6 +398,14 @@ createServer(async (request, response) => {
     if (body?.type !== 'email' || !ACCOUNTS[body.email] || body.token !== CODE) return send(response, 403, { code: 403, error_code: 'otp_expired', msg: 'Token has expired or is invalid' });
     return send(response, 200, sessionFor(body.email));
   }
+  if (url.pathname === '/auth/v1/token' && request.method === 'POST' && url.searchParams.get('grant_type') === 'pkce') {
+    const body = await read(request), entry = typeof body?.auth_code === 'string' ? oauthCodes.get(body.auth_code) : null;
+    const verifier = typeof body?.code_verifier === 'string' ? body.code_verifier : '';
+    const challenge = verifier ? sha(Buffer.from(verifier)).toString('base64url') : '';
+    if (!entry || entry.expiresAt < Date.now() || !verifier || challenge !== entry.challenge) return send(response, 400, { error: 'invalid_grant' });
+    oauthCodes.delete(body.auth_code);
+    return send(response, 200, sessionFor('returning@example.test'));
+  }
   if (url.pathname === '/auth/v1/logout') return send(response, 204);
   const id = sessions.get((request.headers.authorization ?? '').replace(/^Bearer /, ''));
   if (!id) return send(response, 401, { code: 'PGRST301', message: 'JWT expired' });
@@ -394,15 +415,26 @@ createServer(async (request, response) => {
     if (!rpcs[name] || body === null) return send(response, 404, { code: 'PGRST202', message: 'not found' });
     try {
       const result = rpcs[name](id, a, body);
+      // The row commits but the caller receives no append receipt. A finite 503 avoids Chromium's transport-level
+      // retry of a dropped reused socket, making exact-ID recovery deterministic.
+      if (name === 'v1_append_event' && a.loseAppendAck) { a.loseAppendAck = false; return send(response, 503, { code: 'service_unavailable' }); }
       return result === null && ['v1_approve_enrollment'].includes(name) ? send(response, 204) : send(response, 200, result ?? null);
     } catch (error) {
       if (error.pg) return send(response, 400, { code: 'P0001', message: error.message });
       throw error;
     }
   }
+  if (url.pathname === '/functions/v1/chat' && request.method === 'GET') {
+    return a.chatProfiles ? send(response, 200, CHAT_PROFILES) : send(response, 405, { code: 'method_unavailable' });
+  }
   if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
     const body = await read(request);
     if (!body?.operation_id || body.consent_version !== 'cloud-ai-v2' || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    // As chat.ts validates: a profile is exactly {model, effort, length} with known values; topic_title is a boolean.
+    const p = body.profile;
+    if (p !== undefined && (!p || typeof p !== 'object' || Object.keys(p).length !== 3 || !['haiku', 'sonnet', 'opus'].includes(p.model)
+      || !['low', 'medium', 'high'].includes(p.effort) || !['brief', 'standard', 'detailed'].includes(p.length))) return send(response, 400, { code: 'invalid_request' });
+    if (body.topic_title !== undefined && typeof body.topic_title !== 'boolean') return send(response, 400, { code: 'invalid_request' });
     a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
     response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
     const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
@@ -419,7 +451,10 @@ createServer(async (request, response) => {
       if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
 A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
 click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart TD; A[Start] --> B[Compute loss]; B --> C[Compute gradient]; C --> D[Update weights]; D --> E[Validate]; E --> F{Repeat}; F -->|Yes| B; F -->|No| G[Finish]' : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
-      event('done', { stop_reason: 'end_turn', credits: 3 }); response.end();
+      if (a.chatLabels && body.topic_title === true) event('title', { text: 'Preference objective explained' });
+      const profile = body.profile ? `${body.profile.model}-${body.profile.effort}-${body.profile.length}` : 'sonnet-low-standard';
+      const model = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5' }[body.profile?.model ?? 'sonnet'];
+      event('done', { stop_reason: 'end_turn', credits: 3, ...(a.chatLabels ? { model, profile } : {}) }); response.end();
     };
     setTimeout(tick, 200); return;
   }
@@ -432,43 +467,9 @@ click B "https://attacker.invalid/open"` : mode === 'tall_diagram' ? 'flowchart 
     return send(response, 200, { item_id: itemID, document_id: entry.document_id, artifact_id: entry.artifact_id, renderer_version: 'timestep-mathpix-mathml-v1',
       manifest_sha256: sha(manifest).toString('hex'), manifest: manifest.toString('base64'), members });
   }
-  // Paper podcasts: the Edge `podcast` actions and the single-use, bounded `podcast-member` delivery (no Range).
-  if (url.pathname === '/functions/v1/podcast') {
-    const action = url.searchParams.get('action'), state = podcastState(a), enabled = state.mode === 'enabled';
-    const find = id => PODCASTS.find(p => p.release_id === id);
-    if (action === 'catalog' && request.method === 'GET') return send(response, 200, { episodes: enabled ? PODCASTS.map(p => podcastEpisode(a, p)) : [], next: null, capabilities: podcastCapabilities(a) });
-    if (!enabled) return send(response, 503, { code: 'podcast_unavailable' });
-    if (action === 'episode' && request.method === 'GET') {
-      const p = find(url.searchParams.get('release_id'));
-      if (!p) return send(response, 404, { code: 'podcast_release_unavailable' });
-      return send(response, 200, { episode: { ...podcastEpisode(a, p), chapters: p.chapters, transcript: { speakers: SPEAKERS, disclosure: DISCLOSURE, timing: 'approximate', segments: p.segments } } });
-    }
-    if (action === 'download' && request.method === 'POST') {
-      const body = await read(request), p = find(body?.release_id);
-      if (!p) return send(response, 404, { code: 'podcast_release_unavailable' });
-      const token = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
-      state.grants.set(token, { release: p.release_id, redeemed: false });
-      return send(response, 200, { grant: { expires_at: new Date(Date.now() + 900_000).toISOString(), members: [{ role: 'audio',
-        url: `http://127.0.0.1:${PORT}/functions/v1/podcast-member?grant=${token}&member=${p.member}`, bytes: p.audio.length, sha256: p.sha256, media_type: 'audio/wav' }] } });
-    }
-    if (action === 'states' && request.method === 'POST') {
-      const body = await read(request);
-      if (!Array.isArray(body?.release_ids) || body.release_ids.length > 100) return send(response, 400, { code: 'podcast_invalid_request' });
-      return send(response, 200, { states: Object.fromEntries(body.release_ids.map(id => [id, { state: find(id) ? 'ready' : 'unavailable', replacement_id: null }])) });
-    }
-    return send(response, 400, { code: 'podcast_invalid_request' });
-  }
-  if (url.pathname === '/functions/v1/podcast-member' && request.method === 'GET') {
-    const state = podcastState(a), grant = state.grants.get(url.searchParams.get('grant') ?? ''), p = PODCASTS.find(x => x.member === url.searchParams.get('member'));
-    state.redemptions.push({ range: request.headers.range ?? null, authorized: true });
-    if (request.headers.range) return send(response, 416, { code: 'podcast_range_unavailable' });
-    if (!grant || !p || grant.release !== p.release_id) return send(response, 403, { code: 'podcast_grant_unavailable' });
-    if (grant.redeemed) return send(response, 409, { code: 'podcast_grant_consumed' });
-    grant.redeemed = true;
-    return send(response, 200, p.audio, 'audio/wav');
-  }
   // Feed (discover?category=…): public sample metadata only.
   if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
+    if (url.searchParams.has('feed')) return send(response, 404, { code: 'feed_unavailable' });
     const category = url.searchParams.get('category') ?? '';
     if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
     return send(response, 200, { results: [

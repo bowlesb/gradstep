@@ -3,7 +3,7 @@ import { type Page, expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
 import { durableKeys } from './key-capability';
 
-const FIXTURE = 'http://127.0.0.1:54329';
+import { fixtureOrigin as FIXTURE } from './environment';
 const shots = '../../.artifacts/web-e2e/';
 
 function watch(page: Page) {
@@ -403,16 +403,18 @@ test('a late encrypted reading-place save cannot recreate a forgotten device or 
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   await page.evaluate(() => (window as unknown as { releaseActivity: () => void }).releaseActivity());
   // Acquiring the same activity lane waits for the released save to settle before inspecting real IndexedDB.
-  const count = await page.evaluate(() => navigator.locks.request('gradstep.activity.fixture:11111111-2222-4333-8444-555555555555', () => new Promise<number>((resolve, reject) => {
+  const retained = await page.evaluate(() => navigator.locks.request('gradstep.activity.fixture:11111111-2222-4333-8444-555555555555', () => new Promise<{ devices: number; activity: number; journal: number; retired: boolean }>((resolve, reject) => {
     const opening = indexedDB.open('gradstep');
     opening.onerror = () => reject(new Error('IndexedDB unavailable'));
     opening.onsuccess = () => {
-      const db = opening.result, tx = db.transaction(['devices', 'activity']);
-      const devices = tx.objectStore('devices').count(), activity = tx.objectStore('activity').count();
-      tx.oncomplete = () => { db.close(); resolve(devices.result + activity.result); };
+      const db = opening.result, tx = db.transaction(['devices', 'activity', 'journal']);
+      const devices = tx.objectStore('devices').getAll(), activity = tx.objectStore('activity').count(), journal = tx.objectStore('journal').count();
+      tx.oncomplete = () => { db.close(); resolve({ devices: devices.result.filter(d => d.deviceID || d.privateKey || d.localKey).length,
+        activity: activity.result, journal: journal.result,
+        retired: devices.result.length === 1 && devices.result[0].lifetime === null && devices.result[0].writers.length === 0 }); };
     };
   })));
-  expect(count).toBe(0);
+  expect(retained).toEqual({ devices: 0, activity: 0, journal: 0, retired: true });
 });
 
 test('a delayed sign-out cannot end a newer login from another tab', async ({ page, context, request }) => {

@@ -23,7 +23,8 @@
     paperLine: text => window.__scienceReaderSetPaperLine?.(text),
     paperTags: tags => window.__scienceReaderSetPaperTags?.(tags),
     fontSize: size => { document.documentElement.style.fontSize = Number(size) + 'px'; window.__scienceReaderFit?.(); return true; },
-    showFigure: id => window.__scienceReaderShowFigure?.(String(id)),
+    // The third argument is used only after a verified `figureref` message from a supporting bridge.
+    showFigure: (id, reduced, fromReference) => window.__scienceReaderShowFigure?.(String(id), !!reduced, fromReference === true),
     find: (query, direction) => find(String(query ?? ''), direction),
     findClear: () => clearFind(),
     theme: value => setScheme(value),

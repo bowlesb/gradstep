@@ -21,7 +21,13 @@ enum KeyPreparation: Sendable { case ready(LocalDevice), saveRecoveryCode(String
 
 enum DeviceKeyError: LocalizedError {
     case operationInProgress
-    var errorDescription: String? { "Encryption keys are being updated. Please try again in a moment." }
+    case noKeyAuthority
+    var errorDescription: String? {
+        switch self {
+        case .operationInProgress: "Encryption keys are being updated. Please try again in a moment."
+        case .noKeyAuthority: "This account has no approved device yet. Use the recovery code to create the account keys first."
+        }
+    }
 }
 
 @MainActor
@@ -34,7 +40,8 @@ final class DeviceKeys {
     private struct PendingEnrollment: Codable {
         let requestID: UUID
         var candidate: LocalDevice
-        let envelope: Data
+        /// Nil for a newly signed-in device waiting for an approved device to wrap the account bundle.
+        let envelope: Data?
         // Informational only. Server request state determines renewal.
         let createdAt: Date
     }
@@ -88,6 +95,43 @@ final class DeviceKeys {
         return .ready(device)
     }
 
+    /// Starts or resumes the Mac's enrollment request and returns the exact payload the approved device must scan.
+    ///
+    /// A new account has no keyring yet and must use the recovery-code bootstrap. An existing account has a keyring
+    /// but no envelope for this device; in that case the recipient identity is persisted before the request is sent,
+    /// so a lost response or a relaunch can continue the same approval. With `refresh == false` this is local-only;
+    /// the Mac poller uses the slower refresh calls to check whether the server has delivered the envelope.
+    func macApprovalPayload(refresh: Bool) async throws -> DeviceApprovalPayload? {
+        try beginOperation(); defer { operationInProgress = false }
+        if try cachedDevice() != nil { return nil }
+        guard device.bundle == nil, device.pendingRecoveryCode == nil else { throw DeviceKeyError.noKeyAuthority }
+
+        var pending = try pendingEnrollment()
+        if pending == nil {
+            let state: KeyState? = try await backend.rpc("v1_key_state", params: ["p_device_id": device.deviceID.wire], accountID: accountID)
+            try Task.checkCancellation()
+            // There is no authority to wrap keys until the first device completes recovery-code bootstrap.
+            guard state != nil else { throw DeviceKeyError.noKeyAuthority }
+            guard state?.device_envelope == nil else { throw DeviceKeyError.noKeyAuthority }
+            let candidate = device
+            pending = PendingEnrollment(requestID: UUID(), candidate: candidate, envelope: nil, createdAt: Date())
+            try savePending(pending!)
+        }
+        guard var request = pending else { throw DeviceKeyError.noKeyAuthority }
+        let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: request.candidate.privateKey).publicKey.rawRepresentation
+        if refresh {
+            if let completed = try await finishApproved(request) {
+                device = completed
+                return nil
+            }
+            try await requestEnrollment(request, publicKey: publicKey)
+            // Keep the exact persisted request identity; a server renewal is only possible after an explicit expiry.
+            request = try pendingEnrollment() ?? request
+        }
+        return try DeviceApprovalPayload(requestID: request.requestID, accountID: accountID, deviceID: request.candidate.deviceID,
+                                         publicKey: publicKey, challenge: request.candidate.challenge, kind: .mac)
+    }
+
     func confirmRecoverySaved() async throws -> LocalDevice {
         try beginOperation(); defer { operationInProgress = false }
         guard let keys = device.bundle, let code = device.pendingRecoveryCode else { throw ReaderError.missingKey }
@@ -132,7 +176,7 @@ final class DeviceKeys {
         candidate.bundle = keys
         let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: candidate.privateKey).publicKey.rawRepresentation
         let envelope: Data
-        if let saved, sameBundle { envelope = saved.envelope }
+        if let saved, sameBundle, let savedEnvelope = saved.envelope { envelope = savedEnvelope }
         else { envelope = try ReaderCrypto.wrapForDevice(keys, deviceID: candidate.deviceID, recipientPublicKey: publicKey, challenge: candidate.challenge) }
         var pending = PendingEnrollment(requestID: saved?.requestID ?? UUID(), candidate: candidate, envelope: envelope,
                                         createdAt: saved?.createdAt ?? Date())
@@ -152,10 +196,11 @@ final class DeviceKeys {
             let p_request_id: String; let p_epoch: Int; let p_management_token: String
             let p_expected_public_key: String; let p_expected_challenge: String; let p_envelope: String
         }
+        guard let pendingEnvelope = pending.envelope else { throw ReaderError.missingKey }
         do {
             try await backend.rpcVoid("v1_approve_enrollment", params: Approval(p_request_id: pending.requestID.wire, p_epoch: keys.epoch,
                 p_management_token: Self.hex(keys.managementToken), p_expected_public_key: Self.hex(publicKey),
-                p_expected_challenge: Self.hex(candidate.challenge), p_envelope: Self.hex(pending.envelope)), accountID: accountID)
+                p_expected_challenge: Self.hex(candidate.challenge), p_envelope: Self.hex(pendingEnvelope)), accountID: accountID)
         } catch {
             try Task.checkCancellation()
             // The server may have committed, or the older request may have won.

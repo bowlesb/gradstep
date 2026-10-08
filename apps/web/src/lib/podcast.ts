@@ -1,7 +1,8 @@
 // Paper podcasts (docs/architecture/PAPER_PODCASTS.md, "V1 implementation contract"): the Edge `podcast`
 // calls and the single-use `podcast-member` audio download. Strict decoders: anything outside the
 // contract is dropped or refused, never shown. No audio is persisted in the browser in v1.
-import { BackendError, config, functionGet, functionPost, podcastMemberBytes } from './backend';
+import { auth, BackendError, config, functionGet, functionPost, podcastMemberBytes } from './backend';
+import { cancellation } from './cancellation';
 import { isUUID, sha256Hex } from './bytes';
 
 export type Speaker = 'explainer' | 'skeptic';
@@ -12,7 +13,7 @@ export interface EpisodeSource { arxivID: string | null; version: number | null;
 export interface Episode {
   releaseID: string; scope: 'shared' | 'private'; title: string; year: number | null; authors: string[]; topic: string | null;
   durationMs: number; language: string; fixture: boolean; documentID: string; publishedAt: string | null; state: ReleaseState;
-  source: EpisodeSource; audio: { bytes: number; sha256: string; mediaType: string };
+  source: EpisodeSource; replacementID: string | null; audio: { bytes: number; sha256: string; mediaType: string };
 }
 export interface Chapter { id: string; title: string; startMs: number }
 export interface Evidence { id: string; quote: string; section: string | null }
@@ -45,20 +46,20 @@ function httpsURL(v: unknown): string | null {
   try { const u = new URL(v); return u.protocol === 'https:' && !u.username && !u.password && u.hostname ? u.toString() : null; } catch { return null; }
 }
 
-function decodeEpisode(value: unknown): Episode | null {
+export function decodeEpisode(value: unknown): Episode | null {
   const v = value as Record<string, unknown> | null;
   if (!v || typeof v !== 'object') return null;
   const audio = v.audio as Record<string, unknown> | null, source = (v.source ?? {}) as Record<string, unknown>;
-  if (!isUUID(v.release_id) || !isUUID(v.document_id) || (v.scope !== 'shared' && v.scope !== 'private') || !text(v.title, 2000)
+  if (!isUUID(v.release_id) || !isUUID(v.document_id) || (v.scope !== 'shared' && v.scope !== 'private') || (v.scope === 'shared' ? !text(v.title, 2000) : v.title !== null && !text(v.title, 2000))
     || !count(v.duration_ms, 4 * 3600_000) || !audio || !count(audio.bytes, MAX_AUDIO_BYTES) || (audio.bytes as number) < 1
     || typeof audio.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(audio.sha256) || typeof audio.media_type !== 'string'
-    || !AUDIO_TYPES.has(audio.media_type.toLowerCase()) || (v.ai_audio !== undefined && v.ai_audio !== true)) return null;
-  const state = typeof v.state === 'string' && STATES.has(v.state as ReleaseState) ? v.state as ReleaseState : 'ready';
+    || !AUDIO_TYPES.has(audio.media_type.toLowerCase()) || v.ai_audio !== true || typeof v.fixture !== 'boolean' || v.language !== 'en') return null;
+  const state = typeof v.state === 'string' && STATES.has(v.state as ReleaseState) ? v.state as ReleaseState : 'unavailable';
   const authors = Array.isArray(v.authors) ? v.authors.filter((a): a is string => text(a, 256)).map(clean).slice(0, 64) : [];
   return {
-    releaseID: v.release_id.toLowerCase(), scope: v.scope, title: clean(v.title), year: count(v.year, 9999) && (v.year as number) >= 1000 ? v.year as number : null,
+    releaseID: v.release_id.toLowerCase(), scope: v.scope, title: text(v.title, 2000) ? clean(v.title) : 'Private paper episode', year: count(v.year, 9999) && (v.year as number) >= 1000 ? v.year as number : null,
     authors, topic: text(v.topic, 120) ? clean(v.topic) : null, durationMs: v.duration_ms as number, language: text(v.language, 16) ? v.language : 'en',
-    fixture: v.fixture === true, documentID: v.document_id.toLowerCase(), publishedAt: optionalText(v.published_at, 64), state,
+    fixture: v.fixture === true, documentID: v.document_id.toLowerCase(), publishedAt: optionalText(v.published_at, 64), state, replacementID: isUUID(v.replacement_id) ? v.replacement_id.toLowerCase() : null,
     source: { arxivID: typeof source.arxiv_id === 'string' && /^[0-9a-z.\-/]{4,40}$/i.test(source.arxiv_id) ? source.arxiv_id : null,
       version: count(source.version, 10_000) && (source.version as number) > 0 ? source.version as number : null,
       url: httpsURL(source.url), license: httpsURL(source.license) },
@@ -77,8 +78,8 @@ export function decodeCatalog(value: unknown): Catalog {
   const v = value as Record<string, unknown> | null;
   if (!v || !Array.isArray(v.episodes) || v.episodes.length > 50) throw new BackendError('invalid_response');
   const seen = new Set<string>();
-  const episodes = v.episodes.map(decodeEpisode).filter((e): e is Episode => !!e && e.state === 'ready' && !seen.has(e.releaseID) && !!seen.add(e.releaseID));
-  return { episodes, next: typeof v.next === 'string' && /^[A-Za-z0-9._:-]{1,200}$/.test(v.next) ? v.next : null, capabilities: decodeCapabilities(v.capabilities) };
+  const episodes = v.episodes.map(decodeEpisode).filter((e): e is Episode => !!e && e.scope === 'shared' && e.state === 'ready' && !seen.has(e.releaseID) && !!seen.add(e.releaseID));
+  return { episodes, next: typeof v.next === 'string' && /^[1-9][0-9]{0,17}$/.test(v.next) ? v.next : null, capabilities: decodeCapabilities(v.capabilities) };
 }
 
 function decodeTranscript(value: unknown, durationMs: number): Transcript {
@@ -118,7 +119,12 @@ export function decodeEpisodeDetail(value: unknown): EpisodeDetail {
     previous = x.start_ms as number;
     return { id: x.id, title: clean(x.title), startMs: x.start_ms as number };
   });
-  return { ...episode, chapters, transcript: decodeTranscript(raw.transcript, episode.durationMs) };
+  const chapterIDs = new Set(chapters.map(c => c.id));
+  const transcript = decodeTranscript(raw.transcript, episode.durationMs);
+  if (!chapters.length || chapters[0].startMs !== 0 || chapterIDs.size !== chapters.length
+    || !transcript.segments.length || new Set(transcript.segments.map(s => s.id)).size !== transcript.segments.length
+    || transcript.segments.some(s => !s.chapter || !chapterIDs.has(s.chapter))) throw new BackendError('invalid_response');
+  return { ...episode, chapters, transcript };
 }
 
 /** Grant members must be the configured project's bounded `podcast-member` path: no other host, path or credential-bearing URL. */
@@ -129,7 +135,7 @@ export function decodeGrant(value: unknown, expected: Episode): Member {
   if (audio.length !== 1) throw new BackendError('invalid_response');
   const m = audio[0];
   if (!count(m.bytes, MAX_AUDIO_BYTES) || m.bytes !== expected.audio.bytes || m.sha256 !== expected.audio.sha256 || typeof m.media_type !== 'string'
-    || !AUDIO_TYPES.has(m.media_type.toLowerCase()) || !memberURL(m.url)) throw new BackendError('podcast_integrity_failed');
+    || m.media_type.toLowerCase() !== expected.audio.mediaType || !memberURL(m.url)) throw new BackendError('podcast_integrity_failed');
   return { role: 'audio', url: m.url as string, bytes: m.bytes as number, sha256: m.sha256 as string, mediaType: m.media_type.toLowerCase() };
 }
 
@@ -162,7 +168,7 @@ export async function podcastCatalog(account: string, after: string | null, sign
 
 export async function podcastEpisode(account: string, releaseID: string, signal?: AbortSignal): Promise<EpisodeDetail> {
   if (!isUUID(releaseID)) throw new BackendError('invalid_release');
-  const detail = decodeEpisodeDetail(await functionGet(`podcast?action=episode&release_id=${releaseID}`, { account, signal, maximum: 4_194_304 }));
+  const detail = decodeEpisodeDetail(await functionGet(`podcast?action=episode&release_id=${releaseID}`, { account, signal, maximum: 4_259_840 }));
   if (detail.releaseID !== releaseID.toLowerCase()) throw new BackendError('invalid_response');
   return detail;
 }
@@ -176,8 +182,101 @@ export async function podcastStates(account: string, ids: readonly string[], sig
  * interrupted transfer needs a new grant: the server already charged its authorized bytes. */
 export async function downloadEpisodeAudio(account: string, episode: Episode, signal?: AbortSignal): Promise<Blob> {
   if (episode.audio.bytes > MAX_AUDIO_BYTES) throw new BackendError('podcast_too_large');
-  const member = decodeGrant(await functionPost('podcast?action=download', { release_id: episode.releaseID }, { account, signal, maximum: 65_536 }), episode);
-  const bytes = await podcastMemberBytes(member.url, member.bytes, signal, account);
+  const before = auth.snapshot();
+  const controller = cancellation([signal, before.signal]);
+  try {
+  controller.signal.throwIfAborted();
+  const member = decodeGrant(await functionPost('podcast?action=download', { release_id: episode.releaseID }, { account, signal: controller.signal, maximum: 65_536 }), episode);
+  const bytes = await podcastMemberBytes(member.url, member.bytes, controller.signal, account);
   if (bytes.length !== member.bytes || await sha256Hex(bytes) !== member.sha256) throw new BackendError('podcast_integrity_failed');
+  controller.signal.throwIfAborted();
+  if (auth.snapshot().generation !== before.generation) throw new BackendError('cancelled');
   return new Blob([bytes], { type: member.mediaType });
+  } finally { controller.dispose(); }
 }
+
+
+// ---------- Explicitly quoted private generation ----------
+export const CONSENT_VERSION = 'podcast-private-v1';
+export const JOB_STATES = ['queued', 'scripting', 'checking', 'synthesizing', 'verifying', 'publishing', 'ready',
+  'canceled', 'failed', 'capacity_wait', 'unknown_provider', 'quarantined'] as const;
+export type JobState = typeof JOB_STATES[number];
+export interface Job { requestID: string; state: JobState; stageEnteredAt: string; releaseID: string | null;
+  heldCredits: number; chargedCredits: number | null; releasedCredits: number | null; failure: string | null }
+export interface Quote { id: string; expiresAt: number; maxCredits: number; estimate: string; providers: string[];
+  consentVersion: typeof CONSENT_VERSION; targetSeconds: number }
+export type QuoteResult = { kind: 'quote'; quote: Quote } | { kind: 'reuse'; releaseID: string } | { kind: 'join'; requestID: string };
+export interface PaperPodcast { episode: Episode | null; job: Job | null; capabilities: Capabilities }
+const timestamp = (v: unknown): v is string => text(v, 64) && Number.isFinite(Date.parse(v));
+
+export function decodeJob(value: unknown): Job {
+  const v = value as Record<string, unknown> | null;
+  if (!v || !isUUID(v.request_id) || !JOB_STATES.includes(v.state as JobState) || !timestamp(v.stage_entered_at)
+    || (v.release_id !== null && !isUUID(v.release_id)) || !count(v.held_credits, 150)
+    || (v.charged_credits !== null && !count(v.charged_credits, 150)) || (v.released_credits !== null && !count(v.released_credits, 150))
+    || (v.state === 'ready' && !isUUID(v.release_id))) throw new BackendError('invalid_response');
+  return { requestID: (v.request_id as string).toLowerCase(), state: v.state as JobState, stageEnteredAt: v.stage_entered_at,
+    releaseID: isUUID(v.release_id) ? v.release_id.toLowerCase() : null, heldCredits: v.held_credits as number,
+    chargedCredits: v.charged_credits as number | null, releasedCredits: v.released_credits as number | null,
+    failure: typeof v.failure === 'string' && /^[a-z_]{1,64}$/.test(v.failure) ? v.failure : null };
+}
+export function decodeQuote(value: unknown): QuoteResult {
+  const v = value as { quote?: Record<string, unknown>; reuse?: { release_id?: unknown }; join?: { request_id?: unknown } } | null;
+  if (!v || Number(!!v.quote) + Number(!!v.reuse) + Number(!!v.join) !== 1) throw new BackendError('invalid_response');
+  if (isUUID(v.reuse?.release_id)) return { kind: 'reuse', releaseID: v.reuse.release_id.toLowerCase() };
+  if (isUUID(v.join?.request_id)) return { kind: 'join', requestID: v.join.request_id.toLowerCase() };
+  const q = v.quote;
+  if (!q || !isUUID(q.id) || !timestamp(q.expires_at) || q.max_credits !== 150 || q.target_seconds !== 300
+    || q.consent_version !== CONSENT_VERSION || !text(q.estimate, 2000) || !Array.isArray(q.providers) || q.providers.length !== 2
+    || q.providers[0] !== 'Anthropic (script)' || q.providers[1] !== 'Google Vertex AI (speech)') throw new BackendError('invalid_response');
+  return { kind: 'quote', quote: { id: q.id.toLowerCase(), expiresAt: Date.parse(q.expires_at), maxCredits: q.max_credits,
+    estimate: clean(q.estimate), providers: q.providers as string[], consentVersion: CONSENT_VERSION, targetSeconds: q.target_seconds } };
+}
+export function decodePaper(value: unknown): PaperPodcast {
+  const v = value as Record<string, unknown> | null;
+  if (!v || !('episode' in v) || !('job' in v)) throw new BackendError('invalid_response');
+  const episode = v.episode === null ? null : decodeEpisode(v.episode);
+  if (v.episode !== null && !episode) throw new BackendError('invalid_response');
+  return { episode, job: v.job === null ? null : decodeJob(v.job), capabilities: decodeCapabilities(v.capabilities) };
+}
+export async function podcastPaper(account: string, itemID: string, signal?: AbortSignal): Promise<PaperPodcast> {
+  if (!isUUID(itemID)) throw new BackendError('invalid_request');
+  return decodePaper(await functionGet(`podcast?action=paper&item_id=${itemID}`, { account, signal, maximum: 65_536 }));
+}
+export async function podcastQuote(account: string, itemID: string, requestID: string, signal?: AbortSignal): Promise<QuoteResult> {
+  if (!isUUID(itemID) || !isUUID(requestID)) throw new BackendError('invalid_request');
+  return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID }, { account, signal, maximum: 16_384 }));
+}
+/** Start and status can reuse an episode that became ready after quoting (046), with no job or new hold. */
+export type RequestResult = { kind: 'job'; job: Job } | { kind: 'reuse'; releaseID: string };
+export function decodeRequestResult(value: unknown, requestID: string): RequestResult {
+  const v = value as { job?: unknown; reuse?: { release_id?: unknown } } | null;
+  if (!v || Number(!!v.job) + Number(!!v.reuse) !== 1) throw new BackendError('invalid_response');
+  if (v.reuse) {
+    if (!isUUID(v.reuse.release_id)) throw new BackendError('invalid_response');
+    return { kind: 'reuse', releaseID: v.reuse.release_id.toLowerCase() };
+  }
+  const job = decodeJob(v.job);
+  if (job.requestID !== requestID.toLowerCase()) throw new BackendError('invalid_response');
+  return { kind: 'job', job };
+}
+/** The caller must show the quote and receive explicit confirmation. Retry with this same identity after a lost reply. */
+export async function podcastStart(account: string, quote: Quote, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
+  if (!isUUID(requestID)) throw new BackendError('invalid_request');
+  return decodeRequestResult(await functionPost('podcast?action=start',
+    { quote_id: quote.id, request_id: requestID, consent_version: CONSENT_VERSION }, { account, signal, maximum: 16_384 }), requestID);
+}
+export async function podcastStatus(account: string, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
+  if (!isUUID(requestID)) throw new BackendError('invalid_request');
+  return decodeRequestResult(await functionGet(`podcast?action=status&request_id=${requestID}`, { account, signal, maximum: 16_384 }), requestID);
+}
+export async function podcastCancel(account: string, requestID: string, signal?: AbortSignal): Promise<Job> {
+  if (!isUUID(requestID)) throw new BackendError('invalid_request');
+  const value = await functionPost<{ job: unknown }>('podcast?action=cancel', { request_id: requestID }, { account, signal, maximum: 16_384 });
+  const job = decodeJob(value.job);
+  if (job.requestID !== requestID.toLowerCase()) throw new BackendError('invalid_response');
+  return job;
+}
+export const jobTerminal = (job: Job) => ['ready', 'canceled', 'failed', 'unknown_provider', 'quarantined'].includes(job.state);
+export const statusPollDelay = (elapsedMs: number) => elapsedMs < 60_000 ? 5_000 : 15_000;
+export const revocationPollDelay = (hidden: boolean) => hidden ? 300_000 : 60_000;

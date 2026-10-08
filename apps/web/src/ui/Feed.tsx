@@ -1,129 +1,205 @@
-// Research Feed (legacy ResearchFeed): the newest arXiv papers in the library's main topics, as a
-// card grid with topic chips (or the topic list in the left rail), and Add to library in place.
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { type DiscoveryResult, feed, feedCategories, topicName } from '../lib/feed';
+// Feed mirrors native: For you and precise interests when offered by the server; category fallback;
+// Cards/Table, optional columns, clear reasons and explicit feedback. No provider call on the client.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackendError, config } from '../lib/backend';
+import { type DiscoveryResult, type FeedFeedback, type FeedPage, type FeedSelection, type FeedSort, type FeedTopic,
+  feedPage, feedCategories, orderFeed, personalFeed, recordFeedFeedback, selectionName, topicName } from '../lib/feed';
 import type { Entry } from '../lib/library';
+import { FeedCards, FeedTable, useFeedColumns } from './FeedResults';
 import { Icon } from './icons';
+import { type ListenFilter, ListenFilterButton } from './Podcast';
 import { type Library, commandError } from './Library';
+import { useStored } from './prefs';
+import './feed.css';
 
-type Loaded = { results: DiscoveryResult[]; at: number };
+type Loaded = FeedPage & { at: number };
+const offerKey = (account: string) => `gradstep.${config.environment}.feed-offer.${account}`;
+const savedOffer = (account: string): boolean | null => {
+  try { const value = localStorage.getItem(offerKey(account)); return value === 'yes' ? true : value === 'no' ? false : null; }
+  catch { return null; }
+};
+const rememberOffer = (account: string, offered: boolean) => { try { localStorage.setItem(offerKey(account), offered ? 'yes' : 'no'); } catch { /* hint only */ } };
 
 export function useFeed(account: string, entries: Entry[]) {
   const categories = useMemo(() => feedCategories(entries), [entries]);
-  const [category, setCategory] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState<Map<string, Loaded>>(new Map());
+  const [selected, setSelected] = useState<FeedSelection>(() => savedOffer(account) === false ? `category:${categories[0]}` : 'for_you');
+  const selectedRef = useRef(selected); selectedRef.current = selected;
+  const [offered, setOffered] = useState(() => savedOffer(account) === true);
+  const [topics, setTopics] = useState<FeedTopic[]>([]);
+  const [loaded, setLoaded] = useState<Map<FeedSelection, Loaded>>(new Map());
   const [state, setState] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const [feedback, setFeedback] = useState<Map<string, FeedFeedback>>(new Map());
   const request = useRef<AbortController | null>(null);
-  const selected = category && categories.includes(category) ? category : categories[0];
-  const load = useCallback((which: string) => {
+  const pendingSelection = useRef<FeedSelection | null>(null);
+  const attempted = useRef(new Set<FeedSelection>());
+  const chosen = useRef(false);
+  const fallback = useRef(categories[0]); fallback.current = categories[0];
+  const cancel = useCallback(() => {
     request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    setState('loading');
-    feed(account, which, controller.signal).then(results => {
+    if (pendingSelection.current) attempted.current.delete(pendingSelection.current);
+    request.current = null; pendingSelection.current = null;
+    setState('idle'); // a cached page remains usable when its refresh is interrupted by navigation
+  }, []);
+  const load = useCallback((which: FeedSelection) => {
+    cancel();
+    const controller = new AbortController(); request.current = controller;
+    pendingSelection.current = which;
+    attempted.current.add(which); setState('loading');
+    feedPage(account, which, controller.signal).then(page => {
       if (controller.signal.aborted) return;
-      setLoaded(previous => new Map(previous).set(which, { results, at: Date.now() }));
+      if (personalFeed(which) && !page.forYou) throw new BackendError('feed_unavailable', 404);
+      setLoaded(previous => {
+        const next = new Map(previous); next.delete(which); next.set(which, { ...page, at: Date.now() });
+        while (next.size > 16) { const oldest = next.keys().next().value!; next.delete(oldest); attempted.current.delete(oldest); }
+        return next;
+      });
+      setOffered(page.forYou); rememberOffer(account, page.forYou);
+      if (page.topics) setTopics(page.topics);
+      if (!page.forYou) setTopics([]);
+      if (page.forYou && !chosen.current && !attempted.current.has('for_you')) setSelected('for_you');
       setState('idle');
-    }, () => { if (!controller.signal.aborted) setState('failed'); });
-  }, [account]);
-  return { categories, selected, setCategory, loaded, state, load, request };
+    }).catch(error => {
+      if (controller.signal.aborted) return;
+      if (personalFeed(which)) {
+        const code = error instanceof BackendError ? error.code : '';
+        if (code === 'feed_unavailable' || code === 'invalid_feed') {
+          setOffered(false); setTopics([]); rememberOffer(account, false);
+        }
+        // Expired interests return to For you; other personal-feed failures keep category browsing working.
+        if (which.startsWith('topic:') && code === 'invalid_feed_topic') {
+          setTopics(previous => previous.filter(t => `topic:${t.name}` !== which));
+          attempted.current.delete('for_you'); setLoaded(previous => { const next = new Map(previous); next.delete('for_you'); return next; });
+          setSelected('for_you');
+        } else {
+          attempted.current.delete(`category:${fallback.current}`);
+          setSelected(`category:${fallback.current}`);
+        }
+        setState('idle');
+      } else setState('failed');
+    }).finally(() => { if (request.current === controller) { request.current = null; pendingSelection.current = null; } });
+  }, [account, cancel]);
+  const select = useCallback((next: FeedSelection) => {
+    cancel(); chosen.current = true; setState('idle'); setSelected(next);
+    if (!loaded.has(next)) load(next);
+  }, [cancel, loaded, load]);
+  const updateFeedback = useCallback((source: string, kind: FeedFeedback | null) => {
+    const visible = selectedRef.current;
+    setFeedback(previous => { const next = new Map(previous); if (kind) next.set(source, kind); else next.delete(source); return next; });
+    // A choice changes all feeds. Keep the visible page stable, but never return stale cached rankings later.
+    setLoaded(previous => new Map([...previous].filter(([key]) => key === visible)));
+    attempted.current = new Set([visible]);
+    if (kind === null) load(visible); // Undo after a refresh must ask the server for the previously omitted paper.
+  }, [load]);
+  return { account, categories, selected, select, offered, topics, loaded, state, load, cancel, attempted, feedback, updateFeedback };
 }
 export type FeedModel = ReturnType<typeof useFeed>;
-/** The Listen filter (ui/Podcast.tsx): a chip before the topics; while selected, the Feed shows its episodes instead. */
-export interface ListenFilter { selected: boolean; select: (on: boolean) => void; view: ReactNode }
 
-/** Loads the selected topic the first time it is shown; later visits keep this session's results. */
-export function useFeedLoading(model: FeedModel) {
-  const { selected, loaded, load, request } = model;
-  useEffect(() => { if (selected && !loaded.has(selected)) load(selected); }, [selected, loaded, load]);
-  useEffect(() => () => request.current?.abort(), [request]);
+/** A failed request waits for an explicit retry. Merely re-rendering must not create a request loop. */
+export function useFeedLoading(model: FeedModel, active = true) {
+  const { selected, loaded, load, cancel, attempted } = model;
+  useEffect(() => { if (active && !loaded.has(selected) && !attempted.current.has(selected)) load(selected); }, [active, selected, loaded, load, attempted]);
+  useEffect(() => { if (!active) cancel(); return cancel; }, [active, cancel]);
+}
+
+function FeedChoices({ model, rail = false, listen }: { model: FeedModel; rail?: boolean; listen?: ListenFilter }) {
+  const select = (value: FeedSelection) => { listen?.select(false); model.select(value); };
+  const button = (value: FeedSelection, title: string, count?: number) => <button key={value}
+    className={`${rail ? 'rail-item' : 'chip'}${model.selected === value && !listen?.selected ? ' selected' : ''}`} aria-pressed={model.selected === value && !listen?.selected}
+    onClick={() => select(value)}><span className="rail-label">{title}</span>{rail && count !== undefined && <span className="rail-count">{count}</span>}</button>;
+  const extraCategories = useMemo(() => {
+    const names = new Set<string>();
+    return [...new Set([...model.categories, 'cs.LG', 'cs.CL', 'cs.AI', 'cs.CV', 'stat.ML', 'cs.RO', 'cs.IR', 'cs.NE'])].filter(c => {
+      const name = topicName(c); if (names.has(name)) return false; names.add(name); return true;
+    });
+  }, [model.categories]);
+  return <>
+    {listen && <ListenFilterButton selected={listen.selected} onSelect={() => listen.select(true)} rail={rail} />}
+    {model.offered ? <>
+      {button('for_you', 'For you')}
+      {model.topics.map(t => button(`topic:${t.name}`, t.name, t.papers))}
+      {model.selected.startsWith('category:') && button(model.selected, selectionName(model.selected))}
+      <label className={`feed-more-topics${rail ? ' rail-item' : ''}`}><span className="visually-hidden">More topics</span>
+        <select aria-label="More topics" value="" onChange={e => { if (e.target.value) select(`category:${e.target.value}`); }}>
+          <option value="">More topics…</option>{extraCategories.map(c => <option key={c} value={c}>{topicName(c)}</option>)}
+        </select>
+      </label>
+    </> : model.categories.map(c => button(`category:${c}`, topicName(c)))}
+  </>;
 }
 
 export function FeedRail({ model, listen }: { model: FeedModel; listen?: ListenFilter }) {
-  return (
-    <nav className="rail-nav" aria-label="Feed topics">
-      {listen && <div className="rail-section">
-        <button className={`rail-item${listen.selected ? ' selected' : ''}`} aria-pressed={listen.selected} onClick={() => listen.select(true)} data-testid="podcast-listen">
-          <Icon name="headphones" size={14} /><span className="rail-label">Listen</span></button>
-      </div>}
-      <div className="rail-section">
-        <div className="rail-heading">Topics</div>
-        {model.categories.map(c => (
-          <button key={c} className={`rail-item${model.selected === c && !listen?.selected ? ' selected' : ''}`} aria-pressed={model.selected === c && !listen?.selected}
-            onClick={() => { listen?.select(false); model.setCategory(c); }}>
-            <span className="rail-label">{topicName(c)}</span><span className="rail-count mono">{c}</span>
-          </button>
-        ))}
-      </div>
-      <p className="fine rail-note">Topics come from your library’s arXiv categories.</p>
-    </nav>
-  );
+  return <nav className="rail-nav" aria-label="Feed topics"><div className="rail-section"><div className="rail-heading">Topics</div>
+    <FeedChoices model={model} rail listen={listen} />
+  </div>{!model.offered && <p className="fine rail-note">Topics come from your library’s arXiv categories.</p>}</nav>;
 }
 
-const ago = (at: number) => { const m = Math.round((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+const ago = (at: number) => { const m = Math.max(0, Math.round((Date.now() - at) / 60_000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+const sorts: { value: FeedSort; label: string }[] = [ { value: 'suggested', label: 'Suggested' }, { value: 'newest', label: 'Newest' },
+  { value: 'popularity', label: 'Popularity' }, { value: 'title', label: 'Title' }, { value: 'authors', label: 'Authors' }, { value: 'topic', label: 'Topics' } ];
 
 export function FeedView({ model, library, showChips, listen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter }) {
-  useFeedLoading(model);
+  useFeedLoading(model, !listen?.selected);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
+  const [lastFeedback, setLastFeedback] = useState<{ source: string; kind: FeedFeedback } | null>(null);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const feedbackRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => feedbackRequest.current?.abort(), []);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const inLibrary = useMemo(() => new Set(library.entries.filter(e => e.visible).map(e => e.source_id).filter(Boolean)), [library.entries]);
-  const current = model.selected ? model.loaded.get(model.selected) : undefined;
+  const [layout, setLayout] = useStored<'cards' | 'table'>('gradstep.feed.layout.v1', 'cards', v => v === 'cards' || v === 'table');
+  const [hideLibrary, setHideLibrary] = useStored<boolean>('gradstep.feed.hide-library.v1', false, v => typeof v === 'boolean');
+  const [ordering, setOrdering] = useState<{ selection: FeedSelection; key: FeedSort; ascending: boolean } | null>(null);
+  const columnSettings = useFeedColumns();
+  const [tableTools, setTableTools] = useState<HTMLSpanElement | null>(null);
+  const sort = ordering?.selection === model.selected ? ordering : { key: personalFeed(model.selected) ? 'suggested' as const : 'newest' as const, ascending: false };
+  const setSort = (key: FeedSort, ascending = ['title', 'authors', 'topic'].includes(key)) => setOrdering({ selection: model.selected, key, ascending });
+  const inLibrary = useMemo(() => new Set(library.entries.filter(e => e.visible).map(e => e.source_id).filter((id): id is string => !!id)), [library.entries]);
+  const current = model.loaded.get(model.selected);
+  const shown = useMemo(() => orderFeed((current?.results ?? []).filter(r => model.feedback.get(r.source_id) !== 'not_interested' && (!hideLibrary || !inLibrary.has(r.source_id))), sort.key, sort.ascending),
+    [current, hideLibrary, inLibrary, model.feedback, sort.key, sort.ascending]);
   const add = async (result: DiscoveryResult) => {
+    if (adding || library.pending.has('add')) return;
     setAdding(result.source_id); setIssue(null);
     try { await library.addArxiv(result.source_id, null); } catch (error) { setIssue(commandError(error)); } finally { setAdding(null); }
   };
-  return (
-    <section className="feed" aria-labelledby="feed-title">
-      <div className="view-head">
-        <h1 id="feed-title">Research Feed</h1>
-        <span className="view-sub">{listen?.selected ? 'Listen to papers' : model.selected ? `Newest in ${topicName(model.selected)}` : ''}</span>
-      </div>
-      {showChips && (
-        <div className="chips" role="toolbar" aria-label="Feed topics">
-          {listen && <button className={listen.selected ? 'chip selected listen-chip' : 'chip listen-chip'} aria-pressed={listen.selected} onClick={() => listen.select(true)}
-            data-testid="podcast-listen"><Icon name="headphones" size={13} /> Listen</button>}
-          {model.categories.map(c => <button key={c} className={model.selected === c && !listen?.selected ? 'chip selected' : 'chip'} aria-pressed={model.selected === c && !listen?.selected}
-            onClick={() => { listen?.select(false); model.setCategory(c); }}>{topicName(c)}</button>)}
-        </div>
-      )}
-      {listen?.selected ? listen.view : <>
-      <div className="feed-status">
-        <span>{current ? `${current.results.length} papers · Updated ${ago(current.at)}` : model.state === 'loading' ? 'Loading…' : ''}</span>
-        <button className="link small-link" onClick={() => model.selected && model.load(model.selected)} disabled={model.state === 'loading'}>
-          <Icon name="refresh" size={12} /> {model.state === 'loading' ? 'Refreshing…' : 'Refresh'}</button>
-      </div>
-      {issue && <p className="issue banner" role="alert">{issue}</p>}
-      {model.state === 'failed' && !current && <div className="empty"><p>New papers aren’t available right now. Try again in a moment.</p>
-        <button className="secondary" onClick={() => model.selected && model.load(model.selected)}>Try again</button></div>}
-      {model.state === 'loading' && !current && <div className="empty"><div className="spinner" aria-label="Loading the feed" /></div>}
-      {current && current.results.length === 0 && <div className="empty"><p>No new papers in this topic right now.</p></div>}
-      {current && current.results.length > 0 && (
-        <ul className="feed-grid" data-testid="feed-grid">
-          {current.results.map(r => {
-            const have = inLibrary.has(r.source_id);
-            return (
-              <li key={r.source_id} className={`feed-card${expanded.has(r.source_id) ? ' expanded' : ''}`}>
-                <a className="feed-title" href={`https://arxiv.org/abs/${r.source_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a>
-                {r.authors.length > 0 && <div className="feed-authors">{r.authors.slice(0, 6).join(', ')}{r.authors.length > 6 ? ` +${r.authors.length - 6}` : ''}</div>}
-                {r.abstract && <>
-                  <p className="feed-abstract" id={`abstract-${r.source_id}`}>{r.abstract}</p>
-                  <button className="link small-link" aria-expanded={expanded.has(r.source_id)} aria-controls={`abstract-${r.source_id}`}
-                    onClick={() => setExpanded(previous => { const next = new Set(previous); next.has(r.source_id) ? next.delete(r.source_id) : next.add(r.source_id); return next; })}>
-                    {expanded.has(r.source_id) ? 'Less' : 'Full abstract'}</button>
-                  {expanded.has(r.source_id) && r.abstractTruncated && <a className="link small-link" href={`https://arxiv.org/abs/${r.source_id}`} target="_blank" rel="noopener noreferrer">Read the full abstract on arXiv</a>}
-                </>}
-                <div className="feed-meta">
-                  <span>{r.year ?? ''}</span><span className="tag static">{topicName(r.categories[0] ?? model.selected ?? '')}</span><span className="mono faint">{r.source_id}</span>
-                  <button className={have ? 'pill passive' : 'pill accent'} disabled={have || !!adding || library.state !== 'ready'} onClick={() => void add(r)}>
-                    {have ? 'In library' : adding === r.source_id ? 'Adding…' : '+ Add to library'}</button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      </>}
-    </section>
-  );
+  const feedback = async (source: string, kind: FeedFeedback | null) => {
+    if (feedbackRequest.current && !feedbackRequest.current.signal.aborted) return;
+    const controller = new AbortController(); feedbackRequest.current = controller;
+    setFeedbackBusy(true); setIssue(null);
+    try {
+      await recordFeedFeedback(model.account, source, kind, controller.signal);
+      if (controller.signal.aborted) return;
+      model.updateFeedback(source, kind); setLastFeedback(kind ? { source, kind } : null);
+    } catch { if (!controller.signal.aborted) setIssue('Couldn’t save your feed choice. Try again.'); }
+    finally { if (!controller.signal.aborted) { setFeedbackBusy(false); feedbackRequest.current = null; } }
+  };
+  const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
+  const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
+    feedback: model.offered ? feedback : undefined, feedbackBusy, feedbackState: model.feedback };
+  return <section className={`feed${!listen?.selected && layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
+    <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{listen?.selected ? 'Listen to papers' : personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
+    {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} listen={listen} /></div>}
+    {listen?.selected ? listen.view : <>
+    <div className="feed-controls">
+      <div className="feed-layout" role="group" aria-label="Feed layout"><button aria-pressed={layout === 'cards'} onClick={() => setLayout('cards')}>Cards</button><button aria-pressed={layout === 'table'} onClick={() => setLayout('table')}>Table</button></div>
+      <label className="feed-sort"><span className="visually-hidden">Sort feed</span><select aria-label="Sort feed" value={sort.key} onChange={e => setSort(e.target.value as FeedSort)}>
+        {sorts.filter(s => s.value !== 'suggested' || personalFeed(model.selected)).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+      </select></label>
+      <label className="check feed-hide"><input type="checkbox" checked={hideLibrary} onChange={e => setHideLibrary(e.target.checked)} />Hide in library</label>
+      {layout === 'table' && <span className="feed-table-tools" ref={setTableTools}><button className="secondary small" aria-haspopup="dialog" onClick={() => columnSettings.setChoosing(true)}>Columns</button></span>}
+    </div>
+    <div className="feed-status"><span>{current ? `${shown.length} papers · Updated ${ago(current.refreshedAt ? Date.parse(current.refreshedAt) : current.at)}` : model.state === 'loading' ? 'Loading…' : ''}</span>
+      <button className="link small-link" onClick={() => model.load(model.selected)} disabled={model.state === 'loading'}><Icon name="refresh" size={12} /> {model.state === 'loading' ? 'Refreshing…' : 'Refresh'}</button></div>
+    {current?.coldStart && personalFeed(model.selected) && <p className="fine feed-note">Add papers or use More like this to tune For you.</p>}
+    {issue && <p className="issue banner" role="alert">{issue}</p>}
+    {lastFeedback && <div className="feed-feedback-notice" role="status"><span>{lastFeedback.kind === 'not_interested' ? 'Paper hidden from your feed.' : 'Your feed will suggest more papers like this.'}</span>
+      <button className="link" disabled={feedbackBusy} onClick={() => void feedback(lastFeedback.source, null)}>Undo</button></div>}
+    {model.state === 'failed' && <div className={current ? 'feed-note issue' : 'empty'} role="status"><p>{current ? 'Couldn’t refresh. These are the papers from your last update.' : 'New papers aren’t available right now.'}</p>
+      <button className="secondary small" onClick={() => model.load(model.selected)}>Try again</button></div>}
+    {model.state === 'loading' && !current && <div className="empty"><div className="spinner" aria-label="Loading the feed" /></div>}
+    {current && shown.length === 0 && <div className="empty"><p>{current.results.length ? 'No papers match your filters.' : 'No new papers in this topic right now.'}</p>{hideLibrary && current.results.length > 0 && <button className="link" onClick={() => setHideLibrary(false)}>Show papers in your library</button>}</div>}
+    {layout === 'table' ? <FeedTable results={shown} columns={columnSettings} sort={sort} setSort={setSort} actions={actions} toolsSlot={tableTools} />
+      : shown.length > 0 && <FeedCards results={shown} actions={actions} />}
+    </>}
+  </section>;
 }

@@ -104,6 +104,14 @@ The app's new `relevance` and `diagram_fix` actions require deploying the matchi
 When combined with the pending spending controls, preserve the 2,000-token repair ceiling and both actions'
 search exclusion; its conservative per-attempt admission replaces the earlier character-based hold.
 
+### Browser copy controls — 2026-10-08
+
+The browser exposes copy only after an explicit user action: `Copy answer` copies a completed assistant message,
+and `Copy Mermaid` copies the source inside the collapsed diagram details. The client uses the secure Clipboard API
+when available and a short-lived textarea fallback otherwise; it never writes answer or diagram text to storage,
+logs, or the server. A visible Copied/Copy failed label and disabled state prevent duplicate clicks while the
+clipboard operation is settling. The production-CSP Playwright journey covers both controls without a provider call.
+
 ## Web search (on in staging)
 
 Search is on when `CHAT_WEB_SEARCH=on` (`infra/<env>.json` `chat_web_search`, or `deploy-staging.py --chat-web-search on|off`;
