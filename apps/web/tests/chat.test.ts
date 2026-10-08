@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { SSEParser, chatTitle, isSingleEquation, makeRequest, requestBody, resolution, selectionPrompt, boundedText } from '../src/lib/chat';
+import { renderMarkdown } from '../src/lib/markdown';
 import { PrivateState, decodeDiagram, decodeEvent, encodeDiagram, encodeEvent, type PrivateEvent } from '../src/lib/events';
 
 const fixture = JSON.parse(readFileSync(new URL('../../apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/envelopes-v1.json', import.meta.url), 'utf8'));
@@ -107,5 +108,31 @@ describe('chat requests and streams', () => {
     expect(chatTitle(selectionPrompt('similar', 'reward models'))).toEqual({ label: 'Related', text: 'reward models', truncated: false });
     expect(chatTitle(selectionPrompt('define', '$$x=1$$'))).toMatchObject({ label: 'Explain', text: '$$x=1$$' });
     expect(chatTitle('What is DPO?')).toEqual({ label: null, text: 'What is DPO?', truncated: false });
+  });
+});
+
+describe('answer rendering (markdown-it + Temml, no CDN)', () => {
+  it('typesets both delimiter styles, leaves code alone, and escapes raw HTML', () => {
+    const html = renderMarkdown(String.raw`The loss \(L = -\log \sigma(x)\) and $a_i$:
+
+\[\sum_i x_i\]
+
+` + '`' + String.raw`\(not math\)` + '` <script>alert(1)</script>\n\n```\n$$ also not $$\n```');
+    expect(html).toContain('<math');
+    expect(html).toContain('display="block"');
+    expect(html).toContain(String.raw`<code>\(not math\)</code>`);
+    expect(html).toContain('$$ also not $$');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+  it('links only http(s) and mailto, opening outside the app', () => {
+    const html = renderMarkdown('[x](javascript:alert(1)) [arXiv](https://arxiv.org/abs/2305.18290) https://example.org');
+    expect(html).not.toContain('href="javascript');
+    expect(html).toContain('href="https://arxiv.org/abs/2305.18290" target="_blank" rel="noopener noreferrer"');
+    expect(html).toContain('href="https://example.org"');
+  });
+  it('keeps an unclosed formula as text while streaming', () => {
+    expect(renderMarkdown(String.raw`So \[\frac{a}{`, true)).not.toContain('<math');
+    expect(renderMarkdown(String.raw`So \[\frac{a}{b}\]`, true)).toContain('<math');
   });
 });

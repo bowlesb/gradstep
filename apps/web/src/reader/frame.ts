@@ -3,6 +3,8 @@
 import frame from 'virtual:reader-frame';
 import { toBase64 } from '../lib/bytes';
 import { MAXIMUM_READER_HEADINGS, type VerifiedBundle } from '../lib/bundle';
+import { isUUID } from '../lib/bytes';
+import type { Selection, SelectionPart } from '../lib/passage';
 
 export const FRAME_SCRIPT_HASH = frame.hash;
 
@@ -64,7 +66,8 @@ export type FrameMessage =
   | { type: 'headings'; items: { id: string; title: string; depth?: number }[] }
   | { type: 'position'; block: number; fraction: number; height: number; y: number; progress: number }
   | { type: 'citation'; state: 'jumped' | 'ended' }
-  | { type: 'selection'; empty: boolean }
+  | { type: 'selection'; empty: boolean; selection: Selection | null }
+  | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
   | { type: 'reference' } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number }
   | { type: 'key'; key: FrameKey };
@@ -88,9 +91,14 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
         ? { type: 'position', block: v.block as number, fraction: v.fraction as number, height: v.height as number, y: v.y as number, progress: Math.min(1, Math.max(0, v.progress as number)) } : null;
     case 'citation': return v.state === 'jumped' || v.state === 'ended' ? { type: 'citation', state: v.state } : null;
     case 'selection': {
-      const parts = (v.selection as { parts?: unknown })?.parts;
-      return { type: 'selection', empty: !Array.isArray(parts) || parts.length === 0 };
+      const raw = v.selection as { manifest_sha256?: unknown; parts?: unknown; context?: unknown } | undefined;
+      const parts = raw?.parts;
+      if (!Array.isArray(parts) || parts.length === 0) return { type: 'selection', empty: true, selection: null };
+      return { type: 'selection', empty: false, selection: readSelection(raw!) };
     }
+    case 'marks': return Array.isArray(v.ids) && v.ids.length >= 1 && v.ids.length <= 50 && v.ids.every(isUUID)
+      ? { type: 'marks', ids: [...new Set((v.ids as string[]).map(id => id.toLowerCase()))] } : null;
+    case 'passage': return typeof v.found === 'boolean' ? { type: 'passage', found: v.found } : null;
     case 'reference': return { type: 'reference' };
     case 'figure': return typeof v.id === 'string' && /^[0-9A-Za-z_-]{1,200}$/.test(v.id) ? { type: 'figure', id: v.id } : null;
     case 'tags': return { type: 'tags' };
@@ -103,4 +111,22 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
     case 'key': return FRAME_KEYS.includes(v.key as FrameKey) ? { type: 'key', key: v.key as FrameKey } : null;
   }
   return null;
+}
+
+const ID = /^[0-9A-Za-z_-]{1,200}$/;
+const textBytes = (s: string) => new TextEncoder().encode(s).length;
+/** A selection with the native bounds; anything out of bounds is no selection (the actions don't show). */
+function readSelection(raw: { manifest_sha256?: unknown; parts?: unknown; context?: unknown }): Selection | null {
+  const parts = raw.parts as Record<string, unknown>[];
+  if (typeof raw.manifest_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(raw.manifest_sha256) || parts.length > 512) return null;
+  const out: SelectionPart[] = [];
+  for (const p of parts) {
+    if (!p || typeof p.block_id !== 'string' || !ID.test(p.block_id)) return null;
+    if (p.kind === 'text' && typeof p.text === 'string' && textBytes(p.text) <= 20_000 && p.equation_id === undefined) out.push({ kind: 'text', blockID: p.block_id, text: p.text });
+    else if (p.kind === 'equation' && typeof p.equation_id === 'string' && ID.test(p.equation_id) && p.text === undefined) out.push({ kind: 'equation', blockID: p.block_id, equationID: p.equation_id });
+    else return null;
+  }
+  const c = raw.context as { prefix?: unknown; suffix?: unknown } | null | undefined;
+  const context = c && typeof c.prefix === 'string' && typeof c.suffix === 'string' && textBytes(c.prefix) <= 4000 && textBytes(c.suffix) <= 4000 ? { prefix: c.prefix, suffix: c.suffix } : null;
+  return { manifest: raw.manifest_sha256, parts: out, context };
 }
