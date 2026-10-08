@@ -1,4 +1,4 @@
--- Feed topics and popularity (migration 048): Hugging Face upvotes recorded only under the pool
+-- Feed topics and popularity (migration 046): Hugging Face upvotes recorded only under the pool
 -- refresh's claim with bounded per-day planning, For you inputs v2 with per-topic counts for the
 -- reader's own topics and combinations, one topic served, pool details and category chips v2.
 begin;

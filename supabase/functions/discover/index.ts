@@ -2,7 +2,7 @@
 // global arXiv request pacing with the paper pipeline.
 //   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata)
 //   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
-//                   (migrations 043/048, with topics and upvotes), else arXiv's live RSS as before
+//                   (migrations 043/046, with topics and upvotes), else arXiv's live RSS as before
 //   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool, and
 //                   `feed.topics`, the reader's specific topic chips (feed-interests.ts)
 //   ?feed=topic&topic=NAME  one of those topics, ranked for the reader

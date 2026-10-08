@@ -138,7 +138,7 @@ export interface RefreshDeps {
   sleep(ms: number): Promise<void>;
   today(): string;
   log?(fields: Record<string, unknown>): void;
-  /** Popularity (feed-signals.ts, migration 048), run under the same claim before it is released. */
+  /** Popularity (feed-signals.ts, migration 046), run under the same claim before it is released. */
   signals?(claimID: string): Promise<SignalOutcome>;
 }
 

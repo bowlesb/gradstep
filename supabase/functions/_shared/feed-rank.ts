@@ -2,7 +2,7 @@
 // `worker_feed_candidates` (migration 043) returns the reader's server-visible profile, their Feed
 // feedback and a bounded, prefiltered candidate set; this module scores, diversifies, explores and
 // explains. Ranking lives here, not in SQL, so it can change without a migration. Pure (Deno + Node).
-// v2 (migration 048): Hugging Face upvotes add a small boost and a "Popular on Hugging Face Papers"
+// v2 (migration 046): Hugging Face upvotes add a small boost and a "Popular on Hugging Face Papers"
 // reason; one topic can be ranked for the reader (a topic chip); results carry their topics.
 import { discoveryAbstract } from './discover.ts';
 import { displayTopics } from './feed-topics.ts';
@@ -12,10 +12,10 @@ export const FEED_RANKING_VERSION = 'feed-heuristic-v2';
 
 export interface FeedCandidate {
   source_id: string; revision: number; title: string; authors: string[]; author_keys: string[];
-  /** 043's candidates carry a 700-character abstract; 048's carry none (worker_feed_details fills it in). */
+  /** 043's candidates carry a 700-character abstract; 046's carry none (worker_feed_details fills it in). */
   abstract?: string | null;
   categories: string[]; topics: string[]; announced_on: string; first_seen_at: string; matched_tags: string[]; readers: number | null;
-  /** Hugging Face Papers upvotes (migration 048); null or absent when unknown. */
+  /** Hugging Face Papers upvotes (migration 046); null or absent when unknown. */
   upvotes?: number | null;
 }
 export interface ProfilePaper {
@@ -288,7 +288,7 @@ export function poolResult(row: { source_id: string; revision: number; title: st
 const validUpvotes = (value: unknown): number | null =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 1_000_000 ? value : null;
 
-/** What `worker_feed_details` returns for a paper about to be shown (migration 048). */
+/** What `worker_feed_details` returns for a paper about to be shown (migration 046). */
 export interface PoolDetail { source_id: string; abstract: string | null; abstract_complete: boolean; topics?: string[]; upvotes: number | null }
 
 /** Fills ranked results with the pool's stored abstracts (complete only below the pool's bound) and
