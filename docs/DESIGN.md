@@ -57,17 +57,23 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   header of `.footnote` semibold titles in secondary color; the sorted one in accent with a chevron (tap to sort, again
   to reverse; "· Added ⌄" beside Title when the sorted column doesn't fit). Title column: `.subheadline` semibold
   title (≤ 2 lines, truncated) and the first author in `.footnote` secondary. The reader chooses columns (screen
-  options › Columns, a half-height sheet of toggles; Title always shows); of those, columns are added by priority
-  while they fit, never scrolling sideways, and the chooser says "Shown when there's room" for the rest. Values are
+  options › Columns, a half-height sheet of toggles; Title always shows). Every chosen column remains available:
+  when they do not fit, the title stays pinned and the other columns scroll sideways, settling at column boundaries.
+  Feed's Add and All chats' Last used stay pinned at the right. Wide cells wrap or truncate within the scrolling
+  region so a chosen column can be fully read; the Feed's expanded row still holds the full abstract. Values are
   `.subheadline` secondary (numbers trailing), tags small `.caption` chips (≤ 2 lines), statuses an icon and a few
   plain words. A row that needs the reader (a failed import) shows its one action as a small bordered capsule
   (Retry, Get credits, Remove) in its status cell — or under the title when that column isn't shown — never only in
   a menu. Rows: 16 pt sides, 10 pt vertical; pointer hover and the arrow-key row get a quiet fill; tap or Return =
-  the screen's primary action, long-press = actions, swipe = delete-type actions; each row is one VoiceOver element
+  the screen's primary action, long-press = actions, swipe = delete-type actions when the columns do not overflow
+  (sideways scrolling takes priority when they do); each row is one VoiceOver element
   reading every chosen column, its action button a separate one. At accessibility text sizes the screen's rows
   replace the table. All chats (`Views/ChatHistoryView.swift`) is the same pattern for conversations: one-line
   question with a muted second line, ~52 pt rows (7 pt vertical padding), Last used rightmost, a search field and
-  filter chips above.
+  filter chips above. Library adds an optional Venue column; Feed offers Topic, Published, Authors, arXiv ID and
+  Abstract with a Hide papers in my library filter; All chats also offers Topics, Kind and Answer length (latest
+  answer's full word count). Column choices are saved separately for phone and larger screens. Feed does not offer
+  updated/relevance columns until those values exist in its discovery response.
 - **Filters**: quick filters are `ChipButton`s in one horizontally scrolling row that scrolls away with the rows
   (open space while browsing); a menu chip comes first (Tags ⌄); only filters that would change the list appear,
   and the row is hidden when none would. A problem count (Failed 2) is orange.

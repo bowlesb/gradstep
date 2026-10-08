@@ -109,6 +109,7 @@ struct ColumnChooserSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .macSheetKeys()
     }
 
     private func fixedRow(_ title: String, _ detail: String) -> some View {

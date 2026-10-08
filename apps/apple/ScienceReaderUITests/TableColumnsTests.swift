@@ -71,7 +71,8 @@ final class TableColumnsTests: XCTestCase {
 
     func testFeedColumnChooserFilterAndSideways() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture"]
+        // Start with the same two choices on both devices; iPad's normal defaults already include Authors.
+        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture", "--feed-columns=topic,published"]
         app.launch()
         if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.buttons["tab.feed"].tap() } else { app.segmentedControls.buttons["Feed"].tap() }
         let options = app.buttons["Feed options"]
@@ -162,8 +163,9 @@ final class TableColumnsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5))
         for id in ["kind", "answerLength"] {
             let toggle = app.switches["chat.history.columns.\(id)"].firstMatch
+            // The medium sheet creates its rows lazily; Answer length follows the new Topics option.
+            for _ in 0..<3 where !(toggle.exists && toggle.isHittable) { app.collectionViews.firstMatch.swipeUp() }
             XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-            for _ in 0..<2 where !toggle.isHittable { app.collectionViews.firstMatch.swipeUp() }
             flip(toggle)
             XCTAssertEqual(toggle.value as? String, "1")
         }

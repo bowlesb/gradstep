@@ -601,6 +601,7 @@ struct LibraryColumnsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+        .macSheetKeys()
     }
 
     private func binding(_ column: LibraryTableColumn) -> Binding<Bool> {

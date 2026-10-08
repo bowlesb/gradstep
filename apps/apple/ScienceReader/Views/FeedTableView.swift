@@ -249,12 +249,11 @@ struct DiscoveryAddControl: View {
         } else if adding {
             ProgressView().frame(minWidth: 44, minHeight: 44)
         } else {
-            // Enabled: an accent capsule; unavailable (signed out, a library change that can't start): plainly gray
-            // and lighter, so the two never look alike (build 17: "The Add is all greyed out?").
+            // Enabled: an accent capsule; unavailable: neutral gray with the system's disabled treatment. Avoid a
+            // second opacity reduction, which makes the label almost disappear in light mode.
             Button("Add", action: add)
                 .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 .tint(enabled ? Color.accentColor : Color.gray)
-                .opacity(enabled ? 1 : 0.55)
                 .disabled(!enabled)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("discover.add.\(sourceID)")

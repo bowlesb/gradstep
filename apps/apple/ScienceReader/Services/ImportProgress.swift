@@ -17,8 +17,7 @@ struct ImportProgress: Equatable, Sendable {
     var floor = 0
     /// When this device first saw the import on its current step (for the fallback's elapsed time).
     var stepSince: Date? = nil
-    /// The download failed and the server will try again by itself (migration 027's `download_retrying`): not a dead
-    /// failure, so it is shown like work in progress.
+    /// The failed stage has a server retry scheduled (027/041): shown as work in progress, without a local retry.
     var retrying = false
     /// Keep the reason that this step failed while telling the reader it is scheduled to try again.
     var retryTitle: String? = nil
@@ -87,7 +86,7 @@ struct ImportProgress: Equatable, Sendable {
         if retrying {
             let reason = retryTitle ?? "Couldn’t download yet"
             return ImportProgressPresentation(step: step, title: reason, detail: nil, percent: nil,
-                                              timeText: "Trying again automatically", compactTimeText: "Trying again", isSlow: false,
+                                              timeText: "Trying again automatically", compactTimeText: "Trying again automatically", isSlow: false,
                                               accessibilityLabel: "\(reason), trying again automatically", compactTitleOverride: retryCompactTitle ?? "Retrying soon")
         }
         guard let detail else {

@@ -87,7 +87,8 @@ struct ImportProgressView: View {
             } else {
                 HStack(spacing: 4) {
                     ProgressView().controlSize(.mini)
-                    Text(shown.compactTitle).lineLimit(1)
+                    Text(shown.compactTitle).lineLimit(shown.compactTitleOverride == nil ? 1 : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let time = shown.compactTimeText {

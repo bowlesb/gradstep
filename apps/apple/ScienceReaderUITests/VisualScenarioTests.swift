@@ -95,6 +95,12 @@ final class VisualScenarioTests: XCTestCase {
             "library-import-progress-table": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { _ in
                 sleep(2)
             },
+            "library-automatic-retry": Scenario(arguments: Self.metadataFixture + ["--import-progress-fixture", "--library-layout=table"]) { app in
+                let retry = app.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@",
+                    "importProgress", "details, trying again automatically")).firstMatch
+                for _ in 0..<8 where !(retry.exists && retry.isHittable) { app.swipeUp() }
+                XCTAssertTrue(retry.exists && retry.isHittable, "The metadata failure explains its automatic retry")
+            },
             "library-swipe": Scenario(arguments: Self.metadataFixture) { app in
                 let row = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000001"]
                 XCTAssertTrue(row.waitForExistence(timeout: 5)); row.swipeLeft(); sleep(1)

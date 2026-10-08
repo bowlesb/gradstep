@@ -162,23 +162,22 @@ final class LibraryLayoutTests: XCTestCase {
         let phone = UIDevice.current.userInterfaceIdiom == .phone
         // By identifier, else by the label's first word (iPadOS sheets don't always carry the identifier).
         func columnSwitch(_ id: String, _ title: String) -> XCUIElement {
-            let byID = app.switches["library.columns.\(id)"].firstMatch
-            return byID.waitForExistence(timeout: 2) ? byID
-                : app.switches.matching(NSPredicate(format: "label BEGINSWITH %@", title)).firstMatch
+            app.switches.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", "library.columns.\(id)", title)).firstMatch
         }
-        let year = columnSwitch("year", "Year"), pages = columnSwitch("pages", "Pages"), added = columnSwitch("added", "Added")
+        let year = columnSwitch("year", "Year"), pages = columnSwitch("pages", "Pages")
         XCTAssertTrue(year.waitForExistence(timeout: 5))
         XCTAssertEqual(year.value as? String, "1")
-        if phone { XCTAssertTrue(added.label.contains("Scroll sideways to see it"), "Phone portrait: Added scrolls in: \(added.label)") }
         toggle(year)
         XCTAssertEqual(year.value as? String, "0")
-        // The half-height sheet may end above Pages (iPad): scroll to it.
-        for _ in 0..<3 where !(pages.exists && pages.isHittable) { app.collectionViews.firstMatch.swipeUp() }
+        // A partially visible row reports hittable even when its trailing switch is below the sheet's edge.
+        let choices = app.collectionViews.firstMatch
+        for _ in 0..<3 where !(pages.exists && pages.isHittable && choices.frame.insetBy(dx: 0, dy: 24).contains(pages.frame)) {
+            choices.swipeUp()
+        }
         XCTAssertEqual(pages.value as? String, "0")
         toggle(pages)
         XCTAssertEqual(pages.value as? String, "1")
         if phone {
-            XCTAssertFalse(added.label.contains("Scroll sideways to see it"), "Year off makes room for Added")
             XCTAssertTrue(pages.label.contains("Scroll sideways to see it"), "Pages is on but scrolls in: \(pages.label)")
         }
         app.buttons["library.columns.done"].tap()
@@ -207,7 +206,9 @@ final class LibraryLayoutTests: XCTestCase {
 
     /// A toggle row's switch sits at its trailing end.
     private func toggle(_ row: XCUIElement) {
+        let before = row.value as? String
         row.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        if row.value as? String == before { row.switches.firstMatch.exists ? row.switches.firstMatch.tap() : row.tap() }
     }
 
     /// Filter chips scroll sideways on a phone: bring the chip into view, then tap it.

@@ -167,7 +167,7 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatMessages.last?.payload.text, "IPO generalizes it.", "Status text is never part of the answer")
     }
 
-    /// Owner feedback #10/#3: Ask about this quotes into the composer; Explain/Define ask in this chat,
+    /// Owner feedback #10/#3: Quote in Chat quotes into the composer; Explain/Define ask in this chat,
     /// never over a draft; menus on answer text and formulas carry these actions and copy LaTeX.
     func testAnswerTextAndFormulaActions() async throws {
         let (model, transport) = try await makeModel(consented: true)
@@ -202,9 +202,9 @@ final class ChatGenerationTests: XCTestCase {
         let share = UIAction(title: "Share") { _ in }
         let menu = try XCTUnwrap(coordinator.textView(view, editMenuForTextIn: NSRange(location: 0, length: 5), suggestedActions: [copy, share]))
         let titles = menu.children.flatMap { ($0 as? UIMenu)?.children ?? [$0] }.compactMap { ($0 as? UIAction)?.title }
-        XCTAssertEqual(titles, ["Copy", "Ask about this", "Explain", "Define", "Share"], "Copy first, then the chat actions, then the rest")
+        XCTAssertEqual(titles, ["Copy", "Quote in Chat", "Explain", "Define", "Share"], "Copy first, then the chat actions, then the rest")
         let formulaMenu = try XCTUnwrap(coordinator.textView(view, editMenuForTextIn: NSRange(location: 9, length: 1), suggestedActions: [copy]))
-        XCTAssertEqual(formulaMenu.children.compactMap { ($0 as? UIAction)?.title }, ["Copy LaTeX", "Copy as text", "Explain", "Define", "Ask about this"])
+        XCTAssertEqual(formulaMenu.children.compactMap { ($0 as? UIAction)?.title }, ["Copy LaTeX", "Copy as text", "Quote in Chat", "Explain", "Define"])
         coordinator.onQuote = nil
         XCTAssertNil(coordinator.textView(view, editMenuForTextIn: NSRange(location: 0, length: 5), suggestedActions: [copy]),
                      "Without actions (streaming, your own messages) the system menu is unchanged")
