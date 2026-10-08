@@ -327,3 +327,11 @@ progress.mini { height: 3px; margin-top: 4px; }
 .feed-abstract { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .feed-meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
 .feed-meta .pill { margin-left: auto; }
+
+/* Approve from your phone (ui/Approve.tsx). The QR keeps a white quiet zone in both themes so cameras read it. */
+.approve-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text); }
+.approve-qr { margin: 0; align-self: center; width: min(100%, 248px); aspect-ratio: 1; display: grid; place-items: center; }
+.approve-qr svg { width: 100%; height: 100%; border-radius: 12px; border: 1px solid var(--line); }
+.approve-code { margin: 0; text-align: center; color: var(--muted); }
+.approve-code output { display: block; margin-top: 4px; font-size: 28px; letter-spacing: 0.08em; color: var(--text); }
+.approve-status { display: flex; align-items: center; gap: 8px; }

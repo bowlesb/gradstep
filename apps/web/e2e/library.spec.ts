@@ -19,6 +19,7 @@ test('a full library stays searchable while an import progresses', async ({ page
   await page.getByTestId('send-code').click();
   await page.getByTestId('code').fill('123456');
   await page.getByTestId('verify').click();
+  await page.getByTestId('use-recovery-code').click(); // approval from a phone is the default
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   const started = Date.now();
   await page.getByTestId('recover').click();

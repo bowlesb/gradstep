@@ -3,6 +3,26 @@
 Updated 2026-10-07 (library foundation deployed to staging; cost work and takeover in progress). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
+## Credits resume, arXiv fallback, faster chat — staging 2026-10-08
+
+- **Migration 040** (`credit_resume_and_source_waits`) applied to staging with the pipeline paused (migrate-supabase.py:
+  all 39 earlier files verified, 040 applied and verified), then the pipeline re-enabled.
+- **Pipeline worker** `gradstep-pipeline-00011-lmv` (normal deploy): its workflow checks passed 13/13 with one warning
+  (7 imports waiting on credits). Within minutes the new sweep resumed one owner-account import (2508.02518, 13 pages)
+  that had been waiting on credits since 2026-10-07 23:49.
+- **Chat function** deployed. Its checks passed 15 of 16 (`chat.smoke` 2.6 s, `ingest.not-found`; $0.007 settled).
+  `pipeline.stuck` failed on that same resumed import: it counts age from the original Add, and the import was then
+  waiting out an OCR funding pause. Fixed by the self-healing work (041).
+- **Migration 041** (self-healing imports) applied the same night, then worker `gradstep-pipeline-00012-9xj`
+  (checks 13/13, one warning: 7 imports waiting on credits). The owner's stray import 2610.07426 ("Details
+  unavailable") is now `done`.
+- **QR device approval** merged to main (local only, no migration): a browser shows a QR and a six-digit number,
+  and the phone approves it under Settings › Account › Add a device. Tests: web 146/146; wire check passes, including
+  Swift approving a Node key and refusing a substituted one; the iOS Simulator build succeeds. Ship order: iOS/Mac
+  build 18 first, then the web reader. Not yet tried against staging or with a physical camera.
+- **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
+  build are in progress).
+
 ## Library foundation and independent reviews — 2026-10-07
 
 The owner authorized additive database work on `codex/library-v4-foundation-20261007`. Migrations 031/032 separate
