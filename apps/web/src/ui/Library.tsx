@@ -14,6 +14,7 @@ import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
 import { Dialog, formatDate } from './common';
 import { Icon } from './icons';
+import { LibraryActionSurface, PaperMenuButton, useLibraryActions } from './LibraryActions';
 import { useLibraryColumns } from './prefs';
 import type { useLibrary } from './useLibrary';
 import { LibraryRows, type LibraryRowsCommands, type LibraryViewport, WINDOW_THRESHOLD } from './LibraryRows';
@@ -102,7 +103,7 @@ export function useLibraryModel(library: Library, current: Map<string, Activity>
       return (sort.descending ? -c : c) || a.title.localeCompare(b.title);
     });
   }, [all, view, activity]);
-  return { all, counts, tags, shown, viewport, windowed, setWindowed };
+  return { all, counts, tags, shown, viewport, windowed, setWindowed, library };
 }
 export type LibraryModel = ReturnType<typeof useLibraryModel>;
 
@@ -246,6 +247,8 @@ export function LibraryView({ library, model, activity, view, setView, showChips
   const [choosingColumns, setChoosingColumns] = useState(false);
   const showAll = useCallback(() => model.setWindowed(false), [model.setWindowed]);
   const rowCommands = useRef<LibraryRowsCommands | null>(null);
+  const prepareMenuTab = useCallback(() => rowCommands.current?.beforeSequentialNavigation(), []);
+  const actions = useLibraryActions(library, prepareMenuTab);
   const [printing, setPrinting] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const tableHeader = useRef<HTMLTableSectionElement>(null);
@@ -314,6 +317,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
       </Dialog>
       {showChips && (counts.total > 0 || counts.archived > 0) && <FilterChips model={model} view={view} setView={setView} />}
       {notice && <p className="issue banner" role="alert">{notice.text}</p>}
+      <LibraryActionSurface actions={actions} />
       {library.state === 'loading' && all.length === 0 && <div className="empty"><div className="spinner" aria-label="Loading library" /></div>}
       {library.state === 'error' && all.length === 0 && (
         <div className="empty"><p>Couldn’t load your library.</p><button className="secondary" onClick={() => library.refresh().catch(() => {})}>Try again</button></div>
@@ -337,7 +341,7 @@ export function LibraryView({ library, model, activity, view, setView, showChips
                 const a = row.entry.kind === 'item' ? activity.get(row.entry.id) : undefined;
                 return <PaperRow key={row.key} row={row} opened={a?.opened ?? null} progress={a ? a.progress : null} mark={library.marks.get(row.entry.id)}
                   busy={library.pending.has(row.entry.id)} current={row.entry.id === currentID} onOpen={onOpen} retry={library.retry} remove={library.remove} run={run}
-                  onTag={setView} columns={columns} index={index} measure={measure} />;
+                  onTag={setView} columns={columns} index={index} measure={measure} menuOpen={actions.menuItemID === row.entry.id} onMenu={actions.open} />;
               }} />
           </table>
         </div>
@@ -369,10 +373,11 @@ function RowAction({ row, busy, retry, remove, run }: { row: Row; busy: boolean;
   return <span className="pill passive" title="Credits can be added in Gradstep on iPhone, iPad or Mac">Get credits in the app</span>;
 }
 
-const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure }: {
+const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress, mark, busy, current, onOpen, retry, remove, run, onTag, columns, index, measure, menuOpen, onMenu }: {
   row: Row; opened: number | null; progress: number | null; mark?: Mark; busy: boolean; current: boolean;
   onOpen: (item: Item) => void; retry: Library['retry']; remove: Library['remove']; run: (key: string, p: Promise<unknown>) => void; onTag: SetQuery; columns: readonly LibraryColumn[];
   index: number; measure?: (element: HTMLTableRowElement | null) => void;
+  menuOpen: boolean; onMenu: ReturnType<typeof useLibraryActions>['open'];
 }) {
   const entry = row.entry;
   const progress = useImportProgress(entry, mark);
@@ -382,6 +387,7 @@ const PaperRow = memo(function PaperRow({ row, opened, progress: readingProgress
     <tr ref={measure} data-index={index} data-row-key={row.key} aria-rowindex={index + 2}
       className={`${row.readable ? 'readable' : 'pending'}${current ? ' current' : ''}`} onClick={open} data-testid="paper-row">
       <td className="col-title">
+        {entry.kind === 'item' && <PaperMenuButton item={entry} busy={busy} expanded={menuOpen} onOpen={onMenu} />}
         {row.readable ? <a href={`/paper/${entry.id}`} onClick={e => { e.preventDefault(); e.stopPropagation(); open(); }} className="title" title={row.title}>{row.title}</a>
           : <span className="title" title={row.title}>{row.title}</span>}
         {!columns.includes('authors') && row.firstAuthor && <span className="author">{row.firstAuthor}{authors.length > 1 ? ' et al.' : ''}</span>}
@@ -417,9 +423,11 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
   model: LibraryModel; activity: Map<string, Activity>; currentID: string | null; onOpen: (item: Item) => void; query: string;
 }) {
   const list = useRef<HTMLUListElement>(null);
+  const actions = useLibraryActions(model.library);
   useEffect(() => { list.current?.querySelector('.current')?.scrollIntoView({ block: 'nearest' }); }, []);
   return (
     <div className="compact-library">
+      <LibraryActionSurface actions={actions} />
       {query.trim() && <p className="fine compact-note">{model.shown.length} {model.shown.length === 1 ? 'match' : 'matches'} for “{query.trim()}”</p>}
       <ul ref={list} className="compact-list" aria-label="Library" onKeyDown={e => moveRowFocus(e, 'a.compact-link')}>
         {model.shown.map(row => {
@@ -427,6 +435,7 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
           const meta = [row.firstAuthor ? `${row.firstAuthor}${(entry.metadata?.authors.length ?? 0) > 1 ? ' et al.' : ''}` : null, row.year].filter(Boolean).join(' · ');
           return (
             <li key={row.key} className={entry.id === currentID ? 'current' : undefined}>
+              {entry.kind === 'item' && <PaperMenuButton item={entry} busy={model.library.pending.has(entry.id)} expanded={actions.menuItemID === entry.id} onOpen={actions.open} />}
               {row.readable && entry.kind === 'item'
                 ? <a className="compact-link" href={`/paper/${entry.id}`} aria-current={entry.id === currentID ? 'page' : undefined}
                     onClick={e => { e.preventDefault(); onOpen(entry); }}><span className="compact-title">{row.title}</span><span className="compact-meta">{meta}</span>

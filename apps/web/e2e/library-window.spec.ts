@@ -32,6 +32,24 @@ async function sameAnchor(page: Page, saved: Awaited<ReturnType<typeof anchor>>)
 async function deep(page: Page) {
   await table(page).evaluate(element => { element.dispatchEvent(new WheelEvent('wheel')); element.scrollTop = 30_017; element.scrollLeft = 90; });
   await expect.poll(async () => (await anchor(page)).top).toBeGreaterThan(29_000);
+  // A scroll offset alone does not mean the virtualizer has measured its newly mounted rows.
+  // Capture the stable viewport a reader can act on; retain the strict <3px anchor assertion.
+  await table(page).evaluate(async element => {
+    const samples: { key?: string; inset: number; top: number; height: number }[] = [];
+    let stable = 0;
+    for (let frame = 0; frame < 120; frame++) {
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const edge = element.getBoundingClientRect().top + element.querySelector('thead')!.getBoundingClientRect().height;
+      const row = [...element.querySelectorAll<HTMLElement>('[data-row-key]')].find(row => row.getBoundingClientRect().bottom > edge + 1);
+      const bounds = row?.getBoundingClientRect(), previous = samples.at(-1);
+      const sample = { key: row?.dataset.rowKey, inset: bounds ? edge - bounds.top : 0, top: element.scrollTop, height: bounds?.height ?? 0 };
+      stable = previous && sample.key && previous.key === sample.key
+        && ['inset', 'top', 'height'].every(key => Math.abs(sample[key as 'inset' | 'top' | 'height'] - previous[key as 'inset' | 'top' | 'height']) < .25) ? stable + 1 : 0;
+      samples.push(sample); if (samples.length > 5) samples.shift();
+      if (stable >= 3) return;
+    }
+    throw new Error(`Library geometry did not settle across frames: ${JSON.stringify(samples)}`);
+  });
 }
 const refresh = (page: Page) => page.evaluate(() => dispatchEvent(new Event('focus')));
 
