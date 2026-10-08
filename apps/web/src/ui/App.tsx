@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { type Session, auth, config } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
 import { supportsX25519 } from '../lib/wire';
+import type { FrameKey } from '../reader/frame';
+import { ChatPane } from './ChatPane';
 import { Brand, Dialog, NOT_YET } from './common';
+import { FeedRail, FeedView, useFeed } from './Feed';
+import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
-import { LibraryView } from './Library';
-import { type ReaderCache, Reader } from './Reader';
+import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
+import { type Route, type Theme, useTheme } from './prefs';
+import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
+import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
 import { useLibrary } from './useLibrary';
 
@@ -50,6 +56,10 @@ function Unsupported() {
   );
 }
 
+const SHORTCUTS = [['/ or ⌘K', 'Search the library'], ['⌘F', 'Find in the paper'], ['[', 'Show or hide the side panel'], [']', 'Show or hide the chat panel'],
+  ['↑ ↓', 'Move between papers'], ['← →', 'Previous or next figure'], ['Esc', 'Close, or clear the search'], ['?', 'These shortcuts']] as const;
+const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 'right', '?': 'help' };
+
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
   const library = useLibrary(account);
@@ -57,15 +67,24 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [device, setDevice] = useState<DeviceRecord | null>(null);
   const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
   const [activityLoaded, setActivityLoaded] = useState(false);
-  const [menu, setMenu] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [readerCache] = useState<ReaderCache>(() => new Map());
+  // Library search, filters and sort survive opening a paper and coming back (UX_PARITY.md).
+  const [view, setView] = useState<LibraryQuery>(INITIAL_QUERY);
+  const [railTab, setRailTab] = useState<'contents' | 'library'>('contents');
+  const [contentsSlot, setContentsSlot] = useState<HTMLElement | null>(null);
+  const [lastPaper, setLastPaper] = useState<string | null>(null);
+  const { theme, resolved, setTheme } = useTheme();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const openPaper = useCallback((paper: Item) => navigate(`/paper/${paper.id}`), [navigate]);
+  const search = useRef<HTMLInputElement>(null);
+  const readerCommands = useRef<ReaderCommands | null>(null);
+  const openPaper = useCallback((paper: Item) => { setLastPaper(paper.id); navigate(`/paper/${paper.id}`); }, [navigate]);
 
   useEffect(() => {
     let live = true;
@@ -95,8 +114,50 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   }, [device, activity, leaving]);
 
   const match = /^\/paper\/([0-9a-f-]{36})$/.exec(path);
-  const item = match ? library.entries.find((e): e is Item => e.kind === 'item' && e.id === match[1] && e.visible) : undefined;
-  useEffect(() => { if (path !== '/' && !match) navigate('/'); }, [path, match, navigate]);
+  const paperID = match?.[1] ?? null;
+  const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : 'library';
+  const item = paperID ? library.entries.find((e): e is Item => e.kind === 'item' && e.id === paperID && e.visible) : undefined;
+  useEffect(() => { if (path !== '/' && path !== '/feed' && !match) navigate('/'); }, [path, match, navigate]);
+  useEffect(() => { if (paperID) setLastPaper(paperID); }, [paperID]);
+
+  const ws = useWorkspace(route);
+  const latest = useRef({ ws, route });
+  latest.current = { ws, route };
+  const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
+  const feed = useFeed(account, library.entries);
+
+  const shortcut = useCallback((key: FrameKey) => {
+    const { ws, route } = latest.current;
+    switch (key) {
+      case 'search': search.current?.focus(); search.current?.select(); break;
+      case 'find': if (route === 'paper') readerCommands.current?.find(); break;
+      case 'left': ws.toggle('left'); break;
+      case 'right': ws.toggle('right'); break;
+      case 'help': setHelp(true); break;
+      case 'escape':
+        if (readerCommands.current?.escape()) break;
+        if (ws.overlay) ws.show(ws.overlay, false);
+        break;
+    }
+  }, []);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || document.querySelector('dialog[open]')) return;
+      const target = event.target as HTMLElement | null;
+      const typing = !!target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      const command = (event.metaKey || event.ctrlKey) && !event.altKey;
+      let action: FrameKey | null = null;
+      if (command && event.key.toLowerCase() === 'k') action = 'search';
+      else if (command && event.key.toLowerCase() === 'f' && latest.current.route === 'paper') action = 'find';
+      else if (event.key === 'Escape') action = 'escape';
+      else if (!typing && !command && !event.altKey) action = PLAIN_KEYS[event.key] ?? null;
+      if (!action) return;
+      if (action !== 'escape') event.preventDefault();
+      shortcut(action);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [shortcut]);
 
   async function signOut() {
     if (leaving) return;
@@ -115,41 +176,105 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
   }
 
+  const query = (text: string) => {
+    setView(q => ({ ...q, query: text }));
+    // Beside a paper, the library search shows its results in the rail; from the Feed it returns to the library.
+    if (route === 'paper' && text.trim()) { setRailTab('library'); if (!ws.left.open) ws.show('left'); }
+    if (route === 'feed' && text.trim()) navigate('/');
+  };
+  const onContents = () => {
+    if (ws.left.open && railTab === 'contents') ws.show('left', false);
+    else { setRailTab('contents'); ws.show('left'); }
+  };
+  const railVisible = ws.left.open && ws.left.inline;
+
+  const left = route === 'paper' ? (
+    <>
+      <PaneHeader title={<span className="tabs" role="tablist" aria-label="Side panel">
+        <button role="tab" aria-selected={railTab === 'contents'} className={railTab === 'contents' ? 'tab on' : 'tab'} onClick={() => setRailTab('contents')}>Contents</button>
+        <button role="tab" aria-selected={railTab === 'library'} className={railTab === 'library' ? 'tab on' : 'tab'} onClick={() => setRailTab('library')}>Library</button>
+      </span>} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+      <div className="rail-body" role="tabpanel">
+        {railTab === 'contents' ? <div ref={setContentsSlot} className="contents-slot"><p className="fine rail-note">The contents appear when the paper opens.</p></div>
+          : <CompactLibrary model={model} activity={activity} currentID={paperID} onOpen={openPaper} query={view.query} />}
+      </div>
+    </>
+  ) : (
+    <>
+      <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
+    </>
+  );
+
+  let center: ReactNode;
+  if (paperID) {
+    // A direct paper URL can finish loading the library before local decryption. Mounting the
+    // reader then would record the top of the paper before its saved place could be restored.
+    center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
+      : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+        contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} />
+      : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
+        : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
+  } else if (route === 'feed') {
+    center = <FeedView model={feed} library={library} showChips={!railVisible} />;
+  } else {
+    center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible}
+      currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
+  }
+
+  const nav = (to: string, label: string, icon: IconName, current: boolean, testID?: string) => (
+    <a href={to} className={current ? 'nav-link on' : 'nav-link'} aria-current={current ? 'page' : undefined} data-testid={testID} title={label}
+      onClick={e => { e.preventDefault(); navigate(to); }}><Icon name={icon} /><span className="nav-label">{label}</span></a>
+  );
+
   return (
     <div className="app">
+      <a className="skip-link" href="#main">Skip to content</a>
       <header className="topbar">
+        <button className={`icon-button${ws.left.open ? ' on' : ''}`} onClick={() => ws.toggle('left')} aria-label="Side panel" aria-pressed={ws.left.open} title="Side panel ( [ )">
+          <Icon name="sidebar" /></button>
         <a href="/" className="brand-link" onClick={e => { e.preventDefault(); navigate('/'); }}><Brand small /></a>
         <span className="environment" title="This browser reader uses the staging backend">{config.environment === 'production' ? '' : 'Beta'}</span>
         <nav className="topnav" aria-label="Main">
-          <button className="link" aria-current={!match ? 'page' : undefined} onClick={() => navigate('/')}>Library</button>
-          <button className="link" onClick={() => setChats(true)}>Chats</button>
+          {nav('/', 'Library', 'book', route === 'library', 'back-to-library')}
+          {nav('/feed', 'Feed', 'feed', route === 'feed')}
+          <button className="nav-link" onClick={() => setChats(true)} title="All chats"><Icon name="chats" /><span className="nav-label">Chats</span></button>
         </nav>
-        <div className="account">
-          <button className="secondary small" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(m => !m)} data-testid="account-menu">
-            {session.user.email ?? 'Account'}
-          </button>
-          {menu && (
-            <div className="menu" role="menu">
-              <p className="fine">This browser is an approved device.</p>
-              <button role="menuitem" className="link" onClick={() => { setMenu(false); setSigningOut(true); }} data-testid="sign-out">Sign out…</button>
-            </div>
-          )}
+        <div className="search-field">
+          <Icon name="search" size={14} />
+          <input ref={search} type="search" placeholder="Search library" aria-label="Search library" value={view.query} data-testid="search"
+            onChange={e => query(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { if (view.query) { e.preventDefault(); query(''); } else e.currentTarget.blur(); }
+              if (e.key === 'ArrowDown') { const first = document.querySelector<HTMLElement>('#main a.title, .compact-list a'); if (first) { e.preventDefault(); first.focus(); } }
+            }} />
+          <kbd aria-hidden="true">/</kbd>
+        </div>
+        <div className="topbar-actions">
+          <button className="primary small add-button" onClick={() => setAdding(true)} disabled={library.state !== 'ready'} data-testid="add-paper" title="Add paper">
+            <Icon name="plus" size={14} /><span>Add paper</span></button>
+          <button className="icon-button theme-toggle" onClick={() => setTheme(resolved === 'dark' ? 'light' : 'dark')} aria-label={resolved === 'dark' ? 'Use light appearance' : 'Use dark appearance'}
+            title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
+          <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
+            <Icon name="panelRight" /></button>
+          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onSignOut={() => setSigningOut(true)} />
         </div>
       </header>
-      {match ? (
-        // A direct paper URL can finish loading the library before local decryption. Mounting the
-        // reader then would record the top of the paper before its saved place could be restored.
-        item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
-          : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} onBack={() => navigate('/')} />
-          : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
-            : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>
-      ) : (
-        <LibraryView library={library} activity={activity} onOpen={openPaper} />
-      )}
+      <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
+        left={left} center={center} right={<ChatPane paperTitle={route === 'paper' ? item?.metadata?.title ?? null : null} onAllChats={() => setChats(true)} />} />
+      <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <Dialog open={chats} onClose={() => setChats(false)} title="Chats">
-        <h2>Chats</h2>
+        <h2>All chats</h2>
         <p>Chat is {NOT_YET.charAt(0).toLowerCase() + NOT_YET.slice(1)}</p>
         <div className="dialog-actions"><button className="primary" onClick={() => setChats(false)}>OK</button></div>
+      </Dialog>
+      <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
+        <h2>Keyboard shortcuts</h2>
+        <dl className="shortcuts">
+          {SHORTCUTS.map(([k, d]) => <div key={k}><dt><kbd>{k}</kbd></dt><dd>{d}</dd></div>)}
+        </dl>
+        <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
+        <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
       <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
@@ -162,6 +287,37 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <button className="primary" disabled={leaving} onClick={() => void signOut()} data-testid="confirm-sign-out">{leaving ? 'Signing out…' : 'Sign out'}</button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+function AccountMenu({ email, theme, setTheme, onHelp, onSignOut }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onSignOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: Event) => { if (!box.current?.contains(event.target as Node)) setOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
+  }, [open]);
+  return (
+    <div className="account" ref={box}>
+      <button className="icon-button account-button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)} data-testid="account-menu" title={email ?? 'Account'}>
+        <Icon name="user" /><span className="account-email">{email ?? 'Account'}</span>
+      </button>
+      {open && (
+        <div className="menu" role="menu">
+          <p className="menu-email">{email}</p>
+          <p className="fine">This browser is an approved device.</p>
+          <div className="menu-row" role="group" aria-label="Appearance">
+            {(['system', 'light', 'dark'] as const).map(t => <button key={t} role="menuitemradio" aria-checked={theme === t} className={theme === t ? 'seg on' : 'seg'} onClick={() => setTheme(t)}>
+              {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
+          </div>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSignOut(); }} data-testid="sign-out">Sign out…</button>
+        </div>
+      )}
     </div>
   );
 }
