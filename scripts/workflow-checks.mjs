@@ -468,11 +468,11 @@ check('pipeline.stuck', { title: 'No import stuck or crash-looping', suites: ALL
   return pass(`nothing stuck — ${context}`, metrics);
 });
 
-// Paper podcasts (migration 046): read-only status, ids and numbers only. Nothing here enables work or spends.
+// Paper podcasts (migration 048): read-only status, ids and numbers only. Nothing here enables work or spends.
 check('podcast.state', { title: 'Podcast switches, seed allowance, liabilities and stuck jobs', suites: ALL, timeout: 60 }, async () => {
   let status;
   try { status = await rpc('worker_podcast_status', {}, { service: true }); }
-  catch (error) { return error.status === 404 ? skip('migration 046 not applied (no podcast status function)') : fail(error.message); }
+  catch (error) { return error.status === 404 ? skip('migration 048 not applied (no podcast status function)') : fail(error.message); }
   const policy = status.policy ?? {};
   const on = ['catalog_enabled', 'delivery_enabled', 'generation_enabled', 'seed_enabled', 'fixtures_enabled'].filter(k => policy[k]).map(k => k.replace('_enabled', ''));
   const problems = [];

@@ -108,7 +108,7 @@ class TwoBuckets(Fixture):
 
 
 class ThreeBuckets(TwoBuckets):
-    """Scope 3 (migration 046): shared and private podcast audio, tracked directly."""
+    """Scope 3 (migration 048): shared and private podcast audio, tracked directly."""
     def __init__(self):
         super().__init__()
         self.audio, self.private_audio = b'm4a shared fixture', b'm4a private fixture'

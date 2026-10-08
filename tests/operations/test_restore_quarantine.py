@@ -458,7 +458,7 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
             for row in expected[table]:
                 for name in names:
                     row[name] = False
-        # 046: the podcast epoch rotates and its revision advances.
+        # 048: the podcast epoch rotates and its revision advances.
         self.assertNotEqual(before['podcast_policy'][0]['epoch'], after['podcast_policy'][0]['epoch'])
         expected['podcast_policy'][0]['epoch'] = after['podcast_policy'][0]['epoch']
         expected['podcast_policy'][0]['revision'] += 1

@@ -37,11 +37,11 @@ while that liability remains reserved. Later operator reconciliation is a separa
 | `tavily` | `reference_lookup` | `search-basic` | `credits: 1` | `credits`, `searches` |
 | `anthropic` | `catalog_tags` | requested Haiku identifier | `output_tokens: 256` | input/output tokens |
 | `mathpix` | `paper_ocr` | `v3/pdf` | `pages` | `pages` |
-| `anthropic` | `podcast_script` | profile model (`claude-sonnet-5-5`) | `input_tokens: 80000`, `output_tokens: 6000` | token categories (migration 046, dark) |
-| `anthropic` | `podcast_review` | profile model | `input_tokens: 80000`, `output_tokens: 4000` | token categories (046) |
-| `google` | `podcast_speech` | `gemini-3.8-flash-tts` | `text_input_tokens: 8192`, `audio_output_tokens: 16384` | observed `text_input_tokens`, `audio_output_tokens`, `audio_ms` (046) |
+| `anthropic` | `podcast_script` | profile model (`claude-sonnet-5-5`) | `input_tokens: 80000`, `output_tokens: 6000` | token categories (migration 048, dark) |
+| `anthropic` | `podcast_review` | profile model | `input_tokens: 80000`, `output_tokens: 4000` | token categories (048) |
+| `google` | `podcast_speech` | `gemini-3.8-flash-tts` | `text_input_tokens: 8192`, `audio_output_tokens: 16384` | observed `text_input_tokens`, `audio_output_tokens`, `audio_ms` (048) |
 
-Podcast routes (046) are granted only through `worker_podcast_attempt_begin`, which derives model, units and
+Podcast routes (048) are granted only through `worker_podcast_attempt_begin`, which derives model, units and
 ceiling ($0.22 / $0.20 / $0.303104) from the immutable profile inside a $0.75 operation; a direct call with a podcast
 route is refused (`podcast_admission_required`). See [Paper podcasts](PAPER_PODCASTS.md#v1-implementation-branch-podcast-v1).
 

@@ -1,4 +1,4 @@
--- Paper podcasts (migration 046): dark defaults, seed funding inside the
+-- Paper podcasts (migration 048): dark defaults, seed funding inside the
 -- platform budget, private quote/start/cancel, fenced provider grants, storage
 -- inventory, publication review, rights takedown, bounded delivery, recovery,
 -- quality losses and account deletion. Synthetic local SQL; provider and Storage

@@ -1,4 +1,4 @@
-"""Paper podcasts (migration 046) on real concurrent sessions: two devices starting the same private work, a
+"""Paper podcasts (migration 048) on real concurrent sessions: two devices starting the same private work, a
 single-use audio grant redeemed twice at once, two workers claiming one job, and a seed allowance disabled while
 an admission waits. Every race is forced with an observed lock wait, not timing."""
 import json

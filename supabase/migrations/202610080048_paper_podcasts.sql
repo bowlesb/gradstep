@@ -1839,8 +1839,8 @@ begin
  return n;
 end $$;
 
-alter function public.worker_delete_account_begin(uuid) rename to delete_account_begin_before_046;
-alter function public.delete_account_begin_before_046(uuid) set schema app_private;
+alter function public.worker_delete_account_begin(uuid) rename to delete_account_begin_before_048;
+alter function public.delete_account_begin_before_048(uuid) set schema app_private;
 create function public.worker_delete_account_begin(p_account_id uuid) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare result jsonb; period_key date; j app_private.podcast_jobs; g app_private.podcast_delivery_grants;
@@ -1863,7 +1863,7 @@ begin
    update app_private.podcast_jobs set cancel_requested=true where id=j.id;
   end if;
  end loop;
- result:=app_private.delete_account_begin_before_046(p_account_id);
+ result:=app_private.delete_account_begin_before_048(p_account_id);
  delete from app_private.podcast_requests where account_id=p_account_id;
  delete from app_private.podcast_quotes where account_id=p_account_id;
  update app_private.podcast_releases set state='withdrawn' where scope='private' and owner_id=p_account_id and state<>'withdrawn';
@@ -1882,8 +1882,8 @@ begin
  return result;
 end $$;
 
-alter function public.worker_delete_account_finish(uuid) rename to delete_account_finish_before_046;
-alter function public.delete_account_finish_before_046(uuid) set schema app_private;
+alter function public.worker_delete_account_finish(uuid) rename to delete_account_finish_before_048;
+alter function public.delete_account_finish_before_048(uuid) set schema app_private;
 create function public.worker_delete_account_finish(p_account_id uuid) returns integer
 language plpgsql security definer set search_path='' as $$
 begin
@@ -1891,7 +1891,7 @@ begin
  if not found then raise exception 'account_not_closed'; end if;
  if exists(select 1 from app_private.podcast_asset_writes w join app_private.stored_objects o on o.id=w.object_id
   where o.owner_id=p_account_id and w.finished_at is null) then raise exception 'asset_write_uncertain'; end if;
- return app_private.delete_account_finish_before_046(p_account_id);
+ return app_private.delete_account_finish_before_048(p_account_id);
 end $$;
 
 -- Seed pilot helper: eligible CC BY 4.0 / CC0 conversions with verified text

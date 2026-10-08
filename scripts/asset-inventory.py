@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUCKET = 'paper-assets'
 # Migration 039 widens the reconciliation to the private upload bucket (inventory scope 2);
-# migration 046 adds podcast audio (scope 3). Podcast objects are tracked directly (no manifest members).
+# migration 048 adds podcast audio (scope 3). Podcast objects are tracked directly (no manifest members).
 BUCKETS = ('paper-assets', 'paper-uploads', 'podcast-assets')
 
 

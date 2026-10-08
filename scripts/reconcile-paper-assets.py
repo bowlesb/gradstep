@@ -20,7 +20,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-# Inventory scope 3 (migration 046) adds private podcast audio to the two paper buckets.
+# Inventory scope 3 (migration 048) adds private podcast audio to the two paper buckets.
 BUCKETS = ('paper-assets', 'paper-uploads', 'podcast-assets')
 MAX_OBJECTS = 50000
 MAX_JSON = 2 * 1024 * 1024
@@ -190,7 +190,7 @@ def inventory(client, scan):
                 uuid.UUID(row['id'])
                 if bucket == 'paper-assets': uuid.UUID(row['document_id'])
                 elif bucket == 'podcast-assets':
-                    # 046: shared audio carries its source document; private audio carries only its owner.
+                    # 048: shared audio carries its source document; private audio carries only its owner.
                     if row.get('document_id') is not None: uuid.UUID(row['document_id'])
                 elif row.get('document_id') is not None: raise ValueError('staging_document')
             except (ValueError, TypeError, KeyError): raise InventoryError('invalid_inventory_identity') from None

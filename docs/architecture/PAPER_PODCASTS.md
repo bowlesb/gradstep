@@ -1,6 +1,6 @@
 # Shared paper podcasts: implementation contract proposal
 
-2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark: migration 046 is not applied, nothing is
+2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark: migration 048 is not applied, nothing is
 deployed and no paid provider call has been made.** The design below was the reviewed input; the
 [implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this).
@@ -379,7 +379,7 @@ Owner request 2026-10-08: "build the notebook LM podcasts feature please". Read 
 (platform seeds, at most $2 for the first two five-minute curated episodes, each admitted at up to $0.75, inside
 the existing $25 provider cap) and Decision 3 (the bounded private-generation contract); Decision 1 (public offers)
 is out of scope. See [DECISIONS.md](../DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08). Everything below ships
-**dark**: migration 046 creates every switch disabled, and no paid provider call was made while building it.
+**dark**: migration 048 creates every switch disabled, and no paid provider call was made while building it.
 
 ### Client API (Edge `podcast`, bounded `podcast-member`)
 
@@ -553,7 +553,7 @@ the browser keeps it in per-account `localStorage`. Nothing is sent to the serve
 
 ## V1 implementation (branch `podcast-v1`)
 
-### Schema: migration `202610080046_paper_podcasts.sql`
+### Schema: migration `202610080048_paper_podcasts.sql`
 
 Everything is in `app_private` with RLS on and no table grants; customers reach only `v1_podcast_*`
 (authenticated) and the worker/Edge only `worker_podcast_*` (service role). All functions are `security definer`
@@ -561,7 +561,7 @@ with `search_path=''`. Every switch starts **off**: `podcast_policy.catalog_enab
 `generation_enabled`, `seed_enabled`, `fixtures_enabled`. Enabling anything that writes or delivers (generation,
 seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scope-2 certification is refused.
 
-| Area | What 046 adds |
+| Area | What 048 adds |
 |---|---|
 | Finance (034 extension) | `metered_operations.kind` gains `podcast`; `provider_attempts` gains provider `google` and routes `podcast_script`, `podcast_review`, `podcast_speech`; `valid_provider_units` gains `text_input_tokens`, `audio_output_tokens`, `audio_ms`. `worker_provider_attempt_begin` is replaced with the 034 body plus those routes; a podcast route is granted only inside `worker_podcast_attempt_begin` (transaction-local token), which takes model, units and ceiling from the immutable profile, so no caller-supplied model or price can be granted. Pricing snapshots record the tariff and `profile` (`podcast-5min-v1:1`). |
 | Identities | `podcast_profiles` (immutable spec + SHA-256); `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
@@ -714,7 +714,7 @@ Prerequisites: review this branch; owner account id (`<OWNER>`, with the owner r
 deploying the worker. All `podcast-ops.py` mutations print a request id first; re-run with `--request-id` after a
 lost reply.
 
-1. **Back up** (`python3 scripts/backup.py staging`), then **apply 046** through the normal migration path
+1. **Back up** (`python3 scripts/backup.py staging`), then **apply 048** through the normal migration path
    (`python3 scripts/deploy-staging.py staging --defer-activation --functions podcast podcast-member` applies pending
    migrations, provisions the private `podcast-assets` bucket from `infra/staging.json` and deploys both functions;
    they answer but everything stays off).
