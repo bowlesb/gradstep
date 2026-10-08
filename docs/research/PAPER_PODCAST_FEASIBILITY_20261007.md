@@ -2,9 +2,17 @@
 
 Research date: **2026-10-07**. Research only: no implementation, provider generation, account purchase, credential access, or deployment. Prices are USD list prices checked against the linked official sources; calculated costs are assumptions, not observed bills or measured audio quality. This report does not authorize spending or expand the owner's $100/month incremental beta budget.
 
+**Follow-up, 2026-10-08:** The owner now requests implementation planning for shared browsable episodes.
+The current recommendation, reproducible pricing model and detailed schema/lifecycle proposal are in
+[pricing](PRICING_RECOMMENDATION_20261008.md) and [podcast architecture](../architecture/PAPER_PODCASTS.md).
+Those proposals supersede this report's tentative rollout/experiment choices: a zero-spend fixture/import
+path first, then an optional $2 bounded seed run inside the existing $25 provider allocation, pending owner
+acceptance. Migrations034–038 are deployed and the worker is request-billed; legacy reader delivery still
+needs its bounded transition. No podcasts or revised offers are deployed by either document.
+
 ## Recommendation
 
-**Practical and worth a small, metered experiment after the existing cost-control findings are addressed.** Build an academically grounded script from the exact verified Mathpix artifact, review its factual claims, then synthesize speech. Compare Gemini 3.8 Flash TTS with OpenAI's GPT-4o mini TTS; optionally audition ElevenLabs later. Keep the provider behind an adapter and preserve the script independently of the audio.
+**Practical and worth a small, metered experiment after the new audio paths integrate the cost controls.** Build an academically grounded script from the exact verified Mathpix artifact, review its factual claims, then synthesize speech. Compare Gemini 3.8 Flash TTS with OpenAI's GPT-4o mini TTS only after each adapter has an enforceable spend bound; optionally audition ElevenLabs later. Keep the provider behind an adapter and preserve the script independently of the audio.
 
 Start with one paper, English, a five- or ten-minute explanation, a fixed pair of synthetic hosts, chapters, and a transcript whose citations open the relevant paper passage. One host is a useful lower-complexity comparison. A good two-host script can use an explainer and a skeptical reader, with substantive questions rather than filler. Exact quality parity with NotebookLM has **not** been demonstrated.
 
@@ -73,11 +81,16 @@ For infrastructure, consider these calculations rather than assuming it is free:
 | Compressed delivery | Mono 64 kbit/s is approximately 0.48 MB/minute: 2.4 / 4.8 / 9.6 MB for 5/10/20 minutes. 128 kbit/s doubles this. Quality at the chosen bitrate needs listening tests. |
 | Retained catalog | 10,000 ten-minute files at 64 kbit/s occupy ~48 GB, approximately $1.02/month marginal Storage cost after included capacity. Originals, transcripts, temporary chunks, old versions, and backups are additional. |
 | Playback transfer | One full ten-minute download costs ~ $0.00014 cached or $0.00043 uncached at marginal Supabase rates. 100,000 such downloads transfer ~480 GB, or $14.40 / $43.20 before included allowances. Replayed signed URLs can multiply traffic. |
-| Worker execution | Request-based Cloud Run at 1 vCPU/2 GiB for 60–300 billed seconds is roughly $0.0017–$0.0087 before free allowance, network, logs, builds, and registry. This is a duration scenario, not a benchmark or the currently deployed billing mode. |
+| Worker execution | Request-based Cloud Run at 1 vCPU/2 GiB for 60–300 billed seconds is roughly $0.0017–$0.0087 before free allowance, network, logs, builds, and registry. Request billing is now deployed; this duration/resource scenario is not a benchmark of its actual costs. |
 
 Supabase Pro lists 100 GB Storage, and separate 250 GB cached/uncached egress pools; marginal rates are $0.0213/GB-month and $0.03/$0.09 per GB. These are organization resources, not fresh allowances for every feature. [Supabase pricing](https://supabase.com/pricing), [storage accounting](https://supabase.com/docs/guides/platform/manage-your-usage/storage-size). Cloud Run request-based active rates used above are $0.000024/vCPU-second and $0.0000025/GiB-second. [Cloud Run pricing](https://cloud.google.com/run/pricing)
 
-The cost audit found the currently deployed worker uses instance-based billing; a continuously warm instance could dominate this feature's tiny per-job compute estimate. Keep that audit's remediation and invoice verification separate from this proposed episode runtime. Do not add a new always-on worker, subscription, or GPU. Current budget headroom is **not established** by the stale ~$0–2 worker forecast. See [audit F1 and fixed-cost scenarios](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md).
+The audit found instance billing at its original observation; that finding was subsequently repaired with
+request billing. Keep configuration evidence, actual runtime observations and invoices separate. Do not add
+an always-on worker, subscription or GPU. On October 8 the recorded provider budget was $25 with $13.677389
+spent and $0 reserved; its $11.322611 remaining was an instantaneous provider allocation, **not whole-system
+headroom** or authorization for new audio spending. See the [updated economics](PRICING_RECOMMENDATION_20261008.md)
+and the historical [audit F1](../reviews/CREDIT_IDENTITY_COST_AUDIT_20261007.md).
 
 Thirty new ten-minute episodes/month would cost roughly **$11.40 now / $16.50 after the January tariff** under the planning scenario. Sixty would cost **$22.80 / $33.00**. Add the audit's illustrative heavy reading/chat workload ($7.88) and that becomes **$30.68 / $40.88 before fixed infrastructure and other overhead**. This is not sustainable as unlimited use in a $19.99 plan.
 
@@ -98,7 +111,12 @@ Supabase remains the authority for authentication, job state, spend reservations
 
 Initial product bounds could be one paper, five or ten minutes, one active episode per account, and two active speech calls across the beta. These are proposed limits, not provider quotas or deployed settings. Twenty-minute and collection episodes should follow successful measurements.
 
-The existing audit's hidden retries, unresolved remote liabilities, and replayable delivery URLs matter here. Fix or explicitly integrate those boundaries before enabling audio. A feature-specific cap must also consume the systemwide budget; separate uncoordinated caps permit overspending. Count all voice/language variants, user-requested regenerations, failed generations, temporary storage, and downloads. An admin dashboard should show actual versus reserved cost, cost per accepted minute, retry/repair rate, cache reuse, orphaned objects, byte transfer, and current provider price version.
+The hidden retry and unknown-provider-liability fixes are now deployed through034, and035–038 add asset,
+identity, admin and purchase records. These do not automatically cover a new speech provider, route or bucket.
+Current reader delivery retains replayable legacy URLs for compatibility; audio must start with bounded
+delivery. A feature cap also consumes the systemwide budget; independent caps permit overspending. Count
+variants, regenerations, failed generations, temporary storage and downloads. Admin must show actual versus
+reserved cost, cost per accepted minute, quality losses, reuse, orphaned objects, byte transfer and rate version.
 
 ## Scientific quality and UX
 
