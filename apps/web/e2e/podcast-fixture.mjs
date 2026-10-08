@@ -24,9 +24,9 @@ const transcript = { speakers: { explainer: 'Explainer', skeptic: 'Skeptical rea
   { id: 's3', speaker: 'explainer', text: 'Compare the log-ratios.', start_ms: 16_000, end_ms: 32_000, chapter: 'c2', claim_type: 'paper_result', evidence: [], math: [{ latex: '\\beta', spoken: 'beta' }] },
   { id: 's4', speaker: 'skeptic', text: 'The paper also reports limitations.', start_ms: 32_000, end_ms: 48_000, chapter: 'c3', claim_type: 'author_interpretation', evidence: [], math: [] },
 ] };
-let state, calls, grants, job, quoteIDs;
+let state, calls, grants, job, quoteIDs, reused;
 function reset() { state = { catalog: true, delivery: true, generation: true, releaseState: 'ready', paperReady: false, corrupt: false, memberDelay: 0, episodeDelay: 0,
-  loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote' }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); }
+  loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote' }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); reused = new Set(); }
 reset();
 function jobShape(requestID, status = 'queued') { return { request_id: requestID, state: status, stage_entered_at: new Date().toISOString(), release_id: status === 'ready' ? release : null,
   held_credits: 150, charged_credits: status === 'ready' ? 43 : status === 'canceled' ? 0 : null, released_credits: status === 'ready' ? 107 : status === 'canceled' ? 150 : null, failure: null }; }
@@ -51,12 +51,13 @@ const server = http.createServer(async (req, res) => {
   }
   const action = url.searchParams.get('action'); calls.push({ action, body: value, requestID: url.searchParams.get('request_id') });
   if (action === 'catalog') { json({ episodes: state.catalog ? [episode()] : [], next: null, capabilities: capabilities() }); return; }
-  if (action === 'paper') { json({ episode: state.paperReady ? episode(release, 'private') : null, job, capabilities: capabilities() }); return; }
+  if (action === 'paper') { json({ episode: state.paperReady ? episode(release, 'private') : null, job: state.hidePaperJob ? null : job, capabilities: capabilities() }); return; }
   if (action === 'states' && state.stateError) { json({ code: 'service_unavailable' }, 503); return; }
   if (action === 'states') { json({ states: Object.fromEntries(value.release_ids.map(id => [id, { state: id === release ? state.releaseState : 'ready', replacement_id: state.releaseState === 'superseded' ? replacement : null }])) }); return; }
   if (action === 'episode') {
+    if (state.episodeError) { json({ code: 'service_unavailable' }, 503); return; }
     if (state.episodeDelay) await new Promise(r => setTimeout(r, state.episodeDelay));
-    json({ episode: { ...episode(url.searchParams.get('release_id'), state.paperReady || job?.state === 'ready' ? 'private' : 'shared'), chapters, transcript } }); return;
+    json({ episode: { ...episode(url.searchParams.get('release_id'), state.paperReady || reused.size || job?.state === 'ready' ? 'private' : 'shared'), chapters, transcript } }); return;
   }
   if (action === 'download') {
     if (!state.delivery) { json({ code: 'podcast_unavailable' }, 503); return; }
@@ -72,14 +73,22 @@ const server = http.createServer(async (req, res) => {
   }
   if (action === 'start') {
     if (quoteIDs.get(value.request_id) !== value.quote_id || value.consent_version !== 'podcast-private-v1') { json({ code: 'podcast_request_conflict' }, 409); return; }
-    job ??= jobShape(value.request_id);
+    if (state.startAdmissionDelay) await new Promise(r => setTimeout(r, state.startAdmissionDelay));
+    if (state.startError) { json({ code: state.startError }, 409); return; }
+    if (!state.dropStartBeforeAdmission) {
+      if (state.startOutcome === 'reuse') reused.add(value.request_id);
+      else job ??= jobShape(value.request_id);
+    }
     if (state.startDelay) await new Promise(r => setTimeout(r, state.startDelay));
-    if (state.loseStart) { state.loseStart = false; json({ code: 'service_unavailable' }, 503); return; }
-    json({ job }); return;
+    if (state.loseStart || state.dropStartBeforeAdmission) { state.loseStart = false; json({ code: 'service_unavailable' }, 503); return; }
+    json(reused.has(value.request_id) ? { reuse: { release_id: release } } : { job }); return;
   }
   if (action === 'status') {
-    if (!job || job.request_id !== url.searchParams.get('request_id')) { json({ code: 'podcast_request_unavailable' }, 404); return; }
-    state.statusReads++; if (job.state !== 'canceled') job = jobShape(job.request_id, state.statusReads >= state.readyAfter ? 'ready' : 'checking');
+    const id = url.searchParams.get('request_id');
+    if (state.statusUnavailable) { json({ code: 'podcast_request_unavailable' }, 404); return; }
+    if (reused.has(id)) { json({ reuse: { release_id: release } }); return; }
+    if (!job || job.request_id !== id) { json({ code: 'podcast_request_unavailable' }, 404); return; }
+    state.statusReads++; if (job.state !== 'canceled') job = jobShape(job.request_id, state.terminalState ?? (state.statusReads >= state.readyAfter ? 'ready' : 'checking'));
     json({ job }); return;
   }
   if (action === 'cancel') { job = jobShape(value.request_id, 'canceled'); json({ job }); return; }

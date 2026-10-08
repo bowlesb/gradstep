@@ -4,12 +4,13 @@
 // grant, verified (length and SHA-256) and played from an in-memory Blob URL; nothing is kept after Stop or sign-out.
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { auth, BackendError } from '../lib/backend';
-import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast } from '../lib/podcast';
+import { type Capabilities, type Chapter, type Episode, type EpisodeDetail, type Evidence, downloadEpisodeAudio, podcastCatalog, podcastEpisode, podcastStates, revocationPollDelay, podcastPaper, podcastQuote, podcastStart, podcastStatus, podcastCancel, jobTerminal, statusPollDelay, type Job, type Quote, type PaperPodcast, type RequestResult } from '../lib/podcast';
 import { SKIP_MS, SPEEDS, chapterAt, clock, durationLabel, loadPosition, positionText, resumeAt, savePosition, segmentAt, clearPositions, removePosition } from '../lib/podcast-playback';
 import { Icon } from './PodcastIcons';
 import { Dialog } from './common';
 import './Podcast.css';
 import { useMedia } from './prefs';
+import { PodcastRequests, PodcastTrackingError } from '../lib/podcast-requests';
 
 // Auth refresh preserves generation; sign-out, account change and same-account re-login retire every operation.
 function useAccountOwner(account: string) {
@@ -17,13 +18,18 @@ function useAccountOwner(account: string) {
   return useMemo(() => snapshot, [account, snapshot.generation]);
 }
 
+// Older deployments may not have the podcast function yet. Keep this distinct from a failed
+// download or an uncertain paid request; only read-only catalog/paper discovery uses it.
+const featureUnavailable = (error: unknown) => error instanceof BackendError
+  && (error.status === 404 || error.status === 405 || error.code === 'podcast_unavailable');
+
 // ---------- Catalog ----------
 
 export function usePodcasts(account: string) {
   const owner = useAccountOwner(account);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>('idle');
+  const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'failed' | 'unavailable'>('idle');
   const [next, setNext] = useState<string | null>(null);
   const request = useRef<AbortController | null>(null);
   const load = useCallback((more = false) => {
@@ -41,7 +47,7 @@ export function usePodcasts(account: string) {
         return [...previous, ...catalog.episodes.filter(e => !known.has(e.releaseID))].slice(0, 500);
       });
       setNext(catalog.next); setState('loaded');
-    }, () => { if (!controller.signal.aborted && !owner.signal.aborted) setState('failed'); });
+    }, error => { if (!controller.signal.aborted && !owner.signal.aborted) setState(featureUnavailable(error) ? 'unavailable' : 'failed'); });
   }, [account, next, owner]);
   useEffect(() => {
     const retire = () => { request.current?.abort(); setEpisodes([]); setCapabilities(null); setNext(null); setState('idle'); };
@@ -76,7 +82,7 @@ export function ListenView({ podcasts, player }: { podcasts: PodcastsModel; play
   if (state === 'loading' && !episodes.length) return <div className="empty"><div className="spinner" aria-label="Loading episodes" /></div>;
   if (state === 'failed' && !episodes.length) return (
     <div className="empty"><p>Episodes aren’t available right now. Try again in a moment.</p><button className="secondary" onClick={() => load()}>Try again</button></div>);
-  if (capabilities && (!capabilities.catalog || !capabilities.delivery)) return (
+  if (state === 'unavailable' || (capabilities && (!capabilities.catalog || !capabilities.delivery))) return (
     <div className="empty" data-testid="podcast-unavailable"><p><strong>Listening isn’t available yet.</strong></p>
       <p className="muted">Shared paper episodes appear here once they’re published. Reading and chat are unaffected.</p></div>);
   if (state === 'loaded' && !episodes.length) return (
@@ -444,6 +450,9 @@ const jobLabels: Record<Job['state'], string> = {
   capacity_wait: 'Waiting for capacity', unknown_provider: 'Generation stopped; provider outcome needs review', quarantined: 'Episode held for review',
 };
 function generationMessage(error: unknown) {
+  if (error instanceof PodcastTrackingError) return error.code === 'full'
+    ? 'This tab has too many unresolved episode requests. Check their status before starting another.'
+    : 'This tab couldn’t retain the request for a safe retry. No new episode request was sent. Check that browser storage is available, then check availability again.';
   const code = error instanceof BackendError ? error.code : '';
   if (code === 'insufficient_credits') return 'There aren’t enough available credits. Add credits in Gradstep on iPhone, iPad or Mac, then retry this estimate.';
   if (code === 'quote_expired' || code === 'quote_unavailable') return 'This estimate expired. Get a new estimate before confirming.';
@@ -457,6 +466,7 @@ function generationMessage(error: unknown) {
 /** Mount beside a synced paper's existing toolbar actions. No quote or paid start happens on mount/open. */
 export function PaperListen({ account, itemID, title, player }: { account: string; itemID: string; title: string; player: PlayerModel }) {
   const owner = useAccountOwner(account);
+  const tracking = useMemo(() => new PodcastRequests(account, owner), [account, owner]);
   const [shown, setShown] = useState(false);
   const [paper, setPaper] = useState<PaperPodcast | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -464,6 +474,8 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const [busy, setBusy] = useState<'paper' | 'quote' | 'start' | 'status' | 'cancel' | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [uncertainStart, setUncertainStart] = useState(false);
+  const [trackingBlocked, setTrackingBlocked] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [pollPaused, setPollPaused] = useState(false);
   const [wakeRevision, setWakeRevision] = useState(0);
   const requestID = useRef<string | null>(null);
@@ -471,33 +483,66 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const visible = useRef(shown); visible.current = shown;
   const startedPolling = useRef(0);
   const reset = useCallback(() => { pending.current?.abort(); pending.current = null; requestID.current = null;
-    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); }, []);
+    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); setUnavailable(false); setTrackingBlocked(false); }, []);
   useEffect(() => {
     reset(); owner.signal.addEventListener('abort', reset, { once: true });
     return () => { owner.signal.removeEventListener('abort', reset); reset(); };
   }, [owner, itemID, reset]);
   const begin = (kind: NonNullable<typeof busy>) => {
     if (owner.signal.aborted || owner.session?.user.id !== account || auth.snapshot().generation !== owner.generation) return null;
+    // React state updates are not an operation lock. Two handlers in one task must not dispatch two Starts.
+    if (kind !== 'paper' && pending.current && !pending.current.signal.aborted) return null;
     pending.current?.abort(); const controller = new AbortController(); pending.current = controller; setBusy(kind); setIssue(null);
     return controller;
   };
   const live = (c: AbortController) => !c.signal.aborted && !owner.signal.aborted && pending.current === c && auth.snapshot().generation === owner.generation;
+  const confirmed = (id: string) => {
+    // Failure to remove a confirmed hint is safe: the next open reconciles the same ID again.
+    try { tracking.resolve(itemID, id); } catch { /* never replace an unresolved stored identity */ }
+  };
   const acceptJob = (next: Job) => {
+    confirmed(next.requestID);
     requestID.current = next.requestID; setJob(next); setQuote(null); setUncertainStart(false);
     if (!startedPolling.current) startedPolling.current = Date.now();
   };
+  const acceptResult = async (next: RequestResult, id: string, c: AbortController, discovery = paper) => {
+    if (!live(c)) return;
+    if (next.kind === 'job') { acceptJob(next.job); return; }
+    // A successful start/status reuse is authoritative, but fetch and validate its actual release
+    // before offering Play. A failed lookup retains the exact request so status remains recoverable.
+    const episode = await podcastEpisode(account, next.releaseID, c.signal);
+    if (!live(c)) return;
+    if (episode.state !== 'ready') throw new BackendError('podcast_release_unavailable');
+    confirmed(id);
+    const capabilities = discovery?.capabilities ?? { catalog: false, generation: false, delivery: false, maxCredits: 150, targetSeconds: 300, transfer: null };
+    setPaper({ capabilities, job: null, episode: { ...episode, title: episode.scope === 'private' ? title : episode.title } });
+    setJob(null); setQuote(null); setUncertainStart(false);
+  };
   const load = async () => {
     const c = begin('paper'); if (!c) return;
-    visible.current = true; setShown(true);
+    visible.current = true; setShown(true); setUnavailable(false); setPaper(null); setTrackingBlocked(false);
+    let retained = null;
+    try { retained = tracking.get(itemID); }
+    catch (e) { setTrackingBlocked(true); setIssue(generationMessage(e)); }
+    if (retained) { requestID.current = retained.requestID; setQuote(retained.quote); setJob(null); setUncertainStart(true); }
     try {
       const result = await podcastPaper(account, itemID, c.signal); if (!live(c)) return;
-      setPaper(result); setQuote(null); setJob(result.job); setUncertainStart(false); setPollPaused(false); startedPolling.current = Date.now();
-      requestID.current = result.job?.requestID ?? crypto.randomUUID();
-    } catch (e) { if (live(c)) setIssue(generationMessage(e)); }
-    finally { if (live(c)) setBusy(null); }
+      setPaper(retained ? { ...result, episode: null, job: null } : result);
+      setPollPaused(false); startedPolling.current = Date.now();
+      if (retained) {
+        // A discovery miss (or a different active request) is not a negative receipt. Only this
+        // request's result can reconcile a Start whose transport may already have reached the server.
+        const outcome = await podcastStatus(account, retained.requestID, c.signal);
+        await acceptResult(outcome, retained.requestID, c, result);
+      } else {
+        setQuote(null); setJob(result.job); setUncertainStart(false);
+        requestID.current = result.job?.requestID ?? crypto.randomUUID();
+      }
+    } catch (e) { if (live(c)) { if (!retained && featureUnavailable(e)) setUnavailable(true); else setIssue(generationMessage(e)); } }
+    finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const estimate = async () => {
-    if (!paper?.capabilities.generation || busy) return;
+    if (!paper?.capabilities.generation || busy || trackingBlocked || uncertainStart) return;
     const c = begin('quote'); if (!c) return;
     requestID.current ??= crypto.randomUUID();
     try {
@@ -505,32 +550,49 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
       if (result.kind === 'quote') { setQuote(result.quote); setJob(null); }
       else if (result.kind === 'join') {
         requestID.current = result.requestID;
-        const next = await podcastStatus(account, result.requestID, c.signal); if (live(c)) acceptJob(next);
+        await acceptResult(await podcastStatus(account, result.requestID, c.signal), result.requestID, c);
       } else {
         const e = await podcastEpisode(account, result.releaseID, c.signal);
-        if (live(c)) { setPaper({ ...paper, episode: { ...e, title: e.scope === 'private' ? title : e.title } }); setQuote(null); }
+        if (live(c)) {
+          if (e.state !== 'ready') throw new BackendError('podcast_release_unavailable');
+          setPaper({ ...paper, episode: { ...e, title: e.scope === 'private' ? title : e.title } }); setQuote(null);
+        }
       }
     } catch (e) { if (live(c)) setIssue(generationMessage(e)); }
-    finally { if (live(c)) setBusy(null); }
+    finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const start = async () => {
-    if (!paper?.capabilities.generation || !quote || !requestID.current || busy) return;
-    if (!uncertainStart && Date.now() >= quote.expiresAt) { setIssue('This estimate expired. Get a new estimate before confirming.'); setQuote(null); requestID.current = crypto.randomUUID(); return; }
+    if (!paper?.capabilities.generation || !quote || !requestID.current || busy || trackingBlocked || (pending.current && !pending.current.signal.aborted)) return;
+    const id = requestID.current, capturedQuote = quote, wasUncertain = uncertainStart;
+    if (!wasUncertain && Date.now() >= quote.expiresAt) { setIssue('This estimate expired. Get a new estimate before confirming.'); setQuote(null); requestID.current = crypto.randomUUID(); return; }
     const c = begin('start'); if (!c) return;
-    setUncertainStart(true); // A lost response may already have started work: preserve exactly this quote/request pair.
-    try { const next = await podcastStart(account, quote, requestID.current, c.signal); if (live(c)) acceptJob(next); }
-    catch (e) {
-      if (live(c)) { setIssue(generationMessage(e)); if (e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)) {
-        setQuote(null); setUncertainStart(false); requestID.current = crypto.randomUUID();
-      } }
-    } finally { if (live(c)) setBusy(null); }
+    try {
+      // Synchronous write + read-back precedes every transport, including an exact retry. No storage
+      // success means no paid POST. Reload recovers the same finite consent/quote identity.
+      tracking.remember(itemID, id, capturedQuote);
+      setUncertainStart(true);
+      await acceptResult(await podcastStart(account, capturedQuote, id, c.signal), id, c);
+    } catch (e) {
+      if (live(c)) {
+        setIssue(wasUncertain && e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)
+          ? 'This estimate expired, but the earlier request may have started. Check its status before starting another.' : generationMessage(e));
+        if (e instanceof PodcastTrackingError) setTrackingBlocked(true);
+        else if (!wasUncertain && e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)) {
+          // This first, uninterrupted call was explicitly refused before admission. Once a prior
+          // attempt was ambiguous, preserve its identity even if a later retry sees an expired quote.
+          confirmed(id); setQuote(null); setUncertainStart(false); requestID.current = crypto.randomUUID();
+        }
+      }
+    } finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const updateJob = async (cancel = false) => {
     if (!visible.current || !requestID.current || busy) return;
-    const c = begin(cancel ? 'cancel' : 'status'); if (!c) return;
-    try { const next = await (cancel ? podcastCancel : podcastStatus)(account, requestID.current, c.signal); if (live(c)) acceptJob(next); }
-    catch (e) { if (live(c)) { setIssue(generationMessage(e)); setPollPaused(true); } }
-    finally { if (live(c)) setBusy(null); }
+    const id = requestID.current, c = begin(cancel ? 'cancel' : 'status'); if (!c) return;
+    try {
+      if (cancel) { const next = await podcastCancel(account, id, c.signal); if (live(c)) acceptJob(next); }
+      else await acceptResult(await podcastStatus(account, id, c.signal), id, c);
+    } catch (e) { if (live(c)) { setIssue(generationMessage(e)); setPollPaused(true); } }
+    finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const latestUpdate = useRef(updateJob); latestUpdate.current = updateJob;
   // One in-flight status read, 5s during the first minute then 15s, visible sheet only, finite 30-minute window.
@@ -553,7 +615,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
       const e = paper?.episode ?? (job?.releaseID ? await podcastEpisode(account, job.releaseID, c.signal) : null);
       if (live(c) && e && paper?.capabilities.delivery) { close(); await player.open({ ...e, title: e.scope === 'private' ? title : e.title }); }
     } catch (e) { if (live(c)) setIssue(message(e)); }
-    finally { if (live(c)) setBusy(null); }
+    finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const ready = paper?.episode?.state === 'ready' || job?.state === 'ready';
   return <>
@@ -564,10 +626,12 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
         <strong>{title}</strong>
         {busy && <p role="status"><span className="spinner small" /> {busy === 'quote' ? 'Getting an estimate…' : busy === 'start' ? 'Starting…' : busy === 'cancel' ? 'Canceling…' : 'Checking availability…'}</p>}
         {issue && <p className="issue" role="alert">{issue}</p>}
-        {!paper && !busy && <button className="secondary" onClick={() => void load()}>Check availability</button>}
+        {trackingBlocked && <button className="secondary" disabled={!!busy} onClick={() => void load()}>Check availability</button>}
+        {unavailable && <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
+        {!paper && !busy && !unavailable && !trackingBlocked && <button className="secondary" onClick={() => void load()}>Check availability</button>}
         {paper && ready && <><p>Your episode is ready. AI audio and a source-linked transcript.</p><button className="primary" disabled={!paper.capabilities.delivery || !!busy} onClick={() => void play()}>Play episode</button>
           {!paper.capabilities.delivery && <p>Listening is temporarily unavailable.</p>}</>}
-        {paper && job && <>
+        {job && <>
           <p role="status" data-testid="podcast-job-state">{jobLabels[job.state]}</p>
           <p data-testid="podcast-charges">{job.chargedCredits === null ? `Holding up to ${job.heldCredits} credits until the final charge is recorded.` : `${job.chargedCredits} credits charged${job.releasedCredits === null ? '' : ` · ${job.releasedCredits} released`}.`}</p>
           {!jobTerminal(job) && <><p className="fine">Closing this sheet keeps generation running. Cancel stops future work; usage already completed may be charged.</p>
@@ -577,7 +641,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
         </>}
         {paper && !ready && !job && !quote && <>
           {paper.capabilities.generation ? <><p>Make a private, five-minute episode with two AI hosts and a transcript linked to the paper.</p>
-            <p className="fine">You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy} onClick={() => void estimate()}>Get an estimate</button></>
+            <p className="fine">You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy || trackingBlocked} onClick={() => void estimate()}>Get an estimate</button></>
             : <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
         </>}
         {quote && !ready && !job && <>
@@ -585,7 +649,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
           <p>The paper’s converted text is sent to {quote.providers.join(' and ')}. Chats, notes and highlights are never used.</p>
           <p>The audio and transcript are stored privately for your account. They aren’t end-to-end encrypted.</p>
           <p className="fine">AI-generated · beta: check important claims against the paper.</p>
-          <button className="primary" disabled={!!busy || !paper?.capabilities.generation} onClick={() => void start()} data-testid="podcast-confirm">
+          <button className="primary" disabled={!!busy || trackingBlocked || !paper?.capabilities.generation} onClick={() => void start()} data-testid="podcast-confirm">
             {uncertainStart ? 'Retry same request' : `Create episode · up to ${quote.maxCredits} credits`}</button>
           {uncertainStart && <button className="link" disabled={!!busy} onClick={() => void updateJob()}>Check request status</button>}
         </>}

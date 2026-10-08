@@ -276,6 +276,19 @@ describe('current server contract and private generation', () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ job: job({ request_id: DOCUMENT }) })));
     await expect(podcast.podcastStatus(ACCOUNT, requestID)).rejects.toMatchObject({ code: 'invalid_response' });
   });
+  it('accepts late start/status reuse while refusing ambiguous, malformed or wrong-request outcomes', async () => {
+    const { podcast } = await setup();
+    const result = podcast.decodeQuote({ quote: quote() }); if (result.kind !== 'quote') throw new Error('fixture');
+    const fetcher = vi.fn(async () => json({ reuse: { release_id: RELEASE } })); vi.stubGlobal('fetch', fetcher);
+    expect(await podcast.podcastStart(ACCOUNT, result.quote, requestID)).toEqual({ kind: 'reuse', releaseID: RELEASE });
+    expect(await podcast.podcastStatus(ACCOUNT, requestID)).toEqual({ kind: 'reuse', releaseID: RELEASE });
+    expect(fetcher).toHaveBeenCalledTimes(2); // no hidden paid retry, lookup or download
+    for (const value of [{ job: job(), reuse: { release_id: RELEASE } }, { reuse: { release_id: 'bad' } }, {}, { job: job({ request_id: DOCUMENT }) }]) {
+      expect(() => podcast.decodeRequestResult(value, requestID)).toThrow();
+    }
+    // Cancel is a job-only operation in the actual server contract.
+    await expect(podcast.podcastCancel(ACCOUNT, requestID)).rejects.toMatchObject({ code: 'invalid_response' });
+  });
   it('does not infer completion, uses bounded status cadence and treats unknown-provider outcome as terminal', async () => {
     const { podcast } = await setup();
     expect(podcast.statusPollDelay(59_999)).toBe(5_000); expect(podcast.statusPollDelay(60_000)).toBe(15_000);
