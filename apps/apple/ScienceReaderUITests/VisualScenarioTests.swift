@@ -193,7 +193,7 @@ final class VisualScenarioTests: XCTestCase {
                 XCTAssertTrue(paragraph.waitForExistence(timeout: 5))
                 web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
                     dx: paragraph.frame.minX - web.frame.minX + 55, dy: paragraph.frame.minY - web.frame.minY + 18)).press(forDuration: 1)
-                XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5)); sleep(1)
+                XCTAssertTrue(app.editMenuItem("Explain in Chat").waitForExistence(timeout: 5)); sleep(1)
             },
             // Citations and the publication line (owner feedback, build 11 session).
             "paper-top": Scenario(arguments: Self.mathpixFixture) { app in self.openMathpix(app) },

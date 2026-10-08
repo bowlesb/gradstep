@@ -126,7 +126,7 @@ struct GradstepCommands: Commands {
             Divider()
             Menu("Ask About Selection") {
                 ForEach(Array(SelectionAction.allCases.enumerated()), id: \.offset) { index, action in
-                    Button(action.title) { paper?.selection?(action) }
+                    Button(action.menuTitle) { paper?.selection?(action) }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
                 }
             }.disabled(paper?.selection == nil)

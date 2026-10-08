@@ -122,13 +122,13 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertEqual(finding.presentation(at: now + 10).status, "\(finding.percent(at: now + 10)!)% · Usually under a minute")
         XCTAssertEqual(finding.timeLeft(at: now + 30), .typical(seconds: 47))
         XCTAssertEqual(finding.timeLeft(at: now + 95), .slow)
-        // Backing off after an error, or paused: no estimate, and it says so.
+        // Backing off after an error, or paused: no estimate and no percent (build 16 #10), and it says so.
         let delayed = progress(.init(step: .readingEquations, percent: 41, delayed: true, pages: 25, pagesDone: 9))
         let shown = delayed.presentation(at: now + 600)
-        XCTAssertEqual(shown.status, "41% · Taking longer than usual")
+        XCTAssertEqual(shown.status, "Taking longer than usual")
         XCTAssertTrue(shown.isSlow)
-        XCTAssertEqual(shown.percent, 41, "No count-down while delayed")
-        XCTAssertEqual(shown.accessibilityLabel, "Reading equations and figures, page 9 of 25, 41 percent, taking longer than usual")
+        XCTAssertNil(shown.percent, "No percent while it waits: the row shows a spinner")
+        XCTAssertEqual(shown.accessibilityLabel, "Reading equations and figures, page 9 of 25, taking longer than usual")
         // A detail without an estimate (not delayed): quiet, until the step has run three minutes here.
         let quiet = progress(.init(step: .readingEquations, percent: 41, pages: 25), stepSince: now)
         XCTAssertNil(quiet.timeLeft(at: now + 60))
@@ -141,10 +141,47 @@ final class ImportProgressTests: XCTestCase {
         let reading = progress(.init(step: .readingEquations, percent: 60, etaSeconds: 40, pages: 27, pagesDone: 12))
         XCTAssertEqual(reading.percent(at: now), 60)
         XCTAssertEqual(reading.percent(at: now + 20), 79, "Halfway to the estimate: halfway from 60 to 99")
-        XCTAssertEqual(reading.percent(at: now + 40), 99)
-        XCTAssertEqual(reading.percent(at: now + 400), 99, "Never 100: the row becomes the paper")
+        XCTAssertEqual(reading.percent(at: now + 40), 85, "Reading waits where reading usually ends")
+        let preparing = progress(.init(step: .preparing, percent: 90, etaSeconds: 10, pages: 27), step: .building)
+        XCTAssertEqual(preparing.percent(at: now + 10), 99)
+        XCTAssertEqual(preparing.percent(at: now + 400), 99, "Never 100: the row becomes the paper")
         XCTAssertEqual(progress(.init(step: .readingEquations, percent: 30, etaSeconds: 40, pages: 27), floor: 45).percent(at: now), 45)
         XCTAssertEqual(progress(.init(step: .readingEquations, percent: 100, pages: 27)).percent(at: now), 99)
+        XCTAssertEqual(progress(.init(step: .readingEquations, percent: 90, etaSeconds: 40, pages: 27)).percent(at: now + 30), 90,
+                       "A server percent past the step’s usual end holds until the next detail")
+    }
+
+    /// Owner feedback, build 16 #10: "Finding 99% · Taking longer than usual" while arXiv rate-limited the details.
+    /// The bar no longer counts past the step, and a waiting import shows the step, a spinner and what it waits for.
+    func testAStuckStepNeverShowsANearlyDonePercent() throws {
+        let finding = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 3, etaSeconds: 47), receivedAt: now,
+                                     sourceName: "arXiv")
+        XCTAssertEqual(finding.percent(at: now + 47), 15, "Finding counts no further than where finding usually ends")
+        XCTAssertEqual(finding.percent(at: now + 80), 15)
+        let late = finding.presentation(at: now + 200)
+        XCTAssertNil(late.percent, "Well past the estimate: no percent")
+        XCTAssertEqual(late.timeText, "Taking longer than usual")
+        XCTAssertEqual(late.status, "Taking longer than usual")
+
+        // The server says it is backing off: what it is waiting for, even if an earlier count reached 99.
+        let backingOff = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 5, delayed: true), receivedAt: now,
+                                        floor: 99, sourceName: "arXiv")
+        let shown = backingOff.presentation(at: now + 1)
+        XCTAssertNil(shown.percent)
+        XCTAssertNil(shown.fraction, "An indeterminate spinner, not a bar")
+        XCTAssertEqual(shown.timeText, "Waiting for arXiv · retrying")
+        XCTAssertEqual(shown.compactTimeText, "Waiting for arXiv · retrying")
+        XCTAssertEqual(shown.accessibilityLabel, "Finding the paper, waiting for arXiv, retrying")
+        let web = ImportProgress(step: .finding, detail: .init(step: .finding, percent: 5, delayed: true), receivedAt: now)
+        XCTAssertEqual(web.presentation(at: now).timeText, "Waiting to retry")
+        let download = ImportProgress(step: .downloading, detail: .init(step: .downloading, percent: 20, delayed: true), receivedAt: now)
+        XCTAssertEqual(download.presentation(at: now).timeText, "Waiting to retry")
+
+        // The tracker names arXiv for an arXiv import.
+        var tracker = ImportProgressTracker()
+        let item = try record(progress: "finding", detail: ["step": "finding", "percent": 5, "delayed": true])
+        tracker.observe([item], now: now)
+        XCTAssertEqual(tracker.progress(of: item, stepSince: nil, now: now)?.presentation(at: now).timeText, "Waiting for arXiv · retrying")
     }
 
     func testTrackerKeepsTheBarFromGoingBackUntilARetry() throws {

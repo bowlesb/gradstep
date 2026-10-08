@@ -140,7 +140,7 @@ private struct TranscriptMessage: View {
         .accessibilityIdentifier("chat.message.\(message.id.wire)")
     }
 
-    /// Selected answer text and formulas: Ask about this, Explain, Define (not while streaming).
+    /// Selected answer text and formulas: Quote in Chat, Explain, Define (not while streaming).
     private var quoteHandler: ChatQuoteHandler? {
         guard message.payload.role == .assistant, !streaming, let model = papers?.model else { return nil }
         return { action, quote in model.chatQuoteAction(action, quote: quote) }

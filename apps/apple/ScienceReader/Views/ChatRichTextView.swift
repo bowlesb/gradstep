@@ -140,9 +140,9 @@ struct ChatBlocksView: View {
                 displayMath(latex).contextMenu {
                     Button("Copy LaTeX", systemImage: "doc.on.doc") { ChatFormulaActions.copyLatex(latex) }
                     Button("Copy as text", systemImage: "textformat") { ChatFormulaActions.copyText(latex) }
-                    Button("Explain", systemImage: "lightbulb") { onQuote(.explain, "\\[\(latex)\\]") }
-                    Button("Define", systemImage: "character.book.closed") { onQuote(.define, "\\[\(latex)\\]") }
-                    Button("Ask about this", systemImage: "text.bubble") { onQuote(.ask, "\\[\(latex)\\]") }
+                    ForEach(ReaderModel.ChatQuoteAction.allCases, id: \.self) { action in
+                        Button(action.menuTitle, systemImage: action.symbol) { onQuote(action, "\\[\(latex)\\]") }
+                    }
                 }
             } else {
                 displayMath(latex)
@@ -196,7 +196,7 @@ struct ChatBlocksView: View {
     }
 }
 
-/// Runs an action on text or a formula from an answer (Ask about this, Explain, Define).
+/// Runs an action on text or a formula from an answer (Quote in Chat, Explain, Define).
 typealias ChatQuoteHandler = @MainActor (ReaderModel.ChatQuoteAction, String) -> Void
 
 extension NSAttributedString.Key {
@@ -212,15 +212,19 @@ enum ChatFormulaActions {
 
     @MainActor static func menu(_ latex: String, quote: String, onQuote: @escaping ChatQuoteHandler) -> [UIMenuElement] {
         [UIAction(title: "Copy LaTeX", image: UIImage(systemName: "doc.on.doc")) { _ in copyLatex(latex) },
-         UIAction(title: "Copy as text", image: UIImage(systemName: "textformat")) { _ in copyText(latex) },
-         UIAction(title: "Explain", image: UIImage(systemName: "lightbulb")) { _ in onQuote(.explain, quote) },
-         UIAction(title: "Define", image: UIImage(systemName: "character.book.closed")) { _ in onQuote(.define, quote) },
-         UIAction(title: "Ask about this", image: UIImage(systemName: "text.bubble")) { _ in onQuote(.ask, quote) }]
+         UIAction(title: "Copy as text", image: UIImage(systemName: "textformat")) { _ in copyText(latex) }] + quoteActions(quote, onQuote: onQuote)
+    }
+
+    /// Quote in Chat, Explain, Define: the same words and order for text and formulas (build 16 #4).
+    @MainActor static func quoteActions(_ quote: String, onQuote: @escaping ChatQuoteHandler) -> [UIMenuElement] {
+        ReaderModel.ChatQuoteAction.allCases.map { action in
+            UIAction(title: action.menuTitle, image: UIImage(systemName: action.symbol)) { _ in onQuote(action, quote) }
+        }
     }
 }
 
 /// Answer text the reader can select and act on (owner feedback 2026-10-07): a read-only
-/// text view whose selection menu adds Ask about this, Explain and Define to Copy, and
+/// text view whose selection menu adds Quote in Chat, Explain and Define to Copy, and
 /// whose inline formulas (image attachments) offer Copy LaTeX and Copy as text. Copy and
 /// quotes keep formulas as their LaTeX. On the Mac it is the right-click menu.
 struct ChatSelectableText: UIViewRepresentable {
@@ -244,9 +248,7 @@ struct ChatSelectableText: UIViewRepresentable {
             if let latex = ChatSelectableText.soleFormula(text, range: range) {
                 return UIMenu(children: ChatFormulaActions.menu(latex, quote: quote, onQuote: onQuote))
             }
-            let actions = [UIAction(title: "Ask about this", image: UIImage(systemName: "text.bubble")) { _ in onQuote(.ask, quote) },
-                           UIAction(title: "Explain", image: UIImage(systemName: "lightbulb")) { _ in onQuote(.explain, quote) },
-                           UIAction(title: "Define", image: UIImage(systemName: "character.book.closed")) { _ in onQuote(.define, quote) }]
+            let actions = ChatFormulaActions.quoteActions(quote, onQuote: onQuote)
             // Copy (the system's edit group) stays first; the chat actions follow it, then Look Up, Share and the rest.
             let isEdit = { (element: UIMenuElement) in (element as? UIMenu)?.identifier == .standardEdit }
             return UIMenu(children: suggestedActions.filter(isEdit) + [UIMenu(options: .displayInline, children: actions)]
@@ -641,8 +643,8 @@ struct ChatPaperContext {
 }
 
 /// "Papers in this answer": the arXiv IDs and DOIs an answer names, found on the
-/// device (no model call), styled like Sources. Each opens only after the reader
-/// sees its address, and can be added to the library.
+/// device (no model call), styled like Sources. Each one's identifier links to its
+/// abstract page (after the reader sees the address), and it can be added to the library.
 struct ChatAnswerPapersView: View {
     let mentions: [ChatPaperMention]
     let fontSize: Double
@@ -678,19 +680,24 @@ struct ChatAnswerPapersView: View {
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text("\(number).").monospacedDigit().foregroundStyle(.secondary).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: title ?? mention.label).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(Text(verbatim: "Paper \(number): \(title.map { "\($0), \(mention.label)" } ?? mention.label)"))
-                    .accessibilityIdentifier("chat.paper.\(number)")
-                // One line when everything fits untruncated, else details above the actions.
+                if let title {
+                    Text(verbatim: title).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel(Text(verbatim: "Paper \(number): \(title), \(mention.label)"))
+                        .accessibilityIdentifier("chat.paper.\(number)")
+                } else {
+                    // Named only by its identifier: the identifier is the line, and the link.
+                    link(mention, number: number, font: .system(size: fontSize * 0.86))
+                }
+                // One line when everything fits untruncated, else the link and state above Add to library.
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 16) {
-                        details(mention, number: number, title: title, inLibrary: inLibrary, font: small)
+                        details(mention, number: number, linked: title != nil, inLibrary: inLibrary, font: small)
                         buttons(mention, number: number, inLibrary: inLibrary, notice: notice)
                     }
                     .fixedSize()
                     VStack(alignment: .leading, spacing: 6) {
-                        details(mention, number: number, title: title, inLibrary: inLibrary, font: small)
-                        HStack(spacing: 18) { buttons(mention, number: number, inLibrary: inLibrary, notice: notice) }
+                        details(mention, number: number, linked: title != nil, inLibrary: inLibrary, font: small)
+                        buttons(mention, number: number, inLibrary: inLibrary, notice: notice)
                     }
                 }
                 if let notice { noticeLine(notice, mention: mention, number: number, font: small) }
@@ -699,29 +706,41 @@ struct ChatAnswerPapersView: View {
         .font(.system(size: fontSize * 0.86))
     }
 
-    private func details(_ mention: ChatPaperMention, number: Int, title: String?, inLibrary: Bool, font: Font) -> some View {
-        HStack(spacing: 8) {
-            if title != nil { Text(verbatim: mention.label).foregroundStyle(.secondary).lineLimit(1).accessibilityHidden(true) }
-            if inLibrary {
-                HStack(spacing: 3) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityHidden(true)
-                    Text("In your library").foregroundStyle(.secondary)
-                }
-                .lineLimit(1)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("chat.paper.\(number).inLibrary")
+    /// The paper's arXiv ID or DOI as a link to its abstract page (owner feedback, build 16 #9: "remove Open and just
+    /// put arXiv and it can link out"). It opens only after the reader sees the address, like Sources.
+    private func link(_ mention: ChatPaperMention, number: Int, font: Font) -> some View {
+        Button { pending = mention } label: {
+            HStack(spacing: 2) {
+                Text(verbatim: mention.label).lineLimit(1)
+                Image(systemName: "arrow.up.right").imageScale(.small).accessibilityHidden(true)
             }
         }
-        .font(font)
+        .font(font).buttonStyle(.borderless)
+        .accessibilityLabel(Text(verbatim: mention.label))
+        .accessibilityHint("Shows the abstract page’s address before opening it in Safari")
+        .accessibilityIdentifier("chat.paper.\(number).open")
+    }
+
+    @ViewBuilder private func details(_ mention: ChatPaperMention, number: Int, linked: Bool, inLibrary: Bool, font: Font) -> some View {
+        if linked || inLibrary {
+            HStack(spacing: 10) {
+                if linked { link(mention, number: number, font: font) }
+                if inLibrary {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityHidden(true)
+                        Text("In your library").foregroundStyle(.secondary)
+                    }
+                    .lineLimit(1)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("chat.paper.\(number).inLibrary")
+                }
+            }
+            .font(font)
+        }
     }
 
     @ViewBuilder private func buttons(_ mention: ChatPaperMention, number: Int, inLibrary: Bool, notice: ReaderModel.ReferenceNotice?) -> some View {
         let font = Font.system(size: fontSize * 0.78, weight: .medium)
-        Button { pending = mention } label: { HStack(spacing: 3) { Image(systemName: "arrow.up.right.square"); Text("Open") }.lineLimit(1) }
-            .font(font).buttonStyle(.borderless)
-            .accessibilityLabel(Text(verbatim: "Open \(mention.label)"))
-            .accessibilityHint("Shows the address before opening it in Safari")
-            .accessibilityIdentifier("chat.paper.\(number).open")
         if !inLibrary, notice?.kind != .working, notice?.kind != .added, notice?.kind != .present {
             Button { Task { await context.actions.add(mention, model: context.model) } } label: {
                 HStack(spacing: 3) { Image(systemName: "plus.circle"); Text("Add to library") }.lineLimit(1)

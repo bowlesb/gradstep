@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import ScienceReaderCore
 
 // The Mac app is this target built with Mac Catalyst and the Mac idiom ("Optimize for Mac"); see
 // docs/architecture/MAC_APP.md. Shared views ask `Platform`; Mac-only behavior lives here and in
@@ -111,13 +112,23 @@ private struct MacSheetKeys: ViewModifier {
 
 // MARK: - Reader web view
 
-/// The reader's web view. On the Mac, the context menu of selected text starts with the selection
-/// actions (Explain, Why it matters, Related, Add paper), the same actions as the bar under the paper.
-final class ReaderWebView: WKWebView {
-    /// Set while text is selected in the paper; runs a selection action on it.
-    var selectionAction: ((SelectionAction) -> Void)?
+/// The reader's web view. Selected text gets the system edit menu (the context menu on the Mac) with Copy first,
+/// then the selection actions — Explain in Chat, Why it matters, Related papers, Add paper — then the system's
+/// Look Up, Translate, Share… A tapped equation opens the same menu beside it: Copy LaTeX, Copy as text and the
+/// actions (owner feedback, build 16 #4/#5, replacing the bar that sat under the paper).
+final class ReaderWebView: WKWebView, @MainActor UIEditMenuInteractionDelegate {
+    /// The paper's own view (not a figure's): runs a selection action on what is selected when it is chosen.
+    var menuAction: ((SelectionAction) -> Void)?
+    /// Text is selected (the bridge's last report). The Mac's right-click menu offers the actions only then; iOS offers
+    /// them whenever WebKit shows its edit menu, which can open before the debounced report arrives.
+    var hasSelection = false
     /// The open paper's web view (not a figure's), for Edit › Find in Paper.
     @MainActor static weak var paper: ReaderWebView?
+    /// Called with the bridge's equation ID when that equation's menu closes without an action (its outline goes too).
+    var onEquationMenuDismissed: ((String) -> Void)?
+    private lazy var equationMenu = UIEditMenuInteraction(delegate: self)
+    /// The equation whose menu is open: its quote, where it is, its ID in the page, and this presentation's token.
+    private var equation: (quote: String, rect: CGRect, equationID: String, id: String)?
 
     override init(frame: CGRect, configuration: WKWebViewConfiguration) {
         super.init(frame: frame, configuration: configuration)
@@ -138,23 +149,85 @@ final class ReaderWebView: WKWebView {
         else if backwards { findInteraction.findPrevious() } else { findInteraction.findNext() }
     }
 
-    #if targetEnvironment(macCatalyst)
+    /// Selected text: the actions right after the system's Copy.
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
-        guard builder.system == .context, let selectionAction else { return }
-        let actions = SelectionAction.allCases.map { action in
-            UIAction(title: action.title, image: UIImage(systemName: action.macSymbol)) { _ in selectionAction(action) }
-        }
-        let menu = UIMenu(title: "", identifier: UIMenu.Identifier("gradstep.selection"), options: .displayInline, children: actions)
-        if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, beforeMenu: .standardEdit) }
+        guard builder.system == .context, let menuAction, hasSelection || !Platform.isMac else { return }
+        let menu = UIMenu(title: "", identifier: Self.selectionMenuID, options: .displayInline,
+                          children: Self.actions(SelectionAction.allCases, run: menuAction))
+        guard builder.menu(for: Self.selectionMenuID) == nil else { return }
+        if builder.menu(for: .standardEdit) != nil { builder.insertSibling(menu, afterMenu: .standardEdit) }
         else { builder.insertChild(menu, atStartOfMenu: .root) }
     }
-    #endif
-}
 
-extension SelectionAction {
-    var macSymbol: String {
-        switch self { case .define: "text.magnifyingglass"; case .relevance: "lightbulb"; case .similar: "point.3.connected.trianglepath.dotted"; case .ingest: "plus.square.on.square" }
+    static let selectionMenuID = UIMenu.Identifier("gradstep.selection")
+
+    static func actions(_ actions: [SelectionAction], run: @escaping (SelectionAction) -> Void) -> [UIMenuElement] {
+        actions.map { action in
+            UIAction(title: action.menuTitle, image: UIImage(systemName: action.symbol),
+                     identifier: UIAction.Identifier("reader.selection." + action.rawValue.lowercased())) { _ in run(action) }
+        }
+    }
+
+    // MARK: Equations
+
+    /// A tapped equation (its LaTeX quote and where it is, in this view's coordinates): opens the edit menu beside it.
+    func presentEquationMenu(quote: String, rect: CGRect, equationID: String) {
+        guard menuAction != nil else { return }
+        if !interactions.contains(where: { $0 === equationMenu }) { addInteraction(equationMenu) }
+        let id = UUID().uuidString
+        equation = (quote, rect, equationID, id)
+        let visible = rect.intersection(bounds)
+        let point = visible.isNull ? CGPoint(x: bounds.midX, y: bounds.midY) : CGPoint(x: visible.midX, y: visible.minY)
+        equationMenu.presentEditMenu(with: UIEditMenuConfiguration(identifier: id as NSString, sourcePoint: point))
+    }
+
+    func dismissEquationMenu() {
+        equation = nil
+        equationMenu.dismissMenu()
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
+                             suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let equation, configuration.identifier as? String == equation.id, let menuAction else { return nil }
+        // Copy first, then the actions; "Copy as text" last, so the horizontal menu's first page shows Explain in Chat.
+        let copy = UIAction(title: "Copy LaTeX", image: UIImage(systemName: "doc.on.doc"), identifier: UIAction.Identifier("reader.equation.copyLatex")) { _ in
+            UIPasteboard.general.string = equation.quote
+        }
+        let copyText = UIAction(title: "Copy as text", image: UIImage(systemName: "textformat"), identifier: UIAction.Identifier("reader.equation.copyText")) { _ in
+            UIPasteboard.general.string = Self.plainText(equation.quote)
+        }
+        // The menu is closing because of the action: the equation stays selected until the action has read it.
+        let run: (SelectionAction) -> Void = { [weak self] action in self?.equation = nil; menuAction(action) }
+        return UIMenu(children: [UIMenu(options: .displayInline, children: [copy]),
+                                 UIMenu(options: .displayInline, children: Self.actions(SelectionAction.equationActions, run: run)),
+                                 UIMenu(options: .displayInline, children: [copyText])])
+    }
+
+    /// An equation as Unicode text (as the chat's "Copy as text").
+    static func plainText(_ quote: String) -> String {
+        let math = ChatTitle.segments(quote).compactMap { segment -> String? in
+            if case .math(let body, _, _) = segment { return body }
+            return nil
+        }
+        return math.count == 1 ? ChatMathText.plain(math[0]) : ChatTitle.readable(quote, wholeWord: true)
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration) -> CGRect {
+        guard let equation, configuration.identifier as? String == equation.id else { return .null }
+        let visible = equation.rect.intersection(bounds)
+        return visible.isNull ? .null : visible
+    }
+
+    func editMenuInteraction(_ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
+                             animator: any UIEditMenuInteractionAnimating) {
+        // Only the menu still current: a tap on another equation replaces it with that one's.
+        guard let equation, configuration.identifier as? String == equation.id else { return }
+        animator.addCompletion { [weak self] in
+            guard let self, self.equation?.id == equation.id else { return }
+            self.equation = nil
+            self.onEquationMenuDismissed?(equation.equationID)
+        }
     }
 }
 

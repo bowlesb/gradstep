@@ -52,7 +52,7 @@ final class PaperToolsTests: XCTestCase {
         XCTAssertTrue(app.buttons["find.doneButton"].waitForExistence(timeout: 5))
         app.typeText("every claim")
         XCTAssertTrue(wait { result.exists && result.label == "1 of 1" }, "One match: \(result.exists ? result.label : "none")")
-        XCTAssertFalse(app.buttons["reader.selection.define"].exists, "A highlighted match is not a selection")
+        XCTAssertFalse(app.paperSelectionMenuShown, "A highlighted match is not a selection")
         sleep(1)
         capture(app, "Find in paper: a match highlighted")
 
@@ -67,7 +67,7 @@ final class PaperToolsTests: XCTestCase {
         // entire item's center can be above the viewport while the searched text remains visible.
         XCTAssertTrue(wait { found.exists && found.frame.maxY > web.frame.minY + 8 && found.frame.maxY < web.frame.maxY },
                       "The matched last line stays in the viewport")
-        XCTAssertFalse(app.buttons["reader.selection.define"].exists, "Closing find leaves no selection")
+        XCTAssertFalse(app.paperSelectionMenuShown, "Closing find leaves no selection")
         let offset = found.frame.minY - web.frame.minY
         capture(app, "Find closed: the page stays at the match")
 

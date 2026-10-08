@@ -191,9 +191,12 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { citationBack = active }
                                      }, onReference: { value in
                                          if model.readerDocumentScope == readerScope { reference = value }
-                                     }, selectionAction: selection == nil ? nil : { action in
-                                         runSelectionAction(action, scope: readerScope)
-                                     }, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
+                                     }, onMenuAction: { action, chosen in
+                                         // The edit menu's action on what was selected when it was chosen.
+                                         guard model.readerDocumentScope == readerScope else { return }
+                                         model.selectionAction(action, selection: chosen, scope: readerScope)
+                                         selection = nil; selectionClearID = UUID()
+                                     }, hasSelection: selection != nil, findRequestID: findRequestID, marks: model.paperMarks(for: paper), onMarks: { ids in
                                          if model.readerDocumentScope == readerScope { model.openMarkedConversations(ids) }
                                      }, passage: model.passageJump(for: paper), onPassage: { id, found in
                                          if model.readerDocumentScope == readerScope { model.finishPassage(id, found: found) }
@@ -213,6 +216,16 @@ struct PaperView: View {
                     // Over the page, not beside it: the page's viewport never changes as they come and go (a shrinking
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
+                    // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
+                    // outcome spans the bottom.
+                    .overlay(alignment: .bottomTrailing) {
+                        if !readerFailed && !loadingPaper && model.referenceNotice == nil {
+                            TextSizeControl(identifier: "paper.textSize", canShrink: model.paperFontSize > 14, canGrow: model.paperFontSize < 26,
+                                            shrink: { model.paperFontSize = max(14, model.paperFontSize - 1) },
+                                            grow: { model.paperFontSize = min(26, model.paperFontSize + 1) })
+                                .padding(.trailing, 12).padding(.bottom, 8)
+                        }
+                    }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selection == nil)
                     .macPaperMenu(PaperMenuActions(
@@ -355,18 +368,17 @@ struct PaperView: View {
         }
     }
 
-    /// The reader's floating bottom controls (a reference's outcome, Back after a citation, the selection
-    /// actions), over the paper's fade; with none showing, the fade alone (under the tab bar).
+    /// The reader's floating bottom controls (a reference's outcome, Back after a citation), over the paper's fade;
+    /// with none showing, the fade alone (under the tab bar). The selection actions are in the edit menu (build 16 #5).
     private func bottomControls(scope: ReaderDocumentScope) -> some View {
         let notice = readerFailed ? nil : model.referenceNotice
         let back = citationBack && !readerFailed
         return VStack(spacing: 8) {
             if let notice { referenceBanner(notice) }
             if back { citationBackButton }
-            if let selection { selectionControls(selection, scope: scope) }
         }
-        .padding(.top, notice != nil || back || selection != nil ? 6 : 0)
-        .padding(.bottom, notice != nil || back || selection != nil ? 8 : 0)
+        .padding(.top, notice != nil || back ? 6 : 0)
+        .padding(.bottom, notice != nil || back ? 8 : 0)
         .frame(maxWidth: .infinity)
         .chromeBand(.bottom)
     }
@@ -451,59 +463,11 @@ struct PaperView: View {
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
-    private func selectionControls(_ selection: ReaderSelection, scope: ReaderDocumentScope) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 12) {
-                ForEach(SelectionAction.allCases, id: \.self) { selectionButton($0, selection: selection, scope: scope) }
-                clearSelectionButton
-            }
-            HStack(spacing: 12) {
-                Grid(horizontalSpacing: 20, verticalSpacing: 4) {
-                    GridRow {
-                        selectionButton(.define, selection: selection, scope: scope)
-                        selectionButton(.relevance, selection: selection, scope: scope)
-                    }
-                    GridRow {
-                        selectionButton(.similar, selection: selection, scope: scope)
-                        selectionButton(.ingest, selection: selection, scope: scope)
-                    }
-                }
-                clearSelectionButton
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack { selectionButton(.define, selection: selection, scope: scope, expanded: true); clearSelectionButton }
-                ForEach([SelectionAction.relevance, .similar, .ingest], id: \.self) {
-                    selectionButton($0, selection: selection, scope: scope, expanded: true)
-                }
-            }
-        }
-        // iPhone: a full-width bar, so every action is easy to reach. iPad: the bar fits its
-        // content rather than stretching a band of glass around four words.
-        .padding(.horizontal, 12).padding(.vertical, 4).frame(maxWidth: horizontalSizeClass == .regular ? nil : .infinity)
-        .modifier(ReaderControlMaterial()).padding(.horizontal, 12).transition(.opacity)
-    }
-
-    /// The selection bar, the Mac's context menu and its Paper menu run the same action.
+    /// The Mac's Paper menu (Ask About Selection) runs the same action as the edit menu.
     private func runSelectionAction(_ action: SelectionAction, scope: ReaderDocumentScope) {
         guard let selection else { return }
         model.selectionAction(action, selection: selection, scope: scope)
         self.selection = nil; selectionClearID = UUID()
-    }
-
-    private func selectionButton(_ action: SelectionAction, selection: ReaderSelection, scope: ReaderDocumentScope, expanded: Bool = false) -> some View {
-        Button {
-            model.selectionAction(action, selection: selection, scope: scope)
-            self.selection = nil; selectionClearID = UUID()
-        } label: {
-            Text(action.title).font(.subheadline.weight(.semibold)).fixedSize()
-                .frame(minWidth: 44, maxWidth: expanded ? .infinity : nil, minHeight: 44, alignment: expanded ? .leading : .center)
-                .contentShape(Rectangle())
-        }.accessibilityIdentifier("reader.selection." + action.rawValue.lowercased())
-    }
-
-    private var clearSelectionButton: some View {
-        Button { selection = nil; selectionClearID = UUID() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-            .accessibilityLabel("Clear selection").accessibilityIdentifier("reader.selection.clear")
     }
 }
 
@@ -535,8 +499,10 @@ struct PaperWebView: UIViewRepresentable {
     /// True while the reader can go back from a citation jump.
     var onCitation: (Bool) -> Void = { _ in }
     var onReference: (ReaderReference) -> Void = { _ in }
-    /// While text is selected: runs a selection action (the Mac's context menu for the selection).
-    var selectionAction: ((SelectionAction) -> Void)? = nil
+    /// A selection action chosen in the edit menu (selected text, or a tapped equation), with what was selected then.
+    var onMenuAction: ((SelectionAction, ReaderSelection) -> Void)? = nil
+    /// Text or an equation is selected (the Mac's right-click menu offers the actions only then).
+    var hasSelection = false
     /// A new value shows the find bar (the paper only; a figure's view has none).
     var findRequestID: UUID? = nil
     /// Passages with conversations, underlined; a tap on one reports its conversations (PaperPassages.swift).
@@ -592,7 +558,18 @@ struct PaperWebView: UIViewRepresentable {
             injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient))
         configuration.userContentController.add(context.coordinator, contentWorld: .defaultClient, name: "reader")
         let web = ReaderWebView(frame: .zero, configuration: configuration)
-        if figureID == nil { ReaderWebView.paper = web }
+        if figureID == nil {
+            ReaderWebView.paper = web
+            // The edit menu's actions (selected text, a tapped equation); a figure's view has none.
+            let coordinator = context.coordinator
+            web.menuAction = { [weak coordinator, weak web] action in
+                if let coordinator, let web { coordinator.runMenuAction(action, in: web) }
+            }
+            web.onEquationMenuDismissed = { [weak web] id in
+                web?.callAsyncJavaScript("window.__scienceReaderClearEquation(id);", arguments: ["id": id], in: nil, in: .defaultClient,
+                                         completionHandler: nil)
+            }
+        }
         web.isOpaque = false; web.backgroundColor = .systemBackground
         web.isFindInteractionEnabled = figureID == nil
         web.scrollView.contentInsetAdjustmentBehavior = .automatic
@@ -605,7 +582,7 @@ struct PaperWebView: UIViewRepresentable {
 
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.parent = self
-        (web as? ReaderWebView)?.selectionAction = selectionAction
+        (web as? ReaderWebView)?.hasSelection = hasSelection
         if context.coordinator.loadedURL != url {
             context.coordinator.ready = false
             context.coordinator.loadedURL = url
@@ -667,11 +644,18 @@ struct PaperWebView: UIViewRepresentable {
             guard active, message.frameInfo.isMainFrame, let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
             switch type {
             case "selection":
-                guard ready, let bundle = parent.bundle, let value = body["selection"] as? [String: Any],
-                      JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value),
-                      data.count <= 100_000, let selection = try? JSONDecoder().decode(ReaderSelection.self, from: data),
-                      let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { parent.onSelection(nil); return }
+                guard ready, let bundle = parent.bundle, let (selection, quote) = Self.selection(body["selection"], bundle: bundle) else {
+                    parent.onSelection(nil); return
+                }
                 parent.onSelection(selection)
+                // A tapped equation: the edit menu opens beside it (selected text gets WebKit's own).
+                if let menu = body["menu"] as? [String: Any], let web = message.webView as? ReaderWebView,
+                   selection.parts.count == 1, selection.parts[0].kind == "equation", let equationID = selection.parts[0].equationID,
+                   let x = menu["x"] as? Double, let y = menu["y"] as? Double, let width = menu["width"] as? Double,
+                   let height = menu["height"] as? Double, [x, y, width, height].allSatisfy({ $0.isFinite && abs($0) < 1_000_000 }) {
+                    web.presentEquationMenu(quote: quote, rect: CGRect(x: x, y: y, width: max(1, width), height: max(1, height)),
+                                            equationID: equationID)
+                }
             case "headings":
                 if let items = body["items"] as? [[String: Any]], items.count <= 1_000 {
                     let headings = items.compactMap { item -> PaperHeading? in
@@ -754,9 +738,31 @@ struct PaperWebView: UIViewRepresentable {
                 }
         }
 
+        /// A selection message's payload as a selection whose quote the bundle resolves, with that quote.
+        static func selection(_ value: Any?, bundle: VerifiedReaderBundle) -> (ReaderSelection, String)? {
+            guard let value = value as? [String: Any], JSONSerialization.isValidJSONObject(value),
+                  let data = try? JSONSerialization.data(withJSONObject: value), data.count <= 100_000,
+                  let selection = try? JSONDecoder().decode(ReaderSelection.self, from: data),
+                  let quote = try? selection.resolvedQuote(in: bundle), !quote.isEmpty else { return nil }
+            return (selection, quote)
+        }
+
+        /// An edit-menu action: reads what is selected now (WebKit's menu can open before the debounced selection
+        /// report arrives) and runs the action on it.
+        func runMenuAction(_ action: SelectionAction, in web: WKWebView) {
+            guard active, ready, let bundle = parent.bundle else { return }
+            let load = loadingID
+            web.callAsyncJavaScript("return window.__scienceReaderSelectionNow();", arguments: [:], in: nil, in: .defaultClient) { [weak self] result in
+                guard let self, self.active, self.loadingID == load, case .success(let value) = result,
+                      let (selection, _) = Self.selection(value, bundle: bundle) else { return }
+                self.parent.onMenuAction?(action, selection)
+            }
+        }
+
         func clearSelectionIfNeeded(in web: WKWebView) {
             guard let id = parent.selectionClearID, id != lastSelectionClearID else { return }
             lastSelectionClearID = id
+            (web as? ReaderWebView)?.dismissEquationMenu()
             web.callAsyncJavaScript("window.__scienceReaderClearSelection();", arguments: [:], in: nil, in: .defaultClient, completionHandler: nil)
         }
 

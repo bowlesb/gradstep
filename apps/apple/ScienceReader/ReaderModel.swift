@@ -11,12 +11,21 @@ enum ReaderTab: String, CaseIterable, Identifiable {
 }
 enum WideMode: String, CaseIterable { case feed = "Feed", library = "Library", reader = "Reader", browse = "Browse", chat = "General Chat" }
 /// The reader's selection actions. Raw values are stable identifiers (UI tests, saved state);
-/// `title` is what the reader sees (owner feedback 2026-10-06: "what do those even do?").
+/// `title` is the short label in chat titles ("Explain · …"); `menuTitle` is what the edit menu says.
 enum SelectionAction: String, CaseIterable {
     case define = "Define", relevance = "Relevance", similar = "Similar", ingest = "Ingest"
     var title: String {
         switch self { case .define: "Explain"; case .relevance: "Why it matters"; case .similar: "Related"; case .ingest: "Add paper" }
     }
+    /// In the paper's edit menu after Copy (owner feedback, build 16 #5: "make the options clear, 'Explain in Chat'").
+    var menuTitle: String {
+        switch self { case .define: "Explain in Chat"; case .relevance: "Why it matters"; case .similar: "Related papers"; case .ingest: "Add paper" }
+    }
+    var symbol: String {
+        switch self { case .define: "text.magnifyingglass"; case .relevance: "lightbulb"; case .similar: "point.3.connected.trianglepath.dotted"; case .ingest: "plus.square.on.square" }
+    }
+    /// A tapped equation offers these (adding the paper a passage cites makes no sense for a formula).
+    static let equationActions: [SelectionAction] = [.define, .relevance, .similar]
 }
 enum PaperOfflineStatus: Equatable { case none, available, unavailable }
 
@@ -183,6 +192,11 @@ final class ReaderModel {
     enum DiscoveryState: Equatable { case idle, searching, results, failed(String) }
     private(set) var discoveryResults: [DiscoveryResult] = []
     private(set) var discoveryState: DiscoveryState = .idle
+    /// arXiv results newest first by default (owner feedback, build 16 #2); Relevance is the server's order. Kept.
+    var discoveryOrder = DiscoveryOrder(rawValue: UserDefaults.standard.string(forKey: "discover.order") ?? "") ?? .newest {
+        didSet { UserDefaults.standard.set(discoveryOrder.rawValue, forKey: "discover.order") }
+    }
+    var orderedDiscoveryResults: [DiscoveryResult] { discoveryOrder.ordered(discoveryResults) }
     private var discoveryGeneration = 0
     private var discoveryTask: Task<Void, Never>?
     /// Not persisted (as before): each launch starts with Recent.
@@ -208,6 +222,8 @@ final class ReaderModel {
     var appearance = UserDefaults.standard.string(forKey: "appearance") ?? "system" { didSet { UserDefaults.standard.set(appearance, forKey: "appearance") } }
     var paperFontSize = UserDefaults.standard.double(forKey: "paperFontSize") == 0 ? 17 : UserDefaults.standard.double(forKey: "paperFontSize") { didSet { UserDefaults.standard.set(paperFontSize, forKey: "paperFontSize") } }
     var chatFontSize = UserDefaults.standard.double(forKey: "chatFontSize") == 0 ? 17 : UserDefaults.standard.double(forKey: "chatFontSize") { didSet { UserDefaults.standard.set(chatFontSize, forKey: "chatFontSize") } }
+    /// The Feed's text size as steps from the system's (A− / A+, owner feedback build 16 #6); 0 follows the system.
+    var feedTextStep = UserDefaults.standard.integer(forKey: "feedTextStep") { didSet { UserDefaults.standard.set(feedTextStep, forKey: "feedTextStep") } }
     /// iPad and Mac Reader: the chat column beside the paper is hidden for full-width reading (kept per device).
     var readerChatHidden = UserDefaults.standard.bool(forKey: "reader.chatHidden") { didSet { UserDefaults.standard.set(readerChatHidden, forKey: "reader.chatHidden") } }
     /// The chat column's width there as the reader dragged it; nil is the default for the window's width.
@@ -2270,10 +2286,15 @@ final class ReaderModel {
         }
     }
 
-    /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Ask about this
+    /// Actions on text or a formula in a chat answer (owner feedback 2026-10-07): Quote in Chat (was "Ask about this")
     /// quotes it into the composer; Explain and Define ask about it as a new question in this chat.
-    enum ChatQuoteAction { case ask, explain, define }
-    /// Changes when the composer should take focus (Ask about this).
+    enum ChatQuoteAction: CaseIterable {
+        case ask, explain, define
+        /// The edit menu's words (build 16 #4: "make it more clear that we have the option to … reference in the chat box").
+        var menuTitle: String { switch self { case .ask: "Quote in Chat"; case .explain: "Explain"; case .define: "Define" } }
+        var symbol: String { switch self { case .ask: "quote.bubble"; case .explain: "text.magnifyingglass"; case .define: "character.book.closed" } }
+    }
+    /// Changes when the composer should take focus (Quote in Chat).
     private(set) var chatComposerFocusRequest = UUID()
 
     func chatQuoteAction(_ action: ChatQuoteAction, quote raw: String) {

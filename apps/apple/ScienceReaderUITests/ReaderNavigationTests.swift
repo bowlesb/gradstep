@@ -78,7 +78,7 @@ final class ReaderNavigationTests: XCTestCase {
         // Selecting text still offers the passage actions.
         web.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
             dx: paragraph.frame.minX - web.frame.minX + 60, dy: paragraph.frame.minY - web.frame.minY + 14)).press(forDuration: 1)
-        XCTAssertTrue(app.buttons["reader.selection.define"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.editMenuItem("Explain in Chat").waitForExistence(timeout: 5), "The edit menu offers the passage actions")
     }
 
     func testScreenshotPreviewRedactionAndRemoval() throws {

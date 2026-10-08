@@ -143,6 +143,53 @@ extension View {
     }
 }
 
+/// Smaller and larger text at a screen's bottom right (owner feedback, build 16 #6: "little options in the bottom
+/// right that make the text a little bigger and smaller"): a small glass capsule above the tab bar, 44 pt per button.
+struct TextSizeControl: View {
+    /// "paper.textSize": the buttons are "<id>.smaller" and "<id>.larger".
+    let identifier: String
+    let canShrink: Bool
+    let canGrow: Bool
+    let shrink: () -> Void
+    let grow: () -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            button("textformat.size.smaller", label: "Smaller text", id: "smaller", enabled: canShrink, action: shrink)
+            Rectangle().fill(Color(uiColor: .separator)).frame(width: 0.5, height: 20).accessibilityHidden(true)
+            button("textformat.size.larger", label: "Larger text", id: "larger", enabled: canGrow, action: grow)
+        }
+        .chromeSurface(Capsule(), interactive: true)
+        // The control keeps its size at large text sizes; the text it changes is what grows.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Text size")
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func button(_ symbol: String, label: String, id: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+                .frame(width: 44, height: 40).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(enabled ? Color.accentColor : Color(uiColor: .tertiaryLabel))
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("\(identifier).\(id)")
+    }
+}
+
+extension DynamicTypeSize {
+    /// The text size `steps` from this one, within xSmall…xxxLarge (an accessibility size is kept as it is), for the
+    /// Feed's A− / A+.
+    func stepped(by steps: Int) -> DynamicTypeSize {
+        guard !isAccessibilitySize, steps != 0 else { return self }
+        let sizes: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge]
+        guard let index = sizes.firstIndex(of: self) else { return self }
+        return sizes[min(sizes.count - 1, max(0, index + steps))]
+    }
+}
+
 /// Glass for the reader's floating controls (selection actions, Back, Latest).
 struct ReaderControlMaterial: ViewModifier {
     func body(content: Content) -> some View { content.chromeSurface(RoundedRectangle(cornerRadius: 28)) }
