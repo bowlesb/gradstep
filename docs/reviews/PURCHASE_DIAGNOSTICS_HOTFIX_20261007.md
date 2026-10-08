@@ -1,6 +1,6 @@
 # Purchase verification diagnostic hotfix — 2026-10-07
 
-Status: local, reviewed-scope diagnostic candidate; not deployed. The observed purchase failure is not repaired or verified end to end yet.
+Status: reviewed diagnostics deployed as **store-sync v36** at 2026-10-07 17:50 PDT, from main `834db5e`. Hosted certificate compatibility failure confirmed. The purchase path is not repaired or verified end to end yet.
 
 ## Observed failure
 
@@ -16,9 +16,11 @@ This candidate uses the deployed migration 018 purchase RPCs and is compatible w
 
 An optional, nonfinancial callback records one allowlisted observation per attempted verification. It distinguishes certificate chain, revocation, signature/payload, app identity, input/environment, field normalization, and database recording. Apple status, transport category and SQL refusal are finite codes. Database outages still propagate so the caller retries. A logging failure cannot alter recording or the response. Observations contain no JWS, certificate, claims, transaction/account IDs, URLs, error messages, request body or key material.
 
-One startup observation records a fixed release marker, fixed Apple SDK version, validated Deno version and boolean capability checks against the bundled public Apple root. The probe makes no network request and catches failures. A missing `infoAccess` value on the root is valid; an exception accessing the property means the primitive is unavailable. Supabase’s hosted Edge runtime can differ from standalone Deno, and older Deno implementations lacked certificate methods used before OCSP. This is a hypothesis to test, not an established cause of the owner’s failure.
+One startup observation records a fixed release marker, fixed Apple SDK version, validated Deno version and boolean capability checks against the bundled public Apple root. The probe makes no network request and catches failures. A missing `infoAccess` value on the root is valid; an exception accessing the property means the primitive is unavailable.
 
-The native wording is a separate candidate: temporary unavailability still says credits are pending with automatic retry; an invalid receipt offers Restore purchases or a report without promising automatic recovery. Restore does resubmit unfinished invalid transactions. Refused transactions remain unfinished.
+The hosted v36 probe at **2026-10-08 00:51:19.447 UTC** returned `certificate_parse=true` and `public_key_export=true`, but `certificate_string`, `certificate_raw`, `certificate_verify` and `certificate_info_access` were all **false**. Its version string did not match the strict numeric allowlist and was recorded as `unknown`; do not infer an exact hosted Deno version. This proves the hosted runtime cannot perform the certificate operations required by Apple's SDK. The SDK calls `toString()` before reaching OCSP, and depends on all four missing primitives. The earlier standalone Deno probe therefore did not establish hosted compatibility. Fix the runtime placement or obtain a supported managed-runtime upgrade; keep signature, chain and online revocation checks intact.
+
+The native wording is merged as main `64c0873` for the next build: temporary unavailability still says credits are pending with automatic retry; an invalid receipt offers Restore purchases or a report without promising automatic recovery. Restore does resubmit unfinished invalid transactions. Refused transactions remain unfinished. Five StorePurchaseTests passed with an isolated Simulator configuration whose compiled backend URL/key were empty. This wording is not in uploaded build 16.
 
 ## Evidence and rollout
 
@@ -26,6 +28,8 @@ Local backend suite: 230 tests passed. Thirteen focused purchase tests pass in N
 
 The Deno test harness uses a local artifact import map for the existing transitive test dependency `jsrsasign` and `--no-check` for test-only Node type resolution; the production module is separately type-checked with the repository import map. No dependency or lockfile change is required.
 
-Root coordinates review and any live deployment. After a diagnostic-only deployment, a method-rejected request can collect the public startup probe without a purchase. An existing unfinished transaction can then provide the precise failed verification stage when the app syncs or the owner restores; no new purchase is needed for that evidence. Successful credit delivery still requires a real signed Sandbox transaction to verify and record once. Nothing in this candidate authorizes a manual grant or weaker verification.
+Root and an independent agent reviewed the diagnostic-only deployment. Readback confirmed only `store-sync` changed, v36 is ACTIVE, and the migration ledger remains byte-for-byte unchanged through032. One unauthenticated GET returned405 before purchase processing and triggered the startup probe; no receipt, provider call or credit mutation was needed. Format-aware ESZIP extraction verified the four deployed application modules exactly match the reviewed source. The downloaded v36 body SHA-256 is `e5e0d795411854c3182d3316a4b5177fc70479c2036809a56c8652d26d5d697e` (the Management API's separate `ezbr_sha256` is not the downloaded-body hash).
+
+Evidence: main `.artifacts/purchase-hotfix/deployment.json`; the `science-reader-purchase-hotfix` worktree's `.artifacts/purchase-hotfix/postdeployment-diagnostics.json` and `store-sync-v36.comparison.json`. Successful credit delivery still requires a real signed Sandbox transaction to verify and record once after the runtime repair. No new purchase is required merely to retry an existing unfinished transaction. Nothing in this diagnostic update authorizes a manual grant or weaker verification.
 
 This adds bounded console records under the existing request and 25-transaction body limits, plus a small zero-network startup probe. It adds no table, worker, paid provider request, secret or change to the operating budget. Retention follows existing project logs; the durable owner investigation view remains the separate reviewed migration 038 rollout.

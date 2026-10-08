@@ -2,7 +2,11 @@
 
 Status: implemented and tested locally (migration `202610050018_app_store_purchases.sql`, Edge functions `store-sync` and
 `app-store-notifications`, Settings › Get credits); App Store Connect products created. An independent review's findings were
-fixed. Not yet verified with a real sandbox purchase.
+fixed. **Hosted purchases currently fail verification:** the v36 diagnostic probe on 2026-10-07
+confirmed missing hosted certificate primitives required by Apple's SDK. Standalone Node/Deno tests
+had not exposed this runtime difference. No successful staging App Store transaction has been recorded.
+See the [incident evidence and runtime repair](../reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
+Not yet verified with a real sandbox purchase.
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
 pack = 400 credits that never expire; TestFlight testers get 1,000 credits by operator grant.
 
