@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "fixture": "legacy-v3.json",
+  "fixture_sha256": "50ba47155ba1ccaba126bec76be3c3ba06c57a3a33d141857209beaeb903d52f",
+  "sql_test": "tests/database/test_library_upload_visibility.sql",
+  "sql_test_sha256": "1e56719a45e8a6a7f363a0481a52eeec8d12aedef930f8c7fe7c22ac95aa327d",
+  "visibility_fragment_sha256": "5b5a0d020b237afdc73561d474ffbf448e441731e84ddc2aa106fb398d1ec789",
+  "ingress_snapshot_sha256": "5238fd3087052d0f07391149d19b21a7f0299f134f1e1f2c0460b952d2b77424",
+  "sql_output_sha256": "788672257a73f51cf98549a24a918b10722119b5bc07c2ffc42a8c2e048f9d5c",
+  "scope": "Synthetic localhost SQL responses; no production records, provider calls or codec transformations"
+}

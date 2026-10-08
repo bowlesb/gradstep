@@ -72,8 +72,8 @@ select id as item from app_private.library_items where account_id='31000000-0000
 select test.assert((select count(*)=2 from app_private.library_v4_entries where account_id='31000000-0000-0000-0000-00000000000a'),
  'resolution projects its hidden import mapping and membership atomically');
 select test.assert(not exists(select 1 from app_private.library_v4_entries p where p.account_id='31000000-0000-0000-0000-00000000000a'
- and p.entry is distinct from (case p.kind when 'item' then app_private.library_item_entry(p.account_id,p.id)
- else app_private.library_import_entry(p.account_id,p.id) end)-'metadata'),'projection removes only metadata, including metadata_recorded_at');
+ and app_private.library_read_entry(p.entry,3,true) is distinct from (case p.kind when 'item' then app_private.library_item_entry(p.account_id,p.id)
+ else app_private.library_import_entry(p.account_id,p.id) end)-'metadata'),'legacy compact wire removes metadata and internal capability fields, preserving metadata_recorded_at');
 select test.assert((select jsonb_array_length(entries)=2 and entries->0 ? 'metadata' and entries->1 ? 'metadata'
  from app_private.library_changes where account_id='31000000-0000-0000-0000-00000000000a' and seq=3),'legacy grouped journal is untouched');
 set role authenticated;

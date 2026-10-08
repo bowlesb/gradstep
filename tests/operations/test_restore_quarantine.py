@@ -185,6 +185,36 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
             RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), before)
 
+    def test_both_library_capability_epochs_rotate_without_changing_normalization(self):
+        self.sql("""create table app_private.library_v4_config (
+            singleton boolean primary key, dataset_epoch uuid not null,
+            upload_dataset_epoch uuid not null, search_version text not null,
+            check(dataset_epoch<>upload_dataset_epoch));
+          insert into app_private.library_v4_config values
+            (true,'11111111-1111-1111-1111-111111111111',
+             '22222222-2222-2222-2222-222222222222','fixture-normalization');
+        """)
+        snapshots = [self.rows()['library_v4_config'][0]]
+        for _ in range(2):
+            RESTORE.quarantine(self.sql)
+            snapshots.append(self.rows()['library_v4_config'][0])
+        self.assertEqual(len({row[key] for row in snapshots
+                              for key in ('dataset_epoch', 'upload_dataset_epoch')}), 6)
+        self.assertTrue(all(row['search_version'] == 'fixture-normalization' for row in snapshots))
+        self.assertTrue(all(not row['work_enabled'] for row in self.rows()['platform_budgets']))
+
+    def test_incompatible_upload_epoch_rolls_back_all_quarantine_changes(self):
+        self.sql("""create table app_private.library_v4_config (
+            singleton boolean primary key, dataset_epoch uuid not null,
+            upload_dataset_epoch integer not null);
+          insert into app_private.library_v4_config values
+            (true,'11111111-1111-1111-1111-111111111111',7);
+        """)
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'upload_dataset_epoch'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
     def test_enabled_011_gates_close_without_changing_recovery_evidence(self):
         self.policies()
         self.recovery_evidence()

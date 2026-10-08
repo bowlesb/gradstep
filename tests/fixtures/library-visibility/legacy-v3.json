@@ -1,0 +1,333 @@
+{
+  "changes": [
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 2,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000012",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "arxiv",
+              "visible": true,
+              "metadata": {
+                "title": "Arxiv visible paper",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "2410.03951",
+              "state_seq": 2,
+              "error_code": null,
+              "source_url": "https://arxiv.org/abs/2410.03951v1",
+              "version_id": "0785678c-fe60-4b55-a4a2-ea3d7c117e1d",
+              "created_seq": 2,
+              "document_id": null,
+              "metadata_id": "1e1a972a-25c9-4c9f-bee7-38caab9a66d3",
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "finding",
+                "percent": 0,
+                "eta_seconds": 47
+              },
+              "source_revision": 1,
+              "requested_revision": 1,
+              "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+            }
+          ]
+        }
+      ],
+      "through": 5,
+      "has_more": true,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 2,
+      "retained_after": 0
+    },
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 4,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000014",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "web",
+              "visible": true,
+              "metadata": {
+                "title": "Web visible paper",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "openalex:W395001",
+              "state_seq": 4,
+              "error_code": null,
+              "source_url": "https://openalex.org/works/W395001",
+              "version_id": "564ed9ff-ae9e-4348-bc23-767f2fc2a78d",
+              "created_seq": 4,
+              "document_id": null,
+              "metadata_id": "06afd913-5102-4411-bed0-708d582f1100",
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "finding",
+                "percent": 0,
+                "eta_seconds": 47
+              },
+              "source_revision": 1,
+              "requested_revision": null,
+              "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+            }
+          ]
+        }
+      ],
+      "through": 5,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 5,
+      "retained_after": 0
+    },
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 2,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000012",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "arxiv",
+              "visible": true,
+              "metadata": {
+                "title": "Arxiv visible paper",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "2410.03951",
+              "state_seq": 2,
+              "error_code": null,
+              "source_url": "https://arxiv.org/abs/2410.03951v1",
+              "version_id": "0785678c-fe60-4b55-a4a2-ea3d7c117e1d",
+              "created_seq": 2,
+              "document_id": null,
+              "metadata_id": "1e1a972a-25c9-4c9f-bee7-38caab9a66d3",
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "finding",
+                "percent": 0,
+                "eta_seconds": 47
+              },
+              "source_revision": 1,
+              "requested_revision": 1,
+              "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+            }
+          ]
+        }
+      ],
+      "through": 3,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 3,
+      "retained_after": 0
+    },
+    {
+      "format": 2,
+      "changes": [],
+      "through": 5,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 5,
+      "retained_after": 0
+    },
+    {
+      "format": 2,
+      "changes": [
+        {
+          "seq": 6,
+          "entries": [
+            {
+              "id": "39500000-0000-0000-0000-000000000012",
+              "kind": "import",
+              "phase": "accepted",
+              "source": "arxiv",
+              "visible": false,
+              "metadata": {
+                "title": "Arxiv visible paper",
+                "authors": [],
+                "categories": []
+              },
+              "progress": "finding",
+              "retryable": false,
+              "source_id": "2410.03951",
+              "state_seq": 6,
+              "error_code": null,
+              "source_url": "https://arxiv.org/abs/2410.03951v1",
+              "version_id": "0785678c-fe60-4b55-a4a2-ea3d7c117e1d",
+              "created_seq": 2,
+              "document_id": null,
+              "metadata_id": "1e1a972a-25c9-4c9f-bee7-38caab9a66d3",
+              "intent_revision": 1,
+              "library_item_id": null,
+              "progress_detail": {
+                "step": "finding",
+                "percent": 0,
+                "eta_seconds": 47
+              },
+              "source_revision": 1,
+              "requested_revision": 1,
+              "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+            }
+          ]
+        }
+      ],
+      "through": 6,
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": 6,
+      "retained_after": 0
+    }
+  ],
+  "baselines": [
+    {
+      "format": 2,
+      "entries": [
+        {
+          "id": "39500000-0000-0000-0000-000000000012",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "arxiv",
+          "visible": true,
+          "metadata": {
+            "title": "Arxiv visible paper",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "2410.03951",
+          "state_seq": 2,
+          "error_code": null,
+          "source_url": "https://arxiv.org/abs/2410.03951v1",
+          "version_id": "0785678c-fe60-4b55-a4a2-ea3d7c117e1d",
+          "created_seq": 2,
+          "document_id": null,
+          "metadata_id": "1e1a972a-25c9-4c9f-bee7-38caab9a66d3",
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": 1,
+          "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+        }
+      ],
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": {
+        "id": "39500000-0000-0000-0000-000000000012",
+        "kind": "import",
+        "format": 2,
+        "through": 5,
+        "account_id": "39500000-0000-0000-0000-000000000001",
+        "created_seq": 2
+      },
+      "retained_after": 0,
+      "baseline_cursor": 5
+    },
+    {
+      "format": 2,
+      "entries": [
+        {
+          "id": "39500000-0000-0000-0000-000000000012",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "arxiv",
+          "visible": true,
+          "metadata": {
+            "title": "Arxiv visible paper",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "2410.03951",
+          "state_seq": 2,
+          "error_code": null,
+          "source_url": "https://arxiv.org/abs/2410.03951v1",
+          "version_id": "0785678c-fe60-4b55-a4a2-ea3d7c117e1d",
+          "created_seq": 2,
+          "document_id": null,
+          "metadata_id": "1e1a972a-25c9-4c9f-bee7-38caab9a66d3",
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": 1,
+          "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+        },
+        {
+          "id": "39500000-0000-0000-0000-000000000014",
+          "kind": "import",
+          "phase": "accepted",
+          "source": "web",
+          "visible": true,
+          "metadata": {
+            "title": "Web visible paper",
+            "authors": [],
+            "categories": []
+          },
+          "progress": "finding",
+          "retryable": false,
+          "source_id": "openalex:W395001",
+          "state_seq": 4,
+          "error_code": null,
+          "source_url": "https://openalex.org/works/W395001",
+          "version_id": "564ed9ff-ae9e-4348-bc23-767f2fc2a78d",
+          "created_seq": 4,
+          "document_id": null,
+          "metadata_id": "06afd913-5102-4411-bed0-708d582f1100",
+          "intent_revision": 1,
+          "library_item_id": null,
+          "progress_detail": {
+            "step": "finding",
+            "percent": 0,
+            "eta_seconds": 47
+          },
+          "source_revision": 1,
+          "requested_revision": null,
+          "metadata_recorded_at": "2026-10-08T00:31:21.110619+00:00"
+        }
+      ],
+      "has_more": false,
+      "account_id": "39500000-0000-0000-0000-000000000001",
+      "next_cursor": {
+        "id": "39500000-0000-0000-0000-000000000014",
+        "kind": "import",
+        "format": 2,
+        "through": 5,
+        "account_id": "39500000-0000-0000-0000-000000000001",
+        "created_seq": 4
+      },
+      "retained_after": 0,
+      "baseline_cursor": 5
+    }
+  ]
+}
