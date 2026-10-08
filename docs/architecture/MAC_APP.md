@@ -107,7 +107,9 @@ Mac verification. The iOS build settings are unchanged; Mac settings are `[sdk=m
 
 Mac-only code lives in `ScienceReader/Mac/`: `MacSupport.swift` (window, toolbar, platform checks, row hover,
 sheet keys, the reader's web view) and `MacCommands.swift` (menu bar). Shared views ask `Platform.isMac` /
-`Platform.isLargeScreen`; the Mac is treated as a large iPad unless a Mac path is better.
+`Platform.isLargeScreen`; the Mac uses the browser's wide-workspace structure (persistent Library/Feed, Reader
+and Chat panes) while reusing the iPad SwiftUI surfaces and shared model for behavioral parity. Mac-only controls
+and conventions live in the Mac target.
 
 ## Window
 

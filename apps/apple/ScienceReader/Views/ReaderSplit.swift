@@ -10,7 +10,8 @@ extension EnvironmentValues {
     }
 }
 
-/// The wide Reader (iPad, Mac): the paper beside its chat, as before (docs/LEGACY_GAP_AUDIT.md #5). The chat column
+/// The wide Reader (iPad, Mac): the paper beside its chat, matching the browser workspace and the legacy
+/// large-screen behavior (docs/LEGACY_GAP_AUDIT.md #5). The chat column
 /// can be hidden for full-width reading (Paper › "…" › Hide chat; the chat button in the paper's bar brings it back)
 /// and widened or narrowed by dragging the divider (double-tap: the default width). Both are kept on this device.
 /// A question asked from the paper shows the chat again.
