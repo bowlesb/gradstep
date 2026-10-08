@@ -136,3 +136,20 @@ describe('answer rendering (markdown-it + Temml, no CDN)', () => {
     expect(renderMarkdown(String.raw`So \[\frac{a}{b}\]`, true)).toContain('<math');
   });
 });
+
+describe('rendering boundaries', () => {
+  it('cannot interpolate a formula into a URL or turn private-use text into HTML', () => {
+    const html = renderMarkdown(String.raw`[x](https://example.org/\(a\)) 0 <img src=x onerror=alert(1)>`);
+    expect(html).not.toContain('<img'); expect(html).not.toContain('href="https://example.org/<math');
+    expect(html).toContain('0');
+  });
+  it('keeps escaped dollar signs, indented code and unequal backtick spans as code/prose', () => {
+    expect(renderMarkdown(String.raw`\$5 and \$10`)).not.toContain('<math');
+    expect(renderMarkdown('    \\(x\\)')).toContain('<code>\\(x\\)');
+    expect(renderMarkdown('``a ` \\(x\\)``')).not.toContain('<math');
+  });
+  it('rejects credential-bearing, control-character and data links', async () => {
+    const { safeLink } = await import('../src/lib/markdown');
+    for (const url of ['https://good.example@bad.example', 'data:text/html,x', 'java\nscript:alert(1)', '/relative', 'https://x.test/\n']) expect(safeLink(url)).toBeNull();
+  });
+});

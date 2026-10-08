@@ -848,3 +848,13 @@ Milestone 1 of the web redesign ([Browser reader › Workspace](architecture/BRO
 | Find, appearance | Implemented in the app-owned frame shim, not the shared bridge, so iOS/Mac behaviour is untouched. |
 | Add | arXiv stays a library command; DOI/links use `add-paper` with `web_import` only; PDF upload stays out of the browser until its client is built. |
 | Chat pane | A placeholder that says chat is not yet in the browser; milestone 2 builds paper/general chat, encrypted history and selection actions there. |
+
+
+## Browser chat milestone 2 (agent implementation, local verification 2026-10-07)
+
+The existing right panel now implements encrypted paper/general chat and history, consent, bounded streaming/Stop,
+credit feedback, selection actions, passage return/marks and isolated Mermaid diagrams. Native encrypted payloads
+and backend contracts stay unchanged. Markdown/math and Mermaid load only when displayed. Browser drafts/outbox
+remain tab-memory only and are described that way; durable offline chat requires a separate encrypted local-journal
+review. No Safari fallback, plaintext persistence, provider call or hosted deployment accompanies this branch.
+Detailed bounds, behavior and evidence: [Browser reader › Chat](architecture/BROWSER_READER.md#chat-milestone-2).

@@ -1,12 +1,15 @@
 // A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
 // contents tree in the left rail with the current section, citation jumps with Back, find in the
-// paper, the figure viewer, text size and a saved place. Chat and selection actions are Phase 2.
+// paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Activity } from '../lib/activity';
 import { BackendError } from '../lib/backend';
 import { BundleError, type VerifiedBundle, loadBundle } from '../lib/bundle';
 import type { Item } from '../lib/library';
+import { SELECTION_ACTIONS, type SelectionAction } from '../lib/chat';
+import { bridgeAnchor, passageAnchor, resolveQuote, type Selection } from '../lib/passage';
+import type { TextAnchor } from '../lib/events';
 import { effectiveTags } from '../lib/paper';
 import { type FrameKey, type FrameMessage, frameDocument, readFrameMessage } from '../reader/frame';
 import { FigureViewer } from './Figures';
@@ -45,6 +48,8 @@ function failure(error: unknown): string {
 
 type ReaderProps = { cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
+  marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
+  onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
   onActivity: (itemID: string, activity: Activity) => void; onKey: (key: FrameKey) => void; onContents: () => void };
 
 export function Reader(props: ReaderProps) {
@@ -55,7 +60,7 @@ export function Reader(props: ReaderProps) {
 
 type Heading = { id: string; title: string; depth?: number };
 
-function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents }: ReaderProps & { cacheKey: string }) {
+function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat }: ReaderProps & { cacheKey: string }) {
   const workspace = useWorkspaceControls();
   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
   const [loaded, setLoaded] = useState(0);
@@ -64,7 +69,10 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [back, setBack] = useState(false);
-  const [selection, setSelection] = useState(false);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [markedChats, setMarkedChats] = useState<string[]>([]);
+  const [bridgeReady, setBridgeReady] = useState(false);
+  const appliedPassage = useRef<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [figure, setFigure] = useState<{ id: string | null; open: boolean }>({ id: null, open: false });
   const [finding, setFinding] = useState(false);
@@ -146,7 +154,7 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
       switch (message.type) {
         case 'headings':
           setHeadings(message.items);
-          frameReady.current = true;
+          frameReady.current = true; setBridgeReady(true);
           appliedPresentation.current = initialPresentation;
           // Updates that arrived while the bundle loaded must precede the saved-place restoration.
           applyPresentation();
@@ -166,7 +174,9 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
           break;
         }
         case 'citation': setBack(message.state === 'jumped'); break;
-        case 'selection': setSelection(!message.empty); break;
+        case 'selection': setSelection(message.selection); break;
+        case 'marks': if (message.ids.length === 1) onMarkedChat(message.ids[0]); else setMarkedChats(message.ids); break;
+        case 'passage': if (!message.found) setNotice('Couldn’t find the passage. The paper may have changed.'); onPassageHandled(); break;
         case 'figure': setFigure({ id: message.id, open: true }); break;
         case 'reference': setNotice('Reference actions (add to library, open) are not yet available in the browser.'); break;
         case 'tags': setNotice('Editing tags is not yet available in the browser.'); break;
@@ -177,9 +187,19 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
     };
     window.addEventListener('message', receive);
     return () => window.removeEventListener('message', receive);
-  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks]);
+  }, [bundle, command, item.id, onActivity, onKey, saved, applyPresentation, initialPresentation, headingBlocks, onMarkedChat, onPassageHandled]);
 
   useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 5000); return () => clearTimeout(t); }, [notice]);
+
+  const marksJSON = useMemo(() => JSON.stringify(marks.slice(0, 500).map(m => bridgeAnchor(m.id, m.anchor, item.artifact_id ?? undefined))), [marks, item.artifact_id]);
+  useEffect(() => { if (bridgeReady) command('setMarks', JSON.parse(marksJSON)); }, [bridgeReady, command, marksJSON]);
+  useEffect(() => {
+    if (!passage || !bridgeReady || appliedPassage.current === passage.id) return;
+    appliedPassage.current = passage.id;
+    if (Date.now() - passage.at > 60_000) { onPassageHandled(); return; }
+    command('goToPassage', bridgeAnchor(passage.id, passage.anchor, item.artifact_id ?? undefined));
+  }, [passage, bridgeReady, command, item.artifact_id, onPassageHandled]);
+  const quote = bundle && selection ? resolveQuote(bundle, selection) : null;
 
   const changeFont = (delta: number) => {
     const next = Math.min(28, Math.max(13, font + delta));
@@ -237,7 +257,13 @@ function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlo
           <div className="empty" role="status"><p>Opening the paper…</p>
             <progress max={1} value={loaded} aria-label="Downloading the paper" /></div>
         )}
-        {selection && <div className="selection-bar" role="status">Explain, ask and save for a selection are not yet available in the browser.</div>}
+        {quote && selection && item.artifact_id && <div className="selection-bar" role="toolbar" aria-label="Selected passage">
+          {SELECTION_ACTIONS.map(({ action, title }) => <button key={action} className="secondary small" onClick={() => {
+            const anchor = passageAnchor(item.artifact_id!, selection, quote);
+            if (anchor) { onSelection(action, quote, anchor); setSelection(null); command('clearSelection'); }
+          }}>{title}</button>)}
+        </div>}
+        {markedChats.length > 0 && <div className="selection-bar" role="group" aria-label="Chats about this passage">{markedChats.map((id, i) => <button key={id} className="secondary small" onClick={() => { onMarkedChat(id); setMarkedChats([]); }}>Chat {i + 1}</button>)}<button className="link" onClick={() => setMarkedChats([])}>Close</button></div>}
         {notice && <div className="toast" role="status">{notice}</div>}
       </div>
       {contentsSlot && headings.length > 0 && createPortal(<Contents headings={headings} active={active} onJump={jump} />, contentsSlot)}

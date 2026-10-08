@@ -299,6 +299,8 @@ export async function* functionStream(path: string, body: unknown, options: { ac
         let chunk: ReadableStreamReadResult<Uint8Array<ArrayBuffer>>;
         try { chunk = await reader.read() as ReadableStreamReadResult<Uint8Array<ArrayBuffer>>; }
         catch (error) { if (options.signal.aborted || sessionSignal.aborted) throw error; throw new BackendError('connection'); }
+        if (before !== generation) throw new BackendError('cancelled');
+        options.signal.throwIfAborted(); sessionSignal.throwIfAborted();
         if (chunk.done) return;
         arm();
         total += chunk.value.length;

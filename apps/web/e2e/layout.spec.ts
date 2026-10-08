@@ -56,7 +56,7 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await expect(frame.locator('h1').first()).toContainText('Direct Preference Optimization');
       const contents = page.getByRole('navigation', { name: 'Contents' });
       await expect(contents.getByRole('button').first()).toBeVisible();
-      await expect(page.getByTestId('pane-right')).toContainText('Chat is not yet available in the browser');
+      await expect(page.getByTestId('pane-right')).toContainText('Ask about this paper');
       const paper = await box(page, '.pane-center'), left = await box(page, '[data-testid=pane-left]'), right = await box(page, '[data-testid=pane-right]');
       expect(left.x).toBe(0);
       expect(paper.x).toBeGreaterThan(left.width);
@@ -193,7 +193,7 @@ test('narrow window: drawers for contents and chat, chips for filters', async ({
   await contents.getByRole('button').nth(3).click();
   await expect(contents).toBeHidden();
   await page.getByTestId('ask').click();
-  await expect(page.getByTestId('pane-right')).toContainText('Chat is not yet available in the browser');
+  await expect(page.getByTestId('pane-right')).toContainText('Ask about this paper');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('pane-right')).toHaveCount(0);
   await page.emulateMedia({ colorScheme: 'dark' });

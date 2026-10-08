@@ -9,6 +9,7 @@ import { type AppliedEvent, type PrivateEvent, PrivateState, decodeEvent, encode
 import { type EventEnvelope, type KeyRing, WireError, openEvent, sealEvent } from './wire';
 
 const PAGE = 50, PAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_HISTORY_EVENTS = 20_000, MAX_HISTORY_BYTES = 64 * 1024 * 1024;
 interface Row { id: string; device_id: string; cursor: number; epoch: number; format: number; ciphertext: string; ciphertext_sha256: string }
 interface Page { events: Row[]; next_cursor: number; has_more: boolean }
 
@@ -29,6 +30,9 @@ export class History {
   private sealed = new Map<string, Bytes>();
   private running: Promise<void> | null = null;
   private again = false;
+  private writes: Promise<void> = Promise.resolve();
+  private sizes = new Map<string, number>();
+  private retainedBytes = 0;
 
   constructor(private readonly account: string, private readonly deviceID: string, private ring: KeyRing,
     private readonly signal: AbortSignal, private readonly refreshRing: () => Promise<KeyRing>) {}
@@ -36,10 +40,20 @@ export class History {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getVersion = () => this.version;
   get unsaved(): number { return this.pending.length; }
-  private publish() { this.version++; for (const listener of this.listeners) listener(); }
+  isPending(id: string): boolean { return this.pending.some(p => p.id === id); }
+  private publish() { if (!this.signal.aborted) { this.version++; for (const listener of this.listeners) listener(); } }
+
+  private admit(events: { id: string; bytes: number }[]) {
+    const fresh = new Map(events.filter(e => !this.sizes.has(e.id)).map(e => [e.id, e.bytes]));
+    if (this.sizes.size + fresh.size > MAX_HISTORY_EVENTS || this.retainedBytes + [...fresh.values()].reduce((a, b) => a + b, 0) > MAX_HISTORY_BYTES)
+      throw new BackendError('history_capacity');
+    return fresh;
+  }
+  private record(sizes: Map<string, number>) { for (const [id, size] of sizes) { this.sizes.set(id, size); this.retainedBytes += size; } }
 
   /** Pull to the end, send what's pending, pull again; one run at a time (a call during a run schedules one more). */
   sync(): Promise<void> {
+    if (this.signal.aborted) return Promise.reject(new BackendError('cancelled'));
     if (this.running) { this.again = true; return this.running; }
     const run = (async () => {
       try {
@@ -48,7 +62,8 @@ export class History {
       } catch (error) {
         if (this.signal.aborted) return;
         this.status = this.status === 'loading' ? 'error' : this.status;
-        this.issue = error instanceof BackendError && error.code === 'connection' ? 'Couldn’t reach Gradstep to sync your chats.'
+        this.issue = error instanceof BackendError && error.code === 'history_capacity' ? 'This history is larger than this browser currently supports. Use Gradstep on iPhone, iPad or Mac.'
+          : error instanceof BackendError && error.code === 'connection' ? 'Couldn’t reach Gradstep to sync your chats.'
           : 'Your chat history couldn’t be synced. Reload the page to try again.';
         this.publish();
         throw error;
@@ -60,14 +75,32 @@ export class History {
 
   /** Seals and applies events here at once (they show immediately), then resolves when the server has them all. */
   async append(entries: { id: string; event: PrivateEvent }[]): Promise<void> {
-    for (const { id, event } of entries) {
-      const envelope = await sealEvent(encodeEvent(event), id, this.deviceID, this.ring);
-      this.state.apply({ id, deviceID: this.deviceID, payload: event });
-      this.sealed.set(id, envelope.ciphertext);
-      this.pending.push(envelope);
+    const write = this.writes.then(async () => {
+      this.signal.throwIfAborted();
+      if (!entries.length || entries.length > 4 || entries.some(e => !isUUID(e.id) || e.id !== e.id.toLowerCase()) || new Set(entries.map(e => e.id)).size !== entries.length) throw new BackendError('invalid_request');
+      const fresh = entries.filter(({ id, event }) => {
+        const old = this.state.events.get(id);
+        if (!old) return true;
+        if (old.deviceID !== this.deviceID || JSON.stringify(encodeEvent(old.payload)) !== JSON.stringify(encodeEvent(event))) throw new BackendError('event_conflict');
+        return false;
+      });
+      if (this.pending.length + fresh.length > 128) throw new BackendError('history_capacity');
+      const envelopes = await Promise.all(fresh.map(({ id, event }) => sealEvent(encodeEvent(event), id, this.deviceID, this.ring)));
+      this.signal.throwIfAborted();
+      if ([...this.pending, ...envelopes].reduce((n, e) => n + e.ciphertext.length, 0) > 8 * 1024 * 1024) throw new BackendError('history_capacity');
+      const sizes = this.admit(envelopes.map(e => ({ id: e.id, bytes: e.ciphertext.length })));
+      this.state.applyBatch(fresh.map(({ id, event }) => ({ id, deviceID: this.deviceID, payload: event })));
+      this.record(sizes);
+      for (const envelope of envelopes) { this.sealed.set(envelope.id, envelope.ciphertext); this.pending.push(envelope); }
+      this.publish();
+    });
+    this.writes = write.catch(() => {});
+    await write;
+    try { await this.sync(); } catch (error) {
+      if (entries.some(({ id }) => this.isPending(id))) throw new BackendError('history_unsaved');
+      throw error;
     }
-    this.publish();
-    await this.sync().catch(() => {});
+    this.signal.throwIfAborted();
     if (entries.some(({ id }) => this.pending.some(p => p.id === id))) throw new BackendError('history_unsaved');
   }
 
@@ -88,14 +121,18 @@ export class History {
         // server still doesn't have under the new epoch with the same IDs.
         this.ring = await this.refreshRing();
         await this.pull();
-        this.pending = await Promise.all(this.pending.map(async envelope => {
+        const captured = [...this.pending];
+        const resealed = await Promise.all(captured.map(async envelope => {
           if (envelope.epoch === this.ring.epoch) return envelope;
           const event = this.state.events.get(envelope.id);
           if (!event) throw new BackendError('history_unsaved');
           const resealed = await sealEvent(encodeEvent(event.payload), envelope.id, this.deviceID, this.ring);
-          this.sealed.set(envelope.id, resealed.ciphertext);
           return resealed;
         }));
+        this.signal.throwIfAborted();
+        const replacements = new Map(resealed.map(e => [e.id, e]));
+        this.pending = this.pending.map(e => replacements.get(e.id) ?? e);
+        for (const e of resealed) this.sealed.set(e.id, e.ciphertext);
       }
     }
   }
@@ -105,6 +142,7 @@ export class History {
       const envelope = this.pending[0];
       const cursor = await rpc<number>('v1_append_event', { p_device_id: this.deviceID, p_id: envelope.id, p_epoch: envelope.epoch, p_format: envelope.format,
         p_ciphertext: toBytea(envelope.ciphertext), p_management_token: toBytea(this.ring.managementToken) }, { account: this.account, signal: this.signal });
+      this.signal.throwIfAborted();
       if (!Number.isSafeInteger(cursor) || cursor <= 0) throw new BackendError('invalid_response');
       if (this.pending[0] === envelope) this.pending.shift();
       this.publish();
@@ -131,8 +169,12 @@ export class History {
         staged.push({ id, deviceID: envelope.deviceID, payload: decodeEvent(await openEvent(envelope, this.ring)) });
         expected = row.cursor;
       }
-      for (const event of staged) this.state.apply(event);
+      this.signal.throwIfAborted();
+      const sizes = this.admit(page.events.map(row => ({ id: row.id.toLowerCase(), bytes: fromBytea(row.ciphertext).length })));
+      this.state.applyBatch(staged);
+      this.record(sizes);
       this.pending = this.pending.filter(p => !seen.has(p.id));
+      for (const id of seen) this.sealed.delete(id);
       this.cursor = expected;
       if (staged.length || this.status === 'loading') { if (!page.has_more) this.status = 'ready'; this.publish(); }
       if (!page.has_more) return;

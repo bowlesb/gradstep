@@ -83,3 +83,30 @@ describe('encrypted history sync', () => {
     await expect(new History(account, deviceB, other, signal, async () => other).sync()).rejects.toThrow();
   });
 });
+
+describe('history integrity and retirement', () => {
+  beforeEach(() => { server.log = []; server.appended = []; server.failNextAppend = false; server.corrupt = false; });
+  it('retries a saved batch with identical IDs without resealing or duplicating it', async () => {
+    const ring = await keyRing(generateBundle(account)), signal = new AbortController().signal;
+    const h = new History(account, deviceA, ring, signal, async () => ring);
+    const entries = [{ id: crypto.randomUUID(), event: { kind: 'note' as const, entityID: crypto.randomUUID(), parents: [], text: 'Immutable' } }];
+    await h.append(entries); const bytes = server.log[0].ciphertext;
+    await h.append(entries); expect(server.log).toHaveLength(1); expect(server.log[0].ciphertext).toBe(bytes);
+    await expect(h.append([{ ...entries[0], event: { ...entries[0].event, text: 'Changed' } }])).rejects.toThrow('event_conflict');
+  });
+  it('retires before accepting any late encrypted batch', async () => {
+    const ring = await keyRing(generateBundle(account)), owner = new AbortController(), h = new History(account, deviceA, ring, owner.signal, async () => ring);
+    owner.abort();
+    await expect(h.append([{ id: crypto.randomUUID(), event: { kind: 'note', entityID: crypto.randomUUID(), parents: [], text: 'Late' } }])).rejects.toThrow();
+    expect(h.state.events.size).toBe(0); expect(server.log).toHaveLength(0);
+  });
+  it('rolls back an entire local batch if its second event closes a causal cycle', async () => {
+    const ring = await keyRing(generateBundle(account)), h = new History(account, deviceA, ring, new AbortController().signal, async () => ring);
+    const a = crypto.randomUUID(), b = crypto.randomUUID();
+    await expect(h.append([
+      { id: a, event: { kind: 'note', entityID: crypto.randomUUID(), parents: [b], text: 'A' } },
+      { id: b, event: { kind: 'note', entityID: crypto.randomUUID(), parents: [a], text: 'B' } },
+    ])).rejects.toThrow();
+    expect(h.state.events.size).toBe(0); expect(h.unsaved).toBe(0); expect(server.log).toHaveLength(0);
+  });
+});

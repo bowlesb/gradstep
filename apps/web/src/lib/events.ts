@@ -25,6 +25,10 @@ const string = (v: unknown): string => (typeof v === 'string' ? v : fail());
 const MAX_CREATED_AT = 253_402_300_800_000; // year 10000
 
 export function validateEvent(e: PrivateEvent): void {
+  if (!KINDS.includes(e.kind) || !isUUID(e.entityID) || !Array.isArray(e.parents) || e.parents.some(p => !isUUID(p))
+    || (e.conversationID !== undefined && !isUUID(e.conversationID)) || (e.documentID !== undefined && !isUUID(e.documentID))
+    || (e.text !== undefined && typeof e.text !== 'string') || (e.role !== undefined && !['user', 'assistant'].includes(e.role))
+    || (e.status !== undefined && !['complete', 'interrupted'].includes(e.status))) fail();
   if (e.parents.length > 100 || new Set(e.parents).size !== e.parents.length || utf8Bytes(e.text ?? '') > 200_000) fail();
   if (e.createdAt !== undefined && !(Number.isSafeInteger(e.createdAt) && e.createdAt >= 0 && e.createdAt < MAX_CREATED_AT)) fail();
   if (e.kind === 'message' && (!e.conversationID || !e.role || !e.status || e.text === undefined)) fail();
@@ -32,6 +36,7 @@ export function validateEvent(e: PrivateEvent): void {
   if (e.kind === 'position' && (!e.documentID || !e.anchor)) fail();
   if (e.anchor) {
     const a = e.anchor;
+    if (!isUUID(a.artifactID) || typeof a.quote !== 'string' || typeof a.prefix !== 'string' || typeof a.suffix !== 'string' || (a.elementID !== undefined && typeof a.elementID !== 'string')) fail();
     if (utf8Bytes(a.quote) > 20_000 || utf8Bytes(a.prefix) > 1000 || utf8Bytes(a.suffix) > 1000 || utf8Bytes(a.elementID ?? '') > 200
       || (a.page !== undefined && !(Number.isInteger(a.page) && a.page > 0 && a.page <= 250))) fail();
   }
@@ -92,6 +97,22 @@ export class PrivateState {
   private nextArrival = 0;
 
   arrivalIndex(id: string): number | undefined { return this.arrival.get(id); }
+
+  /** A pulled page or locally sealed batch is all-or-nothing, including a late conflict/cycle. */
+  applyBatch(events: AppliedEvent[]): void {
+    const added: string[] = [], before = this.nextArrival;
+    try {
+      for (const event of events) {
+        const exists = this.events.has(event.id);
+        this.apply(event);
+        if (!exists) added.push(event.id);
+      }
+    } catch (error) {
+      for (const id of added) { this.events.delete(id); this.arrival.delete(id); }
+      this.nextArrival = before;
+      throw error;
+    }
+  }
 
   apply(event: AppliedEvent): void {
     validateEvent(event.payload);

@@ -220,3 +220,33 @@ describe('request lifetime', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('chat stream lifetime and bounds', () => {
+  it('requests five minutes of token validity and cancels the stream when its consumer ends', async () => {
+    const { auth, functionStream } = await setup(savedSession(first, Date.now() / 1000 + 100));
+    const cancelled = vi.fn();
+    const fetcher = vi.fn(async (url: string) => url.includes('/token?') ? json(wireSession()) : new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode(': ping\n\n')); }, cancel: cancelled,
+    }), { headers: { 'Content-Type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetcher);
+    for await (const _chunk of functionStream('chat', {}, { account: first, signal: new AbortController().signal, maximum: 100, minimumValidity: 300 })) break;
+    expect(fetcher).toHaveBeenCalledTimes(2); expect(auth.session()?.accessToken).toBe('new-access'); expect(cancelled).toHaveBeenCalled();
+  });
+  it('never yields a late chunk after the login is retired', async () => {
+    const { auth, functionStream } = await setup();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/logout') ? new Response(null, { status: 204 }) : new Response(new ReadableStream({ start(c) { stream = c; } }), { headers: { 'Content-Type': 'text/event-stream' } })));
+    const iterator = functionStream('chat', {}, { account: first, signal: new AbortController().signal, maximum: 100 });
+    const pending = iterator.next().catch(e => e); await vi.waitFor(() => expect(stream).toBeDefined());
+    await auth.signOut(); stream.enqueue(new Uint8Array([65]));
+    expect(await pending).toMatchObject({ code: 'cancelled' });
+  });
+  it('rejects an oversized stream and a redirected/non-SSE body without exposing it', async () => {
+    const { functionStream } = await setup();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('sensitive error', { headers: { 'Content-Type': 'text/html' } })));
+    const consume = async () => { for await (const _ of functionStream('chat', {}, { account: first, signal: new AbortController().signal, maximum: 10 })) { /* consume */ } };
+    await expect(consume()).rejects.toMatchObject({ code: 'invalid_response' });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('a'.repeat(11), { headers: { 'Content-Type': 'text/event-stream' } })));
+    await expect(consume()).rejects.toMatchObject({ code: 'payload_too_large' });
+  });
+});

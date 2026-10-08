@@ -99,7 +99,7 @@ export class SSEParser {
       try { this.name = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(value)); } catch { throw new BackendError('stream_malformed'); }
     } else if (field === 'data') {
       if (this.hasData) this.data.push(0x0a);
-      this.data.push(...value); this.hasData = true;
+      for (const byte of value) this.data.push(byte); this.hasData = true;
       if (this.data.length > SSEParser.maximumLine) throw new BackendError('stream_malformed');
     }
     return null;
@@ -160,8 +160,12 @@ export function resolution(outcome: Outcome, text: string): { status: TurnStatus
 
 export function failureText(code: string): string {
   switch (code) {
+    case 'question_ready':
     case 'consent_declined': return 'Your question is saved. No answer was requested.';
     case 'consent_unsaved': return 'Your choice couldn’t be saved in this browser. Try again.';
+    case 'branch_required': return 'Choose a complete conversation branch before continuing.';
+    case 'conversation_deleted': return 'This conversation was deleted. Start a new chat to continue.';
+    case 'answer_too_large': return 'The answer reached this browser’s size limit. The partial answer is saved.';
     case 'storage': return 'The answer couldn’t be saved to your encrypted history. Try again.';
     case 'question_unsaved': return 'Your question couldn’t be saved, so no answer was requested. Try again.';
     case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';
@@ -172,6 +176,7 @@ export function failureText(code: string): string {
     case 'refused': return 'This request can’t be answered. Try rephrasing your question.';
     case 'invalid_request': return 'This conversation couldn’t be sent. Try starting a new chat.';
     case 'operation_replayed': return 'This answer was already requested. Try again to request a new one.';
+    case 'sign_in_required':
     case 'authentication_required': return 'Sign in again to get answers.';
     case 'transport': return 'The connection was interrupted before the answer finished.';
     default: return 'The answer couldn’t be completed. Try again.';
