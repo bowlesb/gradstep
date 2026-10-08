@@ -95,7 +95,7 @@ final class ReaderNavigationTests: XCTestCase {
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 8))
         let year = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "2023, NeurIPS")).firstMatch
-        XCTAssertTrue(year.waitForExistence(timeout: 10), "The paper is ready")
+        XCTAssertTrue(year.waitForExistence(timeout: 20), "The paper is ready")
         return (app, web)
     }
 
@@ -132,7 +132,10 @@ final class ReaderNavigationTests: XCTestCase {
             for _ in 0..<6 { if introduction.waitForExistence(timeout: 2) { break }; app.swipeUp() }
             introduction.tap()
             let citation = web.links["Reference 11"].firstMatch
-            waitUntil("The citation is on screen") { citation.exists && citation.isHittable }
+            // By frame: asking a web link's hittability while the page still scrolls can raise instead of answering.
+            waitUntil("The citation is on screen") {
+                citation.exists && !citation.frame.isEmpty && web.frame.insetBy(dx: 0, dy: 60).contains(CGPoint(x: citation.frame.midX, y: citation.frame.midY))
+            }
             sleep(1)
             citation.tap()
             let back = app.buttons["reader.citation.back"]

@@ -193,7 +193,14 @@ owner's "Fig. 1". Bridge ready time unchanged within noise (slowest paper 205 ms
 `PaperWebViewTests` (`testFigureTableAndAlgorithmReferencesLinkOnlyToTheirLabelledElement`,
 `testFigureReferenceInABundleShowsItsElementAndGoesThereWithBack`, `testFigureReferenceMessagesNameTheBundlesOwnFiguresTablesOrCode`,
 Back's two screens in `testCitationJumpsToItsReferenceAndBackReturnsToTheExactPlace`) and the iPhone journeys in
-`ReaderNavigationTests`.
+`ReaderNavigationTests` (`testReferenceActionsHaveNoTitleAndDiscussInChatQuotesTheEntry`,
+`testFigureReferenceShowsTheFigureAndGoToFigureReturnsWithBack`, each light and dark, Back checked clear of A− / A+ and
+the tab bar). 2026-10-08, iOS 26.4 iPhone 17 Pro Simulator: `PaperWebViewTests` + `ChatGenerationTests` 48 passed, 2
+skipped (environment-gated screenshot tests), 1 page-load timeout (`testContentsPreserveArtifactAnchorsAndUseThemForNavigation`)
+that passes alone; the KWIK screenshot test (`TEST_RUNNER_SCIENCE_READER_CITATION_BUNDLE`, text "Ten-nenholtz") passes
+and was checked by eye light and dark; `ReaderNavigationTests`, `PaperToolsTests` and `PassageJourneyTests` pass on
+iPhone (iPad-only cases skipped), with `testFindInPaperGoesToAMatchAndKeepsThatReadingPlace` passing alone after one
+keyboard-timing failure in the full run; Node 6/6; the Mac Catalyst build compiles (not run).
 
 **Browser reader hooks (for the web owner, Codex; not built here).** The browser frame loads this bridge unchanged, so
 figure links already appear there and a caption-paragraph target already jumps with the existing Back. Still needed in
