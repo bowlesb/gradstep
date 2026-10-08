@@ -133,6 +133,11 @@ final class PodcastJourneyTests: XCTestCase {
 
     func testTranscriptEvidenceOpensThePaperAtThePassage() {
         let app = launch()
+        // Read the paper first (a listener comes from somewhere): this also lets WebKit's first page load on a freshly
+        // booted Simulator finish before the timed jump.
+        app.buttons[sampleID].tap()
+        let firstPass = app.webViews.firstMatch.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "A useful first pass identifies")).firstMatch
+        XCTAssertTrue(firstPass.waitForExistence(timeout: 60))
         openListen(app)
         playSample(app)
         app.buttons["podcast.player.toggle"].tap()  // pause; the evidence jump doesn't need sound
@@ -146,7 +151,7 @@ final class PodcastJourneyTests: XCTestCase {
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 10), "The paper opens")
         let passage = web.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Read an ablation as evidence about a component")).firstMatch
-        waitFor("The paper scrolls to the quoted passage", timeout: 20) {
+        waitFor("The paper scrolls to the quoted passage", timeout: 30) {
             passage.exists && passage.isHittable && passage.frame.minY >= web.frame.minY - 4 && passage.frame.minY < web.frame.maxY - 60
         }
         XCTAssertTrue(app.buttons["reader.citation.back"].waitForExistence(timeout: 5), "Back to where reading left off")
@@ -248,6 +253,13 @@ final class PodcastJourneyTests: XCTestCase {
     /// Light and dark screenshots of the Listen feed, the player and transcript, and the mini-player (VISUAL_CHECK.md).
     func testScreenshotsLightAndDark() {
         let app = launch()
+        // The theme is a saved preference: leave it as other suites expect.
+        addTeardownBlock { @MainActor in
+            if !app.buttons["tab.settings"].exists { return }
+            app.buttons["tab.settings"].tap()
+            let match = app.segmentedControls["settings.theme"].buttons["Match device"]
+            if match.waitForExistence(timeout: 5) { match.tap() }
+        }
         for theme in ["Light", "Dark"] {
             app.buttons["tab.settings"].tap()
             let choice = app.segmentedControls["settings.theme"].buttons[theme]
