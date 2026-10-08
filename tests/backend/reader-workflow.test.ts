@@ -12,7 +12,7 @@ import { deliverReaderMember } from '../../supabase/functions/_shared/reader-del
 const origin = 'https://reader-fixture.invalid';
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 const withURL = (response: Response, url: string) => Object.defineProperty(response, 'url', { value: url });
-function fixture(transport: 'legacy' | 'bounded-v1' = 'bounded-v1') {
+function fixture(transport: 'legacy' | 'bounded-v1' = 'bounded-v1', configuredOrigin = origin) {
   const item = { id: randomUUID(), document_id: randomUUID(), artifact_id: randomUUID() };
   const content = [Buffer.from('<p>Fixture</p>'), Buffer.from('{"blocks":[]}')];
   const members = content.map((bytes, i) => ({ path: i ? 'reader.json' : 'index.html', bytes: bytes.length, sha256: digest(bytes),
@@ -22,8 +22,8 @@ function fixture(transport: 'legacy' | 'bounded-v1' = 'bounded-v1') {
   const value: any = { item_id: item.id, document_id: item.document_id, artifact_id: item.artifact_id,
     renderer_version: 'timestep-mathpix-mathml-v1', transport, manifest_sha256: digest(manifest), manifest: manifest.toString('base64'),
     members: members.map((member, i) => ({ ...member, url: transport === 'legacy'
-      ? `${origin}/storage/v1/object/sign/paper-assets/reader/${digest(manifest)}/${member.path}?token=private-signed-token`
-      : `${origin}/functions/v1/reader-member?grant=${token}&member=${ids[i]}` })) };
+      ? `${configuredOrigin}/storage/v1/object/sign/paper-assets/reader/${digest(manifest)}/${member.path}?token=private-signed-token`
+      : `${configuredOrigin}/functions/v1/reader-member?grant=${token}&member=${ids[i]}` })) };
   const requests: { url: string; init: RequestInit }[] = [];
   let tokenReads = 0;
   let respond: (i: number, url: string, init: RequestInit) => Response | Promise<Response> = (i, url) =>
@@ -38,7 +38,7 @@ function fixture(transport: 'legacy' | 'bounded-v1' = 'bounded-v1') {
   };
   return { item, value, content, members, ids, requests, fetcher, tokenReads: () => tokenReads,
     response: (next: typeof respond) => { respond = next; },
-    run: (signal?: AbortSignal) => verifyReaderDelivery({ backendURL: origin, anonKey: 'public-fixture-key',
+    run: (signal?: AbortSignal) => verifyReaderDelivery({ backendURL: configuredOrigin, anonKey: 'public-fixture-key',
       token: async () => { tokenReads++; return 'account-fixture-token'; }, item, signal, fetcher }) };
 }
 
@@ -63,6 +63,37 @@ test('workflow requests bounded-v1 and consumes the actual authenticated member 
     assert.equal(request.init.redirect, 'error');
     assert.equal(new Headers(request.init.headers).get('apikey'), 'public-fixture-key');
   }
+});
+
+test('only the configured standard hosted bounded endpoint accepts HTML served as plain text', async () => {
+  const hosted = 'https://' + 'a'.repeat(20) + '.supabase.co';
+  const reply = (f: ReturnType<typeof fixture>, index: number, url: string, overrides: Record<string, string> = {}, corrupt = false) =>
+    withURL(new Response(corrupt ? Buffer.alloc(f.content[index].length, 120) : f.content[index], { headers: {
+      'content-type': index ? 'application/json' : 'text/plain; charset=utf-8',
+      'content-length': String(f.content[index].length), 'cache-control': 'private, no-store',
+      'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', ...overrides,
+    } }), url);
+  const accepted = fixture('bounded-v1', hosted);
+  accepted.response((i, url) => reply(accepted, i, url));
+  assert.equal((await accepted.run()).transport, 'bounded-v1');
+  for (const [transport, configuredOrigin] of [['legacy', hosted], ['bounded-v1', origin], ['bounded-v1', hosted + ':444']] as const) {
+    const refused = fixture(transport, configuredOrigin);
+    refused.response((i, url) => reply(refused, i, url));
+    await assert.rejects(refused.run(), /reader_member_type/);
+  }
+  for (const [overrides, corrupt, expected] of [
+    [{ 'x-content-type-options': '' }, false, 'reader_member_response_contract'],
+    [{ 'cache-control': 'public, max-age=60' }, false, 'reader_member_response_contract'],
+    [{ 'content-type': 'application/octet-stream' }, false, 'reader_member_type'],
+    [{}, true, 'reader_member_integrity'],
+  ] as const) {
+    const refused = fixture('bounded-v1', hosted);
+    refused.response((i, url) => reply(refused, i, url, overrides, corrupt));
+    await assert.rejects(refused.run(), { message: expected });
+  }
+  const jsonAsText = fixture('bounded-v1', hosted);
+  jsonAsText.response((i, url) => reply(jsonAsText, i, url, { 'content-type': 'text/plain' }));
+  await assert.rejects(jsonAsText.run(), /reader_member_type/);
 });
 
 test('current and pre-035 legacy descriptors retain hash checks without forwarding account headers to Storage', async () => {

@@ -71,7 +71,7 @@ function memberURL(value, origin, memberPath, transport) {
   return url;
 }
 
-function descriptor(value, expected, origin) {
+export function validateReaderDescriptor(value, expected, origin) {
   if (!value || value.item_id !== expected.id || value.document_id !== expected.document_id || value.artifact_id !== expected.artifact_id
     || !digest(value.manifest_sha256) || typeof value.renderer_version !== 'string' || !value.renderer_version.length
     || value.renderer_version.length > 64 || typeof value.manifest !== 'string' || value.manifest.length > 349_528
@@ -129,12 +129,19 @@ export async function verifyReaderDelivery({ backendURL, anonKey, token, item, s
   if (received.response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') fail('reader_descriptor_type');
   let value;
   try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(received.bytes)); } catch { fail('reader_descriptor_invalid'); }
-  const verified = descriptor(value, item, backend.origin);
+  const verified = validateReaderDescriptor(value, item, backend.origin);
   let bytes = 0;
   for (const member of verified.members) {
     const auth = verified.transport === 'bounded-v1' ? await headers() : { 'Accept-Encoding': 'identity' };
     const result = await request(fetcher, member.url, auth, deadline(60_000, signal), member.bytes, member.bytes, 'reader-member');
-    if (result.response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== member.media_type) fail('reader_member_type');
+    const servedType = result.response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    // The standard hosted Edge gateway rewrites GET text/html to text/plain:
+    // https://supabase.com/docs/guides/functions/http-methods
+    // This one downgrade is transport-only. The trusted manifest remains HTML;
+    // exact identity, hashes, bytes, no-store and nosniff still apply below.
+    const hostedHTML = verified.transport === 'bounded-v1' && /^[a-z]{20}\.supabase\.co$/.test(backend.hostname)
+      && !backend.port && member.media_type === 'text/html' && servedType === 'text/plain';
+    if (servedType !== member.media_type && !hostedHTML) fail('reader_member_type');
     const cache = result.response.headers.get('cache-control')?.toLowerCase().split(',').map(value => value.trim()) ?? [];
     if (verified.transport === 'bounded-v1' && (result.response.headers.get('content-length') !== String(member.bytes)
       || cache.length !== 2 || !cache.includes('private') || !cache.includes('no-store')
