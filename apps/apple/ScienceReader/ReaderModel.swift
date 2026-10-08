@@ -215,6 +215,26 @@ final class ReaderModel {
     }
     /// The Feed table's order (not persisted, like the Library's sort).
     var feedSort = FeedTableColumn.defaultSort
+    /// The Feed table's columns, per kind of device (build 17: "why are there so few options").
+    var feedColumns = ColumnChoice.load(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
+                                        regularDefault: FeedTableColumn.regularDefault, from: .standard) {
+        didSet { feedColumns.save(to: .standard) }
+    }
+    /// The Feed leaves out papers already in the library (its "…" menu; kept on the device).
+    var feedHidesLibrary = UserDefaults.standard.bool(forKey: "feed.hidesLibrary") {
+        didSet { UserDefaults.standard.set(feedHidesLibrary, forKey: "feed.hidesLibrary") }
+    }
+    /// The Feed's papers as shown: without those in the library when the reader chose so.
+    var shownFeedResults: [DiscoveryResult] {
+        guard feedHidesLibrary else { return feedResults }
+        let library = librarySourceIDs
+        return feedResults.filter { !library.contains($0.sourceID) }
+    }
+    /// All chats' columns, per kind of device (build 16 #3).
+    var chatColumns = ColumnChoice.load(key: "chats.columns", compactDefault: ChatTableLayout.compactDefault,
+                                        regularDefault: ChatTableLayout.regularDefault, from: .standard) {
+        didSet { chatColumns.save(to: .standard) }
+    }
     var searchExternal = false
     var searchQuery: String { get { searchExternal ? discoveryQuery : libraryQuery } set { if searchExternal { discoveryQuery = newValue } else { libraryQuery = newValue } } }
     var showAbstracts = UserDefaults.standard.object(forKey: "library.showAbstracts") as? Bool ?? true { didSet { UserDefaults.standard.set(showAbstracts, forKey: "library.showAbstracts") } }

@@ -25,13 +25,17 @@ public struct ConversationSummary: Equatable, Sendable, Identifiable {
     public let questions: String
     /// The passage a selection action started this conversation from (saved, encrypted, with the conversation).
     public let anchor: TextAnchor?
+    /// Words in the newest answer, all of it (All chats' Answer length column); 0 when nothing was answered.
+    public let latestAnswerWords: Int
 
     public init(id: UUID, title: String, documentID: UUID?, messageCount: Int, startedAt: Date?, lastUsedAt: Date?,
-                lastArrival: Int, startArrival: Int? = nil, latestAnswer: String?, questions: String, anchor: TextAnchor? = nil) {
+                lastArrival: Int, startArrival: Int? = nil, latestAnswer: String?, questions: String, anchor: TextAnchor? = nil,
+                latestAnswerWords: Int? = nil) {
         self.id = id; self.title = title; self.documentID = documentID; self.messageCount = messageCount
         self.startedAt = startedAt; self.lastUsedAt = lastUsedAt; self.lastArrival = lastArrival
         self.startArrival = startArrival ?? lastArrival
         self.latestAnswer = latestAnswer; self.questions = questions; self.anchor = anchor
+        self.latestAnswerWords = latestAnswerWords ?? latestAnswer.map { $0.split(whereSeparator: \.isWhitespace).count } ?? 0
     }
 
     /// Characters of the newest answer kept for the preview.
@@ -68,7 +72,8 @@ public extension PrivateState {
             let last = (times + [root.payload.createdAt].compactMap { $0 }).max()
             let lastArrival = (revisions + surviving).compactMap { arrivalIndex($0.id) }.max() ?? -1
             let startArrival = revisions.compactMap { arrivalIndex($0.id) }.min() ?? lastArrival
-            let answer = ordered.last { $0.payload.role == .assistant }?.payload.text.map { String($0.prefix(ConversationSummary.answerPrefix)) }
+            let fullAnswer = ordered.last { $0.payload.role == .assistant }?.payload.text
+            let answer = fullAnswer.map { String($0.prefix(ConversationSummary.answerPrefix)) }
             var questions = ""
             for message in ordered.reversed() where message.payload.role == .user {
                 guard questions.count < ConversationSummary.questionsLimit, let text = message.payload.text else { continue }
@@ -77,7 +82,8 @@ public extension PrivateState {
             result.append(ConversationSummary(id: id, title: root.payload.text ?? "", documentID: root.payload.documentID,
                 messageCount: Set(surviving.map(\.payload.entityID)).count,
                 startedAt: started.map(Self.date), lastUsedAt: last.map(Self.date), lastArrival: lastArrival,
-                startArrival: startArrival, latestAnswer: answer, questions: questions, anchor: root.payload.anchor))
+                startArrival: startArrival, latestAnswer: answer, questions: questions, anchor: root.payload.anchor,
+                latestAnswerWords: fullAnswer.map { $0.split(whereSeparator: \.isWhitespace).count } ?? 0))
         }
         return result.sorted { $0.id.wire < $1.id.wire }
     }

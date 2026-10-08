@@ -55,7 +55,7 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(libraryColumns(Width.padLandscape, [.pages, .source, .progress]), ["source", "pages", "progress"], "Row order")
         XCTAssertEqual(libraryColumns(Width.padLandscape, []), [], "Title alone")
         // A phone shows whatever short column the reader picks next to Progress (Year off, Added on, say).
-        for column in LibraryTableColumn.allCases where ![.progress, .tags].contains(column) {
+        for column in LibraryTableColumn.allCases where ![.progress, .tags, .venue].contains(column) {
             XCTAssertEqual(libraryColumns(Width.phone, [column, .progress]), [column.rawValue, "progress"], column.rawValue)
             if column != .source {
                 XCTAssertEqual(libraryColumns(Width.phoneSmall, [column, .progress]), [column.rawValue, "progress"], "17e: \(column)")

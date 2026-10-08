@@ -618,6 +618,8 @@ struct FeedView: View {
     @Bindable var model: ReaderModel
     @State private var issue: String?
     @State private var width: CGFloat = 0
+    @State private var showColumns = false
+    @ScaledMetric(relativeTo: .subheadline) private var columnScale: CGFloat = 1
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.tabBarReserve) private var tabBarReserve
     private var isFailed: Bool { if case .failed = model.feedState { true } else { false } }
@@ -642,6 +644,15 @@ struct FeedView: View {
                 case .loaded:
                     if model.feedResults.isEmpty {
                         ContentUnavailableView("No new papers", image: GradstepSymbol.feed, description: Text("Check back later or pick another topic."))
+                    } else if model.shownFeedResults.isEmpty {
+                        // Every paper here is already in the library and the reader hides those.
+                        ContentUnavailableView {
+                            Label("All in your library", image: GradstepSymbol.feed)
+                        } description: {
+                            Text("Every new paper in this topic is already in your library.")
+                        } actions: {
+                            Button("Show them") { model.feedHidesLibrary = false }.accessibilityIdentifier("feed.showLibrary")
+                        }
                     } else if tableShown {
                         FeedTable(model: model, issue: $issue).refreshable { model.loadFeed() }
                     } else {
@@ -649,7 +660,7 @@ struct FeedView: View {
                             if let issue {
                                 StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: issue).listRowSeparator(.hidden)
                             }
-                            ForEach(model.feedResults) { result in
+                            ForEach(model.shownFeedResults) { result in
                                 DiscoveryRow(model: model, result: result, issue: $issue, showsIdentifier: false)
                                     .listRowInsets(EdgeInsets(top: 12, leading: DesignMetrics.margin, bottom: 12, trailing: DesignMetrics.margin))
                             }
@@ -680,8 +691,26 @@ struct FeedView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .sheet(isPresented: $showColumns) { feedColumnsSheet }
             .task { if model.feedState == .idle || (model.feedState != .loading && model.feedResults.isEmpty && !model.librarySignInRequired) { model.loadFeed() } }
         }
+    }
+
+    /// Feed options › Columns (build 17).
+    private var feedColumnsSheet: some View {
+        let width = LibraryColumnSettings.WidthClass.current
+        let chosen = model.feedColumns[width]
+        let fitting = Set(PaperTableLayout.visibleColumns(FeedTableColumn.columns(chosen), width: max(0, self.width - 2 * DesignMetrics.margin),
+                                                          scale: columnScale).map(\.id))
+        return ColumnChooserSheet(
+            identifier: "feed.columns", titleRow: ("Title", "With the first author"),
+            options: FeedTableColumn.choosable.map { .init(id: $0.rawValue, title: $0.title, explanation: $0.explanation) },
+            fixed: [("Add", FeedTableColumn.add.explanation)],
+            chosen: Binding(get: { Set(model.feedColumns[width].map(\.rawValue)) },
+                            set: { model.feedColumns[width] = Set($0.compactMap(FeedTableColumn.init(rawValue:))) }),
+            defaults: Set(model.feedColumns.defaults(width).map(\.rawValue)),
+            scrolling: Set(chosen.map(\.rawValue)).subtracting(fitting),
+            footer: TableColumnWording.footer(width))
     }
 
     private var header: some View {
@@ -715,7 +744,24 @@ struct FeedView: View {
                         Label { Text("View as"); Text(model.feedLayout.title) } icon: { menuIcon("rectangle.grid.1x2") }
                     }
                 }
+                if model.feedLayout == .table {
+                    // The table's order and columns (build 17: "sort by Published, Title, Topic"; "choose which columns").
+                    Section {
+                        Menu {
+                            Picker("Sort by", selection: Binding(get: { model.feedSort.key }, set: { key in
+                                model.feedSort = PaperTableSort(key: key, ascending: key.ascendingFirst)
+                            })) {
+                                ForEach(FeedSortKey.allCases, id: \.self) { Text($0.label).tag($0) }
+                            }.pickerStyle(.inline)
+                        } label: {
+                            Label { Text("Sort by"); Text(model.feedSort.key.label) } icon: { menuIcon("arrow.up.arrow.down") }
+                        }
+                        MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("feed.columns")
+                    }
+                }
                 Section {
+                    Toggle(isOn: $model.feedHidesLibrary) { Label("Hide papers in your library", systemImage: "checkmark.circle") }
+                        .accessibilityIdentifier("feed.hideLibrary")
                     MenuRow("Refresh feed", systemImage: "arrow.clockwise") { model.loadFeed() }.disabled(model.librarySignInRequired)
                 }
                 Section { MenuRow("Report this screen", systemImage: "ladybug") { model.beginReport(afterMenu: true) } }

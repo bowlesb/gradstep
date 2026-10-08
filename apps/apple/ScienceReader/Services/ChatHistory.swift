@@ -22,7 +22,7 @@ enum ChatHistoryFilter: String, CaseIterable, Identifiable, Sendable {
 
 /// A sortable column.
 enum ChatHistoryField: String, CaseIterable, Sendable {
-    case conversation, paper, lastUsed, started, messages
+    case conversation, paper, lastUsed, started, messages, kind, answerLength
 
     var title: String {
         switch self {
@@ -31,11 +31,27 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
         case .lastUsed: "Last used"
         case .started: "Started"
         case .messages: "Messages"
+        case .kind: "Kind"
+        case .answerLength: "Answer length"
         }
     }
 
-    /// The first direction when a header is tapped: names A–Z, times and counts newest/largest first.
-    var ascendingFirst: Bool { self == .conversation || self == .paper }
+    /// What the column chooser says about it.
+    var explanation: String {
+        switch self {
+        case .conversation: "The first question"
+        case .paper: "The paper it is about, or General"
+        case .lastUsed: "When you last asked or got an answer"
+        case .started: "When the conversation began"
+        case .messages: "Questions and answers"
+        case .kind: "Paper chat or general chat"
+        case .answerLength: "Words in the newest answer"
+        }
+    }
+
+    /// The first direction when a header is tapped: names A–Z (paper chats before general ones), times and counts
+    /// newest/largest first.
+    var ascendingFirst: Bool { self == .conversation || self == .paper || self == .kind }
 }
 
 struct ChatHistorySort: Equatable, Sendable {
@@ -124,6 +140,11 @@ enum ChatHistoryQuery {
         case .messages:
             return a.summary.messageCount == b.summary.messageCount ? .orderedSame
                 : (a.summary.messageCount < b.summary.messageCount ? .orderedAscending : .orderedDescending)
+        case .kind:
+            return a.isPaperChat == b.isPaperChat ? .orderedSame : (a.isPaperChat ? .orderedAscending : .orderedDescending)
+        case .answerLength:
+            let x = a.summary.latestAnswerWords, y = b.summary.latestAnswerWords
+            return x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
         }
     }
 
@@ -165,6 +186,16 @@ enum ChatHistoryFormat {
     }
 
     static func messages(_ count: Int) -> String { count == 1 ? "1 message" : "\(count) messages" }
+
+    /// An answer's length: "320 words", "1.2k words"; "—" when nothing was answered.
+    static func words(_ count: Int) -> String {
+        switch count {
+        case ..<1: "—"
+        case 1: "1 word"
+        case ..<1_000: "\(count) words"
+        default: String(format: "%.1fk words", Double(count) / 1_000)
+        }
+    }
 
     /// The count beside the filter: "34 chats", or "5 of 34 chats" while filtering.
     static func count(shown: Int, total: Int) -> String {

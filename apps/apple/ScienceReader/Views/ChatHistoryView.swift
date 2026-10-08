@@ -3,9 +3,10 @@ import ScienceReaderCore
 
 // All chats as a table (owner request 2026-10-07: "a nice table, better more dense rows, not overdoing it … sort them
 // based on last used"). It follows the Tables pattern of `PaperTable` (DESIGN.md): a pinned header of column titles
-// (tap to sort, again to reverse), one compact aligned row per conversation, and as many columns beside the
-// conversation as fit — never a horizontal scroll. Unsent drafts stay above the table. At accessibility text sizes
-// rows replace the table. Everything shown is computed on this device from the decrypted history.
+// (tap to sort, again to reverse), one compact aligned row per conversation, and the reader's columns (build 16 #3:
+// "choose which columns to show and also allow horizontal scrolling"): when they don't fit, they scroll sideways
+// between the pinned conversation and Last used. Unsent drafts stay above the table. At accessibility text sizes rows
+// replace the table. Everything shown is computed on this device from the decrypted history.
 
 /// One column beside the conversation.
 struct ChatTableColumn: Identifiable, Equatable {
@@ -15,6 +16,8 @@ struct ChatTableColumn: Identifiable, Equatable {
     /// Width at the default text size; it grows with Dynamic Type.
     let width: CGFloat
     var alignment: Alignment = .leading
+    /// Stays at the trailing edge while the other columns scroll (Last used).
+    var pinned = false
     var id: ChatHistoryField { field }
 }
 
@@ -26,28 +29,45 @@ enum ChatTableLayout {
     /// …nor, on wide screens, than this share of the row.
     static let titleShare: CGFloat = 0.3
 
-    /// In row order. Last used is rightmost on every size, so the default order reads the same everywhere.
+    /// In row order. Last used is rightmost on every size (and stays there while the others scroll), so the default
+    /// order reads the same everywhere.
     static let columns: [ChatTableColumn] = [
         ChatTableColumn(field: .paper, priority: 1, width: 200),
+        ChatTableColumn(field: .kind, priority: 5, width: 84),
         ChatTableColumn(field: .messages, priority: 2, width: 70, alignment: .trailing),
         ChatTableColumn(field: .started, priority: 3, width: 88),
-        ChatTableColumn(field: .lastUsed, priority: 0, width: 88),
+        ChatTableColumn(field: .answerLength, priority: 4, width: 104, alignment: .trailing),
+        ChatTableColumn(field: .lastUsed, priority: 0, width: 88, pinned: true),
     ]
+    /// The columns the reader chooses (Columns in All chats' "…"); Last used always shows.
+    static let choosable: [ChatHistoryField] = [.paper, .kind, .messages, .started, .answerLength]
+    /// Paper, Messages and Started, as before (iPhone portrait scrolls to them; landscape and iPad show them).
+    static let compactDefault: Set<ChatHistoryField> = [.paper, .messages, .started]
+    static let regularDefault: Set<ChatHistoryField> = [.paper, .messages, .started]
 
     static func titleWidth(in width: CGFloat, scale: CGFloat) -> CGFloat { max(titleMinimum * scale, width * titleShare) }
 
-    /// The columns shown in a row `width` wide (inside the margins), in row order. Taken by priority until the next
+    /// The chosen columns (and Last used), in row order.
+    static func columns(_ chosen: Set<ChatHistoryField>) -> [ChatTableColumn] {
+        columns.filter { $0.field == .lastUsed || chosen.contains($0.field) }
+    }
+
+    /// The columns that fit in a row `width` wide (inside the margins), in row order. Taken by priority until the next
     /// one doesn't fit, so a wider screen only ever adds columns.
-    static func visible(width: CGFloat, scale: CGFloat = 1) -> [ChatTableColumn] {
-        var used = titleWidth(in: width, scale: scale)
-        var shown = Set<ChatHistoryField>()
-        for column in columns.sorted(by: { $0.priority < $1.priority }) {
-            let next = used + spacing + column.width * scale
-            guard next <= width else { break }
-            used = next
-            shown.insert(column.field)
-        }
-        return columns.filter { shown.contains($0.field) }
+    static func visible(_ chosen: Set<ChatHistoryField> = compactDefault, width: CGFloat, scale: CGFloat = 1) -> [ChatTableColumn] {
+        let shown = TableArrangement.fit(columns(chosen).map(item), rowWidth: width, titleMinimum: titleMinimum, titleShare: titleShare,
+                                         spacing: spacing, scale: scale)
+        return columns(chosen).filter { shown.contains($0.field.rawValue) }
+    }
+
+    /// Every chosen column: those that don't fit scroll sideways between the conversation and Last used.
+    static func arrangement(_ chosen: Set<ChatHistoryField>, width: CGFloat, scale: CGFloat = 1) -> TableArrangement {
+        TableArrangement.make(columns(chosen).map(item), rowWidth: width, titleMinimum: titleMinimum, titleShare: titleShare,
+                              spacing: spacing, scale: scale, scrolling: true)
+    }
+
+    private static func item(_ column: ChatTableColumn) -> TableArrangement.Item {
+        TableArrangement.Item(id: column.field.rawValue, priority: column.priority, width: column.width, pinned: column.pinned)
     }
 }
 
@@ -66,6 +86,8 @@ struct ChatHistoryView: View {
     @State private var deleting: ChatHistoryRow?
     /// The list's width; rows sit inside the 16 pt margins.
     @State private var width: CGFloat = 0
+    @State private var scroll = TableScrollState()
+    @State private var showColumns = false
 
     init(model: ReaderModel, paperID: UUID? = nil) {
         self.model = model
@@ -89,7 +111,19 @@ struct ChatHistoryView: View {
                 }
             }
             .navigationTitle("All chats").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                // The table's options: its columns (build 16 #3).
+                if tableShown && !summaries.isEmpty {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
+                        } label: { Image(systemName: "ellipsis") }
+                        .accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
+                    }
+                }
+            }
+            .sheet(isPresented: $showColumns) { columnsSheet }
             .modifier(ChatSearch(text: $search, enabled: !summaries.isEmpty))
             .alert("Delete this conversation?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                    presenting: deleting) { row in
@@ -109,15 +143,48 @@ struct ChatHistoryView: View {
     private var tableShown: Bool { !dynamicTypeSize.isAccessibilitySize }
     private var rowWidth: CGFloat { max(0, width - 2 * DesignMetrics.margin) }
 
+    private var chosenColumns: Set<ChatHistoryField> { model.chatColumns[.current] }
+
+    /// All chats › "…" › Columns.
+    private var columnsSheet: some View {
+        let widthClass = LibraryColumnSettings.WidthClass.current
+        let chosen = model.chatColumns[widthClass]
+        let fitting = Set(ChatTableLayout.visible(chosen, width: rowWidth, scale: scale).map(\.field))
+        return ColumnChooserSheet(
+            identifier: "chat.history.columns", titleRow: ("Conversation", "The first question, and under it the paper or the newest answer"),
+            options: ChatTableLayout.choosable.map { .init(id: $0.rawValue, title: $0.title, explanation: $0.explanation) },
+            fixed: [(ChatHistoryField.lastUsed.title, ChatHistoryField.lastUsed.explanation)],
+            chosen: Binding(get: { Set(model.chatColumns[widthClass].map(\.rawValue)) },
+                            set: { model.chatColumns[widthClass] = Set($0.compactMap(ChatHistoryField.init(rawValue:))) }),
+            defaults: Set(model.chatColumns.defaults(widthClass).map(\.rawValue)),
+            scrolling: Set(chosen.subtracting(fitting).map(\.rawValue)),
+            footer: TableColumnWording.footer(widthClass))
+    }
+
+    private func columns(_ ids: [String]) -> [ChatTableColumn] {
+        ids.compactMap { id in ChatTableLayout.columns.first { $0.field.rawValue == id } }
+    }
+
     private func list(rows: [ChatHistoryRow], drafts: [ChatWorkspace.UnsentDraft], titles: [UUID: String], total: Int) -> some View {
-        let visible = tableShown ? ChatTableLayout.visible(width: rowWidth, scale: scale) : []
+        let arrangement = tableShown ? ChatTableLayout.arrangement(chosenColumns, width: rowWidth, scale: scale) : TableArrangement(columns: [])
+        return HorizontalTableScroll(state: scroll, extent: arrangement.extent) {
+            table(rows: rows, drafts: drafts, titles: titles, total: total, arrangement: arrangement)
+        }
+        // On the List only: applied after the inset it would replace the chips' and count's identifiers.
+        .safeAreaInset(edge: .top, spacing: 0) { if total > 0 { filterBar(shown: rows.count, total: total) } }
+        .overlay { if total > 0 && rows.isEmpty && drafts.isEmpty { noMatches } }
+    }
+
+    private func table(rows: [ChatHistoryRow], drafts: [ChatWorkspace.UnsentDraft], titles: [UUID: String], total: Int,
+                       arrangement: TableArrangement) -> some View {
+        let visible = columns(arrangement.columns) + columns(arrangement.pinned)
         return List {
             // An empty first section takes the plain list's top header padding, so the content starts under the chips.
             Section { Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden).accessibilityHidden(true) }
             if !drafts.isEmpty {
                 Section {
                     ForEach(drafts) { draft in
-                        draftRow(draft, titles: titles, visible: visible)
+                        draftRow(draft, titles: titles, visible: visible, arrangement: arrangement)
                             .listRowInsets(Self.rowInsets)
                             .contextMenu {
                                 Button("Discard draft", systemImage: "trash", role: .destructive) { model.discardUnsentDraft(draft.id) }
@@ -137,18 +204,19 @@ struct ChatHistoryView: View {
             if total > 0 {
                 Section {
                     ForEach(rows) { row in
-                        conversationRow(row, visible: visible)
+                        conversationRow(row, visible: visible, arrangement: arrangement)
                             .listRowInsets(Self.rowInsets)
                             .contextMenu { actions(row) }
+                            // While the columns scroll, a sideways swipe scrolls them; Delete stays in the row's menu.
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if model.canDeleteConversations {
+                                if model.canDeleteConversations && !arrangement.scrolls {
                                     // Not a destructive role: the row stays until the deletion is confirmed.
                                     Button { deleting = row } label: { Label("Delete", systemImage: "trash") }.tint(.red)
                                 }
                             }
                     }
                 } header: {
-                    if tableShown { header(visible) } else { sectionTitle(drafts.isEmpty ? nil : "Saved conversations") }
+                    if tableShown { header(arrangement) } else { sectionTitle(drafts.isEmpty ? nil : "Saved conversations") }
                 }
             }
         }
@@ -156,11 +224,8 @@ struct ChatHistoryView: View {
         .listSectionSpacing(0)
         .environment(\.defaultMinListHeaderHeight, 0)
         .environment(\.defaultMinListRowHeight, 0)
-        // On the List only: applied after the inset it would replace the chips' and count's identifiers.
         .accessibilityIdentifier("chat.history.table")
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        .safeAreaInset(edge: .top, spacing: 0) { if total > 0 { filterBar(shown: rows.count, total: total) } }
-        .overlay { if total > 0 && rows.isEmpty && drafts.isEmpty { noMatches } }
     }
 
     private static let rowInsets = EdgeInsets(top: 7, leading: DesignMetrics.margin, bottom: 7, trailing: DesignMetrics.margin)
@@ -227,14 +292,25 @@ struct ChatHistoryView: View {
 
     // MARK: Header
 
-    private func header(_ visible: [ChatTableColumn]) -> some View {
-        HStack(alignment: .center, spacing: ChatTableLayout.spacing) {
+    private func header(_ arrangement: TableArrangement) -> some View {
+        let visible = columns(arrangement.columns), pinned = columns(arrangement.pinned)
+        return HStack(alignment: .center, spacing: ChatTableLayout.spacing) {
             HStack(spacing: 6) {
                 headerCell(.conversation)
-                hiddenSortIndicator(visible)
+                hiddenSortIndicator(ChatTableLayout.visible(chosenColumns, width: rowWidth, scale: scale))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(visible) { column in
+            .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
+            .frame(width: arrangement.titleWidth, alignment: .leading)
+            if arrangement.scrolls {
+                TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
+                    HStack(alignment: .center, spacing: ChatTableLayout.spacing) {
+                        ForEach(visible) { column in
+                            headerCell(column.field).frame(width: column.width * scale, alignment: column.alignment)
+                        }
+                    }
+                }
+            }
+            ForEach(arrangement.scrolls ? pinned : visible) { column in
                 headerCell(column.field).frame(width: column.width * scale, alignment: column.alignment)
             }
         }
@@ -292,8 +368,10 @@ struct ChatHistoryView: View {
 
     // MARK: Rows
 
-    private func conversationRow(_ row: ChatHistoryRow, visible: [ChatTableColumn]) -> some View {
-        let paperShown = visible.contains { $0.field == .paper }
+    private func conversationRow(_ row: ChatHistoryRow, visible: [ChatTableColumn], arrangement: TableArrangement) -> some View {
+        // The Paper column on screen without scrolling (in the region's first view while the columns scroll).
+        let fitting = Set(ChatTableLayout.visible(chosenColumns, width: rowWidth, scale: scale).map(\.field))
+        let paperShown = arrangement.scrolls ? fitting.contains(.paper) : visible.contains { $0.field == .paper }
         return Button {
             model.openConversation(row.id); dismiss()
         } label: {
@@ -302,8 +380,18 @@ struct ChatHistoryView: View {
                     HStack(alignment: .firstTextBaseline, spacing: ChatTableLayout.spacing) {
                         // With the Paper column shown, a chat from a passage shows that passage; else the newest answer.
                         ChatTitleCell(title: row.title, subtitle: paperShown ? (row.passageLine ?? answerLine(row)) : row.contextTitle)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        ForEach(visible) { column in
+                            .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
+                            .frame(width: arrangement.titleWidth, alignment: .leading)
+                        if arrangement.scrolls {
+                            TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
+                                HStack(alignment: .firstTextBaseline, spacing: ChatTableLayout.spacing) {
+                                    ForEach(columns(arrangement.columns)) { column in
+                                        cell(row, column.field).frame(width: column.width * scale, alignment: column.alignment)
+                                    }
+                                }
+                            }
+                        }
+                        ForEach(arrangement.scrolls ? columns(arrangement.pinned) : visible) { column in
                             cell(row, column.field).frame(width: column.width * scale, alignment: column.alignment)
                         }
                     }
@@ -342,6 +430,8 @@ struct ChatHistoryView: View {
         case .lastUsed: ChatTableText(text: ChatHistoryFormat.lastUsed(row.summary.lastUsedAt))
         case .started: ChatTableText(text: ChatHistoryFormat.started(row.summary.startedAt))
         case .messages: ChatTableText(text: String(row.summary.messageCount))
+        case .kind: ChatTableText(text: row.isPaperChat ? "Paper" : "General")
+        case .answerLength: ChatTableText(text: ChatHistoryFormat.words(row.summary.latestAnswerWords))
         case .conversation: EmptyView()
         }
     }
@@ -349,7 +439,9 @@ struct ChatHistoryView: View {
     private func spokenValue(_ row: ChatHistoryRow) -> String {
         [row.isPaperChat ? "Paper chat, \(row.contextTitle)" : "General chat",
          ChatHistoryFormat.spokenLastUsed(row.summary.lastUsedAt),
-         ChatHistoryFormat.messages(row.summary.messageCount)].compactMap { $0 }.joined(separator: ", ")
+         ChatHistoryFormat.messages(row.summary.messageCount),
+         chosenColumns.contains(.answerLength) && row.summary.latestAnswerWords > 0
+            ? "newest answer \(ChatHistoryFormat.words(row.summary.latestAnswerWords))" : nil].compactMap { $0 }.joined(separator: ", ")
     }
 
     private func paper(for row: ChatHistoryRow) -> Paper? {
@@ -388,7 +480,8 @@ struct ChatHistoryView: View {
         }
     }
 
-    private func draftRow(_ draft: ChatWorkspace.UnsentDraft, titles: [UUID: String], visible: [ChatTableColumn]) -> some View {
+    private func draftRow(_ draft: ChatWorkspace.UnsentDraft, titles: [UUID: String], visible: [ChatTableColumn],
+                          arrangement: TableArrangement) -> some View {
         let text = draft.text.split(whereSeparator: \.isNewline).first.map(String.init) ?? draft.text
         let context = draftContext(draft, titles: titles)
         let status = draft.failed ? "Not saved" : "Draft"

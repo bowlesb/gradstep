@@ -54,16 +54,147 @@ enum PaperTableLayout {
     /// The columns shown in a row `width` wide (inside the margins), in their declared order. Columns are taken in
     /// priority order until the next one doesn't fit, so a wider screen only ever adds columns.
     static func visibleColumns<Key>(_ columns: [PaperTableColumn<Key>], width: CGFloat, scale: CGFloat = 1) -> [PaperTableColumn<Key>] {
-        var used = titleWidth(in: width, scale: scale)
-        var shown = Set<String>()
-        let byPriority = columns.enumerated().sorted { ($0.element.priority, $0.offset) < ($1.element.priority, $1.offset) }
-        for (_, column) in byPriority {
-            let next = used + spacing + column.width * scale
-            guard next <= width else { break }
-            used = next
-            shown.insert(column.id)
-        }
+        let shown = TableArrangement.fit(columns.map(item), rowWidth: width, titleMinimum: titleMinimum, titleShare: titleShare,
+                                         spacing: spacing, scale: scale)
         return columns.filter { shown.contains($0.id) }
+    }
+
+    /// Every chosen column, scrolling sideways when they don't all fit (controls such as Add stay pinned at the end).
+    static func arrangement<Key>(_ columns: [PaperTableColumn<Key>], width: CGFloat, scale: CGFloat = 1, scrolling: Bool) -> TableArrangement {
+        TableArrangement.make(columns.map(item), rowWidth: width, titleMinimum: titleMinimum, titleShare: titleShare,
+                              spacing: spacing, scale: scale, scrolling: scrolling)
+    }
+
+    private static func item<Key>(_ column: PaperTableColumn<Key>) -> TableArrangement.Item {
+        TableArrangement.Item(id: column.id, priority: column.priority, width: column.width, pinned: column.isControl)
+    }
+}
+
+// MARK: - Horizontal scrolling (owner feedback, build 16 #3: "choose which columns to show and also allow horizontal
+// scrolling")
+
+/// Where a table's columns sit in a row. When every chosen column fits, as before: the title takes what is left and the
+/// columns follow in their order. When they don't, the title stays pinned at the leading edge (and pinned columns —
+/// a control such as Add, or All chats' Last used — at the trailing edge), and the rest sit in a region between them
+/// that scrolls sideways: first the columns that fit there, in their order (so the table looks as it did before
+/// scrolling), then the others. Pure, so it is tested with injected widths.
+struct TableArrangement: Equatable {
+    struct Item: Equatable {
+        var id: String
+        var priority: Int
+        /// At the default text size.
+        var width: CGFloat
+        /// Stays at the trailing edge while the others scroll.
+        var pinned = false
+    }
+
+    /// The columns in the region (all shown columns when the table doesn't scroll), in display order.
+    var columns: [String]
+    /// The columns pinned at the trailing edge (only while scrolling).
+    var pinned: [String] = []
+    /// The title's width while scrolling; nil when it takes what is left.
+    var titleWidth: CGFloat? = nil
+    /// How wide the scrolling region is, and how far its columns scroll.
+    var regionWidth: CGFloat = 0
+    var extent: CGFloat = 0
+    var scrolls: Bool { extent > 0.5 }
+
+    /// The narrowest region worth scrolling in, when only the title and pinned columns would fit.
+    static let regionMinimum: CGFloat = 90
+
+    static func make(_ items: [Item], rowWidth: CGFloat, titleMinimum: CGFloat, titleShare: CGFloat, spacing: CGFloat,
+                     scale: CGFloat, scrolling: Bool) -> TableArrangement {
+        let fitting = fit(items, rowWidth: rowWidth, titleMinimum: titleMinimum, titleShare: titleShare, spacing: spacing, scale: scale)
+        let free = items.filter { !$0.pinned }
+        guard scrolling, rowWidth > 0, free.contains(where: { !fitting.contains($0.id) }) else {
+            return TableArrangement(columns: items.filter { fitting.contains($0.id) }.map(\.id))
+        }
+        let pinned = items.filter(\.pinned)
+        let order = free.filter { fitting.contains($0.id) } + free.filter { !fitting.contains($0.id) }
+        let pinnedWidth = pinned.reduce(0) { $0 + $1.width * scale + spacing }
+        let fittingWidth = free.filter { fitting.contains($0.id) }.reduce(0) { $0 + $1.width * scale + spacing }
+        var region = fittingWidth - spacing
+        var title = rowWidth - pinnedWidth - fittingWidth
+        if region < regionMinimum * scale {
+            region = regionMinimum * scale
+            title = rowWidth - pinnedWidth - spacing - region
+        }
+        let content = order.reduce(0) { $0 + $1.width * scale } + spacing * CGFloat(max(0, order.count - 1))
+        return TableArrangement(columns: order.map(\.id), pinned: pinned.map(\.id), titleWidth: max(0, title),
+                                regionWidth: region, extent: max(0, content - region))
+    }
+
+    /// The columns that fit beside the title, taken by priority until the next one doesn't (`PaperTableLayout`).
+    static func fit(_ items: [Item], rowWidth: CGFloat, titleMinimum: CGFloat, titleShare: CGFloat, spacing: CGFloat,
+                    scale: CGFloat) -> Set<String> {
+        var used = max(titleMinimum * scale, rowWidth * titleShare)
+        var shown = Set<String>()
+        for (_, item) in items.enumerated().sorted(by: { ($0.element.priority, $0.offset) < ($1.element.priority, $1.offset) }) {
+            let next = used + spacing + item.width * scale
+            guard next <= rowWidth else { break }
+            used = next
+            shown.insert(item.id)
+        }
+        return shown
+    }
+}
+
+/// How far a table's columns have scrolled sideways. Only the views that move read it, so a scroll doesn't redraw the
+/// table.
+@MainActor @Observable final class TableScrollState {
+    var x: CGFloat = 0
+}
+
+/// A table's List inside a sideways scroll view, for tables whose columns can be wider than the screen. The List stays
+/// where it is (it moves back by what the scroll view moved), so its rows, header, pull to refresh and vertical scrolling
+/// are as before; only the column regions (`TableScrollRegion`) move. With nothing to scroll it is disabled, so row swipe
+/// actions and everything else behave as without it.
+struct HorizontalTableScroll<Content: View>: View {
+    let state: TableScrollState
+    let extent: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            content
+                // The scroll view's own disabling must not reach the List's vertical scrolling.
+                .environment(\.isScrollEnabled, true)
+                .containerRelativeFrame(.horizontal)
+                .modifier(TableCounterOffset(state: state))
+                .padding(.trailing, extent)
+                .onGeometryChange(for: CGFloat.self) { -$0.frame(in: .scrollView(axis: .horizontal)).minX } action: { state.x = $0 }
+        }
+        .scrollIndicators(.hidden, axes: .horizontal)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .scrollDisabled(extent <= 0.5)
+    }
+}
+
+private struct TableCounterOffset: ViewModifier {
+    let state: TableScrollState
+    func body(content: Content) -> some View { content.offset(x: state.x) }
+}
+
+/// A row's (or the header's) scrolling columns: moved by the table's sideways scroll, clipped to the region, with a
+/// short fade at an edge that has more columns past it.
+struct TableScrollRegion<Content: View>: View {
+    let state: TableScrollState
+    let width: CGFloat
+    let extent: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let x = min(max(0, state.x), extent)
+        content
+            .fixedSize(horizontal: true, vertical: false)
+            .offset(x: -x)
+            .frame(width: max(0, width), alignment: .leading)
+            .clipped()
+            .mask(HStack(spacing: 0) {
+                LinearGradient(colors: [x > 1 ? .clear : .black, .black], startPoint: .leading, endPoint: .trailing).frame(width: 12)
+                Color.black
+                LinearGradient(colors: [.black, x < extent - 1 ? .clear : .black], startPoint: .leading, endPoint: .trailing).frame(width: 16)
+            })
     }
 }
 
@@ -109,9 +240,12 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     /// A cell that holds a control for this row (a failed import's Retry): it sits outside the row's tap area and
     /// isn't read as part of the row, like a column marked `isControl`. Only trailing cells should be controls.
     var cellIsControl: (Row, String) -> Bool = { _, _ in false }
+    /// Every chosen column shows, scrolling sideways when they don't fit (`TableArrangement`); otherwise only those
+    /// that fit show.
+    var horizontalScroll = false
 
     init(rows: [Row], titleColumn: PaperTableColumn<Key>, columns: [PaperTableColumn<Key>], sort: Binding<PaperTableSort<Key>>,
-         extraSortTitles: [Key: String] = [:],
+         extraSortTitles: [Key: String] = [:], horizontalScroll: Bool = false,
          identifier: String, pinnedHeader: Bool = true, rowIdentifier: @escaping (Row) -> String,
          title: @escaping (Row) -> PaperTableTitle, @ViewBuilder cell: @escaping (Row, String) -> Cell,
          cellIsControl: @escaping (Row, String) -> Bool = { _, _ in false },
@@ -119,7 +253,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
          @ViewBuilder menu: @escaping (Row) -> Actions, @ViewBuilder swipe: @escaping (Row) -> Swipe,
          @ViewBuilder detail: @escaping (Row, Set<String>) -> Detail, @ViewBuilder top: @escaping () -> Top) {
         self.rows = rows; self.titleColumn = titleColumn; self.columns = columns; self._sort = sort
-        self.extraSortTitles = extraSortTitles
+        self.extraSortTitles = extraSortTitles; self.horizontalScroll = horizontalScroll
         self.identifier = identifier; self.pinnedHeader = pinnedHeader; self.rowIdentifier = rowIdentifier
         self.title = title; self.cell = cell; self.cellIsControl = cellIsControl; self.spoken = spoken
         self.primaryAction = primaryAction
@@ -134,15 +268,30 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     @State private var hovered: Row.ID?
     /// The row chosen with the arrow keys (hardware keyboard); Return opens it.
     @State private var keyboardRow: Row.ID?
+    @State private var scroll = TableScrollState()
 
     private static var rowInsets: EdgeInsets {
         EdgeInsets(top: 10, leading: DesignMetrics.margin, bottom: 10, trailing: DesignMetrics.margin)
     }
 
     var body: some View {
-        let visible = PaperTableLayout.visibleColumns(columns, width: width, scale: scale)
+        let arrangement = PaperTableLayout.arrangement(columns, width: width, scale: scale, scrolling: horizontalScroll)
+        if horizontalScroll {
+            HorizontalTableScroll(state: scroll, extent: arrangement.extent) { table(arrangement) }
+                .accessibilityIdentifier(identifier)
+        } else {
+            table(arrangement).accessibilityIdentifier(identifier)
+        }
+    }
+
+    private func columns(_ ids: [String]) -> [PaperTableColumn<Key>] {
+        ids.compactMap { id in columns.first { $0.id == id } }
+    }
+
+    private func table(_ arrangement: TableArrangement) -> some View {
+        let visible = columns(arrangement.columns) + columns(arrangement.pinned)
         let visibleIDs = Set(visible.map(\.id))
-        ScrollViewReader { proxy in
+        return ScrollViewReader { proxy in
             List {
                 Section {
                     top()
@@ -150,10 +299,10 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                     Color.clear.frame(height: 0).listRowInsets(EdgeInsets()).listRowSeparator(.hidden).accessibilityHidden(true)
                 }
                 Section {
-                    if !pinnedHeader { header(visible) }
+                    if !pinnedHeader { header(arrangement) }
                     ForEach(rows) { row in
                         VStack(alignment: .leading, spacing: 8) {
-                            rowView(row, visible: visible)
+                            if arrangement.scrolls { scrollingRow(row, arrangement) } else { rowView(row, visible: visible) }
                             detail(row, visibleIDs)
                         }
                         .frame(minHeight: 44)
@@ -163,10 +312,11 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                             if inside { hovered = row.id } else if hovered == row.id { hovered = nil }
                         }
                         .contextMenu { menu(row) }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) { swipe(row) }
+                        // A sideways swipe scrolls the columns while they scroll; the row's actions stay in its menu.
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) { if !arrangement.scrolls { swipe(row) } }
                     }
                 } header: {
-                    if pinnedHeader { header(visible) }
+                    if pinnedHeader { header(arrangement) }
                 }
             }
             .listStyle(.plain)
@@ -178,7 +328,6 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             .background { keyCommands(proxy) }
             .onChange(of: rows.map(\.id)) { _, ids in if let id = keyboardRow, !ids.contains(id) { keyboardRow = nil } }
         }
-        .accessibilityIdentifier(identifier)
     }
 
     private func keyCommands(_ proxy: ScrollViewProxy) -> some View {
@@ -212,15 +361,30 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
 
     // MARK: Header
 
-    private func header(_ visible: [PaperTableColumn<Key>]) -> some View {
-        HStack(alignment: .center, spacing: PaperTableLayout.spacing) {
+    private func header(_ arrangement: TableArrangement) -> some View {
+        let visible = columns(arrangement.columns), pinned = columns(arrangement.pinned)
+        return HStack(alignment: .center, spacing: PaperTableLayout.spacing) {
             HStack(spacing: 6) {
                 headerCell(titleColumn)
-                hiddenSortIndicator(visible)
+                hiddenSortIndicator(PaperTableLayout.visibleColumns(columns, width: width, scale: scale))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            ForEach(visible) { column in
-                headerCell(column).frame(width: column.width * scale, alignment: column.alignment)
+            .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
+            .frame(width: arrangement.titleWidth, alignment: .leading)
+            if arrangement.scrolls {
+                TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
+                    HStack(alignment: .center, spacing: PaperTableLayout.spacing) {
+                        ForEach(visible) { column in
+                            headerCell(column).frame(width: column.width * scale, alignment: column.alignment)
+                        }
+                    }
+                }
+                ForEach(pinned) { column in
+                    headerCell(column).frame(width: column.width * scale, alignment: column.alignment)
+                }
+            } else {
+                ForEach(visible) { column in
+                    headerCell(column).frame(width: column.width * scale, alignment: column.alignment)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -306,6 +470,38 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             ForEach(controls) { column in
                 cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
             }
+        }
+    }
+
+    /// A row while the columns scroll: the title (the row's element for VoiceOver), the scrolling columns (values tap
+    /// like the row; a control such as Retry is its own element), then the pinned columns.
+    private func scrollingRow(_ row: Row, _ arrangement: TableArrangement) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+            tappable(row) {
+                PaperTableTitleCell(title: title(row)).frame(width: arrangement.titleWidth ?? 0, alignment: .leading).contentShape(Rectangle())
+            }
+            TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
+                HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
+                    ForEach(columns(arrangement.columns)) { column in
+                        scrollingCell(row, column)
+                    }
+                }
+            }
+            ForEach(columns(arrangement.pinned)) { column in
+                cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
+            }
+        }
+    }
+
+    @ViewBuilder private func scrollingCell(_ row: Row, _ column: PaperTableColumn<Key>) -> some View {
+        let value = cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
+        if column.isControl || cellIsControl(row, column.id) {
+            value
+        } else if let action = primaryAction(row) {
+            // Part of the row's tap; VoiceOver reads it with the row (on the title).
+            Button(action: action.perform) { value.contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityHidden(true)
+        } else {
+            value.accessibilityHidden(true)
         }
     }
 
