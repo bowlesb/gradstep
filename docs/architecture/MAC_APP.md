@@ -3,8 +3,9 @@
 ## Mac-specific review — 2026-10-08
 
 Worktree `science-reader-mac-native-20261008`, branch `codex/mac-native-20261008`, based on `44bf3c2`.
-The current distributed checkpoint is **TestFlight 21** (`c10e54c`), VALID / IN_BETA_TESTING for Mac and iOS;
-the build-17 distribution details below are historical. No upload or hosted/paid request was made in this review.
+The current distributed checkpoint is **TestFlight 22** (`298e66b`), VALID / IN_BETA_TESTING for Mac and iOS;
+the build-17 distribution details below are historical. The build-22 upload evidence is recorded below; no hosted
+or paid request was made as part of the Mac review.
 
 - The Mac toolbar now clears its workspace selection while Settings is shown, so the previously selected pane can
   be chosen again. View adds **Hide/Show Chat Beside Paper** (⌃⌘H), using the existing remembered chat visibility.
@@ -51,12 +52,14 @@ Mac copy polish (2026-10-08, `fe0dd2b`): the purchase footer now says **System S
 Subscriptions** on Catalyst while retaining the iOS wording on iPhone/iPad. A fresh universal Catalyst
 `build-for-testing` succeeded after the change, and focused Mac execution passed **11/11** (Mac approval 5/5 and
 StoreKit purchase behavior 6/6). The same pre-existing Xcode warnings remain; no new warning was introduced.
+The resulting source was archived and uploaded as **Mac TestFlight build 22**, which App Store Connect reports
+as **VALID / IN_BETA_TESTING** (build `3544c167-c447-4a33-a537-60988240afc5`).
 
 Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
 keyboard/UI runtime attempt reached no assertions and was interrupted, so those interaction checks remain open.
-Mac sign-in, sync and purchases remain unverified. **TestFlight: Mac build 17 uploaded 2026-10-07 and processed VALID,
-available to the internal "Owner" group** (see [TestFlight](#testflight--2026-10-07)). See the validation checkpoints below.
+Mac sign-in, sync and purchases remain unverified. **TestFlight: Mac build 22 uploaded 2026-10-08 and processed VALID,
+available to the internal "Owner" group** (see [TestFlight](#testflight--2026-10-08)). See the validation checkpoints below.
 
 **Merge validation, 2026-10-07:** integration with `main` through `5f95c97` passed a fresh unsigned Catalyst
 `build-for-testing` in 60.1 seconds. The app, unit-test bundle and UI-test bundle each contain arm64 and x86_64.
@@ -196,6 +199,16 @@ These are compiled assertions, with no runtime pass yet. Busy-report and nested 
 actual ⌘F navigation, table keys while editing search text, and pointer behavior need additional Mac checks.
 No current signing, provisioning, live-account, sync, purchase, or distribution result follows from this build.
 
+## TestFlight — 2026-10-08
+
+`BUILD_NUMBER=22 scripts/upload-testflight.sh` and `BUILD_NUMBER=22 scripts/upload-testflight-mac.sh` from main
+`298e66b` both completed successfully. App Store Connect reports the iOS build
+`352fb5c3-3d10-44a5-884f-ac0eeb7dad3d` and Mac build `3544c167-c447-4a33-a537-60988240afc5` as version 0.1.0
+build 22, **VALID**, `INTERNAL_ONLY`, and `IN_BETA_TESTING`. The iOS upload completed at 16:41 PDT and the Mac
+upload at 16:46 PDT. The existing internal group receives both platforms; nothing was submitted for external
+review. Logs are `.artifacts/archive-22.log`, `.artifacts/export-22.log`, `.artifacts/archive-mac-22.log` and
+`.artifacts/export-mac-22.log`.
+
 ## TestFlight — 2026-10-07
 
 `BUILD_NUMBER=17 scripts/upload-testflight-mac.sh` from main `937ef34` (App Group removed from the iOS entitlements,
@@ -212,11 +225,10 @@ builds have their own build-number train, separate from iOS. Logs: `.artifacts/a
 
 ## Not yet done or verified
 
-- **Running the TestFlight build** — installing build 17 from TestFlight on a Mac and signing in against staging
+- **Running the TestFlight build** — installing build 22 from TestFlight on a Mac and signing in against staging
   has not been done.
 - Sign in with Apple/Google, email codes, Keychain device keys, sync and StoreKit purchases are the iOS code
   paths unchanged; none has been run on a Mac yet (a signed-in staging test is next).
 - Library list rows have hover but no arrow-key selection. The table implementation is described above;
   its existing keyboard and hover behavior needs runtime verification rather than reimplementation.
 - Session recording (Settings › Testing) is untested on the Mac (ReplayKit and microphone permission).
-- Copy that names iOS settings (“Settings › Apple Account › Subscriptions”) is not yet adapted for the Mac.

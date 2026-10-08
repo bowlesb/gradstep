@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `e500c231`, and the admin site is deployed.**
+Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `e500c231`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -47,11 +47,21 @@ removed executor work) is retained below where useful and in git history.
   in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
-  No new TestFlight upload or owner-device acceptance is claimed by this candidate.
+  **TestFlight build 22 is now uploaded and VALID / IN_BETA_TESTING for both iOS and Mac** (iOS build
+  `352fb5c3-3d10-44a5-884f-ac0eeb7dad3d`, Mac build `3544c167-c447-4a33-a537-60988240afc5`).
+  No owner-device acceptance is claimed by this candidate.
   The current main source also contains the Mac-specific purchase-settings copy (`fe0dd2b`); a fresh universal
   Catalyst build-for-testing and focused Mac execution passed **11/11** (approval and StoreKit purchase suites).
 
 ## Current rollout — 2026-10-08 UTC
+
+- **iOS and Mac TestFlight build 22**, source `298e66b`, are now **VALID / IN_BETA_TESTING**. The iOS upload
+  completed at 16:41 PDT and the Mac upload at 16:46 PDT; both are internal-only builds and are available to
+  the existing internal testing group. Build 22 includes the current Mac wide-workspace direction, the
+  Catalyst purchase-settings wording, QR device approval, and the accumulated library/chat/reader fixes.
+  Archive/export evidence is `.artifacts/Paperstep-22.xcarchive`, `.artifacts/export-22.log`,
+  `.artifacts/Gradstep-mac-22.xcarchive` and `.artifacts/export-mac-22.log`. No physical-device or owner
+  acceptance claim is made here.
 
 - **Reader cutover completed at 09:33 UTC.** Migration 045 fences the old issuer; delivery is bounded-only.
   After the full in-flight/expiry horizon, all 1,046 historical/physical reader paths were cache-purged, including
