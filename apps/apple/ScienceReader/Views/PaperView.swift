@@ -24,6 +24,9 @@ struct PaperJumpRequest: Equatable, Identifiable {
         case heading
         /// The figure gallery's "Show in paper": the figure is centered and highlighted, with Back.
         case figure
+        /// "Go to figure" from a figure reference ("Fig. 1" in the text): a figure, table or algorithm, centered and
+        /// highlighted, with Back to the reference.
+        case referencedFigure
     }
     let id = UUID()
     let locationKey: String
@@ -113,6 +116,32 @@ struct ReaderReference: Identifiable, Equatable {
     }
 }
 
+/// A figure, table or algorithm the text refers to ("Fig. 1", "Table 2"), tapped in the paper (reader-bridge.js,
+/// FIGURE REFERENCES): shown with its caption and "Go to figure" (owner feedback, build 21).
+struct ReaderFigureReference: Identifiable, Equatable {
+    let id = UUID()
+    /// The element shown: one of the bundle's figures, or one of its table or code blocks.
+    let targetID: String
+    /// "Figure 3", "Table 2", "Algorithm 1".
+    let label: String
+
+    /// Accepts only a well-formed message naming a figure, table or code block of this verified bundle.
+    init?(message body: [String: Any], bundle: VerifiedReaderBundle) {
+        guard body["manifest_sha256"] as? String == bundle.manifestSHA256, let target = body["id"] as? String,
+              bundle.index.figures.contains(where: { $0.id == target })
+                || bundle.index.blocks.contains(where: { $0.id == target && ($0.kind == "table" || $0.kind == "code") }),
+              let label = body["label"] as? String, label.wholeMatch(of: /(?:Figure|Table|Algorithm) [A-Z0-9][A-Za-z0-9.]{0,9}/) != nil
+        else { return nil }
+        targetID = target
+        self.label = label
+    }
+
+    /// The action that goes to it in the paper.
+    var goTitle: String { label.hasPrefix("Table") ? "Go to table" : label.hasPrefix("Algorithm") ? "Go to algorithm" : "Go to figure" }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
+}
+
 struct PaperView: View {
     @Bindable var model: ReaderModel
     @State private var showContents = false
@@ -129,6 +158,9 @@ struct PaperView: View {
     @State private var citationBack = false
     @State private var citationReturnID: UUID?
     @State private var reference: ReaderReference?
+    /// A figure reference tapped in the text, shown in a sheet; "Go to figure" is applied once the sheet has closed.
+    @State private var figureReference: ReaderFigureReference?
+    @State private var figureReferenceToShow: String?
     /// A new value shows WebKit's find bar over the paper ("Find in paper", ⌘F).
     @State private var findRequestID: UUID?
     @ScaledMetric(relativeTo: .body) private var bodySize = 17.0
@@ -180,6 +212,7 @@ struct PaperView: View {
                                      }, onFailure: {
                                          if model.readerDocumentScope == readerScope {
                                              readerFailed = true; selection = nil; model.headings = []; citationBack = false; reference = nil
+                                             figureReference = nil
                                          }
                                      }, onReady: {
                                          #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
@@ -191,6 +224,8 @@ struct PaperView: View {
                                          if model.readerDocumentScope == readerScope { citationBack = active }
                                      }, onReference: { value in
                                          if model.readerDocumentScope == readerScope { reference = value }
+                                     }, onFigureReference: { value in
+                                         if model.readerDocumentScope == readerScope { figureReference = value }
                                      }, onMenuAction: { action, chosen in
                                          // The edit menu's action on what was selected when it was chosen.
                                          guard model.readerDocumentScope == readerScope else { return }
@@ -217,13 +252,13 @@ struct PaperView: View {
                     // viewport moved the reading position near the end of a paper).
                     .overlay(alignment: .bottom) { bottomControls(scope: readerScope) }
                     // A− / A+ (build 16 #6), at the bottom right over the page's fade; not while a reference's
-                    // outcome spans the bottom.
+                    // outcome spans the bottom. "Back to where you were" sits at the left of the same row.
                     .overlay(alignment: .bottomTrailing) {
-                        if !readerFailed && !loadingPaper && model.referenceNotice == nil {
+                        if showsTextSize {
                             TextSizeControl(identifier: "paper.textSize", canShrink: model.paperFontSize > 14, canGrow: model.paperFontSize < 26,
                                             shrink: { model.paperFontSize = max(14, model.paperFontSize - 1) },
                                             grow: { model.paperFontSize = min(26, model.paperFontSize + 1) })
-                                .padding(.trailing, 12).padding(.bottom, 8)
+                                .padding(.trailing, Self.textSizeInset).padding(.bottom, 8)
                         }
                     }
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: citationBack)
@@ -324,6 +359,33 @@ struct PaperView: View {
                     }.macSheetKeys()
                 }
             }
+            // A figure reference ("Fig. 1"): the figure, table or algorithm with its caption, half height so the paper
+            // stays in view; "Go to figure" goes there with Back once the sheet has gone.
+            .sheet(item: $figureReference, onDismiss: {
+                if let id = figureReferenceToShow, let readingKey {
+                    model.paperJump = PaperJumpRequest(locationKey: readingKey, headingID: id, target: .referencedFigure)
+                }
+                figureReferenceToShow = nil
+            }) { value in
+                NavigationStack {
+                    Group {
+                        if let bundle = model.selectedPaper?.readerBundle { FigureWebView(bundle: bundle, figureID: value.targetID, baseFontSize: model.paperFontSize) }
+                        else { Color.clear }
+                    }
+                    .navigationTitle(value.label).navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) { Button("Done") { figureReference = nil } }
+                        ToolbarItem(placement: .bottomBar) {
+                            Button { figureReferenceToShow = value.targetID; figureReference = nil } label: {
+                                Label(value.goTitle, systemImage: "arrow.down.forward.circle").labelStyle(.titleAndIcon)
+                            }
+                            .accessibilityIdentifier("figureReference.go")
+                        }
+                    }
+                }
+                .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+                .macSheetKeys()
+            }
             .sheet(isPresented: Binding(get: { figure != nil }, set: { if !$0 { figure = nil } })) {
                 NavigationStack {
                     Group {
@@ -343,7 +405,7 @@ struct PaperView: View {
         }
         .onChange(of: model.readerDocumentScope) { _, _ in
             selection = nil; figure = nil; showContents = false; readerFailed = false; showFigures = false; figureToShow = nil
-            citationBack = false; reference = nil; model.referenceNotice = nil
+            citationBack = false; reference = nil; model.referenceNotice = nil; figureReference = nil; figureReferenceToShow = nil
             loadingPaper = model.selectedPaper?.readerBundle != nil
         }
     }
@@ -368,14 +430,27 @@ struct PaperView: View {
         }
     }
 
-    /// The reader's floating bottom controls (a reference's outcome, Back after a citation), over the paper's fade;
-    /// with none showing, the fade alone (under the tab bar). The selection actions are in the edit menu (build 16 #5).
+    /// A− / A+ shows unless the paper failed or is loading, or a reference's outcome spans the bottom.
+    private var showsTextSize: Bool { !readerFailed && !loadingPaper && model.referenceNotice == nil }
+    /// A− / A+'s distance from the trailing edge, and its width (two 44 pt buttons and a hairline; the control keeps
+    /// its size at every text size). Back keeps clear of it on the same row.
+    private static let textSizeInset: CGFloat = 12
+    private static let textSizeWidth: CGFloat = 89
+
+    /// The reader's floating bottom controls (a reference's outcome; Back after a jump, at the left of the A− / A+
+    /// row), over the paper's fade; with none showing, the fade alone (under the tab bar). The selection actions are
+    /// in the edit menu (build 16 #5).
     private func bottomControls(scope: ReaderDocumentScope) -> some View {
         let notice = readerFailed ? nil : model.referenceNotice
         let back = citationBack && !readerFailed
         return VStack(spacing: 8) {
             if let notice { referenceBanner(notice) }
-            if back { citationBackButton }
+            if back {
+                citationBackButton
+                    .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 12)
+                    .padding(.trailing, showsTextSize ? Self.textSizeInset + Self.textSizeWidth + 12 : 12)
+            }
         }
         .padding(.top, notice != nil || back ? 6 : 0)
         .padding(.bottom, notice != nil || back ? 8 : 0)
@@ -412,23 +487,31 @@ struct PaperView: View {
         }
     }
 
-    /// Floats over the bottom of the paper after a citation jump; returns to the exact place.
+    /// Floats at the bottom left of the paper after any jump (a citation, a figure, a section of the paper's own
+    /// contents, Show in paper, Go to passage) until the reader goes back, scrolls two screens away or returns by
+    /// scrolling; returns to the exact place (owner feedback, build 21: "a 'return to reading location' option").
     private var citationBackButton: some View {
         Button {
             citationBack = false; citationReturnID = UUID()
         } label: {
-            Label("Back", systemImage: "arrow.uturn.backward")
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 18).frame(minHeight: 44)
-                .contentShape(Capsule())
+            // The full words when they fit beside A− / A+; "Back" at large text sizes or in a narrow column.
+            ViewThatFits(in: .horizontal) {
+                Label("Back to where you were", systemImage: "arrow.uturn.backward").fixedSize()
+                Label("Back", systemImage: "arrow.uturn.backward").fixedSize()
+            }
+            .font(.subheadline.weight(.semibold))
+            .padding(.horizontal, 18).frame(minHeight: 44)
+            .contentShape(Capsule())
         }
         .modifier(ReaderControlMaterial())
+        .accessibilityLabel("Back to where you were")
         .accessibilityIdentifier("reader.citation.back")
         .accessibilityHint("Returns to where you were reading")
         .transition(.opacity)
     }
 
-    /// The actions for a tapped reference, anchored to the entry (a popover on iPad).
+    /// The actions for a tapped reference, anchored to the entry (a popover on iPad). No title row: the entry is in
+    /// view beside them (owner feedback, build 21: "Reference at the top of the message isn't needed").
     private var referenceActions: some View {
         GeometryReader { proxy in
             let anchor = reference?.anchor ?? .null
@@ -436,10 +519,12 @@ struct PaperView: View {
             Color.clear
                 .frame(width: rect.width, height: rect.height)
                 .confirmationDialog(reference?.title ?? "Reference", isPresented: Binding(
-                    get: { reference != nil }, set: { if !$0 { reference = nil } }), titleVisibility: .visible, presenting: reference) { value in
+                    get: { reference != nil }, set: { if !$0 { reference = nil } }), titleVisibility: .hidden, presenting: reference) { value in
                     if let link = value.link {
                         Button(link.title) { openURL(link.url) }
                     }
+                    // The paper's chat with the entry quoted in the message box, not sent (build 21).
+                    Button("Discuss in chat") { model.discussReference(value.text) }
                     Button("Add to library") { Task { await model.addReference(value.text) } }
                     Button("Copy") { UIPasteboard.general.string = value.text }
                     Button("Cancel", role: .cancel) {}
@@ -497,6 +582,8 @@ struct PaperWebView: UIViewRepresentable {
     /// True while the reader can go back from a citation jump.
     var onCitation: (Bool) -> Void = { _ in }
     var onReference: (ReaderReference) -> Void = { _ in }
+    /// A figure, table or algorithm reference tapped in the text.
+    var onFigureReference: (ReaderFigureReference) -> Void = { _ in }
     /// A selection action chosen in the edit menu (selected text, or a tapped equation), with what was selected then.
     var onMenuAction: ((SelectionAction, ReaderSelection) -> Void)? = nil
     /// Text or an equation is selected (the Mac's right-click menu offers the actions only then).
@@ -681,6 +768,10 @@ struct PaperWebView: UIViewRepresentable {
                 guard ready, let bundle = parent.bundle, let size = message.webView?.bounds.size,
                       let reference = ReaderReference(message: body, bundle: bundle, viewport: size) else { return }
                 parent.onReference(reference)
+            case "figureref":
+                guard ready, parent.figureID == nil, let bundle = parent.bundle,
+                      let reference = ReaderFigureReference(message: body, bundle: bundle) else { return }
+                parent.onFigureReference(reference)
             case "marks": receiveMarks(body)
             default: break
             }
@@ -722,8 +813,11 @@ struct PaperWebView: UIViewRepresentable {
                   request.locationKey == parent.locationKey, request.id != lastJumpID else { return }
             inFlightJumpID = request.id
             let load = loadingID
-            let script = request.target == .figure ? "return window.__scienceReaderShowFigure(id,reduced);"
-                : "return window.__scienceReaderJumpToHeading(id,reduced);"
+            let script = switch request.target {
+            case .figure: "return window.__scienceReaderShowFigure(id,reduced);"
+            case .referencedFigure: "return window.__scienceReaderShowFigure(id,reduced,true);"
+            case .heading: "return window.__scienceReaderJumpToHeading(id,reduced);"
+            }
             web.callAsyncJavaScript(script, arguments: ["id": request.headingID, "reduced": parent.reduceMotion],
                                     in: nil, in: .defaultClient) { [weak self, weak web] result in
                     guard let self, let web, self.active, self.loadingID == load else { return }
