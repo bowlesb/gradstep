@@ -72,6 +72,7 @@ struct ChatProfilePicker: View {
                 if table == nil {
                     unavailable
                 }
+                Group {
                 group("Model", selection: Binding(get: { choice.model }, set: { var next = choice; next.model = $0; set(next) }),
                       options: ChatProfileChoice.Model.allCases, label: { table?.label($0) ?? $0.label },
                       detail: table?.detail(choice.model) ?? choice.model.detail, identifier: "model")
@@ -81,6 +82,9 @@ struct ChatProfilePicker: View {
                 group("Length", selection: Binding(get: { choice.length }, set: { var next = choice; next.length = $0; set(next) }),
                       options: ChatProfileChoice.Length.allCases, label: { table?.label($0) ?? $0.label },
                       detail: table?.detail(choice.length) ?? choice.length.detail, identifier: "length")
+                }
+                // Without the server's table nothing can be chosen (Done and Try again stay usable).
+                .disabled(table == nil)
                 if let table {
                     VStack(alignment: .leading, spacing: 4) {
                         if let estimate = table.estimateText(choice) {
@@ -90,14 +94,14 @@ struct ChatProfilePicker: View {
                             Text("This choice isn’t available right now; answers use \(ChatProfileText.summary(table.defaultChoice, table: table)).")
                                 .font(.subheadline).accessibilityIdentifier("chat.profile.estimate")
                         }
-                        if let note = table.note { Text(note).font(.footnote).foregroundStyle(.secondary) }
+                        if let note = table.note {
+                            Text(note).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("chat.profile.note")
+                        }
                     }
-                    .accessibilityElement(children: .combine)
                 }
                 if mode == .chat { defaults }
             }
             .padding(20)
-            .disabled(table == nil)
         }
         .scrollBounceBehavior(.basedOnSize)
     }

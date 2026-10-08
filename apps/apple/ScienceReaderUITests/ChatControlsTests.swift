@@ -86,14 +86,14 @@ final class ChatControlsTests: XCTestCase {
                 row.press(forDuration: 1.0)
                 let rename = app.buttons["Rename…"]
                 XCTAssertTrue(rename.waitForExistence(timeout: 5)); rename.tap()
-                let field = app.textFields["chat.rename.field"]
+                let field = app.alerts["Rename chat"].textFields.firstMatch
                 XCTAssertTrue(field.waitForExistence(timeout: 5))
                 field.tap()
                 if let current = field.value as? String, !current.isEmpty {
                     field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
                 }
                 field.typeText("My attention notes")
-                app.buttons["chat.rename.save"].tap()
+                app.alerts["Rename chat"].buttons["Save"].firstMatch.tap()
                 XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == %@", "My attention notes")).firstMatch.waitForExistence(timeout: 5),
                               "A renamed chat shows its new title")
             }
@@ -132,7 +132,10 @@ final class ChatControlsTests: XCTestCase {
         XCTAssertTrue(control.waitForExistence(timeout: 10))
         control.tap()
         XCTAssertTrue(app.buttons["chat.profile.retry"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["chat.profile.estimate"].exists, "No estimates without the server's table")
+        save("\(device())-light-controls-unavailable")
         app.buttons["chat.profile.done"].tap()
+        XCTAssertTrue(app.buttons["chat.profile.retry"].waitForNonExistence(timeout: 5))
         let composer = any("chat.composer", app)
         composer.tap(); composer.typeText("Why scale the attention logits?")
         if app.buttons["chat.dismissKeyboard"].waitForExistence(timeout: 2) { app.buttons["chat.dismissKeyboard"].tap() }
