@@ -16,6 +16,10 @@ checkpoint prose (including the removed Linux executor work) is in git history b
 - **Migration 041** (self-healing imports) applied the same night, then worker `gradstep-pipeline-00012-9xj`
   (checks 13/13, one warning: 7 imports waiting on credits). The owner's stray import 2610.07426 ("Details
   unavailable") is now `done`.
+- **QR device approval** merged to main (local only, no migration): a browser shows a QR and a six-digit number,
+  and the phone approves it under Settings › Account › Add a device. Tests: web 146/146; wire check passes, including
+  Swift approving a Node key and refusing a substituted one; the iOS Simulator build succeeds. Ship order: iOS/Mac
+  build 18 first, then the web reader. Not yet tried against staging or with a physical camera.
 - **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
   build are in progress).
 
