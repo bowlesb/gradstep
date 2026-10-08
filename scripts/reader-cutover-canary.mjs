@@ -36,6 +36,40 @@ export function readerPath(value) {
   return value;
 }
 
+export function expiredTokenResponse(status, body) {
+  const code = body?.error ?? body?.code, message = body?.message;
+  return [400, 401, 403].includes(status) && ['InvalidJWT', 'AccessDenied', 'Unauthorized'].includes(code)
+    && typeof message === 'string' && (/\b(expired|expiration)\b/i.test(message)
+      // Supabase Storage preserves jose's exact expiry claim failure. Do not
+      // mistake nbf/iat or signature failures for observed token expiration.
+      || code === 'InvalidJWT' && message === '"exp" claim timestamp check failed');
+}
+
+export function saveVerifiedBundle(file, bundle, sourceID) {
+  // This export is authorized only for the public cached DPO canary. It is not
+  // a general library export and never serializes the descriptor or session.
+  if (sourceID !== '2305.18290' || !bundle || !Buffer.isBuffer(bundle.manifestBytes)
+    || bundle.manifestBytes.length > MAX_MANIFEST || sha(bundle.manifestBytes) !== bundle.manifestSHA256
+    || !(bundle.contents instanceof Map) || bundle.contents.size < 1 || bundle.contents.size > 64) fail('render_export_not_authorized');
+  const manifest = json(bundle.manifestBytes);
+  if (!Array.isArray(manifest.members) || manifest.members.length !== bundle.contents.size) fail('render_export_integrity');
+  const paths = new Set(); let count = 0;
+  const members = manifest.members.map(member => {
+    const bytes = bundle.contents.get(member.path);
+    if (typeof member.path !== 'string' || member.path.length > 240 || member.path.includes('..')
+      || !member.path.split('/').every(part => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part)) || paths.has(member.path)
+      || !Buffer.isBuffer(bytes) || bytes.length !== member.bytes || sha(bytes) !== member.sha256) fail('render_export_integrity');
+    paths.add(member.path); count += bytes.length;
+    if (count > MAX_BUNDLE) fail('render_export_size');
+    return { path: member.path, base64: bytes.toString('base64') };
+  });
+  const artifact = { format: 'gradstep-reader-render-proof-v1', source_id: sourceID,
+    manifest_sha256: bundle.manifestSHA256, manifest: bundle.manifestBytes.toString('base64'), members };
+  // Never overwrite an earlier proof or follow a symlink at the chosen name.
+  writeFileSync(file, JSON.stringify(artifact) + '\n', { mode: 0o600, flag: 'wx' });
+  return { member_bytes: count, manifest_bytes: bundle.manifestBytes.length, artifact_sha256: sha(readFileSync(file)) };
+}
+
 // Count all response payloads (including Auth, Management and errors). These are payload
 // limits, not a claim about TLS/header bytes or whole-project provider invoices.
 export class BodyBudget {
@@ -147,10 +181,10 @@ const CACHED = `select pp.id paper_id,pp.source_id,pp.requested_revision,pp.revi
  group by pp.id,mo.id,ct.version_id order by case pp.source_id when '2305.18290' then 0 else 1 end,pp.requested_revision desc`;
 
 export class ReaderCutoverCanary {
-  constructor({ env, emit, fetcher = fetch, now = Date.now, signal }) {
+  constructor({ env, emit, fetcher = fetch, now = Date.now, signal, saveBundle }) {
     if (env.SUPABASE_URL !== ORIGIN || env.SUPABASE_PROJECT_REF !== PROJECT
       || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY || !env.SUPABASE_ACCESS_TOKEN) fail('staging_credentials_required');
-    Object.assign(this, { env, emit, fetcher, now, signal });
+    Object.assign(this, { env, emit, fetcher, now, signal, saveBundle });
     this.budget = new BodyBudget(); this.accounts = []; this.phase = 'new'; this.urls = [];
     this.runID = randomUUID(); this.born = now(); this.started = new Date(now()).toISOString();
   }
@@ -394,11 +428,13 @@ export class ReaderCutoverCanary {
       if (ceiling - used < 12 * MiB) fail('insufficient_existing_headroom');
     }
     this.paper = await this.cachedPaper();
+    if (this.saveBundle && this.paper.source_id !== '2305.18290') fail('render_export_not_authorized');
     this.report('preflight', { snapshot: this.initial, cached_source: this.paper.source_id,
       request_slot: this.paper.requested_revision, manifest_sha256: this.paper.manifest_sha256, bundle_bytes: integer(this.paper.bundle_bytes) });
     this.owner = await this.account(); this.other = await this.account(); this.item = await this.addCached(this.owner);
     const checked = await this.fullBundle('initial_bounded'); await this.negativeProbes(checked);
     await this.zeroPaid('initial_zero_paid');
+    if (this.saveBundle) this.report('verified_shared_bundle_saved', this.saveBundle(this.renderBundle, this.paper.source_id));
     this.phase = 'bounded';
     this.report('initial_proof_complete', { commands: ['warm-legacy', 'status', 'abort'],
       note: 'Inspect the bounded bytes/headers before minting legacy URLs. No purge has run.' });
@@ -505,8 +541,7 @@ export class ReaderCutoverCanary {
       const r = await this.http(record.member.url.href, { maximum: MAX_TINY });
       const body = json(r.bytes);
       // A 404, generic 5xx or a changed/missing object is not proof of token expiry.
-      if (![400, 401, 403].includes(r.response.status) || !['InvalidJWT', 'AccessDenied', 'Unauthorized'].includes(body.error ?? body.code)
-        || typeof body.message !== 'string' || !/\b(expired|expiration)\b/i.test(body.message)) fail('expired_warmed_url_not_proved');
+      if (!expiredTokenResponse(r.response.status, body)) fail('expired_warmed_url_not_proved');
       this.report('expired_warmed_url_denied', { url_sha256: sha(record.member.url.href), ...cacheEvidence(r.response) });
     }
     await this.fullBundle('final_bounded');
@@ -598,7 +633,8 @@ async function main() {
   let canary, timer, input; const stop = new AbortController();
   const signal = () => stop.abort(); process.once('SIGINT', signal); process.once('SIGTERM', signal);
   try {
-    canary = new ReaderCutoverCanary({ env: credentials(), emit, signal: stop.signal });
+    canary = new ReaderCutoverCanary({ env: credentials(), emit, signal: stop.signal,
+      saveBundle: (bundle, sourceID) => saveVerifiedBundle(join(reportDir, 'verified-bundle.json'), bundle, sourceID) });
     timer = setTimeout(() => stop.abort(), LIMITS.durationMs);
     await canary.start();
     input = createInterface({ input: process.stdin, crlfDelay: Infinity, signal: stop.signal });

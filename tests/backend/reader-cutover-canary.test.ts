@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { BodyBudget, boundedBody, cacheEvidence, LIMITS, ReaderCutoverCanary, readerPath, validateScope } from '../../scripts/reader-cutover-canary.mjs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { BodyBudget, boundedBody, cacheEvidence, expiredTokenResponse, LIMITS, ReaderCutoverCanary, readerPath,
+  saveVerifiedBundle, validateScope } from '../../scripts/reader-cutover-canary.mjs';
 
 const origin = 'https://coxhjvqpflgxkleydati.supabase.co';
 const env = { SUPABASE_URL: origin, SUPABASE_PROJECT_REF: 'coxhjvqpflgxkleydati',
@@ -233,4 +237,31 @@ test('fully verified bytes are retained for local rendering without delivery URL
   assert.deepEqual(run.renderBundle.contents.get('index.html'), bytes); assert.deepEqual(run.renderBundle.manifestBytes, manifest);
   assert.doesNotMatch(JSON.stringify(run.renderBundle), /grant=|private-user-token|reader-member/);
   await run.cleanup(); assert.equal(run.renderBundle, undefined);
+});
+
+test('expiry proof accepts the exact jose exp failure only for InvalidJWT and retains status/claim boundaries', () => {
+  const message = '"exp" claim timestamp check failed';
+  assert.equal(expiredTokenResponse(400, { error: 'InvalidJWT', message }), true);
+  assert.equal(expiredTokenResponse(403, { code: 'InvalidJWT', message }), true);
+  assert.equal(expiredTokenResponse(403, { error: 'Unauthorized', message: 'jwt expired' }), true);
+  for (const body of [{ error: 'Unauthorized', message }, { error: 'InvalidJWT', message: '"nbf" claim timestamp check failed' },
+    { error: 'InvalidJWT', message: '"iat" claim timestamp check failed' }, { error: 'InvalidJWT', message: 'signature verification failed' },
+    { error: 'NotFound', message: 'expired' }, { error: 'InvalidJWT', message: 1 }]) assert.equal(expiredTokenResponse(403, body), false);
+  for (const status of [200, 404, 500]) assert.equal(expiredTokenResponse(status, { error: 'InvalidJWT', message }), false);
+});
+
+test('public DPO export writes only bounded verified bytes with0600 permissions and never overwrites', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'gradstep-render-export-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const content = Buffer.from('<p>Public paper</p>'), member = { path: 'index.html', bytes: content.length, sha256: digest(content.toString()) };
+  const manifestBytes = Buffer.from(JSON.stringify({ members: [member] }));
+  const bundle = { manifestBytes, manifestSHA256: digest(manifestBytes.toString()), contents: new Map([['index.html', content]]) };
+  const file = join(directory, 'verified-bundle.json');
+  assert.throws(() => saveVerifiedBundle(file, bundle, 'private-upload'), /render_export_not_authorized/);
+  const saved = saveVerifiedBundle(file, bundle, '2305.18290'); assert.equal(saved.member_bytes, content.length);
+  const value = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(value).sort(), ['format', 'manifest', 'manifest_sha256', 'members', 'source_id']);
+  assert.deepEqual(value.members, [{ path: 'index.html', base64: content.toString('base64') }]);
+  assert.equal(statSync(file).mode & 0o777, 0o600); assert.throws(() => saveVerifiedBundle(file, bundle, '2305.18290'), /EEXIST/);
+  const corrupt = { ...bundle, contents: new Map([['index.html', Buffer.from('wrong')]]) };
+  assert.throws(() => saveVerifiedBundle(join(directory, 'bad.json'), corrupt, '2305.18290'), /render_export_integrity/);
 });
