@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-08 UTC (Claude takeover; build 18 installed, library-write and table fixes in validation). A development checkpoint, not a release declaration. Earlier
+Updated 2026-10-08 UTC (Claude takeover; migration 042 on staging, native/table release and browser chat in final validation). A development checkpoint, not a release declaration. Earlier
 checkpoint prose (including the removed Linux executor work) is in git history before `e272037`.
 
 ## Credits resume, arXiv fallback, faster chat — staging 2026-10-08
@@ -29,8 +29,15 @@ checkpoint prose (including the removed Linux executor work) is in git history b
   QR approval on the restore screen. Before deploying: web tests 152/152, Playwright 51 passed with 27 skipped. After
   deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel is
   still a placeholder; milestone 2 (encrypted chat) is in progress.
-- **Not yet done:** the app can't make library changes in the v5 context (build 17 feedback #1; migration 042 and a new
-  build are in progress).
+- **Migration 042 (`library_v5_commands`) is now on staging**, merged in main `b993c23` after independent review.
+  Encrypted checkpoint `20261008T051522Z-5ffa9efe26a9` includes the database and 1,332 objects. The migration
+  ledger checksum and all six authenticated RPC grants/search paths were read back. Zero-provider-cost
+  deployment checks: **10 pass, 0 fail, 1 warning** (7 imports waiting for credits), evidence
+  `.artifacts/workflow-checks/2026-10-08T05-26-28-507Z.json`. Live paid import/chat journeys were not run.
+  Client validation: Core 245 + 4 OAuth, native 373 (5 expected skips), all 39 SQL suites plus upgrade/concurrency,
+  restore 20, iPhone/iPad Add → In library → Library journeys, and Catalyst build. **Build 18 still disables
+  library writes; the next TestFlight build must carry the client fix.** Combined table/retry UX remains in
+  final validation; nothing here claims the owner has received that build.
 
 ## Library foundation and independent reviews — 2026-10-07
 
