@@ -4,6 +4,22 @@ TestFlight screenshot feedback is read from App Store Connect (`betaFeedbackScre
 saved under `.artifacts/feedback/`, which is not committed). Each item gets a plan and is closed with the build that
 fixes it.
 
+## Purchase credits, 2026-10-07 (TestFlight build 13; still reported failing)
+
+Report `APgSDbWf0gMbTamRckWVdHs`, submitted 08:09 PDT, says:
+“We should never be in a situation where credits were added but they can’t use them”.
+The screenshot shows **17 credits available** and the purchase alert:
+“Your purchase went through, but we couldn’t add the credits yet. The app will try again automatically.”
+The owner reported the same failed-credit experience again during the Codex takeover.
+
+**Investigating; not fixed or verified.** This is TestFlight feedback, not an in-app
+support report. The screenshot was downloaded and inspected; its private local copy is
+`.artifacts/feedback/credits-APgSDbWf0gMbTamRckWVdHs.png`. The generic alert does not identify
+which verification/recording step failed. Trace the actual server outcomes, preserve Apple
+signature/revocation verification, and verify a real Sandbox purchase reaches its once-only
+credit grant before marking this resolved. Local purchase observations/admin ledger work is
+reviewed but not deployed; receipt recorded and credits granted must remain distinct states.
+
 ## Build 14, 2026-10-07 (iPhone, 11 items)
 
 | # | Owner said | Where | Plan | Status |
