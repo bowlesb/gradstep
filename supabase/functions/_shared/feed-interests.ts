@@ -5,7 +5,7 @@
 // those papers weigh, discounted when a topic covers a large share of the pool. Broad category areas
 // ("Machine learning") are never chips; they stay under "More topics". A few curated combinations of
 // vocabulary tags ("RL for reasoning") give names more specific than any single tag. No model is called.
-// Pure (Deno + Node); `worker_feed_candidates_v2` (migration 048) supplies the pool counts.
+// Pure (Deno + Node); `worker_feed_candidates_v2` (migration 046) supplies the pool counts.
 import { isArea, isBroadArea } from './feed-topics.ts';
 import { paperWeight, type CandidateSet } from './feed-rank.ts';
 import { vocabularyName } from './tag-vocabulary.ts';

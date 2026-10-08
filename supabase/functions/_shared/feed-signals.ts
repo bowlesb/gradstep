@@ -1,6 +1,6 @@
 // Popularity for the Feed's shared pool (docs/architecture/PERSONALIZED_FEED.md, "Popularity"):
 // Hugging Face Papers upvotes, read from its public daily lists by the pool refresh while it holds
-// the refresh claim (migration 048) — never per reader request. At most six listing days a run (the
+// the refresh claim (migration 046) — never per reader request. At most six listing days a run (the
 // database plans which), at most two pages each, a second apart, anonymous; a 429 ends the run and
 // the days are tried again on a later refresh. Papers not listed keep no value: unknown, not zero.
 // Pure helpers (Deno + Node); the feed-refresh function supplies the transport and database.
