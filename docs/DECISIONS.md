@@ -797,3 +797,25 @@ Private upload titles use the encrypted library descriptors (Codex), so they are
 - Mac TestFlight uses its own build-number train (Mac build 17 alongside iOS build 17), internal testing only; no
   macOS App Store version was created because the upload did not require one.
 
+## Build 16 #1, #8, #10 and build 17 #2 (agent decisions 2026-10-08, reversible)
+
+- **Credit resume is state-driven, not event-driven.** A sweep restarts an account's imports waiting on credits
+  whenever its spendable balance covers them, so every way a balance grows counts (purchase, restore, reversal, owner
+  grant, tester credits, a plan period that starts, a hold released); a balance increase only wakes the worker.
+  Oldest first, **skipping** an import the balance cannot cover (a later, smaller one may start), with the needs of
+  already restarted, unfunded imports counted against the balance. Download-stage waits need 1 credit (016's
+  admission). Suspended/closed accounts are never restarted.
+- **arXiv fallback is arXivRaw (OAI-PMH), not OpenAlex.** The stage already fetches arXivRaw for license evidence;
+  its record matches the Atom API's (tested on a real fixture) and needs no extra request. OpenAlex cannot supply
+  the arXiv license evidence shared reuse requires and lags new arXiv papers. Throttled metadata waits ~55 min
+  (10 tries, Retry-After honored) before failing, shown as waiting.
+- **Tavily results are no longer citable** (prompt cache, see CHAT.md); the server's fallback source list is the
+  searched pages. Action instructions moved after the paper. Related's first status is sent before the model round.
+- **Self-healing (043):** metadata and render failures retry 6 times over ~23 h (10 min … 12 h); downloads keep
+  027's 15 min / 2 h / 12 h; paid stages and permanent refusals never retry automatically. A non-paid stage
+  unchanged for 6 h while someone waits is failed with its reason (then retried). **Terminal failures stay in the
+  library indefinitely** with their reason and actions (Retry when retryable, supply the PDF when not open, Remove);
+  nothing is deleted on the reader's behalf. Budget pauses and a full store are deliberate waits, shown as waiting.
+- **App follow-up (not done here):** the app ignores `auto_retry_at` on non-download failures, so a metadata
+  failure being retried reads "Details unavailable · Retry" until it succeeds; showing "Trying again automatically"
+  for any failed import with `auto_retry_at` is display-only app work.

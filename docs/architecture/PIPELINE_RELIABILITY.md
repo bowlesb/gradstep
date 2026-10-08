@@ -366,6 +366,37 @@ With several locations, transient wins (the stage retries soon); otherwise the m
   DSpace 7, PMC, PMLR, JMLR, ACL Anthology, CVF; OpenReview expected `source_blocked`; arXiv refused on the web
   path) through `fetchFirstWebPDF`, plus one arXiv-path PDF. Run locally 2026-10-07: 13/13 as expected, 28 s, 10.5 MB.
 
+## Self-healing imports (migrations 040, 043; owner, build 17)
+
+Owner, 2026-10-08: "we need to build maintenance and this type of cleanup into general use so these things are self
+cleaning or fixing but never just sitting there." Every waiting or failed import is now either moving, visibly
+waiting with a reason, or failed with a reason and an action; the server retries what can change by itself.
+
+| Situation | What happens | Reader sees |
+|---|---|---|
+| Needs credits (040) | Restarted once the account's spendable balance (less restarted, unfunded needs) covers it, oldest first, skipping what does not fit; sweep before each claim, wakeup when a balance grows | "Needs credits", then progress |
+| arXiv throttles the metadata lookup (040 + worker) | Atom API throttled: the record comes from arXivRaw. Both throttled: waits (Retry-After honored) for ~55 min before failing | "Waiting to continue" (step `waiting`, `reason: source_busy`) |
+| Budget pause / account at its operation limit at funding | Retried every 5 min by the normal claim (034) | "Waiting to continue" at once (043) |
+| Failed: details unavailable, throttled, unreachable (resume at metadata) | Retried 10 min, 30 min, 1 h, 3 h, 6 h, 12 h (043) | Its own reason + Retry (entry carries `auto_retry_at`) |
+| Failed: re-render (resume at render; stored OCR, nothing charged) | Same six retries (043) | "Conversion failed" + Retry |
+| Failed download (027) | 15 min, 2 h, 12 h | "Couldn't download yet · Trying again automatically" |
+| Failed at a paid stage (OCR funding or submission) | No automatic retry (a failed OCR may already be billed) | Reason + Retry |
+| Permanent (too large, sign-in, not open, not a PDF, invalid, license) | No automatic retry | Reason + Retry where it can help, supply the PDF when not open, Remove |
+| A non-paid stage unchanged for 6 h while someone waits (silent loop) | Failed with the stage's code by `worker_pipeline_heal`, then the retries above | Reason + Retry |
+| Retryable failure without a schedule (before 043, e.g. 2610.07426) | Scheduled at once by `worker_pipeline_heal` (and by 043 itself) | Retried |
+| Expired claim | 022's crash sweep before each claim | — |
+
+Retries are 027's restart (the reader's Retry as a worker checkpoint): the normal claim, funding, credit checks and
+spending admission run for the paper the reader asked for; nothing paid is retried automatically. After the last
+automatic retry a failure stays in the library with its reason and actions; nothing is removed on the reader's behalf.
+
+`worker_pipeline_heal` (worker, before each claim, at most once a minute) locks only unclaimed paper rows (SKIP LOCKED)
+and then the policy throttle row. `pipeline.stuck` measures imports from their last change (`progress_at`), reports
+deliberate waits (`service_paused`, `storage_full`) apart, and fails when a retryable failure has no schedule or an
+automatic retry is 15 minutes overdue. Idle shared `private_split` rows (no import waits on them) stay as they are:
+they do no work. Tests: `test_resume_credits.sql`, `test_source_waits.sql`, `test_self_healing.sql`,
+`credit_resume_concurrency.py`.
+
 ## Verification
 
 - Database tests: crash sweep, three-crash failure per stage, backoff, provider stages never auto-fail, counters
