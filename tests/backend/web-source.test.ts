@@ -203,13 +203,21 @@ test('web metadata stage records OpenAlex metadata and locations; never touches 
   assert.ok(calls.some(c => c.name === 'worker_pipeline_web_metadata'));
 });
 
-test('a work without an open-access PDF fails at metadata, retryable', async () => {
-  const { deps, calls } = harness({}, async () => Response.json({ ...work, best_oa_location: null, locations: [] }));
+test('a work without an open-access PDF keeps its metadata and fails at download as not_open (migration 039)', async () => {
+  const closed = { ...work, best_oa_location: null, locations: [] };
+  const { deps, calls } = harness({ worker_pipeline_web_metadata: p => { assert.deepEqual(p.p_pdf_urls, []); return entry('private_split', { revision: 1 }); } },
+    async () => Response.json(closed));
   await processPaper(deps, entry('metadata'), policy, deadline);
-  const defer = calls.find(c => c.name === 'worker_pipeline_defer')!;
+  assert.ok(calls.some(c => c.name === 'worker_pipeline_web_metadata'), 'metadata recorded');
+  assert.ok(!calls.some(c => c.name === 'worker_pipeline_defer' && c.params.p_fail), 'not failed at metadata');
+  // Its private paper finds no location (recorded or fresh) and fails resumably at download.
+  const owner = '55555555-5555-4555-8555-555555555555';
+  const download = harness({ worker_pipeline_admit_download: () => ({ admitted: true }) }, async () => Response.json(closed));
+  await processPaper(download.deps, entry('download', { revision: 1, owner_id: owner, pdf_urls: null }), policy, deadline);
+  const defer = download.calls.find(c => c.name === 'worker_pipeline_defer')!;
   assert.equal(defer.params.p_fail, true);
-  assert.equal(defer.params.p_error_code, 'download_failed');
-  assert.equal(defer.params.p_resume_stage, 'metadata');
+  assert.equal(defer.params.p_error_code, 'not_open');
+  assert.equal(defer.params.p_resume_stage, 'download');
 });
 
 test('web download stores the private original; a blocked location falls through to the next', async () => {

@@ -62,6 +62,8 @@ private final class Scenario: @unchecked Sendable {
             else if url.path.hasSuffix("v1_library") {
                 if holdRead { pending = request; arrived.fulfill() }
                 else { request.respond(Data("{}".utf8)) }
+            } else if url.path.hasSuffix("v1_reader_capabilities") {
+                request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
             } else if url.path.hasSuffix("v3_library_page") {
                 if holdRead { pending = request; arrived.fulfill() }
                 else { request.respond(Data("""

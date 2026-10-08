@@ -27,6 +27,15 @@
     "file_size_limit": 67108864,
     "allowed_mime_types": null
   },
+  "upload_bucket": {
+    "id": "paper-uploads",
+    "name": "paper-uploads",
+    "public": false,
+    "file_size_limit": 4194304,
+    "allowed_mime_types": [
+      "application/octet-stream"
+    ]
+  },
   "functions": [
     "support-assets",
     "reader-artifact",
@@ -37,7 +46,9 @@
     "store-sync",
     "app-store-notifications",
     "add-reference",
-    "admin-accounts"
+    "admin-accounts",
+    "add-paper",
+    "upload-pdf"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

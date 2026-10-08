@@ -14,7 +14,8 @@ reset role;
 create function pg_temp.journal_matches(a uuid,p_id uuid) returns boolean language sql as $$
  select exists(select 1 from app_private.library_changes c, jsonb_array_elements(c.entries) e
   where c.account_id=a and c.seq=(select state_seq from app_private.import_requests where account_id=a and id=p_id)
-   and e->>'kind'='import' and e->>'id'=p_id::text and e=app_private.library_import_entry(a,p_id))
+   and e->>'kind'='import' and e->>'id'=p_id::text
+   and app_private.library_read_entry(e,3)=app_private.library_import_entry(a,p_id))
 $$;
 create function pg_temp.detail(p_id uuid) returns jsonb language sql as $$
  select app_private.library_import_entry(i.account_id,i.id)->'progress_detail' from app_private.import_requests i where i.id=p_id

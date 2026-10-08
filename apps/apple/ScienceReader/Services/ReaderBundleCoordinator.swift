@@ -148,7 +148,7 @@ final class ReaderBundleCoordinator {
         guard !closed, !persistence.isRetired else { throw CancellationError() }
         guard observation.accountID == scope.accountID else { throw ReaderError.wrongAccount }
         do {
-            if let old = latestObservation {
+            if let old = latestObservation, old.readContext == observation.readContext {
                 guard observation.committedCursor >= old.committedCursor else { throw OfflineCacheError.staleObservation }
                 guard observation.committedCursor != old.committedCursor || observation.entries == old.entries
                 else { throw OfflineCacheError.conflictingObservation }

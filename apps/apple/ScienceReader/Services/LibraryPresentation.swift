@@ -53,7 +53,7 @@ extension Paper {
         }
         if let sourceID, let badge = LibrarySource.badge(sourceID: sourceID, revision: sourceRevision) {
             // arXiv papers show their identifier (readers cite it); web papers the badge alone.
-            parts.append(LibrarySource.isWebSourceID(sourceID) ? badge : "arXiv " + (sourceReference ?? sourceID))
+            parts.append(LibrarySource.isWebSourceID(sourceID) || LibrarySource.isUploadSourceID(sourceID) ? badge : "arXiv " + (sourceReference ?? sourceID))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

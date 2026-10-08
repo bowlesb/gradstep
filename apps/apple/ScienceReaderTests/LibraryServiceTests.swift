@@ -6,6 +6,7 @@ import XCTest
 private enum LibraryFixtureFailure: Error { case interrupted, unexpectedRequest }
 
 private actor LibraryScript: LibraryTransport {
+    enum Capability: Sendable { case legacy, data(Data), failed }
     enum Step: Sendable {
         case data(Data), held, failure, compaction
         case wrongOwner(Data, LibraryPageRequest)
@@ -14,8 +15,17 @@ private actor LibraryScript: LibraryTransport {
     private var captured: [LibraryPageRequest] = []
     private var held: CheckedContinuation<Data, Error>?
     private var observers: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var capabilitySteps: [Capability]
 
-    init(_ steps: [Step]) { self.steps = steps }
+    init(_ steps: [Step], capabilities: [Capability] = []) { self.steps = steps; capabilitySteps = capabilities }
+    func readerCapabilities(accountID: UUID) async throws -> ReaderCapabilities? {
+        guard !capabilitySteps.isEmpty else { return nil }
+        switch capabilitySteps.removeFirst() {
+        case .legacy: return nil
+        case .data(let bytes): return try ReaderCapabilities.decode(bytes, accountID: accountID)
+        case .failed: throw LibraryFixtureFailure.interrupted
+        }
+    }
     func requests() -> [LibraryPageRequest] { captured }
     func append(_ steps: [Step]) { self.steps += steps }
     func waitForRequests(_ count: Int) async {
@@ -65,23 +75,99 @@ private struct LibraryFixture {
          "metadata_recorded_at": NSNull(), "source_url": "https://arxiv.org/abs/2601.00001",
          "document_id": NSNull(), "library_item_id": NSNull(), "error_code": NSNull(), "retryable": false]
     }
-    func baseline(_ rows: [[String: Any]], high: Int64, more: Bool = false) -> Data {
+    func capabilities(_ epoch: UUID) -> Data {
+        bytes(["format": 1, "account_id": accountID.wire,
+            "library": ["endpoint_family": "full-v5", "wire_format": 2, "source_level": 4, "dataset_epoch": epoch.wire],
+            "descriptors": ["format": 1, "maximum_batch": 24],
+            "uploads": ["protocol": "upload-chunks-v1", "enabled": false, "chunk_bytes": 4_194_304,
+                "maximum_bytes": 67_108_864, "maximum_parts": 16, "part_attempts": 2]])
+    }
+    func baseline(_ rows: [[String: Any]], high: Int64, more: Bool = false, epoch: UUID? = nil) -> Data {
         let cursor: Any = rows.last.map {
             ["format": 2, "account_id": accountID.wire, "through": high,
              "created_seq": $0["created_seq"]!, "id": $0["id"]!, "kind": $0["kind"]!] as [String: Any]
         } ?? (NSNull() as Any)
-        return bytes(["format": 2, "account_id": accountID.wire, "baseline_cursor": high, "retained_after": 0,
-                      "entries": rows, "next_cursor": cursor, "has_more": more])
+        var value: [String: Any] = ["format": 2, "account_id": accountID.wire, "baseline_cursor": high, "retained_after": 0,
+                      "entries": rows, "next_cursor": cursor, "has_more": more]
+        if let epoch {
+            value["dataset_epoch"] = epoch.wire
+            if var continuation = cursor as? [String: Any] {
+                continuation["dataset_epoch"] = epoch.wire; continuation["read_level"] = 4; value["next_cursor"] = continuation
+            }
+        }
+        return bytes(value)
     }
-    func changes(_ rows: [(Int64, [[String: Any]])], through: Int64, more: Bool = false) -> Data {
-        bytes(["format": 2, "account_id": accountID.wire, "through": through, "retained_after": 0,
+    func changes(_ rows: [(Int64, [[String: Any]])], through: Int64, more: Bool = false, epoch: UUID? = nil) -> Data {
+        var value: [String: Any] = ["format": 2, "account_id": accountID.wire, "through": through, "retained_after": 0,
                "changes": rows.map { ["seq": $0.0, "entries": $0.1] as [String: Any] },
-               "next_cursor": more ? (rows.last?.0 ?? 0) : through, "has_more": more])
+               "next_cursor": more ? (rows.last?.0 ?? 0) : through, "has_more": more]
+        if let epoch { value["dataset_epoch"] = epoch.wire }
+        return bytes(value)
     }
 }
 
 @MainActor
 final class LibraryServiceTests: XCTestCase {
+    func testProtocolUpgradeAndRestoreEachStartFreshBaselineWithoutOldCursor() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID()), first = UUID(), second = UUID()
+        let f = LibraryFixture(accountID: scope.accountID), one = UUID(), two = UUID()
+        let script = LibraryScript([
+            .data(f.baseline([f.row(first, created: 1)], high: 50)), .data(f.changes([], through: 50)),
+            .data(f.baseline([f.row(second, created: 1)], high: 2, epoch: one)), .data(f.changes([], through: 2, epoch: one)),
+            .data(f.baseline([], high: 0, epoch: two)), .data(f.changes([], through: 0, epoch: two))],
+            capabilities: [.legacy, .data(f.capabilities(one)), .data(f.capabilities(two))])
+        let service = LibraryService(scope: scope, transport: script)
+        let legacy = try await service.refresh(), v5 = try await service.refresh(), restored = try await service.refresh()
+        XCTAssertEqual(legacy.committedCursor, 50)
+        XCTAssertEqual(v5.imports.map(\.id), [second]); XCTAssertEqual(v5.committedCursor, 2)
+        XCTAssertTrue(restored.entries.isEmpty); XCTAssertEqual(restored.committedCursor, 0)
+        let requests = await script.requests()
+        for index in [0, 2, 4] { XCTAssertEqual(requests[index].query, .baseline(cursor: nil)) }
+        XCTAssertEqual(Set(requests.map(\.sessionID)).count, 3)
+        XCTAssertEqual(requests[3].readContext, .uploadFull5(datasetEpoch: one))
+        XCTAssertEqual(requests[5].readContext, .uploadFull5(datasetEpoch: two))
+        let permitsWrites = await service.permitsLegacyCommands()
+        XCTAssertFalse(permitsWrites)
+    }
+
+    func testRememberedV5CannotDowngradeWhenDiscoveryIsMissingOrTransient() async throws {
+        let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID()), epoch = UUID()
+        let script = LibraryScript([], capabilities: [.legacy, .failed])
+        let service = LibraryService(scope: scope, transport: script, rememberedContext: .uploadFull5(datasetEpoch: epoch))
+        do { _ = try await service.refresh(); XCTFail("Durably adopted protocol must not downgrade") }
+        catch LibraryServiceError.capabilityUnavailable { }
+        do { _ = try await service.refresh(); XCTFail("Transient discovery must not downgrade") }
+        catch LibraryFixtureFailure.interrupted { }
+        let captured = await script.requests(), published = await service.snapshot()
+        XCTAssertTrue(captured.isEmpty)
+        XCTAssertNil(published)
+    }
+
+    func testEncryptedResumeIsNeverPublishedBeforeFreshServerCatchup() async throws {
+        let account = UUID(), epoch = UUID(), f = LibraryFixture(accountID: account)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().wire)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cacheScope = try LibraryCommandScope(accountID: account, deploymentID: "https://resume.invalid")
+        let store = try EncryptedStore(url: directory.appendingPathComponent("cache.sqlite"), accountID: account,
+            localKey: ReaderCrypto.randomKey(), keys: .generate(accountID: account))
+        var replica = LibraryReconciler(accountID: account, readContext: .uploadFull5(datasetEpoch: epoch))
+        try replica.accept(LibraryWire.decodeBaseline(f.baseline([], high: 19, epoch: epoch)), for: replica.nextRequest())
+        try replica.accept(LibraryWire.decodeChanges(f.changes([], through: 19, epoch: epoch)), for: replica.nextRequest())
+        try await store.saveLibraryPresentation(replica.completeObservation(), scope: cacheScope)
+        let seed = try await store.cachedLibraryReplicaSeed(scope: cacheScope)
+        let script = LibraryScript([.held], capabilities: [.data(f.capabilities(epoch))])
+        let service = LibraryService(scope: .init(accountID: account, readerSessionID: UUID()), transport: script,
+            rememberedContext: .uploadFull5(datasetEpoch: epoch), resume: seed)
+        let task = Task { try await service.refresh() }
+        await script.waitForRequests(1)
+        let before = await service.snapshot(), captured = await script.requests()
+        XCTAssertNil(before)
+        XCTAssertEqual(captured.first?.query, .changes(after: 19, through: nil))
+        await script.release(f.changes([], through: 19, epoch: epoch))
+        let completed = try await task.value
+        XCTAssertEqual(completed.committedCursor, 19)
+    }
+
     func testFirstPublicationWaitsForEveryBaselineAndFixedBoundaryDeltaPage() async throws {
         let scope = LibraryScope(accountID: UUID(), readerSessionID: UUID())
         let f = LibraryFixture(accountID: scope.accountID), firstID = UUID(), secondID = UUID()
@@ -394,6 +480,20 @@ final class LibraryTransportTests: XCTestCase {
         let handle = try await store.enqueueLibraryCommand(scope: scope,
             mutation: .beginImport(sourceID: "2601.00001", requestedRevision: nil, observedCursor: 7))
         return (try await store.beginLibraryAttempt(handle, scope: scope), directory)
+    }
+
+    func testExactMissingCapabilitiesChoosesFreshLegacyBaseline() async throws {
+        let account = UUID(), f = LibraryFixture(accountID: account)
+        let missing = Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8)
+        let server = LibraryHTTPServer(account: account, replies: [
+            .init(data: missing, status: 404), .init(data: f.baseline([], high: 0)), .init(data: f.changes([], through: 0))])
+        let (client, environment, host) = try fixture(server)
+        defer { clean(environment, host) }
+        _ = try await client.signIn(email: "fixture@example.invalid", password: "fixture")
+        let service = LibraryService(scope: .init(accountID: account, readerSessionID: UUID()), transport: client)
+        let result = try await service.refresh()
+        XCTAssertEqual(result.observation.readContext, .legacyFull3)
+        XCTAssertEqual(server.requests().map { $0.url!.lastPathComponent }, ["v1_reader_capabilities", "v3_library_page", "v3_library_changes"])
     }
 
     func testBoundedTransportUsesV2ParametersAndPreservesExactRequestOwnership() async throws {

@@ -116,6 +116,7 @@ enum LibraryTags {
 enum LibrarySourceLabel {
     static func label(sourceID: String?, url: String?) -> String? {
         guard let sourceID, !sourceID.isEmpty else { return nil }
+        if LibrarySource.isUploadSourceID(sourceID) { return "Your PDF" }
         guard LibrarySource.isWebSourceID(sourceID) else { return sourceID }
         return url.flatMap(host) ?? "Open access"
     }
@@ -123,6 +124,7 @@ enum LibrarySourceLabel {
     /// "arXiv 1706.03762", "From nature.com".
     static func spoken(sourceID: String?, url: String?) -> String? {
         guard let label = label(sourceID: sourceID, url: url) else { return nil }
+        if let sourceID, LibrarySource.isUploadSourceID(sourceID) { return "Your uploaded PDF" }
         guard let sourceID, LibrarySource.isWebSourceID(sourceID) else { return "arXiv " + label }
         return label == "Open access" ? label : "From " + label
     }
@@ -489,6 +491,8 @@ extension LibraryImportRecord {
             case .sourceBlocked: return "The paper’s website blocked the download"
             case .sourceUnavailable: return "The paper’s website isn’t responding"
             case .notPDF: return "The paper’s link doesn’t lead to a PDF"
+            case .notOpen: return "This paper isn’t openly available"
+            case .uploadFailed: return "The uploaded PDF didn’t arrive intact"
             case .metadataUnavailable: return "Couldn’t get this paper’s details"
             case .licenseUnverified: return "Couldn’t confirm this paper’s license"
             default: return "Couldn’t import this paper"
@@ -514,6 +518,8 @@ extension LibraryImportRecord {
             case .sourceBlocked: return "Download blocked"
             case .sourceUnavailable: return "Site not responding"
             case .notPDF: return "No PDF at link"
+            case .notOpen: return "Not openly available"
+            case .uploadFailed: return "Upload incomplete"
             case .metadataUnavailable: return "Details unavailable"
             case .licenseUnverified: return "License unconfirmed"
             default: return "Import failed"
@@ -575,9 +581,16 @@ enum LibraryImportAction: Equatable, Sendable {
     case getCredits
     /// Nothing can be retried (too large, unreadable PDF…): take it off the list.
     case remove
+    /// No open copy, or the reader's upload didn't arrive: the reader supplies the PDF from Files.
+    case uploadPDF
+    /// The website refused our servers: this device fetches the PDF and uploads it to the same paper.
+    case downloadOnDevice
 
     var title: String {
-        switch self { case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove" }
+        switch self {
+        case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove"; case .uploadPDF: "Upload PDF"
+        case .downloadOnDevice: "Download on this device"
+        }
     }
 
     /// Nil while the import is running, or while a retry is on its way.
@@ -587,6 +600,8 @@ enum LibraryImportAction: Equatable, Sendable {
         switch item.phase {
         case .failed:
             if item.errorCode == .insufficientCredits { return .getCredits }
+            if item.canTakeUpload, [.notOpen, .uploadFailed].contains(item.errorCode) { return .uploadPDF }
+            if item.canDownloadOnDevice, [.sourceBlocked, .pdfRestricted].contains(item.errorCode) { return .downloadOnDevice }
             return item.retryable ? .retry : .remove
         case .membershipConflict: return .remove
         default: return nil

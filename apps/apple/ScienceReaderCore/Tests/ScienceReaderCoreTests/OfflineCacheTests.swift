@@ -78,8 +78,9 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
          "readiness": "converted_ready", "original_availability": "available", "render_availability": "available",
          "original_availability_revision": 1, "render_availability_revision": 1]
     }
-    private func observation(_ account: UUID, rows: [[String: Any]], cursor: Int64) throws -> LibraryCompleteObservation {
-        var reconciler = LibraryReconciler(accountID: account)
+    private func observation(_ account: UUID, rows: [[String: Any]], cursor: Int64,
+                             context: LibraryReadContext = .legacyFull3) throws -> LibraryCompleteObservation {
+        var reconciler = LibraryReconciler(accountID: account, readContext: context)
         let sorted = rows.sorted {
             let left = ($0["created_seq"] as! Int64, $0["id"] as! String, $0["kind"] as! String)
             let right = ($1["created_seq"] as! Int64, $1["id"] as! String, $1["kind"] as! String)
@@ -90,15 +91,21 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             let more = position + 1 < chunks.count
             let next: Any
             if let last = chunk.last {
-                next = ["format": 2, "account_id": account.wire, "through": cursor,
-                        "created_seq": last["created_seq"]!, "id": last["id"]!, "kind": last["kind"]!] as [String: Any]
+                var value: [String: Any] = ["format": 2, "account_id": account.wire, "through": cursor,
+                        "created_seq": last["created_seq"]!, "id": last["id"]!, "kind": last["kind"]!]
+                if let epoch = context.datasetEpoch { value["read_level"] = 4; value["dataset_epoch"] = epoch.wire }
+                next = value
             } else { next = NSNull() }
-            let page = try LibraryWire.decodeBaseline(json(["format": 2, "account_id": account.wire, "baseline_cursor": cursor,
-                "retained_after": 0, "entries": chunk, "next_cursor": next, "has_more": more]))
+            var value: [String: Any] = ["format": 2, "account_id": account.wire, "baseline_cursor": cursor,
+                "retained_after": 0, "entries": chunk, "next_cursor": next, "has_more": more]
+            if let epoch = context.datasetEpoch { value["dataset_epoch"] = epoch.wire }
+            let page = try LibraryWire.decodeBaseline(json(value))
             try reconciler.accept(page, for: reconciler.nextRequest())
         }
-        let changes = try LibraryWire.decodeChanges(json(["format": 2, "account_id": account.wire, "through": cursor,
-            "retained_after": 0, "changes": [], "next_cursor": cursor, "has_more": false]))
+        var delta: [String: Any] = ["format": 2, "account_id": account.wire, "through": cursor,
+            "retained_after": 0, "changes": [], "next_cursor": cursor, "has_more": false]
+        if let epoch = context.datasetEpoch { delta["dataset_epoch"] = epoch.wire }
+        let changes = try LibraryWire.decodeChanges(json(delta))
         try reconciler.accept(changes, for: reconciler.nextRequest())
         return try reconciler.completeObservation()
     }
@@ -160,7 +167,8 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             children.append((row.rowID, sealed))
         }
         let checkpoint = CachePresentationCheckpoint(format: before.format, scope: before.scope,
-            cursor: before.cursor, capturedAt: before.capturedAt, rows: refs)
+            cursor: before.cursor, capturedAt: before.capturedAt, rows: refs,
+            readContext: before.readContext, retainedBlocks: before.retainedBlocks)
         let sealed = try OfflineCacheCodec.seal(OfflineCacheCodec.encode(checkpoint), domain: "presentation",
             scope: f.scope, key: key, maximum: OfflineCacheLimits.presentationCheckpointBytes)
         let aad = Data("science-reader/local-metadata/v2/\(f.account.wire)".utf8)
@@ -186,6 +194,179 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
         for (name, field) in fields { value[name] = field }
         return .init(format: row.format, rowID: row.rowID,
             entry: try OfflineCacheCodec.decode(LibraryEntry.self, from: json(value)), readerPolicy: nil)
+    }
+
+    @Test func maximumCheckpointMeasurement() throws {
+        let scope = try LibraryCommandScope(accountID: UUID(), deploymentID: "https://offline-fixture.invalid")
+        var refs: [String: CacheEntryReference] = [:], blocks: [String: CacheRetainedReaderBlock] = [:]
+        for index in 0..<4_000 {
+            refs["item:\(UUID().wire)"] = .init(rowID: UUID(), digest: Data(repeating: 255, count: 32),
+                bytes: OfflineCacheLimits.presentationRowBytes, documentID: UUID())
+            let artifact = UUID(), document = UUID()
+            let policy = try ReaderBundleEligibility().applying(cursor: Int64(index), item: nil,
+                documentID: document, artifactID: artifact)
+            blocks[artifact.wire] = .init(documentID: document, eligibility: policy)
+        }
+        let value = CachePresentationCheckpoint(format: 4, scope: scope, cursor: Int64.max,
+            capturedAt: Date(), rows: refs, readContext: .uploadFull5(datasetEpoch: UUID()), retainedBlocks: blocks)
+        let bytes = try OfflineCacheCodec.encode(value).count + 28
+        print("Maximum native checkpoint (4000 refs + 4000 retained bindings): \(bytes) sealed bytes")
+        #expect(bytes <= OfflineCacheLimits.presentationCheckpointBytes)
+    }
+
+    @Test func resumedCheckpointRequiresFreshCatchupAndKeepsEpochWhenChildCorrupts() async throws {
+        try await withFixture { f in
+            let context = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            let value = try observation(f.account, rows: [item(binding: f.binding(bundle()))], cursor: 8, context: context)
+            try await f.store.saveLibraryPresentation(value, scope: f.scope)
+            let restarted = try f.reopen()
+            #expect(try await restarted.rememberedLibraryReadContext(scope: f.scope) == context)
+            let seed = try #require(await restarted.cachedLibraryReplicaSeed(scope: f.scope))
+            var replica = try LibraryReconciler(resuming: seed, scope: f.scope)
+            #expect(replica.phase == .catchingUp)
+            #expect(throws: LibraryCommandError.incompleteObservation) { try replica.completeObservation() }
+            let request = try replica.nextRequest()
+            #expect(request.query == .changes(after: 8, through: nil) && request.readContext == context)
+            let delta = try LibraryWire.decodeChanges(json(["format": 2, "account_id": f.account.wire,
+                "dataset_epoch": context.datasetEpoch!.wire, "through": 8, "retained_after": 0,
+                "changes": [], "next_cursor": 8, "has_more": false]))
+            try replica.accept(delta, for: request)
+            #expect(try replica.completeObservation().entries == value.entries)
+            let wrong = try LibraryCommandScope(accountID: f.account, deploymentID: "https://another.invalid")
+            #expect(throws: LibraryProtocolError.invalidCursor) { try LibraryReconciler(resuming: seed, scope: wrong) }
+            let db = try SQLiteConnection(url: f.url)
+            try db.execute("UPDATE local_library_cache_checkpoint SET sealed=zeroblob(length(sealed))")
+            let damaged = try f.reopen()
+            #expect(try await damaged.rememberedLibraryReadContext(scope: f.scope) == context)
+            await #expect(throws: OfflineCacheError.corruptCache) { try await damaged.cachedLibraryReplicaSeed(scope: f.scope) }
+            #expect(await damaged.pending().isEmpty)
+        }
+    }
+
+    @Test func restoredLowerCursorReplacesRowsButRetainsRemovedOrUnsafePolicyAfterDiscard() async throws {
+        for removed in [false, true] {
+            try await withFixture { f in
+                let bundle = try bundle(), binding = try f.binding(bundle)
+                let oldContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+                let newContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+                var row = item(binding: binding), readable = row
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 50, context: oldContext), scope: f.scope)
+                let installed = try await install(bundle, binding: binding, store: f.store)
+                row["state_seq"] = Int64(51)
+                if removed { row["visible"] = false; row["last_remove_seq"] = Int64(51); row["membership_revision"] = 2 }
+                else { row["render_availability"] = "quarantined"; row["render_availability_revision"] = 2 }
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 51, context: oldContext), scope: f.scope)
+                let blocked = try await f.store.listInstalledReaderBundles(scope: f.scope).installations[0]
+                #expect(!blocked.canOpen)
+                try await f.store.removeReaderBundle(id: installed.id, expectedRevision: blocked.revision, scope: f.scope)
+                // The restored database has no row at all. The independent map must survive that absence.
+                let empty = try await f.store.saveLibraryPresentation(observation(f.account, rows: [], cursor: 0, context: newContext), scope: f.scope)
+                #expect(empty.entries.isEmpty && empty.committedCursor == 0 && empty.readContext == newContext)
+                let restarted = try f.reopen()
+                await #expect(throws: OfflineCacheError.blocked) { try await restarted.beginReaderInstall(binding: binding) }
+                readable["state_seq"] = Int64(1)
+                try await restarted.saveLibraryPresentation(observation(f.account, rows: [readable], cursor: 1, context: newContext), scope: f.scope)
+                let again = try f.reopen()
+                await #expect(throws: OfflineCacheError.blocked) { try await again.beginReaderInstall(binding: binding) }
+                #expect(try await again.listInstalledReaderBundles(scope: f.scope).installations.isEmpty)
+            }
+        }
+    }
+
+    @Test func restoredReadableBundleCanContinueButSameContextCannotRewind() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), binding = try f.binding(bundle), row = item(binding: binding)
+            let oldContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID()), newContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 50, context: oldContext), scope: f.scope)
+            let installed = try await install(bundle, binding: binding, store: f.store)
+            await #expect(throws: OfflineCacheError.staleObservation) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 1, context: oldContext), scope: f.scope)
+            }
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 1, context: newContext), scope: f.scope)
+            let reopened = try f.reopen()
+            #expect(try await reopened.listInstalledReaderBundles(scope: f.scope).installations[0].canOpen)
+            #expect(try await reopened.readReaderBundle(id: installed.id, scope: f.scope).manifestData == bundle.manifestData)
+            #expect(try await reopened.cachedLibraryReplicaSeed(scope: f.scope)?.committedCursor == 1)
+        }
+    }
+
+    @Test func legacyCheckpointNeverSeedsAnEpochlessReplica() async throws {
+        try await withFixture { f in
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [], cursor: 20), scope: f.scope, format: 3)
+            #expect(try await f.reopen().cachedLibraryReplicaSeed(scope: f.scope) == nil)
+        }
+    }
+
+    @Test func retainedBlockCapacityPausesCheckpointAtomicallyWithoutEviction() async throws {
+        try await withFixture { f in
+            let bundle = try bundle(), oldContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            let newContext = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            var rows: [[String: Any]] = [], first: ReaderArtifactBinding?
+            for index in 0..<OfflineCacheLimits.retainedReaderBlocks {
+                let binding = try f.binding(bundle)
+                if index == 0 { first = binding }
+                var row = item(binding: binding, created: Int64(index + 1))
+                row["visible"] = false; row["last_remove_seq"] = Int64(index + 1)
+                rows.append(row)
+            }
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: rows, cursor: 4_000, context: oldContext), scope: f.scope)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [], cursor: 0, context: newContext), scope: f.scope)
+            let extra = try f.binding(bundle)
+            var row = item(binding: extra); row["visible"] = false; row["last_remove_seq"] = Int64(1)
+            let saved = try await f.store.saveLibraryPresentation(observation(f.account, rows: [row], cursor: 1, context: newContext), scope: f.scope)
+            let before = await f.store.snapshot()
+            await #expect(throws: OfflineCacheError.capacityExceeded) {
+                try await f.store.saveLibraryPresentation(observation(f.account, rows: [], cursor: 0,
+                    context: .uploadFull5(datasetEpoch: UUID())), scope: f.scope)
+            }
+            #expect(await f.store.snapshot() == before)
+            let reopened = try f.reopen()
+            #expect(try await reopened.cachedLibraryPresentation(scope: f.scope) == saved)
+            #expect(try await reopened.rememberedLibraryReadContext(scope: f.scope) == newContext)
+            await #expect(throws: OfflineCacheError.blocked) { try await reopened.beginReaderInstall(binding: first!) }
+            await #expect(throws: OfflineCacheError.blocked) { try await reopened.beginReaderInstall(binding: extra) }
+        }
+    }
+
+    @Test func checkpointAndOldDomainCommandReviewCommitTogetherAndKeepExactEvidence() async throws {
+        try await withFixture { f in
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: [], cursor: 0), scope: f.scope)
+            let handle = try await f.store.enqueueLibraryCommand(scope: f.scope,
+                mutation: .beginImport(sourceID: "2404.00001", requestedRevision: nil, observedCursor: 0))
+            let attempt = try await f.store.beginLibraryAttempt(handle, scope: f.scope)
+            let ack = try LibraryWire.decodeCommand(json(["result": ["status": "applied", "kind": "import",
+                "id": handle.intentID.wire, "seq": 1, "revision": 1], "replayed": false,
+                "entry": imported(id: handle.intentID, created: 1)]))
+            try await f.store.recordLibraryReceipt(ack, for: attempt)
+            _ = try await f.store.holdLibrarySuccessor(.cancelImport, after: handle, scope: f.scope)
+            _ = try await f.store.enqueueLibraryCommand(scope: f.scope,
+                mutation: .beginImport(sourceID: "1706.03762", requestedRevision: nil, observedCursor: 0))
+            let before = try await f.store.libraryCommandSnapshot(scope: f.scope)
+            let context = LibraryReadContext.uploadFull5(datasetEpoch: UUID())
+            let restored = try observation(f.account, rows: [], cursor: 0, context: context)
+            let db = try SQLiteConnection(url: f.url)
+            try db.execute("CREATE TRIGGER reject_epoch_commit BEFORE UPDATE ON metadata BEGIN SELECT RAISE(ABORT,'fixture'); END")
+            await #expect(throws: (any Error).self) { try await f.store.saveLibraryPresentation(restored, scope: f.scope) }
+            #expect(try await f.store.libraryCommandSnapshot(scope: f.scope) == before)
+            #expect(try await f.store.rememberedLibraryReadContext(scope: f.scope) == .legacyFull3)
+            try db.execute("DROP TRIGGER reject_epoch_commit")
+            try await f.store.saveLibraryPresentation(restored, scope: f.scope)
+            await #expect(throws: LibraryCommandError.staleAttempt) { try await f.store.recordLibraryReceipt(ack, for: attempt) }
+            let reopened = try f.reopen(), reviewed = try await reopened.libraryCommandSnapshot(scope: f.scope)
+            #expect(reviewed.commands.count == 3)
+            #expect(reviewed.commands.allSatisfy { $0.phase == .needsReview && $0.failure == .datasetChanged && !$0.canAttempt })
+            for command in reviewed.commands {
+                let prior = try #require(before.commands.first { $0.id == command.id })
+                #expect(command.request == prior.request && command.receipt == prior.receipt && command.readContext == prior.readContext)
+            }
+            let received = try #require(reviewed.commands.first { $0.handle == handle })
+            try await reopened.reconcileLibraryCommands([.init(handle: handle, receiptID: received.receipt!.id)],
+                observation: restored, scope: f.scope)
+            #expect(try await reopened.libraryCommandSnapshot(scope: f.scope).commands.first { $0.handle == handle }?.phase == .needsReview)
+            await #expect(throws: LibraryCommandError.contextMismatch) {
+                try await reopened.beginLibraryAttempt(handle, scope: f.scope, readContext: context)
+            }
+        }
     }
 
     @Test func projectedCheckpointPreservesContentsOrderScopeAndPrivateState() async throws {
@@ -569,7 +750,7 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             let old = asBuild14Decoded(library.entries)
             try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 2)
             // The strict rule still holds between snapshots of the same format: this is exactly what build 15 hit.
-            try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope, format: 3)
+            try await f.store.saveLibraryPresentation(observation(f.account, rows: old, cursor: library.cursor), scope: f.scope)
             await #expect(throws: OfflineCacheError.conflictingObservation) {
                 try await f.store.saveLibraryPresentation(observation(f.account, rows: library.entries, cursor: library.cursor), scope: f.scope)
             }
@@ -670,15 +851,18 @@ private enum ProjectionFixtureFailure: Error, Equatable { case projector }
             let entry = try JSONDecoder().decode(LibraryEntry.self, from: json(row))
             return Set(try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any]).keys)
         }
-        #expect(CachePresentationCheckpoint.currentFormat == 3)
+        let descriptor: [String: Any] = ["descriptor_id": UUID().wire, "revision": 1, "epoch": 1,
+                                        "sha256": String(repeating: "a", count: 64)]
+        item["descriptor_ref"] = descriptor; active["descriptor_ref"] = descriptor
+        #expect(CachePresentationCheckpoint.currentFormat == 4)
         #expect(try keys(item) == ["kind", "id", "document_id", "created_seq", "state_seq", "membership_revision", "visible", "added_at",
             "last_remove_seq", "approval_id", "version_id", "metadata_id", "source", "source_id", "source_revision", "metadata",
             "metadata_recorded_at", "source_url", "scope", "page_count", "original_object_id", "artifact_id", "readiness",
             "original_availability", "render_availability", "original_availability_revision", "render_availability_revision",
-            "archived", "tags", "user_tags", "hidden_tags"])
+            "archived", "tags", "user_tags", "hidden_tags", "descriptor_ref"])
         #expect(try keys(active) == ["kind", "id", "created_seq", "state_seq", "intent_revision", "visible", "phase", "source", "source_id",
             "requested_revision", "source_revision", "metadata_id", "version_id", "metadata", "metadata_recorded_at", "source_url",
-            "document_id", "library_item_id", "error_code", "retryable", "progress", "progress_detail"])
+            "document_id", "library_item_id", "error_code", "retryable", "progress", "progress_detail", "descriptor_ref"])
     }
 
     @Test func exactBindingScopeAndEmptyLibraryCannotAuthorizeDifferentInstall() async throws {

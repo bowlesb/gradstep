@@ -310,6 +310,21 @@ only (iPhone 17 Pro, iPad Pro 11"): Core `ConversationSummaryTests`, app `ChatHi
 and the existing chat-history journeys; visual scenarios `chat-history-table`, `chat-history-search`,
 `chat-history-actions`. Not yet seen with a real signed-in history or on a device.
 
+## Adding any paper (2026-10-07, built, not deployed)
+
+Owner: "adding a pdf needs to be absolutely bullet proof." Add takes an arXiv ID, a DOI or any link
+(`functions/v1/add-paper`); PDFs upload from Files, by drag and drop, or through Share › Gradstep, into private
+upload sessions (migration `202610070039_pdf_uploads.sql`, `functions/v1/upload-pdf`, bucket `paper-uploads`)
+verified by the Cloud Run worker and converted privately with credits; failed web imports a website refused
+offer Download on this device. Uploaded papers reach the app through new v5 library reads (and compact v4).
+Design: [PDF uploads](architecture/PDF_UPLOADS.md). Verified locally only (2026-10-07, after merging main's
+031/032): every database suite including `test_pdf_uploads.sql`; 234 backend tests; Core 205; app unit 336 (5
+skipped; one web-view load timeout under Simulator load that passes alone); UI `AddPaperFlowTests` (6) and
+`LibraryLayoutTests` on iPhone 17 Pro, light and dark, and two Add journeys on iPad Pro 11"; Mac Catalyst builds
+(the extension is iOS only). Screens: `.artifacts/visual/pdf-uploads-2026-10-07/`. Not yet: deployment (migration, two functions, bucket, worker), provisioning for the Share
+extension (App Group, new App ID, profiles), a real upload or device download against staging, the Share
+extension through the system share sheet, a device check.
+
 **Passage-linked conversations** (owner request 2026-10-07, [decision](DECISIONS.md#passage-linked-conversations-owner-asked-2026-10-07-agent-decisions-all-reversible),
 legacy gap 1): selection actions save a `TextAnchor` (artifact, block, quote, 32 characters each side) inside the
 conversation's encrypted event (wire format unchanged); **Go to passage** from the chat's title menu, its "…" menu

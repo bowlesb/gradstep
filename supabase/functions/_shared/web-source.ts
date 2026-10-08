@@ -71,7 +71,7 @@ export function isPublicAddress(address: string): boolean {
   return !/^2001:0{0,4}:/.test(value) && !/^2001:0?db8:/.test(value) && !/^2002:/.test(value);
 }
 
-async function checkHost(url: URL, resolve: ResolveHost | undefined): Promise<void> {
+export async function checkHost(url: URL, resolve: ResolveHost | undefined): Promise<void> {
   if (!resolve) return;
   let addresses: string[];
   try { addresses = await resolve(url.hostname); } catch { throw new WebSourceError('download_failed', true); }
@@ -103,7 +103,7 @@ const LOCAL_HOST = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
 /** A link a server or page declares, as a URL we may fetch: resolved against `base`, http
  * upgraded to https (never fetched in the clear), fragment dropped. `rebaseLocal`: a page
  * that names its own host as localhost (a common DSpace 7 misconfiguration) means itself. */
-function declaredURL(value: string, base: URL, rebaseLocal = false, maxLength = 1000): URL | null {
+export function declaredURL(value: string, base: URL, rebaseLocal = false, maxLength = 1000): URL | null {
   let url: URL;
   try {
     url = new URL(value.trim(), base);

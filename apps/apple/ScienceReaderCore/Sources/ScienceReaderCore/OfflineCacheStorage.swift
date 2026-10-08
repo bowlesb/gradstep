@@ -73,7 +73,13 @@ struct OfflineCacheStorage {
                                domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         guard (1...CachePresentationCheckpoint.currentFormat).contains(value.format), value.scope == scope, value.cursor >= 0,
               value.capturedAt.timeIntervalSinceReferenceDate.isFinite,
-              value.rows.count <= LibraryWire.maximumRetainedEntries else { throw OfflineCacheError.corruptCache }
+              value.rows.count <= LibraryWire.maximumRetainedEntries,
+              value.format < 4 || (value.readContext != nil && value.readContext == roots.readContext),
+              (value.retainedBlocks?.count ?? 0) <= OfflineCacheLimits.retainedReaderBlocks
+        else { throw OfflineCacheError.corruptCache }
+        for key in value.retainedBlocks?.keys ?? Dictionary<String, CacheRetainedReaderBlock>().keys {
+            guard let artifact = UUID(uuidString: key), artifact.wire == key else { throw OfflineCacheError.corruptCache }
+        }
         var ids = Set<UUID>(), total = sealed.count
         for (name, ref) in value.rows {
             let id = try OfflineCacheCodec.entryID(name)
@@ -86,7 +92,8 @@ struct OfflineCacheStorage {
         return value
     }
 
-    private func storedRow(_ ref: CacheEntryReference, entryID: LibraryEntryID, cursor: Int64) throws -> CacheLibraryRow {
+    private func storedRow(_ ref: CacheEntryReference, entryID: LibraryEntryID, cursor: Int64,
+                           readContext: LibraryReadContext = .legacyFull3) throws -> CacheLibraryRow {
         let sealed = try blob("SELECT sealed FROM local_library_cache_entries WHERE id=?", values: [.text(ref.rowID.wire)], maximum: OfflineCacheLimits.presentationRowBytes)
         guard sealed.count == ref.bytes else { throw OfflineCacheError.corruptCache }
         let value = try decode(CacheLibraryRow.self, sealed: sealed, digest: ref.digest,
@@ -98,23 +105,32 @@ struct OfflineCacheStorage {
             guard case .item(let item) = value.entry, policy.eligibility.hasObservation,
                   policy.eligibility.itemState == item.stateSequence,
                   policy.eligibility.cursor <= cursor,
+                  (policy.eligibility.readContext ?? .legacyFull3) == readContext,
                   item.artifactID == nil || item.artifactID == policy.artifactID else { throw OfflineCacheError.corruptCache }
             try policy.eligibility.validate(documentID: item.documentID, artifactID: policy.artifactID)
         }
         return value
     }
 
-    private func row(_ ref: CacheEntryReference, entryID: LibraryEntryID, cursor: Int64) throws -> LibraryEntry {
-        try storedRow(ref, entryID: entryID, cursor: cursor).entry
+    private func row(_ ref: CacheEntryReference, entryID: LibraryEntryID, cursor: Int64,
+                     readContext: LibraryReadContext = .legacyFull3) throws -> LibraryEntry {
+        try storedRow(ref, entryID: entryID, cursor: cursor, readContext: readContext).entry
     }
 
     func presentation(_ roots: OfflineCacheRoots) throws -> CachedLibraryPresentation? {
         // This path also prepares accepted cache mutations. Preserve its
         // existing drain semantics even when its caller has been cancelled.
         guard let projected = try projectPresentation(roots, cancellation: .acceptedWork, project: { $0 }) else { return nil }
-        return .init(scope: projected.scope, committedCursor: projected.committedCursor,
+        return .init(scope: projected.scope, readContext: projected.readContext, committedCursor: projected.committedCursor,
                      capturedAt: projected.capturedAt,
                      entries: Dictionary(uniqueKeysWithValues: projected.rows.map { ($0.id, $0) }))
+    }
+
+    func replicaSeed(_ roots: OfflineCacheRoots) throws -> LibraryReplicaSeed? {
+        guard let checkpoint = try checkpoint(roots), checkpoint.format == CachePresentationCheckpoint.currentFormat,
+              let context = checkpoint.readContext, context.permitsUploads,
+              let saved = try presentation(roots) else { return nil }
+        return .init(scope: scope, readContext: context, committedCursor: saved.committedCursor, entries: saved.entries)
     }
 
     func projectPresentation<Row: Sendable>(_ roots: OfflineCacheRoots,
@@ -161,7 +177,7 @@ struct OfflineCacheStorage {
             let id = try OfflineCacheCodec.entryID(name)
             // This scope owns at most one complete decoded entry. A native
             // metadata projector does not accumulate the original item DTOs.
-            let entry = try row(ref, entryID: id, cursor: checkpoint.cursor)
+            let entry = try row(ref, entryID: id, cursor: checkpoint.cursor, readContext: checkpoint.readContext ?? .legacyFull3)
             try validation.append(entry, id: id)
             if let value = try project(entry) { rows.append((LibraryOrderingKey(entry), value)) }
         }
@@ -172,7 +188,8 @@ struct OfflineCacheStorage {
         }
         let projected = rows.map(\.value)
         try cancellation.check()
-        return .init(scope: scope, committedCursor: checkpoint.cursor, capturedAt: checkpoint.capturedAt,
+        return .init(scope: scope, readContext: checkpoint.readContext ?? .legacyFull3,
+                     committedCursor: checkpoint.cursor, capturedAt: checkpoint.capturedAt,
                      validatedEntryCount: checkpoint.rows.count, rows: projected)
     }
 
@@ -250,7 +267,8 @@ struct OfflineCacheStorage {
         let refs = checkpoint.rows.filter { $0.value.documentID == documentID }
         guard refs.count <= 1 else { throw OfflineCacheError.corruptCache }
         guard let ref = refs.first else { return nil }
-        guard case .item(let item) = try row(ref.value, entryID: OfflineCacheCodec.entryID(ref.key), cursor: checkpoint.cursor)
+        guard case .item(let item) = try row(ref.value, entryID: OfflineCacheCodec.entryID(ref.key), cursor: checkpoint.cursor,
+                                           readContext: checkpoint.readContext ?? .legacyFull3)
         else { throw OfflineCacheError.corruptCache }
         return item
     }
@@ -262,13 +280,28 @@ struct OfflineCacheStorage {
         var base = existing
         var item: LibraryItemRecord?
         if let ref = refs.first {
-            let saved = try storedRow(ref.value, entryID: OfflineCacheCodec.entryID(ref.key), cursor: checkpoint.cursor)
+            let saved = try storedRow(ref.value, entryID: OfflineCacheCodec.entryID(ref.key), cursor: checkpoint.cursor,
+                                      readContext: checkpoint.readContext ?? .legacyFull3)
             guard case .item(let value) = saved.entry else { throw OfflineCacheError.corruptCache }
             item = value
             if let policy = saved.readerPolicy, policy.artifactID == binding.artifactID,
-               !base.hasObservation || policy.eligibility.cursor >= base.cursor { base = policy.eligibility }
+               !base.hasObservation || (policy.eligibility.readContext ?? .legacyFull3) != (base.readContext ?? .legacyFull3) ||
+                policy.eligibility.cursor >= base.cursor {
+                // A blocked old installation must carry its block across the new domain,
+                // even when the new row's policy was created without that installation.
+                let changed = base.hasObservation &&
+                    (policy.eligibility.readContext ?? .legacyFull3) != (base.readContext ?? .legacyFull3)
+                let blocked = !base.canOpen
+                base = policy.eligibility
+                if changed && blocked { base = base.retainingDomainBlock() }
+            }
         }
-        return try base.applying(cursor: checkpoint.cursor, item: item, documentID: binding.documentID, artifactID: binding.artifactID)
+        if let retained = checkpoint.retainedBlocks?[binding.artifactID.wire] {
+            guard retained.documentID == binding.documentID else { throw OfflineCacheError.invalidBinding }
+            base = base.retainingDomainBlock()
+        }
+        return try base.applying(cursor: checkpoint.cursor, item: item, documentID: binding.documentID,
+                                artifactID: binding.artifactID, readContext: checkpoint.readContext ?? .legacyFull3)
     }
 
     private func indexWrite(_ index: CacheBundleIndex, roots: inout OfflineCacheRoots, writes: inout [CacheWrite]) throws {
@@ -288,11 +321,12 @@ struct OfflineCacheStorage {
         guard observation.accountID == scope.accountID, capturedAt.timeIntervalSinceReferenceDate.isFinite else { throw OfflineCacheError.invalidObservation }
         try validateEntries(observation.entries, cursor: observation.committedCursor)
         let old = try presentation(roots), previous = try checkpoint(roots)
-        if let cursor = old?.committedCursor ?? previous?.cursor {
+        let sameContext = (previous?.readContext ?? .legacyFull3) == observation.readContext
+        if sameContext, let cursor = old?.committedCursor ?? previous?.cursor {
             guard observation.committedCursor >= cursor else { throw OfflineCacheError.staleObservation }
         }
         // An earlier format's snapshot (fewer decoded fields, or no web papers) is replaced, not compared.
-        if let old, previous?.format == CachePresentationCheckpoint.currentFormat {
+        if sameContext, let old, previous?.format == CachePresentationCheckpoint.currentFormat {
             if observation.committedCursor == old.committedCursor {
                 guard Set(observation.entries.keys) == Set(old.entries.keys) else { throw OfflineCacheError.conflictingObservation }
                 if !rebuild {
@@ -315,19 +349,52 @@ struct OfflineCacheStorage {
             }
         }
         var writes: [CacheWrite] = [], next = roots, refs: [String: CacheEntryReference] = [:]
+        var retained = previous?.retainedBlocks ?? [:]
+        func retain(_ artifact: UUID, document: UUID, policy: ReaderBundleEligibility) throws {
+            guard !policy.canOpen else { return }
+            if let existing = retained[artifact.wire] {
+                guard existing.documentID == document else { throw OfflineCacheError.invalidBinding }
+            } else {
+                guard retained.count < OfflineCacheLimits.retainedReaderBlocks else { throw OfflineCacheError.capacityExceeded }
+                retained[artifact.wire] = .init(documentID: document, eligibility: policy)
+            }
+        }
+        var index = try index(roots).value
+        // These rows may disappear entirely after restore. Saving their safety evidence
+        // independently prevents a later download from treating absence as permission.
+        if let previous {
+            for (name, ref) in previous.rows {
+                let id = try OfflineCacheCodec.entryID(name)
+                let saved = try storedRow(ref, entryID: id, cursor: previous.cursor, readContext: previous.readContext ?? .legacyFull3)
+                let newArtifact: UUID?
+                if case .item(let item) = observation.entries[id] { newArtifact = item.artifactID }
+                else { newArtifact = nil }
+                if case .item(let item) = saved.entry, let policy = saved.readerPolicy,
+                   !sameContext || newArtifact != policy.artifactID {
+                    try retain(policy.artifactID, document: item.documentID, policy: policy.eligibility)
+                }
+            }
+        }
+        if !sameContext {
+            for value in index.installations { try retain(value.artifactID, document: value.documentID, policy: value.eligibility) }
+        }
         for (id, entry) in observation.entries {
             let name = OfflineCacheCodec.entryKey(id)
-            if old?.entries[id] == entry, let existing = previous?.rows[name] { refs[name] = existing; continue }
+            if sameContext, old?.entries[id] == entry, let existing = previous?.rows[name] { refs[name] = existing; continue }
             let rowID = previous?.rows[name]?.rowID ?? UUID()
             var prior: CacheItemPolicy?
             if let previous, let ref = previous.rows[name] {
-                prior = try storedRow(ref, entryID: id, cursor: previous.cursor).readerPolicy
+                prior = try storedRow(ref, entryID: id, cursor: previous.cursor, readContext: previous.readContext ?? .legacyFull3).readerPolicy
             }
             var policy: CacheItemPolicy?
             if case .item(let item) = entry, let artifact = item.artifactID ?? prior?.artifactID {
-                let base = prior?.artifactID == artifact ? prior?.eligibility ?? .init() : .init()
+                var base = prior?.artifactID == artifact ? prior?.eligibility ?? .init() : .init()
+                if let blocked = retained[artifact.wire] {
+                    guard blocked.documentID == item.documentID else { throw OfflineCacheError.invalidBinding }
+                    base = base.retainingDomainBlock()
+                }
                 policy = .init(artifactID: artifact, eligibility: try base.applying(cursor: observation.committedCursor,
-                    item: item, documentID: item.documentID, artifactID: artifact))
+                    item: item, documentID: item.documentID, artifactID: artifact, readContext: observation.readContext))
             }
             let row = CacheLibraryRow(format: 1, rowID: rowID, entry: entry, readerPolicy: policy)
             let sealed = try seal(row, domain: "presentation-row", identity: [rowID.wire], maximum: OfflineCacheLimits.presentationRowBytes)
@@ -336,18 +403,23 @@ struct OfflineCacheStorage {
             writes.append(.presentationRow(rowID, sealed))
         }
         for (id, value) in previous?.rows ?? [:] where refs[id] == nil { writes.append(.deletePresentationRow(value.rowID)) }
-        let checkpoint = CachePresentationCheckpoint(format: format, scope: scope, cursor: observation.committedCursor, capturedAt: capturedAt, rows: refs)
+        let checkpoint = CachePresentationCheckpoint(format: format, scope: scope, cursor: observation.committedCursor,
+            capturedAt: capturedAt, rows: refs, readContext: observation.readContext, retainedBlocks: retained)
         let sealed = try seal(checkpoint, domain: "presentation", maximum: OfflineCacheLimits.presentationCheckpointBytes)
         guard refs.values.reduce(sealed.count, { $0 + $1.bytes }) <= OfflineCacheLimits.presentationBytes else { throw OfflineCacheError.capacityExceeded }
         writes.append(.checkpoint(sealed)); next.scope = scope; next.presentation = OfflineCacheCodec.digest(sealed)
-        var index = try index(roots).value, changed = false
+        next.readContext = observation.readContext
+        var changed = false
         let items = Dictionary(uniqueKeysWithValues: observation.entries.values.compactMap { entry -> (UUID, LibraryItemRecord)? in
             if case .item(let item) = entry { return (item.documentID, item) }; return nil
         })
         for position in index.installations.indices {
             var value = index.installations[position]
-            let guardValue = try value.eligibility.applying(cursor: observation.committedCursor,
-                item: items[value.documentID], documentID: value.documentID, artifactID: value.artifactID)
+            var base = value.eligibility
+            if retained[value.artifactID.wire] != nil { base = base.retainingDomainBlock() }
+            let guardValue = try base.applying(cursor: observation.committedCursor,
+                item: items[value.documentID], documentID: value.documentID, artifactID: value.artifactID,
+                readContext: observation.readContext)
             if guardValue != value.eligibility {
                 if guardValue.membershipVisible != value.eligibility.membershipVisible || guardValue.block != value.eligibility.block {
                     guard value.revision < Int64.max else { throw OfflineCacheError.capacityExceeded }
@@ -357,7 +429,8 @@ struct OfflineCacheStorage {
             }
         }
         if changed { try indexWrite(index, roots: &next, writes: &writes) }
-        return (.init(roots: next, writes: writes), .init(scope: scope, committedCursor: observation.committedCursor, capturedAt: capturedAt, entries: observation.entries))
+        return (.init(roots: next, writes: writes), .init(scope: scope, readContext: observation.readContext,
+            committedCursor: observation.committedCursor, capturedAt: capturedAt, entries: observation.entries))
     }
 
     private func validatePresentationRepair(_ old: LibraryEntry, _ new: LibraryEntry) throws {

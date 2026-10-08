@@ -308,6 +308,18 @@ public actor EncryptedStore {
         try withOfflineCache(scope: scope) { try $0.presentation($1) }
     }
 
+    /// The root remains authoritative when a derived child is unreadable. A
+    /// corrupt presentation cannot make an adopted v5 account downgrade to v3.
+    public func rememberedLibraryReadContext(scope: LibraryCommandScope) throws -> LibraryReadContext? {
+        try withOfflineCache(scope: scope) { _, roots in roots.readContext }
+    }
+
+    /// Authenticates every row/link and returns no live observation authority.
+    /// A resumed reconciler must complete a fresh server catch-up before ready.
+    public func cachedLibraryReplicaSeed(scope: LibraryCommandScope) throws -> LibraryReplicaSeed? {
+        try withOfflineCache(scope: scope) { try $0.replicaSeed($1) }
+    }
+
     /// The synchronous projector runs on this store's actor, one validated row
     /// at a time. It must not publish partial state, await, or mutate the store.
     /// No projection escapes unless the entire checkpoint and all links pass.
@@ -442,18 +454,25 @@ public actor EncryptedStore {
 
     private func persistOfflineCache(_ mutation: OfflineCacheMutation) throws {
         var next = metadata
-        do { try commit(records: [], next: &next, cache: mutation) }
+        var journal = libraryJournal
+        if let context = mutation.roots.readContext { try journal.reviewChangedContext(context) }
+        var sealed: [UUID: Data] = [:]
+        for row in journal.rows.values where libraryJournal.rows[row.id] != row {
+            sealed[row.id] = try Self.sealLibraryCommand(row, key: localKey)
+        }
+        do { try commit(records: [], next: &next, library: (journal, sealed), cache: mutation) }
         catch { if error as? ReaderError == .storeChanged { needsReopen = true }; throw error }
-        metadata = next
+        metadata = next; libraryJournal = journal
     }
 
     @discardableResult
     public func enqueueLibraryCommand(scope: LibraryCommandScope, mutation: LibraryMutation,
-                                      display: String? = nil) throws -> LocalLibraryCommandHandle {
+                                      display: String? = nil, readContext: LibraryReadContext = .legacyFull3) throws -> LocalLibraryCommandHandle {
         try libraryJournal.requireScope(scope, accountID: accountID)
+        try requireLibraryReadContext(readContext)
         var next = libraryJournal
         next.prune()
-        let handle = try next.enqueue(mutation, scope: scope, display: display)
+        let handle = try next.enqueue(mutation, scope: scope, display: display, readContext: readContext)
         try persistLibraryJournal(next)
         return handle
     }
@@ -461,12 +480,14 @@ public actor EncryptedStore {
     /// A tag edit for one library item (migration 030), resolved against pending edits in one transaction.
     @discardableResult
     public func editLibraryTags(scope: LibraryCommandScope, documentID: UUID, tags: [String], hiddenTags: [String],
-                                observedRevision: Int64, display: String? = nil) throws -> LocalLibraryCommandHandle {
+                                observedRevision: Int64, display: String? = nil,
+                                readContext: LibraryReadContext = .legacyFull3) throws -> LocalLibraryCommandHandle {
         try libraryJournal.requireScope(scope, accountID: accountID)
+        try requireLibraryReadContext(readContext)
         var next = libraryJournal
         next.prune()
         let handle = try next.editTags(documentID: documentID, tags: tags, hiddenTags: hiddenTags, observedRevision: observedRevision,
-                                       scope: scope, display: display)
+                                       scope: scope, display: display, readContext: readContext)
         try persistLibraryJournal(next)
         return handle
     }
@@ -481,10 +502,12 @@ public actor EncryptedStore {
         return child
     }
 
-    public func beginLibraryAttempt(_ handle: LocalLibraryCommandHandle, scope: LibraryCommandScope) throws -> LibraryCommandAttempt {
+    public func beginLibraryAttempt(_ handle: LocalLibraryCommandHandle, scope: LibraryCommandScope,
+                                    readContext: LibraryReadContext = .legacyFull3) throws -> LibraryCommandAttempt {
         try libraryJournal.requireScope(scope, accountID: accountID)
+        try requireLibraryReadContext(readContext)
         var next = libraryJournal
-        let attempt = try next.begin(handle, writerID: libraryWriterID)
+        let attempt = try next.begin(handle, writerID: libraryWriterID, readContext: readContext)
         try persistLibraryJournal(next)
         return attempt
     }
@@ -541,6 +564,18 @@ public actor EncryptedStore {
         return try libraryCommandSnapshot(scope: scope)
     }
 
+    /// Fresh read authority can stop obsolete pending writes even when saving
+    /// the derived presentation has failed. It never advances a cache cursor.
+    @discardableResult
+    public func reviewLibraryCommandContext(_ context: LibraryReadContext,
+                                             scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
+        try libraryJournal.requireScope(scope, accountID: accountID)
+        var next = libraryJournal
+        try next.reviewChangedContext(context)
+        try persistLibraryJournal(next)
+        return try libraryCommandSnapshot(scope: scope)
+    }
+
     @discardableResult
     public func dismissLibraryCommand(_ handle: LocalLibraryCommandHandle, expectedRevision: Int64,
                                       scope: LibraryCommandScope) throws -> LocalLibraryCommandSnapshot {
@@ -574,6 +609,10 @@ public actor EncryptedStore {
         do { try commit(records: [], next: &next, library: (journal, sealed)) }
         catch { if error as? ReaderError == .storeChanged { needsReopen = true }; throw error }
         metadata = next; libraryJournal = journal
+    }
+
+    private func requireLibraryReadContext(_ context: LibraryReadContext) throws {
+        guard (metadata.offlineCache?.readContext ?? .legacyFull3) == context else { throw LibraryCommandError.contextMismatch }
     }
 
     private func validateLibraryAuthority() throws {

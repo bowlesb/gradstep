@@ -80,7 +80,8 @@ class Client:
     def request(self, path, payload=None, maximum=MAX_JSON, storage=False, retain=True):
         # All paths are constructed here; no manifest or redirect can choose a host.
         if not path.startswith(('/rest/v1/rpc/worker_asset_', '/storage/v1/object/list/paper-assets',
-                                '/storage/v1/object/authenticated/paper-assets/')):
+                                '/storage/v1/object/authenticated/paper-assets/', '/storage/v1/object/list/paper-uploads',
+                                '/storage/v1/object/authenticated/paper-uploads/')):
             raise InventoryError('request_scope_refused')
         headers = {'Authorization': 'Bearer ' + self.key, 'apikey': self.key, 'Accept-Encoding': 'identity'}
         body = None if payload is None else canonical(payload)
@@ -118,16 +119,18 @@ class Client:
 
     def rpc(self, name, payload): return self.json('/rest/v1/rpc/' + name, payload)
 
-    def listing(self, prefix, offset):
-        return self.json('/storage/v1/object/list/paper-assets',
+    def listing(self, prefix, offset, bucket='paper-assets'):
+        if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+        return self.json('/storage/v1/object/list/' + bucket,
                          {'prefix': prefix, 'limit': 500, 'offset': offset, 'sortBy': {'column': 'name', 'order': 'asc'}})
 
-    def blob(self, path, size, retain=False):
-        return self.request('/storage/v1/object/authenticated/paper-assets/' + urllib.parse.quote(path, safe='/'),
+    def blob(self, path, size, retain=False, bucket='paper-assets'):
+        if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+        return self.request('/storage/v1/object/authenticated/' + bucket + '/' + urllib.parse.quote(path, safe='/'),
                             maximum=size, storage=True, retain=retain)
 
 
-def bucket_snapshot(client, max_bytes):
+def bucket_snapshot(client, max_bytes, bucket='paper-assets'):
     """A short final page is required in every folder, including the root."""
     pending, visited, objects, calls, total = deque(['']), set(), {}, 0, 0
     while pending:
@@ -139,7 +142,7 @@ def bucket_snapshot(client, max_bytes):
         while True:
             calls += 1
             if calls > 100000: raise InventoryError('listing_incomplete')
-            rows = client.listing(prefix, offset)
+            rows = client.listing(prefix, offset, bucket=bucket)
             if not isinstance(rows, list) or len(rows) > 500: raise InventoryError('invalid_listing')
             for row in rows:
                 if not isinstance(row, dict): raise InventoryError('invalid_listing')
@@ -175,17 +178,25 @@ def inventory(client, scan):
         rows = result['objects']
         if len(rows) > 500: raise InventoryError('invalid_inventory_page')
         for row in rows:
-            if not isinstance(row, dict) or row.get('id') in ids or row.get('path') in records: raise InventoryError('duplicate_inventory')
-            try: uuid.UUID(row['id']); uuid.UUID(row['document_id'])
+            if not isinstance(row, dict): raise InventoryError('invalid_inventory_page')
+            bucket = row.setdefault('bucket', 'paper-assets')
+            if bucket not in ('paper-assets','paper-uploads'): raise InventoryError('invalid_inventory_bucket')
+            key = bucket + '/' + str(row.get('path'))
+            if row.get('id') in ids or key in records: raise InventoryError('duplicate_inventory')
+            try:
+                uuid.UUID(row['id'])
+                if bucket == 'paper-assets': uuid.UUID(row['document_id'])
+                elif row.get('document_id') is not None: raise ValueError('staging_document')
             except (ValueError, TypeError, KeyError): raise InventoryError('invalid_inventory_identity') from None
             if not isinstance(row.get('path'), str) or len(row['path']) > 1024: raise InventoryError('invalid_inventory_path')
-            digest(row.get('sha256')); digest(row.get('document_sha256'))
+            digest(row.get('sha256'))
+            if bucket == 'paper-assets': digest(row.get('document_sha256'))
             integer(row.get('bytes'), 64 * MiB, 1); media_type(row.get('media_type'))
             if row.get('state') not in ('pending', 'verified', 'deleting'): raise InventoryError('invalid_inventory_state')
             if row.get('owner_id') is not None:
                 try: uuid.UUID(row['owner_id'])
                 except (ValueError, TypeError): raise InventoryError('invalid_inventory_owner') from None
-            ids.add(row['id']); records[row['path']] = row
+            ids.add(row['id']); records[key] = row
         if len(records) > MAX_OBJECTS: raise InventoryError('inventory_incomplete')
         if result.get('has_more') is False: return records
         next_cursor = result.get('next_after')
@@ -238,8 +249,20 @@ def reconcile(client, scan, max_bytes, save_proof=None):
         if len(report['issues']) < 1000: report['issues'].append(entry)
 
     try:
-        client.rpc('worker_asset_inventory_begin', {'p_scan_id': scan}); begun = True
-        first = bucket_snapshot(client, max_bytes)
+        admission = client.rpc('worker_asset_inventory_begin', {'p_scan_id': scan}); begun = True
+        buckets = admission.get('buckets', ['paper-assets'])
+        if buckets not in (['paper-assets'], ['paper-assets', 'paper-uploads']): raise InventoryError('invalid_inventory_scope')
+        if ('paper-uploads' in buckets) != (admission.get('scope', 1) == 2): raise InventoryError('invalid_inventory_scope')
+        report['scope'] = admission.get('scope', 1)
+        def snapshot():
+            complete, size = {}, 0
+            for bucket in buckets:
+                rows = bucket_snapshot(client, max_bytes - size, bucket=bucket)
+                complete.update({bucket + '/' + path: value for path,value in rows.items()})
+                size += sum(row['bytes'] for row in rows.values())
+                if len(complete) > MAX_OBJECTS or size > max_bytes: raise InventoryError('listing_incomplete')
+            return complete
+        first = snapshot()
         report['object_count'], report['byte_count'] = len(first), sum(o['bytes'] for o in first.values())
         before = inventory(client, scan)
         verified = {}
@@ -247,32 +270,36 @@ def reconcile(client, scan, max_bytes, save_proof=None):
         # members without inferring a private owner from an uploaded pathname.
         ordered = sorted(before.values(), key=lambda row: (not bool(MANIFEST.fullmatch(row['path'])), row['path']))
         for row in ordered:
-            path = row['path']
-            if row.get('scope') not in ('shared_catalog', 'owner_private') or (row['scope'] == 'owner_private') != (row.get('owner_id') is not None):
+            path, bucket = row['path'], row['bucket']
+            key = bucket + '/' + path
+            if bucket not in buckets: raise InventoryError('inventory_scope_mismatch')
+            owned = (row.get('scope') in ('shared_catalog','owner_private') and (row['scope']=='owner_private') == (row.get('owner_id') is not None)) if bucket=='paper-assets' else (row.get('scope') is None and row.get('owner_id') is not None and row.get('document_id') is None)
+            if not owned:
                 issue('unowned', path); continue
             if row['state'] != 'verified': issue('incomplete', path, 'unresolved_object'); continue
-            if path not in first: issue('missing_verified', path); continue
-            if first[path]['bytes'] != row['bytes']: issue('mismatched', path, 'size_mismatch'); continue
+            if key not in first: issue('missing_verified', path); continue
+            if first[key]['bytes'] != row['bytes']: issue('mismatched', path, 'size_mismatch'); continue
             try:
-                is_manifest = MANIFEST.fullmatch(path)
+                is_manifest = MANIFEST.fullmatch(path) if bucket=='paper-assets' else None
                 if is_manifest and row['bytes'] > 262144: raise InventoryError('manifest_byte_limit')
                 body = None
-                if path in verified:
-                    actual = verified[path]
+                if key in verified:
+                    actual = verified[key]
                 elif is_manifest:
-                    body = client.blob(path, row['bytes'], retain=True)
+                    body = client.blob(path, row['bytes'], retain=True, bucket=bucket)
                     actual = (len(body), hashlib.sha256(body).hexdigest())
-                else: actual = client.blob(path, row['bytes'])
+                else: actual = client.blob(path, row['bytes'], bucket=bucket)
                 if actual != (row['bytes'], row['sha256']): raise InventoryError('content_mismatch')
-                verified[path] = actual
+                verified[key] = actual
                 if is_manifest:
                     members = manifest_members(row, body)
                     prefix = path.removesuffix('manifest.json')
                     for member in members:
-                        member_key = prefix + member['relative_path']
+                        member_path = prefix + member['relative_path']
+                        member_key = bucket + '/' + member_path
                         if member_key not in first or first[member_key]['bytes'] != member['bytes']:
                             raise InventoryError('manifest_member_missing_or_size')
-                        actual = verified.get(member_key) or client.blob(member_key, member['bytes'])
+                        actual = verified.get(member_key) or client.blob(member_path, member['bytes'], bucket=bucket)
                         if actual != (member['bytes'], member['sha256']): raise InventoryError('manifest_member_content')
                         verified[member_key] = actual
                     client.rpc('worker_asset_inventory_manifest', {'p_scan_id': scan, 'p_manifest_id': row['id'], 'p_members': members})
@@ -289,7 +316,7 @@ def reconcile(client, scan, max_bytes, save_proof=None):
             if path not in before and verified.get(path) != (row['bytes'], row['sha256']):
                 issue('incomplete', path, 'unverified_inventory_change')
         for path in first.keys() - after.keys(): issue('untracked', path)
-        second = bucket_snapshot(client, max_bytes)
+        second = snapshot()
         if second != first: issue('incomplete', code='storage_snapshot_changed')
     except InventoryError as error: issue('incomplete', code=str(error))
     except Exception: issue('incomplete', code='inventory_consistency_error')

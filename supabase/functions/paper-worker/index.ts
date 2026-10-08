@@ -3,7 +3,7 @@
 // customer token. Returns immediately and works in the background.
 import { MathpixClient } from '../_shared/mathpix.ts';
 import { runPipeline, type PipelineDeps } from '../_shared/pipeline.ts';
-import { pipelineService, rpcAdapter, storageAdapter } from '../_shared/pipeline-runtime.ts';
+import { pipelineService, rpcAdapter, storageAdapter, uploadStorageAdapter } from '../_shared/pipeline-runtime.ts';
 import { renderReader } from '../_shared/reader-adapter.ts';
 import { sweepAccountDeletions } from '../_shared/account-deletion.ts';
 
@@ -49,7 +49,7 @@ function deps(): PipelineDeps {
   const appID = Deno.env.get('MATHPIX_APP_ID'), appKey = Deno.env.get('MATHPIX_APP_KEY');
   if (!appID || !appKey) throw new Error('provider_credentials_unavailable');
   return {
-    rpc: rpcAdapter(service), storage: storageAdapter(service), fetch,
+    rpc: rpcAdapter(service), storage: storageAdapter(service), uploads: uploadStorageAdapter(service), fetch,
     mathpix: new MathpixClient({ appID, appKey }), render: renderReader,
     sleep: ms => new Promise(resolve => setTimeout(resolve, ms)), now: () => Date.now(), uuid: () => crypto.randomUUID(),
     log: (event, fields = {}) => console.log(JSON.stringify({ event, ...fields })),

@@ -38,6 +38,9 @@ targets:
     dependencies:
       - package: ScienceReaderCore
       - package: SwiftMath
+      # Share › Gradstep (docs/architecture/PDF_UPLOADS.md). iOS only: the Mac app has no app group yet.
+      - target: ScienceReaderShare
+        platformFilter: iOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios
@@ -68,6 +71,25 @@ targets:
     scheme:
       testTargets: [ScienceReaderTests, ScienceReaderUITests]
       gatherCoverageData: true
+  # Share extension: writes a shared PDF or link to the app group's inbox; the app adds it on launch.
+  # No network or credentials (docs/architecture/PDF_UPLOADS.md "Share extension").
+  ScienceReaderShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+        excludes: [Info.plist]
+      - path: ScienceReader/Services/ShareInbox.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios.share
+        PRODUCT_NAME: GradstepShare
+        CODE_SIGN_ENTITLEMENTS: Config/ShareExtension.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SUPPORTS_MACCATALYST: NO
+        SKIP_INSTALL: YES
   ScienceReaderUITests:
     type: bundle.ui-testing
     platform: iOS

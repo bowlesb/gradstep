@@ -61,15 +61,34 @@ def quarantine(sql):
     begin
       update app_private.platform_budgets set work_enabled=false;
       if pg_catalog.to_regclass('app_private.library_v4_config') is not null then
-        -- Backup epochs are restored too. Rotate before any v4 client can
+        -- Backup epochs are restored too. Rotate before any compact/v5 client can
         -- combine a pre-restore cursor/cache with this rewound dataset.
         execute 'update app_private.library_v4_config set dataset_epoch=gen_random_uuid()';
+        if exists (
+          select 1 from pg_catalog.pg_attribute
+          where attrelid=pg_catalog.to_regclass('app_private.library_v4_config')
+            and attname='upload_dataset_epoch' and not attisdropped
+        ) then
+          execute 'update app_private.library_v4_config set upload_dataset_epoch=gen_random_uuid()';
+        end if;
       end if;
       if pg_catalog.to_regclass('app_private.acquisition_policy') is not null then
         execute 'update app_private.acquisition_policy set metadata_enabled=false, original_enabled=false, verification_enabled=false';
       end if;
       if pg_catalog.to_regclass('app_private.paper_read_policy') is not null then
         execute 'update app_private.paper_read_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.pipeline_policy') is not null then
+        execute 'update app_private.pipeline_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.pdf_upload_policy') is not null then
+        execute 'update app_private.pdf_upload_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.tag_policy') is not null then
+        execute 'update app_private.tag_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.provider_spending_policy') is not null then
+        execute 'update app_private.provider_spending_policy set enabled=false';
       end if;
       if pg_catalog.to_regclass('app_private.store_verifier_policy') is not null then
         -- A restored enabled transport must not forward paid runtime work.

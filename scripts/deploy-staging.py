@@ -101,14 +101,19 @@ def deploy(args):
         print('Raised the project upload limit to', config['paper_bucket']['file_size_limit'], 'bytes')
     storage_headers = {'Authorization': 'Bearer ' + env['SUPABASE_SERVICE_ROLE_KEY'], 'apikey': env['SUPABASE_SERVICE_ROLE_KEY']}
     bucket_url = env['SUPABASE_URL'] + '/storage/v1/bucket'
-    expected = config['paper_bucket']
-    bucket = request(bucket_url + '/' + expected['id'], storage_headers, allow_missing=True)
-    if bucket is None:
-        request(bucket_url, storage_headers, {k: v for k, v in expected.items() if v is not None})
-        bucket = request(bucket_url + '/' + expected['id'], storage_headers)
-    if bucket['public'] or bucket['file_size_limit'] != expected['file_size_limit']:
-        raise SystemExit('Unexpected paper bucket settings; review drift before deploying')
-    print('Verified private paper bucket')
+    # Upload ingress uses immutable private 4 MiB octet-stream chunks. Only
+    # provision its bucket when that reviewed function is selected for deploy.
+    bucket_keys = ['paper_bucket'] + (['upload_bucket'] if 'upload-pdf' in selected_functions else [])
+    for key in bucket_keys:
+        expected = config[key]
+        bucket = request(bucket_url + '/' + expected['id'], storage_headers, allow_missing=True)
+        if bucket is None:
+            request(bucket_url, storage_headers, {k: v for k, v in expected.items() if v is not None})
+            bucket = request(bucket_url + '/' + expected['id'], storage_headers)
+        if bucket['public'] or bucket['file_size_limit'] != expected['file_size_limit'] or \
+                (expected.get('allowed_mime_types') and sorted(bucket.get('allowed_mime_types') or []) != sorted(expected['allowed_mime_types'])):
+            raise SystemExit(f'Unexpected {key} settings; review drift before deploying')
+        print('Verified private bucket', expected['id'])
 
     if 'PIPELINE_SECRET' not in env or args.rotate_pipeline_secret:
         value = secrets.token_urlsafe(48)

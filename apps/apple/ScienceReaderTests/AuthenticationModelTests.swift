@@ -28,6 +28,8 @@ private final class AuthenticationModelServer: @unchecked Sendable {
             case "/rest/v1/rpc/v1_key_state":
                 if holdKeys { heldKeys = request; keysArrived.fulfill() }
                 else { respondKeys(request) }
+            case "/rest/v1/rpc/v1_reader_capabilities":
+                request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
             case "/rest/v1/rpc/v3_library_page":
                 request.respond(Data("""
                     {"format":2,"account_id":"\(account.wire)","baseline_cursor":0,"retained_after":0,"entries":[],"next_cursor":null,"has_more":false}

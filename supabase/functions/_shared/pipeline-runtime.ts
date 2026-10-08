@@ -1,6 +1,7 @@
 // Paper pipeline wiring (Edge Functions under Deno, the Cloud Run worker under Node):
 // service-role RPC and Storage adapters.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { boundedStorageDownload } from './reader-delivery.ts';
 import { BUCKET, PipelineRPCError, type PipelineDeps } from './pipeline.ts';
 
 /** An environment variable under Deno or Node. */
@@ -24,6 +25,24 @@ export function rpcAdapter(client: SupabaseClient): PipelineDeps['rpc'] {
       throw new PipelineRPCError(code);
     }
     return data as T;
+  };
+}
+
+/** Immutable staging chunks; admitted reads and exact terminal deletion batches. */
+export const UPLOAD_BUCKET = 'paper-uploads';
+export function uploadStorageAdapter(client: SupabaseClient): NonNullable<PipelineDeps['uploads']> {
+  const bucket = () => client.storage.from(UPLOAD_BUCKET);
+  return {
+    async download(path, maximumBytes, observed) {
+      const url = runtimeEnv('SUPABASE_URL'), key = runtimeEnv('SUPABASE_SERVICE_ROLE_KEY');
+      if (!url || !key) throw new Error('storage_unavailable');
+      return boundedStorageDownload(url, key, UPLOAD_BUCKET, path, maximumBytes, fetch, observed);
+    },
+    async remove(paths) {
+      // Removing an object that is already gone succeeds.
+      const { error } = await bucket().remove(paths);
+      if (error) throw new Error('storage_remove_failed');
+    },
   };
 }
 

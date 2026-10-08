@@ -33,7 +33,10 @@ export interface PaperEntry {
   due?: boolean; raw_manifest_path?: string | null; ocr_run_id?: string | null;
   license_uri?: string | null; title?: string | null; authors?: string[] | null;
   /** Web papers (migration 019): OpenAlex source ID, open-access PDF locations, landing page. */
-  source_kind?: 'arxiv' | 'web'; pdf_urls?: string[] | null; landing_url?: string | null;
+  source_kind?: 'arxiv' | 'web' | 'upload'; pdf_urls?: string[] | null; landing_url?: string | null;
+  /** A reader's PDF this private paper uses at download (migration 039): their own upload, or one
+   * supplying a web paper our servers couldn't fetch. Declared size and sha256 (hex). */
+  upload?: { id: string; generation: number; sha256: string; bytes: number; parts: number } | null;
   attempt: null | { id: string; state: string; page_limit: number; provider_job_id: string | null; submitted_at: string | null; raw_manifest_path: string | null };
 }
 export interface PipelinePolicy { max_pdf_bytes: number; max_ocr_pages: number; renderer_version: string; enabled: boolean }
@@ -73,6 +76,12 @@ export interface PipelineDeps {
   kick?(): Promise<void>;
   /** Resolves a web PDF host so private and reserved addresses are refused. */
   resolveHost?: ResolveHost;
+  /** Readers' uploads (`paper-uploads` bucket, migration 039). Absent: an upload waits for a worker that has it. */
+  uploads?: {
+    /** Throws `storage_object_missing` when the object isn't there. */
+    download(path: string, maximumBytes: number, observed?: (bytes: number) => void): Promise<Uint8Array>;
+    remove(paths: string[]): Promise<void>;
+  };
 }
 
 const hex = (value: string) => '\\x' + value;
@@ -183,6 +192,7 @@ async function stageSplit(deps: PipelineDeps, e: PaperEntry, claim: Claim): Prom
 }
 
 const isWeb = (e: PaperEntry) => e.source_kind === 'web' || e.source_id.startsWith('openalex:');
+const isUpload = (e: PaperEntry) => e.source_kind === 'upload' || e.source_id.startsWith('upload:');
 
 /** Web source failures become pipeline failures; `resume` is where a user retry restarts. */
 function webFailure(error: unknown, resume: string): never {
@@ -195,8 +205,8 @@ async function stageWebMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim)
   try { work = openAlexWork(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id))); }
   catch (error) { webFailure(error, 'metadata'); }
   if (!work) throw new PermanentFailure('metadata_unavailable', 'metadata');
-  // No open-access copy (anymore): nothing to download.
-  if (!work.pdfURLs.length) throw new PermanentFailure('download_failed', 'metadata');
+  // No open-access copy: the metadata is still recorded, so readers see the paper and can supply its PDF
+  // (its private papers fail at download as `not_open`; migration 039).
   const entry = await deps.rpc<PaperEntry>('worker_pipeline_web_metadata', { ...claim, p_metadata: work.metadata, p_doi: work.doi,
     p_pdf_urls: work.pdfURLs, p_landing_url: work.landingURL });
   deps.log('metadata', { paper: e.id, web: true, locations: work.pdfURLs.length });
@@ -229,24 +239,83 @@ async function stageMetadata(deps: PipelineDeps, e: PaperEntry, claim: Claim): P
  * admission) and the invocation's deadline. */
 const WEB_DOWNLOAD_MS = 110_000;
 
+/** A reader's upload as this paper's original: exactly the bytes they declared, a readable PDF of at
+ * most 250 pages. Anything else spends the upload (a retry won't read the same bad bytes again) and
+ * fails the paper; a missing worker storage adapter or a transient Storage error is retried. */
+async function readUpload(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<{ bytes: Uint8Array; pages: number }> {
+  const upload = e.upload!;
+  if (!deps.uploads) throw new Error('upload_storage_unavailable');
+  const reject = async (code: string): Promise<never> => {
+    await deps.rpc('worker_pipeline_upload_rejected', { ...claim, p_upload_id: upload.id });
+    deps.log('upload_rejected', { paper: e.id, code });
+    throw new PermanentFailure(code, 'download');
+  };
+  if (upload.bytes < 1 || upload.bytes > policy.max_pdf_bytes || upload.bytes > 67_108_864 ||
+      !Number.isSafeInteger(upload.generation) || upload.generation < 1 || !Number.isSafeInteger(upload.parts) || upload.parts < 1 || upload.parts > 16)
+    throw new Error('invalid_upload_descriptor');
+  const readID = deps.uuid();
+  const admitted = await deps.rpc<{ read: boolean; objects: { index: number; id: string; bucket: string; path: string; bytes: number; sha256: string }[] }>(
+    'worker_pdf_upload_read', { ...claim, p_read_id: readID, p_upload_id: upload.id, p_upload_generation: upload.generation });
+  if (!admitted?.read) throw new Error('upload_read_not_admitted');
+  if (!Array.isArray(admitted.objects) || admitted.objects.length !== upload.parts || admitted.objects.some((o, index) => o.index !== index ||
+      o.bucket !== 'paper-uploads' || !o.path.startsWith(`${e.owner_id}/${upload.id}/${index}/`) ||
+      !/^[0-9a-f-]{36}\/[0-9a-f-]{36}\/(?:[0-9]|1[0-5])\/[0-9a-f-]{36}\.chunk$/.test(o.path) ||
+      o.bytes !== Math.min(4_194_304, upload.bytes - index * 4_194_304) || !/^[0-9a-f]{64}$/.test(o.sha256)))
+    throw new Error('invalid_upload_descriptor');
+  const bytes = new Uint8Array(upload.bytes); let offset = 0, observed = 0;
+  try {
+    for (const object of admitted.objects) {
+      let received = 0;
+      try {
+        const part = await deps.uploads.download(object.path, object.bytes, count => { received = Math.min(count, object.bytes); });
+        received = Math.min(part.length, object.bytes);
+        if (part.length !== object.bytes || await sha256(part) !== object.sha256) return await reject('upload_failed');
+        bytes.set(part, offset); offset += part.length;
+      } finally { observed += received; }
+    }
+  } catch (error) {
+    if (error instanceof Error && ['storage_object_missing', 'storage_object_too_large'].includes(error.message)) return reject('upload_failed');
+    throw error;
+  } finally {
+    await deps.rpc('worker_pdf_upload_read_observed', { p_read_id: readID, p_bytes: observed }).catch(() => {});
+  }
+  if (bytes.length !== upload.bytes || await sha256(bytes) !== upload.sha256) return reject('upload_failed');
+  let pages: number;
+  try { pages = await countPages(bytes); } catch { return reject('pdf_invalid'); }
+  if (pages > 250) return reject('too_large');
+  return { bytes, pages };
+}
+
 async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy, deadline = Infinity): Promise<StepResult> {
   if (!e.revision) throw new Error('revision_missing');
   const webBudget = Math.min(WEB_DOWNLOAD_MS, deadline - deps.now() - 45_000);
   // Not enough time left in this invocation: start the download in a fresh one.
-  if (isWeb(e) && webBudget < 30_000) return { entry: e, defer: 0 };
+  if (isWeb(e) && !e.upload && webBudget < 30_000) return { entry: e, defer: 0 };
   // Storage caps and (for private copies) owner credits are checked before
   // any bytes are fetched or stored.
-  const admission = await deps.rpc<{ admitted: boolean; reason?: string }>('worker_pipeline_admit_download', claim);
+  const admission = await deps.rpc<{ admitted: boolean; reason?: string; upload?: PaperEntry['upload'] }>('worker_pipeline_admit_download', claim);
   if (!admission.admitted) {
     deps.log('download_not_admitted', { paper: e.id, reason: admission.reason ?? null });
     return { entry: e, stop: 'release' };
   }
+  // The claim snapshot can predate an attachment/cancellation. Only the
+  // admission transaction's committed selection decides which bytes to read.
+  if ('upload' in admission) e = { ...e, upload: admission.upload ?? null };
+  else if (e.upload) throw new Error('upload_admission_unavailable');
   let bytes: Uint8Array;
-  if (isWeb(e)) {
-    if (!e.owner_id || !e.pdf_urls?.length) throw new Error('web_location_missing');
+  let counted: number | null = null;
+  if (e.upload) {
+    if (!e.owner_id) throw new Error('upload_owner_missing');
+    ({ bytes, pages: counted } = await readUpload(deps, e, claim, policy));
+    deps.log('upload_read', { paper: e.id, bytes: bytes.length, web: isWeb(e) });
+  } else if (isUpload(e)) {
+    // An uploaded paper whose upload is gone (rejected or expired): a new upload can supply it.
+    throw new PermanentFailure('upload_failed', 'download');
+  } else if (isWeb(e)) {
+    if (!e.owner_id) throw new Error('web_location_missing');
     const budget = AbortSignal.timeout(webBudget);
     // Locations move: re-read them from OpenAlex (falling back to the recorded ones).
-    let urls = e.pdf_urls;
+    let urls = e.pdf_urls ?? [];
     try {
       const fresh = downloadLocations(await fetchOpenAlexWork(deps.fetch, openAlexWorkURL(e.source_id)));
       if (fresh.length && fresh.join('\n') !== urls.join('\n')) {
@@ -257,6 +326,8 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
       if (!(error instanceof WebSourceError)) throw error;
       await deps.rpc('worker_pipeline_heartbeat', claim);
     }
+    // No open copy anywhere: the reader can supply the PDF (upload, or download it on their device).
+    if (!urls.length) throw new PermanentFailure('not_open', 'download');
     try {
       const found = await fetchFirstWebPDF(deps.fetch, urls, policy.max_pdf_bytes, deps.resolveHost, budget);
       bytes = found.bytes;
@@ -266,15 +337,19 @@ async function stageDownload(deps: PipelineDeps, e: PaperEntry, claim: Claim, po
     await arxivWait(deps);
     bytes = await fetchArxiv(deps.fetch, `https://arxiv.org/pdf/${e.source_id}v${e.revision}`, policy.max_pdf_bytes, 'application/pdf');
   }
-  const pages = await countPages(bytes);
+  const pages = counted ?? await countPages(bytes);
   if (pages > 250) throw new PermanentFailure('too_large');
   // A slow download: readers see the size and pages while the copy is stored.
   await reportProgress(deps, claim, { pages, bytes: bytes.length });
   const digest = await sha256(bytes);
   const path = `${e.owner_id ? `private/${e.owner_id}/` : ''}originals/${digest}.pdf`;
   await uploadInventoried(deps, claim, 'original', [{ path, bytes, mediaType: 'application/pdf' }], pages);
-  const entry = await deps.rpc<PaperEntry>('worker_pipeline_original', { ...claim, p_sha256: hex(digest), p_bytes: bytes.length, p_pages: pages, p_path: path });
-  deps.log('original', { paper: e.id, bytes: bytes.length, pages, stage: entry.stage });
+  const original = { ...claim, p_sha256: hex(digest), p_bytes: bytes.length, p_pages: pages, p_path: path };
+  const entry = e.upload
+    ? await deps.rpc<PaperEntry>('worker_pipeline_upload_original', { ...original, p_upload_id: e.upload.id })
+    : await deps.rpc<PaperEntry>('worker_pipeline_original', original);
+  deps.log('original', { paper: e.id, bytes: bytes.length, pages, stage: entry.stage, upload: !!e.upload });
+  // Terminal-only batch cleanup runs separately; an old uncertain chunk PUT can still be in flight.
   return { entry };
 }
 
@@ -426,6 +501,22 @@ export async function loadRaw(deps: PipelineDeps, manifestPath: string): Promise
   return { manifest, manifestSHA, members };
 }
 
+/** The reader bundle's attribution (its NOTICE): the paper, its license or private status, and where the
+ * original is. A reader's own upload names no original link. */
+export function readerAttribution(e: PaperEntry): string {
+  const web = isWeb(e), uploaded = isUpload(e);
+  const original = web ? e.landing_url ?? `https://openalex.org/works/${e.source_id.slice('openalex:'.length)}` : `https://arxiv.org/abs/${e.source_id}v${e.revision}`;
+  const source = web ? null : `arXiv:${e.source_id}v${e.revision}`;
+  const byline = e.authors?.length ? ` by ${e.authors.slice(0, 8).join(', ')}${e.authors.length > 8 ? ' et al.' : ''}` : '';
+  const credit = e.title ? `"${e.title}"${byline}${source ? `, ${source}` : ''}` : source ?? original;
+  if ((web || uploaded) && !e.owner_id) throw new PermanentFailure('render_failed', 'render');
+  return uploaded
+    ? `${e.title ? `"${e.title}"` : 'A PDF'} uploaded by its reader. Converted for the personal use of one Gradstep account; not redistributed.`
+    : e.owner_id
+    ? `${credit}. Converted for the personal use of one Gradstep account; not redistributed. Original: ${original}`
+    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Gradstep (layout and math rendering changed). Original: ${original}`;
+}
+
 async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, policy: PipelinePolicy): Promise<StepResult> {
   const path = e.raw_manifest_path ?? e.attempt?.raw_manifest_path;
   if (!path || !e.document_sha256 || !e.revision) throw new Error('raw_missing');
@@ -435,15 +526,7 @@ async function stageRender(deps: PipelineDeps, e: PaperEntry, claim: Claim, poli
   catch { throw new PermanentFailure('render_failed', 'render'); }
   if (files.filter(f => f.path.toLowerCase().endsWith('.mmd')).length !== 1) throw new PermanentFailure('render_failed', 'render');
   const m = raw.manifest as { provider_job_id: string; options_sha256: string; page_limit: number; pages: number };
-  const web = isWeb(e);
-  const original = web ? e.landing_url ?? `https://openalex.org/works/${e.source_id.slice('openalex:'.length)}` : `https://arxiv.org/abs/${e.source_id}v${e.revision}`;
-  const source = web ? null : `arXiv:${e.source_id}v${e.revision}`;
-  const byline = e.authors?.length ? ` by ${e.authors.slice(0, 8).join(', ')}${e.authors.length > 8 ? ' et al.' : ''}` : '';
-  const credit = e.title ? `"${e.title}"${byline}${source ? `, ${source}` : ''}` : source ?? original;
-  if (web && !e.owner_id) throw new PermanentFailure('render_failed', 'render');
-  const attribution = e.owner_id
-    ? `${credit}. Converted for the personal use of one Gradstep account; not redistributed. Original: ${original}`
-    : `${credit}. Licensed under ${e.license_uri ?? 'its arXiv license'}. Converted to an equation-aware reading format by Gradstep (layout and math rendering changed). Original: ${original}`;
+  const attribution = readerAttribution(e);
   let bundle: RenderedBundle;
   try {
     bundle = await deps.render({ archive: new Map(files.map(f => [f.path, f.bytes])), attribution, titleFallback: e.title ?? undefined,

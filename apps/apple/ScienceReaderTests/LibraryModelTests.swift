@@ -71,6 +71,8 @@ private final class LibraryModelServer: @unchecked Sendable {
     func handle(_ request: StubProtocol) {
         lock.withLock {
             switch request.request.url!.lastPathComponent {
+            case "v1_reader_capabilities":
+                request.respond(Data(#"{"code":"PGRST202","message":"Could not find the function public.v1_reader_capabilities without parameters in the schema cache"}"#.utf8), status: 404)
             case "v3_library_page":
                 if failBaseline { failBaseline = false; request.respond(Data("{}".utf8), status: 503) }
                 else { request.respond(baseline()) }

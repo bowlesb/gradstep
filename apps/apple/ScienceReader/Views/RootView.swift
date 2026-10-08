@@ -69,6 +69,7 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
+        .modifier(PDFUploadPresenter(model: model))
         .sheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }
@@ -274,6 +275,8 @@ struct LibraryView: View {
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { containerWidth = $0 }
+            // iPad and Mac: drop PDFs on the Library to add them (docs/architecture/PDF_UPLOADS.md).
+            .acceptsDroppedPDFs(model: model)
             .sheet(isPresented: $showColumns) {
                 LibraryColumnsSheet(model: model, tableWidth: max(0, containerWidth - 2 * DesignMetrics.margin))
             }
@@ -310,8 +313,10 @@ struct LibraryView: View {
         let issue = model.searchExternal ? nil : model.libraryIssue
         let pending = !model.searchExternal && (!model.libraryCommands.isEmpty || model.libraryCommandIssue != nil)
         let offline = model.searchExternal ? nil : model.offlineCacheIssue
-        if signIn || issue != nil || pending || offline != nil {
+        let uploading = !model.searchExternal && PDFUploadBanners.shows(model)
+        if signIn || issue != nil || pending || offline != nil || uploading {
             VStack(spacing: 8) {
+                if uploading { PDFUploadBanners(model: model) }
                 if signIn {
                     StatusBannerLink(tone: .info, systemImage: "lock.icloud", message: "Sign in to sync") { model.openSignIn() }
                         .accessibilityIdentifier("library.signIn")
@@ -537,7 +542,7 @@ struct ImportRow: View {
                             .accessibilityHint(action.hint)
                             .accessibilityIdentifier(action == .getCredits ? "import.getCredits" : "import.\(action.title.lowercased()).\(item.id.wire)")
                     }
-                    if !active, let url = URL(string: item.sourceURL) {
+                    if !active, let url = item.sourceURL.flatMap({ URL(string: $0) }) {
                         Spacer(minLength: 8)
                         Link("View source", destination: url).font(.footnote.weight(.semibold)).foregroundStyle(.tint)
                     }
@@ -1286,66 +1291,6 @@ struct RecoveryView: View {
                         Button("Sign out") { Task { await model.signOut() } }.accessibilityIdentifier("account.signOut")
                     }
                 }
-        }
-    }
-}
-
-struct ImportPaperView: View {
-    @Bindable var model: ReaderModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var input = ""
-    @State private var saving = false
-    @State private var issue: String?
-
-    private func add() {
-        saving = true; issue = nil
-        Task {
-            defer { saving = false }
-            do { try await model.importPaper(input); dismiss() }
-            catch is CancellationError { }
-            catch is ArxivReferenceError { issue = "Enter a valid arXiv link or paper ID." }
-            catch LibraryCommandError.targetBusy { issue = "This paper already has a pending change." }
-            catch { issue = "Couldn’t save this import. Your link is still here." }
-        }
-    }
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Paper link") {
-                    TextField("arXiv link or ID", text: $input).keyboardType(.URL)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityIdentifier("import.reference")
-                        .disabled(saving)
-                    if let issue { Text(issue).font(.footnote).foregroundStyle(.red) }
-                }
-                if model.librarySignInRequired {
-                    Section {
-                        Text("Sign in to add papers to your library.").font(.footnote).foregroundStyle(.secondary)
-                        Button("Sign in") { dismiss(); model.openSignIn() }
-                    }
-                } else if !model.canChangeLibrary {
-                    Section { Text("Finish setting up this device to add papers.").font(.footnote).foregroundStyle(.secondary) }
-                } else if !model.libraryHasSnapshot {
-                    Section {
-                        Text("Refresh your library before adding a paper.").font(.footnote).foregroundStyle(.secondary)
-                        Button("Refresh library") { Task { await model.refreshLibrary() } }.disabled(model.libraryRefreshing)
-                    }
-                }
-            }.navigationTitle("Add a paper").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving).macBarButton() }
-                    // Design audit 2: a task sheet confirms in the top bar.
-                    ToolbarItem(placement: .confirmationAction) {
-                        if saving { ProgressView() } else {
-                            Button("Add") { add() }
-                                .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canBeginImport)
-                                .accessibilityIdentifier("import.add")
-                        }
-                    }
-                }
-                .onSubmit { if !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.canBeginImport { add() } }
-                .interactiveDismissDisabled(saving)
-                .macSheetKeys(enabled: !saving)
         }
     }
 }

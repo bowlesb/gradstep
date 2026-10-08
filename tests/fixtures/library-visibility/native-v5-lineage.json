@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "fixture": "native-v5.json",
+  "fixture_sha256": "c5ae4c5ebc375890fea292ef9f5c572eb5af804b968709d04135b523cf7a2cbe",
+  "sql_test": "tests/database/test_library_upload_visibility.sql",
+  "sql_test_sha256": "81d0e1ce5c54da1f6db5d576b346e7aa84c6ac0295ef8dd5e8bb05c0d5d8dbf5",
+  "ingress_snapshot_sha256": "b735a9437470e3fc06574541adf80fd030351876b46045a973741c0a4bde3d8d",
+  "sql_output_sha256": "12293cac380e7cf92be543553adf3e77d053f587be6837becc2947e3a88201a6",
+  "scope": "Synthetic localhost SQL responses; no production records, provider calls or codec transformations"
+}

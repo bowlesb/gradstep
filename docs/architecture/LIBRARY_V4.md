@@ -124,6 +124,76 @@ Apply the additive migrations through the normal reviewed migration/checkpoint p
 expected lock window before applying; a large backfill is not an online-migration guarantee. Applied predecessors
 are untouched. Recheck legacy reads, mutation replay, current-projection coverage and account cleanup after rollout.
 
+## Pending 039: upload visibility and encrypted descriptors
+
+**Local integration only; not deployed or enabled in a client.** The reviewed
+visibility functions are folded into never-applied 039 after its descriptor
+helpers. There is no separate migration. Applied 031/032 files are unchanged.
+
+An upload is a new source enum that installed v2/v3 and prospective v4 readers
+cannot accept. Each retained current/query entry therefore persists its minimum
+source capability: 2 for arXiv, 3 for web, 4 for uploaded PDFs. Every new journal
+entry records that capability before byte admission. A source-null removal
+inherits the prior current entry's capability and descriptor reference; changing
+an established source capability under the same identity is rejected. Existing
+unstamped, source-null historical entries keep their pre-039 arXiv-compatible
+classification; there were no uploads before 039. Historical JSON is not rewritten.
+
+Full and compact deltas keep the installed nonempty-continuation contract:
+`has_more=true` requires at least one emitted batch and `next_cursor` equal to
+its last sequence. A generated per-batch minimum and
+`(account_id, minimum_source_level, seq)` index seek each exact capability range.
+At most three bounded identity lists are merged before loading page payloads;
+each grouped batch is still filtered per entry. A hidden-only remainder completes
+at the requested highwater. This avoids an unbounded JSON scan and does not send
+empty intermediate pages to old decoders.
+
+The new API boundary is explicit:
+
+| Reader | Sources | Wire and restore identity |
+| --- | --- | --- |
+| Existing v2 full | arXiv | unchanged format 2 contract |
+| Existing v3 full | arXiv + web | unchanged format 2 contract |
+| Existing v4 compact/query/hydration | arXiv + web | format 4, existing dataset epoch |
+| New v5 full | arXiv + web + uploads | format 2, mandatory `read_level:4` and upload epoch in continuation cursors |
+| New v5 compact/query/hydration | arXiv + web + uploads | format 5, separate upload epoch |
+
+Both v5 delta endpoints require `p_dataset_epoch`; the pending epochless v5
+overload is removed. Full and compact v5 share the upload dataset identity but
+have distinct wire formats. Baseline, delta, query and hydration enforce their
+account/capability/epoch binding before returning data. Restore quarantine rotates
+both persisted epochs; a copied backup alone cannot invalidate a client's cache.
+Existing v2/v3 signatures and wire shapes remain unchanged.
+
+Encrypted descriptor references are stamped into current state and new journal
+entries, and stripped from all legacy wire responses. Metadata hydration continues
+to return immutable public records, including the neutral `Uploaded PDF` title.
+The server cannot search or sort encrypted custom titles. Future indexed-query
+clients must use a complete decrypted descriptor index to combine private title
+search/order with catalog results; sorting only the currently loaded page is
+incorrect. A descriptor change invalidates query continuation even for a hidden
+mapping. Command acknowledgements remain an observation floor and retain their
+old shape; client receipt comparison must deliberately handle an omitted descriptor
+reference while preserving all other identity/state checks.
+
+Client enablement still requires durable v5 epoch/capability persistence, a fresh
+baseline when switching from v3/v4, descriptor hydration and encrypted outbox
+recovery, optional-field-compatible receipt matching, and actual multi-device/
+offline journeys. The codec alone does not establish working end-to-end uploads.
+
+Local evidence so far: fresh schema composition, mixed-source baseline/delta/query/
+hydration, source-null tombstones, descriptor-only rename invalidation, cross-epoch/
+account rejection and a 1,000 hidden batch fixture pass. A populated 038→039 test
+preserves old full wire output, journal payloads and command receipts exactly while
+backfilling visibility and rotating compact epochs. All 29 existing/applicable SQL
+regression files pass against the captured ingress 039 snapshot (its changing upload
+transport suite is tested by that workstream). The composed 039 checkpoint also passes
+the full fresh database/upgrade/race suite and 103 operations checks, including real
+v4/v5 restore invalidation and current-admission gate quarantine. Actual legacy SQL
+outputs pass unchanged Swift and web decoders, including
+hidden-prefix/middle/tail, hidden-only completion and mixed groups; both former
+invalid continuation shapes are rejected. Full Core228 and web139 tests pass.
+
 ## Validation and integration checkpoint — 2026-10-07
 
 The branch `codex/library-v4-foundation-20261007` includes main through `97c0bef`. All checks below are local

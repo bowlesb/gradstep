@@ -149,6 +149,51 @@ import Testing
         }
     }
 
+    /// Migration 033: a reader's own PDF uploads in v5 reads (`upload:<uuid>`, revision 1, no source page).
+    private let uploadSource = "upload:31000000-0000-4000-8000-0000000000a1"
+    private func uploadItem(_ number: Int) -> [String: Any] {
+        var row = item(number, approved: true)
+        row["source"] = "upload"; row["source_id"] = uploadSource; row["source_revision"] = 1
+        row["source_url"] = NSNull(); row["scope"] = "owner_private"
+        return row
+    }
+    private func uploadImport(_ number: Int, itemNumber: Int? = nil) -> [String: Any] {
+        var row = imported(number, phase: itemNumber == nil ? "acquiring" : "ready", itemNumber: itemNumber)
+        row["source"] = "upload"; row["source_id"] = uploadSource; row["source_url"] = NSNull()
+        if itemNumber != nil { row["source_revision"] = 1 }
+        return row
+    }
+
+    @Test func uploadedPapersDecodeAndReconcile() throws {
+        let value = try ready([uploadItem(1), uploadImport(2, itemNumber: 1), uploadImport(3), imported(4)], high: 4)
+        let entries = try value.completeObservation().entries
+        guard case .item(let item) = entries[.init(kind: .item, entityID: UUID(uuidString: uuid(1))!)],
+              case .import(let pending) = entries[.init(kind: .import, entityID: UUID(uuidString: uuid(3))!)] else { Issue.record("Expected entries"); return }
+        #expect(item.source == LibrarySource.upload && item.sourceURL == nil && pending.sourceURL == nil)
+        #expect(LibrarySource.isUploadSourceID(uploadSource) && !LibrarySource.isUploadSourceID("upload:31000000-0000-4000-8000-0000000000A1")
+                && !LibrarySource.isUploadSourceID("upload:x") && !LibrarySource.isUploadSourceID("openalex:W1"))
+        #expect(LibrarySource.badge(sourceID: uploadSource, revision: 1) == "Your PDF")
+        #expect(LibrarySource.placeholderTitle(sourceID: uploadSource) == "Uploaded PDF")
+        // A cached entry survives an encode/decode round trip without inventing a source page.
+        let encoded = try JSONEncoder().encode(LibraryEntry.import(pending))
+        #expect(try JSONDecoder().decode(LibraryEntry.self, from: encoded) == .import(pending))
+    }
+
+    @Test func malformedUploadEntriesAreRejected() throws {
+        var linked = uploadItem(1); linked["source_url"] = "https://example.org/x.pdf"
+        var revised = uploadItem(1); revised["source_revision"] = 2
+        var uppercase = uploadItem(1); uppercase["source_id"] = "upload:31000000-0000-4000-8000-0000000000A1"
+        var requested = uploadImport(2); requested["requested_revision"] = 1
+        var importLinked = uploadImport(2); importLinked["source_url"] = "https://arxiv.org/abs/upload"
+        var asArxiv = imported(2); asArxiv["source_id"] = uploadSource
+        for row in [linked, revised, uppercase, requested, importLinked, asArxiv] {
+            #expect(throws: LibraryProtocolError.self) { try baseline([row], high: 2) }
+        }
+        // An arXiv or web import still needs its source page.
+        var noPage = imported(2); noPage["source_url"] = NSNull()
+        #expect(throws: LibraryProtocolError.self) { try baseline([noPage], high: 2) }
+    }
+
     @Test func optionalMetadataAndActualCommandShapesDecodeWithoutInventedFields() throws {
         var row = item(1, approved: true)
         row["metadata"] = ["title": "A paper", "authors": [], "categories": []]

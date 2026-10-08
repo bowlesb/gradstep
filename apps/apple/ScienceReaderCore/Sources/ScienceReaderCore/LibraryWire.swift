@@ -72,6 +72,7 @@ public enum LibraryProtocolError: Error, Equatable, Sendable {
     case invalidCommand
     case accountMismatch
     case resyncRequired
+    case contextMismatch
     case capacityExceeded
     case identityConflict(LibraryEntryID)
     case conflictingRevision(LibraryEntryID, Int64)
@@ -252,6 +253,7 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
     public let tags: [String]?
     public let userTags: [String]?
     public let hiddenTags: [String]?
+    public let descriptorReference: LibraryDescriptorReference?
     /// What the reader sees (`PaperTags.effective`).
     public var effectiveTags: [String] {
         PaperTags.effective(catalog: tags ?? [], own: userTags ?? [], hidden: hiddenTags ?? [])
@@ -292,6 +294,7 @@ public struct LibraryItemRecord: Codable, Equatable, Sendable {
         case originalAvailabilityRevision = "original_availability_revision", renderAvailabilityRevision = "render_availability_revision"
         case archived, tags
         case userTags = "user_tags", hiddenTags = "hidden_tags"
+        case descriptorReference = "descriptor_ref"
     }
 
     func validate() throws {
@@ -339,6 +342,9 @@ public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
     /// Migration 027 download causes: a sign-in or paywall, a website refusing automated downloads,
     /// a website not responding, a link that leads to no PDF.
     case pdfRestricted, sourceBlocked, sourceUnavailable, notPDF
+    /// Migration 033: no open copy of the paper exists (the reader can supply the PDF), and a reader's
+    /// upload that couldn't be used (missing or not what was sent; upload it again).
+    case notOpen, uploadFailed
     case other(String)
 
     static let known: [String: LibraryImportErrorCode] = [
@@ -346,7 +352,7 @@ public enum LibraryImportErrorCode: Equatable, Codable, Sendable {
         "rate_limited": .rateLimited, "license_unverified": .licenseUnverified, "membership_conflict": .membershipConflict,
         "insufficient_credits": .insufficientCredits, "conversion_failed": .conversionFailed, "too_large": .tooLarge,
         "download_retrying": .downloadRetrying, "pdf_restricted": .pdfRestricted, "source_blocked": .sourceBlocked,
-        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF,
+        "source_unavailable": .sourceUnavailable, "not_pdf": .notPDF, "not_open": .notOpen, "upload_failed": .uploadFailed,
     ]
     public var rawValue: String {
         if case .other(let raw) = self { return raw }
@@ -469,15 +475,18 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let intentRevision: Int64
     public let visible: Bool
     public let phase: LibraryImportPhase
-    public let source: String
-    public let sourceID: String
+    /// Invisible tombstones can omit source identity. Never synthesize one from
+    /// the record UUID or descriptor ref; those alone cannot authorize hydration.
+    public let source: String?
+    public let sourceID: String?
     public let requestedRevision: Int?
     public let sourceRevision: Int?
     public let metadataID: UUID?
     public let versionID: UUID?
     public let metadata: LibraryMetadata?
     public let metadataRecordedAt: LibraryTimestamp?
-    public let sourceURL: String
+    /// The paper's page (arXiv, or OpenAlex for a web paper). Nil only for a reader's own upload (v5 reads).
+    public let sourceURL: String?
     public let documentID: UUID?
     public let libraryItemID: UUID?
     public let errorCode: LibraryImportErrorCode?
@@ -485,6 +494,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let progress: LibraryImportProgress?
     /// Percent, time left and the step in the reader's words (servers from migration 029; nil before).
     public let progressDetail: LibraryImportProgressDetail?
+    public let descriptorReference: LibraryDescriptorReference?
 
     private enum CodingKeys: String, CodingKey {
         case id, visible, phase, source, metadata, retryable, progress
@@ -493,22 +503,31 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"
         case sourceURL = "source_url", documentID = "document_id", libraryItemID = "library_item_id", errorCode = "error_code"
         case progressDetail = "progress_detail"
+        case descriptorReference = "descriptor_ref"
     }
 
     func validate() throws {
         guard createdSequence > 0, stateSequence >= createdSequence, intentRevision > 0,
-              bounded(sourceID, 128, minimum: 1),
               requestedRevision.map(validRevision) ?? true, sourceRevision.map(validRevision) ?? true,
-              LibrarySource.validImport(source: source, sourceID: sourceID, requestedRevision: requestedRevision,
-                                        sourceRevision: sourceRevision, url: sourceURL),
               (documentID == nil) == (libraryItemID == nil),
               !retryable || phase == .failed else { throw LibraryProtocolError.invalidEntry }
+        if let source, let sourceID {
+            guard bounded(sourceID, 128, minimum: 1),
+                  LibrarySource.validImport(source: source, sourceID: sourceID, requestedRevision: requestedRevision,
+                                            sourceRevision: sourceRevision, url: sourceURL) else { throw LibraryProtocolError.invalidEntry }
+        } else {
+            guard omitsTombstoneSource else { throw LibraryProtocolError.invalidEntry }
+        }
         if phase == .ready {
             guard !visible, libraryItemID != nil else { throw LibraryProtocolError.invalidEntry }
         } else if phase == .cancelled {
             guard !visible else { throw LibraryProtocolError.invalidEntry }
         }
-        if metadataID == nil {
+        if omitsTombstoneSource {
+            // This is removal evidence, not a hydratable catalog record. A
+            // source-null tombstone may omit a metadata pin while carrying
+            // bounded legacy presentation fields from that same record.
+        } else if metadataID == nil {
             guard versionID == nil, sourceRevision == nil, metadata == nil, metadataRecordedAt == nil else {
                 throw LibraryProtocolError.invalidEntry
             }
@@ -518,6 +537,7 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         }
         try metadata?.validate()
     }
+    var omitsTombstoneSource: Bool { !visible && source == nil && sourceID == nil }
 }
 
 public enum LibraryEntry: Codable, Equatable, Sendable, Identifiable {
@@ -560,6 +580,10 @@ public enum LibraryEntry: Codable, Equatable, Sendable, Identifiable {
         switch self { case .item(let value): value.visible; case .import(let value): value.visible }
     }
 
+    public var descriptorReference: LibraryDescriptorReference? {
+        switch self { case .item(let item): item.descriptorReference; case .import(let imported): imported.descriptorReference }
+    }
+
     func validate() throws {
         switch self { case .item(let value): try value.validate(); case .import(let value): try value.validate() }
     }
@@ -572,10 +596,13 @@ public struct LibraryBaselineCursor: Codable, Equatable, Sendable {
     public let createdSequence: Int64
     public let entityID: UUID
     public let kind: LibraryEntryKind
+    public let readLevel: Int?
+    public let datasetEpoch: UUID?
 
     private enum CodingKeys: String, CodingKey {
         case format, through, kind
         case accountID = "account_id", createdSequence = "created_seq", entityID = "id"
+        case readLevel = "read_level", datasetEpoch = "dataset_epoch"
     }
 
     // PostgreSQL's continuation validation requires lowercase UUID strings;
@@ -588,11 +615,16 @@ public struct LibraryBaselineCursor: Codable, Equatable, Sendable {
         try container.encode(createdSequence, forKey: .createdSequence)
         try container.encode(entityID.wire, forKey: .entityID)
         try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(readLevel, forKey: .readLevel)
+        try container.encodeIfPresent(datasetEpoch?.wire, forKey: .datasetEpoch)
     }
 
     func validate() throws {
         guard format == LibraryWire.format else { throw LibraryProtocolError.unsupportedFormat }
         guard through >= 0, createdSequence > 0, createdSequence <= through else { throw LibraryProtocolError.invalidCursor }
+        guard (readLevel == nil && datasetEpoch == nil) || (readLevel == 4 && datasetEpoch != nil) else {
+            throw LibraryProtocolError.invalidCursor
+        }
     }
 }
 
@@ -605,11 +637,14 @@ public struct LibraryBaselinePage: Decodable, Equatable, Sendable {
     /// A nonempty final page also has a next_cursor in migration 010.
     public let nextCursor: LibraryBaselineCursor?
     public let hasMore: Bool
+    public let datasetEpoch: UUID?
+    public var readContext: LibraryReadContext { datasetEpoch.map { .uploadFull5(datasetEpoch: $0) } ?? .legacyFull3 }
 
     private enum CodingKeys: String, CodingKey {
         case format, entries
         case accountID = "account_id", baselineCursor = "baseline_cursor", retainedAfter = "retained_after"
         case nextCursor = "next_cursor", hasMore = "has_more"
+        case datasetEpoch = "dataset_epoch"
     }
 
     func validate() throws {
@@ -633,6 +668,7 @@ public struct LibraryBaselinePage: Decodable, Equatable, Sendable {
         if let cursor = nextCursor {
             try cursor.validate()
             guard cursor.accountID == accountID, cursor.through == baselineCursor,
+                  cursor.datasetEpoch == datasetEpoch, cursor.readLevel == (datasetEpoch == nil ? nil : 4),
                   previous == LibraryOrderingKey(cursor) else { throw LibraryProtocolError.invalidCursor }
         }
     }
@@ -652,10 +688,13 @@ public struct LibraryChangesPage: Decodable, Equatable, Sendable {
     public let changes: [LibraryChangeBatch]
     public let nextCursor: Int64
     public let hasMore: Bool
+    public let datasetEpoch: UUID?
+    public var readContext: LibraryReadContext { datasetEpoch.map { .uploadFull5(datasetEpoch: $0) } ?? .legacyFull3 }
 
     private enum CodingKeys: String, CodingKey {
         case format, through, changes
         case accountID = "account_id", retainedAfter = "retained_after", nextCursor = "next_cursor", hasMore = "has_more"
+        case datasetEpoch = "dataset_epoch"
     }
 
     func validate() throws {
@@ -747,9 +786,16 @@ private func arxivURL(_ source: String, _ revision: Int?) -> String {
 
 /// Where a library paper came from. v3 library reads carry arXiv papers and web
 /// papers: open-access copies found through OpenAlex (`openalex:W…`, revision 1),
-/// converted privately for this account. v2 reads (older builds) carry arXiv only.
+/// converted privately for this account. v5 reads add the reader's own PDF uploads
+/// (`upload:<uuid>`, revision 1, no source page). v2 reads (older builds) carry arXiv only.
 public enum LibrarySource {
-    public static let arxiv = "arxiv", web = "web"
+    public static let arxiv = "arxiv", web = "web", upload = "upload"
+
+    /// A reader's own uploaded PDF (`upload:` and a lowercase UUID).
+    public static func isUploadSourceID(_ value: String) -> Bool {
+        guard value.hasPrefix("upload:"), let id = UUID(uuidString: String(value.dropFirst("upload:".count))) else { return false }
+        return value == "upload:" + id.uuidString.lowercased()
+    }
 
     public static func isWebSourceID(_ value: String) -> Bool {
         let digits = value.utf8.dropFirst("openalex:W".utf8.count)
@@ -762,30 +808,34 @@ public enum LibrarySource {
         "https://openalex.org/works/" + sourceID.dropFirst("openalex:".count)
     }
 
-    /// Short source label: "arXiv v3", "arXiv", or "Open access" for a web paper.
+    /// Short source label: "arXiv v3", "arXiv", "Open access" for a web paper, "Your PDF" for an upload.
     public static func badge(sourceID: String?, revision: Int?) -> String? {
         guard let sourceID else { return nil }
         if isWebSourceID(sourceID) { return "Open access" }
+        if isUploadSourceID(sourceID) { return "Your PDF" }
         return revision.map { "arXiv v\($0)" } ?? "arXiv"
     }
 
     /// Title shown before a paper's metadata arrives.
-    public static func placeholderTitle(sourceID: String) -> String {
-        isWebSourceID(sourceID) ? "Open-access paper" : "arXiv \(sourceID)"
+    public static func placeholderTitle(sourceID: String?) -> String {
+        guard let sourceID else { return "Paper" }
+        return isWebSourceID(sourceID) ? "Open-access paper" : isUploadSourceID(sourceID) ? "Uploaded PDF" : "arXiv \(sourceID)"
     }
 
     static func validItem(source: String, sourceID: String, revision: Int, url: String?) -> Bool {
         switch source {
         case arxiv: return url == arxivURL(sourceID, revision)
         case web: return isWebSourceID(sourceID) && revision == 1 && url.map(validHTTPS) == true
+        case upload: return isUploadSourceID(sourceID) && revision == 1 && url == nil
         default: return false
         }
     }
 
-    static func validImport(source: String, sourceID: String, requestedRevision: Int?, sourceRevision: Int?, url: String) -> Bool {
+    static func validImport(source: String, sourceID: String, requestedRevision: Int?, sourceRevision: Int?, url: String?) -> Bool {
         switch source {
         case arxiv: return url == arxivURL(sourceID, sourceRevision ?? requestedRevision)
         case web: return isWebSourceID(sourceID) && requestedRevision == nil && (sourceRevision ?? 1) == 1 && url == openAlexURL(sourceID)
+        case upload: return isUploadSourceID(sourceID) && requestedRevision == nil && (sourceRevision ?? 1) == 1 && url == nil
         default: return false
         }
     }
