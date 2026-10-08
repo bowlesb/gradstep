@@ -43,6 +43,35 @@ final class ChatHistoryTests: XCTestCase {
         ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: filter, search: search, sort: sort))
     }
 
+    func testOptionalTopicsSearchAndSortUseTheLibraryTagsLocally() {
+        let topics = [attention: ["Transformers", "Attention"], dpo: ["Alignment"]]
+        let matches = ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .all, search: "attention transformers",
+                                            sort: .default, paperTopics: topics)
+        XCTAssertEqual(ids(matches), [1])
+        let ascending = ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .all, search: "",
+            sort: .init(field: .topics, ascending: true), paperTopics: topics)
+        let descending = ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .all, search: "",
+            sort: .init(field: .topics, ascending: false), paperTopics: topics)
+        XCTAssertEqual(Array(ids(ascending).prefix(2)), [3, 1])
+        XCTAssertEqual(Array(ids(descending).prefix(2)), [1, 3])
+        XCTAssertTrue(ascending.suffix(4).allSatisfy { $0.topics.isEmpty }, "General and removed-paper chats have no invented topics")
+        XCTAssertEqual(ascending.first?.topics, ["Alignment"])
+    }
+
+    func testAnswerLengthAndKindSortsUseTheCurrentConversation() {
+        let a = ConversationSummary(id: UUID(), title: "Long", documentID: attention, messageCount: 2, startedAt: now,
+                                    lastUsedAt: now, lastArrival: 1, latestAnswer: "preview", questions: "Long", latestAnswerWords: 1400)
+        let b = ConversationSummary(id: UUID(), title: "Short", documentID: nil, messageCount: 8, startedAt: now,
+                                    lastUsedAt: now, lastArrival: 2, latestAnswer: "short answer", questions: "Short")
+        let rows = ChatHistoryQuery.rows([b, a], paperTitles: titles, filter: .all, search: "",
+                                        sort: .init(field: .answerLength, ascending: false))
+        XCTAssertEqual(rows.map(\.id), [a.id, b.id])
+        XCTAssertEqual(ChatHistoryQuery.sorted(rows, by: .init(field: .kind, ascending: false)).map(\.id), [b.id, a.id])
+        XCTAssertEqual(ChatHistoryFormat.words(a.latestAnswerWords), "1.4k words")
+        XCTAssertEqual(ChatHistoryFormat.words(0), "—")
+        XCTAssertEqual(ChatHistoryFormat.words(1), "1 word")
+    }
+
     /// Opened from a paper, All chats starts on "This paper": that paper's chats only, newest first.
     func testThisPaperFilterShowsOnlyThatPapersChats() {
         XCTAssertEqual(ids(ChatHistoryQuery.rows(fixture, paperTitles: titles, filter: .thisPaper, paperID: attention, search: "", sort: .default)), [1])

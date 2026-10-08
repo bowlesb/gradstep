@@ -100,7 +100,45 @@ final class PaperTableTests: XCTestCase {
         XCTAssertEqual(feedColumns(Width.phoneSmall), ["published", "add"], "Phone portrait: title, published and Add")
         XCTAssertEqual(feedColumns(Width.phone), ["published", "add"])
         XCTAssertEqual(feedColumns(Width.phoneLandscape), ["topic", "published", "add"])
-        XCTAssertEqual(feedColumns(Width.padPortrait), ["topic", "published", "add"])
+        XCTAssertEqual(feedColumns(Width.padPortrait), ["topic", "published", "authors", "add"])
+    }
+
+    func testChosenColumnsRemainReachableWithoutMovingPinnedControls() {
+        let library = PaperTableLayout.arrangement(LibraryTableColumn.columns(LibraryColumnSettings.compactDefault),
+                                                    width: Width.phone, scrolling: true)
+        XCTAssertEqual(library.columns, ["year", "progress", "added", "opened", "chats"])
+        XCTAssertTrue(library.scrolls)
+        XCTAssertEqual(library.titleWidth, 155)
+        XCTAssertEqual(library.regionWidth, 203)
+        XCTAssertEqual(library.extent, 183)
+        XCTAssertEqual(library.snapOffsets, [0, 52, 164, 183])
+        let feed = PaperTableLayout.arrangement(FeedTableColumn.columns(Set(FeedTableColumn.choosable)),
+                                               width: Width.phoneSmall, scrolling: true)
+        XCTAssertEqual(feed.pinned, ["add"])
+        XCTAssertEqual(Set(feed.columns), Set(FeedTableColumn.choosable.map(\.rawValue)))
+        XCTAssertEqual(feed.regionWidth + (feed.titleWidth ?? 0) + 56 + 24, Width.phoneSmall)
+        XCTAssertLessThanOrEqual(feed.columnWidth(260), feed.regionWidth, "Even the Abstract cell is readable in its viewport")
+        let chat = ChatTableLayout.arrangement(Set(ChatTableLayout.choosable), width: Width.phoneSmall)
+        XCTAssertEqual(chat.pinned, ["lastUsed"])
+        XCTAssertEqual(Set(chat.columns), Set(ChatTableLayout.choosable.map(\.rawValue)))
+        XCTAssertEqual(chat.regionWidth + (chat.titleWidth ?? 0) + 88 + 24, Width.phoneSmall)
+        XCTAssertFalse(PaperTableLayout.arrangement(FeedTableColumn.columns([]), width: Width.phoneSmall, scrolling: true).scrolls)
+    }
+
+    func testColumnChoicesKeepEmptyChoicesAndIgnoreRemovedNames() throws {
+        let name = "TableColumnChoices.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        var choice = ColumnChoice<FeedTableColumn>(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
+                                                  regularDefault: FeedTableColumn.regularDefault)
+        choice.compact = []; choice.regular = [.authors, .arxiv]
+        choice.save(to: defaults)
+        let restored = ColumnChoice<FeedTableColumn>.load(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
+                                                        regularDefault: FeedTableColumn.regularDefault, from: defaults)
+        XCTAssertEqual(restored, choice)
+        defaults.set("authors,unknown", forKey: "feed.columns.compact")
+        XCTAssertEqual(ColumnChoice<FeedTableColumn>.load(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
+                                                        regularDefault: FeedTableColumn.regularDefault, from: defaults).compact, [.authors])
     }
 
     func testTitleKeepsItsShareAndWideningOnlyAddsColumns() {

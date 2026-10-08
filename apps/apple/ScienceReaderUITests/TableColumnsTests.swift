@@ -15,9 +15,10 @@ final class TableColumnsTests: XCTestCase {
     }
 
     /// On screen: inside the window, and not cut off at the table's edge.
-    private func onScreen(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+    private func onScreen(_ element: XCUIElement, in app: XCUIApplication, before pinned: XCUIElement? = nil) -> Bool {
         let window = app.windows.firstMatch.frame
-        return element.exists && element.frame.minX >= window.minX - 1 && element.frame.maxX <= window.maxX + 1 && element.isHittable
+        let right = pinned.map { $0.frame.minX - 12 } ?? (window.maxX - 16)
+        return element.exists && element.frame.minX >= window.minX + 15 && element.frame.maxX <= right + 1 && element.isHittable
     }
 
     /// A sideways swipe across `element` (a row), right to left.
@@ -97,11 +98,12 @@ final class TableColumnsTests: XCTestCase {
         XCTAssertTrue(app.buttons["discover.add.2610.01234"].isHittable, "Add stays at the trailing edge")
         let feedRow = app.descendants(matching: .any)["feed.table.2610.01234"].firstMatch
         let addX = app.buttons["discover.add.2610.01234"].frame.minX
-        if !onScreen(header("arxiv"), in: app) {
+        let addButton = app.buttons["discover.add.2610.01234"]
+        if !onScreen(header("arxiv"), in: app, before: addButton) {
             swipeColumns(feedRow)
-            if !onScreen(header("arxiv"), in: app) { swipeColumns(feedRow) }
+            if !onScreen(header("arxiv"), in: app, before: addButton) { swipeColumns(feedRow) }
         }
-        waitFor("arXiv ID scrolls into view") { self.onScreen(header("arxiv"), in: app) }
+        waitFor("The whole arXiv header is visible before pinned Add") { self.onScreen(header("arxiv"), in: app, before: addButton) }
         XCTAssertEqual(app.buttons["discover.add.2610.01234"].frame.minX, addX, accuracy: 1)
         XCTAssertTrue(app.buttons["discover.add.2610.01234"].isHittable, "Add stays put while the columns scroll")
         attach(app, "Feed table scrolled sideways")
@@ -123,6 +125,13 @@ final class TableColumnsTests: XCTestCase {
         attach(app, "Feed with larger text")
         app.buttons["feed.textSize.smaller"].tap(); app.buttons["feed.textSize.smaller"].tap()
         waitFor("And back") { abs(row.frame.height - before) < 2 }
+        let inLibrary = app.descendants(matching: .any)["feed.table.2001.08361"].firstMatch
+        XCTAssertTrue(inLibrary.exists, "Already added papers are shown initially")
+        options.tap(); app.buttons["feed.hideLibrary"].firstMatch.tap()
+        XCTAssertTrue(inLibrary.waitForNonExistence(timeout: 5), "Hide-in-library also hides an import already requested")
+        XCTAssertTrue(row.exists, "Papers not added remain")
+        options.tap(); app.buttons["feed.hideLibrary"].firstMatch.tap()
+        XCTAssertTrue(inLibrary.waitForExistence(timeout: 5), "The filter reverses without refetching")
         restoreColumns(app, options: options, menuItem: "feed.columns", prefix: "feed.columns")
     }
 
@@ -163,10 +172,10 @@ final class TableColumnsTests: XCTestCase {
         XCTAssertTrue(header("answerLength").waitForExistence(timeout: 5))
         let lastUsedX = header("lastUsed").frame.minX
         if UIDevice.current.userInterfaceIdiom == .phone {
-            XCTAssertFalse(onScreen(header("answerLength"), in: app), "Answer length waits past the edge")
+            XCTAssertFalse(onScreen(header("answerLength"), in: app, before: header("lastUsed")), "Answer length waits past the edge")
             let firstRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.history.c4a7")).firstMatch
-            for _ in 0..<3 where !onScreen(header("answerLength"), in: app) { swipeColumns(firstRow) }
-            waitFor("Answer length scrolls into view") { self.onScreen(header("answerLength"), in: app) }
+            for _ in 0..<3 where !onScreen(header("answerLength"), in: app, before: header("lastUsed")) { swipeColumns(firstRow) }
+            waitFor("Answer length scrolls into view") { self.onScreen(header("answerLength"), in: app, before: header("lastUsed")) }
         }
         XCTAssertEqual(header("lastUsed").frame.minX, lastUsedX, accuracy: 1, "Last used stays at the trailing edge")
         attach(app, "All chats scrolled sideways")

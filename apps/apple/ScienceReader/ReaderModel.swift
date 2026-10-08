@@ -3181,6 +3181,20 @@ extension ReaderModel {
             columns.compact = chosen; columns.regular = chosen
         }
         libraryColumns = columns
+        feedColumns = ColumnChoice(key: "feed.columns", compactDefault: FeedTableColumn.compactDefault,
+                                   regularDefault: FeedTableColumn.regularDefault)
+        chatColumns = ColumnChoice(key: "chats.columns", compactDefault: ChatTableLayout.compactDefault,
+                                   regularDefault: ChatTableLayout.regularDefault)
+        feedHidesLibrary = false
+        feedTextStep = 0
+        if let named = argument("--feed-columns=") {
+            let chosen = Set(named.split(separator: ",").compactMap { FeedTableColumn(rawValue: String($0)) })
+            feedColumns.compact = chosen; feedColumns.regular = chosen
+        }
+        if let named = argument("--chat-columns=") {
+            let chosen = Set(named.split(separator: ",").compactMap { ChatHistoryField(rawValue: String($0)) })
+            chatColumns.compact = chosen; chatColumns.regular = chosen
+        }
         libraryFilter = argument("--library-filter=").flatMap(LibraryFilter.init(rawValue:)) ?? .all
         libraryTagFilter = argument("--library-tag=")
         // The iPad Reader's chat column: shown at its default width unless a test hides it or keeps the last run's.
@@ -3197,7 +3211,8 @@ extension ReaderModel {
         [{"source_id":"2610.01234","revision":1,"title":"Sparse Mixture-of-Experts Scaling Without Load-Balancing Losses","authors":["Mei Lin","Jonas Weber","Ana Costa","Rahul Iyer"],"year":2026,"abstract":"We show that expert routing with a learned temperature removes the need for auxiliary load-balancing losses while matching quality at three model scales.","categories":["cs.LG","cs.CL"]},
          {"source_id":"2610.02287","revision":2,"title":"Test-Time Training for Long-Context Language Models","authors":["Sara Okafor","Peter Lindqvist"],"year":2026,"abstract":"A lightweight inner loop adapts attention projections on the prompt itself, improving retrieval over 1M-token contexts.","categories":["cs.CL"]},
          {"source_id":"2610.03011","revision":1,"title":"Diffusion Policies with Consistency Distillation for Real-Robot Manipulation","authors":["Hiro Tanaka","Lena Fischer","Omar Haddad","Yuki Sato","Dana Cohen","Ivan Petrov","Maria Rossi","Tom Walsh","Ama Mensah"],"year":2026,"abstract":"Distilling a diffusion policy into a one-step consistency model keeps success rates while running at 50 Hz on hardware.","categories":["cs.RO","cs.LG"]},
-         {"source_id":"2609.11890","revision":1,"title":"Calibrated Uncertainty for Reward Models","authors":["Priya Nair"],"year":2026,"abstract":null,"categories":["cs.LG","stat.ML"]}]
+         {"source_id":"2609.11890","revision":1,"title":"Calibrated Uncertainty for Reward Models","authors":["Priya Nair"],"year":2026,"abstract":null,"categories":["cs.LG","stat.ML"]},
+         {"source_id":"2001.08361","revision":1,"title":"Scaling Laws for Neural Language Models","authors":["Jared Kaplan","Sam McCandlish"],"year":2020,"abstract":"An existing import is already part of the library.","categories":["cs.LG"]}]
         """
         feedResults = (try? JSONDecoder().decode([DiscoveryResult].self, from: Data(json.utf8))) ?? []
         feedCategory = feedCategories.first; feedState = .loaded

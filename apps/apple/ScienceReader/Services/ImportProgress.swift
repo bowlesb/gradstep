@@ -20,6 +20,9 @@ struct ImportProgress: Equatable, Sendable {
     /// The download failed and the server will try again by itself (migration 027's `download_retrying`): not a dead
     /// failure, so it is shown like work in progress.
     var retrying = false
+    /// Keep the reason that this step failed while telling the reader it is scheduled to try again.
+    var retryTitle: String? = nil
+    var retryCompactTitle: String? = nil
     /// Where the paper's details come from, for a wait's wording ("Waiting for arXiv"); nil when unknown.
     var sourceName: String? = nil
 
@@ -82,9 +85,10 @@ struct ImportProgress: Equatable, Sendable {
 
     func presentation(at now: Date) -> ImportProgressPresentation {
         if retrying {
-            return ImportProgressPresentation(step: .downloading, title: "Couldn’t download yet", detail: nil, percent: nil,
+            let reason = retryTitle ?? "Couldn’t download yet"
+            return ImportProgressPresentation(step: step, title: reason, detail: nil, percent: nil,
                                               timeText: "Trying again automatically", compactTimeText: "Trying again", isSlow: false,
-                                              accessibilityLabel: "Couldn’t download yet, trying again automatically")
+                                              accessibilityLabel: "\(reason), trying again automatically", compactTitleOverride: retryCompactTitle ?? "Retrying soon")
         }
         guard let detail else {
             // Older servers: the step and how long it has run here, exactly as before.
@@ -213,11 +217,12 @@ struct ImportProgressPresentation: Equatable, Sendable {
     let isSlow: Bool
     /// One sentence: "Reading equations and figures, page 12 of 27, 62 percent, about 40 seconds left".
     let accessibilityLabel: String
+    var compactTitleOverride: String? = nil
 
     /// The step line: "Reading equations and figures (page 12 of 27)".
     var line: String { detail.map { "\(title) (\($0))" } ?? title }
     /// One word for a narrow column: "Reading".
-    var compactTitle: String { step.tableTitle }
+    var compactTitle: String { compactTitleOverride ?? step.tableTitle }
     /// The bar's value, 0…1.
     var fraction: Double? { percent.map { Double($0) / 100 } }
     /// Beside the bar: "62% · About 40 s left".
@@ -265,7 +270,12 @@ struct ImportProgressTracker: Equatable {
 
     /// The import's progress, or nil when it isn't in progress. `now` stands in for an import not yet observed.
     func progress(of item: LibraryImportRecord, stepSince: Date?, now: Date) -> ImportProgress? {
-        if item.isRetryingAutomatically { return ImportProgress(step: .downloading, detail: nil, receivedAt: now, retrying: true) }
+        if item.isRetryingAutomatically {
+            let download = item.errorCode == .downloadRetrying
+            let step: LibraryImportStep = item.errorCode == .conversionFailed ? .building : item.retryStep
+            return ImportProgress(step: download ? .downloading : step, detail: nil, receivedAt: now, retrying: true,
+                                  retryTitle: download ? nil : item.libraryStatus, retryCompactTitle: item.libraryShortStatus)
+        }
         guard let step = item.step else { return nil }
         let mark = marks[item.id].flatMap { $0.stateSequence == item.stateSequence && $0.intentRevision == item.intentRevision ? $0 : nil }
         return ImportProgress(step: step, detail: item.progressDetail, receivedAt: mark?.receivedAt ?? now, floor: mark?.floor ?? 0,
@@ -274,9 +284,9 @@ struct ImportProgressTracker: Equatable {
 }
 
 extension LibraryImportRecord {
-    /// Failed to download, and the server will try again by itself (migration 027): rows show it as under way,
-    /// and the library keeps polling for it.
-    var isRetryingAutomatically: Bool { phase == .failed && errorCode == .downloadRetrying }
+    /// The server will retry a failed step (027 downloads; 041 metadata/render): rows show the reason and scheduled
+    /// retry as under way, and the library keeps polling. A past timestamp stays scheduled until the server updates it.
+    var isRetryingAutomatically: Bool { phase == .failed && (autoRetryAt != nil || errorCode == .downloadRetrying) }
     /// An arXiv paper (its details come from arXiv's API).
     var isArxivSource: Bool {
         if let source { return source.lowercased() == "arxiv" }

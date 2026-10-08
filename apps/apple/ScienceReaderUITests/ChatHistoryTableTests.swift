@@ -66,7 +66,7 @@ final class ChatHistoryTableTests: XCTestCase {
 
         header("conversation", app).tap()
         assertAbove(row(27, app), row(17, app), "A–Z: “Batch norm…” before “Bottleneck…”")
-        if header("messages", app).exists {
+        if header("messages", app).isHittable {
             header("messages", app).tap()
             assertAbove(row(4, app), row(18, app), "Most messages first; equal counts by recency")
         }

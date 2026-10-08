@@ -2,8 +2,8 @@ import SwiftUI
 
 // A table of papers drawn by the app (owner request 2026-10-06: "a sane true table view of papers that we can
 // re-use for the feed"). It is the same table on every size: a header of column titles (tap to sort, tap again to
-// reverse), one aligned row per paper, and as many columns beside the title as fit the width — never a horizontal
-// scroll. SwiftUI's `Table` collapses to one column in compact width, so this is built from a plain List, which
+// reverse), one aligned row per paper, and the chosen columns beside a pinned title, scrolling sideways when needed.
+// SwiftUI's `Table` collapses to one column in compact width, so this is built from a plain List, which
 // also gives the rows long-press menus, swipe actions, pull to refresh and a header that stays pinned. The caller
 // passes the columns the reader chose (owner request 2026-10-07); rows get a hover fill and arrow-key navigation.
 
@@ -97,7 +97,12 @@ struct TableArrangement: Equatable {
     /// How wide the scrolling region is, and how far its columns scroll.
     var regionWidth: CGFloat = 0
     var extent: CGFloat = 0
+    var snapOffsets: [CGFloat] = [0]
     var scrolls: Bool { extent > 0.5 }
+
+    /// A value always fits its viewport; wide text wraps/truncates inside its cell instead of being permanently
+    /// hidden behind the pinned title or action. The row's expanded abstract still shows its full text.
+    func columnWidth(_ preferred: CGFloat) -> CGFloat { scrolls ? min(preferred, regionWidth) : preferred }
 
     /// The narrowest region worth scrolling in, when only the title and pinned columns would fit.
     static let regionMinimum: CGFloat = 90
@@ -112,16 +117,20 @@ struct TableArrangement: Equatable {
         let pinned = items.filter(\.pinned)
         let order = free.filter { fitting.contains($0.id) } + free.filter { !fitting.contains($0.id) }
         let pinnedWidth = pinned.reduce(0) { $0 + $1.width * scale + spacing }
-        let fittingWidth = free.filter { fitting.contains($0.id) }.reduce(0) { $0 + $1.width * scale + spacing }
-        var region = fittingWidth - spacing
-        var title = rowWidth - pinnedWidth - fittingWidth
-        if region < regionMinimum * scale {
-            region = regionMinimum * scale
-            title = rowWidth - pinnedWidth - spacing - region
+        let title = max(0, min(max(titleMinimum * scale, rowWidth * titleShare),
+                               rowWidth - pinnedWidth - spacing - regionMinimum * scale))
+        let region = max(0, rowWidth - pinnedWidth - spacing - title)
+        let widths = order.map { min($0.width * scale, region) }
+        let content = widths.reduce(0, +) + spacing * CGFloat(max(0, order.count - 1))
+        let extent = max(0, content - region)
+        var offsets: [CGFloat] = [0], start: CGFloat = 0
+        for value in widths.dropLast() {
+            start += value + spacing
+            if start < extent { offsets.append(start) }
         }
-        let content = order.reduce(0) { $0 + $1.width * scale } + spacing * CGFloat(max(0, order.count - 1))
-        return TableArrangement(columns: order.map(\.id), pinned: pinned.map(\.id), titleWidth: max(0, title),
-                                regionWidth: region, extent: max(0, content - region))
+        if extent > 0 { offsets.append(extent) }
+        return TableArrangement(columns: order.map(\.id), pinned: pinned.map(\.id), titleWidth: title,
+                                regionWidth: region, extent: extent, snapOffsets: offsets)
     }
 
     /// The columns that fit beside the title, taken by priority until the next one doesn't (`PaperTableLayout`).
@@ -152,6 +161,7 @@ struct TableArrangement: Equatable {
 struct HorizontalTableScroll<Content: View>: View {
     let state: TableScrollState
     let extent: CGFloat
+    var snapOffsets: [CGFloat] = [0]
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -166,7 +176,18 @@ struct HorizontalTableScroll<Content: View>: View {
         }
         .scrollIndicators(.hidden, axes: .horizontal)
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .scrollTargetBehavior(TableColumnSnapBehavior(offsets: snapOffsets))
         .scrollDisabled(extent <= 0.5)
+    }
+}
+
+/// A swipe lands at a column boundary, so a header and its values can be read together. This changes only sideways
+/// scroll settling; the List still owns vertical momentum and pull to refresh.
+private struct TableColumnSnapBehavior: ScrollTargetBehavior {
+    let offsets: [CGFloat]
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        guard let offset = offsets.min(by: { abs($0 - target.rect.minX) < abs($1 - target.rect.minX) }) else { return }
+        target.rect.origin.x = offset
     }
 }
 
@@ -277,7 +298,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
     var body: some View {
         let arrangement = PaperTableLayout.arrangement(columns, width: width, scale: scale, scrolling: horizontalScroll)
         if horizontalScroll {
-            HorizontalTableScroll(state: scroll, extent: arrangement.extent) { table(arrangement) }
+            HorizontalTableScroll(state: scroll, extent: arrangement.extent, snapOffsets: arrangement.snapOffsets) { table(arrangement) }
                 .accessibilityIdentifier(identifier)
         } else {
             table(arrangement).accessibilityIdentifier(identifier)
@@ -374,7 +395,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                 TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                     HStack(alignment: .center, spacing: PaperTableLayout.spacing) {
                         ForEach(visible) { column in
-                            headerCell(column).frame(width: column.width * scale, alignment: column.alignment)
+                            headerCell(column).frame(width: arrangement.columnWidth(column.width * scale), alignment: column.alignment)
                         }
                     }
                 }
@@ -483,7 +504,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                 HStack(alignment: .firstTextBaseline, spacing: PaperTableLayout.spacing) {
                     ForEach(columns(arrangement.columns)) { column in
-                        scrollingCell(row, column)
+                        scrollingCell(row, column, width: arrangement.columnWidth(column.width * scale))
                     }
                 }
             }
@@ -493,8 +514,8 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
         }
     }
 
-    @ViewBuilder private func scrollingCell(_ row: Row, _ column: PaperTableColumn<Key>) -> some View {
-        let value = cell(row, column.id).frame(width: column.width * scale, alignment: column.alignment)
+    @ViewBuilder private func scrollingCell(_ row: Row, _ column: PaperTableColumn<Key>, width: CGFloat) -> some View {
+        let value = cell(row, column.id).frame(width: width, alignment: column.alignment)
         if column.isControl || cellIsControl(row, column.id) {
             value
         } else if let action = primaryAction(row) {

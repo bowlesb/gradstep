@@ -251,6 +251,29 @@ final class ImportProgressTests: XCTestCase {
         XCTAssertEqual(model.libraryStatus(for: .pending(value)), .active("Retrying soon"), "Under way in the table, not a problem")
     }
 
+    func testMetadataAndRenderRetriesKeepTheirReasonAndNeverPretendToDownload() throws {
+        for (code, reason, compact) in [("metadata_unavailable", "Couldn’t get this paper’s details", "Details unavailable"),
+                                        ("conversion_failed", "Conversion failed", "Conversion failed")] {
+            var row: [String: Any] = ["id": UUID().wire, "created_seq": 1, "state_seq": 2, "intent_revision": 1,
+                "visible": true, "phase": "failed", "source": "arxiv", "source_id": "2006.11239",
+                "source_url": "https://arxiv.org/abs/2006.11239", "retryable": true,
+                "error_code": code, "auto_retry_at": "2026-10-07T10:00:00Z"]
+            let value = try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: row))
+            XCTAssertTrue(value.isRetryingAutomatically)
+            let shown = try XCTUnwrap(ImportProgressTracker().progress(of: value, stepSince: nil, now: now)).presentation(at: now)
+            XCTAssertEqual(shown.title, reason)
+            XCTAssertEqual(shown.compactTitle, compact)
+            XCTAssertEqual(shown.timeText, "Trying again automatically")
+            XCTAssertEqual(shown.accessibilityLabel, "\(reason), trying again automatically")
+            XCTAssertNil(shown.fraction)
+            XCTAssertNil(LibraryImportAction.available(for: value, retrying: false), "Scheduled work doesn't compete with a Retry button")
+            XCTAssertFalse(LibraryFilter.failed.includesImport(value.phase, retryingAutomatically: value.isRetryingAutomatically))
+            row["phase"] = "ready"
+            let done = try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: row))
+            XCTAssertFalse(done.isRetryingAutomatically, "A stale optional timestamp never revives completed work")
+        }
+    }
+
     // MARK: Model
 
     func testModelGivesRowsTheProgressWithItsClock() throws {

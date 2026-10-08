@@ -22,7 +22,7 @@ enum ChatHistoryFilter: String, CaseIterable, Identifiable, Sendable {
 
 /// A sortable column.
 enum ChatHistoryField: String, CaseIterable, Sendable {
-    case conversation, paper, lastUsed, started, messages, kind, answerLength
+    case conversation, paper, lastUsed, started, messages, kind, answerLength, topics
 
     var title: String {
         switch self {
@@ -33,6 +33,7 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
         case .messages: "Messages"
         case .kind: "Kind"
         case .answerLength: "Answer length"
+        case .topics: "Topics"
         }
     }
 
@@ -46,12 +47,13 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
         case .messages: "Questions and answers"
         case .kind: "Paper chat or general chat"
         case .answerLength: "Words in the newest answer"
+        case .topics: "The paper’s tags in your library"
         }
     }
 
     /// The first direction when a header is tapped: names A–Z (paper chats before general ones), times and counts
     /// newest/largest first.
-    var ascendingFirst: Bool { self == .conversation || self == .paper || self == .kind }
+    var ascendingFirst: Bool { self == .conversation || self == .paper || self == .kind || self == .topics }
 }
 
 struct ChatHistorySort: Equatable, Sendable {
@@ -71,13 +73,14 @@ struct ChatHistoryRow: Identifiable, Equatable, Sendable {
     let summary: ConversationSummary
     /// The paper's title when it is in the library; nil for a general chat or a paper no longer in the library.
     let paperTitle: String?
+    let topics: [String]
     /// The title shown: a selection action's short form ("Explain · Attention(Q, K, V)…", `ChatTitle`) or the question.
     let title: String
     var id: UUID { summary.id }
     var isPaperChat: Bool { summary.documentID != nil }
 
-    init(summary: ConversationSummary, paperTitle: String?) {
-        self.summary = summary; self.paperTitle = paperTitle
+    init(summary: ConversationSummary, paperTitle: String?, topics: [String] = []) {
+        self.summary = summary; self.paperTitle = paperTitle; self.topics = topics
         let display = ChatTitle.display(summary.title)
         title = display.isEmpty ? "Untitled conversation" : display
     }
@@ -90,7 +93,7 @@ enum ChatHistoryQuery {
     /// The rows to show: filtered by the quick filter and the search (every word must match the questions or the
     /// paper's title, ignoring case and accents), then sorted.
     static func rows(_ summaries: [ConversationSummary], paperTitles: [UUID: String], filter: ChatHistoryFilter,
-                     paperID: UUID? = nil, search: String, sort: ChatHistorySort) -> [ChatHistoryRow] {
+                     paperID: UUID? = nil, search: String, sort: ChatHistorySort, paperTopics: [UUID: [String]] = [:]) -> [ChatHistoryRow] {
         let terms = search.split(whereSeparator: \.isWhitespace).map(String.init)
         let rows = summaries.lazy
             .filter { summary in
@@ -101,7 +104,8 @@ enum ChatHistoryQuery {
                 case .thisPaper: paperID != nil && summary.documentID == paperID
                 }
             }
-            .map { ChatHistoryRow(summary: $0, paperTitle: $0.documentID.flatMap { paperTitles[$0] }) }
+            .map { ChatHistoryRow(summary: $0, paperTitle: $0.documentID.flatMap { paperTitles[$0] },
+                                 topics: $0.documentID.flatMap { paperTopics[$0] } ?? []) }
             .filter { row in terms.allSatisfy { matches(row, $0) } }
         return sorted(Array(rows), by: sort)
     }
@@ -109,11 +113,13 @@ enum ChatHistoryQuery {
     static func matches(_ row: ChatHistoryRow, _ term: String) -> Bool {
         row.summary.title.localizedStandardContains(term) || row.title.localizedStandardContains(term)
             || row.summary.questions.localizedStandardContains(term) || row.contextTitle.localizedStandardContains(term)
+            || row.topics.contains { $0.localizedStandardContains(term) }
     }
 
     /// A total order: the chosen column, then most recently used, then a stable identity.
     static func sorted(_ rows: [ChatHistoryRow], by sort: ChatHistorySort) -> [ChatHistoryRow] {
         rows.sorted { a, b in
+            if sort.field == .topics, a.topics.isEmpty != b.topics.isEmpty { return !a.topics.isEmpty }
             let order = compare(a, b, sort.field)
             if order != .orderedSame { return sort.ascending ? order == .orderedAscending : order == .orderedDescending }
             let recency = compare(a, b, .lastUsed)
@@ -145,6 +151,8 @@ enum ChatHistoryQuery {
         case .answerLength:
             let x = a.summary.latestAnswerWords, y = b.summary.latestAnswerWords
             return x == y ? .orderedSame : (x < y ? .orderedAscending : .orderedDescending)
+        case .topics:
+            return a.topics.joined(separator: ", ").localizedStandardCompare(b.topics.joined(separator: ", "))
         }
     }
 

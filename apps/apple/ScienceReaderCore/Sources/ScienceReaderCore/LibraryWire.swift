@@ -494,6 +494,8 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
     public let progress: LibraryImportProgress?
     /// Percent, time left and the step in the reader's words (servers from migration 029; nil before).
     public let progressDetail: LibraryImportProgressDetail?
+    /// A server-scheduled retry (027 downloads; 041 metadata/render). Presentation only: malformed values are ignored.
+    public let autoRetryAt: LibraryTimestamp?
     public let descriptorReference: LibraryDescriptorReference?
 
     private enum CodingKeys: String, CodingKey {
@@ -503,7 +505,35 @@ public struct LibraryImportRecord: Codable, Equatable, Sendable {
         case metadataID = "metadata_id", versionID = "version_id", metadataRecordedAt = "metadata_recorded_at"
         case sourceURL = "source_url", documentID = "document_id", libraryItemID = "library_item_id", errorCode = "error_code"
         case progressDetail = "progress_detail"
+        case autoRetryAt = "auto_retry_at"
         case descriptorReference = "descriptor_ref"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        createdSequence = try c.decode(Int64.self, forKey: .createdSequence)
+        stateSequence = try c.decode(Int64.self, forKey: .stateSequence)
+        intentRevision = try c.decode(Int64.self, forKey: .intentRevision)
+        visible = try c.decode(Bool.self, forKey: .visible)
+        phase = try c.decode(LibraryImportPhase.self, forKey: .phase)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        sourceID = try c.decodeIfPresent(String.self, forKey: .sourceID)
+        requestedRevision = try c.decodeIfPresent(Int.self, forKey: .requestedRevision)
+        sourceRevision = try c.decodeIfPresent(Int.self, forKey: .sourceRevision)
+        metadataID = try c.decodeIfPresent(UUID.self, forKey: .metadataID)
+        versionID = try c.decodeIfPresent(UUID.self, forKey: .versionID)
+        metadata = try c.decodeIfPresent(LibraryMetadata.self, forKey: .metadata)
+        metadataRecordedAt = try c.decodeIfPresent(LibraryTimestamp.self, forKey: .metadataRecordedAt)
+        sourceURL = try c.decodeIfPresent(String.self, forKey: .sourceURL)
+        documentID = try c.decodeIfPresent(UUID.self, forKey: .documentID)
+        libraryItemID = try c.decodeIfPresent(UUID.self, forKey: .libraryItemID)
+        errorCode = try c.decodeIfPresent(LibraryImportErrorCode.self, forKey: .errorCode)
+        retryable = try c.decode(Bool.self, forKey: .retryable)
+        progress = try c.decodeIfPresent(LibraryImportProgress.self, forKey: .progress)
+        progressDetail = try c.decodeIfPresent(LibraryImportProgressDetail.self, forKey: .progressDetail)
+        autoRetryAt = try? c.decodeIfPresent(LibraryTimestamp.self, forKey: .autoRetryAt)
+        descriptorReference = try c.decodeIfPresent(LibraryDescriptorReference.self, forKey: .descriptorReference)
     }
 
     func validate() throws {

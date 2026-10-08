@@ -34,13 +34,14 @@ enum ChatTableLayout {
     static let columns: [ChatTableColumn] = [
         ChatTableColumn(field: .paper, priority: 1, width: 200),
         ChatTableColumn(field: .kind, priority: 5, width: 84),
+        ChatTableColumn(field: .topics, priority: 6, width: 150),
         ChatTableColumn(field: .messages, priority: 2, width: 70, alignment: .trailing),
         ChatTableColumn(field: .started, priority: 3, width: 88),
         ChatTableColumn(field: .answerLength, priority: 4, width: 104, alignment: .trailing),
         ChatTableColumn(field: .lastUsed, priority: 0, width: 88, pinned: true),
     ]
     /// The columns the reader chooses (Columns in All chats' "…"); Last used always shows.
-    static let choosable: [ChatHistoryField] = [.paper, .kind, .messages, .started, .answerLength]
+    static let choosable: [ChatHistoryField] = [.paper, .kind, .topics, .messages, .started, .answerLength]
     /// Paper, Messages and Started, as before (iPhone portrait scrolls to them; landscape and iPad show them).
     static let compactDefault: Set<ChatHistoryField> = [.paper, .messages, .started]
     static let regularDefault: Set<ChatHistoryField> = [.paper, .messages, .started]
@@ -98,7 +99,10 @@ struct ChatHistoryView: View {
     var body: some View {
         let summaries = model.conversationSummaries
         let titles = Dictionary(model.papers.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-        let rows = ChatHistoryQuery.rows(summaries, paperTitles: titles, filter: filter, paperID: paperID, search: search, sort: sort)
+        let topics = Dictionary(model.papers.map { ($0.id, $0.tags.isEmpty ? ArxivTopics.names(for: $0.keywords) : $0.tags) },
+                                uniquingKeysWith: { first, _ in first })
+        let rows = ChatHistoryQuery.rows(summaries, paperTitles: titles, filter: filter, paperID: paperID, search: search, sort: sort,
+                                         paperTopics: topics)
         let drafts = model.unsentDrafts.filter { includes($0, titles: titles) }
         NavigationStack {
             Group {
@@ -117,6 +121,13 @@ struct ChatHistoryView: View {
                 if tableShown && !summaries.isEmpty {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
+                            Menu {
+                                Picker("Sort by", selection: Binding(get: { sort.field }, set: { field in
+                                    sort = ChatHistorySort(field: field, ascending: field.ascendingFirst)
+                                })) {
+                                    ForEach(ChatHistoryField.allCases, id: \.self) { Text($0.title).tag($0) }
+                                }.pickerStyle(.inline)
+                            } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
                             MenuRow("Columns", systemImage: "tablecells") { showColumns = true }.accessibilityIdentifier("chat.history.columns")
                         } label: { Image(systemName: "ellipsis") }
                         .accessibilityLabel("All chats options").accessibilityIdentifier("chat.history.options")
@@ -167,7 +178,7 @@ struct ChatHistoryView: View {
 
     private func list(rows: [ChatHistoryRow], drafts: [ChatWorkspace.UnsentDraft], titles: [UUID: String], total: Int) -> some View {
         let arrangement = tableShown ? ChatTableLayout.arrangement(chosenColumns, width: rowWidth, scale: scale) : TableArrangement(columns: [])
-        return HorizontalTableScroll(state: scroll, extent: arrangement.extent) {
+        return HorizontalTableScroll(state: scroll, extent: arrangement.extent, snapOffsets: arrangement.snapOffsets) {
             table(rows: rows, drafts: drafts, titles: titles, total: total, arrangement: arrangement)
         }
         // On the List only: applied after the inset it would replace the chips' and count's identifiers.
@@ -305,7 +316,7 @@ struct ChatHistoryView: View {
                 TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                     HStack(alignment: .center, spacing: ChatTableLayout.spacing) {
                         ForEach(visible) { column in
-                            headerCell(column.field).frame(width: column.width * scale, alignment: column.alignment)
+                            headerCell(column.field).frame(width: arrangement.columnWidth(column.width * scale), alignment: column.alignment)
                         }
                     }
                 }
@@ -386,7 +397,7 @@ struct ChatHistoryView: View {
                             TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                                 HStack(alignment: .firstTextBaseline, spacing: ChatTableLayout.spacing) {
                                     ForEach(columns(arrangement.columns)) { column in
-                                        cell(row, column.field).frame(width: column.width * scale, alignment: column.alignment)
+                                        cell(row, column.field).frame(width: arrangement.columnWidth(column.width * scale), alignment: column.alignment)
                                     }
                                 }
                             }
@@ -432,6 +443,7 @@ struct ChatHistoryView: View {
         case .messages: ChatTableText(text: String(row.summary.messageCount))
         case .kind: ChatTableText(text: row.isPaperChat ? "Paper" : "General")
         case .answerLength: ChatTableText(text: ChatHistoryFormat.words(row.summary.latestAnswerWords))
+        case .topics: PaperTableChips(tags: row.topics)
         case .conversation: EmptyView()
         }
     }
@@ -441,7 +453,9 @@ struct ChatHistoryView: View {
          ChatHistoryFormat.spokenLastUsed(row.summary.lastUsedAt),
          ChatHistoryFormat.messages(row.summary.messageCount),
          chosenColumns.contains(.answerLength) && row.summary.latestAnswerWords > 0
-            ? "newest answer \(ChatHistoryFormat.words(row.summary.latestAnswerWords))" : nil].compactMap { $0 }.joined(separator: ", ")
+            ? "newest answer \(ChatHistoryFormat.words(row.summary.latestAnswerWords))" : nil,
+         chosenColumns.contains(.topics) && !row.topics.isEmpty ? "Topics: " + row.topics.joined(separator: ", ") : nil]
+            .compactMap { $0 }.joined(separator: ", ")
     }
 
     private func paper(for row: ChatHistoryRow) -> Paper? {
