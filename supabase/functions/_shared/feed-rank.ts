@@ -20,6 +20,8 @@ export interface FeedbackRow {
 }
 export interface CandidateSet {
   now: string; today: string; seed: string; window_days: number; pool: number; refreshed_at: string | null;
+  /** The pool's categories (feed_policy.categories): the ML categories a reason may name. */
+  categories?: string[];
   profile: ProfilePaper[]; feedback: FeedbackRow[]; candidates: FeedCandidate[];
 }
 
@@ -55,6 +57,8 @@ export function seeded(seed: string, id: string): number {
 interface Weight { name: string; weight: number; own: boolean }
 interface Profile {
   tags: Map<string, Weight>; categories: Map<string, number>; authors: Map<string, { weight: number; library: boolean }>;
+  /** How many library papers carry each tag: rarer shared tags make better "Because you added" anchors. */
+  frequency: Map<string, number>;
   maxTag: number; categoryTotal: number;
   papers: (ProfilePaper & { weight: number })[];
   liked: (FeedbackRow & { weight: number })[]; dismissed: (FeedbackRow & { weight: number })[];
@@ -99,7 +103,9 @@ function buildProfile(set: CandidateSet): Profile {
   }
   const maxTag = Math.max(0, ...[...tags.values()].map(tag => tag.weight));
   const categoryTotal = [...categories.values()].reduce((sum, weight) => sum + weight, 0);
-  return { tags, categories, authors, maxTag, categoryTotal, papers, liked, dismissed,
+  const frequency = new Map<string, number>();
+  for (const paper of papers) for (const tag of new Set(paper.tags.map(key))) frequency.set(tag, (frequency.get(tag) ?? 0) + 1);
+  return { tags, categories, authors, frequency, maxTag, categoryTotal, papers, liked, dismissed,
     empty: tags.size === 0 && categories.size === 0 && authors.size === 0 };
 }
 
@@ -136,11 +142,19 @@ function score(candidate: FeedCandidate, profile: Profile, set: CandidateSet): S
   };
 }
 
-function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boolean): FeedReason {
+/** The category a reason names: the first of the paper's categories the reader has (else one of the
+ * pool's ML categories, else its first). */
+function namedCategory(c: FeedCandidate, preferred: (category: string) => boolean, pool: ReadonlySet<string>): string {
+  return c.categories.find(preferred) ?? c.categories.find(category => pool.has(category)) ?? c.categories[0] ?? '';
+}
+
+function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boolean, pool: ReadonlySet<string>,
+  anchors: Map<string, number>): FeedReason {
   const c = item.candidate;
   if (exploring) {
-    const name = categoryName(item.primary);
-    return { kind: 'explore', label: item.primary, text: `Something different: ${name}` };
+    // Exploration is "something different" only outside the reader's own categories.
+    const outside = namedCategory(c, category => pool.has(category) && !profile.categories.has(category), pool);
+    if (!profile.categories.has(outside)) return { kind: 'explore', label: outside, text: `Something different: ${categoryName(outside)}` };
   }
   if (!cold) {
     // An author the reader has (or asked for more of).
@@ -162,16 +176,24 @@ function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boo
       + row.author_keys.filter(author => author && c.author_keys.includes(author)).length }))
       .filter(entry => entry.shared > 0 && entry.row.title).sort((a, b) => b.shared - a.shared || b.row.weight - a.row.weight)[0];
     if (liked) return { kind: 'more_like', label: liked.row.title!, text: `More like “${short(liked.row.title!)}”` };
-    // A library paper sharing its strongest topic.
-    const shared = [...topics].sort((a, b) => (profile.tags.get(b)?.weight ?? 0) - (profile.tags.get(a)?.weight ?? 0));
-    for (const topic of shared) {
-      const paper = profile.papers.filter(p => p.title && !p.pending && p.tags.some(tag => key(tag) === topic))
-        .sort((a, b) => Date.parse(b.added_at) - Date.parse(a.added_at))[0];
-      if (paper) return { kind: 'added', label: paper.title!, text: `Because you added “${short(paper.title!)}”` };
+    // The library paper sharing the most specific topics (a topic few of their papers carry says more
+    // than "Large language models"), passing over papers already named often in this list.
+    let anchor: { paper: Profile['papers'][number]; score: number } | null = null;
+    for (const paper of profile.papers) {
+      if (!paper.title || paper.pending) continue;
+      const shared = [...new Set(paper.tags.map(key))].filter(tag => topics.has(tag));
+      if (!shared.length) continue;
+      const specificity = shared.reduce((sum, tag) => sum + 1 / (profile.frequency.get(tag) ?? 1), 0);
+      const score = specificity / (1 + 0.75 * (anchors.get(paper.title) ?? 0)) + Date.parse(paper.added_at) / 1e15;
+      if (!anchor || score > anchor.score) anchor = { paper, score };
+    }
+    if (anchor) {
+      anchors.set(anchor.paper.title!, (anchors.get(anchor.paper.title!) ?? 0) + 1);
+      return { kind: 'added', label: anchor.paper.title!, text: `Because you added “${short(anchor.paper.title!)}”` };
     }
     if ((c.readers ?? 0) >= 3) return { kind: 'popular', label: String(c.readers), text: 'Added by several readers this week' };
   }
-  const category = cold ? item.primary : c.categories.find(cat => profile.categories.has(cat)) ?? item.primary;
+  const category = namedCategory(c, cat => !cold && profile.categories.has(cat), pool);
   return { kind: 'category', label: category, text: `New in ${categoryName(category)}` };
 }
 
@@ -187,22 +209,29 @@ function year(sourceID: string): number | null {
 export function rankForYou(set: CandidateSet, limit = 50): { results: ForYouResult[]; cold_start: boolean } {
   const profile = buildProfile(set);
   const cold = profile.empty;
+  const pool = new Set(set.categories ?? []);
+  const anchors = new Map<string, number>();
   const scored = set.candidates.map(candidate => score(candidate, profile, set)).sort((a, b) => b.score - a.score);
   const main = scored.filter(item => !item.explore), explore = scored.filter(item => item.explore);
   const counts = { lead: new Map<string, number>(), author: new Map<string, number>(), primary: new Map<string, number>() };
   const adjusted = (item: Scored) => item.score * 0.8 ** (counts.lead.get(item.lead) ?? 0)
     * (item.firstAuthor ? 0.7 ** (counts.author.get(item.firstAuthor) ?? 0) : 1)
     * 0.9 ** Math.max(0, (counts.primary.get(item.primary) ?? 0) - 2);
-  const take = (list: Scored[]): Scored | null => {
+  /** The best remaining item of `list` after diversity, removed from `owner` (the list it lives in). */
+  const take = (list: Scored[], owner: Scored[] = list): Scored | null => {
     if (!list.length) return null;
     let best = 0;
     for (let i = 1; i < list.length; i++) if (adjusted(list[i]) > adjusted(list[best])) best = i;
-    return list.splice(best, 1)[0];
+    const item = list[best];
+    owner.splice(owner.indexOf(item), 1);
+    return item;
   };
   const results: ForYouResult[] = [];
   while (results.length < limit) {
     const exploring = !cold && (results.length + 1) % 5 === 0 && explore.length > 0;
-    const item = exploring ? take(explore) : take(main) ?? take(explore);
+    // An exploration slot prefers a paper from outside the reader's categories.
+    const outside = explore.filter(entry => !entry.candidate.categories.some(category => profile.categories.has(category)));
+    const item = exploring ? (outside.length ? take(outside, explore) : take(explore)) : take(main) ?? take(explore);
     if (!item) break;
     for (const [map, value] of [[counts.lead, item.lead], [counts.author, item.firstAuthor], [counts.primary, item.primary]] as const) {
       if (value) map.set(value, (map.get(value) ?? 0) + 1);
@@ -210,7 +239,7 @@ export function rankForYou(set: CandidateSet, limit = 50): { results: ForYouResu
     const c = item.candidate;
     results.push({ source_id: c.source_id, revision: c.revision, title: c.title, authors: c.authors.slice(0, 12), year: year(c.source_id),
       abstract: c.abstract ? c.abstract.slice(0, 700) : null, categories: c.categories.slice(0, 12),
-      reason: reasonFor(item, profile, cold, exploring), first_seen: c.first_seen_at, announced: c.announced_on });
+      reason: reasonFor(item, profile, cold, exploring, pool, anchors), first_seen: c.first_seen_at, announced: c.announced_on });
   }
   return { results, cold_start: cold };
 }

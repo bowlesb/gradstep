@@ -352,11 +352,12 @@ begin
   select o.t,p.source_id from own_q o join app_private.feed_papers p on numnode(o.q)>0 and p.search@@o.q and p.announced_on>=since),
  own_ok as (select t from own_hits group by t having count(*)<=greatest(20,pool_rows/50)),
  phrase as (select h.source_id,array_agg(distinct h.t) tags from own_hits h join own_ok using(t) group by h.source_id),
+ -- Scoring columns only (abstracts and text vectors would be materialized for the whole window).
  win as (
-  select p.*,coalesce(ph.tags,'{}') matched_tags,
-   (select count(*) from unnest(p.topics) x where x=any(t_topics))::integer topic_hits,
-   (select count(*) from unnest(p.author_keys) x where x<>'' and x=any(t_authors))::integer author_hits,
-   (select count(*) from unnest(p.categories) x where x=any(t_categories))::integer category_hits,
+  select p.source_id,p.announced_on,p.categories,coalesce(ph.tags,'{}') matched_tags,
+   case when p.topics&&t_topics then (select count(*) from unnest(p.topics) x where x=any(t_topics))::integer else 0 end topic_hits,
+   case when p.author_keys&&t_authors then (select count(*) from unnest(p.author_keys) x where x<>'' and x=any(t_authors))::integer else 0 end author_hits,
+   case when p.categories&&t_categories then (select count(*) from unnest(p.categories) x where x=any(t_categories))::integer else 0 end category_hits,
    md5(seed||p.source_id) shuffle
   from app_private.feed_papers p left join phrase ph on ph.source_id=p.source_id
   where p.announced_on>=since and p.source_id<>all(t_excluded)),
@@ -379,15 +380,17 @@ begin
   where cm.source_id in (select source_id from chosen) and li.removed_at is null and li.account_id<>p_account_id
    and li.added_at>now()-interval '14 days'
   group by cm.source_id having count(distinct li.account_id)>=3)
- select coalesce(jsonb_agg(jsonb_build_object('source_id',w.source_id,'revision',w.revision,'title',w.title,'authors',to_jsonb(w.authors),
-   'author_keys',to_jsonb(w.author_keys),'abstract',left(w.abstract,700),'categories',to_jsonb(w.categories),'topics',to_jsonb(w.topics),
-   'announced_on',w.announced_on,'first_seen_at',w.first_seen_at,'matched_tags',to_jsonb(w.matched_tags),'readers',r.n)
-   order by w.announced_on desc,w.source_id desc),'[]'::jsonb)
+ select coalesce(jsonb_agg(jsonb_build_object('source_id',p.source_id,'revision',p.revision,'title',p.title,'authors',to_jsonb(p.authors),
+   'author_keys',to_jsonb(p.author_keys),'abstract',left(p.abstract,700),'categories',to_jsonb(p.categories),'topics',to_jsonb(p.topics),
+   'announced_on',p.announced_on,'first_seen_at',p.first_seen_at,'matched_tags',to_jsonb(coalesce(ph.tags,'{}')),'readers',r.n)
+   order by p.announced_on desc,p.source_id desc),'[]'::jsonb)
  into candidates
- from win w join chosen c on c.source_id=w.source_id left join readers r on r.source_id=w.source_id;
+ from chosen c join app_private.feed_papers p on p.source_id=c.source_id
+ left join phrase ph on ph.source_id=p.source_id left join readers r on r.source_id=p.source_id;
 
  select max(last_success_at) into refreshed from app_private.feed_sources;
  return jsonb_build_object('now',now(),'today',today,'seed',seed,'window_days',pol.window_days,'pool',pool_rows,'refreshed_at',refreshed,
+  'categories',to_jsonb(pol.categories),
   'profile',(select coalesce(jsonb_agg(to_jsonb(x) order by x.added_at desc),'[]'::jsonb) from app_private.feed_profile(p_account_id) x),
   'feedback',(select coalesce(jsonb_agg(jsonb_build_object('source_id',f.source_id,'kind',f.kind,'title',f.title,'categories',to_jsonb(f.categories),
     'topics',to_jsonb(f.topics),'author_keys',to_jsonb(f.author_keys),'created_at',f.created_at) order by f.created_at desc),'[]'::jsonb)
