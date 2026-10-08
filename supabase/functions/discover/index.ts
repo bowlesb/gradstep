@@ -7,6 +7,7 @@
 // Feed responses carry `feed.for_you: true` when For you is offered, so the app can show the chip.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
+import { readBounded } from '../_shared/feed-pool.ts';
 import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs,
   orderByRanking, parseArxivRSS, parseArxivSearch, rankOpenAlex, type DiscoveryResult, type RankedWork } from '../_shared/discover.ts';
 import { FEED_RANKING_VERSION, poolResult, rankForYou, type CandidateSet } from '../_shared/feed-rank.ts';
@@ -61,7 +62,7 @@ Deno.serve(async request => {
         const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10_000),
           headers: { accept: 'application/json', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
         if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error('openalex_unavailable'); }
-        return JSON.parse(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).subarray(0, 4 * 1024 * 1024)));
+        return JSON.parse(new TextDecoder().decode(await readBounded(response, 4 * 1024 * 1024)));
       };
       const [relevant, cited] = await Promise.allSettled(openAlex.map(fetchJSON));
       try { if (relevant.status === 'fulfilled') ranking = rankOpenAlex(relevant.value, cited.status === 'fulfilled' ? cited.value : undefined, 25, fullAbstracts); }
@@ -86,8 +87,7 @@ Deno.serve(async request => {
         const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15_000),
           headers: { accept: recent ? 'application/rss+xml' : 'application/atom+xml', 'user-agent': 'ScienceReader/0.1 (research paper reader)' } });
         if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error(`arxiv_${response.status}`); }
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.length > 6 * 1024 * 1024) throw new Error('arxiv_too_large');
+        const bytes = await readBounded(response, recent ? 4 * 1024 * 1024 : 1024 * 1024);
         lists.push(recent ? parseArxivRSS(bytes, 25, fullAbstracts) : parseArxivSearch(bytes, fullAbstracts));
       } catch (error) {
         console.log(JSON.stringify({ function: 'discover', event: 'arxiv_failed', code: error instanceof Error ? error.message.slice(0, 40) : 'unknown' }));
@@ -106,7 +106,8 @@ Deno.serve(async request => {
       if (id) {
         try {
           const response = await fetch(openAlexArxivWorkURL(id), { redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
-          const work = response.ok ? openAlexResult(await response.json(), fullAbstracts) : null;
+          const work = response.ok ? openAlexResult(JSON.parse(new TextDecoder().decode(await readBounded(response, 4 * 1024 * 1024))), fullAbstracts) : null;
+          if (!response.ok) void response.body?.cancel().catch(() => {});
           lists[last] = work && work.source_id === id ? [work] : null;
         } catch { lists[last] = null; }
       }

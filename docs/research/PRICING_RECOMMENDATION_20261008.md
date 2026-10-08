@@ -136,7 +136,7 @@ retain the $100 total incremental beta ceiling. Taxes on vendor bills can also a
 At a 50/50 Standard/Pro payer mix, covering that $67 alone takes approximately 11 approved-offer payers or
 nine proposed-offer payers in the ordinary tax-inclusive scenario; 72 or 20 in stress. This is infrastructure
 coverage, not a viable salary/support business. At 100 such proposed subscribers, ordinary contribution is
-about $767 before those $67 fixed costs; support, unpaid users and acquisition still have to be paid.
+about $767 before that illustrative $67 first-month envelope; support, unpaid users and acquisition still have to be paid.
 
 **Recommend downgrading Tavily at the next renewal if the owner's measured calendar-month demand stays
 below 800 credits**, with PAYGO remaining off and a 900-credit internal cap plus verified baseline. Its free

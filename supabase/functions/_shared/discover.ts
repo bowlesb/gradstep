@@ -13,12 +13,19 @@ export interface DiscoveryResult {
 }
 
 /** Keep older clients' bounded previews compatible; newer clients explicitly request full abstracts. */
-export function discoveryAbstract(text: string | null, full = false): Pick<DiscoveryResult, 'abstract' | 'full_abstract' | 'abstract_truncated'> {
+function utf16Prefix(text: string, maximum: number): string {
+  const value = text.toWellFormed();
+  const last = value.charCodeAt(maximum - 1), next = value.charCodeAt(maximum);
+  const end = last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff ? maximum - 1 : maximum;
+  return value.slice(0, end);
+}
+
+export function discoveryAbstract(text: string | null, full = false, sourceTruncated = false): Pick<DiscoveryResult, 'abstract' | 'full_abstract' | 'abstract_truncated'> {
   const value = text?.trim() || null;
-  const preview = value?.slice(0, 700) ?? null;
+  const preview = value ? utf16Prefix(value, 700) : null;
   if (!full) return { abstract: preview };
-  return { abstract: preview, full_abstract: value?.slice(0, 24_000) ?? null,
-    abstract_truncated: (value?.length ?? 0) > 24_000 };
+  return { abstract: preview, full_abstract: value ? utf16Prefix(value, 24_000) : null,
+    abstract_truncated: sourceTruncated || (value?.length ?? 0) > 24_000 };
 }
 
 /** Builds a bounded arXiv API query: an ID/URL looks up that paper; free text
@@ -104,16 +111,33 @@ export function openAlexResult(work: unknown, fullAbstracts = false): DiscoveryR
   const authors = (Array.isArray(w.authorships) ? w.authorships.slice(0, 9) : [])
     .map(a => (a as { author?: { display_name?: unknown } })?.author?.display_name).filter((n): n is string => typeof n === 'string').map(n => n.slice(0, 256));
   let abstract: string | null = null;
+  let abstractTruncated = false;
   const index = w.abstract_inverted_index;
   if (index && typeof index === 'object' && !Array.isArray(index)) {
     const words: string[] = [];
-    for (const [word, positions] of Object.entries(index as Record<string, unknown>).slice(0, 5000)) {
-      if (Array.isArray(positions)) for (const at of positions) if (typeof at === 'number' && at >= 0 && at < 5000) words[at] = word;
+    const entries = Object.entries(index as Record<string, unknown>);
+    abstractTruncated = entries.length > 5000;
+    for (const [word, positions] of entries.slice(0, 5000)) {
+      if (Array.isArray(positions)) for (const at of positions) {
+        if (Number.isInteger(at) && at >= 0 && at < 5000) words[at] = word;
+        else abstractTruncated = true;
+      } else abstractTruncated = true;
     }
-    abstract = words.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() || null;
+    if (Object.keys(words).length !== words.length) abstractTruncated = true;
+    // Repeated positions may reference a very large word. Bound construction itself, before joining strings.
+    const ordered = words.filter(Boolean), parts: string[] = [];
+    let length = 0;
+    for (const [i, word] of ordered.entries()) {
+      if (length) { parts.push(' '); length += 1; }
+      const remaining = Math.max(0, 24_001 - length);
+      parts.push(word.slice(0, remaining)); length += Math.min(word.length, remaining);
+      if (word.length > remaining || (length >= 24_001 && i < ordered.length - 1)) abstractTruncated = true;
+      if (length >= 24_001) break;
+    }
+    abstract = parts.join('').replace(/\s+/g, ' ').trim() || null;
   }
   return { source_id: location.sourceID, revision: location.version ?? 1, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 2000), authors,
-    year: typeof w.publication_year === 'number' ? w.publication_year : null, ...discoveryAbstract(abstract, fullAbstracts), categories: [] };
+    year: typeof w.publication_year === 'number' ? w.publication_year : null, ...discoveryAbstract(abstract, fullAbstracts, abstractTruncated), categories: [] };
 }
 
 /** A paper as OpenAlex knows it, for Ingest: its arXiv copy if any, otherwise
@@ -293,7 +317,7 @@ export function parseArxivSearch(bytes: Uint8Array, fullAbstracts = false): Disc
       const authors = children(entry, ATOM, 'author').slice(0, 9).map(a => plain(one(a, ATOM, 'name'), 256)!);
       const published = plain(one(entry, ATOM, 'published', false), 64, false);
       // The input feed is already bounded; preserve the row even when its abstract needs an explicit excerpt.
-      const abstract = plain(one(entry, ATOM, 'summary', false), 6 * 1024 * 1024, false)?.replace(/\s+/g, ' ').trim() ?? null;
+      const abstract = plain(one(entry, ATOM, 'summary', false), 1024 * 1024, false)?.replace(/\s+/g, ' ').trim() ?? null;
       const categories = [...new Set(children(entry, ATOM, 'category').map(c => c.attributes['{}term']).filter((t): t is string => !!t && /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(t)))].slice(0, 6);
       results.push({ source_id: ref.sourceID, revision: ref.revision, title, authors,
         year: published && /^\d{4}/.test(published) ? Number(published.slice(0, 4)) : null,
