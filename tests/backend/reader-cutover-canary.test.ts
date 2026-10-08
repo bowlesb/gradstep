@@ -60,6 +60,21 @@ test('network surface excludes providers, policy writes, object mutation and a d
   await assert.rejects(run.rpc('worker_grant_credits', {}, {}, true), /rpc_not_allowed/);
 });
 
+test('PostgREST scalar row counts are allowed only on RPC POST responses; byte ranges still refuse', async () => {
+  let range = '0-0/*', status = 200;
+  const { run } = canary(async (url) => withURL(Response.json({ available: 0, held: 0 }, {
+    status, headers: { 'content-range': range },
+  }), String(url)));
+  const rpcURL = `${origin}/rest/v1/rpc/v1_credit_balance`;
+  await run.http(rpcURL, { method: 'POST' });
+  for (const url of [`${origin}/functions/v1/reader-member`, `${origin}/storage/v1/object/sign/paper-assets/${objectPath}`])
+    await assert.rejects(run.http(url), /response_contract/);
+  range = 'bytes 0-1/100';
+  await assert.rejects(run.http(rpcURL, { method: 'POST' }), /response_contract/);
+  range = '0-0/*'; status = 206;
+  await assert.rejects(run.http(rpcURL, { method: 'POST' }), /response_contract/);
+});
+
 test('full historical scope includes deleted/absent paths; omissions and discrepancies refuse', () => {
   const live = { path: objectPath, tracked: true, state: 'verified', bytes: 17, sha256: 'b'.repeat(64), physical: true, physical_bytes: '17' };
   const deleted = { ...live, path: objectPath.replace('index.html', 'old.css'), state: 'deleted', physical: false, physical_bytes: null };

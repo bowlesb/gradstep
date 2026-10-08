@@ -55,10 +55,13 @@ export class BodyBudget {
     admission_includes_three_whole_bundle_reservations: true }; }
 }
 
-export async function boundedBody(response, maximum, budget, cleanup = false) {
+export async function boundedBody(response, maximum, budget, cleanup = false, scalarRPC = false) {
   const length = response.headers.get('content-length'), encoding = response.headers.get('content-encoding');
-  if (encoding && encoding.toLowerCase() !== 'identity' || response.headers.has('content-range')
-    || length !== null && (!/^\d{1,10}$/.test(length) || Number(length) > maximum)) {
+  // PostgREST adds this row-count header to scalar JSON RPC results. It is not
+  // a byte-range response. Reader/Storage requests never receive this exception.
+  const rowRange = scalarRPC && response.status === 200 && response.headers.get('content-range') === '0-0/*';
+  if ((encoding && encoding.toLowerCase() !== 'identity') || (response.headers.has('content-range') && !rowRange)
+    || (length !== null && (!/^\d{1,10}$/.test(length) || Number(length) > maximum))) {
     await response.body?.cancel().catch(() => {}); fail('response_contract');
   }
   if (!response.body) return Buffer.alloc(0);
@@ -179,7 +182,8 @@ export class ReaderCutoverCanary {
       signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(!cleanup && this.signal ? [this.signal] : [])]) }); }
     catch { fail('network_failed'); }
     if (response.redirected || response.url !== url) { await response.body?.cancel().catch(() => {}); fail('response_origin'); }
-    return { response, bytes: await boundedBody(response, maximum, this.budget, cleanup) };
+    const scalarRPC = target.origin === ORIGIN && method === 'POST' && target.pathname.startsWith('/rest/v1/rpc/');
+    return { response, bytes: await boundedBody(response, maximum, this.budget, cleanup, scalarRPC) };
   }
   async sql(query, maximum = 32_768, cleanup = false) {
     const r = await this.http(MANAGEMENT + '/database/query', { method: 'POST', maximum, cleanup,
