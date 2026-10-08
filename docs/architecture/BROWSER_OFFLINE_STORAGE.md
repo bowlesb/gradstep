@@ -398,11 +398,33 @@ replacement mappings are durable. Rebase validates the entire planned predecesso
 replacement closure before commit, including draft receipts and turn parents. A conflicting
 descendant causes bounded replanning.
 
+The first deployed journal format also permits an optional draft `anchor` (the existing bounded
+`TextAnchor`), a draft `requestedAnswer` binding (question event ID plus model/effort/length), and
+an active turn's `requestedProfile`. Discuss saves its anchor with the draft and uses it for a
+new conversation's root. Send and explicit Get answer capture the visibly offered profile before
+their first suspension; the local binding survives text edits, receipt promotion, consent,
+fresh-ID rebase and reload. Discarding later text atomically transfers an existing question
+binding to a fresh, owned empty composer. A new question replaces that composer's latest binding.
+For a question without a local binding (including another device's question), Get answer visibly
+offers a new choice and captures it at the click. None of these fields assert which model actually
+served an answer: cloud message `model`/`profile` remain serving metadata from the final stream.
+
+These fields are optional so earlier, unshipped development checkpoints without them remain
+readable. Gate 1 has not shipped; this is the first deployed-format definition, not a guarantee
+that earlier writers preserve unknown fields. A future required field or changed write invariant
+must raise the format/minimum-reader gate and retire incompatible writers before mutation.
+
 Composer and turn owner locks remain held through accepted writes. Reopening reads each
 canonical checkpoint again after winning its owner lock. Recovering or removing a turn compares
 the exact captured checkpoint inside its committing transaction; changes trigger a fresh read.
 No reopening, sync, save retry or cleanup retry starts a paid request. Send remains online.
 Unknown formats and private-record integrity failures preserve bytes and refuse private writes.
+
+Generated conversation titles join a complete answer's local transaction. Title planning reads
+the latest authenticated history under the same revision compare-and-swap: a known rename or
+topic title omits the generated revision, and an explicit rename supersedes every current
+conversation revision. A concurrent writer forces replanning. No background title request or
+automatic answer request is introduced.
 
 Local unit/controller and persistent Chromium evidence, known skips and failed-write limitations
 are recorded in the [verification record](../verification/2026-10-08-browser-journal-gate1.md).

@@ -11,19 +11,22 @@
 import { BackendError, config, rpc } from './backend';
 import { sha256Hex, utf8 } from './bytes';
 import { boundedText, CONSENT_VERSION, makeRequest, requestBody, resolution, streamAnswer, type ChatAction, type Outcome, type Progress, type StreamEvent } from './chat';
+import { isProfileChoice, isStandard, offers, parseProfileID, ProfileTableLoader, STANDARD_PROFILE, type ProfileChoice, type ProfileTable } from './chat-profiles';
 import { cancellation } from './cancellation';
-import { encodeDiagram, type PrivateEvent, type TextAnchor } from './events';
-import { History } from './history';
+import { cleanTopicTitle, encodeDiagram, GENERATED_TITLE, RENAMED_TITLE, validateEvent, type PrivateEvent, type TextAnchor } from './events';
+import { History, type AppendOptions } from './history';
 import { storage as browserStorage, type StorageLifecycle } from './idb';
 import type { Journal, StoredDraft, StoredTurn } from './journal';
 
 interface Entry { id: string; event: PrivateEvent }
-interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null }
+interface Question { revision: number; id: string; entries: Entry[]; selection: string | null; action: ChatAction | null; profile?: ProfileChoice }
 type Receipt = NonNullable<StoredDraft['receipt']>;
 export interface Composer {
   id: string; documentID: string | null; conversationID: string | null; head: string | null; draft: string; revision: number;
   phase: 'idle' | 'saving' | 'consent' | 'streaming' | 'finishing'; issue: string | null;
   question: Question | null; answer: Entry[] | null; liveID: string | null; liveText: string; progress: Progress | null; credits: number | null;
+  /** A model/effort/length the reader chose here (memory only); null follows the conversation, then the default. */
+  profile: ProfileChoice | null;
   /** Identity of the current text edit (a new one per edit, even when the text repeats). */
   textRevision: string;
   /** The latest revision committed on this device (durable journal only). */
@@ -31,6 +34,9 @@ export interface Composer {
   receipt: Receipt | null;
   branchRevision: string;
   acknowledgedSubmissionID: string | null;
+  anchor?: TextAnchor;
+  requestedAnswer?: StoredDraft['requestedAnswer'];
+  answerTitle?: AppendOptions['title'];
 }
 /** Whether this page's drafts survive a reload, and if not, why. */
 export type JournalState = 'active' | 'inactive' | 'unsupported' | 'newer' | 'damaged' | 'unavailable';
@@ -46,7 +52,12 @@ interface Dependencies {
   storage: { snapshot: () => StorageLifecycle; subscribe: (listener: () => void) => () => void };
   journal: Journal | null;
   locks: Locks;
+  /** The published profile table (GET functions/v1/chat); undefined uses the backend. */
+  fetchProfiles?: (account: string, signal: AbortSignal) => Promise<unknown>;
+  /** This browser's default for new chats (a per-browser presentation preference). */
+  readDefault: () => ProfileChoice | null; writeDefault: (choice: ProfileChoice) => void;
 }
+const DEFAULT_KEY = 'gradstep.chat-defaults.v1';
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 const scope = (documentID: string | null) => documentID ?? 'general';
 const busy = (c: Composer) => c.phase === 'saving' || c.phase === 'streaming' || c.phase === 'finishing';
@@ -73,6 +84,7 @@ export class ChatSession {
   private listeners = new Set<() => void>();
   private version = 0;
   private streams = new Map<string, ReturnType<typeof cancellation>>();
+  private starting = new Set<string>();
   private tasks = new Set<Promise<void>>();
   private accepting = true;
   private retiredStorage = false;
@@ -84,13 +96,22 @@ export class ChatSession {
   private writes: Promise<void> = Promise.resolve();
   private discarding = new Set<string>();
   private turnOwners = new Map<string, { id: string; release: () => void; refused: boolean }>();
-  private discussions = new Map<string, { quote: string; composerID: string; textRevision: string }>();
+  private discussions = new Map<string, { quote: string; composerID: string; textRevision: string; anchor?: TextAnchor }>();
+  readonly profiles: ProfileTableLoader;
+  private browserDefault: ProfileChoice | null;
+  private renames = new Map<string, { id: string; text: string }>();
 
   constructor(readonly account: string, readonly history: History, readonly signal: AbortSignal, dependencies: Partial<Dependencies> = {}, journalState?: JournalState) {
     const consentKey = `gradstep.${config.environment}.${account}.cloud-ai-consent`;
     this.deps = { stream: streamAnswer, readConsent: () => { try { return localStorage.getItem(consentKey) === CONSENT_VERSION; } catch { return false; } },
       writeConsent: () => { localStorage.setItem(consentKey, CONSENT_VERSION); if (localStorage.getItem(consentKey) !== CONSENT_VERSION) throw new Error('consent_unsaved'); },
+      readDefault: () => { try { const v = JSON.parse(localStorage.getItem(DEFAULT_KEY) ?? 'null') as unknown; return isProfileChoice(v) ? { model: v.model, effort: v.effort, length: v.length } : null; } catch { return null; } },
+      writeDefault: choice => { try { localStorage.setItem(DEFAULT_KEY, JSON.stringify(choice)); } catch { /* per-browser convenience only */ } },
       storage: browserStorage, journal: null, locks: browserLocks, ...dependencies };
+    this.profiles = new ProfileTableLoader(account, signal, this.deps.fetchProfiles);
+    this.browserDefault = this.deps.readDefault();
+    // Fetched ahead of the first answer; until it arrives (or if this server predates profiles) requests stay default.
+    void this.profiles.load().then(table => { if (table) this.publish(); });
     this.journal = this.deps.journal;
     this.journalState = journalState ?? (this.journal ? 'active' : 'inactive');
     const unsubscribe = history.subscribe(() => {
@@ -101,7 +122,7 @@ export class ChatSession {
         this.publish();
       }
       for (const c of this.composers.values()) if (c.answer && c.phase === 'idle' && c.answer.every(e => history.state.events.has(history.resolve(e.id)) && !history.isPending(e.id))) {
-        c.head = history.resolve(c.answer[0].id); c.answer = null; c.liveText = ''; c.liveID = null;
+        c.head = history.resolve(c.answer[0].id); c.answer = null; c.answerTitle = undefined; c.liveText = ''; c.liveID = null;
         this.turnOwners.get(c.id)?.release(); this.turnOwners.delete(c.id);
         if (c.issue === 'storage') c.issue = null;
         this.publish();
@@ -159,7 +180,7 @@ export class ChatSession {
   }
   private blank(documentID: string | null, id: string = crypto.randomUUID()): Composer {
     return { id, documentID, conversationID: null, head: null, draft: '', revision: 0, phase: 'idle', issue: null, question: null, answer: null,
-      liveID: null, liveText: '', progress: null, credits: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
+      liveID: null, liveText: '', progress: null, credits: null, profile: null, textRevision: crypto.randomUUID(), savedRevision: 0, receipt: null,
       branchRevision: crypto.randomUUID(), acknowledgedSubmissionID: null };
   }
   private create(documentID: string | null): Composer {
@@ -179,7 +200,62 @@ export class ChatSession {
   private releaseEditor(id: string) { const held = this.editors.get(id); this.editors.delete(id); void held?.then(release => release(), () => {}); }
   private releaseEditors() { for (const id of [...this.editors.keys()]) this.releaseEditor(id); }
 
-  newChat(documentID: string | null): Composer { this.allowed(); const c = this.create(documentID); this.publish(); return c; }
+  /** `profile`: a selection action carries the choice shown in the chat pane into its new conversation. */
+  newChat(documentID: string | null, profile: ProfileChoice | null = null): Composer {
+    this.allowed(); const c = this.create(documentID); c.profile = profile ? { ...profile } : null; this.publish(); return c;
+  }
+
+  // ---------- Model, effort and length ----------
+
+  get profileTable(): ProfileTable | null { return this.profiles.table; }
+  async reloadProfiles() { await this.profiles.load(); this.publish(); }
+  /** New chats start here: this browser's choice, else the server's default (Sonnet · Low · Standard). */
+  get defaultProfile(): ProfileChoice {
+    const table = this.profiles.table, saved = this.browserDefault;
+    if (!table) return STANDARD_PROFILE;
+    if (saved && offers(table, saved)) return saved;
+    return table?.defaultChoice ?? STANDARD_PROFILE;
+  }
+  setDefaultProfile(choice: ProfileChoice) { this.browserDefault = { ...choice }; this.deps.writeDefault(this.browserDefault); this.publish(); }
+  /** The chat's current choice: one made here, else the profile its newest answer used, else the default. */
+  profileFor(c: Composer): ProfileChoice {
+    const table = this.profiles.table;
+    if (!table) return STANDARD_PROFILE;
+    const usable = (choice: ProfileChoice | null) => !!choice && (!table || offers(table, choice));
+    if (c.profile && usable(c.profile)) return c.profile;
+    const answers = this.branch(c)?.messages.filter(m => m.payload.role === 'assistant') ?? [];
+    for (const answer of [...answers].reverse()) { const used = parseProfileID(answer.payload.profile); if (used && usable(used)) return used; }
+    return this.defaultProfile;
+  }
+  setProfile(c: Composer, choice: ProfileChoice) { c.profile = { ...choice }; this.publish(); }
+
+  /** A locally submitted question keeps its exact captured choice. Other-device/legacy questions use the visible choice at Get answer. */
+  retryProfile(c: Composer): ProfileChoice {
+    if (c.question?.profile) return c.question.profile;
+    const last = this.branch(c)?.messages.at(-1), questionID = c.question?.id ?? (last?.payload.role === 'user' ? last.id : null);
+    const binding = c.requestedAnswer;
+    return binding && questionID && this.history.resolve(binding.questionID) === this.history.resolve(questionID) ? binding.choice : this.profileFor(c);
+  }
+
+  /** Whether the conversation has a topic title (generated or the reader's own). */
+  hasTopicTitle(conversationID: string | null): boolean {
+    return !!conversationID && this.history.state.revisions(conversationID).some(e => e.payload.kind === 'conversation' && e.payload.titleSource !== undefined);
+  }
+  /** Rename: a conversation revision with the reader's title (≤ 80 characters), which a generated title never replaces. */
+  async rename(conversationID: string, title: string): Promise<boolean> {
+    this.allowed();
+    if (this.retiredStorage) return false;
+    const text = cleanTopicTitle(title);
+    if (!text || !this.history.state.titledConversation(conversationID, text, RENAMED_TITLE)) return false;
+    const pending = this.renames.get(conversationID);
+    const revision = pending?.text === text ? pending : { id: crypto.randomUUID(), text };
+    this.renames.set(conversationID, revision);
+    const options: AppendOptions = { title: { ...revision, conversationID, source: RENAMED_TITLE } };
+    if (this.durable) { await this.history.commit([], options); void this.history.flush([revision.id]).catch(() => {}); }
+    else await this.history.append([], options);
+    this.renames.delete(conversationID);
+    return true;
+  }
   open(conversationID: string): Composer | null {
     this.allowed();
     const summary = this.history.state.conversationSummaries().find(c => c.id === conversationID);
@@ -191,22 +267,29 @@ export class ChatSession {
   chooseDraft(id: string) { const c = this.composers.get(id); if (c) { this.selected.set(scope(c.documentID), id); this.publish(); } return c; }
   async discardDraft(id: string) {
     const c = this.composers.get(id);
-    if (!c || busy(c) || c.answer || this.discarding.has(id) || this.retiredStorage) return;
+    if (!c || busy(c) || c.answer || this.turnOwners.has(id) || this.discarding.has(id) || this.retiredStorage) return;
     if (!this.journal) { c.draft = ''; c.revision++; c.textRevision = crypto.randomUUID(); this.publish(); return; }
     // An encrypted tombstone: no delayed checkpoint can resurrect this composer. Later typing gets a new composer ID.
     this.cancelCheckpoint(c);
     const observed = c.revision, template = { ...this.record(c) };
+    const replacement = { ...this.blank(c.documentID), conversationID: c.conversationID, head: c.head,
+      requestedAnswer: c.requestedAnswer, revision: c.requestedAnswer ? 1 : 0 };
+    if (replacement.requestedAnswer) this.claimEditor(replacement.id);
     this.discarding.add(id);
     try {
-      await this.queue(async () => { await this.editors.get(id); await this.journal!.discardDraft(c.id, observed, template); });
+      await this.queue(async () => {
+        await this.editors.get(id); await this.editors.get(replacement.id);
+        await this.journal!.discardDraft(c.id, observed, template, replacement.requestedAnswer ? this.record(replacement) : undefined);
+      });
+      this.signal.throwIfAborted();
       // Keep the original text reachable until the tombstone commits. Any edit during deletion has a new identity.
-      const replacement = { ...this.blank(c.documentID), conversationID: c.conversationID, head: c.head,
-        ...(c.revision > observed ? { draft: c.draft, revision: 1, textRevision: c.textRevision } : {}) };
+      replacement.savedRevision = replacement.revision;
+      if (c.revision > observed) Object.assign(replacement, { draft: c.draft, revision: replacement.revision + 1, textRevision: c.textRevision, anchor: c.anchor });
       this.composers.delete(c.id); this.composers.set(replacement.id, replacement);
       if (this.selected.get(scope(c.documentID)) === c.id) this.selected.set(scope(c.documentID), replacement.id);
       this.claimEditor(replacement.id); this.releaseEditor(id);
       if (replacement.draft) this.scheduleCheckpoint(replacement);
-    } catch { c.issue = 'local_save'; }
+    } catch { this.releaseEditor(replacement.id); c.issue = 'local_save'; }
     finally { this.discarding.delete(id); this.publish(); }
   }
   edit(c: Composer, text: string): boolean {
@@ -227,16 +310,22 @@ export class ChatSession {
   chooseBranch(c: Composer, head: string) { if (busy(c) || c.answer) return; c.head = head; c.branchRevision = crypto.randomUUID(); c.question = null; c.issue = null; c.revision++; this.scheduleCheckpoint(c); this.publish(); }
 
   /** Discuss prepares a device draft only; the caller reveals/focuses this composer. */
-  async discuss(documentID: string, quote: string): Promise<Composer | null> {
+  async discuss(documentID: string, quote: string, anchor?: TextAnchor): Promise<Composer | null> {
     this.allowed();
     if (this.retiredStorage) return null;
+    if (anchor !== undefined) {
+      try { validateEvent({ kind: 'position', entityID: documentID, documentID, parents: [], anchor }); }
+      catch { return null; }
+    }
     quote = boundedText(quote, 12_000);
-    const pending = this.discussions.get(documentID), retry = pending && pending.quote === quote && this.composers.get(pending.composerID);
+    const pending = this.discussions.get(documentID), sameAnchor = JSON.stringify(pending?.anchor) === JSON.stringify(anchor);
+    const retry = pending && pending.quote === quote && sameAnchor && this.composers.get(pending.composerID);
     let c = retry && retry.textRevision === pending!.textRevision ? retry : this.current(documentID);
     if (c.conversationID || busy(c) || c.answer) c = this.newChat(documentID);
-    if (!(pending?.composerID === c.id && pending.textRevision === c.textRevision && pending.quote === quote)) {
+    if (!(pending?.composerID === c.id && pending.textRevision === c.textRevision && pending.quote === quote && sameAnchor)) {
       if (!this.edit(c, `About “${quote}”: ${c.draft}`)) return null;
-      this.discussions.set(documentID, { quote, composerID: c.id, textRevision: c.textRevision });
+      c.anchor = anchor && { ...anchor };
+      this.discussions.set(documentID, { quote, composerID: c.id, textRevision: c.textRevision, anchor: c.anchor });
     }
     await this.checkpoint(c);
     if (c.issue === 'local_save') return null;
@@ -264,7 +353,8 @@ export class ChatSession {
   private record(c: Composer): StoredDraft {
     return { id: c.id, documentID: c.documentID, conversationID: c.conversationID, head: c.head, revision: c.revision, textRevision: c.textRevision,
       text: c.draft, editedAt: Date.now(), receipt: c.receipt, discarded: false,
-      branchRevision: c.branchRevision, acknowledgedSubmissionID: c.acknowledgedSubmissionID };
+      branchRevision: c.branchRevision, acknowledgedSubmissionID: c.acknowledgedSubmissionID,
+      anchor: c.anchor, requestedAnswer: c.requestedAnswer };
   }
   private scheduleCheckpoint(c: Composer) {
     if (!this.journal || this.discarding.has(c.id)) return;
@@ -309,8 +399,10 @@ export class ChatSession {
       if (c.head) c.head = map(c.head);
       if (c.question) c.question = { ...c.question, id: map(c.question.id), entries: entries(c.question.entries) };
       if (c.answer) c.answer = entries(c.answer);
+      if (c.answerTitle) c.answerTitle = { ...c.answerTitle, id: map(c.answerTitle.id) };
       if (c.receipt) c.receipt = { ...c.receipt, submissionID: map(c.receipt.submissionID), eventIDs: c.receipt.eventIDs.map(map) };
       if (c.acknowledgedSubmissionID) c.acknowledgedSubmissionID = map(c.acknowledgedSubmissionID);
+      if (c.requestedAnswer) c.requestedAnswer = { ...c.requestedAnswer, questionID: map(c.requestedAnswer.questionID) };
     }
     this.publish();
   }
@@ -337,9 +429,10 @@ export class ChatSession {
         catch (error) { release(); throw error; }
         if (!d) { release(); continue; }
         const pendingSubmission = !!d.receipt && this.history.isPending(d.receipt.submissionID);
-        if (d.discarded || (!d.text && !(d.conversationID && d.receipt))) { reclaim.push(d.id); releaseReclaimed.push(release); continue; }
+        if (d.discarded || (!d.text && !(d.conversationID && (d.receipt || d.requestedAnswer)))) { reclaim.push(d.id); releaseReclaimed.push(release); continue; }
         const c: Composer = { ...this.blank(d.documentID, d.id), conversationID: d.conversationID, head: d.head && this.history.resolve(d.head), draft: d.text,
-          revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, branchRevision: d.branchRevision,
+          revision: d.revision, savedRevision: d.revision, textRevision: d.textRevision, branchRevision: d.branchRevision, anchor: d.anchor,
+          requestedAnswer: d.requestedAnswer && { ...d.requestedAnswer, questionID: this.history.resolve(d.requestedAnswer.questionID) },
           acknowledgedSubmissionID: d.receipt && this.history.resolve(d.receipt.submissionID), receipt: d.receipt && { ...d.receipt,
             submissionID: this.history.resolve(d.receipt.submissionID), eventIDs: d.receipt.eventIDs.map(id => this.history.resolve(id)) } };
         if (pendingSubmission) c.question = { revision: -1, id: c.receipt!.submissionID, entries: [], selection: null, action: null };
@@ -400,13 +493,14 @@ export class ChatSession {
       c.conversationID = crypto.randomUUID();
       const root = crypto.randomUUID();
       entries.push({ id: root, event: { kind: 'conversation', entityID: c.conversationID, parents: [], documentID: c.documentID ?? undefined,
-        text: [...text].slice(0, 100).join(''), anchor, createdAt: at } });
+        text: [...text].slice(0, 100).join(''), anchor: anchor ?? c.anchor, createdAt: at } });
       c.head = root;
     } else c.head = branch!.head;
     const id = crypto.randomUUID();
     entries.push({ id, event: { kind: 'message', entityID: crypto.randomUUID(), parents: [c.head!], conversationID: c.conversationID,
       documentID: c.documentID ?? undefined, text, role: 'user', status: 'complete', createdAt: at } });
-    c.question = { revision, id, entries, selection, action }; c.phase = 'saving'; c.issue = null; c.credits = null;
+    const requestedAnswer = { questionID: id, choice: { ...this.profileFor(c) } };
+    c.question = { revision, id, entries, selection, action, profile: requestedAnswer.choice }; c.phase = 'saving'; c.issue = null; c.credits = null;
     this.publish();
     return this.track((async () => {
       try {
@@ -415,10 +509,11 @@ export class ChatSession {
           // captured text revision. Newer typing survives; a failure leaves the previous checkpoint and this text.
           const receipt: Receipt = { submissionID: id, eventIDs: entries.map(e => e.id), textRevision, revision, branchRevision: c.branchRevision };
           this.cancelCheckpoint(c);
-          try { await this.editors.get(c.id); await this.history.commit(entries, { draft: { ...this.record(c), head: id, receipt } }); }
+          try { await this.editors.get(c.id); await this.history.commit(entries, { draft: { ...this.record(c), head: id, receipt, requestedAnswer } }); }
           catch (error) { Object.assign(c, previous); c.question = null; throw Object.assign(error as object, { local: true }); }
           this.signal.throwIfAborted();
           c.receipt = receipt; c.acknowledgedSubmissionID = id; c.head = id;
+          c.requestedAnswer = { ...requestedAnswer, questionID: this.history.resolve(id) };
           if (c.textRevision === textRevision) this.consume(c);
           c.savedRevision = Math.max(c.savedRevision, revision);
           this.publish();
@@ -441,19 +536,31 @@ export class ChatSession {
     this.allowed();
     if (this.turnOwners.get(c.id)?.refused) return this.retryDeviceSave(c);
     if (busy(c) || this.retiredStorage) return Promise.resolve();
+    // Freeze before any history await; editing controls or a late capability response cannot change this request.
+    const capturedProfile = { ...this.retryProfile(c) };
+    if (!c.answer) {
+      if (!c.question) {
+        const branch = this.branch(c), last = branch?.messages.at(-1);
+        if (!branch?.complete || last?.payload.role !== 'user') { c.issue = 'branch_required'; this.publish(); return Promise.resolve(); }
+        c.question = { revision: -1, id: last.id, entries: [], selection: null, action: null };
+      }
+      c.question.profile ??= capturedProfile;
+      const questionID = this.history.resolve(c.question.id);
+      if (c.requestedAnswer?.questionID !== questionID) {
+        c.requestedAnswer = { questionID, choice: { ...c.question.profile } };
+        if (this.durable) { c.revision++; this.scheduleCheckpoint(c); }
+      }
+    }
     c.phase = 'saving'; c.issue = null; this.publish();
     return this.track((async () => {
       try {
         if (c.answer) {
-          await this.history.append(c.answer, this.durable ? { finishTurn: c.answer[0].id } : {});
+          await this.history.append(c.answer, { ...(this.durable ? { finishTurn: c.answer[0].id } : {}), title: c.answerTitle });
           this.turnOwners.get(c.id)?.release(); this.turnOwners.delete(c.id);
-          c.head = this.history.resolve(c.answer[0].id); c.answer = null; c.liveText = ''; c.liveID = null; c.phase = 'idle'; this.publish(); return;
+          c.head = this.history.resolve(c.answer[0].id); c.answer = null; c.answerTitle = undefined; c.liveText = ''; c.liveID = null; c.phase = 'idle'; this.publish(); return;
         }
-        if (!c.question) {
-          const branch = this.branch(c), last = branch?.messages.at(-1);
-          if (!branch?.complete || last?.payload.role !== 'user') throw new BackendError('invalid_request');
-          c.question = { revision: -1, id: last.id, entries: [], selection: null, action: null };
-        }
+        if (!c.question) throw new BackendError('invalid_request');
+        if (this.durable) { await this.checkpoint(c); if (c.issue === 'local_save') throw new BackendError('local_storage'); }
         if (c.question.entries.length) {
           const receipt = c.receipt?.submissionID === c.question.id ? c.receipt : null;
           await this.history.append(c.question.entries, this.durable && receipt ? { draft: { ...this.record(c), receipt } } : {});
@@ -488,6 +595,12 @@ export class ChatSession {
   async retireJournal() { await this.journal?.signOut(); }
 
   private async answerQuestion(c: Composer): Promise<void> {
+    if (this.starting.has(c.id) || this.streams.has(c.id)) return;
+    if (this.streams.size + this.starting.size >= 3) { c.phase = 'idle'; c.issue = 'rate_limited'; this.publish(); return; }
+    this.starting.add(c.id);
+    try { await this.runAnswer(c); } finally { this.starting.delete(c.id); }
+  }
+  private async runAnswer(c: Composer): Promise<void> {
     this.signal.throwIfAborted();
     if (!this.accepting) { c.phase = 'idle'; this.publish(); return; }
     // A question saved while storage retired stays saved; no paid request starts from this page.
@@ -497,9 +610,17 @@ export class ChatSession {
     if (!this.deps.readConsent()) { c.phase = 'consent'; this.publish(); return; }
     const branch = this.history.state.conversationBranch(c.conversationID!, questionID);
     if (!branch?.complete) { c.phase = 'idle'; c.issue = 'branch_required'; this.publish(); return; }
-    if (this.streams.size >= 3) { c.phase = 'idle'; c.issue = 'rate_limited'; this.publish(); return; }
     const question = c.question;
-    const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action);
+    const capturedProfile = question.profile;
+    if (!capturedProfile) { c.phase = 'idle'; c.issue = 'question_unsaved'; this.publish(); return; }
+    c.phase = 'saving'; this.publish();
+    // Choices and titles go only to a server that published its profile table (one that accepts them).
+    const table = await this.profiles.load();
+    if (this.signal.aborted) return;
+    if (this.retiredStorage || !this.accepting) { c.phase = 'idle'; this.publish(); return; }
+    if (table ? !offers(table, capturedProfile) : !isStandard(capturedProfile)) { c.phase = 'idle'; c.issue = 'profile_unavailable'; this.publish(); return; }
+    const request = makeRequest(crypto.randomUUID(), c.documentID, branch.messages.map(e => ({ role: e.payload.role!, text: e.payload.text! })), question.selection, question.action,
+      table ? { profile: capturedProfile, topicTitle: !this.hasTopicTitle(c.conversationID) } : {});
     const answerID = crypto.randomUUID(), entityID = crypto.randomUUID(), conversationID = c.conversationID!;
     let turn: StoredTurn | null = null, releaseTurn: (() => void) | null = null;
     if (this.durable) {
@@ -509,7 +630,7 @@ export class ChatSession {
         releaseTurn = await this.deps.locks.hold(`gradstep.turn.${answerID}`);
         const now = Date.now();
         turn = { id: answerID, entityID, composerID: c.id, conversationID, documentID: c.documentID, questionID, operationID: request.operationID,
-          requestDigest: await sha256Hex(utf8(JSON.stringify(requestBody(request)))), text: '', startedAt: now, updatedAt: now };
+          requestDigest: await sha256Hex(utf8(JSON.stringify(requestBody(request)))), requestedProfile: { ...request.profile }, text: '', startedAt: now, updatedAt: now };
         await this.journal!.beginTurn(turn);
       } catch {
         releaseTurn?.();
@@ -520,6 +641,7 @@ export class ChatSession {
     }
     const controller = cancellation([this.signal]), deadline = setTimeout(() => controller.abort(new DOMException('Deadline', 'TimeoutError')), 210_000);
     this.streams.set(c.id, controller);
+    this.starting.delete(c.id);
     c.liveID = entityID; c.liveText = ''; c.phase = 'streaming'; c.issue = null; c.progress = null; this.publish();
     let outcome: Outcome = { kind: 'failed', code: 'transport' }, diagram: { title: string; source: string } | null = null;
     let lastCheckpoint = performance.now(), lastCheckpointDate = turn?.updatedAt ?? Date.now(), checkpointing: Promise<void> = Promise.resolve(), checkpointTimer: ReturnType<typeof setTimeout> | undefined;
@@ -534,6 +656,7 @@ export class ChatSession {
       const snapshot = { ...turn, text: c.liveText, updatedAt: lastCheckpointDate };
       checkpointing = checkpointing.then(() => this.journal!.checkpointTurn(snapshot)).catch(() => { if (!this.signal.aborted) { c.issue = 'local_save'; this.publish(); } });
     };
+    let topicTitle: string | null = null, answeredBy: { model?: string; profile?: string } = {};
     try {
       for await (const event of this.deps.stream(this.account, request, controller.signal)) {
         controller.signal.throwIfAborted();
@@ -543,8 +666,9 @@ export class ChatSession {
           c.liveText = next; c.progress = null; checkpointTurn();
         } else if (event.type === 'status') c.progress = event.progress;
         else if (event.type === 'diagram') diagram = event;
+        else if (event.type === 'title') { if (request.topicTitle) topicTitle = event.text; }
         else if (event.type === 'error') { outcome = { kind: 'failed', code: event.code }; break; }
-        else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; break; }
+        else { outcome = { kind: 'completed', stopReason: event.stopReason }; c.credits = event.credits; answeredBy = { model: event.model, profile: event.profile }; break; }
         this.publish();
       }
     } catch (error) {
@@ -560,18 +684,24 @@ export class ChatSession {
     const result = resolution(outcome, c.liveText);
     c.progress = null; c.issue = result.issue; c.phase = 'finishing';
     if (result.status) {
-      const entries: Entry[] = [{ id: answerID, event: { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
-        documentID: c.documentID ?? undefined, text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() } }];
+      const answer: PrivateEvent = { kind: 'message', entityID, parents: [this.history.resolve(question.id)], conversationID,
+        documentID: c.documentID ?? undefined, text: c.liveText, role: 'assistant', status: result.status, createdAt: Date.now() };
+      // Which model and profile answered, encrypted with the answer and shown under it.
+      if (answeredBy.model) answer.model = answeredBy.model;
+      if (answeredBy.profile) answer.profile = answeredBy.profile;
+      const entries: Entry[] = [{ id: answerID, event: answer }];
       if (diagram && result.status === 'complete') entries.push({ id: crypto.randomUUID(), event: { kind: 'diagram', entityID: crypto.randomUUID(), parents: [],
         conversationID, text: encodeDiagram({ ...diagram, messageID: entityID }), createdAt: Date.now() } });
+      // A topic title is kept with a complete answer, in the same batch, unless the chat got one meanwhile (a rename wins).
+      c.answerTitle = topicTitle && result.status === 'complete' ? { id: crypto.randomUUID(), conversationID, text: cleanTopicTitle(topicTitle) ?? '', source: GENERATED_TITLE } : undefined;
       c.answer = entries; this.publish();
       if (this.durable) {
         // The final or interrupted answer enters the outbox in the same transaction that retires its turn.
-        try { await this.history.commit(entries, { finishTurn: answerID }); c.answer = null; c.head = this.history.resolve(answerID); }
+        try { await this.history.commit(entries, { finishTurn: answerID, title: c.answerTitle }); c.answer = null; c.head = this.history.resolve(answerID); }
         catch { c.issue = 'storage'; }
         if (!c.answer) void this.history.flush(entries.map(e => e.id)).catch(() => {});
       } else {
-        try { await this.history.append(entries); c.answer = null; c.head = answerID; } catch { c.issue = 'storage'; }
+        try { await this.history.append(entries, { title: c.answerTitle }); c.answer = null; c.head = answerID; } catch { c.issue = 'storage'; }
       }
     } else if (turn) {
       try { await this.journal!.dropTurn(answerID); }
@@ -583,7 +713,7 @@ export class ChatSession {
     }
     if (c.answer && releaseTurn) { this.turnOwners.set(c.id, { id: answerID, release: releaseTurn, refused: false }); releaseTurn = null; }
     releaseTurn?.();
-    if (!c.answer) { c.liveText = ''; c.liveID = null; }
+    if (!c.answer) { c.liveText = ''; c.liveID = null; c.answerTitle = undefined; }
     c.phase = 'idle'; this.publish(); void this.refreshBalance();
   }
 }

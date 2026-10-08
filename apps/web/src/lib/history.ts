@@ -19,7 +19,11 @@ const PAGE = 50, PAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_HISTORY_EVENTS = 20_000, MAX_HISTORY_BYTES = 64 * 1024 * 1024;
 interface Row { id: string; device_id: string; cursor: number; epoch: number; format: number; ciphertext: string; ciphertext_sha256: string }
 interface Page { events: Row[]; next_cursor: number; has_more: boolean }
-export interface AppendOptions { draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn }
+export interface AppendOptions {
+  draft?: StoredDraft; finishTurn?: string; recoveryTurn?: StoredTurn;
+  /** Planned against the latest journal revision, so a delayed generated title cannot replace a rename. */
+  title?: { id: string; conversationID: string; text: string; source: 'generated' | 'renamed' };
+}
 
 export type HistoryStatus = 'loading' | 'ready' | 'error';
 const refreshable = (error: unknown) => (error instanceof WireError && error.code === 'missing_key')
@@ -180,8 +184,21 @@ export class History {
       this.signal.throwIfAborted();
       await this.journal?.refresh();
       const expectedRevision = this.journal?.revision;
-      if (!entries.length || entries.length > 4 || entries.some(e => !isUUID(e.id) || e.id !== e.id.toLowerCase()) || new Set(entries.map(e => e.id)).size !== entries.length) throw new BackendError('invalid_request');
-      const normalized = entries.map(({ id, event }) => ({ id, event: { ...event, parents: event.parents.map(p => this.resolve(p)) } }));
+      const memoryTitles = options.title && this.state.revisions(options.title.conversationID).map(e => e.id).join(':');
+      const planned = [...entries];
+      if (options.title) {
+        const { id, conversationID, text, source } = options.title;
+        const saved = this.state.events.get(this.resolve(id));
+        if (saved) {
+          if (saved.payload.kind !== 'conversation' || saved.payload.entityID !== conversationID || saved.payload.text !== text || saved.payload.titleSource !== source) throw new BackendError('event_conflict');
+          planned.push({ id, event: saved.payload });
+        } else if (source === 'renamed' || !this.state.revisions(conversationID).some(e => e.payload.titleSource !== undefined)) {
+          const event = this.state.titledConversation(conversationID, text, source);
+          if (event) planned.push({ id, event });
+        }
+      }
+      if (!planned.length || planned.length > 4 || planned.some(e => !isUUID(e.id) || e.id !== e.id.toLowerCase()) || new Set(planned.map(e => e.id)).size !== planned.length) throw new BackendError('invalid_request');
+      const normalized = planned.map(({ id, event }) => ({ id, event: { ...event, parents: event.parents.map(p => this.resolve(p)) } }));
       const fresh = normalized.filter(({ id, event }) => {
         const old = this.state.events.get(this.state.resolve(id));
         if (!old) return true;
@@ -193,10 +210,16 @@ export class History {
       this.state.check(applied);
       const envelopes = await Promise.all(fresh.map(({ id, event }) => sealEvent(encodeEvent(event), id, this.deviceID, this.ring)));
       this.signal.throwIfAborted();
+      // A deliberately deferred version-1 tab has no journal CAS. A pull can still publish a rename while sealing.
+      if (!this.journal && options.title && memoryTitles !== this.state.revisions(options.title.conversationID).map(e => e.id).join(':')) {
+        if (attempt < 2) continue;
+        throw new BackendError('history_unsaved');
+      }
       if ([...this.pending, ...envelopes].reduce((n, e) => n + e.ciphertext.length, 0) > 8 * 1024 * 1024) throw new BackendError('history_capacity');
       const sizes = this.admit(envelopes.map(e => ({ id: e.id, bytes: e.ciphertext.length })));
       if (this.journal) {
         const draft = options.draft && { ...options.draft, head: options.draft.head && this.resolve(options.draft.head),
+          requestedAnswer: options.draft.requestedAnswer && { ...options.draft.requestedAnswer, questionID: this.resolve(options.draft.requestedAnswer.questionID) },
           acknowledgedSubmissionID: options.draft.acknowledgedSubmissionID && this.resolve(options.draft.acknowledgedSubmissionID),
           receipt: options.draft.receipt && { ...options.draft.receipt, submissionID: this.resolve(options.draft.receipt.submissionID), eventIDs: options.draft.receipt.eventIDs.map(id => this.resolve(id)) } };
         try { await this.journal.appendLocal(envelopes, { ...options, draft, expectedRevision }); }
@@ -222,7 +245,7 @@ export class History {
   /** Commits locally, then resolves when the server has every entry (after any rebase). */
   async append(entries: { id: string; event: PrivateEvent }[], options: AppendOptions = {}): Promise<void> {
     await this.commit(entries, options);
-    await this.flush(entries.map(e => e.id));
+    await this.flush([...entries.map(e => e.id), ...(options.title ? [options.title.id] : [])]);
   }
   /** Syncs and checks that these events (by their current IDs) were acknowledged. */
   async flush(ids: string[]): Promise<void> {

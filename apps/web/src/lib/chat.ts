@@ -3,19 +3,27 @@
 // wording, and what an outcome keeps (complete, interrupted, or nothing). The request carries plaintext only to the
 // chat function; the answer comes back here and is sealed into encrypted history.
 import { BackendError, functionStream } from './backend';
-import type { Role, TurnStatus } from './events';
+import { isStandard, STANDARD_PROFILE, type ProfileChoice } from './chat-profiles';
+import { cleanTopicTitle, MAX_LABEL_BYTES, type Role, type TurnStatus } from './events';
 
 export const CONSENT_VERSION = 'cloud-ai-v2';
 export const MAX_TURNS = 60, MAX_MESSAGE_BYTES = 200_000, MAX_SELECTION_SCALARS = 4_000, MAX_STREAM_BYTES = 2 * 1024 * 1024;
 export type ChatAction = 'ingest' | 'related' | 'relevance' | 'diagram_fix';
 export interface ChatTurn { role: Role; text: string }
-export interface ChatRequest { operationID: string; documentID: string | null; turns: ChatTurn[]; selection: string | null; action: ChatAction | null }
+export interface ChatRequest {
+  operationID: string; documentID: string | null; turns: ChatTurn[]; selection: string | null; action: ChatAction | null;
+  /** Sent only when not the standard profile, so a default request stays exactly what servers before profiles accept. */
+  profile: ProfileChoice;
+  /** Ask the server for a topic title alongside the answer (server 2026-10-08). */
+  topicTitle: boolean;
+}
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 const scalars = (s: string, limit: number) => { const all = [...s]; return all.length > limit ? all.slice(0, limit).join('') : s; };
 
 /** The newest turns that fit the server bounds, starting and ending with a user turn (ChatGenerationRequest.make). */
-export function makeRequest(operationID: string, documentID: string | null, transcript: ChatTurn[], selection: string | null, action: ChatAction | null = null): ChatRequest {
+export function makeRequest(operationID: string, documentID: string | null, transcript: ChatTurn[], selection: string | null, action: ChatAction | null = null,
+  options: { profile?: ProfileChoice; topicTitle?: boolean } = {}): ChatRequest {
   const usable = transcript.filter(t => t.text.trim());
   const last = usable.at(-1);
   if (!last || last.role !== 'user') throw new BackendError('invalid_request');
@@ -31,7 +39,8 @@ export function makeRequest(operationID: string, documentID: string | null, tran
   while (kept.length && kept[0].role !== 'user') kept.shift();
   const quote = selection === null ? null : scalars(selection, MAX_SELECTION_SCALARS);
   const kept_quote = quote && quote.trim() ? quote : null;
-  return { operationID, documentID, turns: kept, selection: kept_quote, action: kept_quote ? action : null };
+  return { operationID, documentID, turns: kept, selection: kept_quote, action: kept_quote ? action : null,
+    profile: { ...(action === 'diagram_fix' ? STANDARD_PROFILE : options.profile ?? STANDARD_PROFILE) }, topicTitle: action !== 'diagram_fix' && options.topicTitle === true };
 }
 
 export function requestBody(r: ChatRequest): Record<string, unknown> {
@@ -41,6 +50,8 @@ export function requestBody(r: ChatRequest): Record<string, unknown> {
   if (r.selection) body.selection = { quote: r.selection };
   if (r.action) body.action = r.action;
   if (r.action === 'ingest') body.capabilities = ['web_import']; // Add paper may add an open-access web paper
+  if (r.action !== 'diagram_fix' && !isStandard(r.profile)) body.profile = { model: r.profile.model, effort: r.profile.effort, length: r.profile.length };
+  if (r.action !== 'diagram_fix' && r.topicTitle) body.topic_title = true;
   return body;
 }
 
@@ -50,7 +61,15 @@ export type ProgressKind = 'searching' | 'reading' | 'finding_paper' | 'adding_p
 export interface Progress { kind: ProgressKind; query?: string }
 export type StreamEvent =
   | { type: 'delta'; text: string } | { type: 'diagram'; title: string; source: string } | { type: 'status'; progress: Progress }
-  | { type: 'done'; stopReason: string; credits: number } | { type: 'error'; code: string };
+  /** The conversation's topic title (asked for with topicTitle), sent before `done`. */
+  | { type: 'title'; text: string }
+  /** `model`/`profile`: which model and profile answered (servers from 2026-10-08). */
+  | { type: 'done'; stopReason: string; credits: number; model?: string; profile?: string } | { type: 'error'; code: string };
+
+/** A label from `done` (ChatSSEParser.label): a bounded plain identifier, else dropped (never fatal). */
+export function streamLabel(value: unknown): string | undefined {
+  return typeof value === 'string' && value && new TextEncoder().encode(value).length <= MAX_LABEL_BYTES && /^[A-Za-z0-9._-]+$/.test(value) ? value : undefined;
+}
 
 export function progressText(p: Progress): string {
   switch (p.kind) {
@@ -125,8 +144,19 @@ export class SSEParser {
         const query = kind === 'searching' && typeof v?.query === 'string' ? v.query.replace(/[\u0000-\u001f\u007f]/g, ' ').split(/\s+/).join(' ').trim().slice(0, 200) : '';
         return { type: 'status', progress: query ? { kind, query } : { kind } };
       }
-      case 'done': return typeof v?.stop_reason === 'string' && Number.isSafeInteger(v.credits) && (v.credits as number) >= 0
-        ? { type: 'done', stopReason: v.stop_reason, credits: v.credits as number } : bad();
+      case 'title': {
+        // A title that isn't usable is dropped; the answer is unaffected.
+        const title = typeof v?.text === 'string' ? cleanTopicTitle(v.text) : null;
+        return title ? { type: 'title', text: title } : null;
+      }
+      case 'done': {
+        if (!(typeof v?.stop_reason === 'string' && Number.isSafeInteger(v.credits) && (v.credits as number) >= 0)) return bad();
+        const done: Extract<StreamEvent, { type: 'done' }> = { type: 'done', stopReason: v.stop_reason, credits: v.credits as number };
+        const model = streamLabel(v.model), profile = streamLabel(v.profile);
+        if (model) done.model = model;
+        if (profile) done.profile = profile;
+        return done;
+      }
       case 'error': return typeof v?.code === 'string' && v.code.length <= 64 ? { type: 'error', code: v.code } : bad();
       default: return null;
     }
@@ -169,6 +199,7 @@ export function failureText(code: string): string {
     case 'storage': return 'The answer couldn’t be saved to your encrypted history. Try again.';
     case 'local_save': return 'This edit couldn’t be saved on this device. Keep this tab open and copy your text, or try again after freeing browser storage.';
     case 'question_unsaved': return 'Your question couldn’t be saved, so no answer was requested. Try again.';
+    case 'profile_unavailable': return 'The saved answer settings aren’t available right now. No answer was requested. Retry loading the options, or start a new question with the available settings.';
     case 'storage_retired': return 'No answer was requested: Gradstep was updated in another tab. Your question is saved; continue in the updated tab.';
     case 'insufficient_credits': return 'Not enough credits for this answer. Your question is saved. Credits can be added in Gradstep on iPhone, iPad or Mac.';
     case 'platform_budget_exhausted': return 'AI answers are paused right now. Your papers and saved chats still work.';

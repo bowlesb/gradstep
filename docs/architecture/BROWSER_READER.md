@@ -523,6 +523,21 @@ The existing right panel uses unchanged wire/RPC contracts in [Chat](CHAT.md) an
 
 ### Bounds, durability and remaining gaps
 
+The local profile/title candidate ports the reviewed shared chat contract: the composer offers
+model, effort and length from the bounded `chat-profiles-v1` table, with server-provided credit
+estimates, a per-browser default, Reset and Retry loading options. Answer labels retain the
+actual serving model/profile; generated titles and Rename use encrypted conversation revisions.
+The requested choice is captured at Send/Get answer and kept in the local sealed journal through
+consent, edits, fresh-ID rebase and reload. It is separate from cloud serving metadata. A delayed
+generated title cannot overwrite a locally known concurrent rename. Discuss retains its passage
+anchor in the sealed draft and on the root created by Send.
+
+Until a server publishes the supported table, the visible offered request remains Sonnet · Low ·
+Standard and omits `profile`/`topic_title`, preserving the older server contract. A previously
+captured nondefault choice is refused if the table becomes unavailable, rather than silently
+requesting a different profile. This client work does not deploy migration 047 or the new chat
+function, and local fixture checks do not establish hosted pricing or provider behavior.
+
 In the deployed milestone-2 build and explicitly deferred version-1 profiles, history is **memory-only**:
 20,000 retained events / 64 MiB ciphertext, failing visibly at the
 bound instead of treating a partial pull as a complete history. Pending events are capped at 128 / 8 MiB.
