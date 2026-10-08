@@ -146,7 +146,11 @@ Enter each command only after the previous phase succeeds:
    and HIT. There are no new descriptor attempts or hidden token refreshes.
 3. Apply the separately reviewed issuer ACL migration and bounded policy externally.
    Enter `fenced` to prove actual old-RPC denial, legacy HTTP 426 and fresh bounded
-   delivery; the runner records T0 after those proofs and a **1,330-second** horizon.
+   delivery. Its existing tiny-member grant is requested twice concurrently: exactly
+   one response must have the verified bytes, one must report consumed, and the
+   account's redemption count/authorized bytes must rise by exactly one member.
+   No extra descriptor is issued. The runner records T0 after those proofs and a
+   **1,330-second** horizon.
 4. After `retire_after`, enter `plan-purge`. It pages the union of all historical
    inventory paths and the current physical reader namespace, including deleted,
    superseded and absent historical objects. A stable count/fingerprint before and
@@ -178,3 +182,26 @@ per-object successful purge stream. Member paths and signed URLs are represented
 only by SHA-256; no tokens, credentials, URL query strings or server error bodies are
 written. A screenshot/browser check is a separate UI task; this runner proves the
 transport and accounting boundary.
+
+### Local browser proof using those exact bytes (planned)
+
+After complete helper verification the process retains only `renderBundle`:
+manifest bytes/digest and a path-to-bytes map, at most 1 MiB plus 64 KiB manifest.
+It contains no signed URL, grant or account token and is cleared during cleanup.
+This enables a separate **local-only** rendering command without another hosted
+descriptor/member read. The command itself is not implemented or claimed tested.
+
+The small harness should build a temporary entry with the existing Vite reader
+plugin, import the production `verifyBundle` and `frameDocument`, and receive that
+memory payload through Playwright. Re-run browser manifest/provenance/image checks;
+never manufacture a `VerifiedBundle` or replace the renderer. Mount its document in
+the same `sandbox="allow-scripts"` iframe and production frame CSP. Serve only from
+a fresh `127.0.0.1` listener; reject every browser request outside that exact origin,
+block service workers, and give the harness no session or Supabase credentials.
+Close browser/server in `finally`.
+
+Check bridge-ready, real paper text, expected equation/figure counts, nonzero MathML
+layout, loaded local images, and the existing selection bridge on a real paragraph.
+Save light/dark viewport screenshots and finite metrics below the safe run directory.
+This proves the hosted bounded bytes render through the current web frame; it does
+not prove hosted sign-in, library navigation, native rendering or global CDN edges.

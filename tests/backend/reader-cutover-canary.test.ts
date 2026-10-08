@@ -179,3 +179,58 @@ test('interrupt blocks further ordinary requests while preserving the cleanup ch
   assert.equal(sent, 0);
   await run.http(`${origin}/functions/v1/account-delete`, { method: 'POST', cleanup: true }); assert.equal(sent, 1);
 });
+
+test('fenced first redemption overlaps both sends and requires exactly one download, refusal and accounting increment', { timeout: 1000 }, async () => {
+  const { run, events } = canary(); const bytes = Buffer.from('tiny verified body');
+  const member = { url: new URL(`${origin}/functions/v1/reader-member?grant=${'a'.repeat(64)}&member=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`),
+    bytes: bytes.length, sha256: digest(bytes.toString()) };
+  run.owner = {}; run.token = async () => 'private-token'; let snapshots = 0, calls = 0, release: () => void;
+  run.redemptionSnapshot = async () => snapshots++ ? { n: '4', bytes: String(100 + bytes.length) } : { n: '3', bytes: '100' };
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  run.http = async (url: string) => {
+    assert.equal(url, member.url.href); const ordinal = calls++; if (calls === 2) release();
+    await barrier; // A sequential implementation would time out instead of passing.
+    return ordinal === 0 ? { bytes, response: new Response(bytes, { headers: { 'content-length': String(bytes.length),
+      'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } }) }
+      : { bytes: Buffer.from('{"code":"reader_grant_consumed"}'), response: new Response(null, { status: 409 }) };
+  };
+  await run.raceMember(member); assert.equal(calls, 2); assert.equal(snapshots, 2);
+  assert.equal(events.at(-1).new_redemptions, 1); assert.equal(events.at(-1).authorized_byte_delta, bytes.length);
+  assert.doesNotMatch(JSON.stringify(events), /grant=|private-token|reader-member/);
+});
+
+test('first-redemption race rejects double success and a duplicate ledger charge', async () => {
+  const bytes = Buffer.from('tiny'), member = { url: new URL(`${origin}/functions/v1/reader-member?grant=secret`), bytes: bytes.length, sha256: digest('tiny') };
+  const success = () => ({ bytes, response: new Response(bytes, { headers: { 'content-length': '4',
+    'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } }) });
+  for (const doubleSuccess of [true, false]) {
+    const { run } = canary(); run.owner = {}; run.token = async () => 'private'; let calls = 0, snapshots = 0;
+    run.redemptionSnapshot = async () => snapshots++ ? { n: '2', bytes: '8' } : { n: '0', bytes: '0' };
+    run.http = async () => doubleSuccess || calls++ === 0 ? success()
+      : { bytes: Buffer.from('{"code":"reader_grant_consumed"}'), response: new Response(null, { status: 409 }) };
+    await assert.rejects(run.raceMember(member), doubleSuccess ? /first_redemption_race_outcome/ : /first_redemption_race_accounting/);
+  }
+});
+
+test('fully verified bytes are retained for local rendering without delivery URLs or credentials', async () => {
+  const { run } = canary(); run.owner = {}; run.token = async () => 'private-user-token';
+  run.item = { id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', document_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', artifact_id: 'cccccccc-cccc-cccc-cccc-cccccccccccc' };
+  const bytes = Buffer.from('<main><p>Verified paper</p><math><mi>x</mi></math></main>');
+  const member = { path: 'index.html', bytes: bytes.length, sha256: digest(bytes.toString()), media_type: 'text/html' };
+  const manifest = Buffer.from(JSON.stringify({ format: 'reader-bundle-v1', members: [member] }));
+  run.paper = { bundle_bytes: bytes.length, manifest_sha256: digest(manifest.toString()) };
+  const url = `${origin}/functions/v1/reader-member?grant=${'a'.repeat(64)}&member=dddddddd-dddd-dddd-dddd-dddddddddddd`;
+  const descriptor = { item_id: run.item.id, document_id: run.item.document_id, artifact_id: run.item.artifact_id,
+    transport: 'bounded-v1', renderer_version: 'timestep-mathpix-mathml-v1', manifest: manifest.toString('base64'),
+    manifest_sha256: run.paper.manifest_sha256, members: [{ ...member, url }] };
+  run.http = async (request: string) => request.includes('/reader-artifact?')
+    ? { bytes: Buffer.from(JSON.stringify(descriptor)), response: Response.json(descriptor) }
+    : { bytes, response: new Response(bytes, { headers: { 'content-type': 'text/plain', 'content-length': String(bytes.length),
+      'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' } }) };
+  await run.fullBundle('fixture_bounded');
+  assert.deepEqual(Object.keys(run.renderBundle).sort(), ['contents', 'manifestBytes', 'manifestSHA256']);
+  assert.deepEqual([...run.renderBundle.contents.keys()], ['index.html']);
+  assert.deepEqual(run.renderBundle.contents.get('index.html'), bytes); assert.deepEqual(run.renderBundle.manifestBytes, manifest);
+  assert.doesNotMatch(JSON.stringify(run.renderBundle), /grant=|private-user-token|reader-member/);
+  await run.cleanup(); assert.equal(run.renderBundle, undefined);
+});
