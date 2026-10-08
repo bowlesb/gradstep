@@ -128,6 +128,21 @@ removed executor work) is retained below where useful and in git history.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Ownership split and browser durability handover — 2026-10-08
+
+- **Ownership:** at the owner's direction, Codex owns the web app (`apps/web`) and Mac-specific work. Claude owns
+  iPhone/iPad, the backend and the shared native views. Server contracts for the web versions of today's features
+  are documented in CHAT.md, PAPER_PODCASTS.md, PERSONALIZED_FEED.md and READER_RENDERER.md as each feature merges.
+- **Browser durability, compatibility-only checkpoint:** merged to main (`76ad197`, status note `1779caa`); not
+  deployed. When Gradstep updates in another tab, this tab finishes the writes it started, stops active answers
+  (saving the partial text as interrupted), keeps unsent text visible to copy and explains what to close or reload.
+  IndexedDB stays at version 1; there is no service worker.
+  - Tests: web 199/199 unit tests; three two-tab Playwright journeys; build passes.
+  - **Nothing new survives a reload yet.**
+- **Gate 1 draft:** on branch `wip/browser-journal-gate1` (`5f47f5e`, `7fd85c8`). It is not wired into the app and
+  has no tests of its own. It is for Codex to review or discard, not gate-1 evidence.
+- **Pitfall:** the Playwright ports 54329 and 4317 are hard-coded, so parallel worktree runs collide.
+
 ## Codex worktrees retired — 2026-10-08
 
 The owner confirmed Codex had stopped. All 14 `codex/*` branches were checked against main:
