@@ -9,8 +9,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { createHandler, HARD_RUN_LIMIT_MS, runInWorker, sameSecret, RunFailure } from '../../services/pipeline-worker/server.ts';
 
 const secret = 's'.repeat(40);
-async function serve(run?: Parameters<typeof createHandler>[0]): Promise<{ server: Server; url: string }> {
-  const handle = createHandler(run);
+async function serve(run?: Parameters<typeof createHandler>[0], options: Parameters<typeof createHandler>[1] = { maintenance: false }): Promise<{ server: Server; url: string }> {
+  const handle = createHandler(run, options);
   const server = createServer((request, response) => { void handle(request, response, secret); });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
@@ -29,6 +29,33 @@ test('the Cloud Run worker answers health checks and refuses calls without the p
   } finally { server.close(); }
   assert.ok(sameSecret(secret, secret));
   assert.ok(!sameSecret(secret, secret.slice(1)));
+});
+
+test('maintenance is healthy but inactive and cannot start any work, including with valid credentials', async () => {
+  let started = 0;
+  for (const options of [{ maintenance: true, revision: 'fixture-maintenance' }, {}]) {
+    // Capture the default without depending on the invoking shell's active switch.
+    const previous = process.env.PIPELINE_MAINTENANCE;
+    delete process.env.PIPELINE_MAINTENANCE;
+    const serving = serve(async () => { started++; throw new Error('must never run'); }, options);
+    if (previous !== undefined) process.env.PIPELINE_MAINTENANCE = previous;
+    const { server, url } = await serving;
+    try {
+      const health = await (await fetch(`${url}/health`)).json();
+      assert.equal(health.ok, true); assert.equal(health.mode, 'maintenance');
+      if ('revision' in options) assert.equal(health.revision, 'fixture-maintenance');
+      assert.equal((await fetch(url, { method: 'POST' })).status, 401);
+      for (let n = 0; n < 2; n++) {
+        const response = await fetch(url, { method: 'POST', headers: { 'x-pipeline-secret': secret } });
+        assert.equal(response.status, 503);
+        assert.deepEqual(await response.json(), { code: 'maintenance', accepted: false });
+      }
+      assert.equal(started, 0, 'no pipeline, tag, deletion or renderer thread starts during maintenance');
+    } finally { server.close(); }
+  }
+  const { server, url } = await serve(async () => ({ processed: 0, ms: 0 }), { maintenance: false, revision: 'fixture-active' });
+  try { assert.deepEqual(await (await fetch(`${url}/health`)).json(), { ok: true, mode: 'active', revision: 'fixture-active' }); }
+  finally { server.close(); }
 });
 
 test('authorized HTTP work stays awaited and overlapping wakeups start no additional run', async () => {

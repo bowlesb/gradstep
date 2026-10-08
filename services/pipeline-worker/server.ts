@@ -53,7 +53,13 @@ export function runInWorker(options: { url?: URL; timeoutMs?: number } = {}): Pr
 }
 
 /** One independent handler per server; one in-flight run per instance. */
-export function createHandler(run: () => Promise<RunResult> = runInWorker) {
+export function createHandler(run: () => Promise<RunResult> = runInWorker,
+  options: { maintenance?: boolean; revision?: string | null } = {}) {
+  // A deployment must explicitly activate this revision. An absent or misspelled
+  // setting fails closed, before any thread, deletion sweep, tag or import work.
+  const maintenance = options.maintenance ?? process.env.PIPELINE_MAINTENANCE !== 'false';
+  const suppliedRevision = options.revision ?? process.env.K_REVISION ?? null;
+  const revision = suppliedRevision && /^[a-z][a-z0-9-]{0,62}$/.test(suppliedRevision) ? suppliedRevision : null;
   let running: Promise<RunResult> | null = null;
   return async function handle(request: IncomingMessage, response: ServerResponse, secret = process.env.PIPELINE_SECRET): Promise<void> {
     const send = (status: number, body: unknown) => {
@@ -61,10 +67,11 @@ export function createHandler(run: () => Promise<RunResult> = runInWorker) {
       response.end(JSON.stringify(body));
     };
     request.resume();
-    if (request.method === 'GET' && request.url === '/health') return send(200, { ok: true });
+    if (request.method === 'GET' && request.url === '/health') return send(200, { ok: true, mode: maintenance ? 'maintenance' : 'active', revision });
     if (request.method !== 'POST') return send(405, { code: 'method_unavailable' });
     const given = request.headers['x-pipeline-secret'];
     if (!secret || secret.length < 32 || typeof given !== 'string' || !sameSecret(given, secret)) return send(401, { code: 'unauthorized' });
+    if (maintenance) return send(503, { code: 'maintenance', accepted: false });
     if (running) return send(202, { accepted: true, busy: true });
     // Promise.resolve also gives a synchronous constructor error the same bounded failure path.
     running = Promise.resolve().then(run);

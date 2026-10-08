@@ -38,8 +38,10 @@ run; health checks, invalid methods, unauthorized requests and overlapping wakeu
 This boundary also covers account-deletion and tag projection loops, whose per-request network timeouts did not
 previously establish an overall run limit. Expensive renderer imports live in the worker, not the HTTP process.
 
-Deployment will explicitly select `--cpu-throttling`, zero minimum instances, and a maximum of three at both
-service and revision scope, then read back the configuration. The one-minute scheduler remains a recovery wakeup;
+Deployment explicitly selects `--cpu-throttling`, zero minimum instances, and a maximum of three at both
+service and revision scope, then reads back the configuration. The billing-flag correction reached staging in
+`3e28a55`; the bounded thread lifecycle and maintenance/activation controls described here remain local pending
+the coordinated spending-control rollout. The one-minute scheduler remains a recovery wakeup;
 it is not permission to run outside the HTTP request. The pg_net wakeup callers have short client deadlines, and
 their timeout does not establish that a pipeline run failed. Google documents that HTTP/1.1 client disconnects
 are not propagated to the container; the server still awaits the run. Cloud Run's own timeout is the upper bound
@@ -53,6 +55,12 @@ The first deployment must wait for the spending-control backend changes that pre
 upload liability. Record the new revision, billing mode, limits, timeout and measured allocation after cutover.
 No live change has been made by this implementation branch.
 
+Read-only inspection at **2026-10-08 00:11:16 UTC** observed revision `gradstep-pipeline-00007-j5l`,
+request-based CPU, revision maximum 3, but **service maximum 20** and no maintenance switch. This is the observed
+older configuration, not the activation target. The allowlisted report is
+`.artifacts/pipeline-readiness-schema-20261007.json`; it verifies API/image-digest response shapes, not an invoice
+or a successful cutover.
+
 - **Supabase stays the system of record and the queue.** `pipeline_papers` rows with fenced leases are the queue;
   pg_cron + pg_net call the worker every minute with the pipeline secret, as today.
 - **The worker moves to Cloud Run** (`gradstep-pipeline`): the same `runPipeline` code under Node 24 (the shared
@@ -64,9 +72,153 @@ No live change has been made by this implementation branch.
   maximum), hashed and counted from that buffer, and uploaded from it.
 - **Cost:** the original $0–2/month estimate was unsupported by the deployed instance-based billing mode.
   The [dated infrastructure inspection](../reviews/PIPELINE_SPENDING_EVIDENCE_20261007.md) measured 22.49 aggregate
-  billable instance-hours in a 24-hour window; no invoice was retrieved. Request-based billing is implemented on
-  the spending-controls branch and still needs a coordinated cutover and measured follow-up. See
+  billable instance-hours in a 24-hour window; no invoice was retrieved. The request-based billing correction was
+  deployed separately; bounded thread hardening still needs a coordinated cutover and measured follow-up. See
   [operations](OPERATIONS_AND_BILLING.md#fixed-commitments) for the unchanged budget and fixed commitments.
+
+### Deferred deployment and explicit activation (local, 2026-10-07)
+
+The [spending rollout](SPENDING_CONTROLS.md) requires a maintenance interval. Installing code, changing policy,
+and enabling work are separate operations:
+
+- `deploy-staging.py staging --defer-activation` deploys the selected Edge bundles without modifying the
+  pipeline Vault URL/secret or schedule and without workflow checks. It requires the existing pipeline secret
+  and refuses secret rotation. Use `--skip-migrations --functions chat add-reference` for the admitted Edge
+  bundles before 034, after the operator has paused work. A `store-sync` deploy still requires 038's actual
+  active purchase-observation cleanup job. `--skip-checks` alone does **not** defer activation.
+- `deploy-pipeline-worker.py deploy --project gradstep --defer-activation` installs
+  `PIPELINE_MAINTENANCE=true`, verifies the resulting revision/configuration/health, and skips import retries
+  and workflow checks. Authenticated POSTs return 503 before a thread, tag, deletion, renderer or import starts.
+  Missing or misspelled activation values also select maintenance. GET `/health` reports the exact revision
+  and `mode: maintenance`; this means the process can answer health, not that work is enabled.
+  Each secret is bound to the numeric version returned by its creation, rather than `latest`; missing or
+  ambiguous creation acknowledgements stop deployment before building/routing the revision. Activation checks
+  all six dedicated references and pinned versions. An image digest and service ETag alone cannot freeze a
+  mutable secret alias. [Cloud Run secret versions](https://docs.cloud.google.com/run/docs/configuring/services/secrets).
+- `cutover --url https://gradstep-pipeline-885355087025.us-west1.run.app --defer-activation` verifies maintenance
+  health and changes only the Vault URL. It does not disable an already enabled scheduler or old revision.
+  The operator must preserve the paused state throughout the cutover.
+- Normal deploy, retry and workflow-check commands refuse a maintenance worker. A normal worker deploy also
+  refuses a legacy revision without an explicit active switch, so an ordinary deployment cannot accidentally
+  perform the first activation.
+
+Local tests exercise an absent `worker_provider_attempt_begin` RPC (PostgREST `PGRST202`) after an otherwise
+successful legacy reservation: Anthropic, chat search, ingest lookup and reference lookup send no provider
+request. Already warm **admitted** adapters recheck every subsequent attempt; native-search fallback is refused
+before transport even if offered by a caller. These results do not protect an already running **old bundle**
+that never called admission. Every old paid route, including the unscheduled legacy `paper-worker`, must be
+covered by the retirement evidence below. No test used a paid provider.
+
+The read-only report is produced after migrations 034–038 and asset reconciliation/enforcement:
+
+```sh
+python3 scripts/deploy-pipeline-worker.py readiness --project gradstep \
+  --expected-revision gradstep-pipeline-REVISION \
+  --output .artifacts/rollout-evidence/readiness.json
+```
+
+It verifies the dedicated project/service/region, exact paused revision, immutable image digest, service and
+revision limits, sole 100% traffic target, maintenance health, immutable migration prefix, paused budget/pipeline/
+tag policies, disabled native search, purchase cleanup and reconciled asset inventory. It reports unresolved
+provider liabilities without clearing them. Pipeline claims, legacy open chat operations, unresolved asset
+writes or an active inventory scan block activation. A nonzero retained provider liability can be valid, but its
+attribution and reconciliation must be reviewed in the evidence; an empty queue is never shutdown proof.
+Legacy/dual reader delivery remains allowed for old clients and is explicitly reported as replayable signed-URL
+delivery, not a fully bounded transfer guarantee.
+
+### Evidence that old executions ended
+
+`readiness` does not certify remote process termination. The following are supported operator evidence paths;
+none are executed by deployment tooling. Keep timestamped, allowlisted metadata under
+`.artifacts/rollout-evidence/`. Exclude credentials, raw environment, user prompts, request bodies and signed URLs.
+
+**Cloud Run:** capture the complete old revision list before routing changes, then capture service traffic after
+the maintenance revision receives all traffic. Remove old revision tags as well as weighted traffic; a tag is a
+separate invocation path. Read-only inventory commands can use:
+
+```sh
+gcloud run revisions list --project gradstep --region us-west1 --service gradstep-pipeline \
+  --format='json(metadata.name,metadata.uid,status.conditions,status.observedGeneration)'
+gcloud run services describe gradstep-pipeline --project gradstep --region us-west1 \
+  --format='json(metadata.uid,metadata.generation,status.observedGeneration,status.traffic,spec.traffic)'
+```
+
+For **every** old revision, retain its terminal `RETIRED` condition (not `RETIRING`, `RESERVE`, zero traffic or
+zero minimum instances) and the readback that it has no routable tag/traffic. Google describes a retired revision
+as having its infrastructure retired. Alternatively, a separately reviewed deletion of an old revision is a
+supported irreversible operation: retain the exact revision UID, completed successful deletion operation and
+subsequent absence/deleted-state readback. Google disallows deleting current/routable revisions; deletion also
+prevents accidentally routing back to the old code. A lost deletion acknowledgement or incomplete old revision
+inventory is unresolved and requires readback/platform confirmation. These are control-plane observations,
+not an inference from a quiet metric. [Revision lifecycle and deletion](https://docs.cloud.google.com/run/docs/managing/revisions),
+[revision condition reasons](https://docs.cloud.google.com/run/docs/reference/rest/v2/Condition).
+
+Cloud Run documents SIGTERM followed by forced termination during actual instance shutdown. A request timing
+out or returning 504 does not initiate that guarantee; the container can keep executing. Use recorded retirement,
+deletion or platform-confirmed termination, not “900 seconds elapsed.”
+[Container shutdown](https://docs.cloud.google.com/run/docs/container-contract#instance-shutdown),
+[request timeout](https://docs.cloud.google.com/run/docs/configuring/request-timeout).
+
+**Supabase Edge:** before cutover, record each old paid function's deployment ID/version and enumerate its
+execution IDs from complete Boot/invocation metadata. Capture the replacement deployment's successful status,
+version and source artifact hash. In the project's Edge Functions logs/Logs Explorer, correlate every old
+execution with its actual structured `ShutdownEvent` (`event.Shutdown.reason` and `metadata.execution_id`),
+including background `waitUntil` work. `EventLoopCompleted`, `EarlyDrop` or a runtime termination reason is
+terminal evidence for that execution; an HTTP response or a generic wall-clock warning is insufficient. Keep
+query bounds, pagination/completeness, deployment ID, execution ID, timestamps and terminal reason in the
+operator's export. Do not copy private application log text. Supabase documents these terminal events and
+external termination requests, but this repository has no supported per-isolate kill API.
+[Runtime shutdown events](https://supabase.com/docs/guides/troubleshooting/edge-function-shutdown-reasons-explained),
+[function logging](https://supabase.com/docs/guides/functions/logging),
+[wall-clock warning caveat](https://supabase.com/docs/guides/troubleshooting/edge-function-wall-clock-time-limit-reached-Nk38bW).
+
+A deployment acknowledgement alone does not prove all old isolates ended. Logs with retention gaps, sampling,
+truncation or missing execution IDs do not establish a complete inventory. If complete per-execution evidence
+cannot be obtained, retain the pause and obtain Supabase confirmation scoped to the old deployment IDs and
+cutover time; do not substitute “400 seconds elapsed.” Disable/remove any legacy paid endpoint that cannot be
+replaced with the admitted bundle before declaring its routing retired. This is an operator action, not something
+the readiness script silently performs.
+
+**Liabilities:** ending a local process does not cancel an already accepted remote OCR/model/search request or
+an uncertain Storage write. Record all known request/job IDs, old holds and pending writes, their attribution and
+the positive evidence used for settlement/reconciliation. Unknown provider jobs retain their ceilings; absent
+responses, lease expiry and object absence alone do not justify release. The asset scan stays blocked by unresolved
+writes. A retirement document must never direct an operator to zero these records to obtain a green report.
+
+### Scoped operator attestation and activation
+
+The manifest has `format: 1`, `decision: "approved"`, a timezone-qualified `observed_at`, and the report's exact
+`scope`, `revision`, `image_digest`, `database_sha256` and `configuration_sha256`. Its `documents` array contains
+one `{kind, path, sha256}` for each of:
+
+- `old_cloud_run_invocations_terminated`: complete revision inventory and retirement/deletion evidence.
+- `old_edge_invocations_terminated`: complete old deployment/execution inventory and terminal evidence, or
+  scoped platform confirmation.
+- `admitted_edge_deployments_verified`: versions and reviewed source/build hashes for all paid entry points.
+- `legacy_liabilities_reviewed`: attribution and reconciliation decisions, with unknown amounts retained.
+
+Document paths resolve inside `.artifacts/rollout-evidence/`; source documents are bounded to 32 MiB each and
+the manifest to 64 KiB. Prepare a manifest with `decision: "pending"` until the review is complete. A recent
+timestamp is an evidence freshness requirement, never a grace period that proves shutdown. The script verifies
+scope, file hashes and freshness; it labels the result **operator attestation verified for scope and integrity**.
+It does not interpret the files as an independently verified termination certificate.
+
+```sh
+python3 scripts/deploy-pipeline-worker.py activate --project gradstep \
+  --expected-revision gradstep-pipeline-REVISION \
+  --evidence .artifacts/rollout-evidence/approval.json
+```
+
+Activation repeats the read-only checks and makes one conditional Cloud Run service update using its observed
+ETag. It pins the observed image digest, clears only the maintenance switch, waits for the resulting operation,
+and verifies that operation's exact new revision, unchanged image, pinned secret versions and all other reviewed
+runtime settings. Another concurrent revision cannot be mistaken for the completed activation. Conflicts or ambiguous acknowledgements
+are not automatically retried; inspect current state first. Database policy and scheduler changes remain separate
+operator steps, and no workflow checks or paid calls run as part of activation. Keep other deployment/policy
+mutations frozen during this multi-system operation; the ETag protects the Cloud Run update, not a distributed
+transaction with Supabase. The [Cloud Run update API](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.services/patch)
+returns a long-running operation; its [service ETag](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.services)
+detects concurrent service modifications.
 
 ## Loop breaker (migration 022)
 
