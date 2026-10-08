@@ -38,9 +38,9 @@ targets:
     dependencies:
       - package: ScienceReaderCore
       - package: SwiftMath
-      # Share › Gradstep (docs/architecture/PDF_UPLOADS.md). iOS only: the Mac app has no app group yet.
-      - target: ScienceReaderShare
-        platformFilter: iOS
+      # Share › Gradstep (docs/architecture/PDF_UPLOADS.md) is built but not embedded until the App Group
+      # group.com.sciencereader.ios exists in the developer account (Apple's API can't create it). To restore:
+      # re-add `- target: ScienceReaderShare` (platformFilter: iOS) here and the group in ScienceReader.entitlements.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sciencereader.ios

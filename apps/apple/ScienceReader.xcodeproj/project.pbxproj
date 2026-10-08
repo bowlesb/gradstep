@@ -200,7 +200,6 @@
 		E27E9B16B6CE0F90C644A845 /* SessionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6590F046CE4A1D77BE2343C /* SessionCapture.swift */; };
 		E2B87979BC5535F79A24F9ED /* LibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909987028A72FA23FF5EE030 /* LibraryPresentation.swift */; };
 		E35409B595DA7073E9623186 /* PaperAdding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1E290E8D6AED2828F07B94 /* PaperAdding.swift */; };
-		E40D99DDDEC89E31CBA39FB4 /* ScienceReaderShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BB0BB93E2929310C75569F2E /* ScienceReaderShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E4DC587F25584B44A530A3E2 /* ReaderDraftQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A41850C17E517516A868F2 /* ReaderDraftQueue.swift */; };
 		E6DE31AA91385D94A8DF1E35 /* AuthenticationBackendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C75FAC2E3329F50F2ABBE87 /* AuthenticationBackendTests.swift */; };
 		E7B7236B22DCCD7A5695ECC7 /* LibraryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 909987028A72FA23FF5EE030 /* LibraryPresentation.swift */; };
@@ -251,28 +250,7 @@
 			remoteGlobalIDString = 6ECC4E28C6EFE03B55653FD1;
 			remoteInfo = ScienceReader;
 		};
-		CA2EE46619318F092AD9783D /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 83D038C58C532C63B403044F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 12EFE51AAA43DA8CCBAD6AF7;
-			remoteInfo = ScienceReaderShare;
-		};
 /* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		505EC9656ECD18EB55FDAE20 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				E40D99DDDEC89E31CBA39FB4 /* ScienceReaderShare.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		02F7EBCA3B9992DAB7974AED /* LiveSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveSupportTests.swift; sourceTree = "<group>"; };
@@ -739,12 +717,10 @@
 				145635587235925D3D1AFE19 /* Sources */,
 				BF1B9B644B4CBA3F71B05A5D /* Resources */,
 				CDB434825275BC006BF20863 /* Frameworks */,
-				505EC9656ECD18EB55FDAE20 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				556996AC8068846234AA7D89 /* PBXTargetDependency */,
 			);
 			name = ScienceReader;
 			packageProductDependencies = (
@@ -1160,12 +1136,6 @@
 			isa = PBXTargetDependency;
 			target = 6ECC4E28C6EFE03B55653FD1 /* ScienceReader */;
 			targetProxy = B35E2F6BCEDC5FA639625AE6 /* PBXContainerItemProxy */;
-		};
-		556996AC8068846234AA7D89 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			platformFilter = ios;
-			target = 12EFE51AAA43DA8CCBAD6AF7 /* ScienceReaderShare */;
-			targetProxy = CA2EE46619318F092AD9783D /* PBXContainerItemProxy */;
 		};
 		65AEED1E30009ACDEBDE5F53 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
