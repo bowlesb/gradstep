@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-const fixture = 54369, app = 4357;
+import { fixturePort as fixture, appPort as app } from './e2e/environment';
 const env = `VITE_SUPABASE_URL=http://127.0.0.1:${fixture} VITE_SUPABASE_ANON_KEY=fixture-anon VITE_ENVIRONMENT=podcast-fixture`;
 const appCommand = process.env.WEB_E2E_DEV === '1'
   ? `${env} npx vite --config podcast.vite.config.ts --host 127.0.0.1 --port ${app} --strictPort`

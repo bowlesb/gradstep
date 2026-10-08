@@ -247,22 +247,36 @@ export async function podcastQuote(account: string, itemID: string, requestID: s
   if (!isUUID(itemID) || !isUUID(requestID)) throw new BackendError('invalid_request');
   return decodeQuote(await functionPost('podcast?action=quote', { item_id: itemID, request_id: requestID }, { account, signal, maximum: 16_384 }));
 }
-async function jobCall(account: string, action: 'start' | 'status' | 'cancel', requestID: string, signal?: AbortSignal, quote?: Quote): Promise<Job> {
+/** Start and status can reuse an episode that became ready after quoting (046), with no job or new hold. */
+export type RequestResult = { kind: 'job'; job: Job } | { kind: 'reuse'; releaseID: string };
+export function decodeRequestResult(value: unknown, requestID: string): RequestResult {
+  const v = value as { job?: unknown; reuse?: { release_id?: unknown } } | null;
+  if (!v || Number(!!v.job) + Number(!!v.reuse) !== 1) throw new BackendError('invalid_response');
+  if (v.reuse) {
+    if (!isUUID(v.reuse.release_id)) throw new BackendError('invalid_response');
+    return { kind: 'reuse', releaseID: v.reuse.release_id.toLowerCase() };
+  }
+  const job = decodeJob(v.job);
+  if (job.requestID !== requestID.toLowerCase()) throw new BackendError('invalid_response');
+  return { kind: 'job', job };
+}
+/** The caller must show the quote and receive explicit confirmation. Retry with this same identity after a lost reply. */
+export async function podcastStart(account: string, quote: Quote, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
   if (!isUUID(requestID)) throw new BackendError('invalid_request');
-  const value = action === 'status'
-    ? await functionGet<{ job: unknown }>(`podcast?action=status&request_id=${requestID}`, { account, signal, maximum: 16_384 })
-    : await functionPost<{ job: unknown }>(`podcast?action=${action}`, action === 'start'
-      ? { quote_id: quote!.id, request_id: requestID, consent_version: CONSENT_VERSION } : { request_id: requestID }, { account, signal, maximum: 16_384 });
+  return decodeRequestResult(await functionPost('podcast?action=start',
+    { quote_id: quote.id, request_id: requestID, consent_version: CONSENT_VERSION }, { account, signal, maximum: 16_384 }), requestID);
+}
+export async function podcastStatus(account: string, requestID: string, signal?: AbortSignal): Promise<RequestResult> {
+  if (!isUUID(requestID)) throw new BackendError('invalid_request');
+  return decodeRequestResult(await functionGet(`podcast?action=status&request_id=${requestID}`, { account, signal, maximum: 16_384 }), requestID);
+}
+export async function podcastCancel(account: string, requestID: string, signal?: AbortSignal): Promise<Job> {
+  if (!isUUID(requestID)) throw new BackendError('invalid_request');
+  const value = await functionPost<{ job: unknown }>('podcast?action=cancel', { request_id: requestID }, { account, signal, maximum: 16_384 });
   const job = decodeJob(value.job);
   if (job.requestID !== requestID.toLowerCase()) throw new BackendError('invalid_response');
   return job;
 }
-/** The caller must show the quote and receive explicit confirmation. Retry with this same identity after a lost reply. */
-export function podcastStart(account: string, quote: Quote, requestID: string, signal?: AbortSignal): Promise<Job> {
-  return jobCall(account, 'start', requestID, signal, quote);
-}
-export const podcastStatus = (account: string, requestID: string, signal?: AbortSignal) => jobCall(account, 'status', requestID, signal);
-export const podcastCancel = (account: string, requestID: string, signal?: AbortSignal) => jobCall(account, 'cancel', requestID, signal);
 export const jobTerminal = (job: Job) => ['ready', 'canceled', 'failed', 'unknown_provider', 'quarantined'].includes(job.state);
 export const statusPollDelay = (elapsedMs: number) => elapsedMs < 60_000 ? 5_000 : 15_000;
 export const revocationPollDelay = (hidden: boolean) => hidden ? 300_000 : 60_000;
