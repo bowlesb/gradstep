@@ -10,7 +10,9 @@ removed executor work) is retained below where useful and in git history.
   `a5c351a1` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. A cache-busting request to the custom domain matched the deployment preview byte-for-byte.
-  No account, provider, OCR or paid request was made by these checks.
+  No account, provider, OCR or paid request was made by these checks. Local main now also contains the encrypted
+  library checkpoint codec in `3602c7d`; it is covered by the updated unit suite but remains behind the Gate-2
+  descriptor contract and is not part of that deployed Pages build.
 - **Browser verification:** 339 unit tests across 29 files pass; the integrated production-CSP Playwright run is
   **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
   **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
@@ -28,7 +30,7 @@ removed executor work) is retained below where useful and in git history.
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
 - **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native
-  unit suite previously passed **373 tests, 4 expected skips, 0 failures**; the Settings toolbar regression is fixed
+  unit suite passes **373 tests, 4 expected skips, 0 failures** on commit `139c98e`; the Settings toolbar regression is fixed
   in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.

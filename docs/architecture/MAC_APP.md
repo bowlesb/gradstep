@@ -38,10 +38,11 @@ the build-17 distribution details below are historical. No upload or hosted/paid
   provider loading, temporary drop copies need cleanup, and the Add sheet currently ignores PDFs after the first.
   See [focused review and deterministic reproductions](../reviews/NATIVE_PDF_DROP_INTAKE_20261008.md).
 
-Native table UX validation (2026-10-08): the combined column-picker, scrolling-table and v5 library-command code
-passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **373 tests, 4 expected
-skips, no failures**. The Settings toolbar regression is fixed in `beff20c`; its focused test and the complete
-signed suite pass. Column sheets also use the existing Mac ⌘W dismissal. Evidence is local at
+Native table UX validation (2026-10-08): the combined column-picker, scrolling-table, v5 library-command and Mac
+enrollment code passes a fresh Catalyst `build-for-testing` and the development-signed Mac unit suite: **373 tests,
+4 expected skips, no failures**. The Settings toolbar regression is fixed in `beff20c`; its focused test and the
+complete signed suite pass. Column sheets also use the existing Mac ⌘W dismissal. Evidence for the current full run
+is `/private/tmp/gradstep-mac-approval-signed-full-20261008b.xcresult`; earlier evidence is local at
 `/Users/benbowlwes/science-reader/.artifacts/mac-main-20261008/signed-unit-after-fix.log` and the result bundle at
 `/private/tmp/gradstep-mac-main-20261008-signed-v3/Logs/Test/Test-ScienceReader-2026.10.08_15-47-25--0700.xcresult`;
 this is unit/runtime and compilation evidence, not a new manual keyboard/pointer or live-account verification.
