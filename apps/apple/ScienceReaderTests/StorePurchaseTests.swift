@@ -68,7 +68,14 @@ final class StorePurchaseTests: XCTestCase {
 
     func testPurchaseMessagesAndSummaryDecoding() throws {
         XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: "recorded", credits: 800)), "Added 800 credits.")
-        XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: "already_recorded", credits: nil)), "Your purchase is active.")
+        for outcome in ["recorded", "updated", "already_recorded"] {
+            XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: 200)), "Added 200 credits.", "Report a partial grant exactly")
+            XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: 0)), "Purchase recorded. No new credits were added.")
+        }
+        XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: "already_recorded", credits: nil)), "This purchase was already recorded.")
+        for outcome in ["recorded", "updated"] {
+            XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: nil)), "Purchase recorded.")
+        }
         XCTAssertTrue(StoreSync.message(for: StoreSyncResult(outcome: "linked_to_another_account", credits: nil)).contains("another account"))
         XCTAssertTrue(StoreSync.message(for: nil).contains("try again automatically"))
         XCTAssertTrue(StoreSync.message(for: StoreSyncResult(outcome: "verification_unavailable", credits: nil)).contains("try again automatically"))

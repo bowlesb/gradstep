@@ -124,7 +124,8 @@ enum StoreSync {
         switch result?.outcome {
         case "recorded", "updated", "already_recorded":
             if let credits = result?.credits, credits > 0 { return "Added \(credits.formatted()) credits." }
-            return "Your purchase is active."
+            if result?.credits == 0 { return "Purchase recorded. No new credits were added." }
+            return result?.outcome == "already_recorded" ? "This purchase was already recorded." : "Purchase recorded."
         case "linked_to_another_account":
             return "This purchase belongs to another account. Sign in to that account to use it."
         case "account_closed":

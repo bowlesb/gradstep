@@ -89,6 +89,10 @@ final class TableColumnsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Columns"].waitForExistence(timeout: 5))
         for id in ["authors", "arxiv"] {
             let toggle = app.switches["feed.columns.\(id)"].firstMatch
+            let choices = app.collectionViews.firstMatch
+            for _ in 0..<3 where !(toggle.exists && toggle.isHittable && choices.frame.insetBy(dx: 0, dy: 24).contains(toggle.frame)) {
+                choices.swipeUp()
+            }
             XCTAssertTrue(toggle.waitForExistence(timeout: 5)); XCTAssertEqual(toggle.value as? String, "0")
             flip(toggle)
             XCTAssertEqual(toggle.value as? String, "1")
@@ -175,6 +179,8 @@ final class TableColumnsTests: XCTestCase {
         let lastUsedX = header("lastUsed").frame.minX
         if UIDevice.current.userInterfaceIdiom == .phone {
             XCTAssertFalse(onScreen(header("answerLength"), in: app, before: header("lastUsed")), "Answer length waits past the edge")
+        }
+        if !onScreen(header("answerLength"), in: app, before: header("lastUsed")) {
             let firstRow = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.history.c4a7")).firstMatch
             for _ in 0..<3 where !onScreen(header("answerLength"), in: app, before: header("lastUsed")) { swipeColumns(firstRow) }
             waitFor("Answer length scrolls into view") { self.onScreen(header("answerLength"), in: app, before: header("lastUsed")) }
@@ -208,5 +214,30 @@ final class TableColumnsTests: XCTestCase {
         attach(app, "Paper with larger text")
         smaller.tap(); smaller.tap()
         waitFor("And back") { abs(paragraph.frame.height - height) < 2 }
+    }
+
+    func testOneWideColumnKeepsItsHeaderAndPinnedAction() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--workflow-fixture", "--library-metadata-fixture", "--feed-fixture",
+                               "--feed-layout=table", "--feed-columns=abstract"]
+        app.launch()
+        if app.buttons["tab.feed"].waitForExistence(timeout: 15) { app.buttons["tab.feed"].tap() } else { app.segmentedControls.buttons["Feed"].tap() }
+        let abstract = app.descendants(matching: .any)["feed.table.header.abstract"].firstMatch
+        let add = app.buttons["discover.add.2610.01234"]
+        XCTAssertTrue(abstract.waitForExistence(timeout: 5))
+        XCTAssertTrue(onScreen(abstract, in: app, before: add))
+        XCTAssertTrue(add.isHittable)
+        attach(app, "Feed with one chosen wide column")
+        app.terminate()
+        app.launchArguments = ["--chat-fixture", "--chat-fixture-consented", "--reset-draft-fixture", "--chat-history-fixture",
+                               "--chat-columns=answerLength"]
+        app.launch()
+        XCTAssertTrue(app.buttons["paper.\(sample)"].waitForExistence(timeout: 15))
+        if app.buttons["tab.chat"].exists { app.buttons["tab.chat"].tap() } else { app.segmentedControls.buttons["General Chat"].tap() }
+        app.buttons["Chat history"].tap()
+        let lastUsed = app.buttons["chat.history.header.lastUsed"], length = app.buttons["chat.history.header.answerLength"]
+        XCTAssertTrue(lastUsed.waitForExistence(timeout: 5), "The fixed header remains even when one wide cell fits its viewport")
+        XCTAssertTrue(lastUsed.isHittable && onScreen(length, in: app, before: lastUsed))
+        attach(app, "All chats with one chosen column")
     }
 }

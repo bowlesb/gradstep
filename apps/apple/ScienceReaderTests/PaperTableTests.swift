@@ -141,6 +141,20 @@ final class PaperTableTests: XCTestCase {
                                                         regularDefault: FeedTableColumn.regularDefault, from: defaults).compact, [.authors])
     }
 
+    func testOneWideChosenColumnKeepsItsPinnedRegionWithoutArtificialScrolling() {
+        let feed = PaperTableLayout.arrangement(FeedTableColumn.columns([.abstract]), width: Width.phoneSmall, scrolling: true)
+        XCTAssertEqual(feed.columns, ["abstract"])
+        XCTAssertEqual(feed.pinned, ["add"])
+        XCTAssertTrue(feed.usesColumnRegion, "The narrowed cell still needs aligned title and Add columns")
+        XCTAssertFalse(feed.scrolls, "One cell can be read without an empty horizontal scroll")
+        XCTAssertEqual(feed.columnWidth(260), feed.regionWidth)
+        let chats = ChatTableLayout.arrangement([.answerLength], width: Width.phoneSmall)
+        XCTAssertTrue(chats.usesColumnRegion)
+        XCTAssertFalse(chats.scrolls)
+        XCTAssertEqual(chats.pinned, ["lastUsed"])
+        XCTAssertEqual(chats.columnWidth(104), chats.regionWidth)
+    }
+
     func testTitleKeepsItsShareAndWideningOnlyAddsColumns() {
         checkFitAndGrowth(LibraryTableColumn.columns(Set(LibraryTableColumn.allCases)))
         checkFitAndGrowth(LibraryTableColumn.columns(LibraryColumnSettings.compactDefault))

@@ -312,7 +312,7 @@ struct ChatHistoryView: View {
             }
             .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
             .frame(width: arrangement.titleWidth, alignment: .leading)
-            if arrangement.scrolls {
+            if arrangement.usesColumnRegion {
                 TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                     HStack(alignment: .center, spacing: ChatTableLayout.spacing) {
                         ForEach(visible) { column in
@@ -321,7 +321,7 @@ struct ChatHistoryView: View {
                     }
                 }
             }
-            ForEach(arrangement.scrolls ? pinned : visible) { column in
+            ForEach(arrangement.usesColumnRegion ? pinned : visible) { column in
                 headerCell(column.field).frame(width: column.width * scale, alignment: column.alignment)
             }
         }
@@ -338,7 +338,7 @@ struct ChatHistoryView: View {
             withAnimation(reduceMotion ? nil : .snappy(duration: 0.25)) { sort = sort.tapping(field) }
         } label: {
             HStack(spacing: 3) {
-                Text(field.title).lineLimit(1)
+                Text(field.title).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if current { chevron }
             }
             .font(.footnote.weight(.semibold))
@@ -382,7 +382,7 @@ struct ChatHistoryView: View {
     private func conversationRow(_ row: ChatHistoryRow, visible: [ChatTableColumn], arrangement: TableArrangement) -> some View {
         // The Paper column on screen without scrolling (in the region's first view while the columns scroll).
         let fitting = Set(ChatTableLayout.visible(chosenColumns, width: rowWidth, scale: scale).map(\.field))
-        let paperShown = arrangement.scrolls ? fitting.contains(.paper) : visible.contains { $0.field == .paper }
+        let paperShown = arrangement.usesColumnRegion ? fitting.contains(.paper) : visible.contains { $0.field == .paper }
         return Button {
             model.openConversation(row.id); dismiss()
         } label: {
@@ -393,7 +393,7 @@ struct ChatHistoryView: View {
                         ChatTitleCell(title: row.title, subtitle: paperShown ? (row.passageLine ?? answerLine(row)) : row.contextTitle)
                             .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
                             .frame(width: arrangement.titleWidth, alignment: .leading)
-                        if arrangement.scrolls {
+                        if arrangement.usesColumnRegion {
                             TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                                 HStack(alignment: .firstTextBaseline, spacing: ChatTableLayout.spacing) {
                                     ForEach(columns(arrangement.columns)) { column in
@@ -402,7 +402,7 @@ struct ChatHistoryView: View {
                                 }
                             }
                         }
-                        ForEach(arrangement.scrolls ? columns(arrangement.pinned) : visible) { column in
+                        ForEach(arrangement.usesColumnRegion ? columns(arrangement.pinned) : visible) { column in
                             cell(row, column.field).frame(width: column.width * scale, alignment: column.alignment)
                         }
                     }

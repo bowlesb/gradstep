@@ -99,10 +99,13 @@ struct TableArrangement: Equatable {
     var extent: CGFloat = 0
     var snapOffsets: [CGFloat] = [0]
     var scrolls: Bool { extent > 0.5 }
+    /// A single wide chosen column can fit after narrowing to its viewport. It still uses the fixed title/action
+    /// layout even when there is no distance to scroll.
+    var usesColumnRegion: Bool { titleWidth != nil }
 
     /// A value always fits its viewport; wide text wraps/truncates inside its cell instead of being permanently
     /// hidden behind the pinned title or action. The row's expanded abstract still shows its full text.
-    func columnWidth(_ preferred: CGFloat) -> CGFloat { scrolls ? min(preferred, regionWidth) : preferred }
+    func columnWidth(_ preferred: CGFloat) -> CGFloat { usesColumnRegion ? min(preferred, regionWidth) : preferred }
 
     /// The narrowest region worth scrolling in, when only the title and pinned columns would fit.
     static let regionMinimum: CGFloat = 90
@@ -323,7 +326,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
                     if !pinnedHeader { header(arrangement) }
                     ForEach(rows) { row in
                         VStack(alignment: .leading, spacing: 8) {
-                            if arrangement.scrolls { scrollingRow(row, arrangement) } else { rowView(row, visible: visible) }
+                            if arrangement.usesColumnRegion { scrollingRow(row, arrangement) } else { rowView(row, visible: visible) }
                             detail(row, visibleIDs)
                         }
                         .frame(minHeight: 44)
@@ -391,7 +394,7 @@ struct PaperTable<Row: Identifiable, Key: Hashable, Cell: View, Actions: View, S
             }
             .frame(maxWidth: arrangement.titleWidth ?? .infinity, alignment: .leading)
             .frame(width: arrangement.titleWidth, alignment: .leading)
-            if arrangement.scrolls {
+            if arrangement.usesColumnRegion {
                 TableScrollRegion(state: scroll, width: arrangement.regionWidth, extent: arrangement.extent) {
                     HStack(alignment: .center, spacing: PaperTableLayout.spacing) {
                         ForEach(visible) { column in
