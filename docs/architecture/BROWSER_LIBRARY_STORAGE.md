@@ -9,8 +9,12 @@ to measured memory and structured-clone acceptance. Saved-copy implementation ha
 owner. No backend/native change or paid/provider operation is authorized by this work.
 
 The source review used integration `f04b744`, including the future-IDB-version refusal fix. The current local
-foundation adds schema-3 activation, bounded key inventory and fenced multi-head CAS in `idb.ts`; the complete
-v5 reader/descriptors/copies remain gated below.
+foundation adds schema-3 activation, bounded key inventory and fenced multi-head CAS in `idb.ts`. The new
+`library-storage.ts` codec implements the complete-library checkpoint portion locally: it seals an authenticated
+head and immutable per-row ciphertext, verifies exact SHA-256/byte/count manifests on load, performs one fenced
+head-and-children replacement transaction, and treats missing heads with children or missing children as damage.
+The codec is still an explicit gate-2 primitive; the UI does not call it until the v5 server/descriptor contract is
+deployed and measured copy-install limits are accepted.
 `library-descriptor.ts`, `KeyRing.descriptorKeys`, and the frozen descriptor interoperability
 fixtures are existing reviewed crypto; use them without inventing a second envelope format.
 The native descriptor/chunk queue in ASSET_SPENDING is a design contract. The current
