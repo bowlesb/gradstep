@@ -114,14 +114,16 @@ in the chat in a cleer UX".
 | # | Owner said | Where | Plan | Status |
 |---|---|---|---|---|
 | 1 | "Each chat should have a labeled [title] on the topic of the chat in the same way that chat GPT does … embedded everywhere in the app" | All chats (titles like "Explain · L_task(θ) = -…") | A short topic title generated with the first answer, stored in the encrypted history and shown everywhere; renamable | In progress (chat agent) |
-| 2 | "Machine learning and artificial intelligence are too generic it need to be specific to the individual tastes and their nuances" | Feed chips | "For you" first, then specific topics drawn from the reader's library and tags; broad categories under "More topics". Taken as the owner's yes to the pending For you / server-visible metadata decision | In progress (feed agent) |
-| 3 | "Why not topics? And can we put a popularity score?" | Feed Columns sheet | Topics column (several specific tags) and a Popularity column and sort from free signals cached in the shared pool; "—" when unknown | In progress (feed agent) |
+| 2 | "Machine learning and artificial intelligence are too generic it need to be specific to the individual tastes and their nuances" | Feed chips | "For you" first, then specific topics drawn from the reader's library and tags; broad categories under "More topics". Taken as the owner's yes to the pending For you / server-visible metadata decision | Merged; server (046) live on staging with serving off; the app side ships in the next build, then serving goes to staff |
+| 3 | "Why not topics? And can we put a popularity score?" | Feed Columns sheet | Topics column (several specific tags) and a Popularity column and sort from free signals cached in the shared pool; "—" when unknown | Merged; Hugging Face upvotes filling the pool (27 of 825 on the first run); ships in the next build |
 | 4 | "Reference at the top of the message isn't needed" | Reference popup ("Reference 84" header) | Remove the header | Merged to main 2026-10-08 (details below); ships in the next build |
 | 5 | "Needs to be a discuss in chat button … takes you to the chat with the ref text in there and you can continue typing" | Reference popup | "Discuss in chat": opens the paper's chat with the reference quoted in the composer, unsent | Merged to main 2026-10-08 (details below); ships in the next build |
 | 6 | "Brafman ref missed" | Citation links ("Brafman and Ten-nenholtz 2002", hyphenated across a line) | Citation matcher handles hyphenation and diacritics; regression fixture; link rate measured before/after | Merged to main 2026-10-08 (details below); ships in the next build |
 | 7 | "When figures are referenced you should be able to link directly to them … and … a 'return to reading location' option in a sensible location" | Reader ("Fig. 1") | "Fig./Table/Algorithm N" become links that show the figure with "Go to figure"; one Back-to-where-you-were control for every jump | Merged to main 2026-10-08 (details below); ships in the next build |
 | — | Podcasts ("build the notebook LM podcasts feature") | Feed "Listen", paper "Listen", player | Per [PAPER_PODCASTS.md](architecture/PAPER_PODCASTS.md); owner request taken as acceptance of decisions 2 ($2 seed for two curated episodes inside the $25 cap) and 3 (private generation contract) | In progress (podcast agent); no paid call before review |
 | — | Chat model / effort / length "right there in the chat" | Chat composer | A control showing the current choice with a live credit estimate and maximum; server-enforced, versioned profiles | In progress (chat agent) |
+
+| 8 | "Somehow I ended up with this please fix it bug report" (16:54 UTC) | Reader: tab bar and A−/A+ float ~170 pt up, page cut off, black below (keyboard-sized inset left behind) | Reproduce, fix the leftover keyboard inset at the root, regression UI test | In progress (layout agent) |
 
 ### Build 21 reader items in detail
 
@@ -139,3 +141,23 @@ measurements: [Reader renderer](architecture/READER_RENDERER.md#figure-table-and
 
 The browser reader gets the figure links through the shared bridge; its sheet, Discuss in chat and Back wording are
 listed for the web owner in the renderer doc.
+
+## Screenshot feedback audit, 2026-10-08
+
+All 44 TestFlight screenshot reports (builds 13–21) were checked against this file and the code. Every report
+is fixed, in a build, in progress, or listed here as a follow-up for the owner:
+
+- **Build 15, "We need to improve the tags they can't be this generic …"**:
+  - Feed chips and per-paper Topics are now specific (046).
+  - Library tags themselves still come from the existing vocabulary.
+  - Options: tune the keyword rules with a one-time Haiku labeling pass over the shared pool (≈$0.95, $1 cap; owner approval needed), or wait for the first real For you pool and judge.
+- **Build 15, "The top looks too cluttered"** (chat screen):
+  - The Paper/General switch moved into the chat title's menu after that build.
+  - The composer is gaining a model/effort/length control.
+  - Owner check: is the chat top acceptable on the current build?
+- **Build 15, "What other good customizations will help?"**: proposals for the owner after the chat controls ship. Candidates:
+  - answer style (intuitive / technical / step-by-step math);
+  - web search on/off per chat;
+  - citations of paper passages on/off;
+  - default chat settings per paper type.
+- **Builds 16–20:** the items shipped in 19/20 still await the owner's acceptance on device.
