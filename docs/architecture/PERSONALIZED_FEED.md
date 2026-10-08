@@ -395,6 +395,15 @@ feedback stay until pruned (30 days) or account deletion; nothing else depends o
 | App (iPhone/iPad) | `ScienceReaderCore/Discovery.swift` (topics, upvotes, reasons, `feed` info), `Services/FeedPersonalization.swift`, `Views/FeedTableView.swift` (columns, chips bar, why line), small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView` header, `DiscoveryRow`), `TableColumns` (introduced columns), `BackendClient` |
 | Tests | `tests/database/test_feed_topics_popularity.sql`, `tests/backend/feed-personal.test.ts`, Core `DiscoveryTests`, app `FeedPersonalizationTests`, `PaperTableTests`, UI `FeedForYouTests` |
 
+Local validation of 048 and the iPhone/iPad Feed (2026-10-08, branch `feed-topics-popularity-20261008`): the full
+database phases pass (`scripts/test-database.py`, including `test_feed.sql`, `test_feed_topics_popularity.sql` and
+`feed_concurrency`); backend `npm test` 413/413; Core `swift test` 256 (8 XCTest + 248 Swift Testing); app unit tests
+391 (5 skipped); the Simulator journey `FeedForYouTests` 4/4 and the existing Feed/table UI tests 8/8 (`TableColumnsTests`, `LibraryLayoutTests.testFeedTableSortsAndShowsAnAbstract`) on a dedicated iPhone 17 Pro Simulator (For you default,
+topic chips, More topics, why line, Popularity column and sort, Columns sheet, a topic chip), light and dark
+screenshots in `.artifacts/visual/feed-foryou-20261008/`; the Mac Catalyst build compiles. The Hugging Face and
+Semantic Scholar observations above are single public requests from a workstation, not hosted runs. Nothing was
+applied or deployed; no hosted capacity, refresh or serving is claimed.
+
 Local takeover validation (2026-10-08 UTC): the full database/upgrade/concurrency suite passed before final
 hardening; focused `test_feed.sql` plus `feed_concurrency.py` pass again after fixing full-account exclusions
 and both account-closure race orders. Backend feed tests pass (23). Evidence is in the branch's private
