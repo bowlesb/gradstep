@@ -3,7 +3,7 @@
 `legacy-v3.json` is frozen synthetic PostgreSQL output from
 `tests/database/test_library_upload_visibility.sql`, after composing migrations
 001–038, the pending039 ingress/descriptor snapshot, and
-`supabase/migration-parts/039_library_visibility.sql`. It contains no customer
+the visibility fragment (subsequently folded into039). It contains no customer
 records, keys, PDFs or provider responses. `lineage.json` records the exact
 fixture, SQL test, visibility fragment, ingress snapshot and capture-log hashes
 at capture time. Later source changes do not silently regenerate this fixture.
@@ -50,7 +50,8 @@ To update the capture deliberately, first run the SQL visibility regression in
 a fresh disposable local database using the reviewed ordered schema. Capture
 unaligned `psql -X -qAt -v ON_ERROR_STOP=1` output and require that the SQL run
 succeeds. It emits `LEGACY_DECODER_FIXTURE` and `LEGACY_MIXED_FIXTURE` markers.
-Then use the exact ingress snapshot applied by that run:
+Then use the exact composed039 snapshot applied by that run (the historical two-file capture also accepted
+`--visibility-fragment`; omit it for the integrated migration):
 
 ```sh
 python3 tests/fixtures/library-visibility/capture.py path/to/successful-sql-output.log \

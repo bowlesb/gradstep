@@ -54,7 +54,9 @@ class QuarantineDatabaseCase(unittest.TestCase):
         expected = copy.deepcopy(before)
         fields = {'platform_budgets': ['work_enabled'],
                   'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
-                  'paper_read_policy': ['enabled'], 'executor_authority': ['enabled']}
+                  'paper_read_policy': ['enabled'], 'executor_authority': ['enabled'],
+                  'pipeline_policy': ['enabled'], 'pdf_upload_policy': ['enabled'],
+                  'tag_policy': ['enabled'], 'provider_spending_policy': ['enabled']}
         for table, names in fields.items():
             for row in expected.get(table, []):
                 for name in names:
@@ -302,6 +304,41 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
             RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), before)
 
+    def test_current_pipeline_and_upload_gates_are_disabled_without_losing_policy_evidence(self):
+        self.sql("""create table app_private.pipeline_policy(singleton boolean primary key,enabled boolean not null,lease_seconds integer not null);
+          insert into app_private.pipeline_policy values(true,true,180);
+          create table app_private.pdf_upload_policy(singleton boolean primary key,enabled boolean not null,part_attempts integer not null);
+          insert into app_private.pdf_upload_policy values(true,true,3);
+          create table app_private.tag_policy(singleton boolean primary key,enabled boolean not null,page_limit integer not null);
+          insert into app_private.tag_policy values(true,true,2);
+          create table app_private.provider_spending_policy(singleton boolean primary key,enabled boolean not null,liability bigint not null);
+          insert into app_private.provider_spending_policy values(true,true,500);""")
+        self.assert_quarantined()
+
+    def test_incompatible_upload_gate_rolls_back_current_and_legacy_gate_changes(self):
+        self.sql("""create table app_private.pipeline_policy(singleton boolean primary key,enabled boolean not null);
+          insert into app_private.pipeline_policy values(true,true);
+          create table app_private.pdf_upload_policy(singleton boolean primary key,enabled integer not null);
+          insert into app_private.pdf_upload_policy values(true,1);""")
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'enabled'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
+    def test_incompatible_provider_gate_rolls_back_every_admission_gate(self):
+        self.sql("""create table app_private.pipeline_policy(singleton boolean primary key,enabled boolean not null);
+          insert into app_private.pipeline_policy values(true,true);
+          create table app_private.pdf_upload_policy(singleton boolean primary key,enabled boolean not null);
+          insert into app_private.pdf_upload_policy values(true,true);
+          create table app_private.tag_policy(singleton boolean primary key,enabled boolean not null);
+          insert into app_private.tag_policy values(true,true);
+          create table app_private.provider_spending_policy(singleton boolean primary key,enabled integer not null);
+          insert into app_private.provider_spending_policy values(true,1);""")
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'enabled'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
+
 
 class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
     """Exercise current library cursors against the real application schema.
@@ -326,10 +363,15 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
 
     def test_real_schema_preserves_personal_data_and_rejects_pre_restore_cursors(self):
         self.sql(f"insert into auth.users(id) values ('{self.ACCOUNT}');")
+        self.sql('update app_private.pipeline_policy set enabled=true;update app_private.pdf_upload_policy set enabled=true;'
+                 'update app_private.tag_policy set enabled=true;update app_private.provider_spending_policy set enabled=true;')
         for i in range(1, 4):
             self.actor_sql(f"select public.v2_begin_import(gen_random_uuid(),'2407.0390{i}',{i-1},1);")
         baseline = json.loads(self.actor_sql('select public.v4_library_page(null,1);'))
         query = json.loads(self.actor_sql("select public.v4_library_query('{}',null,1);"))
+        upload_full = json.loads(self.actor_sql('select public.v5_library_page(null,1);'))
+        upload_compact = json.loads(self.actor_sql('select public.v5_library_compact_page(null,1);'))
+        upload_query = json.loads(self.actor_sql("select public.v5_library_query('{}',null,1);"))
         self.assertIsNotNone(baseline['next_cursor'])
         self.assertIsNotNone(query['next_cursor'])
         before = self.rows()
@@ -340,9 +382,15 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
         new_epoch = after['library_v4_config'][0]['dataset_epoch']
         self.assertNotEqual(old_epoch, new_epoch)
         expected['library_v4_config'][0]['dataset_epoch'] = new_epoch
+        old_upload_epoch = before['library_v4_config'][0]['upload_dataset_epoch']
+        new_upload_epoch = after['library_v4_config'][0]['upload_dataset_epoch']
+        self.assertEqual(len({old_epoch, new_epoch, old_upload_epoch, new_upload_epoch}), 4)
+        expected['library_v4_config'][0]['upload_dataset_epoch'] = new_upload_epoch
         for table, names in {'platform_budgets': ['work_enabled'],
                              'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
-                             'paper_read_policy': ['enabled']}.items():
+                             'paper_read_policy': ['enabled'], 'pipeline_policy': ['enabled'],
+                             'pdf_upload_policy': ['enabled'], 'tag_policy': ['enabled'],
+                             'provider_spending_policy': ['enabled']}.items():
             for row in expected[table]:
                 for name in names:
                     row[name] = False
@@ -352,12 +400,19 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
             (f"select public.v4_library_changes('{old_epoch}',0);", 'library_resync_required'),
             (f"select public.v4_library_metadata('{old_epoch}',array[]::uuid[]);", 'library_resync_required'),
             (f"select public.v4_library_query('{{}}','{json.dumps(query['next_cursor'])}'::jsonb,1);", 'library_query_restart_required'),
+            (f"select public.v5_library_page('{json.dumps(upload_full['next_cursor'])}'::jsonb,1);", 'library_resync_required'),
+            (f"select public.v5_library_changes('{old_upload_epoch}',0);", 'library_resync_required'),
+            (f"select public.v5_library_compact_page('{json.dumps(upload_compact['next_cursor'])}'::jsonb,1);", 'library_resync_required'),
+            (f"select public.v5_library_compact_changes('{old_upload_epoch}',0);", 'library_resync_required'),
+            (f"select public.v5_library_metadata('{old_upload_epoch}',array[]::uuid[]);", 'library_resync_required'),
+            (f"select public.v5_library_query('{{}}','{json.dumps(upload_query['next_cursor'])}'::jsonb,1);", 'library_query_restart_required'),
         ]:
             with self.subTest(statement=statement), self.assertRaisesRegex(RuntimeError, error):
                 self.actor_sql(statement)
         fresh = json.loads(self.actor_sql('select public.v4_library_page();'))
         self.assertEqual(fresh['dataset_epoch'], new_epoch)
         self.assertEqual(len(fresh['entries']), 3)
+        self.assertEqual(json.loads(self.actor_sql('select public.v5_library_page();'))['dataset_epoch'], new_upload_epoch)
 
 
 if __name__ == '__main__':

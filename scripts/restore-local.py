@@ -78,6 +78,18 @@ def quarantine(sql):
       if pg_catalog.to_regclass('app_private.paper_read_policy') is not null then
         execute 'update app_private.paper_read_policy set enabled=false';
       end if;
+      if pg_catalog.to_regclass('app_private.pipeline_policy') is not null then
+        execute 'update app_private.pipeline_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.pdf_upload_policy') is not null then
+        execute 'update app_private.pdf_upload_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.tag_policy') is not null then
+        execute 'update app_private.tag_policy set enabled=false';
+      end if;
+      if pg_catalog.to_regclass('app_private.provider_spending_policy') is not null then
+        execute 'update app_private.provider_spending_policy set enabled=false';
+      end if;
       if pg_catalog.to_regclass('app_private.executor_authority') is not null then
         if exists (
           select 1 from pg_catalog.pg_attribute

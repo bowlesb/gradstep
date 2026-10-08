@@ -240,6 +240,22 @@ def verify(bin_path, db, base):
         assert sql(f"select state from app_private.pdf_uploads where id='{upload}';")=='frozen'
         print('PASS cancel of an exact frozen import intent prevents attachment from substituting a newer intent',flush=True)
 
+        # The second janitor captured the old eligible state, but waits on
+        # the first issuer's owner lock. It must recheck committed pacing and
+        # never treat a lost Storage acknowledgment as confirmed deletion.
+        owner,upload,send=account(),ident(),ident()
+        sql(begin(owner,upload));sql(write(owner,upload,send));sql(written(send))
+        sql(f"update app_private.pdf_uploads set expires_at=clock_timestamp()-interval '1 minute' where id='{upload}';select 1;")
+        first,second=Session(),Session()
+        batches=json.loads(first.complete('begin;select public.worker_claim_stale_pdf_uploads(50);')[-1])
+        batch=next(b for b in batches if any(o['path'].startswith(f'{owner}/{upload}/') for o in b['objects']))
+        waiting=second.send('select public.worker_claim_stale_pdf_uploads(50);');blocked(second,first)
+        first.complete('commit;');assert json.loads(second.until(waiting)[-1])==[]
+        assert sql(f"select sum(byte_count)=1000 from app_private.stored_objects where owner_id='{owner}' and state='deleting';")=='t'
+        assert sql(f"select public.worker_confirm_pdf_uploads_deleted('{batch['batch_id']}');")=='1'
+        assert sql(f"select public.worker_confirm_pdf_uploads_deleted('{batch['batch_id']}');")=='0'
+        print('PASS concurrent janitor rechecks committed pacing after its owner wait and retains bytes until confirmation',flush=True)
+
         # Actual first-append RPC is paused on the environment counter. Closure
         # used to hold account FOR UPDATE while waiting for this keyring; the
         # append then needed the account FK for its first counter, deadlocking.

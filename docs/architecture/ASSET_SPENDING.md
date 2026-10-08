@@ -311,12 +311,12 @@ write path. Verify the actual deployed configuration, not only the handler's cod
 
 ### Personal titles and installed clients
 
-The upload branch currently copies the PDF/file/typed title into plaintext upload metadata and library projections.
-That conflicts with the [private display-name and filename plan](DATA_MODEL.md#import-identity-and-membership).
-Preserve that plan unless the owner explicitly changes it. Uploaded PDF content itself remains service-readable for
+The initial upload branch copied the PDF/file/typed title into plaintext metadata and library projections. That
+proposal conflicted with the [private display-name and filename plan](DATA_MODEL.md#import-identity-and-membership)
+and has been replaced in local server code by the encrypted descriptor below. Uploaded PDF content itself remains service-readable for
 the authorized verification/OCR pipeline; encrypting a custom title does not make the PDF end-to-end encrypted.
 
-Recommended descriptor design for review: an account-owned, versioned encrypted envelope containing display name and
+The reviewed descriptor design uses an account-owned, versioned encrypted envelope containing display name and
 optional original filename, using the existing device-held account keys and authenticated binding to account, stable
 upload/source identity, descriptor revision and key epoch. Sync its opaque bytes through the compatible library
 metadata/command protocol, with a stable mutation ID and revision conflict checks. Persist it independently of the
@@ -422,7 +422,7 @@ A locked or unsupported key shows a neutral placeholder and must not discard cip
 An unsupported format or corrupt descriptor likewise preserves the opaque ciphertext/reference, exposes a neutral
 title with a local error state, and cannot fail the entire library sync or trigger any plaintext fallback.
 
-Proposed API split to review: keep installed v3 full reads and existing v4 compact/query/hydration signatures limited
+The reviewed API split keeps installed v3 full reads and existing v4 compact/query/hydration signatures limited
 to arXiv/web source kinds; retain the pending branch's v5 full reads for upload-capable native clients. Add v5 compact
 page/changes/metadata/query facades that share v4's internal algorithms and add the explicit upload/descriptor contract.
 This avoids PostgreSQL overload/default-argument ambiguity and preserves web loading performance. Use separate
@@ -547,6 +547,11 @@ neither attachment nor the worker substitutes a newer session.
 
 Lock order is explicit:
 
+- Migration 039 takes its accounts-table `EXCLUSIVE` gate before any existing-relation DDL lock, then retains it
+  through commit. Pausing pipeline workers does not pause customer imports. An import that already holds its account
+  lock must be able to finish against the old schema before the migration takes its downstream import/paper locks;
+  new account-scoped mutations wait at the gate. The populated 038→039 test observes that actual lock wait, completes
+  an authenticated import, and verifies its receipt and pipeline link survive. A late gate reproduced a real deadlock.
 - Begin/part write: owner account `NO KEY UPDATE` → session → capacity → inventory rows. Begin rechecks the
   feature switch under the capacity lock, so disabling it prevents a waiting admission from slipping through.
 - Freeze: owner account → session; it takes neither library policy nor capacity.
@@ -601,3 +606,16 @@ interleavings and replacement/cleanup progress fixtures;280 backend tests (51 ta
 descriptor and14-race checkpoint; deletion retry pacing received a further focused review. These are synthetic local
 receipts/fetches, not hosted Edge CPU/memory or slow-mobile-body evidence. Hosted measurements, full client
 protocol/descriptor integration, capability rollout and an explicitly reviewed feature enablement remain gates.
+
+The subsequent composed checkpoint folds the reviewed visibility implementation into 039 and includes spending
+head `7cdef54`. The full fresh database suite, populated 038→039 upgrade with concurrent client import, 15 upload/descriptor/append/cleanup
+interleavings, 289 backend tests, 228 Core tests, 139 browser tests and 103 operations tests pass. Browser production
+build and a generic Simulator build using fixture-only API settings pass; no physical device or live provider was
+used. Restore quarantine now atomically closes current pipeline, upload, tagging and provider admission as well
+as legacy gates, and rotates both library epochs. Full-schema preservation tests keep all other records, counters,
+leases and holds unchanged; malformed present policy tables roll back every gate change.
+
+The original native upload queue and optimistic `libraryReadVersion = 5` transport have not yet been migrated to
+this server contract. They must not ship against039 until durable epoch/capability adoption, chunk/resume state,
+encrypted descriptor outbox/hydration, busy-finalize retries, usage totals and custom-title local search are complete.
+An upload feature flag alone is not evidence that those original branch clients implement the new protocol.

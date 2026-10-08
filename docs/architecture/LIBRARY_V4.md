@@ -127,9 +127,8 @@ are untouched. Recheck legacy reads, mutation replay, current-projection coverag
 ## Pending 039: upload visibility and encrypted descriptors
 
 **Local integration only; not deployed or enabled in a client.** The reviewed
-fragment in `supabase/migration-parts/039_library_visibility.sql` must be folded
-into the never-applied 039 migration after its descriptor helper is defined.
-It is not a separate migration. Applied 031/032 files are unchanged.
+visibility functions are folded into never-applied 039 after its descriptor
+helpers. There is no separate migration. Applied 031/032 files are unchanged.
 
 An upload is a new source enum that installed v2/v3 and prospective v4 readers
 cannot accept. Each retained current/query entry therefore persists its minimum
@@ -188,8 +187,10 @@ account rejection and a 1,000 hidden batch fixture pass. A populated 038→039 t
 preserves old full wire output, journal payloads and command receipts exactly while
 backfilling visibility and rotating compact epochs. All 29 existing/applicable SQL
 regression files pass against the captured ingress 039 snapshot (its changing upload
-transport suite is tested by that workstream). Restore quarantine has 15 passing
-tests. Actual legacy SQL outputs pass unchanged Swift and web decoders, including
+transport suite is tested by that workstream). The composed 039 checkpoint also passes
+the full fresh database/upgrade/race suite and 103 operations checks, including real
+v4/v5 restore invalidation and current-admission gate quarantine. Actual legacy SQL
+outputs pass unchanged Swift and web decoders, including
 hidden-prefix/middle/tail, hidden-only completion and mixed groups; both former
 invalid continuation shapes are rejected. Full Core228 and web139 tests pass.
 

@@ -37,7 +37,7 @@ def phase(sources, checks):
             run('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-d', db, '-f', str(source)], capture_output=True, text=True)
             print('PASS', source.relative_to(ROOT), flush=True)
         for name in checks:
-            if name in ('upgrade', 'library_compact_upgrade', 'provider_accounting_upgrade'):
+            if name in ('upgrade', 'library_compact_upgrade', 'library_upload_visibility_upgrade', 'provider_accounting_upgrade'):
                 module(name).verify(BIN, db, BASE, ROOT)
             else:
                 module(name).verify(BIN, db, BASE)
@@ -53,4 +53,4 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.parse_args()
 migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
 tests = sorted((ROOT / 'tests/database').glob('test_*.sql'))
-phase([*migrations, *tests], ['concurrency', 'upgrade', 'library_compact_upgrade', 'library_query_concurrency', 'provider_accounting_upgrade', 'provider_accounting_concurrency', 'pipeline_retry_concurrency', 'asset_accounting_concurrency', 'pdf_upload_concurrency', 'sandbox_allowance_concurrency', 'store_purchase_lock_concurrency', 'store_verification_concurrency', 'deployment_readiness'])
+phase([*migrations, *tests], ['concurrency', 'upgrade', 'library_compact_upgrade', 'library_upload_visibility_upgrade', 'library_query_concurrency', 'provider_accounting_upgrade', 'provider_accounting_concurrency', 'pipeline_retry_concurrency', 'asset_accounting_concurrency', 'pdf_upload_concurrency', 'sandbox_allowance_concurrency', 'store_purchase_lock_concurrency', 'store_verification_concurrency', 'deployment_readiness'])
