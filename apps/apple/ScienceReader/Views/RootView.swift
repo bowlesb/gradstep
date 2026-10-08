@@ -16,11 +16,18 @@ struct RootView: View {
                 // Floating chrome (2026-10-07): the tab bar floats over the screen, whose content scrolls
                 // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
                 let safeBottom = geometry.safeAreaInsets.bottom
+                // The podcast mini-player rides on the tab bar and takes part of its reserve (PodcastMiniPlayer).
+                let miniPlayer = model.podcasts.nowPlaying != nil
                 destination(model.tab)
-                    .environment(\.tabBarReserve, softwareKeyboardShown ? 0 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom))
+                    .environment(\.tabBarReserve, softwareKeyboardShown ? 0
+                                 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom) + (miniPlayer ? PodcastMiniPlayer.height : 0))
                     .overlay(alignment: .bottom) {
                         if !softwareKeyboardShown {
-                            tabBar.padding(.horizontal, DesignMetrics.margin)
+                            VStack(spacing: 6) {
+                                if miniPlayer { PodcastMiniPlayer(model: model) }
+                                tabBar
+                            }
+                                .padding(.horizontal, DesignMetrics.margin)
                                 .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
                                 .frame(maxHeight: .infinity, alignment: .bottom)
                                 .ignoresSafeArea(.container, edges: .bottom)
@@ -68,6 +75,7 @@ struct RootView: View {
             Text("Your account and its data were deleted from our servers and this device.")
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
+        .modifier(PodcastPresenter(model: model))
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
         .modifier(DeviceApprovalBanner(model: model))
@@ -150,7 +158,7 @@ struct RootView: View {
 
     @ViewBuilder private func destination(_ tab: ReaderTab) -> some View {
         switch tab {
-        case .feed: FeedView(model: model)
+        case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
         case .library: LibraryView(model: model)
             #if OFFLINE_RESOURCE_MEASUREMENTS
             .onAppear { OfflineResourceProbe.shared.destinationAppearance(.library, appeared: true) }
@@ -188,13 +196,18 @@ struct RootView: View {
                 SettingsView(model: model, dismissSettings: { model.tab = .library })
             } else {
                 switch model.wideMode {
-                case .feed: FeedView(model: model)
+                case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
                 case .library: LibraryView(model: model)
                 case .reader: ReaderSplit(model: model, width: width)
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
                 }
+            }
+            // The podcast player docks along the bottom, below every pane (none of their controls go under it).
+            if model.podcasts.nowPlaying != nil {
+                Divider()
+                PodcastMiniPlayer(model: model, wide: true).padding(.vertical, 6).frame(maxWidth: .infinity)
             }
         }
         .onChange(of: model.wideMode) { _, mode in model.showWideMode(mode) }
@@ -717,10 +730,12 @@ struct FeedView: View {
     private var header: some View {
         HStack(spacing: 10) {
             if isFailed {
+                PodcastListenChip(model: model)
                 Text("Feed").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        PodcastListenChip(model: model)
                         ForEach(model.feedCategories, id: \.self) { category in
                             ChipButton(title: ArxivTopics.name(for: category),
                                        selected: (model.feedCategory ?? model.feedCategories.first) == category) {

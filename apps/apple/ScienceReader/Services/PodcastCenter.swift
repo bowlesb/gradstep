@@ -1,0 +1,543 @@
+import Foundation
+import Observation
+import ScienceReaderCore
+import UIKit
+
+/// The signed-in, activated account's podcast service and local folder.
+struct PodcastAccount {
+    let id: UUID
+    let transport: any PodcastTransport
+    /// The account's local folder (Application Support/<environment>/<account>/): erased with the account.
+    let folder: URL
+    let localKey: Data
+    let deviceID: UUID
+}
+
+/// A private-generation sheet: quote, explicit consent, then the server job's progress and charges.
+struct PodcastGeneration: Identifiable, Equatable {
+    enum Phase: Equatable {
+        case offer, quoting, quoted(PodcastQuote), starting, running(PodcastJob), finished(PodcastJob), failed(String)
+    }
+    let id = UUID()
+    let paperTitle: String
+    let itemID: UUID
+    let documentID: UUID
+    var phase: Phase
+    /// Idempotency keys for this sheet: a retried quote or start is the same request, never a second quote or charge.
+    let quoteRequestID = UUID()
+    let startRequestID = UUID()
+}
+
+/// An evidence quote whose paper isn't in this library: offer the source and an explicit Add.
+struct PodcastEvidenceElsewhere: Identifiable, Equatable {
+    let id = UUID()
+    let quote: String
+    let episode: PodcastEpisode
+}
+
+/// Paper podcasts on this device (docs/architecture/PAPER_PODCASTS.md): the Listen catalog, playback, verified
+/// downloads, device-local listening history and explicitly quoted private generation. Owned by `ReaderModel`; an
+/// account change stops playback and forgets everything shown for the previous account.
+@MainActor @Observable
+final class PodcastCenter {
+    enum CatalogState: Equatable { case idle, loading, loaded, failed(String) }
+    /// A Play or Download that is fetching and verifying the audio first.
+    struct Transfer: Equatable {
+        let releaseID: UUID
+        let title: String
+        var received: Int
+        let total: Int
+        let keep: Bool
+        var fraction: Double { total > 0 ? min(1, Double(received) / Double(total)) : 0 }
+    }
+
+    /// The Feed's Listen filter (a chip beside the topics).
+    var listenSelected = false
+    private(set) var capabilities: PodcastCapabilities?
+    private(set) var catalog: [PodcastEpisode] = []
+    private(set) var catalogState: CatalogState = .idle
+    private(set) var catalogNext: String?
+    let player = PodcastPlayer()
+    var showPlayer = false
+    private(set) var transfer: Transfer?
+    private(set) var downloads: [UUID: PodcastDownloadRecord] = [:]
+    private(set) var history = PodcastPlaybackLedger()
+    var generation: PodcastGeneration?
+    var evidenceElsewhere: PodcastEvidenceElsewhere?
+    /// A one-line problem or outcome, shown as an alert.
+    var notice: String?
+    /// Releases the server has corrected (superseded) since they were downloaded: their replacement.
+    private(set) var corrections: [UUID: UUID] = [:]
+
+    @ObservationIgnored weak var host: ReaderModel?
+    @ObservationIgnored private var account: PodcastAccount?
+    @ObservationIgnored private var store: PodcastLocalStore?
+    @ObservationIgnored private var session: PodcastPlaybackSession?
+    @ObservationIgnored private var transferTask: Task<Void, Never>?
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    @ObservationIgnored private var catalogTask: Task<Void, Never>?
+    @ObservationIgnored private var historySave: Task<Void, Never>?
+    @ObservationIgnored private var generationCounter = 0
+    @ObservationIgnored private var backgroundObserver: NSObjectProtocol?
+    #if DEBUG && FIXTURE_HOST
+    @ObservationIgnored private var fixtureTransport: PodcastFixtureTransport?
+    #endif
+
+    init() {
+        player.onSave = { [weak self] episode, position, duration, completed, reason in
+            self?.record(episode: episode, positionMS: position, durationMS: duration, completed: completed, reason: reason)
+        }
+        backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.player.saveNow(); self?.flushHistory() }
+        }
+    }
+
+    /// The Listen chip is offered when listening could work for this account (or the fixture).
+    var listenAvailable: Bool {
+        #if DEBUG && FIXTURE_HOST
+        if PodcastFixtureTransport.isEnabled { return true }
+        #endif
+        return host?.podcastAccount != nil && capabilities?.catalog != false
+    }
+
+    var nowPlaying: PodcastEpisode? { player.episode }
+
+    /// Listen is offered for a synced library paper (the offline sample only has a fixture episode).
+    func canListen(to paper: Paper) -> Bool {
+        #if DEBUG && FIXTURE_HOST
+        if PodcastFixtureTransport.isEnabled { return true }
+        #endif
+        return !paper.isSample && host?.podcastAccount != nil
+    }
+    func isKept(_ releaseID: UUID) -> Bool { downloads[releaseID]?.kept == true }
+    var keptDownloads: [PodcastDownloadRecord] { downloads.values.filter(\.kept).sorted { $0.lastUsedAt > $1.lastUsedAt } }
+
+    // MARK: Account
+
+    /// Sign-out, account switch or deletion: stop playback and drop the previous account's state and handles.
+    func accountChanged() {
+        guard account != nil else { return }
+        player.stop(); flushHistory()
+        account = nil; store = nil; session = nil
+        transferTask?.cancel(); transferTask = nil; transfer = nil
+        pollTask?.cancel(); pollTask = nil; catalogTask?.cancel(); catalogTask = nil
+        catalog = []; catalogState = .idle; catalogNext = nil; capabilities = nil
+        downloads = [:]; history = PodcastPlaybackLedger(); generation = nil; evidenceElsewhere = nil; notice = nil; corrections = [:]
+        showPlayer = false; listenSelected = false
+    }
+
+    /// The current account's context, loading its sealed history and downloads list the first time.
+    private func currentAccount() async -> PodcastAccount? {
+        let resolved: PodcastAccount?
+        #if DEBUG && FIXTURE_HOST
+        if PodcastFixtureTransport.isEnabled { resolved = fixtureAccount() } else { resolved = host?.podcastAccount }
+        #else
+        resolved = host?.podcastAccount
+        #endif
+        guard let resolved else { if account != nil { accountChanged() }; return nil }
+        if let account, account.id == resolved.id { return account }
+        if account != nil { accountChanged() }
+        account = resolved
+        let directory = resolved.folder.appendingPathComponent("podcasts", isDirectory: true)
+        // Never recreate an erased account folder: only the podcasts folder inside an existing one.
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        }
+        guard let opened = try? PodcastLocalStore(directory: directory, accountID: resolved.id, localKey: resolved.localKey) else { return resolved }
+        store = opened
+        let ledger = await opened.loadHistory(), records = await opened.loadDownloads()
+        guard self.account?.id == resolved.id else { return nil }
+        history = ledger
+        // Only records whose file is still present stay "downloaded".
+        downloads = Dictionary(uniqueKeysWithValues: records.filter { FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.fileName).path) }
+            .map { ($0.episode.id, $0) })
+        return resolved
+    }
+
+    private var audioDirectory: URL? { account?.folder.appendingPathComponent("podcasts", isDirectory: true) }
+
+    #if DEBUG && FIXTURE_HOST
+    private func fixtureAccount() -> PodcastAccount? {
+        guard let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        let folder = base.appendingPathComponent("podcast-fixture/\(PodcastFixtureTransport.fixtureAccount.wire)", isDirectory: true)
+        if account == nil, ProcessInfo.processInfo.arguments.contains("--reset-podcast-fixture") { try? FileManager.default.removeItem(at: folder) }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let transport = fixtureTransport ?? PodcastFixtureTransport(); fixtureTransport = transport
+        return PodcastAccount(id: PodcastFixtureTransport.fixtureAccount, transport: transport, folder: folder,
+                              localKey: Data(repeating: 0x5a, count: 32), deviceID: UUID(uuidString: "fa000000-0000-4000-8000-0000000000de")!)
+    }
+    #endif
+
+    // MARK: Catalog
+
+    func loadCatalog() {
+        catalogTask?.cancel()
+        catalogState = catalog.isEmpty ? .loading : catalogState
+        catalogTask = Task {
+            guard let account = await currentAccount() else {
+                catalogState = .failed("Sign in to listen to paper episodes."); return
+            }
+            do {
+                let page = try await account.transport.catalog(after: nil, limit: 50)
+                guard self.account?.id == account.id, !Task.isCancelled else { return }
+                capabilities = page.capabilities ?? capabilities
+                catalog = page.episodes; catalogNext = page.next; catalogState = .loaded
+                await refreshDownloadedStates()
+            } catch {
+                guard self.account?.id == account.id, !Task.isCancelled else { return }
+                catalogState = .failed(error.podcastMessage)
+            }
+        }
+    }
+
+    func loadMoreCatalog() {
+        guard let next = catalogNext, catalogState == .loaded, let account else { return }
+        catalogNext = nil
+        Task {
+            do {
+                let page = try await account.transport.catalog(after: next, limit: 50)
+                guard self.account?.id == account.id else { return }
+                let known = Set(catalog.map(\.id))
+                catalog += page.episodes.filter { !known.contains($0.id) }; catalogNext = page.next
+            } catch { catalogNext = next }
+        }
+    }
+
+    /// Before relying on downloaded copies (and on reconnect): learn about takedowns and corrections. Offline devices
+    /// can't learn of one until then, and exported copies can't be erased remotely.
+    func refreshDownloadedStates() async {
+        guard let account, !downloads.isEmpty else { return }
+        guard let states = try? await account.transport.states(Array(downloads.keys)), self.account?.id == account.id else { return }
+        for (releaseID, status) in states {
+            if status.state.blocksPlayback {
+                let title = downloads[releaseID]?.episode.title
+                if nowPlaying?.id == releaseID { player.stop() }
+                removeFile(releaseID)
+                notice = "“\(title ?? "An episode")” is no longer available and was removed from this device."
+            } else if status.state == .superseded, let replacement = status.replacementID {
+                corrections[releaseID] = replacement
+            }
+        }
+        persistDownloads()
+    }
+
+    // MARK: Playing
+
+    /// Plays `episode`: from a verified local copy, or after fetching and verifying the whole file first (no Range,
+    /// no streaming). Tapping Play never adds a paper or buys anything.
+    func play(_ episode: PodcastEpisode, at startMS: Int? = nil) {
+        if nowPlaying?.id == episode.id {
+            if let startMS { player.seek(toMS: startMS) }
+            if !player.isPlaying { player.play() }
+            showPlayer = true; return
+        }
+        transferTask?.cancel()
+        transferTask = Task {
+            guard let account = await currentAccount() else { notice = "Sign in to listen to paper episodes."; return }
+            do {
+                let full = try await fullEpisode(episode, account: account)
+                let url = try await localFile(for: full, keep: false, account: account)
+                guard self.account?.id == account.id, !Task.isCancelled else { return }
+                beginSession(full)
+                player.load(full, fileURL: url, startMS: startMS ?? history.resumePositionMS(for: full.id) ?? 0, autoplay: true)
+                showPlayer = true
+            } catch is CancellationError {
+            } catch {
+                guard self.account?.id == account.id else { return }
+                notice = error.podcastMessage
+            }
+            if self.transfer?.releaseID == episode.id, !(self.transfer?.keep ?? false) { self.transfer = nil }
+        }
+    }
+
+    /// Stops a Play/Download that is still fetching (slow networks): the grant is spent, a later try gets a new one.
+    func cancelTransfer() { transferTask?.cancel(); transferTask = nil; transfer = nil }
+
+    /// Keeps the episode for offline listening (reusing a copy already played: no second transfer).
+    func download(_ episode: PodcastEpisode) {
+        if let record = downloads[episode.id] {
+            downloads[episode.id]?.kept = true; downloads[episode.id]?.lastUsedAt = Date()
+            if record.episode.transcript == nil { Task { await self.refreshEpisode(episode.id) } }
+            persistDownloads(); return
+        }
+        transferTask?.cancel()
+        transferTask = Task {
+            guard let account = await currentAccount() else { notice = "Sign in to download episodes."; return }
+            do {
+                let full = try await fullEpisode(episode, account: account)
+                _ = try await localFile(for: full, keep: true, account: account)
+            } catch is CancellationError {
+            } catch {
+                guard self.account?.id == account.id else { return }
+                notice = error.podcastMessage
+            }
+            if self.transfer?.releaseID == episode.id { self.transfer = nil }
+        }
+    }
+
+    /// Removes this device's copy only; shared catalog content and other devices are unaffected.
+    func removeDownload(_ releaseID: UUID) {
+        if nowPlaying?.id == releaseID {
+            // Still playing from it: keep the file as an ordinary (evictable) copy instead of pulling it away.
+            downloads[releaseID]?.kept = false
+        } else { removeFile(releaseID) }
+        persistDownloads()
+    }
+
+    func stop() { player.stop(); showPlayer = false; session = nil; flushHistory() }
+
+    private func fullEpisode(_ episode: PodcastEpisode, account: PodcastAccount) async throws -> PodcastEpisode {
+        if episode.transcript != nil, episode.chapters != nil { return episode }
+        if let stored = downloads[episode.id]?.episode, stored.transcript != nil { return stored }
+        let full = try await account.transport.episode(episode.id)
+        guard full.audio == episode.audio, full.documentID == episode.documentID else { throw ReaderError.corruptData }
+        return full
+    }
+
+    private func refreshEpisode(_ releaseID: UUID) async {
+        guard let account, let full = try? await account.transport.episode(releaseID), var record = downloads[releaseID],
+              full.audio == record.episode.audio else { return }
+        record = PodcastDownloadRecord(episode: full, fileName: record.fileName, bytes: record.bytes, sha256: record.sha256,
+                                       mediaType: record.mediaType, kept: record.kept, verifiedAt: record.verifiedAt, lastUsedAt: record.lastUsedAt)
+        downloads[releaseID] = record; persistDownloads()
+    }
+
+    /// A verified local file for `episode`: re-checked if already here, otherwise one single-use grant, every byte
+    /// received, length and SHA-256 checked, then written with file protection and recorded.
+    private func localFile(for episode: PodcastEpisode, keep: Bool, account: PodcastAccount) async throws -> URL {
+        guard let directory = audioDirectory else { throw ReaderError.storageUnavailable }
+        if let record = downloads[episode.id] {
+            let url = directory.appendingPathComponent(record.fileName)
+            let size = record.bytes, digest = record.sha256
+            let intact = await Task.detached { (try? PodcastAudioVerification.verify(fileAt: url, bytes: size, sha256: digest)) != nil }.value
+            if intact {
+                downloads[episode.id]?.lastUsedAt = Date(); if keep { downloads[episode.id]?.kept = true }
+                persistDownloads(); return url
+            }
+            removeFile(episode.id)
+        }
+        transfer = Transfer(releaseID: episode.id, title: episode.title, received: 0, total: episode.audio.bytes, keep: keep)
+        let grant = try await account.transport.download(episode.id)
+        guard let member = grant.audio, member.bytes == episode.audio.bytes, member.sha256 == episode.audio.sha256,
+              member.mediaType == episode.audio.mediaType else { throw ReaderError.corruptData }
+        let releaseID = episode.id
+        let data = try await account.transport.member(member) { [weak self] received in
+            Task { @MainActor in if self?.transfer?.releaseID == releaseID { self?.transfer?.received = received } }
+        }
+        try Task.checkCancellation()
+        try PodcastAudioVerification.verify(data, bytes: member.bytes, sha256: member.sha256)
+        guard self.account?.id == account.id else { throw CancellationError() }
+        let name = PodcastDownloadRecord.fileName(for: episode.id, mediaType: member.mediaType)
+        let url = directory.appendingPathComponent(name)
+        // Readable while the device is locked after first unlock, so background playback continues; excluded from backup.
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        var values = URLResourceValues(); values.isExcludedFromBackup = true
+        var file = url; try? file.setResourceValues(values)
+        let now = Date()
+        downloads[episode.id] = PodcastDownloadRecord(episode: episode, fileName: name, bytes: member.bytes, sha256: member.sha256,
+                                                      mediaType: member.mediaType, kept: keep, verifiedAt: now, lastUsedAt: now)
+        evictTransientCopies()
+        persistDownloads()
+        transfer = nil
+        return url
+    }
+
+    /// Copies Play needed but the reader didn't keep: at most three, least recently used first, never the one playing.
+    private func evictTransientCopies() {
+        let transient = downloads.values.filter { !$0.kept && $0.episode.id != nowPlaying?.id }.sorted { $0.lastUsedAt > $1.lastUsedAt }
+        for record in transient.dropFirst(3) { removeFile(record.episode.id) }
+    }
+
+    private func removeFile(_ releaseID: UUID) {
+        guard let record = downloads.removeValue(forKey: releaseID), let directory = audioDirectory else { return }
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(record.fileName))
+    }
+
+    private func persistDownloads() {
+        guard let store else { return }
+        let records = Array(downloads.values.sorted { $0.lastUsedAt > $1.lastUsedAt }.prefix(PodcastLocalStore.maximumDownloads))
+        Task { try? await store.saveDownloads(records) }
+    }
+
+    // MARK: History (device-local)
+
+    private func beginSession(_ episode: PodcastEpisode) {
+        session = PodcastPlaybackSession(releaseID: episode.id, startedAt: Date(), deviceID: account?.deviceID ?? UUID())
+    }
+
+    private func record(episode: PodcastEpisode, positionMS: Int, durationMS: Int, completed: Bool, reason: PodcastPlayer.SaveReason) {
+        guard var current = session, current.releaseID == episode.id else { return }
+        let record = current.record(positionMS: positionMS, durationMS: durationMS, completed: completed, at: Date())
+        session = current
+        history.apply(record)
+        // Pauses, chapters, seeks and the end are saved now; the 15-second tick is saved too (bounded, not every second).
+        flushHistory()
+        if reason == .finished { downloads[episode.id]?.lastUsedAt = Date() }
+    }
+
+    private func flushHistory() {
+        guard let store else { return }
+        let ledger = history
+        historySave?.cancel()
+        historySave = Task { try? await store.saveHistory(ledger) }
+    }
+
+    func clearHistory(_ releaseID: UUID) {
+        history.remove(releaseID, deviceID: account?.deviceID ?? UUID(), at: Date()); flushHistory()
+    }
+
+    func resumePosition(_ releaseID: UUID) -> Int? { history.resumePositionMS(for: releaseID) }
+    func isFinished(_ releaseID: UUID) -> Bool { history.isCompleted(releaseID) }
+
+    // MARK: Listen on a paper, and private generation
+
+    /// Listen (Paper "…" menu, a Library row): play the paper's shared or own private episode, follow a generation
+    /// already running, or offer an explicitly quoted private generation.
+    func listen(to paper: Paper) {
+        Task {
+            guard let account = await currentAccount() else { notice = "Sign in to listen to paper episodes."; return }
+            let itemID: UUID
+            #if DEBUG && FIXTURE_HOST
+            if PodcastFixtureTransport.isEnabled { itemID = paper.id } else {
+                guard let found = host?.podcastItemID(for: paper) else { notice = "Listening needs this paper in your synced library."; return }
+                itemID = found
+            }
+            #else
+            guard let found = host?.podcastItemID(for: paper) else { notice = "Listening needs this paper in your synced library."; return }
+            itemID = found
+            #endif
+            do {
+                let lookup = try await account.transport.paper(itemID: itemID)
+                guard self.account?.id == account.id else { return }
+                if let capabilities = lookup.capabilities { self.capabilities = capabilities }
+                if let episode = lookup.episode, !episode.state.blocksPlayback {
+                    play(episode)
+                } else if let job = lookup.job, job.state.isActive {
+                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job))
+                    poll(job.requestID)
+                } else if lookup.capabilities?.generation == true {
+                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer)
+                } else {
+                    notice = "There’s no episode for this paper yet, and creating one isn’t available right now. Reading is unaffected."
+                }
+            } catch {
+                guard self.account?.id == account.id else { return }
+                notice = error.podcastMessage
+            }
+        }
+    }
+
+    /// Step 1: an explicit quote. Nothing is held yet.
+    func requestQuote() {
+        guard let current = generation, let account else { return }
+        generation?.phase = .quoting
+        Task {
+            do {
+                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: current.quoteRequestID)
+                guard generation?.id == current.id else { return }
+                switch outcome {
+                case .quote(let quote): generation?.phase = .quoted(quote)
+                case .reuse(let releaseID):
+                    generation = nil
+                    let episode = try await account.transport.episode(releaseID)
+                    play(episode)
+                case .join(let requestID):
+                    let job = try await account.transport.status(requestID: requestID)
+                    generation?.phase = job.state.isActive ? .running(job) : .finished(job)
+                    if job.state.isActive { poll(requestID) }
+                }
+            } catch {
+                guard generation?.id == current.id else { return }
+                generation?.phase = .failed(error.podcastMessage)
+            }
+        }
+    }
+
+    /// Step 2: the reader confirmed the quote and providers. One funding operation holds at most the quoted maximum.
+    func startGeneration() {
+        guard let current = generation, case .quoted(let quote) = current.phase, let account else { return }
+        generation?.phase = .starting
+        Task {
+            do {
+                let job = try await account.transport.start(quoteID: quote.id, requestID: current.startRequestID, consentVersion: quote.consentVersion)
+                guard generation?.id == current.id else { return }
+                generation?.phase = job.state.isActive ? .running(job) : .finished(job)
+                if job.state.isActive { poll(job.requestID) }
+            } catch {
+                guard generation?.id == current.id else { return }
+                generation?.phase = .failed(error.podcastMessage)
+            }
+        }
+    }
+
+    func cancelGeneration() {
+        guard let current = generation, case .running(let job) = current.phase, job.state.canCancel, let account else { return }
+        Task {
+            do {
+                let updated = try await account.transport.cancel(requestID: job.requestID)
+                guard generation?.id == current.id else { return }
+                generation?.phase = updated.state.isActive ? .running(updated) : .finished(updated)
+            } catch {
+                guard generation?.id == current.id else { return }
+                notice = error.podcastMessage
+            }
+        }
+    }
+
+    /// Durable server status, polled on a bounded schedule (2 s, then 5 s, then 15 s); never inferred from time.
+    private func poll(_ requestID: UUID) {
+        pollTask?.cancel()
+        generationCounter += 1
+        let counter = generationCounter
+        pollTask = Task {
+            let started = Date()
+            while !Task.isCancelled, let account, generationCounter == counter {
+                let elapsed = Date().timeIntervalSince(started)
+                #if DEBUG && FIXTURE_HOST
+                let interval: Double = PodcastFixtureTransport.isEnabled ? 0.6 : elapsed < 30 ? 2 : elapsed < 180 ? 5 : 15
+                #else
+                let interval: Double = elapsed < 30 ? 2 : elapsed < 180 ? 5 : 15
+                #endif
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled, generationCounter == counter, elapsed < 1_800 else { return }
+                guard let job = try? await account.transport.status(requestID: requestID), self.account?.id == account.id else { continue }
+                if generation != nil, generation?.phase != .offer { generation?.phase = job.state.isActive ? .running(job) : .finished(job) }
+                if !job.state.isActive { return }
+            }
+        }
+    }
+
+    func playGenerated(_ job: PodcastJob) {
+        guard let releaseID = job.releaseID, let account else { return }
+        generation = nil
+        Task {
+            do { play(try await account.transport.episode(releaseID)) }
+            catch { notice = error.podcastMessage }
+        }
+    }
+
+    // MARK: Transcript evidence
+
+    /// Opens the pinned paper at the quote (the passage finder used by Go to passage), or offers the source.
+    func openEvidence(_ evidence: PodcastEvidence, in episode: PodcastEpisode) {
+        guard let host else { return }
+        guard let paper = host.papers.first(where: { $0.id == episode.documentID }) else {
+            evidenceElsewhere = PodcastEvidenceElsewhere(quote: evidence.quote, episode: episode); return
+        }
+        showPlayer = false
+        host.showEvidence(evidence.quote, in: paper)
+    }
+}
+
+extension ReaderModel {
+    /// A transcript's evidence: open its paper (keeping the chat as it is) and center the quote, as Go to passage does,
+    /// with the citation Back to where reading left off. Found by its text, so a newer conversion of the paper works too.
+    func showEvidence(_ quote: String, in paper: Paper) {
+        if selectedPaper?.id != paper.id || selectedPaper?.artifactID != paper.artifactID { select(paper) }
+        referenceNotice = nil
+        passageRequest = PaperPassageRequest(documentID: paper.id, conversationID: UUID(),
+                                             anchor: TextAnchor(artifactID: paper.artifactID ?? UUID(), quote: quote), origin: .podcastEvidence)
+        tab = .paper
+        if wideMode != .browse { wideMode = .reader }
+    }
+}

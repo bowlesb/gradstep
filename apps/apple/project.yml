@@ -35,6 +35,41 @@ targets:
       - path: ScienceReader/Resources/ReaderSamples
         type: folder
         buildPhase: resources
+    # The app's Info.plist is generated from these properties (`xcodegen generate` rewrites ScienceReader/Info.plist).
+    # UIBackgroundModes/audio: paper podcasts keep playing with the screen locked or in another app
+    # (docs/architecture/PAPER_PODCASTS.md); the player only plays local, verified files.
+    info:
+      path: ScienceReader/Info.plist
+      properties:
+        CFBundleDisplayName: Gradstep
+        CFBundleIdentifier: $(PRODUCT_BUNDLE_IDENTIFIER)
+        CFBundleExecutable: $(EXECUTABLE_NAME)
+        CFBundleName: $(PRODUCT_NAME)
+        CFBundlePackageType: APPL
+        NSCameraUsageDescription: Scan the code a new device shows, to add it to your account.
+        NSMicrophoneUsageDescription: "Test builds only: your voice is recorded with a test session you start in Settings, to explain what you see. It stays on this device until you share the session."
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIAppFonts: [GoogleSans-Medium.ttf]
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLSchemes: [sciencereader]
+        ScienceReaderAuthCallbackURL: sciencereader://auth/callback
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.education
+        ScienceReaderSupabaseURL: $(SCIENCE_READER_SUPABASE_URL)
+        ScienceReaderSupabaseAnonKey: $(SCIENCE_READER_SUPABASE_ANON_KEY)
+        ScienceReaderEnvironment: $(SCIENCE_READER_ENVIRONMENT)
     dependencies:
       - package: ScienceReaderCore
       - package: SwiftMath

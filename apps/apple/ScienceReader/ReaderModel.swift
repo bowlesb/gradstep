@@ -404,6 +404,8 @@ final class ReaderModel {
     @ObservationIgnored private var chatStreamFlushes: Set<UUID> = []
     @ObservationIgnored private var pendingSelection: (composerID: UUID, prompt: String, quote: String, action: ChatAction?, origin: PassageOrigin?)?
     var chatConsentPrompt: ChatConsentPrompt?
+    /// Paper podcasts: Listen catalog, player, downloads, private generation (Services/PodcastCenter.swift).
+    let podcasts = PodcastCenter()
     private(set) var creditBalance: CreditBalance?
     private(set) var creditBalanceIssue: String?
     private let chatTransportOverride: (any ChatTransport)?
@@ -422,7 +424,7 @@ final class ReaderModel {
     private var started = false
     private var workOwnership = ReaderWorkOwnership()
     private var sessionID: UUID { workOwnership.accountSessionID }
-    private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged() } } }
+    private var accountID: UUID? { didSet { if accountID != oldValue { librarySearchSourceChanged(); podcasts.accountChanged() } } }
     private var publishedGeneration: Int64 = -1
     /// Encrypted changes on this device not yet synced (the Account page says how many).
     private(set) var publishedPendingCount = 0
@@ -488,7 +490,20 @@ final class ReaderModel {
         self.readerBundleVerification = readerBundleVerification; self.readerBundleDirectoryReader = readerBundleDirectoryReader
         self.librarySearchWorker = librarySearchWorker
         if fixtureFailed { error = "The local sign-in fixture couldn’t be prepared." }
+        podcasts.host = self
     }
+
+    /// The signed-in, activated account's podcast service and local folder; nil before activation or when signed out.
+    var podcastAccount: PodcastAccount? {
+        guard let backend, let accountID, let configuration, let device, device.accountID == accountID,
+              let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) else { return nil }
+        return PodcastAccount(id: accountID, transport: BackendPodcastTransport(client: backend, accountID: accountID),
+                              folder: base.appendingPathComponent("\(configuration.environment)/\(accountID.wire)", isDirectory: true),
+                              localKey: device.localStoreKey, deviceID: device.deviceID)
+    }
+
+    /// The library item the podcast service knows a paper by.
+    func podcastItemID(for paper: Paper) -> UUID? { completeLibrary?.items.first { $0.documentID == paper.id && $0.visible }?.id }
 
     var configured: Bool { configuration != nil }
     var isSignedIn: Bool { accountID != nil }

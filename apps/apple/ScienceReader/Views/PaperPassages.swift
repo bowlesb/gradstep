@@ -36,12 +36,15 @@ struct PaperMark: Equatable {
 
 /// Go to passage, waiting for the reader like a contents jump.
 struct PaperPassageRequest: Equatable, Identifiable {
+    /// What asked for the passage: a chat's Go to passage, or a podcast transcript's evidence (PodcastCenter).
+    enum Origin: Equatable { case chat, podcastEvidence }
     let id = UUID()
     let documentID: UUID
     let conversationID: UUID
     let anchor: TextAnchor
     var sameArtifact = false
     let requestedAt = Date()
+    var origin = Origin.chat
 }
 
 /// The reader coordinator's passage bookkeeping (one load at a time).
@@ -131,10 +134,12 @@ extension ReaderModel {
     }
 
     func finishPassage(_ id: UUID, found: Bool) {
-        guard passageRequest?.id == id else { return }
+        guard let request = passageRequest, request.id == id else { return }
         passageRequest = nil
         if !found {
-            referenceNotice = ReferenceNotice(kind: .closed, message: "Couldn’t find the passage this chat came from. The paper may have changed since.",
+            referenceNotice = ReferenceNotice(kind: .closed, message: request.origin == .podcastEvidence
+                                              ? "Couldn’t find this quote in the paper. The paper may have changed since the episode was made."
+                                              : "Couldn’t find the passage this chat came from. The paper may have changed since.",
                                               reference: "")
         }
     }
