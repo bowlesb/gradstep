@@ -3,8 +3,8 @@
 > **Status, 2026-10-08 UTC:** runner and deploy hooks are implemented and exercised on staging; migration
 > `202610070024_workflow_checks.sql` is **applied**. Read-only scheduler evidence at **08:57 UTC** confirms
 > three enabled triggers: the six-hour canary, Monday/Wednesday/Friday 14:00 UTC daily suite, and Sunday
-> 15:00 UTC weekly suite. The last 06:00 UTC execution succeeded. The job still used image **54744c0**,
-> one task, no retries and a 2,700-second timeout; its image refresh is pending below. Alert email is configured,
+> 15:00 UTC weekly suite. The last 06:00 UTC execution succeeded on the earlier image. At **09:21 UTC** the
+> image-only refresh below was verified, preserving one task, no retries and a 2,700-second timeout. Alert email is configured,
 > but actual owner email delivery remains unverified. Evidence: `.artifacts/takeover-20261008/workflow-scheduler-readback.json`.
 >
 > Latest targeted hosted proof: `.artifacts/workflow-checks/2026-10-08T05-42-22-627Z.json`, **2 pass, 0 fail,
@@ -94,8 +94,8 @@ cache and hosted redemption/quota/replay proofs remain in [asset spending](ASSET
 
 The original schedule estimate was about $9.50/month (26 × $0.27 + 4 × $0.63) plus chat deploys; fewer paid days
 (`--daily-days=1,3,5`, the observed setting) estimated about $6/month. These remain planning estimates from early
-runs, not measured full-month expense or a new authorization to schedule paid work. The October provider budget snapshot at 05:14 UTC on October 8
-is $13.677389 spent, $0 reserved, $25 limit. Re-read headroom and actual scheduling before changing it; all workflow
+runs, not measured full-month expense or a new authorization to schedule paid work. The October provider budget snapshot at 09:08 UTC on October 8
+is $14.017212 spent, $0 reserved, $25 limit, with no unresolved provider attempts. Re-read headroom and actual scheduling before changing it; all workflow
 expense shares that allocation. The six-hourly canary design has no AI/OCR calls, but infrastructure use is not an
 invoice-level zero-cost guarantee. Nothing here raises a budget.
 
@@ -155,7 +155,7 @@ worker; the anon key and Resend key are added), a Cloud Run job from `services/w
 calling the Jobs API `:run` with argument overrides, through a scheduler identity holding only
 `roles/run.jobsExecutorWithOverrides` on that job. Actual Cloud Run/Scheduler charges depend on account-wide free-tier allocation and execution; read billing evidence rather than assuming these three jobs are free.
 
-### Existing job image refresh — prepared locally, not yet applied
+### Existing job image refresh — verified 2026-10-08 09:21 UTC
 
 The observed image `54744c0-1791385453` has the old reader verifier: it requests no `bounded-v1` transport and
 fetches members without bearer authentication. It cannot verify the bounded-only protocol. Current source requests
@@ -168,7 +168,11 @@ the image's `--list` passed with networking disabled and only public staging URL
 `.artifacts/takeover-20261008/workflow-image-proof.json`, `workflow-image-build.log`, `workflow-image-push.log`.
 Target image digest: `sha256:f02d84224ecbee907129a434ad5e0a3ae913c6d09c45fe07f2df496d9c55aeeb` in the existing
 `us-west1-docker.pkg.dev/gradstep/cloud-run-source-deploy/gradstep-workflow-checks` repository.
-This is image/source evidence, not a claim that the hosted job has been updated or a new suite has run.
+The guarded image-only PATCH subsequently succeeded. Readback at 09:21:12 UTC confirms the exact digest and
+identical normalized runtime configuration, direct IAM policy and all three scheduler configurations. The
+existing alert destination and secrets stayed unchanged. No job was manually executed and no notification was
+sent; the new image's next scheduled hosted journey and actual email delivery remain unverified. Evidence:
+`.artifacts/takeover-20261008/workflow-image-plan.json` and `workflow-image-apply.json.verified.json`.
 
 `scripts/refresh-workflow-job-image.py` provides a separate guarded update path:
 
