@@ -115,10 +115,10 @@ test('returning reader: recovery code, library, retry, add paper, read, sign out
   await expect(page.locator('iframe.figure-frame')).toBeVisible();
   await page.getByRole('button', { name: 'Done' }).click();
 
-  // The chat pane beside the paper (a drawer on narrow windows) explains that chat isn't in the browser yet.
+  // The paper chat stays beside the reader, with a drawer on narrow windows.
   const chat = page.getByTestId('pane-right');
   if (!await chat.isVisible()) await page.getByTestId('ask').click();
-  await expect(chat).toContainText('Chat is not yet available in the browser');
+  await expect(chat).toContainText('Ask about this paper');
   if (drawer) { await page.keyboard.press('Escape'); await expect(chat).toHaveCount(0); }
 
   await frame.locator('body').evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));

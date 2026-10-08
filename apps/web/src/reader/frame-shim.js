@@ -27,6 +27,8 @@
     find: (query, direction) => find(String(query ?? ''), direction),
     findClear: () => clearFind(),
     theme: value => setScheme(value),
+    goToPassage: anchor => send({ type: 'passage', found: !!window.__scienceReaderGoToPassage?.(anchor)?.found }),
+    setMarks: list => window.__scienceReaderSetMarks?.(list),
   };
 
   // The app's appearance, whatever the system's: the frame can't inherit the parent's choice, so the documents' own

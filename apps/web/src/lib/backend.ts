@@ -154,18 +154,18 @@ export const auth = {
     return session;
   },
 
-  /** A valid access token for the current account, refreshing (once, across tabs) when it expires within a minute. */
-  async token(): Promise<string> {
+  /** A valid access token for the current account, refreshing (once, across tabs) when it expires within `minimum` seconds. */
+  async token(minimum = 60): Promise<string> {
     const session = current;
     if (!session) throw new BackendError('sign_in_required', 401);
-    if (session.expiresAt > Date.now() / 1000 + 60) return session.accessToken;
+    if (session.expiresAt > Date.now() / 1000 + minimum) return session.accessToken;
     const account = session.user.id, before = generation, owner = lifetime.signal;
     const refresh = async () => {
       if (before !== generation) throw new BackendError('cancelled');
       const stored = load();
       const latest = stored === undefined ? current : stored; // distinguish unavailable storage from a real logout
       if (!latest || latest.user.id !== account || latest.lifetime !== session.lifetime) throw new BackendError('sign_in_required', 401);
-      if (latest.expiresAt > Date.now() / 1000 + 60) return latest;
+      if (latest.expiresAt > Date.now() / 1000 + minimum) return latest;
       const reply = await send('auth/v1/token?grant_type=refresh_token', { body: JSON.stringify({ refresh_token: latest.refreshToken }), maximum: 262_144, signal: owner });
       if (before !== generation) throw new BackendError('cancelled');
       const persisted = load(), active = persisted === undefined ? current : persisted;
@@ -264,6 +264,51 @@ export async function functionGet<T>(path: string, options: { maximum?: number; 
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'GET', ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
+}
+
+/** An Edge function's `text/event-stream` answer (`chat`), bounded in total bytes, with an idle deadline between chunks
+ * (the server pings every 15 s). The token is refreshed first when it has less than `minimumValidity` seconds left: the
+ * server may act as the user after the answer (Ingest). Non-200 replies throw their known `{code}`. */
+export async function* functionStream(path: string, body: unknown, options: { account: string; signal: AbortSignal; maximum: number; minimumValidity?: number; idle?: number }): AsyncGenerator<Uint8Array<ArrayBuffer>> {
+  options.signal.throwIfAborted();
+  const account = current?.user.id, before = generation, sessionSignal = lifetime.signal;
+  if (!account || account !== options.account) throw new BackendError('sign_in_required', 401);
+  const token = await auth.token(options.minimumValidity ?? 60);
+  if (before !== generation) throw new BackendError('cancelled');
+  const controller = cancellation([options.signal, sessionSignal]);
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => { clearTimeout(idle); idle = setTimeout(() => controller.abort(new DOMException('Stream idle', 'TimeoutError')), options.idle ?? 45_000); };
+  try {
+    arm();
+    let response: Response;
+    try {
+      response = await fetch(endpoint(`functions/v1/${path}`), { method: 'POST', body: JSON.stringify(body), redirect: 'error', cache: 'no-store', credentials: 'omit',
+        referrerPolicy: 'no-referrer', signal: controller.signal, headers: { apikey: config.anonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+    } catch (error) { if (options.signal.aborted || sessionSignal.aborted) throw error; throw new BackendError('connection'); }
+    if (before !== generation) throw new BackendError('cancelled');
+    if (response.status === 401) { await response.body?.cancel(); throw new BackendError('sign_in_required', 401); }
+    if (response.status !== 200) {
+      const v = parse(await bounded(response, 65_536).catch(() => new Uint8Array(0))) as { code?: unknown } | null;
+      throw new BackendError(typeof v?.code === 'string' && /^[a-z_]{1,64}$/.test(v.code) ? v.code : 'request_failed', response.status);
+    }
+    if (!(response.headers.get('content-type') ?? '').startsWith('text/event-stream') || !response.body) { await response.body?.cancel(); throw new BackendError('invalid_response'); }
+    const reader = response.body.getReader();
+    let total = 0;
+    try {
+      for (;;) {
+        let chunk: ReadableStreamReadResult<Uint8Array<ArrayBuffer>>;
+        try { chunk = await reader.read() as ReadableStreamReadResult<Uint8Array<ArrayBuffer>>; }
+        catch (error) { if (options.signal.aborted || sessionSignal.aborted) throw error; throw new BackendError('connection'); }
+        if (before !== generation) throw new BackendError('cancelled');
+        options.signal.throwIfAborted(); sessionSignal.throwIfAborted();
+        if (chunk.done) return;
+        arm();
+        total += chunk.value.length;
+        if (total > options.maximum) throw new BackendError('payload_too_large');
+        yield chunk.value;
+      }
+    } finally { reader.cancel().catch(() => {}); }
+  } finally { clearTimeout(idle); controller.dispose(); }
 }
 
 /** An Edge function POST with a JSON body (e.g. `add-paper`). */

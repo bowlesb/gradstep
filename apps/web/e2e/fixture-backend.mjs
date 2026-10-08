@@ -26,7 +26,7 @@ const verifier = (account, token) => sha(Buffer.concat([Buffer.from(`science-rea
 const sessions = new Map(); // token -> account
 const state = new Map();
 function account(id) {
-  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], importItems: new Set() });
+  if (!state.has(id)) state.set(id, { keyring: null, devices: new Map(), envelopes: new Map(), requests: new Map(), seq: 0, entries: new Map(), log: [], receipts: new Map(), timers: [], privateEvents: [], chatRequests: [], chatMode: "answer", failAppend: false, importItems: new Set() });
   return state.get(id);
 }
 const now = () => new Date().toISOString();
@@ -163,6 +163,21 @@ const rpcs = {
     r.approved_at = now();
     return null;
   },
+  v1_credit_balance: () => ({ available: 1000, reserved: 0 }),
+  v2_pull_events: (id, a, p) => {
+    const events = a.privateEvents.filter(e => e.cursor > p.p_after).slice(0, p.p_limit);
+    return { events, next_cursor: events.at(-1)?.cursor ?? p.p_after, has_more: a.privateEvents.length > (events.at(-1)?.cursor ?? p.p_after) };
+  },
+  v1_append_event: (id, a, p) => {
+    if (!a.keyring || verifier(id, unhex(p.p_management_token)) !== a.keyring.verifier || !a.devices.has(p.p_device_id)) throw pg('key_authority_required');
+    if (a.failAppend) { a.failAppend = false; throw pg('request_failed'); }
+    const previous = a.privateEvents.find(e => e.id === p.p_id);
+    if (previous) { if (previous.ciphertext !== p.p_ciphertext) throw pg('event_conflict'); return previous.cursor; }
+    const row = { id: p.p_id, device_id: p.p_device_id, epoch: p.p_epoch, format: p.p_format, ciphertext: p.p_ciphertext,
+      ciphertext_sha256: hex(sha(unhex(p.p_ciphertext))), cursor: a.privateEvents.length + 1 };
+    a.privateEvents.push(row); return row.cursor;
+  },
+  v1_acknowledge_cursor: () => null,
   v1_devices: (id, a) => [...a.devices.values()],
   v3_library_page: libraryPage,
   v3_library_changes: libraryChanges,
@@ -230,6 +245,13 @@ createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return send(response, 204);
   if (url.pathname === '/health') return send(response, 200, { ok: true });
   if (url.pathname === '/__reset' && request.method === 'POST') { for (const a of state.values()) a.timers.forEach(clearTimeout); state.clear(); sessions.clear(); seedReturning(); return send(response, 200, { ok: true }); }
+  if (url.pathname === '/__chat-fixture' && request.method === 'POST') {
+    const p = await read(request), a = account(ACCOUNTS['returning@example.test']);
+    if (['answer', 'slow', 'steady', 'external_diagram', 'insufficient_credits', 'refusal', 'eof', 'diagram', 'unsafe_diagram', 'broken_diagram'].includes(p?.mode)) a.chatMode = p.mode;
+    if (typeof p?.failAppend === 'boolean') a.failAppend = p.failAppend;
+    return send(response, 200, { ok: true });
+  }
+  if (url.pathname === '/__chat-evidence') { const a = account(ACCOUNTS['returning@example.test']); return send(response, 200, { events: a.privateEvents, requests: a.chatRequests }); }
   if (url.pathname === '/__large-library' && request.method === 'POST') {
     const body = await read(request);
     if (!Number.isInteger(body?.count) || body.count < 3 || body.count > 4000 || !seedLargeLibrary(body.count)) return send(response, 400, {});
@@ -315,7 +337,30 @@ createServer(async (request, response) => {
       throw error;
     }
   }
-  if (url.pathname === '/functions/v1/reader-artifact' && request.method === 'GET') {
+  if (url.pathname === '/functions/v1/chat' && request.method === 'POST') {
+    const body = await read(request);
+    if (!body?.operation_id || body.consent_version !== 'cloud-ai-v2' || !body.messages?.length) return send(response, 400, { code: 'invalid_request' });
+    a.chatRequests.push({ ...body, eventsBeforeRequest: a.privateEvents.length });
+    response.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+    const event = (kind, data) => { if (!response.destroyed) response.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`); };
+    const mode = a.chatMode;
+    if (mode === 'insufficient_credits') { event('error', { code: 'insufficient_credits' }); return response.end(); }
+    if (mode === 'refusal') { event('delta', { text: 'Discard this refused partial' }); event('error', { code: 'refused' }); return response.end(); }
+    event('status', { kind: body.action === 'related' ? 'searching' : 'reading', query: body.action === 'related' ? 'DPO related work' : undefined });
+    const text = 'The **objective** compares preferences.\\n\\n\\[L = -\\log \\sigma(\\beta x)\\]\\n\\n| Term | Meaning |\\n|---|---|\\n| β | Temperature |\\n\\n[Original paper](https://arxiv.org/abs/2305.18290)\\n\\n<script>window.injected = true</script>'.replaceAll('\\n', '\n');
+    const chunks = text.match(mode === 'steady' ? /[\s\S]/g : /[\s\S]{1,24}/g);
+    let index = 0;
+    const tick = () => {
+      if (response.destroyed) return;
+      if (index < chunks.length) { event('delta', { text: chunks[index++] }); if (mode === 'eof' && index === 2) return response.end(); return setTimeout(tick, mode === 'slow' ? 500 : 15); }
+      if (mode.includes('diagram')) event('diagram', { title: 'Preference flow', source: mode === 'unsafe_diagram' ? '%%{init: {"securityLevel":"loose"}}%%\ngraph TD; A-->B' : mode === 'broken_diagram' ? 'graph TD; A-->' : mode === 'external_diagram' ? `flowchart TD
+A["<img src='https://attacker.invalid/tracker.png'>"] --> B[Answer]
+click B "https://attacker.invalid/open"` : 'graph TD; A[Policy] --> B[Preferences]; B --> C[Loss]' });
+      event('done', { stop_reason: 'end_turn', credits: 3 }); response.end();
+    };
+    setTimeout(tick, 200); return;
+  }
+  if (url.pathname === '/functions/v1/reader-artifact'  && request.method === 'GET') {
     const itemID = url.searchParams.get('item_id'), entry = a.entries.get('item:' + itemID);
     if (!entry || entry.readiness !== 'converted_ready') return send(response, 404, { code: 'item_unavailable' });
     const manifest = readFileSync(join(SAMPLE, 'manifest.json'));

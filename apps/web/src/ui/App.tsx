@@ -1,12 +1,15 @@
-import { type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { type Session, auth, config } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
-import { ChatPane } from './ChatPane';
-import { Brand, Dialog, NOT_YET } from './common';
+import { ChatHistory, ChatPane, type PaperContext } from './ChatPane';
+import { useChat } from './useChat';
+import { actionFor, selectionPrompt, type SelectionAction } from '../lib/chat';
+import type { TextAnchor } from '../lib/events';
+import { Brand, Dialog } from './common';
 import { FeedRail, FeedView, useFeed } from './Feed';
 import { Icon, type IconName } from './icons';
 import { KeySetup } from './Keys';
@@ -63,6 +66,11 @@ const PLAIN_KEYS: Record<string, FrameKey> = { '/': 'search', '[': 'left', ']': 
 function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const account = session.user.id;
   const library = useLibrary(account);
+  const chat = useChat(account, ready);
+  const historyVersion = useSyncExternalStore(chat?.history.subscribe ?? (() => () => {}), chat?.history.getVersion ?? (() => 0));
+  const [chatMode, setChatMode] = useState<'paper' | 'general'>('paper');
+  const [orphanPaper, setOrphanPaper] = useState<PaperContext | null>(null);
+  const [passage, setPassage] = useState<{ id: string; documentID: string; anchor: TextAnchor; at: number } | null>(null);
   const [path, navigate] = usePath();
   const [device, setDevice] = useState<DeviceRecord | null>(null);
   const [activity, setActivity] = useState<Map<string, Activity>>(new Map());
@@ -118,7 +126,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const route: Route = paperID ? 'paper' : path === '/feed' ? 'feed' : 'library';
   const item = paperID ? library.entries.find((e): e is Item => e.kind === 'item' && e.id === paperID && e.visible) : undefined;
   useEffect(() => { if (path !== '/' && path !== '/feed' && !match) navigate('/'); }, [path, match, navigate]);
-  useEffect(() => { if (paperID) setLastPaper(paperID); }, [paperID]);
+  useEffect(() => { if (paperID) setLastPaper(paperID); setOrphanPaper(null); setChatMode(paperID ? 'paper' : 'general'); }, [paperID]);
 
   const ws = useWorkspace(route);
   const latest = useRef({ ws, route });
@@ -166,13 +174,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     try {
       // Finish local removal before another login can prepare this device. Failure stays visible and retryable.
+      await chat?.settleBeforeSignOut();
       if (forget) await forgetDevice(account);
       else if (device) await saveActivity(device, activity).catch(() => {});
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       navigate('/');
       await auth.signOut(owner.generation);
     } catch {
-      if (!owner.signal.aborted) { setSignOutError('Couldn’t remove this browser’s keys. Try again.'); setLeaving(false); }
+      if (!owner.signal.aborted) { chat?.resumeAfterSignOutFailure(); setSignOutError('Couldn’t remove this browser’s keys. Try again.'); setLeaving(false); }
     }
   }
 
@@ -187,6 +196,29 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     else { setRailTab('contents'); ws.show('left'); }
   };
   const railVisible = ws.left.open && ws.left.inline;
+  const paperContext = orphanPaper ?? (item?.document_id ? { documentID: item.document_id, title: item.metadata?.title ?? 'Paper', available: item.readiness === 'converted_ready' && item.render_availability === 'available' } : null);
+  const paperNames = useMemo(() => new Map(library.entries.filter((e): e is Item => e.kind === 'item' && e.visible).map(e => [e.document_id, e.metadata?.title ?? 'Paper'])), [library.entries]);
+  const openChatDocument = (documentID: string | null) => {
+    if (!documentID) setChatMode('general');
+    else {
+      const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === documentID);
+      if (paper) { openPaper(paper); setOrphanPaper(null); }
+      else setOrphanPaper({ documentID, title: 'Paper no longer in library', available: false });
+      setChatMode('paper');
+    }
+    ws.show('right');
+  };
+  const goToPassage = (documentID: string, anchor: TextAnchor) => {
+    openChatDocument(documentID); setPassage({ id: crypto.randomUUID(), documentID, anchor, at: Date.now() });
+  };
+  const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
+    if (!chat || !item?.document_id) return;
+    const composer = chat.newChat(item.document_id);
+    chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
+    void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
+  };
+  const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === item?.document_id && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, item?.document_id]);
+
 
   const left = route === 'paper' ? (
     <>
@@ -212,7 +244,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     // reader then would record the top of the paper before its saved place could be restored.
     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
       : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
-        contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} />
+        contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
+        passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
+        onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
@@ -261,13 +295,9 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         </div>
       </header>
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
-        left={left} center={center} right={<ChatPane paperTitle={route === 'paper' ? item?.metadata?.title ?? null : null} onAllChats={() => setChats(true)} />} />
+        left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
-      <Dialog open={chats} onClose={() => setChats(false)} title="Chats">
-        <h2>All chats</h2>
-        <p>Chat is {NOT_YET.charAt(0).toLowerCase() + NOT_YET.slice(1)}</p>
-        <div className="dialog-actions"><button className="primary" onClick={() => setChats(false)}>OK</button></div>
-      </Dialog>
+      <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
         <h2>Keyboard shortcuts</h2>
         <dl className="shortcuts">
@@ -279,6 +309,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
         <p className="muted">This browser stays approved, so signing in again won’t need your recovery code.</p>
+        {chat?.hasVolatileContent && <p className="issue">Unsent drafts and any changes that haven’t synced will be lost. Active answers will be stopped and their partial text saved when possible.</p>}
         <label className="check"><input type="checkbox" checked={forget} disabled={leaving} onChange={e => setForget(e.target.checked)} data-testid="forget-device" />
           Also remove this browser’s keys and reading places (use on a shared computer)</label>
         {signOutError && <p className="issue" role="alert">{signOutError}</p>}

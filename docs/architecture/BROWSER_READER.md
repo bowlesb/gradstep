@@ -12,13 +12,14 @@ Phase 1 (this design): sign in with an email code → this browser becomes a dev
 QR code, the recovery code, or new keys for an account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
 the same verified bundles and `reader-bridge.js` behavior → sign out.
 
-Large-screen workspace, milestone 1 (built 2026-10-07 on branch, **not deployed**; see
+Large-screen workspace, milestone 1 (**deployed 2026-10-07**, Pages deployment `a405d26c`, alongside native build 18; see
 [Workspace](#workspace-legacy-large-screen-layout)): the legacy three-pane layout, a dense library table, contents tree,
 find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-paper`).
 
-Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history
-(milestone 2 fills the workspace's chat pane), selection actions, reference actions, tag editing, PDF upload,
-Apple/Google web sign-in, device list and revocation, offline reading, credits and purchases.
+Milestone 2 (built locally, not deployed by this change): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
+
+Remaining browser work (shown as unavailable where applicable): reference actions, tag editing, PDF upload,
+Apple/Google web sign-in, device list and revocation, offline reading and purchases.
 
 ## Workspace (legacy large-screen layout)
 
@@ -44,7 +45,7 @@ frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx
 
 The frame script hash changes with the shim and is computed at build for both CSPs, as before. Local verification
 (production CSP, Chromium): `e2e/layout.spec.ts` at 1440×900 and 1920×1080 in light and dark, plus a 390 px journey;
-the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. No hosted run yet.
+the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. Claude subsequently deployed milestone 1 as Pages `a405d26c`; these layout journeys remain local fixture evidence, not a hosted signed-in test. Milestone 2 below is still local.
 
 ## Where it lives
 
@@ -84,7 +85,7 @@ provider bodies in messages), and keeps realtime/storage SDK code out of a page 
 ## Security headers (`apps/web/public/_headers`, generated at build)
 
 ```
-Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-<reader frame script>';
+Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-<reader frame script>' 'sha256-<diagram frame script>';
   style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';
   connect-src https://coxhjvqpflgxkleydati.supabase.co; frame-src 'self'; manifest-src 'self';
   base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; worker-src 'none'
@@ -131,7 +132,7 @@ The native app loads a verified bundle into a `WKWebView` with content JavaScrip
    the saved reading place. Account/item/artifact/availability changes still retire the old reader.
 
 Contents, citation jumps with Back, the paper's own contents lists, figures and math fitting therefore behave as in
-the app. Selections and reference taps report "Not yet available in the browser".
+the app. Selections offer Explain, Why it matters, Related and Add paper. Reference taps still report "Not yet available in the browser".
 
 ## Keys in the browser
 
@@ -187,7 +188,7 @@ succeeding is insufficient.
 
 ## Approving this browser from another device
 
-Built 2026-10-07 (not yet deployed; needs an iPhone/iPad build with Settings › Account › **Add a device**). Protocol and
+Deployed 2026-10-07 with native build 18 and Pages `a405d26c`. A full hosted camera/approval journey is still unverified. Native entry: Settings › Account › **Add a device**. Protocol and
 limits: [PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
 
 - **Restore screen** (`ui/Keys.tsx`, `ui/Approve.tsx`). "Restore your private library" leads with the QR code, the
@@ -427,3 +428,92 @@ No new dependency or server contract has been adopted for windowing yet.
 The [capacity proposal](LIBRARY_CAPACITY.md) separates these client rendering improvements from the durable cache,
 compact sync and paged query changes needed for larger libraries. The present 4,000 bound counts retained entries,
 including import intents and removed items; it is not a 4,000-visible-paper entitlement.
+
+
+## Chat (milestone 2)
+
+Local implementation on the recovered web branch, 2026-10-07; no hosted deployment or live provider request in
+this review. Uses the existing right panel and the unchanged wire/RPC contracts in [Chat](CHAT.md) and
+[Privacy and sync](PRIVACY_AND_SYNC.md). No schema, identity, key-custody or browser-library-command change.
+
+- **Paper and General** keep separate composers, drafts and selected conversations. History opens a searchable
+  table with All/This paper/Paper/General filters, title/date sort, message counts, drafts and encrypted deletion.
+  Concurrent branches require an explicit branch choice; no history is silently merged into the prompt.
+- **Encrypted history:** `v2_pull_events` checks contiguous cursors, ciphertext digests, decryption and native
+  `PrivateEvent` validation before atomically publishing a page in memory. `v1_append_event` carries only sealed
+  envelopes. IDs and ciphertext survive retries while the tab lives; a new epoch refreshes this device's envelope
+  before re-sealing unacknowledged events. The pull cursor never advances from an append receipt.
+- **Save before requesting:** a new conversation and question are sealed together locally, then acknowledged by
+  the existing append RPC before any paid request. The server RPC appends one event at a time; losing the connection
+  between the root and question can leave an empty root on the server. The tab retains the exact pending question
+  for retry and never starts AI until it is acknowledged. This is not a new atomic server batch protocol.
+- **Ownership:** a task captures its composer, question, document and login lifetime. New chat, mode switches,
+  hiding the panel and reader navigation do not redirect an answer. Newer typing, including an identical
+  replacement, survives an earlier save. Stop seals nonempty text as interrupted; refusal discards partial text;
+  EOF, truncation and transport loss remain visibly interrupted. Failed answer saves retry the same encrypted
+  events without another provider call. Explicit sign-out stops and drains active answers before retiring
+  credentials; external logout/session replacement immediately aborts and cannot write into a new login.
+- **Consent and costs:** the versioned `cloud-ai-v2` choice is account/environment scoped metadata in browser
+  storage. The dialog names Anthropic, Tavily and backup search processing/possible retention. Only the saved
+  question's bounded branch, passage and paper context go to the chat request. Credit balance/held credits come
+  from `v1_credit_balance`; final charges come from SSE. Server admission remains authoritative. Purchasing stays
+  in the Apple app; insufficient credits and paused/rate-limited answers have explicit wording.
+- **Reading answers:** lazy-loaded Markdown-it 15.0.2 and Temml 0.14.0 render Markdown, tables and MathML with
+  HTML/images disabled, math trust disabled and a DOM allowlist. Math tokens are parsed in Markdown context, not
+  interpolated into already generated HTML. Code and incomplete formulas stay text. Typesetting is coalesced to
+  80 ms while streaming; scrolling follows only near the bottom, with a Latest message control when reading above.
+  HTTP(S)/mailto links reject credentials/control characters and preview the exact destination before navigation.
+  Fonts are bundled/local. No CDN, provider script or remote image enters the account page.
+- **Selection loop:** Explain, Why it matters, Related and Add paper use LaTeX from the verified equation index,
+  never a frame-supplied formula. Native-format encrypted passage anchors support Go to passage and underlined
+  passage marks via the existing reader bridge. The reader stays mounted; citation Back and selection behavior
+  are preserved. The native 500-mark bound remains; missing passages report a clear message.
+- **Diagrams:** the unchanged metered `create_diagram` tool produces a native-compatible encrypted diagram event.
+  View diagram lazily loads the exact pinned native Mermaid 12.1.0 asset into `sandbox="allow-scripts"` without
+  same-origin, navigation, storage or network authority. Both page and frame CSP name the reviewed script hash.
+  Strict mode, 16 KB source, 100 edges, fixed theme/options, no config directives/frontmatter, no HTML labels;
+  scripts/embedded HTML/images/link attributes are removed from rendered SVG. The parent accepts only a finite
+  result with this frame's `contentWindow` and fresh request ID; SVG never enters the account DOM. A ten-second
+  presentation timeout retires the frame, but is not a hard CPU/process-isolation guarantee. Broken/unsupported
+  diagrams keep their source and show failure. No automatic metered repair request is made in this milestone.
+
+### Bounds, durability and remaining gaps
+
+History is **memory-only in this browser**: 20,000 retained events / 64 MiB ciphertext, failing visibly at the
+bound instead of treating a partial pull as a complete history. Pending events are capped at 128 / 8 MiB.
+Unsent drafts are limited to 128, 200 KB each / 2 MiB combined, kept only in this tab. Visible copy, sign-out
+confirmation and a browser departure prompt warn about unsaved work. Reload/process loss before acknowledgement
+can lose a pending edit or answer; there is no durable browser outbox, offline chat, or claim that the native local
+journal's crash guarantees have been reproduced. Successfully acknowledged events can be decrypted after reload
+or on another approved/recovered device. Abrupt logout elsewhere may prevent a partial answer from being saved.
+
+At most three local streams run at once, each ≤2 MiB of SSE, ≤200 KB saved text, 45-second idle timeout and
+210-second total client deadline. Formula parsing limits individual source to 12,000 characters, 500 formulas and
+1,000 macro expansions; unsupported output remains readable source. These local bounds complement server controls.
+The full native query/history cache capacity has not been benchmarked in this browser.
+
+Still separate: durable encrypted browser drafts/outbox/offline history, provider-backed live browser smoke,
+rendered-diagram automatic repair, answer-quote actions, richer reference actions and cross-device reading positions.
+Safari's non-extractable X25519 persistence blocker is unchanged: the existing capability gate refuses enrollment;
+Chromium fixture results do not establish Safari support or a new E2EE/provider-retention guarantee.
+
+Local evidence: unit/controller tests cover acknowledgement-before-paid-send, stable retries, identical newer drafts,
+stream ownership, Stop/sign-out, failed answer save, refusal/EOF, account retirement, atomic batch rollback and
+WebCrypto ↔ Swift event interoperability. `e2e/chat.spec.ts` uses real WebCrypto with the production CSP and a
+localhost-only fake backend: consent, encrypted reload/second browser profile, Markdown/math, links, paper/general
+contexts, credit failure, selection/passage and real Mermaid rendering including malformed/directive refusal.
+The external-link/media fixture renders with those affordances removed; a direct remote-CSS probe in that same
+opaque frame raises a CSP violation without reaching the network interceptor. Continuous 15 ms single-character
+chunks are visible before the stream ends, guarding against a reset-on-each-delta render debounce.
+
+Final local checks for this change: **189 unit/interop tests pass**, production TypeScript/Vite build passes;
+production-CSP chat journeys **8 pass / 6 intentionally desktop-only cases skip on the phone project**, then the
+**2 additional focused diagram/network and continuous-stream journeys pass**. Three development StrictMode chat
+journeys and the existing WebKit key-persistence refusal journey also pass. Earlier layout/reader coverage passed
+apart from obsolete M1 chat-placeholder assertions, which were replaced and the affected reader journey rerun.
+These are separate local runs, not a hosted acceptance run. The build reports its existing initial bundle above
+500 KB plus the deliberately lazy Mermaid asset (about 1.6 MB gzip); neither Mermaid nor the math typesetter is
+loaded on the sign-in/library path.
+
+Screenshots: `.artifacts/web-chat/desktop-paper.png`, `phone-paper.png`, `diagram.png`, `credit-error.png` and
+`dark-partial.png`; no customer data or paid requests.
