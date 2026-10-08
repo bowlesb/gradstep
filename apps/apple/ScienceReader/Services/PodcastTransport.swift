@@ -75,11 +75,13 @@ struct BackendPodcastTransport: PodcastTransport {
 
 extension BackendError {
     /// Finite podcast codes the app explains; anything else reads as a general failure. Prose never comes from the server.
+    /// Exactly the server's podcast codes (supabase/functions/_shared/podcast-api.ts `STATUS`; PAPER_PODCASTS.md "Errors").
     static let podcastCodes: Set<String> = [
-        "podcast_unavailable", "source_unavailable", "source_too_large", "rights_unavailable", "release_unavailable",
-        "quote_expired", "quote_unavailable", "consent_required", "request_id_conflict", "job_unavailable",
-        "active_generation_limit", "generation_capacity", "platform_paused", "storage_full", "podcast_outcome_pending",
-        "podcast_transfer_limit", "podcast_grant_unavailable", "podcast_grant_consumed", "podcast_integrity_failed",
+        "podcast_unavailable", "podcast_paused", "source_unavailable", "source_too_large", "podcast_release_unavailable",
+        "podcast_request_unavailable", "podcast_request_conflict", "quote_expired", "quote_unavailable", "consent_required",
+        "active_generation_limit", "podcast_busy", "podcast_daily_limit", "too_many_active_operations", "storage_full",
+        "podcast_outcome_pending", "podcast_transfer_limit", "podcast_grant_unavailable", "podcast_grant_consumed",
+        "podcast_range_unavailable", "podcast_integrity_failed",
     ]
 
     /// The reader-facing sentence for a podcast action that the server refused.
@@ -89,13 +91,15 @@ extension BackendError {
         case "podcast_unavailable": return "Listening isn’t available right now. Reading is unaffected."
         case "source_unavailable": return "This paper can’t be made into an episode: its converted text isn’t available."
         case "source_too_large": return "This paper is too long for a five-minute episode. Nothing was charged."
-        case "rights_unavailable", "release_unavailable": return "This episode is no longer available."
+        case "podcast_release_unavailable": return "This episode is no longer available."
         case "quote_expired", "quote_unavailable": return "The estimate expired. Get a new estimate to continue."
         case "consent_required": return "Confirm the estimate and providers to create an episode."
         case "active_generation_limit": return "An episode is already being made for your account. Try again when it finishes."
+        case "podcast_busy", "podcast_daily_limit", "too_many_active_operations":
+            return "Episode creation is busy right now. Nothing was charged; try again later."
         case "podcast_outcome_pending":
             return "Your previous episode’s charge is still being confirmed. You can make another once it’s settled. Nothing new was held."
-        case "generation_capacity", "platform_paused", "platform_budget_exhausted":
+        case "podcast_paused", "platform_budget_exhausted":
             return "Episode creation is paused right now. Nothing was charged, and reading is unaffected."
         case "storage_full": return "Episode storage is full right now. Nothing was charged."
         case "insufficient_credits": return "Your available credits don’t cover the 150-credit maximum for an episode."
@@ -103,7 +107,8 @@ extension BackendError {
         case "podcast_grant_unavailable", "podcast_grant_consumed": return "The download needs to restart. Try again."
         case "podcast_integrity_failed": return "This episode couldn’t be verified. Try downloading it again."
         case "request_rate_limit": return "Too many requests right now. Try again in a minute."
-        case "job_unavailable": return "That episode request isn’t available any more."
+        case "podcast_request_unavailable": return "That episode request isn’t available any more."
+        case "podcast_request_conflict": return "That request was already used for a different episode. Start again."
         default: return "Listening isn’t available right now. Try again later."
         }
     }

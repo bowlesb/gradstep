@@ -103,6 +103,12 @@ test('checker accepts verbatim evidence and refuses unsupported numbers, paraphr
   assert.ok((checkScript(markup, PAPER) as { problems: string[] }).problems.includes('segment_markup:s1'));
   const rejected = goodScript(); rejected.review = { verdict: 'reject', issues: [] };
   assert.ok((checkScript(rejected, PAPER) as { problems: string[] }).problems.includes('review_rejected'));
+  const spanning = goodScript(); spanning.segments[5].evidence[0].quote = '## 4 Results Sparse routing reaches 41.2 perplexity';
+  assert.ok((checkScript(spanning, PAPER) as { problems: string[] }).problems.includes('evidence_not_verbatim:s6'), 'no heading marks or cross-block quotes');
+  const across = goodScript(); across.segments[5].evidence[0].quote = 'at equal compute. We only evaluate English text';
+  assert.ok((checkScript(across, PAPER) as { problems: string[] }).problems.includes('evidence_not_verbatim:s6'), 'a quote never crosses a heading');
+  const wrapped = goodScript(); wrapped.segments[5].evidence[0].quote = 'reaches 41.2 perplexity on the benchmark versus 43.9 for the dense baseline. Training throughput improves by 1.8x';
+  assert.equal(checkScript(wrapped, PAPER).ok, true, 'consecutive lines of one paragraph read as one passage');
   const material = goodScript(); material.segments[5].evidence = [];
   assert.ok((checkScript(material, PAPER) as { problems: string[] }).problems.includes('evidence_missing:s6'));
   assert.equal(parseScript('{"title":"x"}', false), null);

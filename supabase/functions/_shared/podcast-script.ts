@@ -177,6 +177,25 @@ export function normalizeText(text: string): string {
   return text.normalize('NFKC').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Quotable text as the reader shows it: one paragraph or line of the converted
+ * text at a time, never a heading or markup. A quote must sit inside one block,
+ * so the reader's passage finder can locate it on the rendered page.
+ */
+export function evidenceBlocks(paperText: string): string[] {
+  // Paragraphs end at a blank line or a heading/markup line (which is never quotable); a
+  // hard-wrapped paragraph stays one block.
+  const blocks: string[] = []; let current: string[] = [];
+  const flush = () => { if (current.length) blocks.push(normalizeText(current.join(' '))); current = []; };
+  for (const raw of paperText.split('\n')) {
+    const line = raw.trim();
+    if (!line || /^(#|\\(sub)*section\*?\{|\\(begin|end)\{|\\title\{|!\[)/.test(line)) flush(); else current.push(line);
+  }
+  flush();
+  return blocks;
+}
+const QUOTE_MARKUP = /(^|\s)#|\*\*|__|!\[|\]\(|\\(sub)*section|\\(begin|end)\{|\\title\{/;
+
 export interface CheckedEvidence { id: string; quote: string; section: string | null; offset: number }
 export interface CheckedSegment { id: string; chapter: string; speaker: Speaker; text: string; style: string; claim_type: ClaimType;
   evidence: CheckedEvidence[]; math: MathNote[] }
@@ -232,7 +251,7 @@ export function parseScript(text: string | null, needsReview: boolean): Script |
  */
 export function checkScript(script: Script, paperText: string, options: { fixture?: boolean } = {}): CheckResult {
   const problems: string[] = [];
-  const paper = normalizeText(paperText);
+  const paper = normalizeText(paperText), blocks = evidenceBlocks(paperText);
   if (!options.fixture && script.review?.verdict !== 'accept') problems.push('review_rejected');
   const chapterIDs = new Set<string>();
   for (const c of script.chapters) {
@@ -256,7 +275,8 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
     if (s.evidence.length > 3) problems.push(`evidence_count:${s.id}`);
     for (const e of s.evidence.slice(0, 3)) {
       const quote = normalizeText(e.quote);
-      const offset = quote.length >= 12 && quote.length <= 400 ? paper.indexOf(quote) : -1;
+      const quotable = quote.length >= 12 && quote.length <= 400 && !QUOTE_MARKUP.test(quote) && blocks.some(b => b.includes(quote));
+      const offset = quotable ? paper.indexOf(quote) : -1;
       if (offset < 0) { problems.push(`evidence_not_verbatim:${s.id}`); continue; }
       evidence.push({ id: `e${++evidenceID}`, quote, section: e.section.trim() || null, offset });
     }
@@ -301,7 +321,9 @@ export function scriptDocument(script: CheckedScript): string {
 // ----------------------------------------------------------------------------
 export function fixtureScript(paperText: string, title: string | null): Script {
   const paper = normalizeText(paperText);
-  const sentences = paper.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length >= 40 && s.length <= 220 && !/[\\$#*_`{}<>]/.test(s));
+  // Whole sentences from single paragraphs only, as the reader shows them.
+  const sentences = evidenceBlocks(paperText).flatMap(block => block.split(/(?<=[.!?])\s+/)).map(s => s.trim())
+    .filter(s => s.length >= 40 && s.length <= 220 && !/[\\$#*_`{}<>]/.test(s));
   const pick = (i: number) => sentences.length ? sentences[Math.min(sentences.length - 1, Math.floor((sentences.length - 1) * i / 3))] : paper.slice(0, 120);
   const evidence = (i: number) => [{ quote: pick(i), section: '' }];
   const shown = (title ?? 'this paper').replace(/[\\$#*_`{}<>\d]/g, '').slice(0, 120);

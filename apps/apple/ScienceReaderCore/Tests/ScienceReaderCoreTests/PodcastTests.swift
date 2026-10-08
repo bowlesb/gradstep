@@ -183,19 +183,19 @@ struct PodcastServerFixtureTests {
         #expect(page.capabilities == PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,
                                                          transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600)))
         #expect(page.episodes.map(\.fixture) == [false, true])
-        #expect(page.episodes[0].topic == "cs.LG" && page.episodes[0].publishedAt == "2026-10-08T18:40:00.242784+00:00")
+        // Microsecond timestamps with a numeric offset, as the server writes them (values change per capture).
+        #expect(page.episodes[0].topic == "cs.LG" && page.episodes[0].publishedAt?.hasSuffix("+00:00") == true)
         struct Wrapped: Decodable { let episode: PodcastEpisode }
         let episode = try JSONDecoder().decode(Wrapped.self, from: load("episode")).episode
         #expect(episode.id == page.episodes[0].id && episode.audio == page.episodes[0].audio)
         #expect(episode.chapters?.map(\.id) == ["c1", "c2", "c3"])
         #expect(episode.transcript?.segments.count == 14 && episode.transcript?.timing == "approximate")
         #expect(episode.transcript?.segments.allSatisfy { $0.endMS <= episode.durationMS } == true)
-        // A quote that runs across Markdown headings is searched for by its longest piece, marks removed. (With the
-        // line breaks already collapsed, the heading word itself can't be told from the paragraph: quotes should be
-        // single-block text, which is the backend's job; this only keeps the marks out of the search.)
+        // The backend checker only accepts plain quotes from one paragraph (no headings or Markdown marks), so the
+        // search text is the quote itself; the mark stripping below remains a defence for older or imported releases.
         let first = try #require(episode.transcript?.segments.first?.evidence.first)
-        #expect(first.quote.hasPrefix("# Journey fixture paper ## Abstract"))
-        #expect(first.searchText == "Abstract We study a synthetic routing method for journey tests only.")
+        #expect(first.quote == "We study a synthetic routing method for journey tests only.")
+        #expect(first.searchText == first.quote)
         #expect(PodcastEvidence(id: "e", quote: "## Method\nWe route tokens by a learned temperature.", section: nil).searchText
                 == "We route tokens by a learned temperature.")
         #expect(PodcastEvidence(id: "e", quote: "Check variation across runs, not only the best run.", section: nil).searchText

@@ -13,10 +13,10 @@
    "title": "Journey fixture paper",
    "topic": "cs.LG",
    "source": {
-    "url": "https://arxiv.org/abs/2501.14382v1",
+    "url": "https://arxiv.org/abs/2501.61503v1",
     "license": "https://creativecommons.org/licenses/by/4.0/",
     "version": 1,
-    "arxiv_id": "2501.14382"
+    "arxiv_id": "2501.61503"
    },
    "authors": [
     "J. Fixture"
@@ -24,10 +24,10 @@
    "fixture": false,
    "ai_audio": true,
    "language": "en",
-   "release_id": "e867c20e-bd16-4e22-83dd-ea59d32b5c0a",
-   "document_id": "8ae4d92e-91cb-42e7-87f9-80798a73b458",
+   "release_id": "0f3772f0-da5f-4a48-adfc-4c6a1b3ca1dd",
+   "document_id": "da32225b-7888-4412-9703-4d336a6cc660",
    "duration_ms": 140000,
-   "published_at": "2026-10-08T18:40:00.242784+00:00",
+   "published_at": "2026-10-08T19:26:40.130636+00:00",
    "replacement_id": null
   },
   {
@@ -42,10 +42,10 @@
    "title": "Synthetic fixture: Journey fixture paper",
    "topic": "cs.LG",
    "source": {
-    "url": "https://arxiv.org/abs/2501.14382v1",
+    "url": "https://arxiv.org/abs/2501.61503v1",
     "license": "https://creativecommons.org/licenses/by/4.0/",
     "version": 1,
-    "arxiv_id": "2501.14382"
+    "arxiv_id": "2501.61503"
    },
    "authors": [
     "J. Fixture"
@@ -53,10 +53,10 @@
    "fixture": true,
    "ai_audio": true,
    "language": "en",
-   "release_id": "6ea32af7-7ab8-4884-bcbe-62b233e84b21",
-   "document_id": "8ae4d92e-91cb-42e7-87f9-80798a73b458",
+   "release_id": "6984cbaf-1cb9-4bb7-b593-84486342a98c",
+   "document_id": "da32225b-7888-4412-9703-4d336a6cc660",
    "duration_ms": 25550,
-   "published_at": "2026-10-08T18:40:00.227637+00:00",
+   "published_at": "2026-10-08T19:26:40.118698+00:00",
    "replacement_id": null
   }
  ],

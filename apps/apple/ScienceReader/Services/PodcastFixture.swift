@@ -42,7 +42,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode {
-        guard let entry = episodes[releaseID] else { throw BackendError.rejected("release_unavailable") }
+        guard let entry = episodes[releaseID] else { throw BackendError.rejected("podcast_release_unavailable") }
         return entry.episode
     }
 
@@ -70,7 +70,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     func status(requestID: UUID) async throws -> PodcastJobOutcome {
-        guard var job = jobs[requestID] else { throw BackendError.rejected("job_unavailable") }
+        guard var job = jobs[requestID] else { throw BackendError.rejected("podcast_request_unavailable") }
         if job.steps < 7, job.releaseID == nil { job.steps += 1 }
         if job.steps >= 7, generation == .succeeds, job.releaseID == nil {
             let built = Self.build(Self.privateSpec(document: job.itemID))
@@ -81,14 +81,14 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome {
-        guard jobs[requestID] != nil else { throw BackendError.rejected("job_unavailable") }
+        guard jobs[requestID] != nil else { throw BackendError.rejected("podcast_request_unavailable") }
         jobs[requestID]?.steps = -1
         return .job(PodcastJob(requestID: requestID, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: 150,
                           chargedCredits: 0, releasedCredits: 150, failure: nil))
     }
 
     func download(_ releaseID: UUID) async throws -> PodcastGrant {
-        guard let entry = episodes[releaseID] else { throw BackendError.rejected("release_unavailable") }
+        guard let entry = episodes[releaseID] else { throw BackendError.rejected("podcast_release_unavailable") }
         let url = URL(string: "https://fixture.invalid/functions/v1/podcast-member?grant=\(String(repeating: "f", count: 64))&member=\(releaseID.wire)")!
         return PodcastGrant(expiresAt: "2026-10-08T12:15:00Z", members: [PodcastMember(role: "audio", url: url, bytes: entry.audio.count,
                                                                                          sha256: entry.episode.audio.sha256, mediaType: "audio/wav")])

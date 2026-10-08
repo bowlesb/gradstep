@@ -3,11 +3,11 @@
   "state": "queued",
   "failure": null,
   "release_id": null,
-  "request_id": "d70a3e65-ab6a-474f-b81d-179d02993996",
+  "request_id": "b312e8e9-c869-4ce0-af2e-5320791bc6d3",
   "held_credits": 150,
   "charged_credits": null,
   "cancel_requested": false,
   "released_credits": null,
-  "stage_entered_at": "2026-10-08T18:40:00.410771+00:00"
+  "stage_entered_at": "2026-10-08T19:26:40.285695+00:00"
  }
 }

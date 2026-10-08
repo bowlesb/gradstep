@@ -49,7 +49,8 @@ function tone(seconds: number): Uint8Array {
   return wavBytes(samples);
 }
 function script(review: boolean): Script {
-  const quotes = PAPER.split(/(?<=\.)\s+/).filter(s => s.length > 30);
+  // Whole sentences from body paragraphs (never headings), as a faithful script would quote them.
+  const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
   const filler = ' The hosts take a moment to explain what this means for a reader who wants the details.';
   const segments = Array.from({ length: 14 }, (_, i) => ({ id: `s${i + 1}`, chapter: i < 5 ? 'c1' : i < 10 ? 'c2' : 'c3',
     speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic', style: 'measured',
