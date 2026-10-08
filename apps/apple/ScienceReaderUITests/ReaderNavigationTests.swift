@@ -146,8 +146,13 @@ final class ReaderNavigationTests: XCTestCase {
             let discuss = app.buttons["Discuss in chat"]
             XCTAssertTrue(discuss.waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["Open on arXiv"].exists); XCTAssertTrue(app.buttons["Add to library"].exists); XCTAssertTrue(app.buttons["Copy"].exists)
-            XCTAssertFalse(app.staticTexts["Reference 11"].exists, "No title row above the actions")
-            XCTAssertFalse(app.staticTexts["Reference"].exists)
+            // The dialog keeps its title for VoiceOver only: nothing is drawn above the first action.
+            let first = app.buttons["Open on arXiv"]
+            let titled = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Reference")).allElementsBoundByIndex.filter {
+                $0.isHittable && $0.frame.maxY <= first.frame.minY + 2 && $0.frame.minY >= first.frame.minY - 90
+                    && $0.frame.midX > first.frame.minX && $0.frame.midX < first.frame.maxX
+            }
+            XCTAssertTrue(titled.isEmpty, "No title row above the actions: \(titled.map(\.label))")
             capture("Reference actions without a title (\(appearance))")
 
             discuss.tap()
@@ -183,10 +188,16 @@ final class ReaderNavigationTests: XCTestCase {
 
             link.tap()
             XCTAssertTrue(app.navigationBars["Figure 2"].waitForExistence(timeout: 5), "The figure opens in a sheet titled by its label")
-            let detail = app.webViews.allElementsBoundByIndex.last!
-            XCTAssertTrue(detail.images.firstMatch.waitForExistence(timeout: 5), "The figure's offline image")
-            XCTAssertTrue(detail.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 2: Left.")).firstMatch.waitForExistence(timeout: 5),
-                          "With its caption")
+            // The sheet's own web view: the one below the paper's top, in the half-height sheet.
+            var detail: XCUIElement?
+            waitUntil("The sheet's figure view") {
+                detail = app.webViews.allElementsBoundByIndex.first { $0.frame.minY > web.frame.minY + 150 }
+                return detail != nil
+            }
+            let sheet = try XCTUnwrap(detail)
+            waitUntil("The figure's offline image") { sheet.images.firstMatch.exists }
+            waitUntil("With its caption") { sheet.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 2: Left.")).firstMatch.exists }
+            XCTAssertTrue(app.buttons["figureReference.go"].exists && app.buttons["figureReference.go"].label == "Go to figure")
             XCTAssertFalse(app.buttons["reader.citation.back"].exists, "Looking at a figure is not a jump")
             capture("A figure reference's sheet (\(appearance))")
 

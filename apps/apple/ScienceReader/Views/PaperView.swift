@@ -375,11 +375,10 @@ struct PaperView: View {
                     .navigationTitle(value.label).navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) { Button("Done") { figureReference = nil } }
+                        // Words, not a symbol (a bottom-bar Label shows only its icon on iOS 26).
                         ToolbarItem(placement: .bottomBar) {
-                            Button { figureReferenceToShow = value.targetID; figureReference = nil } label: {
-                                Label(value.goTitle, systemImage: "arrow.down.forward.circle").labelStyle(.titleAndIcon)
-                            }
-                            .accessibilityIdentifier("figureReference.go")
+                            Button(value.goTitle) { figureReferenceToShow = value.targetID; figureReference = nil }
+                                .accessibilityIdentifier("figureReference.go")
                         }
                     }
                 }
