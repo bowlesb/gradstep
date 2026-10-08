@@ -230,7 +230,10 @@ def database_observation(management):
     LEDGER.verify_applied_prefix(applied, sources)
     if not REQUIRED_MIGRATIONS <= set(applied):
         return {'migration_prefix_verified': False, 'missing_migrations': sorted(REQUIRED_MIGRATIONS - set(applied)), 'state': None}
-    rows = json_request(base + '/database/query', token=management, payload={'query': STATE_SQL, 'read_only': True})
+    # STATE_SQL calls service-role-only readiness functions, which the API's read-only role cannot execute; run it
+    # in an explicitly read-only transaction instead (writes are rejected by PostgreSQL either way).
+    rows = json_request(base + '/database/query', token=management,
+                        payload={'query': 'begin transaction read only; ' + STATE_SQL.rstrip().rstrip(';') + '; commit;', 'read_only': False})
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0].get('state'), dict):
         raise ReadinessError('readiness_database_state')
     return {'migration_prefix_verified': True, 'required_hashes': {name: applied[name] for name in sorted(REQUIRED_MIGRATIONS)},

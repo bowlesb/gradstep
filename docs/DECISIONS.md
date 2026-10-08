@@ -744,3 +744,17 @@ Deploy-tool fixes made during rollout: readiness runs as service_role in a read-
 the API's digest field (`value`); function readback records `ezbr_sha256` (compressed) instead of comparing it to the
 decompressed bundle (module sources are compared exactly); the health probe uses the project's `sb_secret_` key.
 Rollback: `worker_set_store_verifier_enabled(channel, revision, false)`, then roll the service back; never skip checks.
+
+## Spending controls deployed to staging (owner approved 2026-10-07 evening: "I approve it", "velocity first")
+
+Migrations 034–038 applied after an encrypted backup (`.artifacts/backups/20261008T023921Z-…`). All Edge functions
+redeployed from main; pipeline worker cut over through the evidence-checked path: paused revision 00008 → readiness
+(blockers cleared: tagging and platform budget paused for the cutover, asset inventory enforced, operator drain
+evidence verified) → activated revision **gradstep-pipeline-00009-ncq**, then budget, tagging and the pipeline re-enabled.
+- Asset inventory: new `scripts/asset-inventory.py`; scan 48a97cd0… registered 100 manifests' members, 1,119
+  objects, 0 discrepancies; enforcement on with **legacy** reader delivery (installed apps keep signed URLs).
+- Tavily allowance period configured from the usage API (Project plan, 37/4,000, PAYGO off): Oct 1–Nov 1 UTC,
+  limit 3,900, baseline 37. Native (Anthropic) search fallback stays off under the new accounting.
+- Drain evidence: `.artifacts/rollout-evidence/20261008-spending/` (Cloud Run instance metrics, Edge deploy ages
+  > 400 s, function readback, zero open liabilities), manifest is an operator attestation by the lead agent.
+- Tooling fix: `scripts/pipeline_readiness.py` reads service-role-only readiness in an explicit read-only transaction.
