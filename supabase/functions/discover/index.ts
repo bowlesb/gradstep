@@ -1,9 +1,15 @@
-// Authenticated arXiv search for the Library's "arXiv" segment. Shares the
+// Authenticated arXiv search for the Library's "arXiv" segment and the Feed. Shares the
 // global arXiv request pacing with the paper pipeline.
+//   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata)
+//   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
+//                   (migration 043), else arXiv's live RSS as before
+//   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool
+// Feed responses carry `feed.for_you: true` when For you is offered, so the app can show the chip.
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs,
   orderByRanking, parseArxivRSS, parseArxivSearch, rankOpenAlex, type DiscoveryResult, type RankedWork } from '../_shared/discover.ts';
+import { FEED_RANKING_VERSION, poolResult, rankForYou, type CandidateSet } from '../_shared/feed-rank.ts';
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -15,9 +21,30 @@ Deno.serve(async request => {
     const service = serviceClient();
     await rpc(service, 'worker_consume_request', { p_account_id: accountID, p_route: 'discover' });
     const params = new URL(request.url).searchParams;
+    const feed = params.get('feed');
+    if (feed !== null) {
+      if (feed !== 'for_you' || params.has('category') || params.has('q')) throw new PublicError(400, 'invalid_feed');
+      const { data, error } = await service.rpc('worker_feed_candidates', { p_account_id: accountID });
+      if (error) throw new PublicError(error.message === 'feed_unavailable' ? 404 : 503, error.message === 'feed_unavailable' ? 'feed_unavailable' : 'service_unavailable');
+      const set = data as CandidateSet;
+      const ranked = rankForYou(set);
+      return Response.json({ results: ranked.results, feed: { for_you: true, ranking: FEED_RANKING_VERSION, cold_start: ranked.cold_start,
+        refreshed_at: set.refreshed_at, pool: set.pool } }, { headers });
+    }
     const category = params.get('category');
     const recent = category ? arxivRecentURL(category) : null;
     if (category && !recent) throw new PublicError(400, 'invalid_category');
+    // A chip from the shared pool when this reader is served; otherwise (or if the pool can't
+    // answer) the live RSS below, still flagging For you so the app can offer it.
+    let forYou = false;
+    if (category) {
+      const { data, error } = await service.rpc('worker_feed_category', { p_account_id: accountID, p_category: category, p_limit: 25 });
+      const pooled = error ? null : data as { serving?: boolean; results?: Parameters<typeof poolResult>[0][] | null; refreshed_at?: string | null } | null;
+      forYou = pooled?.serving === true;
+      if (forYou && Array.isArray(pooled?.results)) {
+        return Response.json({ results: pooled.results.map(poolResult), feed: { for_you: true, refreshed_at: pooled.refreshed_at ?? null } }, { headers });
+      }
+    }
     const query = params.get('q') ?? '';
     let urls = recent ? [recent] : arxivSearchURLs(query);
     if (!urls.length) return Response.json({ results: [] }, { headers });
@@ -81,7 +108,8 @@ Deno.serve(async request => {
       }
     }
     if (lists.every(list => list === null)) throw new PublicError(503, 'search_unavailable');
-    return Response.json({ results: mergeDiscovery(lists.filter((list): list is DiscoveryResult[] => !!list)) }, { headers });
+    return Response.json({ results: mergeDiscovery(lists.filter((list): list is DiscoveryResult[] => !!list)),
+      ...(forYou ? { feed: { for_you: true } } : {}) }, { headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'search_unavailable');
     return Response.json({ code: failure.code }, { status: failure.status, headers });
