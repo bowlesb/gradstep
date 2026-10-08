@@ -21,6 +21,8 @@ Deno.serve(async request => {
     const service = serviceClient();
     await rpc(service, 'worker_consume_request', { p_account_id: accountID, p_route: 'discover' });
     const params = new URL(request.url).searchParams;
+    const fullAbstracts = params.get('abstract') === 'full';
+    if (params.has('abstract') && !fullAbstracts) throw new PublicError(400, 'invalid_request');
     const feed = params.get('feed');
     if (feed !== null) {
       if (feed !== 'for_you' || params.has('category') || params.has('q')) throw new PublicError(400, 'invalid_feed');
@@ -41,7 +43,9 @@ Deno.serve(async request => {
       const { data, error } = await service.rpc('worker_feed_category', { p_account_id: accountID, p_category: category, p_limit: 25 });
       const pooled = error ? null : data as { serving?: boolean; results?: Parameters<typeof poolResult>[0][] | null; refreshed_at?: string | null } | null;
       forYou = pooled?.serving === true;
-      if (forYou && Array.isArray(pooled?.results)) {
+      // The compact pool does not retain complete abstracts. Full-text category requests use RSS;
+      // a future For-you detail flow must resolve the selected exact source before claiming full text.
+      if (!fullAbstracts && forYou && Array.isArray(pooled?.results)) {
         return Response.json({ results: pooled.results.map(poolResult), feed: { for_you: true, refreshed_at: pooled.refreshed_at ?? null } }, { headers });
       }
     }
@@ -60,7 +64,7 @@ Deno.serve(async request => {
         return JSON.parse(new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()).subarray(0, 4 * 1024 * 1024)));
       };
       const [relevant, cited] = await Promise.allSettled(openAlex.map(fetchJSON));
-      try { if (relevant.status === 'fulfilled') ranking = rankOpenAlex(relevant.value, cited.status === 'fulfilled' ? cited.value : undefined); }
+      try { if (relevant.status === 'fulfilled') ranking = rankOpenAlex(relevant.value, cited.status === 'fulfilled' ? cited.value : undefined, 25, fullAbstracts); }
       catch { ranking = []; }
       const ids = arxivIDListURL(ranking.map(r => r.sourceID));
       // Keep the exact-title lookup (if any) first; replace arXiv's word search with the ranked IDs.
@@ -84,7 +88,7 @@ Deno.serve(async request => {
         if (!response.ok || !response.body) { void response.body?.cancel().catch(() => {}); throw new Error(`arxiv_${response.status}`); }
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.length > 6 * 1024 * 1024) throw new Error('arxiv_too_large');
-        lists.push(recent ? parseArxivRSS(bytes) : parseArxivSearch(bytes));
+        lists.push(recent ? parseArxivRSS(bytes, 25, fullAbstracts) : parseArxivSearch(bytes, fullAbstracts));
       } catch (error) {
         console.log(JSON.stringify({ function: 'discover', event: 'arxiv_failed', code: error instanceof Error ? error.message.slice(0, 40) : 'unknown' }));
         lists.push(null);
@@ -102,7 +106,7 @@ Deno.serve(async request => {
       if (id) {
         try {
           const response = await fetch(openAlexArxivWorkURL(id), { redirect: 'error', signal: AbortSignal.timeout(10_000), headers: { accept: 'application/json' } });
-          const work = response.ok ? openAlexResult(await response.json()) : null;
+          const work = response.ok ? openAlexResult(await response.json(), fullAbstracts) : null;
           lists[last] = work && work.source_id === id ? [work] : null;
         } catch { lists[last] = null; }
       }

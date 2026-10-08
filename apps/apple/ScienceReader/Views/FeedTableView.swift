@@ -163,7 +163,7 @@ struct FeedTable: View {
                    extraSortTitles: Dictionary(uniqueKeysWithValues: FeedSortKey.allCases.map { ($0, $0.label) }), horizontalScroll: true,
                    identifier: "feed.table",
                    rowIdentifier: { "feed.table.\($0.sourceID)" },
-                   title: { PaperTableTitle(title: $0.title, subtitle: LibraryFormat.firstAuthor($0.authors)) },
+                   title: { PaperTableTitle(title: $0.title, subtitle: LibraryFormat.firstAuthor($0.authors), expanded: expanded.contains($0.id)) },
                    cell: { result, column in cell(result, column: FeedTableColumn(rawValue: column)) },
                    spoken: { result, column in spoken(result, column: FeedTableColumn(rawValue: column)) },
                    primaryAction: { action(for: $0) },
@@ -173,6 +173,9 @@ struct FeedTable: View {
                        if expanded.contains(result.id), let abstract = result.abstract {
                            Text(abstract).font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                                .frame(maxWidth: .infinity, alignment: .leading)
+                           if result.abstractTruncated, let url = URL(string: "https://arxiv.org/abs/\(result.sourceID)") {
+                               Link("Read the full abstract on arXiv", destination: url).font(.footnote)
+                           }
                        }
                    },
                    top: {

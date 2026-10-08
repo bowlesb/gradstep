@@ -443,8 +443,6 @@ struct PaperView: View {
                     Button("Add to library") { Task { await model.addReference(value.text) } }
                     Button("Copy") { UIPasteboard.general.string = value.text }
                     Button("Cancel", role: .cancel) {}
-                } message: { value in
-                    Text(value.text)
                 }
                 .position(x: rect.midX, y: rect.midY)
         }

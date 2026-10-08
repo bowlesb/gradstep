@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { discoveryAbstract } from '../../supabase/functions/_shared/discover.ts';
 import { arxivIDListURL, arxivRecentURL, arxivTitleURLs, exactTitleMatches, matchPaper, openAlexArxivWorkURL, openAlexCandidates, openAlexFindURL, openAlexResult, openAlexSearchURLs, orderByRanking, parseArxivRSS, arxivSearchURL, arxivSearchURLs, mergeDiscovery, parseArxivSearch, rankOpenAlex, titleSimilarity } from '../../supabase/functions/_shared/discover.ts';
 
 test('search URLs: ids look up one paper, text matches all words, junk is refused', () => {
@@ -20,6 +21,21 @@ test('parses a real arXiv Atom feed into compact results', () => {
   assert.match(results[0].title, /^Direct Preference Optimization/);
   assert.equal(results[0].year, 2023);
   assert.ok(results[0].authors.length >= 1 && results[0].abstract!.length <= 700);
+});
+
+test('full abstracts are opt-in, preserve the end of real metadata, and mark oversized excerpts', () => {
+  const bytes = new Uint8Array(readFileSync(new URL('../fixtures/arxiv/2305.18290-atom.xml', import.meta.url)));
+  const legacy = parseArxivSearch(bytes)[0], full = parseArxivSearch(bytes, true)[0];
+  assert.ok(full.full_abstract!.length > 700);
+  assert.ok(full.full_abstract!.endsWith('.'));
+  assert.equal(full.abstract, legacy.abstract);
+  assert.equal(full.abstract_truncated, false);
+  assert.equal('full_abstract' in legacy, false, 'old client payload unchanged');
+  const rss = new Uint8Array(readFileSync(new URL('../fixtures/arxiv/rss-cs.LG-sample.xml', import.meta.url)));
+  assert.ok(parseArxivRSS(rss, 25, true).every(r => r.full_abstract?.startsWith(r.abstract ?? '') ?? r.abstract === null));
+  const long = 'λ'.repeat(24_001);
+  assert.deepEqual(discoveryAbstract(long, true), { abstract: long.slice(0, 700), full_abstract: long.slice(0, 24_000), abstract_truncated: true });
+  assert.deepEqual(discoveryAbstract(null, true), { abstract: null, full_abstract: null, abstract_truncated: false });
 });
 
 test('rejects non-feed XML and skips malformed entries', () => {

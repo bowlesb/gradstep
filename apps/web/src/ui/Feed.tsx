@@ -59,6 +59,7 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
   useFeedLoading(model);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const inLibrary = useMemo(() => new Set(library.entries.filter(e => e.visible).map(e => e.source_id).filter(Boolean)), [library.entries]);
   const current = model.selected ? model.loaded.get(model.selected) : undefined;
   const add = async (result: DiscoveryResult) => {
@@ -91,10 +92,16 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
           {current.results.map(r => {
             const have = inLibrary.has(r.source_id);
             return (
-              <li key={r.source_id} className="feed-card">
+              <li key={r.source_id} className={`feed-card${expanded.has(r.source_id) ? ' expanded' : ''}`}>
                 <a className="feed-title" href={`https://arxiv.org/abs/${r.source_id}`} target="_blank" rel="noopener noreferrer">{r.title}</a>
                 {r.authors.length > 0 && <div className="feed-authors">{r.authors.slice(0, 6).join(', ')}{r.authors.length > 6 ? ` +${r.authors.length - 6}` : ''}</div>}
-                {r.abstract && <p className="feed-abstract">{r.abstract}</p>}
+                {r.abstract && <>
+                  <p className="feed-abstract" id={`abstract-${r.source_id}`}>{r.abstract}</p>
+                  <button className="link small-link" aria-expanded={expanded.has(r.source_id)} aria-controls={`abstract-${r.source_id}`}
+                    onClick={() => setExpanded(previous => { const next = new Set(previous); next.has(r.source_id) ? next.delete(r.source_id) : next.add(r.source_id); return next; })}>
+                    {expanded.has(r.source_id) ? 'Less' : 'Full abstract'}</button>
+                  {expanded.has(r.source_id) && r.abstractTruncated && <a className="link small-link" href={`https://arxiv.org/abs/${r.source_id}`} target="_blank" rel="noopener noreferrer">Read the full abstract on arXiv</a>}
+                </>}
                 <div className="feed-meta">
                   <span>{r.year ?? ''}</span><span className="tag static">{topicName(r.categories[0] ?? model.selected ?? '')}</span><span className="mono faint">{r.source_id}</span>
                   <button className={have ? 'pill passive' : 'pill accent'} disabled={have || !!adding || library.state !== 'ready'} onClick={() => void add(r)}>

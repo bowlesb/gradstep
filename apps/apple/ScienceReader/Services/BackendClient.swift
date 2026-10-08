@@ -504,8 +504,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     func discover(query: String, accountID: UUID) async throws -> [DiscoveryResult] {
         var allowed = CharacterSet.urlQueryAllowed; allowed.remove(charactersIn: "&+=?#")
         guard let encoded = String(query.prefix(300)).addingPercentEncoding(withAllowedCharacters: allowed) else { throw BackendError.unavailable }
-        let data = try await authorized(path: "functions/v1/discover?q=\(encoded)", body: nil, method: "GET",
-                                        accountID: accountID, maximumResponseBytes: 524_288)
+        let data = try await authorized(path: "functions/v1/discover?q=\(encoded)&abstract=full", body: nil, method: "GET",
+                                        accountID: accountID, maximumResponseBytes: 4_194_304)
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
     }
 
@@ -598,8 +598,8 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
     /// Newest arXiv submissions in one category (Feed).
     func feed(category: String, accountID: UUID) async throws -> [DiscoveryResult] {
         guard category.range(of: "^[a-z]{2,8}(-[a-z]{2,6})?(\\.[A-Z]{2})?$", options: .regularExpression) != nil else { throw BackendError.unavailable }
-        let data = try await authorized(path: "functions/v1/discover?category=\(category)", body: nil, method: "GET",
-                                        accountID: accountID, maximumResponseBytes: 524_288)
+        let data = try await authorized(path: "functions/v1/discover?category=\(category)&abstract=full", body: nil, method: "GET",
+                                        accountID: accountID, maximumResponseBytes: 4_194_304)
         return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
     }
 

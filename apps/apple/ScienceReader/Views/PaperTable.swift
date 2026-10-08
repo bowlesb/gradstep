@@ -228,6 +228,7 @@ struct PaperTableTitle {
     var subtitle: String? = nil
     /// The open paper where it is shown beside the table (iPad Browse).
     var highlighted = false
+    var expanded = false
 }
 
 /// A row's tap: what it does, and what VoiceOver says it does.
@@ -550,7 +551,8 @@ struct PaperTableTitleCell: View {
     let title: PaperTableTitle
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(2).truncationMode(.tail)
+            Text(title.title).font(.subheadline.weight(.semibold)).lineLimit(title.expanded ? nil : 2).truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(title.highlighted ? Color.accentColor : .primary)
             if let subtitle = title.subtitle {
                 Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)

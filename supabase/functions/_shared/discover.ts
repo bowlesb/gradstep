@@ -8,6 +8,17 @@ const ATOM = 'http://www.w3.org/2005/Atom';
 export interface DiscoveryResult {
   source_id: string; revision: number; title: string; authors: string[]; year: number | null;
   abstract: string | null; categories: string[];
+  /** Opt-in presentation fields; the legacy preview stays <=700 characters. */
+  full_abstract?: string | null; abstract_truncated?: boolean;
+}
+
+/** Keep older clients' bounded previews compatible; newer clients explicitly request full abstracts. */
+export function discoveryAbstract(text: string | null, full = false): Pick<DiscoveryResult, 'abstract' | 'full_abstract' | 'abstract_truncated'> {
+  const value = text?.trim() || null;
+  const preview = value?.slice(0, 700) ?? null;
+  if (!full) return { abstract: preview };
+  return { abstract: preview, full_abstract: value?.slice(0, 24_000) ?? null,
+    abstract_truncated: (value?.length ?? 0) > 24_000 };
 }
 
 /** Builds a bounded arXiv API query: an ID/URL looks up that paper; free text
@@ -86,7 +97,7 @@ function arxivIDOf(work: { locations?: unknown }): string | null { return arxivL
 
 /** OpenAlex's metadata as a search result (title, authors, year, abstract; no arXiv
  * categories; the version from its arXiv link, else 1 — adding ignores it). */
-export function openAlexResult(work: unknown): DiscoveryResult | null {
+export function openAlexResult(work: unknown, fullAbstracts = false): DiscoveryResult | null {
   const w = work as { title?: unknown; publication_year?: unknown; authorships?: unknown; abstract_inverted_index?: unknown; locations?: unknown };
   const location = arxivLocationOf(w);
   if (!location || typeof w.title !== 'string' || !w.title.trim()) return null;
@@ -99,10 +110,10 @@ export function openAlexResult(work: unknown): DiscoveryResult | null {
     for (const [word, positions] of Object.entries(index as Record<string, unknown>).slice(0, 5000)) {
       if (Array.isArray(positions)) for (const at of positions) if (typeof at === 'number' && at >= 0 && at < 5000) words[at] = word;
     }
-    abstract = words.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().slice(0, 700) || null;
+    abstract = words.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() || null;
   }
   return { source_id: location.sourceID, revision: location.version ?? 1, title: w.title.replace(/\s+/g, ' ').trim().slice(0, 2000), authors,
-    year: typeof w.publication_year === 'number' ? w.publication_year : null, abstract, categories: [] };
+    year: typeof w.publication_year === 'number' ? w.publication_year : null, ...discoveryAbstract(abstract, fullAbstracts), categories: [] };
 }
 
 /** A paper as OpenAlex knows it, for Ingest: its arXiv copy if any, otherwise
@@ -156,7 +167,7 @@ export function openAlexArxivWorkURL(sourceID: string): string {
 
 /** arXiv IDs best first: 0.5 × relevance (normalized; 0.7 for a classic found
  * only among the most cited matches) + 0.5 × log citations (normalized). */
-export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }, limit = 25): RankedWork[] {
+export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }, limit = 25, fullAbstracts = false): RankedWork[] {
   const lists = [relevant, cited].map(json => (json as { results?: unknown })?.results);
   if (!Array.isArray(lists[0])) throw new Error('invalid_openalex');
   const works = new Map<string, { relevance: number; citations: number; result?: DiscoveryResult }>();
@@ -170,7 +181,7 @@ export function rankOpenAlex(relevant: unknown, cited: unknown = { results: [] }
       const citations = typeof w.cited_by_count === 'number' && w.cited_by_count > 0 ? w.cited_by_count : 0;
       const known = works.get(sourceID);
       works.set(sourceID, { relevance: Math.max(known?.relevance ?? 0, relevance), citations: Math.max(known?.citations ?? 0, citations),
-        result: known?.result ?? openAlexResult(work) ?? undefined });
+        result: known?.result ?? openAlexResult(work, fullAbstracts) ?? undefined });
     }
   });
   // A work found only among the most cited matches counts when it is cited at
@@ -233,7 +244,7 @@ export function xmlText(value: string): string {
 
 /** Parses the first new announcements of an arXiv RSS feed. Bounded text
  * extraction (no entity expansion, no DTD); malformed items are skipped. */
-export function parseArxivRSS(bytes: Uint8Array, limit = 25): DiscoveryResult[] {
+export function parseArxivRSS(bytes: Uint8Array, limit = 25, fullAbstracts = false): DiscoveryResult[] {
   const text = new TextDecoder().decode(bytes.subarray(0, 4 * 1024 * 1024));
   if (!/^\s*(<\?xml[^>]*>\s*)?<rss[\s>]/.test(text) || /<!DOCTYPE/i.test(text)) throw new Error('invalid_feed');
   const results: DiscoveryResult[] = [];
@@ -252,8 +263,9 @@ export function parseArxivRSS(bytes: Uint8Array, limit = 25): DiscoveryResult[] 
       const year = /^\d{4}\./.test(ref.sourceID) ? 2000 + Number(ref.sourceID.slice(0, 2)) : null;
       const authors = (field('dc:creator') ?? '').split(/,\s*|\s+and\s+/).map(a => a.trim()).filter(a => a && a.length <= 256).slice(0, 9);
       const categories = [...item.matchAll(/<category>([^<]{1,64})<\/category>/g)].map(c => xmlText(c[1])).filter(c => /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(c)).slice(0, 6);
-      const abstract = description.replace(/^arXiv:\S+ Announce Type: \S+\s*Abstract:\s*/, '').slice(0, 700) || null;
-      results.push({ source_id: ref.sourceID, revision: Number(header[2]), title: title.slice(0, 2000), authors, year, abstract, categories });
+      const abstract = description.replace(/^arXiv:\S+ Announce Type: \S+\s*Abstract:\s*/, '') || null;
+      results.push({ source_id: ref.sourceID, revision: Number(header[2]), title: title.slice(0, 2000), authors, year,
+        ...discoveryAbstract(abstract, fullAbstracts), categories });
     } catch { /* skip malformed */ }
   }
   return results;
@@ -269,7 +281,7 @@ export function mergeDiscovery(lists: DiscoveryResult[][]): DiscoveryResult[] {
 }
 
 /** Parses an arXiv Atom feed into compact results; malformed entries are skipped. */
-export function parseArxivSearch(bytes: Uint8Array): DiscoveryResult[] {
+export function parseArxivSearch(bytes: Uint8Array, fullAbstracts = false): DiscoveryResult[] {
   const root = sourceXML(bytes);
   if (root.uri !== ATOM || root.local !== 'feed') throw new Error('invalid_feed');
   const results: DiscoveryResult[] = [];
@@ -280,11 +292,12 @@ export function parseArxivSearch(bytes: Uint8Array): DiscoveryResult[] {
       const title = plain(one(entry, ATOM, 'title'), 2000)!.replace(/\s+/g, ' ').trim();
       const authors = children(entry, ATOM, 'author').slice(0, 9).map(a => plain(one(a, ATOM, 'name'), 256)!);
       const published = plain(one(entry, ATOM, 'published', false), 64, false);
-      const abstract = plain(one(entry, ATOM, 'summary', false), 24_000, false)?.replace(/\s+/g, ' ').trim() ?? null;
+      // The input feed is already bounded; preserve the row even when its abstract needs an explicit excerpt.
+      const abstract = plain(one(entry, ATOM, 'summary', false), 6 * 1024 * 1024, false)?.replace(/\s+/g, ' ').trim() ?? null;
       const categories = [...new Set(children(entry, ATOM, 'category').map(c => c.attributes['{}term']).filter((t): t is string => !!t && /^[A-Za-z][A-Za-z0-9.-]{0,63}$/.test(t)))].slice(0, 6);
       results.push({ source_id: ref.sourceID, revision: ref.revision, title, authors,
         year: published && /^\d{4}/.test(published) ? Number(published.slice(0, 4)) : null,
-        abstract: abstract ? abstract.slice(0, 700) : null, categories });
+        ...discoveryAbstract(abstract, fullAbstracts), categories });
     } catch { /* skip malformed entry */ }
   }
   return results;

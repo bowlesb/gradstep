@@ -608,6 +608,22 @@ struct ChatPaperContext {
         return model.papers.first { $0.sourceID == reference.sourceID }?.title
     }
 
+    /// Resolve current membership when tapped; a queued import opens its library status, never a stale paper.
+    func openLibrary(_ mention: ChatPaperMention, model: ReaderModel) {
+        let source: String?
+        switch mention.identity {
+        case .arxiv(let reference): source = reference.sourceID
+        case .doi: source = matched[key(mention, model)]
+        }
+        guard let source, model.librarySourceIDs.contains(source) else { return }
+        if let paper = model.papers.first(where: { $0.sourceID == source }) {
+            model.select(paper)
+        } else {
+            model.searchExternal = false; model.libraryFilter = .all; model.libraryTagFilter = nil
+            model.libraryQuery = source; model.tab = .library
+        }
+    }
+
     /// arXiv papers are queued like the Library's Add; a DOI goes to `add-reference`,
     /// with the reader's outcome wording.
     func add(_ mention: ChatPaperMention, model: ReaderModel) async {
@@ -726,12 +742,13 @@ struct ChatAnswerPapersView: View {
             HStack(spacing: 10) {
                 if linked { link(mention, number: number, font: font) }
                 if inLibrary {
-                    HStack(spacing: 3) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityHidden(true)
-                        Text("In your library").foregroundStyle(.secondary)
+                    Button { context.actions.openLibrary(mention, model: context.model) } label: {
+                        Label("Library", systemImage: "books.vertical")
                     }
+                    .buttonStyle(.borderless)
                     .lineLimit(1)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Open in Library")
+                    .accessibilityHint("Reads the saved paper, or shows its import progress")
                     .accessibilityIdentifier("chat.paper.\(number).inLibrary")
                 }
             }

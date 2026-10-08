@@ -4,7 +4,7 @@ import { tagsFromCategories } from '../../../../supabase/functions/_shared/tag-v
 import { BackendError, functionGet } from './backend';
 import type { Entry } from './library';
 
-export interface DiscoveryResult { source_id: string; revision: number; title: string; authors: string[]; year: number | null; abstract: string | null; categories: string[] }
+export interface DiscoveryResult { source_id: string; revision: number; title: string; authors: string[]; year: number | null; abstract: string | null; abstractTruncated: boolean; categories: string[] }
 
 const CATEGORY = /^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/;
 const FEED_NAMES: Record<string, string> = { 'cs.LG': 'Machine learning', 'cs.CL': 'Language', 'cs.AI': 'AI', 'cs.CV': 'Vision', 'stat.ML': 'Statistical ML',
@@ -54,13 +54,15 @@ function decode(value: unknown): DiscoveryResult[] {
     const v = r as Record<string, unknown>;
     if (!v || !bounded(v.source_id, 64) || !v.source_id || !bounded(v.title, 2000) || !v.title || !Number.isInteger(v.revision) || (v.revision as number) < 1
       || !Array.isArray(v.authors) || !v.authors.every(a => bounded(a, 256)) || !Array.isArray(v.categories) || !v.categories.every(c => bounded(c, 64))) return [];
+    const abstract = bounded(v.full_abstract, 24_000) ? v.full_abstract : bounded(v.abstract, 2000) ? v.abstract : null;
     return [{ source_id: v.source_id, revision: v.revision as number, title: v.title.replace(/\s+/g, ' ').trim(), authors: (v.authors as string[]).slice(0, 64),
-      year: Number.isInteger(v.year) ? v.year as number : null, abstract: bounded(v.abstract, 24_000) && v.abstract ? v.abstract.replace(/\s+/g, ' ').trim() : null,
+      year: Number.isInteger(v.year) ? v.year as number : null, abstract: abstract?.replace(/\s+/g, ' ').trim() || null,
+      abstractTruncated: v.abstract_truncated === true || (!bounded(v.full_abstract, 24_000) && (abstract?.length ?? 0) >= 700),
       categories: (v.categories as string[]).slice(0, 16) }];
   });
 }
 
 export async function feed(account: string, category: string, signal?: AbortSignal): Promise<DiscoveryResult[]> {
   if (!CATEGORY.test(category)) throw new BackendError('invalid_category');
-  return decode(await functionGet(`discover?category=${encodeURIComponent(category)}`, { account, signal, maximum: 524_288 }));
+  return decode(await functionGet(`discover?category=${encodeURIComponent(category)}&abstract=full`, { account, signal, maximum: 4_194_304 }));
 }
