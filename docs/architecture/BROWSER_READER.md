@@ -1,40 +1,72 @@
 # Browser reader
 
-Status, 2026-10-07: **Phase 1 design; implementation in `apps/web/`.** Authorized by the owner (2026-10-03,
+Status, 2026-10-07: **Phase 1 deployed to https://app.gradstep.ai against staging** (implementation in `apps/web/`;
+see [deployment evidence](#deployment--2026-10-07)). Authorized by the owner (2026-10-03,
 [implementation plan §6](../IMPLEMENTATION_PLAN.md#6-browser-reader)); home decided by the owner 2026-10-07:
-**app.gradstep.ai**. Nothing below is a claim of E2EE, sync or deployment until the evidence section says so.
+**app.gradstep.ai**. Deployment evidence covers hosting, headers and reaching the email-code step only; nothing below
+is a claim of E2EE or sync, and a full signed-in hosted journey has not been run.
 
 ## Scope
 
-Phase 1 (this design): sign in with an email code → this browser becomes a device (recovery code, or new keys for an
-account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
+Phase 1 (this design): sign in with an email code → this browser becomes a device (approved from an iPhone/iPad by
+QR code, the recovery code, or new keys for an account that has none) → library table with live import progress → add an arXiv paper → read a converted paper with
 the same verified bundles and `reader-bridge.js` behavior → sign out.
 
-Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history,
-selection actions, reference actions, tag editing, web search/Feed, Apple/Google web sign-in, approving a browser from
-an existing device, device list and revocation, offline reading, credits and purchases.
+Large-screen workspace, milestone 1 (built 2026-10-07 on branch, **not deployed**; see
+[Workspace](#workspace-legacy-large-screen-layout)): the legacy three-pane layout, a dense library table, contents tree,
+find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-paper`).
+
+Phase 2 (not built; shown as "Not yet available in the browser" rather than faked): chat and its encrypted history
+(milestone 2 fills the workspace's chat pane), selection actions, reference actions, tag editing, PDF upload,
+Apple/Google web sign-in, device list and revocation, offline reading, credits and purchases.
+
+## Workspace (legacy large-screen layout)
+
+Owner, 2026-10-07: the first browser build "needs a ton of polish… the old science reader web code… used all the space
+and real estate much smarter… copy that as a starting point." Milestone 1 rebuilds the signed-in UI on
+`reference/web/app/page.tsx`'s desktop modes (Library; Browse = library beside the paper; Reader = paper beside chat),
+merged into one workspace. Sign-in, key setup/approval/recovery, library sync, commands, verified bundles, the reader
+frame, CSP and headers are unchanged. Code: `src/ui/Shell.tsx` (panes), `App.tsx` (routes, top bar, shortcuts),
+`Library.tsx`, `Reader.tsx`, `Figures.tsx`, `Feed.tsx`, `ChatPane.tsx`, `prefs.ts`.
+
+| Area | Behaviour |
+|---|---|
+| Panes | Left rail · center · chat pane. Drag a divider (pointer captured, so the paper frame can't swallow it; arrow keys; double-click resets); dragging well past the minimum collapses it to the legacy edge handle (⋮⋮). Widths and per-route visibility are kept in this browser (`localStorage` `gradstep.layout.v1`; unavailable storage falls back to defaults). Defaults follow the legacy modes: Library and Feed without chat, a paper with chat. The center keeps ≥ 440 px: the chat narrows first, then becomes a drawer. Below 1,100 px the chat is a drawer; below 760 px the rail is too. |
+| Top bar | Rail toggle, brand, Library · Feed · Chats, library search (centered), Add paper, appearance (light/dark; System in the account menu), chat-pane toggle, account. |
+| Library | Rail: All papers, Unread, Reading, Failed, Archived and the tags, with counts (chips with a tag menu when the rail is hidden). Center: full-width table Title (2 lines) · Authors · Year · Tags (click to filter) · Added · Opened · Progress; columns drop by the center's width (container queries), never scrolling sideways. Live import progress and Retry / Remove / "Get credits in the app" inline. Search, filter and sort survive opening a paper; while reading, position reports don't re-sort the library. |
+| Paper | Rail tabs: Contents (the bridge's outline depths; current section from reading-position reports) and Library (compact list, the legacy Browse; top-bar search switches to it). Toolbar: Contents, title, citation Back, Find, Figures (count), text size, Chat. |
+| Find | App-owned code in `frame-shim.js` (the bridge is unchanged): case-insensitive matches across inline elements but never across blocks, CSS custom highlights, the current match in the upper third, starting from the reading place; Enter/Shift-Enter; ≤ 1,000 matches. |
+| Figures | Gallery of the verified images (data URIs of verified bytes), one figure in its own sandboxed figure frame, ←/→, Escape back to the gallery, Show in paper (bridge `__scienceReaderShowFigure`, with citation Back). |
+| Appearance | The frame's `prefers-color-scheme` follows the system (the iframe's `color-scheme` didn't change it in Chromium), so the shim rewrites the documents' own `prefers-color-scheme` conditions to the chosen scheme and restores them for System; tested by toggling both ways. |
+| Feed | `discover?category=` for up to six topics from the library's arXiv categories (native rules and names); the legacy card grid; + Add to library through the library command. |
+| Add paper | arXiv IDs stay `v2_begin_import`; anything else goes to `add-paper` with `capabilities: ["web_import"]` only. Outcomes use the native wording, adapted: no upload or device download is offered, and a blocked or closed paper's https link can be opened. |
+| Shortcuts | `/` or ⌘K search, ⌘F find (paper), `[` rail, `]` chat, `?` help, Esc closes/clears, ↑/↓ between papers, ←/→ figures. The shim forwards these while the paper has focus (validated `key` messages). |
+
+The frame script hash changes with the shim and is computed at build for both CSPs, as before. Local verification
+(production CSP, Chromium): `e2e/layout.spec.ts` at 1440×900 and 1920×1080 in light and dark, plus a 390 px journey;
+the existing journeys follow the new layout. Screenshots: `.artifacts/web-layout/`. No hosted run yet.
 
 ## Where it lives
 
 | Surface | Origin | Host |
 |---|---|---|
 | Info site (`web/site/`) | `https://gradstep.ai` | Cloudflare Pages `gradstep-site` |
-| Browser reader (`apps/web/`) | Intended: `https://app.gradstep.ai` | Pages project `gradstep-app` exists; no deployment or custom domain verified as of 2026-10-07 |
+| Browser reader (`apps/web/`) | `https://app.gradstep.ai` | Cloudflare Pages `gradstep-app`, custom domain (proxied CNAME `app` → `gradstep-app.pages.dev`) |
 
-The intended `gradstep.ai/app` and `gradstep.ai/app/*` redirects have **not** been implemented:
-`web/site/_redirects` is absent. A
+`gradstep.ai/app`, `/app/` and `/app/*` redirect (301) to `https://app.gradstep.ai/` (path kept) via
+`web/site/_redirects`. A
 separate origin isolates the reader's IndexedDB keys, session and storage quota from the info site, and lets the app
 have a strict CSP without constraining the marketing pages. Both projects are on Cloudflare's free tier (static assets,
 no Functions): $0/month.
 
-Builds are local (`npm run build` in `apps/web`). Deployment should use the repository's locked Wrangler version
-and the dedicated Cloudflare credential; `scripts/deploy-web.mjs` is not yet implemented. A read-only hosting check
-on 2026-10-07 found no `gradstep-app` deployment, Pages custom domain or `app.gradstep.ai` DNS record. The intended
-build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned. Before publishing, validate
-public build-variable values, deep links, CSP/cache headers and a synthetic-account live journey.
+Deploy with `node scripts/deploy-web.mjs app` (reader) or `node scripts/deploy-web.mjs site` (info site): builds
+locally and uploads with the repository's locked Wrangler 4 and the dedicated Cloudflare credential in `.env.staging`.
+The build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned.
 The Supabase anon key is a public client identifier (as in the iOS binary and the admin site), embedded at build time.
-The build restricts exposed environment-variable names to the URL/anon key. It still needs value validation to
-reject a wrong project or a privileged key placed under an allowed public variable name; this is a deployment gate.
+The build restricts exposed environment-variable names to the URL/anon key, and the deploy script gates the values:
+the URL must be the staging project, the key must be a JWT with role `anon` for that project, no other
+`.env.staging` value may appear anywhere in the built output, and the generated `_headers` must carry the strict CSP
+for exactly that backend plus HSTS. Local `apps/web/.env*` files are refused so the deploy cannot pick up stray values.
 
 ## Stack
 
@@ -128,9 +160,8 @@ succeeding is insufficient.
   `v1_request_enrollment`, self-approve with `v1_approve_enrollment` (management token from the recovered bundle),
   then activate it only after its server envelope authenticates. A lost reply or reload resumes the pending
   candidate; only a positive revocation retires it.
-- **Approval by an existing device.** The RPC contract supports it (`v1_enrollment_requests` +
-  `v1_approve_enrollment` from any device holding the bundle), but no device has an approval UI yet; Phase 1 does not
-  offer the action. Adding it is native work (Phase 2).
+- **Approval by an existing device (QR), the default on the restore screen.** See
+  [Approving this browser from another device](#approving-this-browser-from-another-device).
 - **Password AutoFill.** The recovery field is `<input type="password" autocomplete="current-password">` in a form
   whose hidden username is the account email, so a code the iPhone saved for `gradstep.ai` can be offered on
   `app.gradstep.ai` (Safari and Chrome match the registrable domain; unverified until tried on real devices).
@@ -154,13 +185,37 @@ succeeding is insufficient.
   saved place before it is restored. Missing/unreadable activity settles to an empty map and still permits reading.
   Every bounded bridge position report updates memory; encrypted writes are debounced and serialized separately.
 
+## Approving this browser from another device
+
+Built 2026-10-07 (not yet deployed; needs an iPhone/iPad build with Settings › Account › **Add a device**). Protocol and
+limits: [PRIVACY_AND_SYNC.md](PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
+
+- **Restore screen** (`ui/Keys.tsx`, `ui/Approve.tsx`). "Restore your private library" leads with the QR code, the
+  six-digit number ("Your phone should show 275 895") and "Waiting for approval…". **Use recovery code instead** switches
+  to the existing form (Password AutoFill unchanged), which has **Approve from your phone instead**. Both paths share one
+  pending recipient and request under the key lock, so switching never creates a second device.
+- **QR** (`lib/approval.ts`): the 97-character `GSDA1` payload drawn locally as an inline SVG path by `uqr` 0.1.3 (MIT,
+  zero dependencies, a port of Nayuki's generator; ECC M, version 6, white quiet zone in both themes). No network
+  request, canvas, inline script or CSP change. Rendered screenshots decode with CoreImage's QR detector.
+- **Polling** (`checkApproval`): `v1_key_state` for the pending device with bounded backoff (2 s, ×1.5, at most 10 s);
+  about once a minute `requestApproval` re-checks the request and renews it for the same recipient if it expired. A
+  connection failure shows "Can't reach Gradstep. Still trying…" and keeps waiting; after 30 minutes it stops with
+  **Show a new code**. An envelope that doesn't open with this browser's key is an error and the pending recipient is
+  kept.
+- **Tests**: `tests/approval.test.ts` (fixture vectors, request/renew/approve/refuse flow), the Swift interop test (Swift
+  approves a non-extractable WebCrypto key from its QR text), and `e2e/approval.spec.ts` (the fixture's "iPhone" reads the
+  rendered QR text, checks the fingerprint independently in Node, and approves; reload resumes the same QR; switching to
+  the recovery code approves the same request).
+
 ## Authentication
 
 Phase 1 is the email code only: `POST /auth/v1/otp` (`create_user: false`; sign-up stays invite-only and testers are
 created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`), six ASCII digits with
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
-sign-out signs this one out. No redirect URL is needed for the email code, so **no Supabase Auth setting changes**.
+sign-out signs this one out. No redirect URL is needed for the email code. For later web OAuth, staging's Auth redirect
+allowlist was extended on 2026-10-07 (appended, existing `sciencereader://auth/callback` kept) with
+`https://app.gradstep.ai` and `https://app.gradstep.ai/auth/callback`; `site_url` is unchanged.
 
 Each successful login receives an opaque client lifetime ID, stored alongside the tokens; refresh preserves that
 ID. This is local session metadata, not a server credential or backend format change. Legacy browser sessions
@@ -182,10 +237,13 @@ configuration separate from native Apple sign-in (see [native authentication](NA
 
 ## Edge function origin
 
-Edge functions use the `ADMIN_ORIGINS` secret. A read-only 2026-10-07 preflight against `reader-artifact` already
-allowed `https://app.gradstep.ai`, while `infra/staging.json` still listed only local origins. Reconcile that drift
-before any deployment; do not overwrite the live allowlist from the stale manifest or run a broad backend deploy
-solely for CORS. Origin permission does not replace authentication or artifact authorization.
+Edge functions use the `ADMIN_ORIGINS` secret, set from `infra/staging.json` `admin_origins` on every
+`deploy-staging.py` run. A probe before the 2026-10-07 reader deployment showed later function deploys had reset it to
+the local origins (preflight from `https://app.gradstep.ai` → 403), so the manifest now lists
+`https://app.gradstep.ai` and the functions were redeployed from main with
+`--skip-migrations --skip-checks --defer-activation` (pipeline worker untouched). Preflights from the reader origin now
+return 204 with `Access-Control-Allow-Origin: https://app.gradstep.ai`; other origins still get 403. Origin
+permission does not replace authentication or artifact authorization.
 
 ## Contracts reused unchanged
 
@@ -241,6 +299,29 @@ pending request. A persistent command outbox needs the account/deployment and at
   yet exist. Local browser fixtures do not establish hosted sign-in, reading or email delivery.
 
 ## Evidence
+
+### Deployment — 2026-10-07
+
+Deployed 21:00 PDT from `worktree-agent-a382af5d587717432` (main `937ef34` + deploy script/config). Pages free tier,
+$0/month. Checked live:
+
+- `https://app.gradstep.ai/` → 200 over HTTPS (Cloudflare edge certificate, Pages custom domain `active`);
+  `http://` → 301 to HTTPS. Response headers match the policy above: the CSP with the frame-script hash and
+  `connect-src https://coxhjvqpflgxkleydati.supabase.co`, HSTS, `X-Frame-Options: DENY`, nosniff, `no-referrer`,
+  COOP/CORP `same-origin`, the Permissions-Policy. `index.html`/`/` are `no-cache`; `/assets/*` are
+  `public, max-age=31536000, immutable`. Deep links (e.g. `/paper/x`) fall back to the app shell (200).
+- The zone has Cloudflare Web Analytics automatic injection enabled (gradstep.ai pages carry its beacon). On the
+  reader the CSP refused it; `_headers` now adds `Cache-Control: no-transform` on every path, after which no beacon is
+  injected and a Chromium load shows no console errors. The info site still has the beacon (unchanged).
+- `gradstep.ai/app`, `/app/`, `/app/papers/x` → 301 to `https://app.gradstep.ai/…`; in Chromium, `gradstep.ai/app`
+  lands on the reader's Sign in page.
+- Hosted email-code step: a synthetic invited account (Auth admin API, address in Resend's `delivered+…@resend.dev`
+  test inbox) entered on the live page; `POST /auth/v1/otp` returned 200 and the page reached "Enter your code" with
+  the `one-time-code` field focused. The account row and Auth user were then deleted (admin `deleteUser` needs the
+  `app_private.accounts` row removed first, as in `scripts/check-native-sync.mjs`); a follow-up query found no rows.
+- Not yet verified on the hosted build: code verification, key setup/recovery, library, adding a paper, reading,
+  or Safari (see the WebKit release gate below). A deep link's HTML response carries only `no-transform` (no
+  `no-cache`), so browsers may revalidate it less eagerly than `/`.
 
 The integration worktree recovered the browser implementation and hardened session lifetime/async ownership on
 2026-10-07. Merging current `main` through `5f95c97` preserved these changes; the combined source passed a fresh

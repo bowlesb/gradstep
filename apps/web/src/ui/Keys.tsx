@@ -1,8 +1,10 @@
-// This browser becomes a device: new keys for an account without any, otherwise the recovery code.
+// This browser becomes a device: new keys for an account without any; otherwise approval from another device (QR,
+// the primary path) or the recovery code.
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { BackendError } from '../lib/backend';
 import { type Preparation, bootstrap, prepare, recoverWithCode } from '../lib/keys';
 import { WireError, generateBundle, generateRecoveryCode, recoveryCodeBytes } from '../lib/wire';
+import { ApproveFromPhone } from './Approve';
 import { Brand } from './common';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
@@ -17,7 +19,7 @@ function message(error: unknown): string {
   }
   if (error instanceof BackendError) {
     if (error.code === 'connection') return 'Couldn’t reach Gradstep. Check your connection and try again.';
-    if (error.code === 'too_many_enrollment_requests') return 'Too many devices are waiting to be added. Try again later.';
+    if (error.code === 'too_many_enrollment_requests') return 'Too many devices are waiting to be added. Try again in 15 minutes.';
     if (error.code === 'sign_in_required') return 'Your session ended. Sign in again.';
   }
   if (error instanceof Error && error.message === 'storage_unavailable') return 'This browser isn’t allowing Gradstep to store its keys (private browsing, or site data blocked).';
@@ -30,11 +32,16 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   const [issue, setIssue] = useState<string | null>(null);
   const lifetime = useRef<AbortController | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [method, setMethod] = useState<'phone' | 'code'>('phone');
+  const [phoneAttempt, setPhoneAttempt] = useState(0);
 
   const route = useCallback((result: Preparation, signal: AbortSignal) => {
     if (signal.aborted) return;
     if (result.kind === 'ready') onReady(result); else setView({ kind: result.kind });
   }, [onReady]);
+
+  const approved = useCallback((result: Preparation) => route(result, lifetime.current!.signal), [route]);
+  const approvalIssue = useCallback((error: unknown) => { if (!lifetime.current?.signal.aborted) setIssue(message(error)); }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -56,7 +63,16 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
           <p className="issue" role="alert">{view.message}</p>
           <button className="primary" onClick={() => setAttempt(a => a + 1)}>Try again</button>
         </>}
-        {view.kind === 'recovery_required' && <Recover account={account} email={email} busy={busy} issue={issue} onSubmit={async code => {
+        {view.kind === 'recovery_required' && method === 'phone' && <>
+          {issue ? <>
+            <h1>Restore your private library</h1>
+            <p className="issue" role="alert">{issue}</p>
+            <button className="primary" onClick={() => { setIssue(null); setPhoneAttempt(a => a + 1); }}>Try again</button>
+            <button type="button" className="secondary" onClick={() => { setIssue(null); setMethod('code'); }}>Use recovery code instead</button>
+          </> : <ApproveFromPhone account={account} attempt={phoneAttempt} onResult={approved} onIssue={approvalIssue}
+            onUseCode={() => { setIssue(null); setMethod('code'); }} />}
+        </>}
+        {view.kind === 'recovery_required' && method === 'code' && <Recover onUsePhone={() => { setIssue(null); setMethod('phone'); }} account={account} email={email} busy={busy} issue={issue} onSubmit={async code => {
           const signal = lifetime.current!.signal;
           setBusy(true); setIssue(null);
           try { route(await recoverWithCode(account, code, signal), signal); } catch (error) { if (!signal.aborted) setIssue(message(error)); }
@@ -74,7 +90,8 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
   );
 }
 
-function Recover({ email, busy, issue, onSubmit }: { account: string; email: string | null; busy: boolean; issue: string | null; onSubmit: (code: string) => void }) {
+function Recover({ email, busy, issue, onSubmit, onUsePhone }: { account: string; email: string | null; busy: boolean; issue: string | null;
+  onSubmit: (code: string) => void; onUsePhone: () => void }) {
   const [code, setCode] = useState('');
   const [shown, setShown] = useState(false);
   const [local, setLocal] = useState<string | null>(null);
@@ -102,7 +119,7 @@ function Recover({ email, busy, issue, onSubmit }: { account: string; email: str
         {(local || issue) && <p className="issue" role="alert">{local ?? issue}</p>}
         <button type="submit" className="primary" disabled={busy || !code.trim()} data-testid="recover">{busy ? 'Restoring…' : 'Restore this browser'}</button>
       </form>
-      <p className="fine">Approving this browser from your iPhone or iPad isn’t available yet.</p>
+      <button type="button" className="link" onClick={onUsePhone} disabled={busy} data-testid="use-phone">Approve from your phone instead</button>
     </>
   );
 }

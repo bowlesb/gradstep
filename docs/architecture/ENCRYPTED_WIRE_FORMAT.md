@@ -24,4 +24,16 @@ Use ephemeral-static X25519. The wire value is a 32-byte ephemeral public key fo
 
 Enrollment comparison fingerprint is SHA-256 over UTF-8 `science-reader/enrollment/v1/{account}/{recipient-device}/` followed by recipient public key and challenge. The server stores a SHA-256 verifier for the management token, domain-bound to the account; it does not receive a content key or recovery code.
 
+## Device approval payload
+
+The text a new device shows as a QR code for an approved device to scan (format `GSDA1`, 97 ASCII characters):
+`GSDA1.{request}.{account-tag}.{fingerprint}.{kind}`. Binary fields are unpadded base64url and must be canonical:
+`request` is the enrollment request UUID's 16 bytes; `account-tag` is the first 16 bytes of SHA-256 over UTF-8
+`science-reader/device-approval/v1/account/{account}`; `fingerprint` is the 32-byte enrollment comparison fingerprint
+above; `kind` is `w` (web browser), `m` (Mac), `p` (iPhone) or `t` (iPad), for display only. The six-digit comparison
+number is the first four bytes of SHA-256 over UTF-8 `science-reader/device-approval/v1/code/` followed by the
+fingerprint, read as a big-endian unsigned integer, modulo 1,000,000, zero-padded. Public vectors:
+`apps/apple/ScienceReaderCore/Tests/ScienceReaderCoreTests/Fixtures/device-approval-v1.json` (written by Node in
+`scripts/check-wire.mjs --write-fixture`, checked by Swift and web tests).
+
 Tests: `node scripts/check-wire.mjs` verifies frozen Node fixtures, runs the Swift executable, and independently decrypts its newly generated envelopes in Node. `swift test` includes the frozen incoming fixtures and identity/tamper tests. Fixture regeneration is an explicit review action, never an automatic test update.

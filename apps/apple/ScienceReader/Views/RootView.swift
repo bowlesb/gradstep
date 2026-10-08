@@ -70,6 +70,7 @@ struct RootView: View {
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
+        .modifier(DeviceApprovalBanner(model: model))
         .sheet(item: $model.tagEditor) { request in
             if let paper = model.papers.first(where: { $0.id == request.paperID }) { TagEditorView(model: model, paper: paper) }
         }

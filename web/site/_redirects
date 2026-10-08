@@ -1,0 +1,4 @@
+# The browser reader lives on its own origin (docs/architecture/BROWSER_READER.md).
+/app      https://app.gradstep.ai/        301
+/app/     https://app.gradstep.ai/        301
+/app/*    https://app.gradstep.ai/:splat  301

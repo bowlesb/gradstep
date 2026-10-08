@@ -7,6 +7,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { wrapDevice } from '../../../tests/backend/wire-crypto.mjs';
 import { RECOVERY_CODE, returningKeyring } from './fixture-keys.mjs';
 
 const PORT = Number(process.env.FIXTURE_PORT ?? 54329);
@@ -52,6 +53,7 @@ function seedReturning() {
   if (a.seq) return;
   const keys = returningKeyring();
   a.keyring = { epoch: 1, recovery_package: keys.recoveryPackage, verifier: verifier(ACCOUNTS['returning@example.test'], keys.managementToken) };
+  a.phone = { bundle: keys.keys, managementToken: keys.managementToken }; // what the "iPhone" holds, for /__approve
   // The "iPhone" that created the keyring.
   a.devices.set(keys.deviceID, { id: keys.deviceID, public_key: keys.publicKey, challenge: keys.challenge, revoked_at: null });
   a.envelopes.set(`${keys.deviceID}:1`, keys.envelope);
@@ -243,6 +245,29 @@ createServer(async (request, response) => {
     rpcs.v2_cancel_import(id, a, { p_operation_id: randomUUID(), p_import_id: imp.id, p_expected_revision: imp.intent_revision });
     return send(response, 200, { ok: true });
   }
+  // The returning account's "iPhone" scans the browser's QR text and approves it as the app does (DeviceApproval.swift),
+  // independently in Node: same account, the named (or renewed) request must hash to the scanned fingerprint.
+  if (url.pathname === '/__approve' && request.method === 'POST') {
+    const body = await read(request), id = ACCOUNTS['returning@example.test'], a = account(id);
+    const parts = typeof body?.payload === 'string' ? body.payload.split('.') : [];
+    if (parts.length !== 5 || parts[0] !== 'GSDA1' || parts[4] !== 'w') return send(response, 400, { error: 'unrecognized' });
+    const requestID = Buffer.from(parts[1], 'base64url').toString('hex').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+    if (sha(Buffer.from(`science-reader/device-approval/v1/account/${id}`)).subarray(0, 16).toString('base64url') !== parts[2]) return send(response, 409, { error: 'different_account' });
+    const print = r => sha(Buffer.concat([Buffer.from(`science-reader/enrollment/v1/${id}/${r.device_id}/`), unhex(r.public_key), unhex(r.challenge)])).toString('base64url');
+    const pending = [...a.requests.values()].filter(r => !r.approved_at);
+    const r = pending.find(r => r.id === requestID) ?? pending.find(r => print(r) === parts[3]);
+    if (!r) return send(response, 404, { error: 'expired_or_used' });
+    if (print(r) !== parts[3]) return send(response, 409, { error: 'key_mismatch' });
+    const code = String(sha(Buffer.concat([Buffer.from('science-reader/device-approval/v1/code/'), Buffer.from(parts[3], 'base64url')])).readUInt32BE(0) % 1e6).padStart(6, '0');
+    const envelope = wrapDevice(a.phone.bundle, r.device_id, unhex(r.public_key), unhex(r.challenge));
+    rpcs.v1_approve_enrollment(id, a, { p_request_id: r.id, p_epoch: 1, p_management_token: hex(a.phone.managementToken),
+      p_expected_public_key: r.public_key, p_expected_challenge: r.challenge, p_envelope: hex(envelope) });
+    return send(response, 200, { ok: true, code });
+  }
+  if (url.pathname === '/__pending-requests' && request.method === 'GET') {
+    const a = account(ACCOUNTS['returning@example.test']);
+    return send(response, 200, [...a.requests.values()].map(r => ({ id: r.id, approved: Boolean(r.approved_at) })));
+  }
   if (url.pathname === '/__another-paper' && request.method === 'POST') {
     const a = account(ACCOUNTS['returning@example.test']);
     emit(a, [item('aaaaaaaa-0000-4000-8000-000000000003', '2501.01234', 1, { ...ATTENTION, title: 'Added on another device' })]);
@@ -298,6 +323,33 @@ createServer(async (request, response) => {
       url: `http://127.0.0.1:${PORT}/storage/v1/object/sign/paper-assets/reader/${SAMPLE_SHA}/${m.path}?token=signed` }));
     return send(response, 200, { item_id: itemID, document_id: entry.document_id, artifact_id: entry.artifact_id, renderer_version: 'timestep-mathpix-mathml-v1',
       manifest_sha256: sha(manifest).toString('hex'), manifest: manifest.toString('base64'), members });
+  }
+  // Feed (discover?category=…): public sample metadata only.
+  if (url.pathname === '/functions/v1/discover' && request.method === 'GET') {
+    const category = url.searchParams.get('category') ?? '';
+    if (!/^[a-z]{2,8}(-[a-z]{2,6})?(\.[A-Z]{2})?$/.test(category)) return send(response, 400, { code: 'invalid_category' });
+    return send(response, 200, { results: [
+      { source_id: '2305.18290', revision: 3, title: DPO.title, authors: DPO.authors, year: 2023, abstract: DPO.abstract, categories: DPO.categories },
+      { source_id: '2604.01001', revision: 1, title: `New in ${category}: scaling sparse attention`, authors: ['Ada Example', 'Grace Sample'], year: 2026,
+        abstract: 'We study how sparse attention patterns scale with context length and compute budget, and find a simple recipe that matches dense attention.', categories: [category] },
+      { source_id: '2604.01002', revision: 1, title: `New in ${category}: evaluation under distribution shift`, authors: ['Alan Fixture'], year: 2026, abstract: null, categories: [category] },
+    ] });
+  }
+  // Add by DOI or link (add-paper): a DOI is identified and queued as an arXiv import; a publisher link is blocked.
+  if (url.pathname === '/functions/v1/add-paper' && request.method === 'POST') {
+    const body = await read(request), query = typeof body?.query === 'string' ? body.query.trim() : '';
+    if (!/^[0-9a-f-]{36}$/.test(body?.operation_id ?? '') || !query) return send(response, 400, { code: 'invalid_request' });
+    const base = { link: null, reason: null, title: null };
+    if (/^(doi:|https:\/\/doi\.org\/)?10\.48550\/arxiv\.1706\.03762$/i.test(query)) {
+      if (![...a.entries.values()].some(e => e.source_id === '1706.03762' && e.visible)) {
+        const imp = { kind: 'import', id: randomUUID(), intent_revision: 1, visible: true, phase: 'accepted', source: 'arxiv', source_id: '1706.03762', requested_revision: null,
+          source_url: 'https://arxiv.org/abs/1706.03762', retryable: false, progress: 'finding', progress_detail: { step: 'finding', percent: 2, eta_seconds: 50 } };
+        emit(a, [imp]); scheduleImport(a, a.entries.get('import:' + imp.id), ATTENTION);
+      }
+      return send(response, 200, { status: 'added', route: 'doi', paper: { title: ATTENTION.title, year: 2017, source_id: '1706.03762', kind: 'arxiv', host: null, link: null }, ...base });
+    }
+    if (/^https:\/\/publisher\.example\//.test(query)) return send(response, 200, { status: 'blocked', route: 'link', paper: null, link: query, reason: 'pdf_restricted', title: null });
+    return send(response, 200, { status: 'not_found', route: 'reference', paper: null, ...base });
   }
   send(response, 404, { message: 'unknown fixture route' });
 }).listen(PORT, '127.0.0.1', () => { seedReturning(); console.log(`fixture backend on ${PORT}; recovery code for returning@example.test: ${RECOVERY_CODE}`); });

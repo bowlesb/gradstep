@@ -784,3 +784,67 @@ Migration 039 applied (backup first); functions `add-paper` and `upload-pdf` dep
 `paper-uploads` bucket (4 MiB authenticated chunks); worker revision gradstep-pipeline-00010 reads uploads. A
 scope-2 asset inventory (both buckets, 0 discrepancies) satisfied 039's gate and the PDF upload policy is enabled.
 Private upload titles use the encrypted library descriptors (Codex), so they are not server-visible.
+
+## Browser reader and Mac TestFlight shipped (owner authorized; agent decisions 2026-10-07, reversible)
+
+- Browser reader on its own origin `https://app.gradstep.ai` (Pages `gradstep-app`, staging backend);
+  `gradstep.ai/app/*` 301-redirects there. Deploys go through `scripts/deploy-web.mjs`, which refuses a non-staging URL,
+  a non-anon key, any `.env.staging` credential in the output or a weakened `_headers`.
+- `Cache-Control: no-transform` on all reader responses so Cloudflare's zone-level Web Analytics does not inject its
+  beacon (no third-party scripts in the reader; the CSP refused it anyway). The info site keeps the beacon.
+- `https://app.gradstep.ai` is in `infra/staging.json` `admin_origins` (the Edge `ADMIN_ORIGINS` list), and staging
+  Auth's redirect allowlist gained `https://app.gradstep.ai` and `/auth/callback` for later web OAuth (appended).
+- Mac TestFlight uses its own build-number train (Mac build 17 alongside iOS build 17), internal testing only; no
+  macOS App Store version was created because the upload did not require one.
+
+## Build 16 #1, #8, #10 and build 17 #2 (agent decisions 2026-10-08, reversible)
+
+- **Credit resume is state-driven, not event-driven.** A sweep restarts an account's imports waiting on credits
+  whenever its spendable balance covers them, so every way a balance grows counts (purchase, restore, reversal, owner
+  grant, tester credits, a plan period that starts, a hold released); a balance increase only wakes the worker.
+  Oldest first, **skipping** an import the balance cannot cover (a later, smaller one may start), with the needs of
+  already restarted, unfunded imports counted against the balance. Download-stage waits need 1 credit (016's
+  admission). Suspended/closed accounts are never restarted.
+- **arXiv fallback is arXivRaw (OAI-PMH), not OpenAlex.** The stage already fetches arXivRaw for license evidence;
+  its record matches the Atom API's (tested on a real fixture) and needs no extra request. OpenAlex cannot supply
+  the arXiv license evidence shared reuse requires and lags new arXiv papers. Throttled metadata waits ~55 min
+  (10 tries, Retry-After honored) before failing, shown as waiting.
+- **Tavily results are no longer citable** (prompt cache, see CHAT.md); the server's fallback source list is the
+  searched pages. Action instructions moved after the paper. Related's first status is sent before the model round.
+- **Self-healing (041):** metadata and render failures retry 6 times over ~23 h (10 min … 12 h); downloads keep
+  027's 15 min / 2 h / 12 h; paid stages and permanent refusals never retry automatically. A non-paid stage
+  unchanged for 6 h while someone waits is failed with its reason (then retried). **Terminal failures stay in the
+  library indefinitely** with their reason and actions (Retry when retryable, supply the PDF when not open, Remove);
+  nothing is deleted on the reader's behalf. Budget pauses and a full store are deliberate waits, shown as waiting.
+- **App follow-up (not done here):** the app ignores `auto_retry_at` on non-download failures, so a metadata
+  failure being retried reads "Details unavailable · Retry" until it succeeds; showing "Trying again automatically"
+  for any failed import with `auto_retry_at` is display-only app work.
+
+## QR device approval (owner asked 2026-10-07: "a way to avoid the recovery code, maybe QR"; agent decisions, reversible)
+
+A new browser is approved from the owner's phone instead of typing the recovery code. Design and limits:
+[PRIVACY_AND_SYNC.md](architecture/PRIVACY_AND_SYNC.md#approving-a-new-device-qr).
+
+| Decision | Choice |
+|---|---|
+| Primary path | The browser's restore screen leads with **Approve from your phone** (QR + six-digit number); **Use recovery code instead** is one tap away and reuses the same pending request. |
+| QR contents | `GSDA1.<request id>.<account tag>.<fingerprint>.<kind>` (97 ASCII characters): the existing 32-byte enrollment fingerprint (account, recipient device, public key, challenge), a 16-byte hash naming the account, and the device kind for display. No secret, no account ID, no URL. |
+| What stops a key swap | The approving device recomputes the fingerprint from the server's request and refuses any mismatch before wrapping anything. The six-digit number (derived from the fingerprint) is for people; the QR carries the full 256 bits. |
+| Without a camera | Banner "A new device is waiting · Review" on an approved device, comparing the six-digit number only. Documented as weaker (a server able to grind ~10⁶ keys could match six digits); scanning is preferred. |
+| Backend | No migration: `v1_request_enrollment`, `v1_enrollment_requests`, `v1_approve_enrollment` and `v1_key_state` (002) already suffice. Expiry stays server-side (15 minutes); the browser renews for the same recipient, so the number never changes. |
+| QR drawing | `uqr` 0.1.3 (MIT, a port of Nayuki's QR generator, zero dependencies), as an inline SVG; no network or CSP change. |
+| Camera | AVFoundation (works on iPhone, iPad and Mac Catalyst); `NSCameraUsageDescription` and the Mac sandbox `com.apple.security.device.camera` entitlement added. No prompt on a device without a camera. |
+| Not done | A new **Mac or iPad** showing its own QR (the native restore screen still uses the recovery code); approving from the browser; a device name beyond its kind. The browser path needs an iPhone/iPad build with Add a device. |
+
+## Browser reader workspace (owner asked 2026-10-07: "copy the old web UX as a starting point"; agent decisions, reversible)
+
+Milestone 1 of the web redesign ([Browser reader › Workspace](architecture/BROWSER_READER.md#workspace-legacy-large-screen-layout)); built on branch, not deployed (QR approval ships first, after build 18).
+
+| Decision | Choice |
+|---|---|
+| Layout | The legacy desktop modes merged into one workspace: left rail, center, chat pane. Library and Feed open without chat, a paper with it (as Library vs Reader mode); each route remembers its own choice and the widths in this browser. |
+| Rail content | Library: views and tags with counts (the chips return when the rail is hidden). Paper: Contents or the compact library (legacy Browse). Feed: topics. |
+| Library table | Legacy density with today's data; an Authors column when the center is wide, otherwise the first author under the title. Tags filter on click. |
+| Find, appearance | Implemented in the app-owned frame shim, not the shared bridge, so iOS/Mac behaviour is untouched. |
+| Add | arXiv stays a library command; DOI/links use `add-paper` with `web_import` only; PDF upload stays out of the browser until its client is built. |
+| Chat pane | A placeholder that says chat is not yet in the browser; milestone 2 builds paper/general chat, encrypted history and selection actions there. |

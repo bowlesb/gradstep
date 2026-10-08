@@ -1,0 +1,18 @@
+{
+  "accountID": "11111111-2222-4333-8444-555555555555",
+  "deviceID": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+  "requestID": "12345678-abcd-4abc-8def-123456789abc",
+  "publicKey": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8=",
+  "challenge": "YGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn8=",
+  "kind": "w",
+  "accountTag": "PrzWU1dgXWi9rotGyoQOMw",
+  "fingerprint": "c54175bb26f19321454e4ab41d80b25ff022445b3e1f69e11c0f3f4431f5f92a",
+  "code": "275895",
+  "payload": "GSDA1.EjRWeKvNSryN7xI0VniavA.PrzWU1dgXWi9rotGyoQOMw.xUF1uybxkyFFTkq0HYCyX_AiRFs-H2nhHA8_RDH1-So.w",
+  "codeVectors": {
+    "0000000000000000000000000000000000000000000000000000000000000000": "263274",
+    "0707070707070707070707070707070707070707070707070707070707070707": "016434",
+    "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a": "209647",
+    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff": "584216"
+  }
+}

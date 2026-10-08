@@ -1,8 +1,9 @@
 // This browser as a device (docs/architecture/BROWSER_READER.md#keys-in-the-browser).
 // The algorithm is the native DeviceKeys (apps/apple/ScienceReader/Services/DeviceKeys.swift):
-// bootstrap, recovery with a self-approved enrollment, and resumable pending enrollments.
+// bootstrap, recovery with a self-approved enrollment, approval by another device (QR), and resumable pending enrollments.
 // Device private keys are non-extractable CryptoKeys; key bundles are never persisted.
 import { type Bytes, fromBytea, randomBytes, toBytea, wireUUID } from './bytes';
+import { approvalPayload } from './approval';
 import { auth, config, rpc } from './backend';
 import { cancellation } from './cancellation';
 import { idb } from './idb';
@@ -10,11 +11,14 @@ import { type KeyBundle, type KeyRing, WireError, generateBundle, generateDevice
   open, seal, wrapForDevice, wrapRecovery } from './wire';
 
 interface Identity { deviceID: string; privateKey: CryptoKey; publicKey: Bytes; challenge: Bytes }
-interface Pending { requestID: string; candidate: Identity; envelope: Bytes; epoch: number }
+/** `envelope`/`epoch`: the self-approval made with the recovery code. A request awaiting another device has neither. */
+interface Pending { requestID: string; candidate: Identity; envelope?: Bytes; epoch?: number }
 export interface DeviceRecord extends Identity { accountID: string; localKey: CryptoKey; pending?: Pending }
 interface KeyState { epoch: number; recovery_package: string; device_envelope: string | null }
 
 export type Preparation = { kind: 'ready'; ring: KeyRing; deviceID: string } | { kind: 'needs_new_keys' } | { kind: 'recovery_required' };
+/** Shown as a QR code and a six-digit comparison code until an approved device adds this browser. */
+export interface AwaitingApproval { kind: 'awaiting_approval'; requestID: string; payload: string; code: string }
 
 const recordKey = (account: string) => `${config.environment}:${wireUUID(account)}`;
 const uuid = () => crypto.randomUUID();
@@ -143,7 +147,7 @@ export function recoverWithCode(account: string, code: string, signal?: AbortSig
       if (devices?.some(d => d.id.toLowerCase() === saved!.candidate.deviceID && d.revoked_at)) saved = undefined;
     }
     const candidate = saved?.candidate ?? await newIdentity();
-    const envelope = saved && saved.epoch === bundle.epoch ? saved.envelope
+    const envelope = saved?.envelope && saved.epoch === bundle.epoch ? saved.envelope
       : await wrapForDevice(bundle, candidate.deviceID, candidate.publicKey, candidate.challenge);
     let pending: Pending = { requestID: saved?.requestID ?? uuid(), candidate, envelope, epoch: bundle.epoch };
     record = { ...record, pending };
@@ -164,7 +168,7 @@ export function recoverWithCode(account: string, code: string, signal?: AbortSig
     try {
       await rpc<null>('v1_approve_enrollment', {
         p_request_id: pending.requestID, p_epoch: bundle.epoch, p_management_token: toBytea(bundle.managementToken),
-        p_expected_public_key: toBytea(candidate.publicKey), p_expected_challenge: toBytea(candidate.challenge), p_envelope: toBytea(pending.envelope),
+        p_expected_public_key: toBytea(candidate.publicKey), p_expected_challenge: toBytea(candidate.challenge), p_envelope: toBytea(envelope),
       }, { account, signal });
     } catch (error) {
       // The server may have committed, or an older request may have won.
@@ -175,6 +179,53 @@ export function recoverWithCode(account: string, code: string, signal?: AbortSig
     const done = await finishApproved(account, record, pending, signal);
     if (!done) throw new WireError('missing_key');
     return done;
+  }, signal);
+}
+
+/**
+ * Ask an approved device to add this browser: create (or resume) the pending recipient, make sure the server holds an
+ * unexpired request for it — renewing under a new request ID while keeping the same recipient — and return the QR
+ * payload. Renewal keeps the fingerprint, so the six-digit code stays the same.
+ */
+export function requestApproval(account: string, signal?: AbortSignal): Promise<Preparation | AwaitingApproval> {
+  return exclusive(account, async signal => {
+    let record = await loadDevice(account, signal);
+    let saved = record.pending;
+    if (saved) { const done = await finishApproved(account, record, saved, signal); if (done) return done; }
+    const state = await keyState(account, record.deviceID, signal);
+    if (!state) return { kind: 'needs_new_keys' };
+    if (state.device_envelope) return { kind: 'ready', ring: await keyRing(await unwrapState(account, state, record)), deviceID: record.deviceID };
+    if (saved) {
+      // Only a positive revocation record retires a pending recipient.
+      const devices = await rpc<{ id: string; revoked_at: string | null }[]>('v1_devices', {}, { account, signal });
+      if (devices?.some(d => d.id.toLowerCase() === saved!.candidate.deviceID && d.revoked_at)) saved = undefined;
+    }
+    let pending: Pending = saved ?? { requestID: uuid(), candidate: await newIdentity() };
+    if (pending !== record.pending) { record = await persistDevice(account, { ...record, pending }, signal); }
+    await requestEnrollment(account, pending, signal);
+    const requests = await rpc<{ id: string }[]>('v1_enrollment_requests', {}, { account, signal });
+    if (!requests?.some(r => r.id.toLowerCase() === pending.requestID)) {
+      const done = await finishApproved(account, record, pending, signal);
+      if (done) return done;
+      // Expired: renew with the same recipient, so a late approval of the old request still opens here.
+      pending = { ...pending, requestID: uuid() };
+      record = await persistDevice(account, { ...record, pending }, signal);
+      await requestEnrollment(account, pending, signal);
+    }
+    const { candidate } = pending;
+    const { payload, code } = await approvalPayload({ requestID: pending.requestID, account, deviceID: candidate.deviceID,
+      publicKey: candidate.publicKey, challenge: candidate.challenge, kind: 'w' });
+    return { kind: 'awaiting_approval', requestID: pending.requestID, payload, code };
+  }, signal);
+}
+
+/** One poll while awaiting approval: the active keys once another device (or this one, with the code) approved it. */
+export function checkApproval(account: string, signal?: AbortSignal): Promise<Preparation | null> {
+  return exclusive(account, async signal => {
+    const record = await loadDevice(account, signal);
+    if (record.pending) return finishApproved(account, record, record.pending, signal);
+    const state = await keyState(account, record.deviceID, signal);
+    return state?.device_envelope ? { kind: 'ready', ring: await keyRing(await unwrapState(account, state, record)), deviceID: record.deviceID } : null;
   }, signal);
 }
 
