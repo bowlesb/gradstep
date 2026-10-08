@@ -113,7 +113,18 @@
   // citations with their offsets. scripts/citation-harness.mjs evaluates this
   // section unchanged in Node to measure it on real bundles.
   const CitationMatcher = (() => {
-    const fold = value => value.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[‘’]/g, "'").toLowerCase();
+    // Folded for comparison: lower case, no diacritics (combining; spacing, as OCR prints them in "Ce´sar"; and
+    // letters NFKD keeps whole, "Søgaard", "Łukasz") and no hyphens, soft or hard: a surname split by
+    // hyphenation ("Ten-nenholtz", "Ten- nenholtz") is the entry's "Tennenholtz", and "Lopez-Paz" matches "Lopez‐Paz".
+    const LETTERS = {'ø': 'o', 'Ø': 'O', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'æ': 'ae', 'Æ': 'AE',
+      'œ': 'oe', 'Œ': 'OE', 'ß': 'ss', 'ı': 'i', 'þ': 'th', 'Þ': 'Th'};
+    const fold = value => value.replace(/[¨¯´¸˂-˟]/g, '')
+      .replace(/[øØłŁđĐæÆœŒßıþÞ]/g, letter => LETTERS[letter])
+      .normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[‘’]/g, "'").replace(/[­‐‑-]/g, '').toLowerCase();
+    // One surname word as a key: folded, with a hyphen's line break closed up ("Ten-\nnenholtz").
+    const surnameKey = word => fold(word).replace(/\s+/g, '');
+    // A hyphen at a line break inside a word: "Ten- nenholtz" (Mathpix keeps the break as a space), "Ten-\nnenholtz".
+    const BROKEN_WORD = /(\p{L})[\-‐­]\s+(?!(?:and|et|und)\b)(?=\p{L})/gu;
     const BIBLIOGRAPHY = /^\s*(?:(?:[0-9]+|[ivx]+|[A-Z])(?:\.[0-9]+)*\.?\s+)?(?:references|bibliography|works\s+cited|literature\s+cited|references\s+cited)\s*:?\s*$/i;
     // A paragraph that starts an appendix ("Appendix", "B Experiment details") ends the bibliography.
     const APPENDIX = /^\s*(?:(?:[Aa]ppendi(?:x|ces)|APPENDI(?:X|CES)|[Ss]upplement(?:ary|al))\b[^.]{0,80}|[A-Z](?:\.\d+)*\.?\s+\p{Lu}[\p{L}\s\-:,]{2,60})$/u;
@@ -127,7 +138,7 @@
       'ten', 'ter', 'zu', 'bin', 'ibn', 'al', 'el', 'y', 'vander', 'vanden']);
     const GROUP_WORDS = new Set(['collaboration', 'team', 'consortium', 'group', 'project', 'authors', 'contributors', 'community', 'committee']);
     const INITIAL = /^(?:\p{Lu}\.?(?:-?\p{Lu}\.?){0,2}|\p{Lu}\p{Ll}\.)$/u; // "A.", "F", "J.-P.", "JA", "Ch."
-    const NAME_WORD = /^(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}$/u;
+    const NAME_WORD = /^(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-­‐‑¨´ˆ-˝]*\p{L}$/u;
     const SUFFIX = /^(?:jr|sr|ii|iii|iv)\.?$/i;
     const kind = word => INITIAL.test(word) ? 'initial' : NAME_WORD.test(word) ? 'name'
       : PARTICLES.has(word.toLowerCase()) ? 'particle' : GROUP_WORDS.has(word.toLowerCase()) ? 'group' : SUFFIX.test(word) ? 'suffix' : null;
@@ -136,18 +147,19 @@
     const person = (parts, given) => {
       if (!parts.length || parts.length > 7 || parts.some(word => !kind(word))) return null;
       // An organisation in capitals is a name too ("XLA").
-      if (parts.length === 1 && /^\p{Lu}{2,}$/u.test(parts[0])) return {words: [fold(parts[0])], key: fold(parts[0]), initials: ''};
+      if (parts.length === 1 && /^\p{Lu}{2,}$/u.test(parts[0])) return {words: [surnameKey(parts[0])], key: surnameKey(parts[0]), initials: ''};
       if (!parts.some(word => kind(word) === 'name')) return null;
-      const surname = parts.filter(word => kind(word) !== 'initial' && kind(word) !== 'suffix').map(fold);
+      const surname = parts.filter(word => kind(word) !== 'initial' && kind(word) !== 'suffix').map(surnameKey);
       return surname.length ? {words: surname, key: surname[surname.length - 1], initials: given.map(word => fold(word)[0]).join('')} : null;
     };
     // "and" as small capitals come out of OCR too: "Leone, N., And Pfeifer, G.", "GELFOND, M. AND LIFSCHITZ, V.".
     const SEPARATOR = /\s*,\s*(?:(?:and|And|AND)\s+|&\s*)?|\s*;\s*|\s+(?:and|And|AND)\s+|\s*&\s*/;
     const ENTRY_ET_AL = /(?:^|\s+)(?:et\.?\s*al\.?|others)$/i;
     const parseAuthors = body => {
-      // "P.Städter" → "P. Städter", "L.van der Maaten" → "L. van der Maaten". The list ends at a stop
-      // after a word (not an initial), a quote, a year or "In:".
-      const text = body.slice(0, 700).replace(/(?<![\p{L}.])(\p{Lu})\.(?=\p{L}\p{Ll})/gu, '$1. ');
+      // "P.Städter" → "P. Städter", "L.van der Maaten" → "L. van der Maaten", "Ten- nenholtz" → "Tennenholtz". The
+      // list ends at a stop after a word (not an initial), a quote, a year or "In:".
+      const text = body.slice(0, 700).replace(BROKEN_WORD, '$1').replace(/­/g, '')
+        .replace(/(?<![\p{L}.])(\p{Lu})\.(?=\p{L}\p{Ll})/gu, '$1. ');
       const stop = text.search(/(?<=\p{L}\p{L})\.(?=\s|$)|["“”]|\(\s*(?:19|20)\d{2}|\s(?:19|20)\d{2}[a-z]?(?=[.,:;)]|\s|$)|:\s/u);
       const pieces = text.slice(0, stop >= 0 ? stop : 300).split(SEPARATOR).map(piece => piece.trim()).filter(Boolean);
       const authors = [];
@@ -233,7 +245,10 @@
     // of the same names: "(Peters et al., 2017, 2018a)", "(Wu et al., 2022a,b)".
     const PARTICLE = String.raw`(?:[Vv]an|[Vv]on|[Dd]e|[Dd]er|[Dd]en|[Dd]el|[Dd]ella|[Dd]i|[Dd]a|[Dd]u|[Dd]os|[Dd]as|[Ll]a|[Ll]e|[Tt]en|[Tt]er|zu|bin|al|el)`;
     // Small-capital (ACM) citations print "[GELFOND AND LIFSCHITZ 1991]", "[EITER ET AL. 1997b]": those words are no names.
-    const CAPITAL = String.raw`(?!(?:And|AND|ET|AL)\b)(?:\p{Lu}|[dDlLoO]['’]\p{Lu})[\p{L}\p{M}'’\-]*\p{L}`;
+    // A surname may be hyphenated at a line end ("Ten-nenholtz", "Ten- nenholtz", "Ten-\nnenholtz"), carry a soft
+    // hyphen or a Unicode one, or a spacing accent from OCR ("Ce´sar").
+    const CAPITAL = String.raw`(?!(?:And|AND|ET|AL)\b)(?:\p{Lu}|[dDlLoO]['’]\p{Lu})`
+      + String.raw`(?:[\p{L}\p{M}'’\-­‐‑¨´ˆ-˝]|[\-‐­]\s{1,3}(?!(?:and|et|und)\b)(?=\p{L}))*\p{L}`;
     const GROUP = String.raw`(?:collaboration|team|consortium|group|project|authors|contributors|community)`;
     const NAME = String.raw`(?:\p{Lu}\.\s?){0,3}(?:${PARTICLE}\s+){0,3}${CAPITAL}(?:\s+(?:${PARTICLE}\s+){0,3}(?:${CAPITAL}|\p{Lu}\.?(?=\s+\p{Lu})))*(?:\s+${GROUP})?`;
     const AND = String.raw`(?:and|And|AND|&)`;
@@ -249,17 +264,18 @@
     const names = (list, offset) => [...list.replace(LIST_ET_AL, '').matchAll(NAME_IN_LIST)].map(match => {
       const name = {words: [], starts: [], initials: ''};
       let last = null;
-      for (const word of match[0].matchAll(/\S+/g)) {
+      // A word broken by a hyphen and a line ("Ten- nenholtz") is one word.
+      for (const word of match[0].matchAll(/(?:\S*?[\-‐­]\s{1,3}(?=\p{L}))*\S+/gu)) {
         if (/^(?:\p{Lu}\.?){1,2}$/u.test(word[0]) || /^(?:Jr|Sr|II|III|IV)\.?$/.test(word[0])) {
           if (!name.words.length) name.initials += fold(word[0])[0];
           last = word;
           continue;
         }
-        name.words.push(fold(word[0])); name.starts.push(offset + match.index + word.index);
+        name.words.push(surnameKey(word[0])); name.starts.push(offset + match.index + word.index);
       }
       // A two-letter surname in capitals ("[LI AND WU 2020]") is no pair of initials.
       if (!name.words.length && last && /^\p{Lu}{2}$/u.test(last[0])) {
-        name.words.push(fold(last[0])); name.starts.push(offset + match.index + last.index);
+        name.words.push(surnameKey(last[0])); name.starts.push(offset + match.index + last.index);
         name.initials = name.initials.slice(0, -1);
       }
       return name;
