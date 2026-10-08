@@ -1,6 +1,8 @@
 # Browser durability and offline reading
 
-**Design proposal, 2026-10-08; not implemented or deployed.** Reviewed against `d3eaf62`.
+**Design proposal, 2026-10-08.** Reviewed against `d3eaf62`. **Compatibility checkpoint implemented
+locally on 2026-10-08 (not deployed)**; see [its verification](#compatibility-checkpoint--local-verification-2026-10-08).
+Durable journal, saved papers and offline startup are not implemented.
 This extends [the browser reader](BROWSER_READER.md), follows the
 [native journal and recovery contract](PRIVACY_AND_SYNC.md), and carries over the
 [native offline-copy policy](NATIVE_OFFLINE_BUNDLES.md). It does not change navigation,
@@ -249,8 +251,8 @@ or erase old storage to make the upgrade proceed.
 
 ## Next implementation checkpoint: compatibility only
 
-This checkpoint is independently shippable and remains **design-only for this takeover**.
-Keep IndexedDB version 1, its existing stores, encryption, online behavior and CSP unchanged.
+This checkpoint is independently shippable. It was implemented locally on 2026-10-08; see the
+verification section below. Keep IndexedDB version 1, its existing stores, encryption, online behavior and CSP unchanged.
 Add a shared storage-lifecycle signal and cooperative update/retirement handling to `idb.ts`,
 key operations, `ChatSession`, `useChat` and `App`:
 
@@ -272,6 +274,56 @@ must show no duplicate paid request, readable/copyable volatile text, bounded cl
 transactions, and a visible legacy close/reopen barrier rather than an automatic upgrade.
 Check the update guidance in light/dark and keyboard navigation. Tests establish orderly
 retirement and honest warnings, not durability or offline access.
+
+### Compatibility checkpoint — local verification, 2026-10-08
+
+Implemented in `apps/web` (`lib/idb.ts`, `lib/keys.ts`, `lib/chat-session.ts`, `ui/useChat.ts`,
+`ui/App.tsx`, `ui/Keys.tsx`, `ui/ChatPane.tsx`, `ui/StorageNotice.tsx`); not deployed.
+
+- **Lifecycle signal.** `storage.snapshot()` reports `open`, `retiring` or `retired` with an issue:
+  `update` (a newer tab changed the database), `upgraded` (opening version 1 failed with
+  `VersionError`), `closed` (the browser closed or deleted the database) or `blocked` (this page's
+  own open request waits for an older connection; it keeps waiting instead of failing). On
+  `versionchange` the page calls `close()` at once, so transactions it already created complete and
+  no new one can start; it reports `retired` once those finish and never reopens version 1. Every
+  later request, including a callback that began earlier, fails with a `StorageError` naming the
+  issue. Read-write transactions request `durability: 'strict'`.
+- **Cooperative deferral.** A newer release can post `{kind: 'upgrade-proposal', proposal, version}`
+  on the `gradstep.storage` BroadcastChannel. A page holding unsent work replies `ready: false` and
+  shows “Another Gradstep tab is ready to update … Send or copy it, then close this tab.” It replies
+  `ready: true` once its drafts, streams and unsynced events are gone. Messages carry only a random
+  ID and flags. Deferring does not retire the page. A reply set is a hint only: older releases never
+  answer, so schema activation still needs the person's explicit confirmation.
+- **Key operations.** `exclusive()` and `forgetDevice()` refuse to start once storage has retired,
+  so no enrollment request or key write begins from a retired page.
+- **Chat.** On retirement `ChatSession` stops active streams through the existing partial-save path
+  (an interrupted answer, while the login is still valid), moves a pending consent choice to “No
+  answer was requested …”, and refuses new Send, Get answer, Retry saving, consent continuation and
+  deletion. Composers become read-only but stay visible and selectable for copying; failed saves stay
+  visible and background sync may still acknowledge events accepted before retirement. A question
+  saved during retirement is never followed by a paid request. The account stays mounted; the
+  existing before-unload warning is unchanged. Account retirement still overrides everything.
+- **Guidance.** A row under the top bar says “Gradstep was updated in another tab … copy what you
+  want to keep, then close this tab and continue in the updated one. This version of Gradstep doesn't
+  keep unsent drafts after a reload.”, with a person-initiated **Reload this tab**. Opening this
+  release over a newer database shows the same title with **Reload this page** instead of the
+  unsupported-browser message. The composer hint now says drafts stay in the tab only and aren't kept
+  after a reload. No automatic reload, service worker, database upgrade or durable-save badge.
+
+Verification: eight lifecycle/controller cases in `tests/storage-lifecycle.test.ts` (accepted write
+versus late callback; denied Send/consent/retry/edit; stopped partial answer with one request;
+retained newer draft; failed save kept and later acknowledged without AI; account retirement;
+proposal deferral and a blocked open; legacy version-1 page that never reopens and reports a newer
+database as an update) run `idb.ts` against `fake-indexeddb` 6.2.5 (dev only) and the controller
+against fakes. Three real two-tab Chromium journeys in `e2e/storage-update.spec.ts` use the
+production build and the local fixture: an update during a streamed answer (one stream request,
+three saved events, newer draft read-only and copied through the clipboard with the keyboard, the
+newer tab admitted in well under 3 s without `blocked`, before-unload still warns); a reading save
+resumed after the update writes nothing and a reload shows the update barrier with the version-2
+database and device record intact; and a tab with unsent work defers a proposal, keeps sending, then
+releases it when the draft is cleared, with the database still at version 1. Light/dark screenshots:
+`.artifacts/web-storage/`. These establish orderly retirement and honest warnings only, not
+durability or offline access. Safari remains a separate gate.
 
 ## Delivery gates and focused acceptance
 

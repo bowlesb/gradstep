@@ -534,7 +534,10 @@ The full native query/history cache capacity has not been benchmarked in this br
 Still separate: durable encrypted browser drafts/outbox/offline history, broader provider-backed acceptance,
 rendered-diagram automatic repair, answer-quote actions, richer reference actions and cross-device reading positions.
 The [browser durability proposal](BROWSER_OFFLINE_STORAGE.md) sequences the private journal, explicit saved
-papers and cold offline startup; it is a design only, not a claim those features have shipped.
+papers and cold offline startup; it is a design only, not a claim those features have shipped. Its
+[compatibility checkpoint](BROWSER_OFFLINE_STORAGE.md#compatibility-checkpoint--local-verification-2026-10-08)
+is implemented locally (not deployed): when a newer tab updates storage this tab stops sending, stops an active
+answer through the partial-save path, keeps unsent text readable to copy and explains what to close or reload.
 Safari's non-extractable X25519 persistence blocker is unchanged: the existing capability gate refuses enrollment;
 Chromium fixture results do not establish Safari support or a new E2EE/provider-retention guarantee.
 

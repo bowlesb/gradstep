@@ -62,7 +62,7 @@ const rpc = vi.hoisted(() => vi.fn(async (name: string, p: Record<string, string
 }));
 vi.mock('../src/lib/backend', () => ({ config: { environment: 'test' }, rpc, BackendError: class extends Error {},
   auth: { snapshot: () => ({ signal: new AbortController().signal }) } }));
-vi.mock('../src/lib/idb', () => ({ idb: {
+vi.mock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: {
   get: async () => storage.record && structuredClone(storage.record),
   put: async (_store: string, _key: string, record: DeviceRecord) => { storage.record = structuredClone(record); },
 } }));

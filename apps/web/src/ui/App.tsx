@@ -18,6 +18,7 @@ import { type Route, type Theme, useTheme } from './prefs';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
+import { StorageNotice, storageGuidance } from './StorageNotice';
 import { useLibrary } from './useLibrary';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
@@ -180,8 +181,12 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
       navigate('/');
       await auth.signOut(owner.generation);
-    } catch {
-      if (!owner.signal.aborted) { chat?.resumeAfterSignOutFailure(); setSignOutError('Couldn’t remove this browser’s keys. Try again.'); setLeaving(false); }
+    } catch (error) {
+      if (!owner.signal.aborted) {
+        chat?.resumeAfterSignOutFailure();
+        setSignOutError(storageGuidance(error) ? 'This tab can’t change Gradstep’s storage after the update in another tab. Sign out from the updated tab instead.' : 'Couldn’t remove this browser’s keys. Try again.');
+        setLeaving(false);
+      }
     }
   }
 
@@ -212,7 +217,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     openChatDocument(documentID); setPassage({ id: crypto.randomUUID(), documentID, anchor, at: Date.now() });
   };
   const selectAction = (action: SelectionAction, quote: string, anchor: TextAnchor) => {
-    if (!chat || !item?.document_id) return;
+    if (!chat || chat.storageRetired || !item?.document_id) return; // the storage notice explains why nothing is sent
     const composer = chat.newChat(item.document_id);
     chat.edit(composer, selectionPrompt(action, quote)); setChatMode('paper'); ws.show('right');
     void chat.send(composer, quote, actionFor[action], anchor).then(() => { if (action === 'ingest') void library.refresh().catch(() => {}); });
@@ -294,6 +299,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
           <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onSignOut={() => setSigningOut(true)} />
         </div>
       </header>
+      <StorageNotice />
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
