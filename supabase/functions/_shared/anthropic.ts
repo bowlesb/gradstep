@@ -170,14 +170,17 @@ export const SEARCH_WEB_TOOL: Anthropic.Beta.Messages.BetaTool = {
     required: ['query'],
   },
 };
-/** search_web results as citable search_result blocks (citations always on: a
- * request's search results must all use the same setting). */
+/** search_web results as search_result blocks, citations off (a request's search results must all use the
+ * same setting). Citable blocks switch citations on mid-answer, and that switch invalidates the prompt cache
+ * of everything after the tool definitions: on staging the round after the searches rewrote the whole paper
+ * (cache_read 0, ~56k tokens written again) instead of reading it. The answer names its sources itself
+ * (WEB_SEARCH_INSTRUCTIONS); otherwise the server lists the searched pages. */
 export function searchResultContent(results: readonly { url: string; title: string; text: string; published: string | null }[])
   : Anthropic.Beta.Messages.BetaToolResultBlockParam['content'] {
   if (!results.length) return [{ type: 'text', text: 'No results.' }];
   return results.map(result => ({ type: 'search_result' as const, source: result.url, title: result.title,
     content: [{ type: 'text' as const, text: result.published ? `Published ${result.published}. ${result.text}` : result.text }],
-    citations: { enabled: true } }));
+    citations: { enabled: false } }));
 }
 /** Tokens of search results assumed per search. */
 export const WEB_SEARCH_RESULT_TOKENS = 30_000;
@@ -190,14 +193,18 @@ export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH
   return Math.ceil(maxUses * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
 }
 
-export function chatRequestParams(input: { instructions: string; paper: PaperContext | null; turns: readonly ChatTurn[]; selection: string | null;
-  tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number })
+/** `actionInstructions` (a selection action's own) follow the paper, after its cache breakpoint, so answers
+ * with different actions on the same paper share the cached prefix (tools, shared instructions, paper). */
+export function chatRequestParams(input: { instructions: string; actionInstructions?: string | null; paper: PaperContext | null;
+  turns: readonly ChatTurn[]; selection: string | null; tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
-  const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text', text: input.instructions }];
+  const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text',
+    text: input.paper || !input.actionInstructions ? input.instructions : `${input.instructions}\n\n${input.actionInstructions}` }];
   if (input.paper) {
     const cleaned = input.paper.title?.replace(/["<>\n\r]/g, ' ').trim().slice(0, 300);
     const title = cleaned ? ` title="${cleaned}"` : '';
     system.push({ type: 'text', text: `<paper${title}>\n${input.paper.text}\n</paper>`, cache_control: { type: 'ephemeral' } });
+    if (input.actionInstructions) system.push({ type: 'text', text: input.actionInstructions });
   }
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = input.turns.map((turn, index) => {
     if (index === input.turns.length - 1 && input.selection) {

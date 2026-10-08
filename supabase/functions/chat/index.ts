@@ -29,6 +29,9 @@ Deno.serve(async request => {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'service_unavailable');
     return Response.json({ code: failure.code }, { status: failure.status, headers });
   }
+  // Started before the body is read and awaited only when search is decided (time to first text).
+  const providerPolicy = Promise.resolve(service.rpc('worker_provider_spending_policy', {}))
+    .then(({ data, error }) => error ? null : data, () => null) as Promise<{ tavily_enabled?: boolean; native_search_enabled?: boolean } | null>;
   // An unreadable body is reported as invalid_request after rate limiting.
   try { body = await readChatBody(request); } catch { body = null; }
 
@@ -46,7 +49,6 @@ Deno.serve(async request => {
   // here so case differences cannot create a second attempt namespace.
   const rawID = body && typeof body === 'object' ? (body as { operation_id?: unknown }).operation_id : null;
   const spending = { accountID, operationID: typeof rawID === 'string' ? rawID.toLowerCase() : '', rpc, sha256Hex: sha256, log };
-  const providerPolicy = await rpc('worker_provider_spending_policy', {}).catch(() => null) as { tavily_enabled?: boolean; native_search_enabled?: boolean } | null;
   const search = tavilyKey ? admittedTavily(spending, 'chat_search', fetch, tavilyKey) : null;
   const finder = paperFinder(service, user, tavilyKey ? admittedTavily(spending, 'ingest_lookup', fetch, tavilyKey) : undefined);
   const deps: ChatDependencies = {
@@ -67,7 +69,7 @@ Deno.serve(async request => {
       ready: async () => {
         // This local pause is advisory. The transactional grant is the sole
         // authority for provider allowance, account limits and platform pause.
-        return providerPolicy?.tavily_enabled === true && Date.now() >= tavilyPausedUntil;
+        return (await providerPolicy)?.tavily_enabled === true && Date.now() >= tavilyPausedUntil;
       },
       run: async (input, signal) => {
         const outcome = await search(input, signal);
