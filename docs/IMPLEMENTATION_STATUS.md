@@ -121,12 +121,26 @@ removed executor work) is retained below where useful and in git history.
   exact purchase recording and actual credits granted remain distinct.
 - **Personalized Feed 043:** **applied with serving off and refresh disabled**, pool and feedback empty, no sources.
   The scheduled gate exists but returns before network/profile work. Hosted readback: `feed-dark-deployment.json`.
-  For You as default and use of server-visible metadata await the owner's answer; no Feed refresh function or
-  personalized UI was deployed, and no paid ranking is enabled.
+  The owner accepted For you as the default and server-visible library metadata for ranking (2026-10-08, build 21
+  feedback). **046 (specific topic chips, Topics per paper, Hugging Face popularity) is built and tested locally, not
+  applied**; the matching `discover`/`feed-refresh` and the iPhone/iPad Feed (For you default, topic chips, More
+  topics, why line, Topics and Popularity columns) are local only. No Feed refresh function or personalized UI was
+  deployed, and no paid ranking is enabled. [Enable steps](architecture/PERSONALIZED_FEED.md#enable-046-on-staging-lead).
 - **Pricing and podcasts:** research/model and reviewed design merged; live offers are unchanged. Podcast v1
   scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
+
+## Feed topics and popularity on staging — 2026-10-08
+
+- **Encrypted backup:** checkpoint `.artifacts/backups/20261008T184847Z-234de2ccffd2` (1,405 objects).
+- **Migration 046** (`feed_topics_popularity`, renumbered from 048) applied and verified, then `discover` and
+  `feed-refresh` deployed.
+- **Workflow checks:** 16/16 pass, $0 provider cost.
+- **Live policy:** pool refresh is on (every 120 min via the existing 30-min cron) and Hugging Face popularity is on.
+  **Serving is off.** For you and topic chips reach readers only after `worker_set_feed_policy('staff', true)`, which
+  waits for an iOS build containing the app change. First refresh 19:30 UTC: 825 pool papers, 27 with Hugging Face upvotes, no failures.
+- **Local tests before deploy:** backend 413/413, database suite 226 PASS, Simulator build OK.
 
 ## Ownership split and browser durability handover — 2026-10-08
 
@@ -636,7 +650,8 @@ Email" relay address would create a separate account (no linking); testers shoul
   through the private Node verifier, not unsupported Edge certificate primitives.
 - **Product:** browser OAuth/Safari secure-key persistence, durable encrypted browser drafts/offline support,
   owner acceptance of build 21's accumulated screenshot fixes, accessibility on real papers and physical-device checks (paused).
-  Feed 043 activation, podcast scope/privacy/pilot and public-pricing changes remain owner decisions.
+  Feed 043/046 activation is the lead's step after review (For you itself is decided); podcast scope/privacy/pilot and
+  public-pricing changes remain owner decisions.
 - **Account deletion follow-ups before public release**: revoke the Sign in with Apple token on deletion,
   release a deleted account's App Store subscription binding, and expire deleted data from backups.
 - **App Store listing**: final name and icon (the legacy artwork is a placeholder), privacy label from the

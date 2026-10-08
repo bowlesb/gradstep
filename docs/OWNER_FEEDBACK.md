@@ -116,9 +116,26 @@ in the chat in a cleer UX".
 | 1 | "Each chat should have a labeled [title] on the topic of the chat in the same way that chat GPT does … embedded everywhere in the app" | All chats (titles like "Explain · L_task(θ) = -…") | A short topic title generated with the first answer, stored in the encrypted history and shown everywhere; renamable | In progress (chat agent) |
 | 2 | "Machine learning and artificial intelligence are too generic it need to be specific to the individual tastes and their nuances" | Feed chips | "For you" first, then specific topics drawn from the reader's library and tags; broad categories under "More topics". Taken as the owner's yes to the pending For you / server-visible metadata decision | In progress (feed agent) |
 | 3 | "Why not topics? And can we put a popularity score?" | Feed Columns sheet | Topics column (several specific tags) and a Popularity column and sort from free signals cached in the shared pool; "—" when unknown | In progress (feed agent) |
-| 4 | "Reference at the top of the message isn't needed" | Reference popup ("Reference 84" header) | Remove the header | In progress (reader agent) |
-| 5 | "Needs to be a discuss in chat button … takes you to the chat with the ref text in there and you can continue typing" | Reference popup | "Discuss in chat": opens the paper's chat with the reference quoted in the composer, unsent | In progress (reader agent) |
-| 6 | "Brafman ref missed" | Citation links ("Brafman and Ten-nenholtz 2002", hyphenated across a line) | Citation matcher handles hyphenation and diacritics; regression fixture; link rate measured before/after | In progress (reader agent) |
-| 7 | "When figures are referenced you should be able to link directly to them … and … a 'return to reading location' option in a sensible location" | Reader ("Fig. 1") | "Fig./Table/Algorithm N" become links that show the figure with "Go to figure"; one Back-to-where-you-were control for every jump | In progress (reader agent) |
+| 4 | "Reference at the top of the message isn't needed" | Reference popup ("Reference 84" header) | Remove the header | Merged to main 2026-10-08 (details below); ships in the next build |
+| 5 | "Needs to be a discuss in chat button … takes you to the chat with the ref text in there and you can continue typing" | Reference popup | "Discuss in chat": opens the paper's chat with the reference quoted in the composer, unsent | Merged to main 2026-10-08 (details below); ships in the next build |
+| 6 | "Brafman ref missed" | Citation links ("Brafman and Ten-nenholtz 2002", hyphenated across a line) | Citation matcher handles hyphenation and diacritics; regression fixture; link rate measured before/after | Merged to main 2026-10-08 (details below); ships in the next build |
+| 7 | "When figures are referenced you should be able to link directly to them … and … a 'return to reading location' option in a sensible location" | Reader ("Fig. 1") | "Fig./Table/Algorithm N" become links that show the figure with "Go to figure"; one Back-to-where-you-were control for every jump | Merged to main 2026-10-08 (details below); ships in the next build |
 | — | Podcasts ("build the notebook LM podcasts feature") | Feed "Listen", paper "Listen", player | Per [PAPER_PODCASTS.md](architecture/PAPER_PODCASTS.md); owner request taken as acceptance of decisions 2 ($2 seed for two curated episodes inside the $25 cap) and 3 (private generation contract) | In progress (podcast agent); no paid call before review |
 | — | Chat model / effort / length "right there in the chat" | Chat composer | A control showing the current choice with a live credit estimate and maximum; server-enforced, versioned profiles | In progress (chat agent) |
+
+### Build 21 reader items in detail
+
+Screenshots `.artifacts/feedback/small-2026-10-08T11-47-20-18Z-0.png`, `…T11-50-01-745Z-0.png`, `…T11-51-56-283Z-0.png` and
+`…T13-19-34-487Z-0.png` (local, not committed). Reader bridge and native iOS/iPad only; no re-render, no deployment.
+Decisions: [References, figure links and Back](DECISIONS.md#references-figure-links-and-back-owner-feedback-on-build-21-2026-10-08-agent-decisions-reversible);
+measurements: [Reader renderer](architecture/READER_RENDERER.md#figure-table-and-algorithm-references).
+
+| # | Owner said | Change | Status |
+|---|---|---|---|
+| 1 | "Reference at the top of the message isn't needed" | The reference actions have no title row | Fixed on branch; iPhone journey (light/dark) |
+| 2 | "Needs to be a discuss in chat button … you can continue typing" | **Discuss in chat**: this paper's chat, the entry quoted in the message box (`About “…”: `), keyboard up, nothing sent; a new conversation unless the paper's chat is still empty | Fixed on branch; model test and iPhone journey |
+| 3 | "Brafman ref missed" ("Brafman and Ten-nenholtz 2002" in a semicolon group) | Hyphenated (line-break, soft, Unicode) and accented surnames match on both sides | Fixed on branch: unambiguous author–year links 2,578 → 2,579 of 2,603 on 55 staging/local papers (99.0% → 99.1%), the KWIK paper 106 → 107 of 107; 0 wrong; no other link changed |
+| 4 | "When figures are referenced you should be able to link directly to them … a 'return to reading location' option" | "Fig. 1", "Figure 3(b)", "Figs. 2 and 3", "Table 2", "Algorithm 1" link to the element whose caption prints the label; a tap shows it with its caption in a half-height sheet with Go to figure; **Back to where you were** after every jump, left of A− / A+, until Back, two screens away or a return by scrolling | Fixed on branch: 1,236 of 1,291 references linked (95.7%), 0 to a mislabelled target; KWIK 20/20 including "Fig. 1"; iPhone journey (light/dark) |
+
+The browser reader gets the figure links through the shared bridge; its sheet, Discuss in chat and Back wording are
+listed for the web owner in the renderer doc.

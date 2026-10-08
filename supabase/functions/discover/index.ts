@@ -2,15 +2,33 @@
 // global arXiv request pacing with the paper pipeline.
 //   ?q=…            arXiv search (OpenAlex ranking, arXiv metadata)
 //   ?category=X     a Feed chip: from the shared pool when the feed switch serves this reader
-//                   (migration 043), else arXiv's live RSS as before
-//   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool
+//                   (migrations 043/046, with topics and upvotes), else arXiv's live RSS as before
+//   ?feed=for_you   For you (docs/architecture/PERSONALIZED_FEED.md): the reader's ranked pool, and
+//                   `feed.topics`, the reader's specific topic chips (feed-interests.ts)
+//   ?feed=topic&topic=NAME  one of those topics, ranked for the reader
 // Feed responses carry `feed.for_you: true` when For you is offered, so the app can show the chip.
+// Every result carries `topics` (specific first; keyword rules, no model) and pool-served results
+// `upvotes` (Hugging Face Papers, recorded by the pool refresh; null when unknown).
 import { cors, rpc, serviceClient, userClient } from '../_shared/backend.ts';
 import { PublicError } from '../_shared/http.ts';
 import { readBounded } from '../_shared/feed-pool.ts';
 import { arxivIDListURL, arxivRecentURL, arxivSearchURLs, exactTitleMatches, mergeDiscovery, openAlexArxivWorkURL, openAlexResult, openAlexSearchURLs,
   orderByRanking, parseArxivRSS, parseArxivSearch, rankOpenAlex, type DiscoveryResult, type RankedWork } from '../_shared/discover.ts';
-import { FEED_RANKING_VERSION, poolResult, rankForYou, type CandidateSet } from '../_shared/feed-rank.ts';
+import { FEED_RANKING_VERSION, poolResultV2, rankForYou, withDetails, type CandidateSet, type PoolDetail } from '../_shared/feed-rank.ts';
+import { compoundsParameter, interestTopics, resolveTopic, type TopicStats } from '../_shared/feed-interests.ts';
+import { displayTopics, feedTopics } from '../_shared/feed-topics.ts';
+
+type ServiceClient = ReturnType<typeof serviceClient>;
+/** Pool abstracts and upvotes for the papers shown; null when the pool cannot answer (results keep theirs). */
+async function details(service: ServiceClient, ids: string[]): Promise<PoolDetail[] | null> {
+  const valid = ids.filter(id => /^\d{4}\.\d{4,5}$|^[a-z-]{2,20}(\.[A-Z]{2})?\/\d{7}$/.test(id)).slice(0, 60);
+  if (!valid.length) return [];
+  const { data, error } = await service.rpc('worker_feed_details', { p_source_ids: valid });
+  return error || !Array.isArray(data) ? null : data as PoolDetail[];
+}
+/** Specific topics for a result that did not come from the pool (live RSS, search). */
+const withTopics = (result: DiscoveryResult) =>
+  ({ ...result, topics: displayTopics(feedTopics(result.title, result.full_abstract ?? result.abstract, result.categories)) });
 
 Deno.serve(async request => {
   let headers: Record<string, string> = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
@@ -26,13 +44,27 @@ Deno.serve(async request => {
     if (params.has('abstract') && !fullAbstracts) throw new PublicError(400, 'invalid_request');
     const feed = params.get('feed');
     if (feed !== null) {
-      if (feed !== 'for_you' || params.has('category') || params.has('q')) throw new PublicError(400, 'invalid_feed');
-      const { data, error } = await service.rpc('worker_feed_candidates', { p_account_id: accountID });
-      if (error) throw new PublicError(error.message === 'feed_unavailable' ? 404 : 503, error.message === 'feed_unavailable' ? 'feed_unavailable' : 'service_unavailable');
-      const set = data as CandidateSet;
-      const ranked = rankForYou(set);
-      return Response.json({ results: ranked.results, feed: { for_you: true, ranking: FEED_RANKING_VERSION, cold_start: ranked.cold_start,
-        refreshed_at: set.refreshed_at, pool: set.pool } }, { headers });
+      const topicName = params.get('topic');
+      if ((feed !== 'for_you' && feed !== 'topic') || (feed === 'topic') !== (topicName !== null) || params.has('category') || params.has('q')) {
+        throw new PublicError(400, 'invalid_feed');
+      }
+      const topic = topicName === null ? null : resolveTopic(topicName);
+      if (topicName !== null && !topic) throw new PublicError(400, 'invalid_feed_topic');
+      const args = !topic ? { p_account_id: accountID, p_compounds: compoundsParameter() }
+        : topic.kind === 'own' ? { p_account_id: accountID, p_phrase: topic.phrase }
+        : { p_account_id: accountID, p_all: topic.all, p_any: topic.any.length ? topic.any : null };
+      const { data, error } = await service.rpc('worker_feed_candidates_v2', args);
+      if (error) {
+        if (error.message === 'feed_unavailable') throw new PublicError(404, 'feed_unavailable');
+        if (error.message === 'invalid_feed_topic') throw new PublicError(400, 'invalid_feed_topic');
+        throw new PublicError(503, 'service_unavailable');
+      }
+      const set = data as CandidateSet & { topics?: TopicStats | null };
+      const ranked = rankForYou(set, { topic: topic?.name ?? null });
+      const results = withDetails(ranked.results, await details(service, ranked.results.map(result => result.source_id)));
+      return Response.json({ results, feed: { for_you: true, ranking: FEED_RANKING_VERSION, cold_start: ranked.cold_start,
+        refreshed_at: set.refreshed_at, pool: set.pool,
+        ...(topic ? { topic: { name: topic.name, kind: topic.kind } } : { topics: interestTopics(set, set.topics) }) } }, { headers });
     }
     const category = params.get('category');
     const recent = category ? arxivRecentURL(category) : null;
@@ -41,13 +73,14 @@ Deno.serve(async request => {
     // answer) the live RSS below, still flagging For you so the app can offer it.
     let forYou = false;
     if (category) {
-      const { data, error } = await service.rpc('worker_feed_category', { p_account_id: accountID, p_category: category, p_limit: 25 });
-      const pooled = error ? null : data as { serving?: boolean; results?: Parameters<typeof poolResult>[0][] | null; refreshed_at?: string | null } | null;
+      const { data, error } = await service.rpc('worker_feed_category_v2', { p_account_id: accountID, p_category: category, p_limit: 25 });
+      const pooled = error ? null : data as { serving?: boolean; results?: Parameters<typeof poolResultV2>[0][] | null; refreshed_at?: string | null } | null;
       forYou = pooled?.serving === true;
-      // The compact pool does not retain complete abstracts. Full-text category requests use RSS;
-      // a future For-you detail flow must resolve the selected exact source before claiming full text.
-      if (!fullAbstracts && forYou && Array.isArray(pooled?.results)) {
-        return Response.json({ results: pooled.results.map(poolResult), feed: { for_you: true, refreshed_at: pooled.refreshed_at ?? null } }, { headers });
+      // The pool keeps abstracts up to 2,000 characters (arXiv allows 1,920): one it had to shorten is
+      // marked incomplete, and the app links to arXiv for the rest.
+      if (forYou && Array.isArray(pooled?.results)) {
+        return Response.json({ results: pooled.results.map(row => poolResultV2(row, fullAbstracts)),
+          feed: { for_you: true, refreshed_at: pooled.refreshed_at ?? null } }, { headers });
       }
     }
     const query = params.get('q') ?? '';
@@ -113,8 +146,14 @@ Deno.serve(async request => {
       }
     }
     if (lists.every(list => list === null)) throw new PublicError(503, 'search_unavailable');
-    return Response.json({ results: mergeDiscovery(lists.filter((list): list is DiscoveryResult[] => !!list)),
-      ...(forYou ? { feed: { for_you: true } } : {}) }, { headers });
+    let results: (DiscoveryResult & { topics: string[]; upvotes?: number | null })[] =
+      mergeDiscovery(lists.filter((list): list is DiscoveryResult[] => !!list)).map(withTopics);
+    if (recent && forYou) {
+      // Live RSS for a served reader (a category outside the pool, or a stale pool): known upvotes.
+      const known = new Map((await details(service, results.map(result => result.source_id)) ?? []).map(detail => [detail.source_id, detail.upvotes]));
+      results = results.map(result => ({ ...result, upvotes: known.get(result.source_id) ?? null }));
+    }
+    return Response.json({ results, ...(forYou ? { feed: { for_you: true } } : {}) }, { headers });
   } catch (error) {
     const failure = error instanceof PublicError ? error : new PublicError(503, 'search_unavailable');
     return Response.json({ code: failure.code }, { status: failure.status, headers });

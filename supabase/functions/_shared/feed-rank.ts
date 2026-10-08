@@ -2,13 +2,21 @@
 // `worker_feed_candidates` (migration 043) returns the reader's server-visible profile, their Feed
 // feedback and a bounded, prefiltered candidate set; this module scores, diversifies, explores and
 // explains. Ranking lives here, not in SQL, so it can change without a migration. Pure (Deno + Node).
+// v2 (migration 046): Hugging Face upvotes add a small boost and a "Popular on Hugging Face Papers"
+// reason; one topic can be ranked for the reader (a topic chip); results carry their topics.
+import { discoveryAbstract } from './discover.ts';
+import { displayTopics } from './feed-topics.ts';
 import { TAG_VOCABULARY, tagsFromCategories } from './tag-vocabulary.ts';
 
-export const FEED_RANKING_VERSION = 'feed-heuristic-v1';
+export const FEED_RANKING_VERSION = 'feed-heuristic-v2';
 
 export interface FeedCandidate {
-  source_id: string; revision: number; title: string; authors: string[]; author_keys: string[]; abstract: string | null;
+  source_id: string; revision: number; title: string; authors: string[]; author_keys: string[];
+  /** 043's candidates carry a 700-character abstract; 046's carry none (worker_feed_details fills it in). */
+  abstract?: string | null;
   categories: string[]; topics: string[]; announced_on: string; first_seen_at: string; matched_tags: string[]; readers: number | null;
+  /** Hugging Face Papers upvotes (migration 046); null or absent when unknown. */
+  upvotes?: number | null;
 }
 export interface ProfilePaper {
   source_id: string | null; title: string | null; added_at: string; archived: boolean; pending: boolean;
@@ -25,11 +33,18 @@ export interface CandidateSet {
   profile: ProfilePaper[]; feedback: FeedbackRow[]; candidates: FeedCandidate[];
 }
 
-export type ReasonKind = 'author' | 'tag' | 'more_like' | 'added' | 'popular' | 'category' | 'explore';
+export type ReasonKind = 'author' | 'tag' | 'more_like' | 'added' | 'popular' | 'trending' | 'category' | 'explore';
 export interface FeedReason { kind: ReasonKind; label: string; text: string }
 export interface ForYouResult {
   source_id: string; revision: number; title: string; authors: string[]; year: number | null; abstract: string | null;
-  categories: string[]; reason: FeedReason; first_seen: string; announced: string;
+  full_abstract?: string | null; abstract_truncated?: boolean;
+  categories: string[]; topics: string[]; upvotes: number | null; reason: FeedReason; first_seen: string; announced: string;
+}
+/** Upvotes from which a paper is called popular on Hugging Face Papers (its "why" line). */
+export const TRENDING_UPVOTES = 20;
+/** 0…1 from upvotes: log-scaled, 100 upvotes or more count fully. */
+export function trend(upvotes: number | null | undefined): number {
+  return upvotes && upvotes > 0 ? Math.min(1, Math.log1p(upvotes) / Math.log1p(100)) : 0;
 }
 
 const DAY = 86_400_000;
@@ -65,6 +80,13 @@ interface Profile {
   empty: boolean;
 }
 
+/** A library paper's weight in the reader's profile: imports in flight count fully; others fade from 1
+ * toward 0.4 over months, archived papers half. */
+export function paperWeight(paper: Pick<ProfilePaper, 'pending' | 'archived' | 'added_at'>, now: string): number {
+  const age = Math.max(0, (Date.parse(now) - Date.parse(paper.added_at)) / DAY);
+  return paper.pending ? 1 : (paper.archived ? 0.5 : 1) * (0.4 + 0.6 * Math.exp(-age / 120));
+}
+
 function buildProfile(set: CandidateSet): Profile {
   const now = Date.parse(set.now);
   const age = (iso: string) => Math.max(0, (now - Date.parse(iso)) / DAY);
@@ -83,7 +105,7 @@ function buildProfile(set: CandidateSet): Profile {
     }
   };
   const papers = set.profile.map(paper => {
-    const weight = paper.pending ? 1 : (paper.archived ? 0.5 : 1) * (0.4 + 0.6 * Math.exp(-age(paper.added_at) / 120));
+    const weight = paperWeight(paper, set.now);
     const own = new Set(paper.own_tags.map(key));
     for (const tag of paper.tags) addTag(tag, weight * (own.has(key(tag)) ? 1.5 : 1) * (isArea(tag) ? 0.35 : 1), own.has(key(tag)));
     addCategories(paper.categories, weight);
@@ -123,13 +145,14 @@ function score(candidate: FeedCandidate, profile: Profile, set: CandidateSet): S
   const categorySum = candidate.categories.reduce((sum, category, index) => sum + (profile.categories.get(category) ?? 0) * (index === 0 ? 1 : 0.5), 0);
   const category = profile.categoryTotal > 0 ? Math.min(1, categorySum / profile.categoryTotal) : 0;
   const popular = (candidate.readers ?? 0) >= 3 ? 1 : 0;
+  const trending = trend(candidate.upvotes);
   let overlap = 0;
   for (const row of profile.dismissed) {
     const shared = row.topics.filter(tag => !isArea(tag) && candidate.topics.some(t => key(t) === key(tag))).length * 0.5
       + row.author_keys.filter(author => author && candidate.author_keys.includes(author)).length;
     overlap += row.weight * shared;
   }
-  const relevance = profile.empty ? 0.5 : 0.5 * topic + 0.3 * author + 0.2 * category + 0.1 * popular;
+  const relevance = (profile.empty ? 0.5 : 0.5 * topic + 0.3 * author + 0.2 * category + 0.1 * popular) + 0.1 * trending;
   const age = Math.max(0, (Date.parse(`${set.today}T00:00:00Z`) - Date.parse(`${candidate.announced_on}T00:00:00Z`)) / DAY);
   const fresh = 0.5 ** (age / 5);
   const lead = [...terms].filter(term => !isArea(term)).sort((a, b) => (profile.tags.get(b)?.weight ?? 0) - (profile.tags.get(a)?.weight ?? 0))[0]
@@ -149,7 +172,7 @@ function namedCategory(c: FeedCandidate, preferred: (category: string) => boolea
 }
 
 function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boolean, pool: ReadonlySet<string>,
-  anchors: Map<string, number>): FeedReason {
+  anchors: Map<string, number>, topic: string | null): FeedReason {
   const c = item.candidate;
   if (exploring) {
     // Exploration is "something different" only outside the reader's own categories.
@@ -167,8 +190,9 @@ function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boo
       const name = c.authors[best];
       return { kind: 'author', label: name, text: library ? `By ${name}, an author in your library` : `By ${name}, an author of a paper you liked` };
     }
-    // One of the reader's own tags.
-    const own = [...c.matched_tags, ...c.topics].map(tag => profile.tags.get(key(tag))).find(tag => tag?.own);
+    // One of the reader's own tags (not the topic being shown: every paper there has it).
+    const own = [...c.matched_tags, ...c.topics].filter(tag => !topic || key(tag) !== key(topic))
+      .map(tag => profile.tags.get(key(tag))).find(tag => tag?.own);
     if (own) return { kind: 'tag', label: own.name, text: `In your tag: ${own.name}` };
     // A paper they marked More like this.
     const topics = new Set(c.topics.filter(tag => !isArea(tag)).map(key));
@@ -193,6 +217,7 @@ function reasonFor(item: Scored, profile: Profile, cold: boolean, exploring: boo
     }
     if ((c.readers ?? 0) >= 3) return { kind: 'popular', label: String(c.readers), text: 'Added by several readers this week' };
   }
+  if ((c.upvotes ?? 0) >= TRENDING_UPVOTES) return { kind: 'trending', label: String(c.upvotes), text: 'Popular on Hugging Face Papers' };
   const category = namedCategory(c, cat => !cold && profile.categories.has(cat), pool);
   return { kind: 'category', label: category, text: `New in ${categoryName(category)}` };
 }
@@ -204,9 +229,16 @@ function year(sourceID: string): number | null {
   return historic ? (Number(historic[1]) >= 91 ? 1900 : 2000) + Number(historic[1]) : null;
 }
 
+export interface RankOptions {
+  limit?: number;
+  /** A topic chip: the candidates all have this topic, so it is never the reason and nothing explores. */
+  topic?: string | null;
+}
+
 /** Ranks For you: relevance × freshness, Not-interested penalty, a little daily variety; greedy
- * diversity by lead topic, first author and primary category; every fifth slot explores. */
-export function rankForYou(set: CandidateSet, limit = 50): { results: ForYouResult[]; cold_start: boolean } {
+ * diversity by lead topic, first author and primary category; every fifth slot explores (not in a topic). */
+export function rankForYou(set: CandidateSet, options: number | RankOptions = 50): { results: ForYouResult[]; cold_start: boolean } {
+  const { limit = 50, topic = null } = typeof options === 'number' ? { limit: options } : options;
   const profile = buildProfile(set);
   const cold = profile.empty;
   const pool = new Set(set.categories ?? []);
@@ -228,7 +260,7 @@ export function rankForYou(set: CandidateSet, limit = 50): { results: ForYouResu
   };
   const results: ForYouResult[] = [];
   while (results.length < limit) {
-    const exploring = !cold && (results.length + 1) % 5 === 0 && explore.length > 0;
+    const exploring = !cold && !topic && (results.length + 1) % 5 === 0 && explore.length > 0;
     // An exploration slot prefers a paper from outside the reader's categories.
     const outside = explore.filter(entry => !entry.candidate.categories.some(category => profile.categories.has(category)));
     const item = exploring ? (outside.length ? take(outside, explore) : take(explore)) : take(main) ?? take(explore);
@@ -239,7 +271,8 @@ export function rankForYou(set: CandidateSet, limit = 50): { results: ForYouResu
     const c = item.candidate;
     results.push({ source_id: c.source_id, revision: c.revision, title: c.title, authors: c.authors.slice(0, 12), year: year(c.source_id),
       abstract: c.abstract ? c.abstract.slice(0, 700) : null, categories: c.categories.slice(0, 12),
-      reason: reasonFor(item, profile, cold, exploring, pool, anchors), first_seen: c.first_seen_at, announced: c.announced_on });
+      topics: displayTopics(c.topics), upvotes: validUpvotes(c.upvotes),
+      reason: reasonFor(item, profile, cold, exploring, pool, anchors, topic), first_seen: c.first_seen_at, announced: c.announced_on });
   }
   return { results, cold_start: cold };
 }
@@ -250,4 +283,30 @@ export function poolResult(row: { source_id: string; revision: number; title: st
   return { source_id: row.source_id, revision: row.revision, title: row.title, authors: row.authors.slice(0, 12), year: year(row.source_id),
     abstract: row.abstract ? row.abstract.slice(0, 700) : null, categories: row.categories.slice(0, 12),
     first_seen: row.first_seen_at, announced: row.announced_on };
+}
+
+const validUpvotes = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 1_000_000 ? value : null;
+
+/** What `worker_feed_details` returns for a paper about to be shown (migration 046). */
+export interface PoolDetail { source_id: string; abstract: string | null; abstract_complete: boolean; topics?: string[]; upvotes: number | null }
+
+/** Fills ranked results with the pool's stored abstracts (complete only below the pool's bound) and
+ * current upvotes. Results without details keep what they had. */
+export function withDetails(results: ForYouResult[], details: readonly PoolDetail[] | null): ForYouResult[] {
+  const byID = new Map((details ?? []).map(detail => [detail.source_id, detail]));
+  return results.map(result => {
+    const detail = byID.get(result.source_id);
+    if (!detail) return result;
+    return { ...result, ...discoveryAbstract(detail.abstract, true, !detail.abstract_complete), upvotes: validUpvotes(detail.upvotes) ?? result.upvotes };
+  });
+}
+
+/** A category chip served from the pool (`worker_feed_category_v2` rows): topics, upvotes, and the
+ * stored abstract (full when asked for, marked incomplete when the pool bounded it). */
+export function poolResultV2(row: { source_id: string; revision: number; title: string; authors: string[]; abstract: string | null;
+  abstract_complete?: boolean; categories: string[]; topics?: string[]; upvotes?: number | null; announced_on: string; first_seen_at: string },
+  full: boolean) {
+  return { ...poolResult(row), ...discoveryAbstract(row.abstract, full, row.abstract_complete === false),
+    topics: displayTopics(row.topics ?? []), upvotes: validUpvotes(row.upvotes) };
 }

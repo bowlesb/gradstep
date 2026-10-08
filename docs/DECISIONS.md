@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-07. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-08. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## Web framework (owner decided 2026-10-07)
 
@@ -724,9 +724,26 @@ unchanged. The Paper "…" menu gains Find in paper, Figures and (wide Reader on
 | Find in paper (#7) | WebKit's own find bar (`UIFindInteraction`), from Paper › "…" › Find in paper and ⌘F with a hardware keyboard (iPad; the Mac keeps its Edit menu items). Only the paper's web view has it, not a figure's. WebKit highlights matches without touching the page or the selection, so no selection bar appears and blocks, quotes and positions are unchanged. The place find scrolls to is the reading position (it is where the reader is); on iPhone the page shrinks above the keyboard while the bar is up, and the found place survives closing the bar and leaving the paper (UI test). |
 | Why find had been Mac-only | Not reproducible: with find on for every reader web view, `testFigureOpensFromTheSameVerifiedSnapshotWithLocalImages`, all of `PaperWebViewTests` and both figure UI journeys pass on the iOS 26.4 Simulator. The first Mac version set it to `Platform.isMac` (false on iOS), so no iOS run had used it before the `#if`; the failure seen was most likely the documented first-run page-load timeout on a freshly booted Simulator. |
 | Contents levels (#10) | The bridge passes each heading's level and the Contents sheet indents by its distance from the shallowest level shown (18 pt per step, scaled with text size, at most three steps; top-level rows semibold when nested; VoiceOver hears "Level 2"). The title, "Abstract" and a printed "Contents"/"Table of Contents" heading are left out; References stays. Where Mathpix flattened levels — a section and its own subsection on one level, as DPO's "A" and "A. 1" — numbered headings take their depth from the number (port of the web app's `inferDepthFromNumbering`): "2.1.3" two below "2", "A.1" one below "A"; with Roman sections (two or more, one only Roman can be), capital letters one below and "1)" two below. Papers whose levels are consistent keep them (an "A Simple Baseline" subsection is not mistaken for an appendix). Pure section of `reader-bridge.js` (`CONTENTS OUTLINE`). |
-| Figure gallery (#6) | Paper › "…" › Figures (shown when the paper has figures): a grid of the bundle's own verified images (first image of each, "+N" for more; drawn on white as in the paper), the number read from the caption ("Figure 3", "Fig. 2" → "Figure 2", "Table 1") and three lines of caption. A figure opens the existing figure view inside the gallery with previous/next and **Show in paper**, which closes the gallery and centers the figure in the paper with the citation highlight and Back; the saved reading position stays at the place left until Back or a screen's scroll away, as for citations. |
+| Figure gallery (#6) | Paper › "…" › Figures (shown when the paper has figures): a grid of the bundle's own verified images (first image of each, "+N" for more; drawn on white as in the paper), the number read from the caption ("Figure 3", "Fig. 2" → "Figure 2", "Table 1") and three lines of caption. A figure opens the existing figure view inside the gallery with previous/next and **Show in paper**, which closes the gallery and centers the figure in the paper with the citation highlight and Back; the saved reading position stays at the place left until Back or two screens' scroll away (one before build 21's feedback), as for citations. |
 | iPad chat column (#5) | The wide Reader keeps today's default (chat 320–400 pt beside the paper). Paper › "…" › Hide chat gives the paper the full width; a chat button in the paper's bar (and Show chat in the menu) brings it back; a question asked from the paper (selection action, Ask about this paper, opening a paper chat or unsent draft, starting a new paper chat) shows it again. The divider can be dragged (a grabber on the hairline, 24 pt to grab; the panes change once when the drag ends, so a long paper isn't reflowed on every frame); double-tap restores the default; VoiceOver adjusts it in 40 pt steps. Chat 300 pt up to 60 % of the window, the paper at least 420 pt; clamped again on rotation. Hidden and width are kept per device (`UserDefaults`, like text size). Not `NavigationSplitView`: its columns can't be resized by touch on iPad and adopting it would change the panes' navigation stacks. Browse is unchanged (no chat column there). |
 | Mac | The shared changes apply to the Mac window too (Find in paper and Figures in the Paper "…" menu, the hideable, draggable chat column). Mac menu-bar items for Figures and Hide/Show Chat are left to the Mac work (MAC_APP.md: every on-screen control has a menu item). |
+
+## References, figure links and Back (owner feedback on build 21, 2026-10-08; agent decisions, reversible)
+
+Owner: "Reference at the top of the message isn't needed"; "Needs to be a discuss in chat button … takes you to the
+chat with the ref text in there and you can continue typing"; "Brafman ref missed"; "When figures are referenced you
+should be able to link directly to them … And there should also be a 'return to reading location' option in a
+sensible location". Reader bridge and native only, no re-render; measurements in
+[Reader renderer](architecture/READER_RENDERER.md#figure-table-and-algorithm-references).
+
+| Decision | Choice |
+|---|---|
+| Reference actions | No title row. Order: Open (arXiv/DOI/link), **Discuss in chat**, Add to library, Copy. |
+| Discuss in chat | This paper's chat; the entry goes into the message box as Quote in Chat does (`About “…”: `), the cursor after it, nothing sent. A conversation already under way keeps its subject, so the entry starts a new conversation; an empty new chat is reused and its unsent words follow the quote. No passage anchor (as the reference's other chat action). |
+| Hyphenated citations | Surname keys drop every hyphen and fold spacing accents and whole letters (ø, ł, æ …); a name broken by a hyphen and a space or line is one word. One more link in 55 papers, none changed or wrong. |
+| Figure links | From labels the captions print (figure, table, algorithm code block, or a caption paragraph and its one unlabelled neighbour); a label two different elements carry, or none, stays plain. A tap shows the element with its caption in a half-height sheet with **Go to figure** (table, algorithm); a caption paragraph with nothing to show is jumped to. 1,236 of 1,291 references linked across 55 papers, 0 to an element whose caption doesn't print the label. |
+| Back | One control for every jump, "Back to where you were", at the left of the A− / A+ row (never over it or the tab bar). Lasts until Back, two screens from the landing (was one), or a return by scrolling. The Contents sheet still ends it (deliberate navigation, as decided before). |
+| Not done | In-text "Section 3" links; the browser reader's sheet and Discuss in chat (web hooks listed in the renderer doc, for the web owner). |
 
 ## Pipeline worker billing (owner approved 2026-10-07, audit F1)
 
@@ -816,7 +833,32 @@ Private upload titles use the encrypted library descriptors (Codex), so they are
   macOS App Store version was created because the upload did not require one.
 
 
-## Personalized feed (owner asked 2026-10-07; design awaiting owner approval)
+## Personalized feed (owner asked 2026-10-07; For you accepted 2026-10-08)
+
+**Owner decided 2026-10-08 (feedback on TestFlight build 21):** "Machine learning and artificial intelligence are too
+generic it need to be specific to the individual tastes and their nuances"; "Why not topics? And can we put a
+popularity score?" This answers the pending choice: **For you is the Feed's first chip and default**, and ranking may
+use the **server-visible library metadata** — the papers added (including Adds from the Feed), their public arXiv
+categories, authors and titles, their catalog tags, and the reader's personal tags (server-visible by the 2026-10-07
+tags decision). Encrypted data (conversations, notes, passages, upload titles, reading activity) is never used on the
+server. Enabling serving or refresh on staging remains the lead's step after review.
+
+Agent decisions that follow (reversible; [design](architecture/PERSONALIZED_FEED.md#specific-topics-and-popularity-owner-feedback-on-build-21-2026-10-08)):
+
+- **Specific topic chips instead of broad categories.** After For you, up to eight of the reader's own topics, chosen
+  on the server from their library's tags and own tags plus 15 curated combinations ("RL for reasoning"), ordered by
+  interest × specificity, never a broad category area and never a topic on more than 20 % of the pool. Broad arXiv
+  categories stay reachable under **More topics**. No model call: the vocabulary, the keyword rules and the catalog
+  tags readers already have. Without For you the header keeps the old category chips.
+- **Topics per paper** from the same keyword rules (specific first) replace the single broad "Topic" column.
+- **Popularity = Hugging Face Papers upvotes**, read only by the shared pool refresh (≤ 12 anonymous requests per run,
+  1 s apart, 429 stops), stored on pool rows, shown as "▲ n" or "—" when unknown; never estimated. Semantic Scholar
+  citations were measured and rejected for new papers (all 0; anonymous 429s). A separate switch,
+  `worker_set_feed_popularity(false)`, stops only these requests.
+- **Not run:** an optional one-time Haiku labeling pass over 500 pool papers (≈ $0.95, cap $1) to tune the keyword
+  rules; the lead decides.
+- The browser reader's Feed and Mac-only polish moved to Codex (owner, 2026-10-08); the discover response contract is
+  documented for them.
 
 Owner: "I think we need to also invest in a better feed, it should feel relevant to a users interests and be kept up
 to date and changing but have cost under control". Design and cost table: [Personalized feed](architecture/PERSONALIZED_FEED.md).
@@ -828,10 +870,11 @@ to date and changing but have cost under control". Design and cost table: [Perso
   Migration 043 (renumbered from the never-applied 044, after 042). It was subsequently applied **disabled** on
   2026-10-08 as the ledger prerequisite to subscription fix 044. Serving and refresh stay off; no refresh function
   or native/web For you UI is deployed. Those product and privacy choices remain a proposal.
-- **Awaiting the owner:** rollout of A; "For you" as the first, default chip with a why line and More like this /
-  Not interested actions; keeping Feed feedback on the server (like tags) with the proposed privacy text; serving the
-  category chips from the pool; later, option B (shared embeddings, $1/month cap). An LLM in the loop (option C) is
-  not recommended ($25–68/month to tag the pool, or per-reader cost that scales to $330/month at 1,000 readers).
+- **Still awaiting the owner:** More like this / Not interested actions; keeping Feed feedback on the server (like
+  tags) with the proposed privacy text; later, option B (shared embeddings, $1/month cap). An LLM in the loop
+  (option C) is not recommended ($25–68/month to tag the pool, or per-reader cost that scales to $330/month at 1,000
+  readers). Serving category chips from the pool follows from accepting For you's use of the pool (it stops per-reader
+  arXiv requests).
 
 ## Build 16 #1, #8, #10 and build 17 #2 (agent decisions 2026-10-08, reversible)
 

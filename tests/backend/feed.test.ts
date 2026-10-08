@@ -328,7 +328,7 @@ test('results fit the app: bounded fields, year from the identifier, first seen 
   assert.equal(result.abstract!.length, 700);
   assert.equal(result.first_seen, '2026-10-08T05:00:00Z');
   assert.equal(result.announced, '2026-10-08');
-  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v1');
+  assert.equal(FEED_RANKING_VERSION, 'feed-heuristic-v2');
   assert.equal(categoryName('cs.CL'), 'Natural language processing');
   assert.equal(categoryName('cs.SE'), 'cs.SE');
   assert.deepEqual(poolResult({ source_id: 'hep-th/9901001', revision: 2, title: 'Old', authors: ['A'], abstract: null, categories: ['hep-th'],

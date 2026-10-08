@@ -38,9 +38,11 @@ and position identity). In-text citations become `span.sr-cite[role=link]` wrapp
 citations when exactly one entry fits (below). Math, code, links, headings and the bibliography itself are skipped;
 every block's text is unchanged. A tap scrolls to the
 entry (smooth unless Reduce Motion), highlights it briefly and shows a native Back that returns to the block-relative
-place left; Back disappears on return, after scrolling a screen away, or on a Contents jump. While Back is shown the
-saved reading position stays at the place left. Tapping an entry offers Open (arXiv ID, then DOI, then an `https`
-link), Add to library (the Ingest action with the entry as the passage) and Copy.
+place left; Back disappears on return (by Back or by scrolling there), after scrolling two screens away (one before
+build 21's feedback), or on a Contents jump. While Back is shown the saved reading position stays at the place left.
+Tapping an entry offers, without a title row (build 21), Open (arXiv ID, then DOI, then an `https` link), Discuss in
+chat (this paper's chat with `About “<entry>”: ` in the message box, focused, unsent — Quote in Chat's wording; a new
+conversation unless the paper's current chat is still empty), Add to library (the `add-reference` call) and Copy.
 
 Author–year citations (owner feedback 2026-10-07: "Stadter et al, 2021" did not link; same bridge, no re-render).
 The matching is a pure section of `reader-bridge.js` (`CitationMatcher`, between `BEGIN/END CITATION MATCHER`)
@@ -134,6 +136,81 @@ names and "ET AL." in citations, "And"/"AND" between authors in entries ("Leone,
 entries) and two-letter capital surnames (`[LI AND WU 2020]`). Every link span is identical to the previous bridge's
 on all 39 distinct local papers (none of them prints capitals). Harness totals: 23 papers, 1,778 of 1,781
 unambiguous (99.8%), 0 wrong, no block text changed; build 14's bridge on the same set: 1,396 (79.0%), 1 wrong.
+
+Hyphenated and accented surnames (owner feedback on build 21, 2026-10-08: "Brafman ref missed" in "Knows what it
+knows", Li, Littman, Walsh and Strehl, Machine Learning 2011; staging bundle `07e8979c6769`). Mathpix joins a word
+broken at a line end and keeps the hyphen, so the text read "(…; Brafman and Ten-nenholtz 2002; …)" against the entry
+"Brafman, R. I., & Tennenholtz, M. (2002)". Surname keys on both sides now drop every hyphen (ASCII, U+2010/2011, soft
+U+00AD) and fold spacing accents OCR prints ("Ce´sar"), letters NFKD keeps whole (ø, ł, æ, œ, ß, đ, ı, þ) and
+combining marks; a word broken by a hyphen and a space or line break ("Ten- nenholtz", "Ten-<br>nenholtz", not before
+"and"/"et") is one word in citations and in entries ("Wiewio- ra, E."). Measured with `node scripts/citation-harness.mjs`
+on every staging conversion (64 bundles, downloaded read-only with manifest and member hashes checked, plus the 13
+retained local bundles; 55 distinct titles): unambiguous author–year citations linked 2,578 → 2,579 of 2,603 (99.0% →
+99.1%), 0 wrong, and exactly one link span changed across 9,354 blocks — the owner's Brafman citation (KWIK 106 → 107
+of 107). The 24 still missed are organisation authors ("U.S. Bureau of Labor Statistics", 18 in one paper), OCR damage
+("[Amari] 1998]", "|2016|") and years the bibliography doesn't print. Tests: `tests/backend/reader-bridge-matchers.test.ts`
+(Node, the matcher section unchanged) and `PaperWebViewTests.testHyphenatedAndAccentedAuthorYearCitationsLink`.
+
+## Figure, table and algorithm references
+
+Owner feedback on build 21 (2026-10-08): "When figures are referenced you should be able to link directly to them …
+And there should also be a 'return to reading location' option in a sensible location". Same bridge, no re-render.
+
+- **Targets** are read from what the paper prints, never guessed: a pure section of `reader-bridge.js`
+  (`FigureReferences`, between `BEGIN/END FIGURE REFERENCES`) reads a caption's label — "Figure 3:", "Fig. 2.",
+  "FIGURE 12a |", "Figure A. 1:", "Table 1 Parameter counts", "TABLE II", "Algorithm 1 Training" (a following word in
+  lower case is prose: "Table 5 lists …") — from `figure` captions (or the index caption), `.reader-table` captions and
+  the first line of a code block (Mathpix prints algorithms as `pre`). The kind comes from the label's word, not the
+  element (Mathpix prints some tables as images and some figures as tables). A caption kept as its own paragraph
+  ("Table 6: …", needs ":", "." or "|") names its one unlabelled neighbouring figure/table/code block, else itself. A
+  second label after a colon inside a caption counts when nothing else carries it (DDPM's "Figure 3: … Figure 4: …").
+  A label two different elements print (restarted supplementary numbering, two "Table 4"s) links nowhere; the same
+  caption printed twice is one target.
+- **References**: "Fig. 1", "Figure 3(b)", "Figs. 2 and 3", "Figures 2, 3, and 5" (comma lists only after a plural),
+  "Tables 7–10" (both ends), "Figure 2 or 3", "Algorithm 1", "Table II", "Figure S3", "Fig. A.1", "figure 5"; each
+  number is its own `span.sr-cite.sr-figref[data-sr-figure][role=link]` with an `aria-label` ("Figure 3(b)"),
+  citation colour and touch underline. A caption never links to itself; headings, code, math, links and bibliography
+  entries are skipped (text the bibliography's walk took in after the references, such as an appendix without its own
+  heading, is still read). Block text is unchanged.
+- **Tap**: a figure, table or algorithm posts `{type:'figureref', manifest_sha256, id, label}`; the app shows it on its
+  own (the figure view, which now also takes a table or code block of the bundle) in a half-height sheet titled by
+  the label, with **Go to figure / table / algorithm**, which calls `__scienceReaderShowFigure(id, reduced, true)`: the
+  element is centered and flashed, Back returns to the reference and flashes it. A caption paragraph with nothing to
+  show is gone to directly with Back.
+- **Back** ("Back to where you were", owner feedback build 21) is the one Back for every jump: citations, figures,
+  the paper's own contents rows, Show in paper and Go to passage. It sits at the left of the A− / A+ row, its right
+  edge kept clear of that control, above the tab bar ("Back" alone when the words don't fit). It now lasts until the
+  reader goes back, scrolls **two** screens from where the jump landed (was one), or scrolls back to the place left by
+  hand (then they have returned). The app's Contents sheet still ends it, as before.
+
+Measured (`node scripts/citation-harness.mjs`, same 55 papers; the harness checks every link's target independently:
+its caption — or, for a caption paragraph's neighbour, that paragraph — must print the link's label): 1,236 of 1,291
+references found are linked (95.7%), 1,244 links in 53 papers, **0** whose target doesn't print the label; 30 random
+links read by hand (seed 7) all correct. Not linked, correctly: figures whose caption Mathpix lost (MLLMs' Figures 2–3,
+DDPM's Table 2), restarted supplementary numbering (Neural Spline Fields' Figures 1–10), PaLM's Tables 38–43 (beyond the
+80-page OCR cap), a number inside math ("Figure 13S5"), OCR's "Tables 46". The KWIK paper: 20 of 20, including the
+owner's "Fig. 1". Bridge ready time unchanged within noise (slowest paper 205 ms). Tests: the Node test above,
+`PaperWebViewTests` (`testFigureTableAndAlgorithmReferencesLinkOnlyToTheirLabelledElement`,
+`testFigureReferenceInABundleShowsItsElementAndGoesThereWithBack`, `testFigureReferenceMessagesNameTheBundlesOwnFiguresTablesOrCode`,
+Back's two screens in `testCitationJumpsToItsReferenceAndBackReturnsToTheExactPlace`) and the iPhone journeys in
+`ReaderNavigationTests` (`testReferenceActionsHaveNoTitleAndDiscussInChatQuotesTheEntry`,
+`testFigureReferenceShowsTheFigureAndGoToFigureReturnsWithBack`, each light and dark, Back checked clear of A− / A+ and
+the tab bar). 2026-10-08, iOS 26.4 iPhone 17 Pro Simulator: `PaperWebViewTests` + `ChatGenerationTests` 48 passed, 2
+skipped (environment-gated screenshot tests), 1 page-load timeout (`testContentsPreserveArtifactAnchorsAndUseThemForNavigation`)
+that passes alone; the KWIK screenshot test (`TEST_RUNNER_SCIENCE_READER_CITATION_BUNDLE`, text "Ten-nenholtz") passes
+and was checked by eye light and dark; `ReaderNavigationTests`, `PaperToolsTests` and `PassageJourneyTests` pass on
+iPhone (iPad-only cases skipped), with `testFindInPaperGoesToAMatchAndKeepsThatReadingPlace` passing alone after one
+keyboard-timing failure in the full run; Node 6/6; the Mac Catalyst build compiles (not run).
+
+**Browser reader hooks (for the web owner, Codex; not built here).** The browser frame loads this bridge unchanged, so
+figure links already appear there and a caption-paragraph target already jumps with the existing Back. Still needed in
+`apps/web`: (1) `readFrameMessage` should accept `{type:'figureref', manifest_sha256, id, label}` (id a figure, or a
+table/code block of the index; label `^(Figure|Table|Algorithm) [A-Z0-9][A-Za-z0-9.]{0,9}$`) and show that element —
+`frameDocument(bundle, {figureID: id})` now renders a table or code block on its own too — with a "Go to figure" that
+sends a frame command calling `__scienceReaderShowFigure(id, reduced, true)` (the shim's `showFigure` passes only the
+id, which the gallery's Show in paper still uses); (2) reference actions (`{type:'reference'}` with `text`, `links`)
+could offer "Discuss in chat": open the paper's chat and prefill the composer with `About “<entry text>”: `, unsent,
+focused (the native wording of Quote in Chat); (3) the Back button could read "Back to where you were".
 
 ## The paper's own contents
 

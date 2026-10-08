@@ -93,7 +93,10 @@ conversions use the same arXiv metadata).
   library search.
 - **Edit tags sheet**: chips with ×, an "Add a tag" field, suggestions (vocabulary matches with their definitions,
   the reader's own tags, removed catalog tags), Cancel / Save, medium height.
-- **Feed**: topic chips use the vocabulary's names; categories with the same name show once.
+- **Feed**: topic chips use the vocabulary's names; categories with the same name show once. With For you
+  (build 21 feedback), the chips are the reader's own specific topics from these tags and their own tags, plus curated
+  combinations of vocabulary tags; broad areas named after arXiv categories are left to More topics
+  ([personalized feed](PERSONALIZED_FEED.md#specific-topics-and-popularity-owner-feedback-on-build-21-2026-10-08)).
 
 ## Tests
 

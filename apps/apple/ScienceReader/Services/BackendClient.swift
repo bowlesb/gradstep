@@ -604,12 +604,24 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return try await rpc("v1_import_pdf_sources", params: Parameters(p_import_id: importID), accountID: accountID)
     }
 
-    /// Newest arXiv submissions in one category (Feed).
-    func feed(category: String, accountID: UUID) async throws -> [DiscoveryResult] {
-        guard category.range(of: "^[a-z]{2,8}(-[a-z]{2,6})?(\\.[A-Z]{2})?$", options: .regularExpression) != nil else { throw BackendError.unavailable }
-        let data = try await authorized(path: "functions/v1/discover?category=\(category)&abstract=full", body: nil, method: "GET",
+    /// The Feed: For you, one of the reader's topics, or the newest arXiv submissions in one category. `feed` in the
+    /// response says whether For you is offered (docs/architecture/PERSONALIZED_FEED.md).
+    func feed(_ selection: FeedSelection, accountID: UUID) async throws -> DiscoveryResponse {
+        let query: String
+        switch selection {
+        case .forYou:
+            query = "feed=for_you"
+        case .topic(let name):
+            var allowed = CharacterSet.urlQueryAllowed; allowed.remove(charactersIn: "&+=?#")
+            guard (1...40).contains(name.count), let encoded = name.addingPercentEncoding(withAllowedCharacters: allowed) else { throw BackendError.unavailable }
+            query = "feed=topic&topic=\(encoded)"
+        case .category(let category):
+            guard category.range(of: "^[a-z]{2,8}(-[a-z]{2,6})?(\\.[A-Z]{2})?$", options: .regularExpression) != nil else { throw BackendError.unavailable }
+            query = "category=\(category)"
+        }
+        let data = try await authorized(path: "functions/v1/discover?\(query)&abstract=full", body: nil, method: "GET",
                                         accountID: accountID, maximumResponseBytes: 4_194_304)
-        return try JSONDecoder().decode(DiscoveryResponse.self, from: data).results
+        return try JSONDecoder().decode(DiscoveryResponse.self, from: data)
     }
 
     /// Deletes the signed-in account on the server (personal content, private
@@ -985,7 +997,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             let known = Set(["upload_too_large", "upload_quota", "upload_limit", "upload_storage_full", "upload_expired", "upload_id_conflict",
                              "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
-                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable"]).union(BackendError.readerDeliveryCodes)
+                             "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }

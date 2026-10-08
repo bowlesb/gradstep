@@ -5,6 +5,7 @@
 import { arxivReference } from './arxiv.ts';
 import { xmlText } from './discover.ts';
 import { FEED_TOPICS_VERSION, feedTopics } from './feed-topics.ts';
+import type { SignalOutcome } from './feed-signals.ts';
 
 export interface PoolItem {
   source_id: string; revision: number; title: string; authors: string[]; abstract: string | null;
@@ -137,12 +138,23 @@ export interface RefreshDeps {
   sleep(ms: number): Promise<void>;
   today(): string;
   log?(fields: Record<string, unknown>): void;
+  /** Popularity (feed-signals.ts, migration 046), run under the same claim before it is released. */
+  signals?(claimID: string): Promise<SignalOutcome>;
 }
 
-/** One refresh under a claim: pacing slot, conditional GET, parse, tag, upsert in batches, record
- * the outcome. Never throws: any failure is recorded as `failed` (the claim's lease covers a crash). */
+/** One refresh under a claim: pacing slot, conditional GET, parse, tag, upsert in batches, then the
+ * popularity pass (if any), then record the outcome. Never throws: any failure is recorded as `failed`
+ * (the claim's lease covers a crash). */
 export async function runRefresh(deps: RefreshDeps, claim: RefreshClaim): Promise<RefreshOutcome> {
   const finish = async (outcome: RefreshOutcome, etag: string | null = null, lastModified: string | null = null): Promise<RefreshOutcome> => {
+    if (deps.signals && outcome.code !== 'invalid_categories') {
+      // Independent of arXiv's answer (a 304, a busy slot or a failure still refreshes upvotes).
+      try {
+        const signals = await deps.signals(claim.claim_id);
+        deps.log?.({ event: 'popularity', status: signals.status, days: signals.days, requests: signals.requests,
+          matched: signals.matched, code: signals.code ?? null });
+      } catch { deps.log?.({ event: 'popularity', status: 'failed', code: 'unexpected' }); }
+    }
     try {
       const recorded = await deps.finish(claim.claim_id, outcome.status, etag, lastModified, outcome.status === 'updated' ? outcome.items : null);
       return { ...outcome, pool: recorded.pool };
