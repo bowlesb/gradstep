@@ -122,6 +122,13 @@ private struct TranscriptMessage: View {
                 if message.payload.status == .interrupted {
                     Label("Response interrupted", systemImage: "pause.circle").font(.caption).foregroundStyle(.secondary)
                 }
+                // Which model and settings answered (2026-10-08), quietly; nothing for answers saved without them.
+                if !streaming, message.payload.role == .assistant,
+                   let answeredBy = ChatProfileText.answeredBy(model: message.payload.model, profile: message.payload.profile) {
+                    Text(verbatim: answeredBy).font(.system(size: fontSize * 0.72)).foregroundStyle(.tertiary).lineLimit(1)
+                        .accessibilityLabel(Text(verbatim: "Answered with \(answeredBy)"))
+                        .accessibilityIdentifier("chat.message.answeredBy.\(message.payload.entityID.wire)")
+                }
                 if let diagram, !streaming {
                     Button { openDiagram(diagram.id) } label: {
                         Label("View diagram: \(diagram.title)", systemImage: "square.stack.3d.up").font(.system(size: fontSize * 0.88)).lineLimit(2)

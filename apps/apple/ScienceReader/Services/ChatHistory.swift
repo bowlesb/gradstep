@@ -40,7 +40,7 @@ enum ChatHistoryField: String, CaseIterable, Sendable {
     /// What the column chooser says about it.
     var explanation: String {
         switch self {
-        case .conversation: "The first question"
+        case .conversation: "The chat’s title (its topic, or the first question)"
         case .paper: "The paper it is about, or General"
         case .lastUsed: "When you last asked or got an answer"
         case .started: "When the conversation began"
@@ -81,7 +81,7 @@ struct ChatHistoryRow: Identifiable, Equatable, Sendable {
 
     init(summary: ConversationSummary, paperTitle: String?, topics: [String] = []) {
         self.summary = summary; self.paperTitle = paperTitle; self.topics = topics
-        let display = ChatTitle.display(summary.title)
+        let display = ChatTitle.display(summary)
         title = display.isEmpty ? "Untitled conversation" : display
     }
 

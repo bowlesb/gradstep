@@ -8,6 +8,8 @@ import ScienceReaderCore
 /// `broken_diagram`: a diagram Mermaid can't parse, and a correction (`diagram_fix`) that still can't be.
 /// `research`: a table, papers named by arXiv ID and DOI, and a Sources list.
 /// `--chat-fixture-consented` pre-accepts the in-memory cloud consent.
+/// Answers report their model and profile and, when asked, a topic title (server 2026-10-08);
+/// `--chat-fixture-no-profiles` behaves like a server without them.
 struct ChatFixtureTransport: ChatTransport {
     enum Mode: String, Sendable {
         case answer, slow, interrupt, insufficientCredits = "insufficient_credits", refusal, diagram, brokenDiagram = "broken_diagram", sources, research
@@ -45,7 +47,7 @@ struct ChatFixtureTransport: ChatTransport {
                     if request.action == .diagramFix {
                         try await Task.sleep(for: .milliseconds(1500))
                         continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram))
-                        continuation.yield(.done(stopReason: "end_turn", credits: 1))
+                        continuation.yield(.done(stopReason: "end_turn", credits: 1, model: "claude-sonnet-5-5", profile: "diagram_fix"))
                         continuation.finish(); return
                     }
                     switch mode {
@@ -75,7 +77,11 @@ struct ChatFixtureTransport: ChatTransport {
                         }
                         if mode == .diagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.diagram)) }
                         if mode == .brokenDiagram { continuation.yield(.diagram(title: "Scaled dot-product attention", source: Self.brokenDiagram)) }
-                        if mode != .interrupt { continuation.yield(.done(stopReason: "end_turn", credits: 2)) }
+                        if mode != .interrupt {
+                            if request.topicTitle { continuation.yield(.title(Self.topicTitle(for: request))) }
+                            continuation.yield(.done(stopReason: "end_turn", credits: 2, model: ChatProfileText.apiModel(for: request.profile.model),
+                                                     profile: request.profile.id))
+                        }
                     }
                     continuation.finish()
                 } catch { continuation.finish(throwing: error) }
@@ -142,6 +148,25 @@ struct ChatFixtureTransport: ChatTransport {
     }
 
     func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 480, reserved: 0) }
+
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
+        guard !ProcessInfo.processInfo.arguments.contains("--chat-fixture-no-profiles"),
+              let table = ChatProfileTable.decode(Data(Self.profiles.utf8)) else { throw ChatTransportError.rejected("method_unavailable") }
+        return table
+    }
+
+    /// A topic title like the server's: from the question, deterministic for tests.
+    static func topicTitle(for request: ChatGenerationRequest) -> String {
+        let question = request.turns.first { $0.role == .user }?.text.lowercased() ?? ""
+        if question.contains("transformer") || question.contains("attention") || question.contains("scal") { return "Scaling in dot-product attention" }
+        if question.contains("dpo") || question.contains("preference") { return "Why DPO needs no reward model" }
+        return "Explainer for a persona paper"
+    }
+
+    /// `GET functions/v1/chat` as the server publishes it (the Core fixture chat-profiles-v1.json, minified).
+    static let profiles = #"""
+    {"version":"chat-profiles-v1","rate_version":"beta-credits-v1","tariff":"anthropic-list-prices-2026-10-08","microusd_per_credit":5000,"default":{"model":"sonnet","effort":"low","length":"standard"},"models":[{"id":"haiku","label":"Haiku","detail":"Fastest and cheapest","api_model":"claude-haiku-5-5"},{"id":"sonnet","label":"Sonnet","detail":"Strong answers at a moderate cost","api_model":"claude-sonnet-5-5"},{"id":"opus","label":"Opus","detail":"Most capable; costs the most","api_model":"claude-opus-5-5"}],"efforts":[{"id":"low","label":"Low","detail":"Thinks only when needed; quickest"},{"id":"medium","label":"Medium","detail":"Thinks through harder questions"},{"id":"high","label":"High","detail":"Thinks carefully; slowest"}],"lengths":[{"id":"brief","label":"Brief","detail":"A few sentences"},{"id":"standard","label":"Standard","detail":"Focused answers"},{"id":"detailed","label":"Detailed","detail":"Thorough, with derivations and caveats"}],"profiles":[{"id":"haiku-low-brief","model":"haiku","effort":"low","length":"brief","api_model":"claude-haiku-5-5","max_output_tokens":3000,"credits":{"low":1,"high":2,"max":2}},{"id":"haiku-low-standard","model":"haiku","effort":"low","length":"standard","api_model":"claude-haiku-5-5","max_output_tokens":8000,"credits":{"low":1,"high":2,"max":2}},{"id":"haiku-low-detailed","model":"haiku","effort":"low","length":"detailed","api_model":"claude-haiku-5-5","max_output_tokens":12000,"credits":{"low":1,"high":2,"max":3}},{"id":"haiku-medium-brief","model":"haiku","effort":"medium","length":"brief","api_model":"claude-haiku-5-5","max_output_tokens":5000,"credits":{"low":1,"high":2,"max":2}},{"id":"haiku-medium-standard","model":"haiku","effort":"medium","length":"standard","api_model":"claude-haiku-5-5","max_output_tokens":10000,"credits":{"low":1,"high":2,"max":3}},{"id":"haiku-medium-detailed","model":"haiku","effort":"medium","length":"detailed","api_model":"claude-haiku-5-5","max_output_tokens":14000,"credits":{"low":1,"high":2,"max":3}},{"id":"haiku-high-brief","model":"haiku","effort":"high","length":"brief","api_model":"claude-haiku-5-5","max_output_tokens":9000,"credits":{"low":1,"high":2,"max":2}},{"id":"haiku-high-standard","model":"haiku","effort":"high","length":"standard","api_model":"claude-haiku-5-5","max_output_tokens":14000,"credits":{"low":1,"high":2,"max":3}},{"id":"haiku-high-detailed","model":"haiku","effort":"high","length":"detailed","api_model":"claude-haiku-5-5","max_output_tokens":18000,"credits":{"low":1,"high":2,"max":3}},{"id":"sonnet-low-brief","model":"sonnet","effort":"low","length":"brief","api_model":"claude-sonnet-5-5","max_output_tokens":3000,"credits":{"low":3,"high":22,"max":27}},{"id":"sonnet-low-standard","model":"sonnet","effort":"low","length":"standard","api_model":"claude-sonnet-5-5","max_output_tokens":8000,"credits":{"low":4,"high":24,"max":37}},{"id":"sonnet-low-detailed","model":"sonnet","effort":"low","length":"detailed","api_model":"claude-sonnet-5-5","max_output_tokens":12000,"credits":{"low":7,"high":26,"max":45}},{"id":"sonnet-medium-brief","model":"sonnet","effort":"medium","length":"brief","api_model":"claude-sonnet-5-5","max_output_tokens":5000,"credits":{"low":5,"high":24,"max":31}},{"id":"sonnet-medium-standard","model":"sonnet","effort":"medium","length":"standard","api_model":"claude-sonnet-5-5","max_output_tokens":10000,"credits":{"low":6,"high":26,"max":41}},{"id":"sonnet-medium-detailed","model":"sonnet","effort":"medium","length":"detailed","api_model":"claude-sonnet-5-5","max_output_tokens":14000,"credits":{"low":9,"high":28,"max":49}},{"id":"sonnet-high-brief","model":"sonnet","effort":"high","length":"brief","api_model":"claude-sonnet-5-5","max_output_tokens":9000,"credits":{"low":9,"high":28,"max":39}},{"id":"sonnet-high-standard","model":"sonnet","effort":"high","length":"standard","api_model":"claude-sonnet-5-5","max_output_tokens":14000,"credits":{"low":10,"high":29,"max":49}},{"id":"sonnet-high-detailed","model":"sonnet","effort":"high","length":"detailed","api_model":"claude-sonnet-5-5","max_output_tokens":18000,"credits":{"low":12,"high":32,"max":57}},{"id":"opus-low-brief","model":"opus","effort":"low","length":"brief","api_model":"claude-opus-5-5","max_output_tokens":3000,"credits":{"low":5,"high":44,"max":54}},{"id":"opus-low-standard","model":"opus","effort":"low","length":"standard","api_model":"claude-opus-5-5","max_output_tokens":8000,"credits":{"low":8,"high":47,"max":74}},{"id":"opus-low-detailed","model":"opus","effort":"low","length":"detailed","api_model":"claude-opus-5-5","max_output_tokens":12000,"credits":{"low":13,"high":52,"max":90}},{"id":"opus-medium-brief","model":"opus","effort":"medium","length":"brief","api_model":"claude-opus-5-5","max_output_tokens":5000,"credits":{"low":9,"high":48,"max":62}},{"id":"opus-medium-standard","model":"opus","effort":"medium","length":"standard","api_model":"claude-opus-5-5","max_output_tokens":10000,"credits":{"low":12,"high":51,"max":82}},{"id":"opus-medium-detailed","model":"opus","effort":"medium","length":"detailed","api_model":"claude-opus-5-5","max_output_tokens":14000,"credits":{"low":17,"high":56,"max":98}},{"id":"opus-high-brief","model":"opus","effort":"high","length":"brief","api_model":"claude-opus-5-5","max_output_tokens":9000,"credits":{"low":17,"high":55,"max":78}},{"id":"opus-high-standard","model":"opus","effort":"high","length":"standard","api_model":"claude-opus-5-5","max_output_tokens":14000,"credits":{"low":19,"high":58,"max":98}},{"id":"opus-high-detailed","model":"opus","effort":"high","length":"detailed","api_model":"claude-opus-5-5","max_output_tokens":18000,"credits":{"low":24,"high":63,"max":114}}],"estimate_note":"For a question about a typical 25-page paper. Web searches add about 2 credits each."}
+    """#
 
     static func pieces(of text: String, size: Int) -> [String] {
         var result: [String] = [], current = ""
