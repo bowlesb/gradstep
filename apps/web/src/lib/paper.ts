@@ -43,7 +43,9 @@ function itemRow(item: Item): Row {
     : item.readiness === 'pdf_ready' ? { kind: 'info', text: 'Not converted' } : { kind: 'info', text: 'Not ready yet' };
   return {
     key: 'item:' + item.id, entry: item, title: m?.title ?? (item.source_id ? placeholder(item.source_id) : 'Untitled paper'),
-    firstAuthor: m?.authors[0] ?? null, year: year(m?.published_at), tags: (() => { const t = effectiveTags(item); return t.length ? t : tagsFromCategories(m?.categories ?? []); })(),
+    firstAuthor: m?.authors[0] ?? null, year: year(m?.published_at),
+    // Intentional empty tags stay empty; category fallback is only for an item without a tag projection.
+    tags: item.tags || item.user_tags || item.hidden_tags ? effectiveTags(item) : tagsFromCategories(m?.categories ?? []),
     added: item.added_at, source: sourceLabel(item.source_id, item.source_url), pages: item.page_count, readable, archived: item.archived === true,
     status, action: null, failed: false,
   };

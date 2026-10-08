@@ -15,7 +15,8 @@ export const config: BackendConfig = {
 export interface Session { accessToken: string; refreshToken: string; expiresAt: number; lifetime: string; user: { id: string; email: string | null } }
 export interface AuthSnapshot { session: Session | null; generation: number; signal: AbortSignal }
 
-export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'invalid_code' | 'connection' | 'configuration' | 'rejected';
+export type AuthIssue = 'invalid_email' | 'no_account' | 'rate_limited' | 'invalid_code' | 'connection' | 'configuration' | 'rejected'
+  | 'oauth_cancelled' | 'oauth_invalid';
 export class AuthError extends Error { constructor(readonly issue: AuthIssue, readonly retryAfter?: number) { super(issue); } }
 /** `code` is a known server code (e.g. `library_resync_required`, `key_authority_required`) or `request_failed`. */
 export class BackendError extends Error { constructor(readonly code: string, readonly status = 0) { super(code); } }
@@ -26,7 +27,14 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'too_many_enrollment_requests', 'enrollment_mismatch', 'enrollment_conflict', 'enrollment_id_conflict', 'invalid_management_token',
   'reader_not_ready', 'reader_integrity_failed', 'reader_unavailable', 'item_unavailable', 'origin_unavailable', 'insufficient_credits',
   'account_busy', 'platform_budget_exhausted', 'import_unavailable', 'reader_transfer_limit', 'reader_upgrade_required',
-  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete', 'rate_limited', 'invalid_category', 'service_unavailable']);
+  'reader_grant_unavailable', 'reader_grant_consumed', 'asset_inventory_incomplete', 'rate_limited', 'invalid_category', 'service_unavailable',
+  'feed_unavailable', 'invalid_feed', 'invalid_feed_topic', 'invalid_feed_feedback',
+  // Finite podcast contract errors, never arbitrary server/provider text.
+  'account_unavailable', 'spending_suspended', 'podcast_transfer_limit', 'podcast_unavailable', 'podcast_paused',
+  'podcast_release_unavailable', 'podcast_request_unavailable', 'source_unavailable', 'source_too_large',
+  'quote_unavailable', 'quote_expired', 'consent_required', 'active_generation_limit', 'podcast_busy', 'podcast_daily_limit',
+  'too_many_active_operations', 'storage_full', 'podcast_request_conflict', 'podcast_grant_unavailable',
+  'podcast_grant_consumed', 'podcast_range_unavailable', 'podcast_integrity_failed']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 
@@ -78,7 +86,51 @@ function requestDeadline(parents: (AbortSignal | null | undefined)[], millisecon
 
 const parse = (body: Uint8Array): unknown => { try { return JSON.parse(new TextDecoder().decode(body)); } catch { return null; } };
 
-// ---------- Authentication (email one-time code) ----------
+// ---------- Authentication (email one-time code and browser OAuth) ----------
+
+export type OAuthProvider = 'google' | 'apple';
+type PendingOAuth = { provider: OAuthProvider; state: string; verifier: string; createdAt: number };
+const oauthKey = () => `gradstep.${config.environment}.oauth.pending`;
+const base64url = (bytes: Uint8Array): string => {
+  let text = '';
+  for (const byte of bytes) text += String.fromCharCode(byte);
+  return btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+};
+const randomToken = (bytes = 32): string => {
+  if (typeof crypto?.getRandomValues !== 'function') throw new AuthError('configuration');
+  const value = new Uint8Array(bytes); crypto.getRandomValues(value); return base64url(value);
+};
+
+function readPendingOAuth(): PendingOAuth | null {
+  try {
+    const raw = sessionStorage.getItem(oauthKey());
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PendingOAuth>;
+    if ((value.provider !== 'google' && value.provider !== 'apple') || typeof value.state !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(value.state)
+      || typeof value.verifier !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(value.verifier)
+      || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || Date.now() - value.createdAt > 10 * 60_000) return null;
+    return value as PendingOAuth;
+  } catch { return null; }
+}
+
+function clearPendingOAuth(): void { try { sessionStorage.removeItem(oauthKey()); } catch { /* storage unavailable */ } }
+
+function oauthCallbackPath(): string {
+  if (typeof window === 'undefined') throw new AuthError('configuration');
+  if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    throw new AuthError('configuration');
+  }
+  return `${window.location.origin}/auth/callback`;
+}
+
+function oauthError(value: string | null): AuthError {
+  switch (value) {
+    case 'access_denied': case 'user_cancelled': case 'cancelled': return new AuthError('oauth_cancelled');
+    case 'temporarily_unavailable': case 'server_error': return new AuthError('connection');
+    case 'provider_disabled': case 'invalid_request': return new AuthError('configuration');
+    default: return new AuthError('oauth_invalid');
+  }
+}
 
 type Listener = (session: Session | null) => void;
 const listeners = new Set<Listener>();
@@ -130,6 +182,52 @@ export const auth = {
     const email = raw.trim();
     if (!email || new TextEncoder().encode(email).length > 320 || /[\u0000-\u001f\u007f\s]/.test(email) || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return null;
     return email;
+  },
+
+  /** Starts a browser OAuth authorization using the Supabase PKCE flow. The verifier and state stay in session storage only. */
+  async startOAuth(provider: OAuthProvider): Promise<never> {
+    if (provider !== 'google' && provider !== 'apple') throw new AuthError('configuration');
+    const redirectTo = oauthCallbackPath();
+    if (!config.url || !config.anonKey) throw new AuthError('configuration');
+    const pending: PendingOAuth = { provider, state: randomToken(), verifier: randomToken(), createdAt: Date.now() };
+    let challenge: string;
+    try {
+      challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pending.verifier))));
+      sessionStorage.setItem(oauthKey(), JSON.stringify(pending));
+    } catch { clearPendingOAuth(); throw new AuthError('configuration'); }
+    const authorize = new URL('/auth/v1/authorize', config.url);
+    authorize.searchParams.set('provider', provider);
+    authorize.searchParams.set('redirect_to', redirectTo);
+    authorize.searchParams.set('code_challenge', challenge);
+    authorize.searchParams.set('code_challenge_method', 's256');
+    authorize.searchParams.set('state', pending.state);
+    // Navigation is intentional: provider pages must never be embedded or opened in a popup we cannot fence.
+    window.location.assign(authorize.toString());
+    throw new AuthError('connection'); // unreachable in a browser; keeps callers from continuing before navigation.
+  },
+
+  /** Completes one callback, then removes the code and state from the address bar before exchanging them. */
+  async completeOAuth(): Promise<boolean> {
+    if (typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return false;
+    const query = new URLSearchParams(window.location.search);
+    const pending = readPendingOAuth();
+    clearPendingOAuth();
+    const code = query.get('code'), state = query.get('state'), error = query.get('error');
+    // Remove one-time credentials before network work. The app always returns to the sign-in route on failure.
+    window.history.replaceState(null, '', '/');
+    if (error) throw oauthError(error);
+    if (!pending || !code || !/^[A-Za-z0-9._~-]{8,4096}$/.test(code) || !state || state !== pending.state) throw new AuthError('oauth_invalid');
+    let reply;
+    try {
+      reply = await send('auth/v1/token?grant_type=pkce', {
+        body: JSON.stringify({ auth_code: code, code_verifier: pending.verifier }), maximum: 262_144, timeout: 30_000,
+      });
+    } catch { throw new AuthError('connection'); }
+    if (reply.status === 400 || reply.status === 401 || reply.status === 403) throw new AuthError('oauth_invalid');
+    if (reply.status < 200 || reply.status >= 300) throw new AuthError('connection');
+    try { publish(decodeSession(reply.body), true); }
+    catch { throw new AuthError('oauth_invalid'); }
+    return true;
   },
 
   /** `delivered` false: the reply was lost or unreadable; a code may still have been sent. */
@@ -316,6 +414,19 @@ export async function functionPost<T>(path: string, body: unknown, options: { ma
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
+}
+
+/** One authorized, single-use audio GET on this deployment. No Range or grant retry. */
+export async function podcastMemberBytes(url: string, bytes: number, signal: AbortSignal | undefined, account: string): Promise<Uint8Array<ArrayBuffer>> {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { throw new BackendError('podcast_integrity_failed'); }
+  if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > 16_777_216
+    || parsed.origin !== new URL(config.url).origin || parsed.pathname !== '/functions/v1/podcast-member' || parsed.username || parsed.password || parsed.hash
+    || parsed.searchParams.size !== 2 || new Set(parsed.searchParams.keys()).size !== 2 || !/^[0-9a-f]{64}$/.test(parsed.searchParams.get('grant') ?? '')
+    || !isUUID(parsed.searchParams.get('member'))) throw new BackendError('podcast_integrity_failed');
+  const data = await authorized(`functions/v1/podcast-member${parsed.search}`, { method: 'GET', maximum: bytes, account, signal, timeout: 120_000 });
+  if (data.length !== bytes) throw new BackendError('podcast_integrity_failed');
+  return data;
 }
 
 /** A signed Storage URL on the configured project host; carries no account credential. */

@@ -68,7 +68,8 @@ export type FrameMessage =
   | { type: 'citation'; state: 'jumped' | 'ended' }
   | { type: 'selection'; empty: boolean; selection: Selection | null }
   | { type: 'marks'; ids: string[] } | { type: 'passage'; found: boolean }
-  | { type: 'reference' } | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
+  | { type: 'reference'; reference: ReaderReference } | { type: 'figureref'; reference: ReaderFigureReference }
+  | { type: 'figure'; id: string } | { type: 'tags' } | { type: 'invalid' }
   | { type: 'find'; count: number; index: number }
   | { type: 'key'; key: FrameKey };
 
@@ -76,7 +77,7 @@ export type FrameMessage =
 export type FrameKey = 'find' | 'search' | 'escape' | 'left' | 'right' | 'help';
 const FRAME_KEYS: readonly FrameKey[] = ['find', 'search', 'escape', 'left', 'right', 'help'];
 
-export function readFrameMessage(value: unknown): FrameMessage | null {
+export function readFrameMessage(value: unknown, bundle?: VerifiedBundle): FrameMessage | null {
   const v = value as Record<string, unknown>;
   if (!v || typeof v !== 'object' || typeof v.type !== 'string') return null;
   const finite = (x: unknown) => typeof x === 'number' && Number.isFinite(x);
@@ -99,7 +100,14 @@ export function readFrameMessage(value: unknown): FrameMessage | null {
     case 'marks': return Array.isArray(v.ids) && v.ids.length >= 1 && v.ids.length <= 50 && v.ids.every(isUUID)
       ? { type: 'marks', ids: [...new Set((v.ids as string[]).map(id => id.toLowerCase()))] } : null;
     case 'passage': return typeof v.found === 'boolean' ? { type: 'passage', found: v.found } : null;
-    case 'reference': return { type: 'reference' };
+    case 'reference': {
+      const reference = bundle && readReference(v, bundle);
+      return reference ? { type: 'reference', reference } : null;
+    }
+    case 'figureref': {
+      const reference = bundle && readFigureReference(v, bundle);
+      return reference ? { type: 'figureref', reference } : null;
+    }
     case 'figure': return typeof v.id === 'string' && /^[0-9A-Za-z_-]{1,200}$/.test(v.id) ? { type: 'figure', id: v.id } : null;
     case 'tags': return { type: 'tags' };
     case 'invalid': return { type: 'invalid' };
@@ -129,4 +137,52 @@ function readSelection(raw: { manifest_sha256?: unknown; parts?: unknown; contex
   const c = raw.context as { prefix?: unknown; suffix?: unknown } | null | undefined;
   const context = c && typeof c.prefix === 'string' && typeof c.suffix === 'string' && textBytes(c.prefix) <= 4000 && textBytes(c.suffix) <= 4000 ? { prefix: c.prefix, suffix: c.suffix } : null;
   return { manifest: raw.manifest_sha256, parts: out, context };
+}
+
+
+export interface ReaderReference {
+  blockID: string; text: string; link: { url: string; title: string } | null;
+  rect: { x: number; y: number; width: number; height: number } | null;
+}
+export interface ReaderFigureReference { id: string; label: string; goTitle: string }
+
+/** Native ReaderReference's destination order: arXiv, DOI, then a safe HTTPS link. */
+export function referenceLink(text: string, hrefs: readonly string[]): ReaderReference['link'] {
+  if (/arxiv|corr/i.test(text)) {
+    for (const match of text.matchAll(/(?<![\d.])(\d{2})(\d{2})\.(\d{4,5})(v\d{1,3})?(?!\d)/g)) {
+      if (Number(match[1]) >= 7 && Number(match[2]) >= 1 && Number(match[2]) <= 12) return { url: `https://arxiv.org/abs/${match[0]}`, title: 'Open on arXiv' };
+    }
+  }
+  const doi = text.match(/\b10\.\d{4,9}\/[^\s"<>]+/);
+  if (doi) {
+    let value = doi[0];
+    while (/[.,;:\]]$/.test(value) || (value.endsWith(')') && (value.match(/\(/g)?.length ?? 0) < (value.match(/\)/g)?.length ?? 0))) value = value.slice(0, -1);
+    return { url: `https://doi.org/${value.split('/').map(encodeURIComponent).join('/')}`, title: 'Open DOI' };
+  }
+  for (const raw of [...hrefs.slice(0, 8), ...text.matchAll(/https:\/\/[^\s<>"]+/g)].map(v => typeof v === 'string' ? v : v[0])) {
+    if (raw.length > 4096) continue;
+    try {
+      const url = new URL(raw.replace(/[.,;:)\]]+$/, ''));
+      if (url.protocol === 'https:' && url.hostname && !url.username && !url.password) return { url: url.href, title: 'Open link' };
+    } catch { /* not a destination */ }
+  }
+  return null;
+}
+
+function readReference(v: Record<string, unknown>, bundle: VerifiedBundle): ReaderReference | null {
+  if (v.manifest_sha256 !== bundle.manifestSHA256 || typeof v.block_id !== 'string' || !bundle.index.blocks.some(b => b.id === v.block_id)
+    || typeof v.text !== 'string' || textBytes(v.text) > 16_000) return null;
+  const text = v.text.replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const r = v.rect as Record<string, unknown> | null;
+  const rect = r && ['x', 'y', 'width', 'height'].every(k => typeof r[k] === 'number' && Number.isFinite(r[k]))
+    ? { x: r.x as number, y: r.y as number, width: Math.max(1, r.width as number), height: Math.max(1, r.height as number) } : null;
+  const hrefs = Array.isArray(v.links) ? v.links.slice(0, 8).filter((x): x is string => typeof x === 'string') : [];
+  return { blockID: v.block_id, text, rect, link: referenceLink(text, hrefs) };
+}
+function readFigureReference(v: Record<string, unknown>, bundle: VerifiedBundle): ReaderFigureReference | null {
+  if (v.manifest_sha256 !== bundle.manifestSHA256 || typeof v.id !== 'string' || typeof v.label !== 'string'
+    || !/^(?:Figure|Table|Algorithm) [A-Z0-9][A-Za-z0-9.]{0,9}$/.test(v.label)
+    || !(bundle.index.figures.some(f => f.id === v.id) || bundle.index.blocks.some(b => b.id === v.id && ['table', 'code'].includes(b.kind)))) return null;
+  return { id: v.id, label: v.label, goTitle: v.label.startsWith('Table') ? 'Go to table' : v.label.startsWith('Algorithm') ? 'Go to algorithm' : 'Go to figure' };
 }

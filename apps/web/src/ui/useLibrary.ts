@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { auth, BackendError } from '../lib/backend';
 import { cancellation } from '../lib/cancellation';
-import { type Command, type CommandResponse, type Entry, type Import, CommandRefreshError, receiptFloor, Reconciler, sendCommand } from '../lib/library';
+import { type Command, type CommandResponse, type Entry, type Import, type Item, CommandRefreshError, receiptFloor, Reconciler, sendCommand } from '../lib/library';
+import { editedTags } from '../lib/paper-tags';
 import { type Mark, importStep, observe, pollDelay, retryingAutomatically } from '../lib/progress';
 
 export type LoadState = 'loading' | 'ready' | 'error';
@@ -147,6 +148,19 @@ export function useLibrary(account: string) {
   }, [command, snapshot.cursor]);
   const retry = useCallback((i: Import) => command(i.id, { endpoint: 'v2_retry_import', p_import_id: i.id, p_expected_revision: i.intent_revision }), [command]);
   const remove = useCallback((i: Import) => command(i.id, { endpoint: 'v2_cancel_import', p_import_id: i.id, p_expected_revision: i.intent_revision }), [command]);
+  // These v2 commands belong to the current public-library path. Private uploads need the
+  // separately reviewed v5 client and must not be enabled by adding a menu to generic Item rows.
+  const itemCommand = useCallback((item: Item, request: Command) => !item.visible || item.scope !== 'shared_catalog'
+    ? Promise.reject(new BackendError('item_unavailable')) : command(item.id, request), [command]);
+  const archive = useCallback((item: Item, archived: boolean) => itemCommand(item, { endpoint: 'v2_set_item_archived', expectedItemID: item.id,
+    p_document_id: item.document_id, p_archived: archived, p_expected_revision: item.membership_revision }), [itemCommand]);
+  const removePaper = useCallback((item: Item) => itemCommand(item, { endpoint: 'v2_set_library_item', expectedItemID: item.id,
+    p_document_id: item.document_id, p_present: false, p_expected_revision: item.membership_revision }), [itemCommand]);
+  const setTags = useCallback((item: Item, desired: string[]) => {
+    const change = editedTags(item.tags ?? [], desired);
+    return itemCommand(item, { endpoint: 'v2_set_item_tags', expectedItemID: item.id, p_document_id: item.document_id,
+      p_tags: change.own, p_hidden_tags: change.hidden, p_expected_revision: item.membership_revision });
+  }, [itemCommand]);
 
-  return { entries, state, marks, pending, refresh, addArxiv, retry, remove };
+  return { entries, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
 }

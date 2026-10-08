@@ -1,9 +1,9 @@
 // Real WebCrypto + production CSP. Local fixtures only, no hosted or paid requests.
 import { expect, test, type Page } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
-const API = 'http://127.0.0.1:54329';
+import { fixtureOrigin as API } from './environment';
 async function login(page: Page) {
-  await page.goto('http://127.0.0.1:4317/');
+  await page.goto('/');
   await page.getByTestId('email').fill('returning@example.test'); await page.getByTestId('send-code').click();
   await page.getByTestId('code').fill('123456'); await page.getByTestId('verify').click();
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
@@ -55,6 +55,23 @@ test('paper/general, consent, math, safe sources, encrypted reload and cross-bro
   await page.screenshot({ path: `../../.artifacts/web-chat/${info.project.name}-paper.png` }); expect(errors).toEqual([]); expect(remote).toEqual([]);
 });
 
+test('assistant answers and Mermaid diagrams can be copied by an explicit user action', async ({ page, request }, info) => {
+  test.skip(info.project.name !== 'desktop');
+  await request.post(`${API}/__chat-fixture`, { data: { mode: 'diagram' } });
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'clipboard', { configurable: true,
+    get: () => ({ writeText: async (text: string) => { (window as any).__copied = text; } }) }));
+  await login(page); await send(page, 'Draw a preference diagram', true);
+  await expect(page.getByTestId('chat-assistant')).toBeVisible();
+  await page.getByTestId('copy-copy-answer').click();
+  await expect(page.getByTestId('copy-copy-answer')).toHaveText('Copied');
+  expect(await page.evaluate(() => (window as any).__copied)).toContain('preference');
+  await page.getByRole('button', { name: /View diagram/ }).click();
+  await page.getByText('Diagram source', { exact: true }).click();
+  await page.getByRole('button', { name: 'Copy Mermaid', exact: true }).click();
+  await expect(page.getByTestId('copy-copy-mermaid')).toHaveText('Copied');
+  expect(await page.evaluate(() => (window as any).__copied)).toContain('graph');
+});
+
 test('Stop, navigation while streaming and insufficient credits', async ({ page, request }, info) => {
   test.skip(info.project.name !== 'desktop'); await request.post(`${API}/__chat-fixture`, { data: { mode: 'slow' } });
   await login(page); await send(page, 'A slow answer', true); await expect(page.getByTestId('chat-streaming')).toContainText('objective');
@@ -98,7 +115,8 @@ test('dark streaming updates at a steady cadence, retry never duplicates a faile
   const first = await page.getByTestId('chat-streaming').textContent();
   await expect(page.getByTestId('chat-streaming')).not.toHaveText(first!);
   await page.getByRole('button', { name: 'Stop', exact: true }).click(); await expect(page.getByTestId('chat-assistant')).toContainText('Answer interrupted');
-  const e = await evidence(request); expect(e.events).toHaveLength(3); expect(e.requests).toHaveLength(1);
+  await expect.poll(async () => (await evidence(request)).events.length).toBe(3);
+  expect((await evidence(request)).requests).toHaveLength(1);
   await page.screenshot({ path: '../../.artifacts/web-chat/dark-partial.png' });
   // An explicitly confirmed sign-out retires the stream and the page, without saving draft plaintext.
   await page.getByTestId('account-menu').click(); await page.getByRole('menuitem', { name: 'Sign out' }).click();

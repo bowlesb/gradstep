@@ -67,6 +67,10 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 .auth-card { width: min(100%, 440px); padding: 32px; display: flex; flex-direction: column; gap: 18px; }
 .auth-card h1 { margin: 6px 0 0; }
 .auth-card .signout { align-self: flex-start; }
+.oauth-actions { display: grid; gap: 10px; }
+.oauth-actions button { width: 100%; min-height: 44px; font-weight: 600; }
+.auth-divider { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .recovery-code { display: block; font-size: 17px; line-height: 1.6; padding: 14px; border-radius: 10px; background: var(--accent-soft); overflow-wrap: anywhere; user-select: all; }
 .field-with-action { display: flex; gap: 8px; align-items: center; }
 .field-with-action input { flex: 1; min-width: 0; }
@@ -204,10 +208,14 @@ html.resizing iframe { pointer-events: none; }
 .column-choices .check { min-height: 38px; padding: 7px 0; align-items: center; }
 .column-choices .check input { margin: 0; accent-color: var(--accent); }
 .column-choices .fine { margin-left: auto; }
+.library-window-choice { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.library-window-choice .fine { margin: 0 0 6px; }
 .column-actions { justify-content: space-between; }
 .library .table-wrap { --library-title-width: clamp(200px, 36cqw, 420px); flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; padding: 0 0 48px;
   scroll-padding-left: max(var(--library-title-width), calc(100cqw - var(--library-detail-width))); }
 .library .table-wrap:focus-visible { outline-offset: -2px; }
+.library .table-wrap { scroll-padding-top: 34px; overflow-anchor: none; }
+.papers .library-spacer td { padding: 0; border: 0; }
 table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-detail-width))); border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 .papers th { position: sticky; top: 0; background: var(--surface); z-index: 1; text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
   letter-spacing: .05em; border-bottom: 1px solid var(--line-strong); padding: 0; }
@@ -237,6 +245,22 @@ table.papers { width: max(100%, calc(var(--library-title-width) + var(--library-
 .papers .col-authors { white-space: nowrap; text-overflow: ellipsis; }
 .papers .col-year { font-variant-numeric: tabular-nums; }
 .papers .col-added, .papers .col-opened { white-space: nowrap; }
+@media print {
+  .app:has(.library), .app:has(.library) .workspace, .app:has(.library) .pane-center,
+  .app:has(.library) .library, .app:has(.library) .table-wrap {
+    display: block; height: auto; min-height: 0; max-height: none; overflow: visible; contain: none; container-type: normal;
+  }
+  .app:has(.library) .topbar, .app:has(.library) .pane, .app:has(.library) .splitter,
+  .app:has(.library) .collapse-handle, .app:has(.library) .podcast-dock, .library-table-tools, .library .chips { display: none; }
+  .library { page: library; }
+  .library .papers { width: 100%; }
+  .library .papers thead { display: table-header-group; }
+  .library .papers th, .library .papers td.col-title { position: static; box-shadow: none; }
+  .library .papers tr { break-inside: avoid; }
+  .library .papers .title { display: block; overflow: visible; }
+  .library .table-wrap { padding: 0; }
+}
+@page library { size: landscape; margin: 12mm; }
 .tags { display: flex; flex-wrap: wrap; gap: 3px; max-height: 3.2em; overflow: hidden; }
 .tag { font-size: 11.5px; line-height: 1.5; padding: 0 7px; min-height: 0; border-radius: 999px; background: var(--accent-soft); color: var(--text); white-space: nowrap; border: 0; }
 button.tag:hover { background: var(--accent-muted); color: var(--accent); }
@@ -373,7 +397,10 @@ progress.mini { height: 3px; margin-top: 4px; }
 .chat-transcript { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 16px 16px 8px; overscroll-behavior: contain; }
 .chat-transcript .chat-empty { min-height: 150px; padding: 12px; }
 .chat-message { margin: 0 0 24px; font-size: 14px; line-height: 1.62; overflow-wrap: anywhere; }
-.message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 7px; }
+.message-label-row { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; }
+.message-label { font-size: 10px; font-weight: 650; color: var(--faint); letter-spacing: .06em; text-transform: uppercase; margin: 0; }
+.message-label-row .link { margin-left: auto; opacity: .72; }
+.message-label-row .link:hover { opacity: 1; }
 .chat-message.user { margin-left: 16px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
 .question-text { white-space: pre-wrap; }
 .answer-markdown > :first-child { margin-top: 0; }
@@ -417,7 +444,59 @@ progress.mini { height: 3px; margin-top: 4px; }
 
 .diagram-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; }
 .diagram-tools button { min-width: 36px; }
+.diagram-source-tools { display: flex; justify-content: flex-end; margin: 8px 0 -2px; }
 .diagram-viewport { width: 100%; height: 55dvh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .diagram-frame { display: block; max-width: none; border: 0; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
+.history-heading-actions { display: flex; align-items: center; gap: 12px; }
+
+/* Reader reference actions stay beside the entry; the detail dialog keeps the paper visible around it. */
+.reader-reference-menu { position: fixed; margin: 0; width: min(280px, calc(100vw - 16px)); padding: 10px; }
+.reader-reference-menu[open] { display: flex; flex-direction: column; gap: 6px; }
+.reader-reference-menu::backdrop { background: rgba(10, 10, 20, .12); }
+.reader-reference-menu > a { text-align: center; text-decoration: none; }
+.reader-reference-menu .issue { margin: 6px 0 0; }
+.reader-reference-detail { display: flex; flex-direction: column; gap: 12px; }
+.reader-reference-detail .figure-frame { height: min(52dvh, 540px); }
+.reader-reference-notice { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface); color: var(--text); box-shadow: var(--pop); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.reader-reference-notice > span { flex: 1 1 180px; }
+@media (max-width: 600px) { .reader-reference-detail .figure-frame { height: 48dvh; } .reader-reference-detail .figure-head { flex-wrap: wrap; } }
+/* Model, effort and length (2026-10-08): a compact control in the composer row and its small panel. */
+.composer-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.composer-balance { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.profile-control { position: relative; min-width: 0; flex: none; max-width: 70%; }
+.profile-button { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 28px; padding: 3px 9px; border: 1px solid var(--line-strong);
+  border-radius: 999px; background: var(--surface); color: var(--text); font-size: 12.5px; font-weight: 500; }
+.profile-button:hover:not(:disabled) { border-color: var(--accent); }
+.profile-button[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
+.profile-button:disabled { color: var(--muted); }
+.profile-button .icon { flex: none; color: var(--muted); }
+.profile-button-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-panel { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 40; width: min(320px, calc(100vw - 32px)); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: var(--pop); display: flex; flex-direction: column; gap: 10px; }
+.profile-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.profile-panel-heading .icon-button { width: 28px; height: 28px; min-height: 28px; }
+.profile-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; min-height: 24px; align-items: center; }
+.profile-panel-actions .link { min-height: 28px; padding: 2px; font-size: 12.5px; }
+.profile-picker { display: flex; flex-direction: column; gap: 10px; }
+.profile-group-title { font-size: 10.5px; font-weight: 650; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 4px; }
+.profile-options { display: flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; }
+.profile-options .seg { min-height: 30px; font-size: 13px; }
+.profile-options .seg:disabled { opacity: .45; }
+.profile-options .seg:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.profile-detail { margin-top: 4px; }
+.profile-estimate { border-top: 1px solid var(--line); padding-top: 9px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.profile-estimate strong { font-weight: 600; }
+.dialog .profile-picker { gap: 14px; }
+.answer-by { margin-top: 8px; color: var(--faint); font-size: 11.5px; }
+.chat-title-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.chat-title-row > strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; min-width: 0; }
+.rename-link { flex: none; min-height: 24px; padding: 0 2px; font-size: 12px; }
+.rename-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rename-field input { flex: 1 1 160px; min-height: 32px; padding: 5px 8px; font-size: 13px; }
+.rename-field .issue { flex-basis: 100%; }
+.history-meta .history-rename { display: inline; min-height: 0; padding: 0 2px; font-size: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media(max-width: 600px) { .profile-options .seg { min-height: 36px; } .profile-button { min-height: 32px; } }

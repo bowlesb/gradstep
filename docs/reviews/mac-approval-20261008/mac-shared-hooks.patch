@@ -1,0 +1,149 @@
+--- a/apps/apple/ScienceReader/Services/DeviceKeys.swift
++++ b/apps/apple/ScienceReader/Services/DeviceKeys.swift
+@@ -168,6 +168,54 @@
+         return completed
+     }
+ 
++    #if targetEnvironment(macCatalyst)
++    enum MacApprovalCheck { case waiting(DeviceApprovalPayload), ready(LocalDevice) }
++
++    /// The new Mac uses the same persisted candidate and operation lock as recovery. A request can
++    /// expire; its recipient key cannot. Only a positive revocation record retires that recipient.
++    func macApproval(refreshRequest: Bool) async throws -> MacApprovalCheck {
++        try beginOperation(); defer { operationInProgress = false }
++        var saved = try pendingEnrollment()
++        if let saved, let completed = try await finishApproved(saved) { return .ready(completed) }
++        if !refreshRequest, let saved { return .waiting(try macApprovalPayload(saved)) }
++        if let pending = saved {
++            let registrations: [DeviceRegistration] = try await backend.rpc("v1_devices", params: EmptyResponse(), accountID: accountID)
++            try Task.checkCancellation()
++            if registrations.contains(where: { $0.id == pending.candidate.deviceID && $0.revoked_at != nil }) { saved = nil }
++        }
++        let candidate = saved?.candidate ?? LocalDevice.create(accountID: accountID, localStoreKey: device.localStoreKey)
++        var pending = saved ?? PendingEnrollment(requestID: UUID(), candidate: candidate, envelope: Data(), createdAt: Date())
++        // Before any request leaves this Mac. The recovery path fills the optional bundle/envelope
++        // if the person switches to their recovery code, preserving this exact candidate.
++        try savePending(pending)
++        let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: candidate.privateKey).publicKey.rawRepresentation
++        do {
++            try await requestEnrollment(pending, publicKey: publicKey)
++            let requests: [EnrollmentRequest] = try await backend.rpc("v1_enrollment_requests", params: EmptyResponse(), accountID: accountID)
++            try Task.checkCancellation()
++            if !requests.contains(where: { $0.id == pending.requestID }) {
++                if let completed = try await finishApproved(pending) { return .ready(completed) }
++                pending = PendingEnrollment(requestID: UUID(), candidate: candidate, envelope: pending.envelope, createdAt: Date())
++                try savePending(pending)
++                try await requestEnrollment(pending, publicKey: publicKey)
++            }
++        } catch {
++            try Task.checkCancellation()
++            // A late approval of an older request may have won, even if this request failed.
++            if let completed = try? await finishApproved(pending) { return .ready(completed) }
++            throw error
++        }
++        return .waiting(try macApprovalPayload(pending))
++    }
++
++    private func macApprovalPayload(_ pending: PendingEnrollment) throws -> DeviceApprovalPayload {
++        let publicKey = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: pending.candidate.privateKey).publicKey.rawRepresentation
++        return try DeviceApprovalPayload(requestID: pending.requestID, accountID: accountID,
++                                         deviceID: pending.candidate.deviceID, publicKey: publicKey,
++                                         challenge: pending.candidate.challenge, kind: .mac)
++    }
++    #endif
++
+     private func requestEnrollment(_ pending: PendingEnrollment, publicKey: Data) async throws {
+         let receipt: UUID = try await backend.rpc("v1_request_enrollment", params: ["p_request_id": pending.requestID.wire,
+             "p_device_id": pending.candidate.deviceID.wire, "p_public_key": Self.hex(publicKey),
+--- a/apps/apple/ScienceReader/ReaderModel.swift
++++ b/apps/apple/ScienceReader/ReaderModel.swift
+@@ -1204,6 +1204,28 @@
+         } catch { if sessionID == scope { show(error) } }
+     }
+ 
++    #if targetEnvironment(macCatalyst)
++    /// Only the restore sheet's current account can request or activate this Mac's approval.
++    /// Polling and recovery share DeviceKeys' lock and candidate; switching UI never replaces either.
++    func macApprovalStep(refreshRequest: Bool) async throws -> DeviceApprovalPayload? {
++        guard let manager = keys, let account = accountID, needsRecovery else { throw CancellationError() }
++        guard !isBusy else { throw DeviceKeyError.operationInProgress }
++        let scope = sessionID
++        isBusy = true
++        defer { if sessionID == scope, keys === manager { isBusy = false } }
++        let result = try await manager.macApproval(refreshRequest: refreshRequest)
++        try Task.checkCancellation()
++        guard sessionID == scope, accountID == account, keys === manager else { throw CancellationError() }
++        switch result {
++        case .waiting(let payload): return payload
++        case .ready(let approved):
++            let activation = try await activate(approved, scope: scope)
++            guard sessionID == scope, workOwnership.owns(activation) else { throw CancellationError() }
++            return nil
++        }
++    }
++    #endif
++
+     /// Device approval (DeviceApprovalViews.swift): the account, while this device holds active keys to share.
+     var deviceApprovalAccount: UUID? {
+         guard let accountID, let device, device.accountID == accountID, device.bundle != nil else { return nil }
+--- a/apps/apple/ScienceReader/Views/RootView.swift
++++ b/apps/apple/ScienceReader/Views/RootView.swift
+@@ -1276,6 +1276,16 @@
+     @State private var anchor: UIWindow?
+     @State private var passwords: PasswordsState = .idle
+     private enum PasswordsState: Equatable { case idle, working, saved, failed(String) }
++    #if targetEnvironment(macCatalyst)
++    @State private var useRecoveryCode = false
++    #endif
++    private var recoveryInputShown: Bool {
++        #if targetEnvironment(macCatalyst)
++        useRecoveryCode
++        #else
++        true
++        #endif
++    }
+ 
+     private func saveToPasswords(_ code: String) {
+         guard let anchor, passwords != .working else { return }
+@@ -1311,7 +1321,17 @@
+                         Text("Your private conversations and notes are encrypted. If you lose all approved devices and this code, we cannot recover that content.")
+                     }
+                 }
+-                if model.needsRecovery {
++                #if targetEnvironment(macCatalyst)
++                if model.needsRecovery && !useRecoveryCode {
++                    MacDeviceApprovalSection { try await model.macApprovalStep(refreshRequest: $0) }
++                        .id(model.readerSessionID)
++                    Section {
++                        Button("Use recovery code instead") { useRecoveryCode = true }
++                            .accessibilityIdentifier("macApproval.useRecovery")
++                    }
++                }
++                #endif
++                if model.needsRecovery && recoveryInputShown {
+                     Section("Recovery code") {
+                         TextField("Paste your recovery code", text: $input, axis: .vertical).font(.system(.body, design: .monospaced)).textInputAutocapitalization(.never).autocorrectionDisabled().privacySensitive()
+                             .textContentType(.password).accessibilityIdentifier("recovery.input")
+@@ -1319,6 +1339,10 @@
+                             .disabled(anchor == nil || passwords == .working || model.isBusy).accessibilityIdentifier("recovery.fromPasswords")
+                         if case .failed(let message) = passwords { Text(message).font(.footnote).foregroundStyle(.secondary) }
+                         Button("Recover this device") { Task { await model.finishRecovery(code: input) } }.disabled(input.isEmpty || model.isBusy)
++                        #if targetEnvironment(macCatalyst)
++                        Button("Approve from another device") { useRecoveryCode = false }
++                            .disabled(model.isBusy).accessibilityIdentifier("macApproval.useDevice")
++                        #endif
+                     }
+                 } else if let code = model.recoveryCode {
+                     Section {
+--- a/apps/apple/ScienceReader/Views/PaperView.swift
++++ b/apps/apple/ScienceReader/Views/PaperView.swift
+@@ -231,7 +231,8 @@
+                     .macPaperMenu(PaperMenuActions(
+                         contents: { showContents = true },
+                         back: citationBack && !readerFailed ? { citationBack = false; citationReturnID = UUID() } : nil,
+-                        selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) }))
++                        selection: selection == nil ? nil : { runSelectionAction($0, scope: readerScope) },
++                        figures: content.figures.isEmpty ? nil : { showFigures = true }))
+                 } else if model.selectedPaper != nil {
+                     if model.openingPaperID == model.selectedPaper?.id {
+                         ProgressView("Opening paper…").accessibilityIdentifier("paper.openingLocalCopy")

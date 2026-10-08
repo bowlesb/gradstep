@@ -137,9 +137,12 @@ describe('authentication lifetimes', () => {
     const wrapping = Promise.withResolvers<Uint8Array<ArrayBuffer>>(), started = Promise.withResolvers<void>();
     const deviceID = 'aaaaaaaa-0000-4000-8000-000000000001';
     const { generateDeviceKeyPair, generateBundle, generateRecoveryCode } = await import('../src/lib/wire');
-    const device = { ...await generateDeviceKeyPair(), accountID: first, deviceID, challenge: new Uint8Array(32),
+    const device = { ...await generateDeviceKeyPair(), origin: 'https://fixture.invalid', accountID: first, deviceID, challenge: new Uint8Array(32),
       localKey: await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']) };
-    vi.doMock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: { get: async () => device } }));
+    vi.doMock('../src/lib/idb', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/idb')>(), idb: { get: async () => device,
+      admit: async (key: string, origin: string, lifetime: string, writer: string) => ({ key, origin, lifetime, writer, incarnation: crypto.randomUUID(), generation: 1 }),
+      retireWriter: async () => {},
+    } }));
     vi.doMock('../src/lib/wire', async importOriginal => ({ ...await importOriginal<typeof import('../src/lib/wire')>(),
       wrapRecovery: () => { started.resolve(); return wrapping.promise; } }));
     try {

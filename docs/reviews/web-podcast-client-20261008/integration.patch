@@ -1,0 +1,216 @@
+--- a/apps/web/src/ui/Feed.tsx
++++ b/apps/web/src/ui/Feed.tsx
+@@ -7,6 +7,7 @@
+ import type { Entry } from '../lib/library';
+ import { FeedCards, FeedTable, useFeedColumns } from './FeedResults';
+ import { Icon } from './icons';
++import { type ListenFilter, ListenFilterButton } from './Podcast';
+ import { type Library, commandError } from './Library';
+ import { useStored } from './prefs';
+ import './feed.css';
+@@ -93,16 +94,17 @@
+ export type FeedModel = ReturnType<typeof useFeed>;
+
+ /** A failed request waits for an explicit retry. Merely re-rendering must not create a request loop. */
+-export function useFeedLoading(model: FeedModel) {
++export function useFeedLoading(model: FeedModel, active = true) {
+   const { selected, loaded, load, cancel, attempted } = model;
+-  useEffect(() => { if (!loaded.has(selected) && !attempted.current.has(selected)) load(selected); }, [selected, loaded, load, attempted]);
+-  useEffect(() => cancel, [cancel]);
+-}
+-
+-function FeedChoices({ model, rail = false }: { model: FeedModel; rail?: boolean }) {
++  useEffect(() => { if (active && !loaded.has(selected) && !attempted.current.has(selected)) load(selected); }, [active, selected, loaded, load, attempted]);
++  useEffect(() => { if (!active) cancel(); return cancel; }, [active, cancel]);
++}
++
++function FeedChoices({ model, rail = false, listen }: { model: FeedModel; rail?: boolean; listen?: ListenFilter }) {
++  const select = (value: FeedSelection) => { listen?.select(false); model.select(value); };
+   const button = (value: FeedSelection, title: string, count?: number) => <button key={value}
+-    className={`${rail ? 'rail-item' : 'chip'}${model.selected === value ? ' selected' : ''}`} aria-pressed={model.selected === value}
+-    onClick={() => model.select(value)}><span className="rail-label">{title}</span>{rail && count !== undefined && <span className="rail-count">{count}</span>}</button>;
++    className={`${rail ? 'rail-item' : 'chip'}${model.selected === value && !listen?.selected ? ' selected' : ''}`} aria-pressed={model.selected === value && !listen?.selected}
++    onClick={() => select(value)}><span className="rail-label">{title}</span>{rail && count !== undefined && <span className="rail-count">{count}</span>}</button>;
+   const extraCategories = useMemo(() => {
+     const names = new Set<string>();
+     return [...new Set([...model.categories, 'cs.LG', 'cs.CL', 'cs.AI', 'cs.CV', 'stat.ML', 'cs.RO', 'cs.IR', 'cs.NE'])].filter(c => {
+@@ -110,12 +112,13 @@
+     });
+   }, [model.categories]);
+   return <>
++    {listen && <ListenFilterButton selected={listen.selected} onSelect={() => listen.select(true)} rail={rail} />}
+     {model.offered ? <>
+       {button('for_you', 'For you')}
+       {model.topics.map(t => button(`topic:${t.name}`, t.name, t.papers))}
+       {model.selected.startsWith('category:') && button(model.selected, selectionName(model.selected))}
+       <label className={`feed-more-topics${rail ? ' rail-item' : ''}`}><span className="visually-hidden">More topics</span>
+-        <select aria-label="More topics" value="" onChange={e => { if (e.target.value) model.select(`category:${e.target.value}`); }}>
++        <select aria-label="More topics" value="" onChange={e => { if (e.target.value) select(`category:${e.target.value}`); }}>
+           <option value="">More topics…</option>{extraCategories.map(c => <option key={c} value={c}>{topicName(c)}</option>)}
+         </select>
+       </label>
+@@ -123,9 +126,9 @@
+   </>;
+ }
+
+-export function FeedRail({ model }: { model: FeedModel }) {
++export function FeedRail({ model, listen }: { model: FeedModel; listen?: ListenFilter }) {
+   return <nav className="rail-nav" aria-label="Feed topics"><div className="rail-section"><div className="rail-heading">Topics</div>
+-    <FeedChoices model={model} rail />
++    <FeedChoices model={model} rail listen={listen} />
+   </div>{!model.offered && <p className="fine rail-note">Topics come from your library’s arXiv categories.</p>}</nav>;
+ }
+
+@@ -133,8 +136,8 @@
+ const sorts: { value: FeedSort; label: string }[] = [ { value: 'suggested', label: 'Suggested' }, { value: 'newest', label: 'Newest' },
+   { value: 'popularity', label: 'Popularity' }, { value: 'title', label: 'Title' }, { value: 'authors', label: 'Authors' }, { value: 'topic', label: 'Topics' } ];
+
+-export function FeedView({ model, library, showChips }: { model: FeedModel; library: Library; showChips: boolean }) {
+-  useFeedLoading(model);
++export function FeedView({ model, library, showChips, listen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter }) {
++  useFeedLoading(model, !listen?.selected);
+   const [adding, setAdding] = useState<string | null>(null);
+   const [issue, setIssue] = useState<string | null>(null);
+   const [lastFeedback, setLastFeedback] = useState<{ source: string; kind: FeedFeedback } | null>(null);
+@@ -172,9 +175,10 @@
+   const toggle = (source: string) => setExpanded(previous => { const next = new Set(previous); next.has(source) ? next.delete(source) : next.add(source); return next; });
+   const actions = { expanded, toggle, adding, inLibrary, add, addBlocked: library.state !== 'ready' || library.pending.has('add'),
+     feedback: model.offered ? feedback : undefined, feedbackBusy, feedbackState: model.feedback };
+-  return <section className={`feed${layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
+-    <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
+-    {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} /></div>}
++  return <section className={`feed${!listen?.selected && layout === 'table' ? ' feed-table-view' : ''}`} aria-labelledby="feed-title">
++    <div className="view-head"><h1 id="feed-title">Research Feed</h1><span className="view-sub">{listen?.selected ? 'Listen to papers' : personalFeed(model.selected) ? selectionName(model.selected) : `Newest in ${selectionName(model.selected)}`}</span></div>
++    {showChips && <div className="chips" role="toolbar" aria-label="Feed topics"><FeedChoices model={model} listen={listen} /></div>}
++    {listen?.selected ? listen.view : <>
+     <div className="feed-controls">
+       <div className="feed-layout" role="group" aria-label="Feed layout"><button aria-pressed={layout === 'cards'} onClick={() => setLayout('cards')}>Cards</button><button aria-pressed={layout === 'table'} onClick={() => setLayout('table')}>Table</button></div>
+       <label className="feed-sort"><span className="visually-hidden">Sort feed</span><select aria-label="Sort feed" value={sort.key} onChange={e => setSort(e.target.value as FeedSort)}>
+@@ -195,5 +199,6 @@
+     {current && shown.length === 0 && <div className="empty"><p>{current.results.length ? 'No papers match your filters.' : 'No new papers in this topic right now.'}</p>{hideLibrary && current.results.length > 0 && <button className="link" onClick={() => setHideLibrary(false)}>Show papers in your library</button>}</div>}
+     {layout === 'table' ? <FeedTable results={shown} columns={columnSettings} sort={sort} setSort={setSort} actions={actions} toolsSlot={tableTools} />
+       : shown.length > 0 && <FeedCards results={shown} actions={actions} />}
++    </>}
+   </section>;
+ }
+--- a/apps/web/src/ui/App.tsx
++++ b/apps/web/src/ui/App.tsx
+@@ -3,6 +3,9 @@
+ import { type Session, auth, config } from '../lib/backend';
+ import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
+ import type { Item } from '../lib/library';
++import type { Episode, Evidence } from '../lib/podcast';
++import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
++import { ListenView, PaperListen, PodcastDock, usePodcasts, usePodcastPlayer } from './Podcast';
+ import { supportsX25519 } from '../lib/wire';
+ import type { FrameKey } from '../reader/frame';
+ import { ChatHistory, ChatPane, type PaperContext } from './ChatPane';
+@@ -134,6 +137,9 @@
+   latest.current = { ws, route };
+   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
+   const feed = useFeed(account, library.entries);
++  const podcasts = usePodcasts(account);
++  const player = usePodcastPlayer(account);
++  const [listening, setListening] = useState(false);
+
+   const shortcut = useCallback((key: FrameKey) => {
+     const { ws, route } = latest.current;
+@@ -179,6 +185,7 @@
+       if (forget) await forgetDevice(account);
+       else if (device) await saveActivity(device, activity).catch(() => {});
+       if (owner.signal.aborted || owner.generation !== auth.snapshot().generation) return;
++      if (forget) clearPositions(account);
+       navigate('/');
+       await auth.signOut(owner.generation);
+     } catch (error) {
+@@ -224,6 +231,18 @@
+   };
+   const marks = useMemo(() => chat?.history.state.conversationSummaries().filter(c => c.documentID === item?.document_id && c.anchor).map(c => ({ id: c.id, anchor: c.anchor! })) ?? [], [chat, historyVersion, item?.document_id]);
+
++
++  const openPodcastEvidence = (episode: Episode, evidence: Evidence): boolean => {
++    const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === episode.documentID);
++    if (!paper) return false;
++    openPaper(paper);
++    setPassage({ id: crypto.randomUUID(), documentID: episode.documentID, anchor: evidenceAnchor(evidence), at: Date.now() });
++    return true;
++  };
++  const addPodcastPaper = async (episode: Episode) => {
++    if (!episode.source.arxivID) throw new Error('source_unavailable');
++    await library.addArxiv(episode.source.arxivID, episode.source.version);
++  };
+
+   const left = route === 'paper' ? (
+     <>
+@@ -239,7 +258,7 @@
+   ) : (
+     <>
+       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
+-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
++      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
+     </>
+   );
+
+@@ -248,14 +267,15 @@
+     // A direct paper URL can finish loading the library before local decryption. Mounting the
+     // reader then would record the top of the paper before its saved place could be restored.
+     center = item && !activityLoaded ? <div className="empty" role="status" aria-label="Opening paper"><div className="spinner" /><p>Opening the paper…</p></div>
+-      : item ? <Reader cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
++      : item ? <Reader listenAction={<PaperListen account={account} itemID={item.id} title={item.metadata?.title ?? 'Paper'} player={player} />} cache={readerCache} account={account} item={item} saved={activity.get(item.id)} onActivity={record} theme={resolved}
+         contentsSlot={railTab === 'contents' && ws.left.open ? contentsSlot : null} commands={readerCommands} onKey={shortcut} onContents={onContents} onSelection={selectAction} marks={marks}
+         passage={passage?.documentID === item.document_id ? passage : null} onPassageHandled={() => setPassage(null)}
+         onMarkedChat={id => { if (chat?.open(id)) { setChatMode('paper'); ws.show('right'); } }} />
+       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
+         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
+   } else if (route === 'feed') {
+-    center = <FeedView model={feed} library={library} showChips={!railVisible} />;
++    center = <FeedView model={feed} library={library} showChips={!railVisible}
++      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
+   } else {
+     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible}
+       currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
+@@ -302,6 +322,7 @@
+       <StorageNotice />
+       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
+         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
++      <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
+       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
+       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
+       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">
+--- a/apps/web/src/ui/Reader.tsx
++++ b/apps/web/src/ui/Reader.tsx
+@@ -1,7 +1,7 @@
+ // A converted paper in the sandboxed reader frame (legacy MarkdownReader on verified bundles): the
+ // contents tree in the left rail with the current section, citation jumps with Back, find in the
+ // paper, the figure viewer, text size and a saved place. Selection actions and passage-linked chat use the same verified index.
+-import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { type ReactNode, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { createPortal } from 'react-dom';
+ import type { Activity } from '../lib/activity';
+ import { BackendError, functionPost } from '../lib/backend';
+@@ -47,7 +47,7 @@
+   return 'Couldn’t open this paper. Try again.';
+ }
+
+-type ReaderProps = { cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
++type ReaderProps = { listenAction?: ReactNode; cache: ReaderCache; account: string; item: Item; saved?: Activity; theme: 'light' | 'dark';
+   contentsSlot: HTMLElement | null; commands: MutableRefObject<ReaderCommands | null>;
+   marks: { id: string; anchor: TextAnchor }[]; passage: { id: string; anchor: TextAnchor; at: number } | null; onPassageHandled: () => void;
+   onSelection: (action: SelectionAction, quote: string, anchor: TextAnchor) => void; onMarkedChat: (id: string) => void;
+@@ -63,7 +63,7 @@
+
+ type Heading = { id: string; title: string; depth?: number };
+
+-function PaperReader({ cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
++function PaperReader({ listenAction, cache, cacheKey, account, item, saved, theme, contentsSlot, commands, onActivity, onKey, onContents, onSelection, marks, passage, onPassageHandled, onMarkedChat, onDiscuss, onReferenceAdded }: ReaderProps & { cacheKey: string }) {
+   const workspace = useWorkspaceControls();
+   const [bundle, setBundle] = useState<VerifiedBundle | null>(() => cache.get(cacheKey) ?? null);
+   const [loaded, setLoaded] = useState(0);
+@@ -252,6 +252,7 @@
+           aria-label="Contents" aria-pressed={contentsShown} title="Contents ( [ )"><Icon name="list" /></button>
+         <h1 className="reader-title" title={title}>{title}</h1>
+         <div className="reader-actions">
++          {listenAction}
+           {back && <button className="primary small" onClick={() => command('citationBack')} data-testid="citation-back" aria-label="Back to where you were" title="Back to where you were"><Icon name="chevronLeft" size={14} />Back</button>}
+           <button className={`icon-button${finding ? ' on' : ''}`} onClick={() => (finding ? closeFind() : openFind())} disabled={!srcdoc} aria-label="Find in paper" title="Find in paper (⌘F)" data-testid="find"><Icon name="search" /></button>
+           <button className="tool-button" onClick={() => setFigure({ id: null, open: true })} disabled={!figures.length} title="Figures" data-testid="figures">

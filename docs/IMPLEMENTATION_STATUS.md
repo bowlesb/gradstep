@@ -1,8 +1,47 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; browser chat, chosen columns and the admin site are deployed.**
+Updated 2026-10-08 UTC. **Build 21 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `e500c231`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
+
+## Current web/Mac candidate — 2026-10-08 UTC
+
+- **Browser release:** source is commit `d3fb7b3` on main; Pages deployment
+  `e500c231` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+  passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
+  same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
+  paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
+  Local main now also contains the encrypted
+  library checkpoint codec in `3602c7d`; it is covered by the updated unit suite but remains behind the Gate-2
+  descriptor contract and is not part of that deployed Pages build.
+- **Browser verification:** 339 unit tests across 29 files pass; the integrated production-CSP Playwright run is
+  **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
+  **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
+  Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
+  interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
+  The deployed reader also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
+  remove) from the paper toolbar. The prior full production-CSP Playwright run remains 146 passed / 103 expected
+  skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
+  journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
+  expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
+- **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
+  three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
+  `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
+  head, per-row ciphertext, exact digests/counts and bounded capacity) and rejects missing, substituted or orphaned
+  records. It is covered by the library-storage and checkpoint suites and is not enabled by the deployed browser UI.
+  Descriptor writes, complete v5 library adoption, saved copies and cold startup remain gated pending the epoch-bound
+  descriptor PUT contract and measured copy-install limits.
+- **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), live browser
+  provider consent/identity acceptance, Safari key persistence, PDF upload and purchases. The browser now has bounded
+  Google/Apple PKCE controls and callback validation; provider-side acceptance remains a release gate. Podcast generation remains backend-dark and no
+  paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
+  contracts are live.
+- **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native
+  unit suite passes **373 tests, 4 expected skips, 0 failures** on commit `139c98e`; the Settings toolbar regression is fixed
+  in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
+  the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
+  checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
+  No new TestFlight upload or owner-device acceptance is claimed by this candidate.
 
 ## Current rollout — 2026-10-08 UTC
 
@@ -139,7 +178,7 @@ removed executor work) is retained below where useful and in git history.
 - **Workflow checks:** 16/16 pass, $0 provider cost.
 - **Live policy:** pool refresh is on (every 120 min via the existing 30-min cron) and Hugging Face popularity is on.
   **Serving is off.** For you and topic chips reach readers only after `worker_set_feed_policy('staff', true)`, which
-  waits for an iOS build containing the app change.
+  waits for an iOS build containing the app change. First refresh 19:30 UTC: 825 pool papers, 27 with Hugging Face upvotes, no failures.
 - **Local tests before deploy:** backend 413/413, database suite 226 PASS, Simulator build OK.
 
 ## Ownership split and browser durability handover — 2026-10-08
