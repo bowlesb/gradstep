@@ -88,10 +88,13 @@ final class ChatControlsTests: XCTestCase {
                 XCTAssertTrue(rename.waitForExistence(timeout: 5)); rename.tap()
                 let field = app.alerts["Rename chat"].textFields.firstMatch
                 XCTAssertTrue(field.waitForExistence(timeout: 5))
-                field.tap()
+                // The field starts with the current title; put the caret after it (a plain tap can land mid-text) and clear it.
+                field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
                 if let current = field.value as? String, !current.isEmpty {
-                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count))
+                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
                 }
+                XCTAssertTrue(((field.value as? String) ?? "").isEmpty || (field.value as? String) == field.placeholderValue,
+                              "The old title is cleared: \(field.value ?? "")")
                 field.typeText("My attention notes")
                 app.alerts["Rename chat"].buttons["Save"].firstMatch.tap()
                 XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label == %@", "My attention notes")).firstMatch.waitForExistence(timeout: 5),

@@ -616,6 +616,8 @@ final class ChatGenerationTests: XCTestCase {
         let transport = ScriptedChatTransport()
         transport.profiles = ScriptedChatTransport.table
         let (model, _) = try await makeModel(consented: true, transport: transport)
+        // Settings › Chat defaults persist in this device's preferences (a UI journey may have changed them).
+        model.chatDefaultProfile = .standard
         model.refreshChatProfiles()
         try await waitUntil("profile table loaded") { model.chatProfileTable != nil }
         return (model, transport)
