@@ -1,7 +1,7 @@
 # Browser reader
 
 Status, 2026-10-08 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
-`a5c351a1` from source `74e9e95` against staging.** It includes the reviewed Feed, library actions/columns,
+`4ebd7690` from source `89977e6` against staging.** It includes the reviewed Feed, library actions/columns,
 encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
 output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
 Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
@@ -31,7 +31,7 @@ Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general
 
 Remaining browser work (shown as unavailable where applicable): PDF upload, Apple/Google web sign-in,
 device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
-and tag editing are implemented in the local integration candidate described below.
+and tag editing are now deployed; they reuse the existing epoch-checked library command path.
 
 ### Integrated draft and reader parity — local candidate, 2026-10-08
 

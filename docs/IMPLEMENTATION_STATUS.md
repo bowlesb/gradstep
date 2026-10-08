@@ -6,11 +6,12 @@ removed executor work) is retained below where useful and in git history.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is candidate commit `74e9e95` on the Codex integration branch; Pages deployment
-  `a5c351a1` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is candidate commit `89977e6` on main; Pages deployment
+  `4ebd7690` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
-  same-origin isolation. A cache-busting request to the custom domain matched the deployment preview byte-for-byte.
-  No account, provider, OCR or paid request was made by these checks. Local main now also contains the encrypted
+  same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
+  paper-actions bundle. No account, provider, OCR or paid request was made by these checks.
+  Local main now also contains the encrypted
   library checkpoint codec in `3602c7d`; it is covered by the updated unit suite but remains behind the Gate-2
   descriptor contract and is not part of that deployed Pages build.
 - **Browser verification:** 339 unit tests across 29 files pass; the integrated production-CSP Playwright run is
@@ -18,9 +19,9 @@ removed executor work) is retained below where useful and in git history.
   **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
   Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
   interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
-  The local reader candidate also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
-  remove) from the paper toolbar, with a dedicated production-CSP journey; it is not in the deployed Pages revision
-  until the next deliberate browser deploy.
+  The deployed reader also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
+  remove) from the paper toolbar. The prior full production-CSP Playwright run remains 146 passed / 103 expected
+  skips; the new reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip.
 - **Gate-2 foundation:** the local main tree now has an explicit schema-3 activation (`activateLibraryStorage`),
   three separate encrypted-domain stores, bounded key inventory, and device-fenced multi-head compare-and-swap in
   `libraryAccess`. The new `library-storage.ts` codec seals a complete v5 presentation checkpoint (authenticated
