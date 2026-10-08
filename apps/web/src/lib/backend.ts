@@ -245,7 +245,8 @@ async function authorized(path: string, init: { method?: string; body?: string; 
   if (reply.status < 200 || reply.status >= 300) {
     const v = parse(reply.body) as { code?: unknown; message?: unknown } | null;
     const candidates = [v?.message, v?.code].filter((c): c is string => typeof c === 'string');
-    throw new BackendError(candidates.find(c => KNOWN.has(c)) ?? 'request_failed', reply.status);
+    // Podcast calls answer finite `podcast_*` codes (docs/architecture/PAPER_PODCASTS.md); still never free text.
+    throw new BackendError(candidates.find(c => KNOWN.has(c) || /^podcast_[a-z_]{1,48}$/.test(c)) ?? 'request_failed', reply.status);
   }
   return reply.body;
 }
@@ -316,6 +317,19 @@ export async function functionPost<T>(path: string, body: unknown, options: { ma
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
+}
+
+/** One single-use podcast audio member on the configured project (`functions/v1/podcast-member`), authorized with the
+ * account's token. No Range header: the server refuses partial reads and charges the whole member once. */
+export async function podcastMemberBytes(url: string, bytes: number, signal: AbortSignal | undefined, account: string): Promise<Uint8Array<ArrayBuffer>> {
+  const parsed = new URL(url);
+  if (parsed.origin !== new URL(config.url).origin || parsed.pathname !== '/functions/v1/podcast-member' || parsed.username || parsed.password || parsed.hash
+    || parsed.searchParams.size !== 2 || new Set(parsed.searchParams.keys()).size !== 2 || !/^[0-9a-f]{64}$/.test(parsed.searchParams.get('grant') ?? '')
+    || !isUUID(parsed.searchParams.get('member'))) throw new BackendError('podcast_integrity_failed');
+  // Audio is larger than reader members; allow a slow connection two minutes (cancellable by the caller).
+  const data = await authorized(`functions/v1/podcast-member${parsed.search}`, { method: 'GET', maximum: bytes, account, signal, timeout: 120_000 });
+  if (data.length !== bytes) throw new BackendError('podcast_integrity_failed');
+  return data;
 }
 
 /** A signed Storage URL on the configured project host; carries no account credential. */

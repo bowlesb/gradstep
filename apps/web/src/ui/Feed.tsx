@@ -1,6 +1,6 @@
 // Research Feed (legacy ResearchFeed): the newest arXiv papers in the library's main topics, as a
 // card grid with topic chips (or the topic list in the left rail), and Add to library in place.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type DiscoveryResult, feed, feedCategories, topicName } from '../lib/feed';
 import type { Entry } from '../lib/library';
 import { Icon } from './icons';
@@ -29,6 +29,8 @@ export function useFeed(account: string, entries: Entry[]) {
   return { categories, selected, setCategory, loaded, state, load, request };
 }
 export type FeedModel = ReturnType<typeof useFeed>;
+/** The Listen filter (ui/Podcast.tsx): a chip before the topics; while selected, the Feed shows its episodes instead. */
+export interface ListenFilter { selected: boolean; select: (on: boolean) => void; view: ReactNode }
 
 /** Loads the selected topic the first time it is shown; later visits keep this session's results. */
 export function useFeedLoading(model: FeedModel) {
@@ -37,13 +39,18 @@ export function useFeedLoading(model: FeedModel) {
   useEffect(() => () => request.current?.abort(), [request]);
 }
 
-export function FeedRail({ model }: { model: FeedModel }) {
+export function FeedRail({ model, listen }: { model: FeedModel; listen?: ListenFilter }) {
   return (
     <nav className="rail-nav" aria-label="Feed topics">
+      {listen && <div className="rail-section">
+        <button className={`rail-item${listen.selected ? ' selected' : ''}`} aria-pressed={listen.selected} onClick={() => listen.select(true)} data-testid="podcast-listen">
+          <Icon name="headphones" size={14} /><span className="rail-label">Listen</span></button>
+      </div>}
       <div className="rail-section">
         <div className="rail-heading">Topics</div>
         {model.categories.map(c => (
-          <button key={c} className={`rail-item${model.selected === c ? ' selected' : ''}`} aria-pressed={model.selected === c} onClick={() => model.setCategory(c)}>
+          <button key={c} className={`rail-item${model.selected === c && !listen?.selected ? ' selected' : ''}`} aria-pressed={model.selected === c && !listen?.selected}
+            onClick={() => { listen?.select(false); model.setCategory(c); }}>
             <span className="rail-label">{topicName(c)}</span><span className="rail-count mono">{c}</span>
           </button>
         ))}
@@ -55,7 +62,7 @@ export function FeedRail({ model }: { model: FeedModel }) {
 
 const ago = (at: number) => { const m = Math.round((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
 
-export function FeedView({ model, library, showChips }: { model: FeedModel; library: Library; showChips: boolean }) {
+export function FeedView({ model, library, showChips, listen }: { model: FeedModel; library: Library; showChips: boolean; listen?: ListenFilter }) {
   useFeedLoading(model);
   const [adding, setAdding] = useState<string | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
@@ -70,13 +77,17 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
     <section className="feed" aria-labelledby="feed-title">
       <div className="view-head">
         <h1 id="feed-title">Research Feed</h1>
-        <span className="view-sub">{model.selected ? `Newest in ${topicName(model.selected)}` : ''}</span>
+        <span className="view-sub">{listen?.selected ? 'Listen to papers' : model.selected ? `Newest in ${topicName(model.selected)}` : ''}</span>
       </div>
       {showChips && (
         <div className="chips" role="toolbar" aria-label="Feed topics">
-          {model.categories.map(c => <button key={c} className={model.selected === c ? 'chip selected' : 'chip'} aria-pressed={model.selected === c} onClick={() => model.setCategory(c)}>{topicName(c)}</button>)}
+          {listen && <button className={listen.selected ? 'chip selected listen-chip' : 'chip listen-chip'} aria-pressed={listen.selected} onClick={() => listen.select(true)}
+            data-testid="podcast-listen"><Icon name="headphones" size={13} /> Listen</button>}
+          {model.categories.map(c => <button key={c} className={model.selected === c && !listen?.selected ? 'chip selected' : 'chip'} aria-pressed={model.selected === c && !listen?.selected}
+            onClick={() => { listen?.select(false); model.setCategory(c); }}>{topicName(c)}</button>)}
         </div>
       )}
+      {listen?.selected ? listen.view : <>
       <div className="feed-status">
         <span>{current ? `${current.results.length} papers · Updated ${ago(current.at)}` : model.state === 'loading' ? 'Loading…' : ''}</span>
         <button className="link small-link" onClick={() => model.selected && model.load(model.selected)} disabled={model.state === 'loading'}>
@@ -112,6 +123,7 @@ export function FeedView({ model, library, showChips }: { model: FeedModel; libr
           })}
         </ul>
       )}
+      </>}
     </section>
   );
 }

@@ -3,6 +3,8 @@ import { type Activity, loadActivity, saveActivity } from '../lib/activity';
 import { type Session, auth, config } from '../lib/backend';
 import { type DeviceRecord, type Preparation, forgetDevice, readDevice } from '../lib/keys';
 import type { Item } from '../lib/library';
+import type { Episode, Evidence } from '../lib/podcast';
+import { clearPositions, evidenceAnchor } from '../lib/podcast-playback';
 import { supportsX25519 } from '../lib/wire';
 import type { FrameKey } from '../reader/frame';
 import { ChatHistory, ChatPane, type PaperContext } from './ChatPane';
@@ -16,6 +18,7 @@ import { KeySetup } from './Keys';
 import { AddPaper, CompactLibrary, INITIAL_QUERY, type LibraryQuery, LibraryRail, LibraryView, useLibraryModel } from './Library';
 import { type Route, type Theme, useTheme } from './prefs';
 import { type ReaderCache, type ReaderCommands, Reader } from './Reader';
+import { ListenView, PodcastDock, usePodcastPlayer, usePodcasts } from './Podcast';
 import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
 import { useLibrary } from './useLibrary';
@@ -133,6 +136,10 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   latest.current = { ws, route };
   const model = useLibraryModel(library, activity, view, route !== 'paper' || (railTab === 'library' && ws.left.open));
   const feed = useFeed(account, library.entries);
+  // Paper podcasts: the Feed's Listen filter and the docked player (docs/architecture/PAPER_PODCASTS.md).
+  const podcasts = usePodcasts(account);
+  const player = usePodcastPlayer(account);
+  const [listening, setListening] = useState(false);
 
   const shortcut = useCallback((key: FrameKey) => {
     const { ws, route } = latest.current;
@@ -172,6 +179,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     const owner = auth.snapshot();
     setLeaving(true); setSignOutError(null);
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    // Listening places are device-local and belong to this account: stop, free the audio and forget them.
+    player.stop(); clearPositions(account);
     try {
       // Finish local removal before another login can prepare this device. Failure stays visible and retryable.
       await chat?.settleBeforeSignOut();
@@ -208,6 +217,14 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
     }
     ws.show('right');
   };
+  /** A transcript's evidence opens the cited passage in that paper when it is in the library (no chat is opened). */
+  const openEvidence = (episode: Episode, evidence: Evidence): boolean => {
+    const paper = library.entries.find((e): e is Item => e.kind === 'item' && e.visible && e.document_id === episode.documentID);
+    if (!paper) return false;
+    openPaper(paper);
+    setPassage({ id: crypto.randomUUID(), documentID: episode.documentID, anchor: evidenceAnchor(evidence), at: Date.now() });
+    return true;
+  };
   const goToPassage = (documentID: string, anchor: TextAnchor) => {
     openChatDocument(documentID); setPassage({ id: crypto.randomUUID(), documentID, anchor, at: Date.now() });
   };
@@ -234,7 +251,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   ) : (
     <>
       <PaneHeader title={route === 'feed' ? 'Feed' : 'Library'} onClose={() => ws.show('left', false)} closeLabel="Hide side panel" />
-      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
+      <div className="rail-body">{route === 'feed' ? <FeedRail model={feed} listen={{ selected: listening, select: setListening, view: null }} /> : <LibraryRail model={model} view={view} setView={setView} />}</div>
     </>
   );
 
@@ -250,7 +267,8 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       : library.state === 'loading' ? <div className="empty"><div className="spinner" aria-label="Loading" /></div>
         : <div className="empty"><p>This paper isn’t in your library.</p><button className="secondary" onClick={() => navigate('/')}>Back to library</button></div>;
   } else if (route === 'feed') {
-    center = <FeedView model={feed} library={library} showChips={!railVisible} />;
+    center = <FeedView model={feed} library={library} showChips={!railVisible}
+      listen={{ selected: listening, select: setListening, view: <ListenView podcasts={podcasts} player={player} /> }} />;
   } else {
     center = <LibraryView library={library} model={model} activity={activity} view={view} setView={setView} showChips={!railVisible}
       currentID={lastPaper} onOpen={openPaper} onAdd={() => setAdding(true)} />;
@@ -296,6 +314,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
       </header>
       <Workspace controls={ws} leftLabel={route === 'paper' ? 'Side panel' : route === 'feed' ? 'Feed topics' : 'Library filters'} rightLabel="Chat"
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
+      <PodcastDock player={player} onEvidence={openEvidence} />
       <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
       <Dialog open={help} onClose={() => setHelp(false)} title="Keyboard shortcuts">

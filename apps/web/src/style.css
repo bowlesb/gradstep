@@ -414,3 +414,69 @@ progress.mini { height: 3px; margin-top: 4px; }
 .diagram-frame { display: block; max-width: none; border: 0; }
 
 .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; } .dialog-heading h2 { margin: 0; }
+
+/* ---------- Paper podcasts (ui/Podcast.tsx) ----------
+   The dock is its own row under the workspace: the reader, chat composer and selection bar shrink above it. */
+.listen-chip { display: inline-flex; align-items: center; gap: 5px; }
+.podcast-card .feed-title { cursor: default; }
+.podcast-card.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-muted); }
+.podcast-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { display: inline-flex; align-items: center; font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 999px;
+  line-height: 1.6; white-space: nowrap; }
+.badge.ai { background: var(--accent-soft); color: var(--accent); }
+.badge.fixture { background: var(--problem-soft); color: var(--problem); }
+.podcast-play { display: inline-flex; align-items: center; gap: 5px; }
+.podcast-more { display: flex; justify-content: center; padding: 0 20px 40px; }
+.podcast-dock { flex: none; border-top: 1px solid var(--line-strong); background: var(--surface); display: flex; flex-direction: column; min-height: 0;
+  padding-bottom: env(safe-area-inset-bottom); z-index: 25; }
+.podcast-dock.expanded { max-height: min(46dvh, 460px); }
+.dock-bar { display: grid; grid-template-columns: auto minmax(120px, 1.2fr) minmax(160px, 2fr) auto; align-items: center; gap: 10px; padding: 6px 12px;
+  padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+.dock-controls, .dock-actions { display: flex; align-items: center; gap: 2px; }
+.dock-play { width: 38px; height: 38px; min-height: 38px; border-radius: 50%; background: var(--accent); color: var(--accent-text); }
+.dock-play:hover:not(:disabled) { background: var(--accent); color: var(--accent-text); filter: brightness(1.08); }
+.dock-play .spinner.small { border-color: rgba(255, 255, 255, .45); border-top-color: var(--accent-text); }
+.dock-title { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-title strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-sub { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); }
+.dock-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.dock-progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dock-progress input[type=range] { flex: 1; min-width: 60px; min-height: 0; height: 24px; padding: 0; border: 0; background: transparent; accent-color: var(--accent); }
+.dock-time { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
+.dock-speed { flex-direction: row; font-weight: 500; }
+.dock-speed select { width: auto; min-height: 30px; padding: 2px 6px; font-size: 12.5px; border-radius: 7px; }
+.dock-issue { padding: 0 14px 6px; }
+.dock-details { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(180px, 240px) 1fr; border-top: 1px solid var(--line); }
+.dock-wait { padding: 12px 16px; }
+.dock-chapters { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface-2); }
+.dock-chapters ol, .dock-transcript ol { list-style: none; margin: 0; padding: 0 0 12px; }
+.dock-chapter { display: flex; gap: 8px; width: 100%; min-height: 32px; padding: 5px 14px; border-radius: 0; text-align: left; font-size: 13px; align-items: baseline; }
+.dock-chapter:hover:not(:disabled) { background: var(--row-hover); }
+.dock-chapter.on { color: var(--accent); background: var(--accent-muted); font-weight: 600; }
+.dock-transcript { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.dock-transcript ol { padding: 0 6px 8px; }
+.dock-transcript .rail-heading { position: sticky; top: 0; background: var(--surface); z-index: 1; gap: 8px; justify-content: flex-start; }
+.dock-timing { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--faint); }
+.dock-segment { border-radius: 8px; padding: 2px 4px; }
+.dock-segment.on { background: var(--accent-muted); }
+.dock-segment-chapter { font-size: 11px; font-weight: 650; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; padding: 10px 8px 2px; }
+.dock-segment-text { display: block; width: 100%; text-align: left; min-height: 0; padding: 6px 8px; border-radius: 6px; font-size: 13.5px; line-height: 1.5; }
+.dock-segment-text:hover:not(:disabled) { background: var(--row-hover); }
+.dock-speaker { font-size: 11.5px; font-weight: 650; color: var(--accent); }
+.dock-segment.skeptic .dock-speaker { color: var(--problem); }
+.dock-line { display: block; margin-top: 2px; color: var(--text); }
+.dock-evidence { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 8px; }
+.tag.evidence { cursor: pointer; text-align: left; white-space: normal; padding: 2px 8px; font-size: 12px; line-height: 1.4; }
+.tag.evidence:hover { background: var(--accent-muted); color: var(--accent); }
+.dock-notice { margin: 6px 12px; padding: 8px 10px; border-radius: 8px; background: var(--problem-soft); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
+.dock-notice .link { min-height: 0; padding: 0; }
+.dock-disclosure { padding: 4px 14px 12px; }
+@media (max-width: 760px) {
+  .dock-bar { grid-template-columns: auto 1fr auto; grid-template-areas: "controls title actions" "progress progress progress"; row-gap: 2px; }
+  .dock-controls { grid-area: controls; } .dock-title { grid-area: title; } .dock-actions { grid-area: actions; } .dock-progress { grid-area: progress; }
+  .dock-details { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .dock-chapters { max-height: 108px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .podcast-dock.expanded { max-height: 58dvh; }
+}
+@media (max-width: 420px) { .dock-bar { gap: 6px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); } .dock-speed select { padding: 2px 4px; } }
+@media (prefers-reduced-motion: reduce) { .podcast-dock *, .podcast-card { transition: none !important; scroll-behavior: auto !important; } }
