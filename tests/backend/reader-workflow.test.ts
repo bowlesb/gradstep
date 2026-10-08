@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { verifyReaderDelivery } from '../../scripts/reader-workflow.mjs';
 import { deliverReaderMember } from '../../supabase/functions/_shared/reader-delivery.ts';
 
@@ -169,4 +170,51 @@ test('the allowlisted scheduled-job context contains and imports the standalone 
     const docker = await readFile(resolve(target, 'Dockerfile'), 'utf8');
     assert.match(docker, /COPY scripts\/reader-workflow\.mjs scripts\/reader-workflow\.mjs/);
   } finally { await rm(target, { recursive: true }); }
+});
+
+test('every runner check using verifyBundle supplies the complete library item and reports its actual transport', async () => {
+  // Execute the actual registered check callbacks with fixture transports. Do not import the
+  // operational runner: its top level loads credentials and runs the selected hosted suite.
+  const source = await readFile(resolve('scripts/workflow-checks.mjs'), 'utf8');
+  const blocks = [
+    /^async function verifyBundle\([^\n]*\n[\s\S]*?^\}/m,
+    /^check\('import\.arxiv',[\s\S]*?^\}\);/m,
+    /^check\('ingest\.imports-ready',[\s\S]*?^\}\);/m,
+    /^for \(const \[id, source, title, timeoutS, pages\][\s\S]*?^\}/m,
+  ].map(pattern => {
+    const block = source.match(pattern)?.[0];
+    assert.ok(block, 'Runner registration boundary changed; update the fixture harness');
+    return block;
+  });
+  const calls = (text: string) => (text.match(/\bverifyBundle\s*\(/g) ?? []).length;
+  assert.equal(calls(source), calls(blocks.join('\n')), 'Every bundle call must have a fixture journey');
+  const checks = new Map<string, (input: { signal: AbortSignal }) => Promise<any>>();
+  let active = fixture();
+  const acct = { touched: false, token: async () => 'account-fixture-token' };
+  const result = (text: string, metrics?: unknown) => ({ text, metrics });
+  const context = {
+    env: { SUPABASE_URL: origin, SUPABASE_ANON_KEY: 'public-fixture-key' },
+    ALL: ['deploy', 'daily', 'weekly'], SCHEDULED: ['daily', 'weekly'], USD_PER_CREDIT: 0.005,
+    check: (id: string, _options: unknown, run: (input: { signal: AbortSignal }) => Promise<any>) => checks.set(id, run),
+    account: async () => acct, beginImport: async () => {},
+    waitForReady: async () => ({ item: active.item, seconds: 1, steps: [] }),
+    pendingImports: [{ acct, id: randomUUID(), source: 'fixture-source', queuedAt: Date.now(), check: 'fixture-ingest' }],
+    shared: {}, pass: result, warn: result,
+    fail: (text: string) => { throw new Error(text); }, skip: () => { throw new Error('Unexpected fixture skip'); },
+    verifyReaderDelivery: (args: any) => {
+      assert.equal(args.item, active.item, 'The library identity must reach the delivery verifier intact');
+      return verifyReaderDelivery({ ...args, fetcher: active.fetcher });
+    },
+  };
+  runInNewContext(blocks.join('\n'), context);
+  assert.deepEqual([...checks.keys()].sort(), ['import.arxiv', 'import.large-pdf', 'import.long-paper', 'ingest.imports-ready']);
+  for (const [id, run] of checks) {
+    for (const transport of ['bounded-v1', 'legacy'] as const) {
+      active = fixture(transport);
+      const checked = await run({ signal: new AbortController().signal });
+      assert.equal(active.requests.length, 3, `${id} must verify both members`);
+      assert.ok(checked.text.includes(transport), `${id} must report the actual transport`);
+      if (id !== 'ingest.imports-ready') assert.equal(checked.metrics.reader_transport, transport);
+    }
+  }
 });

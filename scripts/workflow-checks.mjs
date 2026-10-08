@@ -804,8 +804,8 @@ check('ingest.imports-ready', { title: 'Papers queued by Add paper reach ready',
   const results = await Promise.all(pendingImports.map(async p => {
     try {
       const { item, seconds } = await waitForReady(p.acct, e => e.id === p.id || (e.kind === 'item' && e.source_id === p.source), { timeoutS: 1200, signal, label: p.source });
-      const bundle = await verifyBundle(p.acct, item.id, signal);
-      return { ok: true, text: `${p.source} ready ≤ ${Math.round((Date.now() - p.queuedAt) / 1000)} s after queueing (${item.page_count} p, ${bundle.members} members)` };
+      const bundle = await verifyBundle(p.acct, item, signal);
+      return { ok: true, text: `${p.source} ready ≤ ${Math.round((Date.now() - p.queuedAt) / 1000)} s after queueing (${item.page_count} p, ${bundle.members} members, ${bundle.transport})` };
     } catch (error) { return { ok: false, text: `${p.check}: ${error.message}` }; }
   }));
   const failed = results.filter(r => !r.ok);
@@ -822,9 +822,9 @@ for (const [id, source, title, timeoutS, pages] of [
     const acct = await account('heavy', 150), started = Date.now();
     await beginImport(acct, source, signal);
     const { item, seconds, steps } = await waitForReady(acct, e => e.source_id === source, { timeoutS, signal, label: source });
-    const bundle = await verifyBundle(acct, item.id, signal);
-    const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), pages: item.page_count, bundle_bytes: bundle.bytes };
-    return pass(`ready in ${seconds} s (${steps.map(s => s.state).join(' → ')}); ${item.scope}, ${item.page_count} pages, ${bundle.members} members verified`, metrics);
+    const bundle = await verifyBundle(acct, item, signal);
+    const metrics = { time_to_ready_s: Math.round((Date.now() - started) / 1000), pages: item.page_count, bundle_bytes: bundle.bytes, reader_transport: bundle.transport };
+    return pass(`ready in ${seconds} s (${steps.map(s => s.state).join(' → ')}); ${item.scope}, ${item.page_count} pages, ${bundle.members} members verified (${bundle.transport})`, metrics);
   });
 }
 
