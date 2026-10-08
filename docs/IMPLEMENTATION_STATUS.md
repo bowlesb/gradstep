@@ -28,6 +28,8 @@ removed executor work) is retained below where useful and in git history.
   $0.012572 total, all three test accounts deleted (`hosted-browser-diagram-total-cost.json`). Auth UI was seeded;
   email/OAuth UI, Safari and physical camera remain unverified. Visual review prompted a whole-graph Fit view
   with bounded zoom; six local production-CSP diagram journeys pass, with four intentional phone skips.
+  That follow-up is **live as Pages `e15a5614` / `0db9809`**; production build and matching-asset HTTP/CSP/HSTS/
+  no-console-error smoke pass (`web-diagram-live-smoke.json`). No additional provider call was needed.
 - **iOS and Mac TestFlight build 19**, source `b4b7ad7`, uploaded October 7 at 22:56 PDT. App Store Connect
   confirms both **VALID / IN_BETA_TESTING**: iOS `6bda87b4-c0b8-45e4-a760-a6328beb979d`,
   Mac `d6bf3f5e-8d8f-4936-a0fa-039d2369651b`. Evidence:

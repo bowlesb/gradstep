@@ -1,9 +1,9 @@
 # Browser reader
 
 Status, 2026-10-08 UTC: **milestone 2 and Library columns/full abstracts deployed to https://app.gradstep.ai
-against staging**, latest Pages `67f5547c` from `0fb60c7`. Encrypted browser chat first shipped in `68faefdb`
-from `b4b7ad7`; the follow-up retains it. Latest deployment/smoke:
-`.artifacts/takeover-20261008/{web-columns-deploy.log,web-columns-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
+against staging**, latest Pages `e15a5614` from `0db9809` adds fitted diagrams and zoom. Library columns shipped
+in `67f5547c`; encrypted browser chat first shipped in `68faefdb` from `b4b7ad7`. Latest deployment/smoke:
+`.artifacts/takeover-20261008/{web-diagram-deploy.log,web-diagram-live-smoke.json}`; HTTP 200, CSP/HSTS and no browser
 errors. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
 real key setup, reading and encrypted question/history recovery. A later [hosted diagram journey](#hosted-answer-and-diagram--2026-10-08-utc)
 verified a paid answer, Mermaid rendering and recovery after reload. Auth was seeded; email/OAuth UI,
