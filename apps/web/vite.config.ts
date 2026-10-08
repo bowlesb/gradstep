@@ -33,7 +33,7 @@ function headers(backend: string, hash: string): Record<string, string> {
   const origin = backend ? new URL(backend).origin : '';
   return {
     'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
-      `font-src 'self'`, `connect-src ${origin || `'none'`}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
+      `font-src 'self'`, `media-src blob:`, `connect-src ${origin || `'none'`}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
       `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'none'`].join('; '),
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
