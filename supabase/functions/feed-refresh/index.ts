@@ -2,7 +2,7 @@
 // (app_private.feed_refresh_kick, migration 043) only when refreshing is on and the source is due;
 // authenticated by the dedicated FEED_REFRESH_SECRET header, never a user token. Claims the source,
 // answers 202, and finishes the fetch in the background under the claim's lease. The same run reads
-// Hugging Face Papers upvotes for the pool (feed-signals.ts, migration 048) before releasing the claim.
+// Hugging Face Papers upvotes for the pool (feed-signals.ts, migration 046) before releasing the claim.
 import { rpc, serviceClient } from '../_shared/backend.ts';
 import { runRefresh, sameSecret, type PoolItem, type RefreshClaim, type RefreshStatus } from '../_shared/feed-pool.ts';
 import { runSignals, type SignalDayStatus, type SignalPlan, type Upvote } from '../_shared/feed-signals.ts';

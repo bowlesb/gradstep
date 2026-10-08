@@ -187,6 +187,42 @@ final class ChatGenerationTests: XCTestCase {
         XCTAssertEqual(model.chatMessages.last?.payload.text, "IPO generalizes it.", "Status text is never part of the answer")
     }
 
+    /// Owner feedback (build 21): a reference's Discuss in chat opens this paper's chat with the entry quoted in the
+    /// message box, ready to type; nothing is sent. An empty new chat keeps its unsent words after the quote; a
+    /// conversation under way is left as it was and the reference starts a new one.
+    func testDiscussReferenceQuotesTheEntryInThisPapersChatWithoutSending() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        let paper = try XCTUnwrap(model.selectedPaper)
+        model.tab = .paper
+        model.chatInput = "Compare with PPO."
+        let composer = model.chatComposerID
+        model.discussReference("A. Chowdhery, S. Narang,\n and J. Devlin. PaLM: Scaling language modeling with pathways. arXiv:2204.02311, 2022.")
+        XCTAssertEqual(model.tab, .chat)
+        XCTAssertFalse(model.generalChat)
+        XCTAssertEqual(model.chatPaper?.id, paper.id)
+        XCTAssertEqual(model.chatInput, "About “A. Chowdhery, S. Narang, and J. Devlin. PaLM: Scaling language modeling with pathways. "
+                       + "arXiv:2204.02311, 2022.”: Compare with PPO.")
+        XCTAssertEqual(model.chatComposerID, composer, "The empty chat and its unsent words are kept")
+        XCTAssertTrue(model.takeComposerFocusRequest(), "The message box takes the focus, once")
+        XCTAssertFalse(model.takeComposerFocusRequest())
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertTrue(transport.requests.isEmpty, "Nothing is sent")
+
+        model.chatInput = "What is DPO?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        transport.send(.delta("A method."), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        let conversation = try XCTUnwrap(model.activeConversation)
+        model.tab = .paper
+        model.discussReference("R. A. Bradley and M. E. Terry. Rank analysis of incomplete block designs. Biometrika, 1952.")
+        XCTAssertEqual(model.tab, .chat)
+        XCTAssertNil(model.activeConversation, "A new chat for the reference")
+        XCTAssertEqual(model.chatInput, "About “R. A. Bradley and M. E. Terry. Rank analysis of incomplete block designs. Biometrika, 1952.”: ")
+        XCTAssertEqual(transport.requests.count, 1, "Nothing more is sent")
+        XCTAssertEqual(model.privateState.revisions(for: conversation).first?.payload.kind, .conversation, "The earlier conversation is untouched")
+    }
+
     /// Owner feedback #10/#3: Quote in Chat quotes into the composer; Explain/Define ask in this chat,
     /// never over a draft; menus on answer text and formulas carry these actions and copy LaTeX.
     func testAnswerTextAndFormulaActions() async throws {

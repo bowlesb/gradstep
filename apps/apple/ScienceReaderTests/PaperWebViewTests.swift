@@ -423,13 +423,17 @@ final class PaperWebViewTests: XCTestCase {
         XCTAssertTrue(returned, "Back returns to the exact reading position")
         XCTAssertEqual(harness.citationStates, [true, false])
 
-        // Scrolling a screen away from the reference ends the offer.
+        // Back stays while the reader looks around the reference (owner feedback, build 21: "persists until the reader
+        // returns or scrolls far away"); two screens away ends the offer.
         _ = try await web.callAsyncJavaScript("document.querySelector('.sr-cite[data-sr-cite=\"ref-28\"]').click();",
                                               arguments: [:], in: nil, contentWorld: .page)
         let landedAgain = try await eventually { try await self.script(web, entryVisible) as? Bool == true }
         XCTAssertTrue(landedAgain)
         try await Task.sleep(for: .milliseconds(300))
-        _ = try await script(web, "window.scrollBy({top: -2 * window.innerHeight, behavior: 'instant'});")
+        _ = try await script(web, "window.scrollBy({top: -1.5 * window.innerHeight, behavior: 'instant'});")
+        try await Task.sleep(for: .milliseconds(400))
+        XCTAssertEqual(harness.citationStates, [true, false, true], "A screen and a half away, Back is still offered")
+        _ = try await script(web, "window.scrollBy({top: -window.innerHeight, behavior: 'instant'});")
         let ended = try await eventually { harness.citationStates == [true, false, true, false] }
         XCTAssertTrue(ended, "\(harness.citationStates)")
         let backAgain = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
@@ -646,6 +650,213 @@ final class PaperWebViewTests: XCTestCase {
         _ = try await web.callAsyncJavaScript("document.querySelector('#b-2 .sr-cite').click();", arguments: [:], in: nil, contentWorld: .page)
         let jumped = try await eventually { harness.citationStates == [true] }
         XCTAssertTrue(jumped, "Tapping [Gelfond and Lifschitz 1991] jumps to the entry and offers Back")
+    }
+
+    /// Owner feedback (build 21, "Knows what it knows", Li, Littman, Walsh and Strehl, Machine Learning 2011): "Brafman
+    /// and Ten-nenholtz 2002" in a semicolon group did not link. Surnames hyphenated at a line end (joined by Mathpix,
+    /// with a space or a line break left in, or with a soft or Unicode hyphen) and accented ones link in groups,
+    /// parenthetical and narrative forms, and an entry's own hyphenation ("Wiewio- ra") matches too.
+    func testHyphenatedAndAccentedAuthorYearCitationsLink() async throws {
+        let group = "At the core of recent RL algorithms (Kearns and Singh 2002; Kearns and Koller 1999; Brafman and Ten-nenholtz 2002; "
+            + "Kakade et al. 2003; Strehl et al. 2006a, 2007) lies the idea."
+        let forms = "The Rmax algorithm (Brafman and Tennenholtz 2002), as Brafman and Ten- nenholtz (2002) showed, (Brafman and Ten&#173;nenholtz 2002), "
+            + "(Brafman and Ten\u{2010}nenholtz 2002), memory (Lopez-Paz and Ranzato 2017), kernels (Scholkopf and Smola 2002; "
+            + "Sch\u{00F6}lkopf &amp; Smola 2002) and (Wiewiora 2004)."
+        let broken = "A break inside a name (Brafman and Ten-<br>nenholtz 2002)."
+        let document = """
+        <h1 data-reader-block="b-1">Knows what it knows</h1>
+        <p data-reader-block="b-2" id="b-2">\(group)</p>
+        <p data-reader-block="b-3" id="b-3">\(forms)</p>
+        <p data-reader-block="b-4" id="b-4">\(broken)</p>
+        <h2 data-reader-block="b-5">References</h2>
+        <p data-reader-block="b-6" id="b-6">Brafman, R. I., &amp; Tennenholtz, M. (2002). R-MAX: a general polynomial time algorithm for near-optimal reinforcement learning. Journal of Machine Learning Research, 3, 213-231.
+        Kakade, S. M. (2003). On the sample complexity of reinforcement learning. Doctoral dissertation, University College London.
+        Kakade, S., Kearns, M., &amp; Langford, J. (2003). Exploration in metric state spaces. In ICML.
+        Kearns, M. J., &amp; Koller, D. (1999). Efficient reinforcement learning in factored MDPs. In IJCAI.
+        Kearns, M. J., &amp; Singh, S. P. (2002). Near-optimal reinforcement learning in polynomial time. Machine Learning, 49, 209-232.
+        Lopez-Paz, D., &amp; Ranzato, M. (2017). Gradient episodic memory for continual learning. In NeurIPS.
+        Sch\u{00F6}lkopf, B., &amp; Smola, A. J. (2002). Learning with kernels. MIT Press.
+        Strehl, A. L., Li, L., &amp; Littman, M. L. (2006a). Incremental model-based learners with formal learning-time guarantees. In UAI.
+        Strehl, A. L., Li, L., Wiewiora, E., Langford, J., &amp; Littman, M. L. (2006b). PAC model-free reinforcement learning. In ICML.
+        Strehl, A. L., Diuk, C., &amp; Littman, M. L. (2007). Efficient structure learning in factored-state MDPs. In AAAI.
+        Wiewio- ra, E. (2004). Efficient exploration for reinforcement learning. Master's thesis, University of Alberta.</p>
+        """
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            const links = id => [...document.getElementById(id).querySelectorAll('.sr-cite')].map(cite => cite.textContent + '>' + cite.getAttribute('data-sr-cite'));
+            return {group: links('b-2'), forms: links('b-3'), broken: links('b-4'), text: ['b-2', 'b-3', 'b-4'].map(id => document.getElementById(id).textContent)};
+            """) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertEqual(state["group"] as? [String], ["Kearns and Singh 2002>ref-5", "Kearns and Koller 1999>ref-4", "Brafman and Ten-nenholtz 2002>ref-1",
+                                                     "Kakade et al. 2003>ref-3", "Strehl et al. 2006a>ref-8", "2007>ref-10"],
+                       "The hyphenated name links inside its semicolon group, and the group's other citations are unchanged")
+        XCTAssertEqual(state["forms"] as? [String], ["Brafman and Tennenholtz 2002>ref-1", "Brafman and Ten- nenholtz (2002)>ref-1",
+                                                     "Brafman and Ten\u{00AD}nenholtz 2002>ref-1", "Brafman and Ten\u{2010}nenholtz 2002>ref-1",
+                                                     "Lopez-Paz and Ranzato 2017>ref-6", "Scholkopf and Smola 2002>ref-7", "Sch\u{00F6}lkopf & Smola 2002>ref-7",
+                                                     "Wiewiora 2004>ref-11"])
+        XCTAssertEqual(state["broken"] as? [String], ["Brafman and Ten->ref-1", "nenholtz 2002>ref-1"], "A line break inside the name links in pieces")
+        XCTAssertEqual(state["text"] as? [String], [group, forms.replacingOccurrences(of: "&#173;", with: "\u{00AD}").replacingOccurrences(of: "&amp;", with: "&"),
+                                                    broken.replacingOccurrences(of: "<br>", with: "")], "Only inline wrappers are added")
+        _ = try await web.callAsyncJavaScript("document.querySelector('#b-2 .sr-cite[data-sr-cite=\"ref-1\"]').click();", arguments: [:], in: nil, contentWorld: .page)
+        let jumped = try await eventually { harness.citationStates == [true] }
+        XCTAssertTrue(jumped, "Tapping \"Brafman and Ten-nenholtz 2002\" goes to the entry and offers Back")
+    }
+
+    // MARK: - Figure, table and algorithm references (owner feedback, build 21)
+
+    /// "When figures are referenced you should be able to link directly to them." Each reference links to the one
+    /// element whose caption prints its label (a figure, a table, an algorithm's code block, or a caption Mathpix kept
+    /// as a paragraph and its one unlabelled neighbour); a label printed on two different elements, or on none, stays
+    /// plain, and a caption never links to itself.
+    func testFigureTableAndAlgorithmReferencesLinkOnlyToTheirLabelledElement() async throws {
+        let text = "Consider the task in Fig. 1. As Figure 3(b) and Figs. 2 and 3 show, Tables 1–2 and Algorithm 1 summarize it; "
+            + "Table 4 is printed twice, Figure 9 is not in the paper, and figure 5 is only a caption."
+        let filler = (0..<10).map { index in
+            "<p data-reader-block=\"b-f\(index)\" id=\"b-f\(index)\">Filler \(index) keeps the last caption away from the reference. "
+                + String(repeating: "Words fill the line here. ", count: 10) + "</p>"
+        }.joined(separator: "\n")
+        let document = """
+        <h1 data-reader-block="b-1">Figures</h1>
+        <p data-reader-block="b-2" id="b-2">\(text)</p>
+        <figure data-reader-block="b-3" id="b-3"><figcaption>Figure 1: The task. Compare Figure 2.</figcaption></figure>
+        <figure data-reader-block="b-4" id="b-4"><figcaption>Figure 2. Results.</figcaption></figure>
+        <figure data-reader-block="b-5" id="b-5"><figcaption>Figure 3 Ablations. Figure 3a is the left panel.</figcaption></figure>
+        <div class="reader-table" data-reader-block="b-6" id="b-6"><table><tbody><tr><td>1</td></tr></tbody></table><p class="reader-caption">Table 1: Scores.</p></div>
+        <p data-reader-block="b-7" id="b-7">Table 2: Ablations, printed as a paragraph above its table.</p>
+        <div class="reader-table" data-reader-block="b-8" id="b-8"><table><tbody><tr><td>2</td></tr></tbody></table></div>
+        <pre data-reader-block="b-9" id="b-9"><code>Algorithm 1 Training
+        repeat</code></pre>
+        <div class="reader-table" data-reader-block="b-10" id="b-10"><table><tbody><tr><td>3</td></tr></tbody></table><p class="reader-caption">Table 4: First.</p></div>
+        <div class="reader-table" data-reader-block="b-11" id="b-11"><table><tbody><tr><td>4</td></tr></tbody></table><p class="reader-caption">Table 4: A different one.</p></div>
+        \(filler)
+        <p data-reader-block="b-12" id="b-12">Figure 5: A caption whose figure Mathpix didn't keep.</p>
+        """
+        let harness = try Harness(document: document)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 15)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            const links = id => [...document.getElementById(id).querySelectorAll('.sr-figref')].map(link => link.textContent + '>' + link.getAttribute('data-sr-figure'));
+            const all = [...document.querySelectorAll('#b-2 .sr-figref')];
+            return {text: links('b-2'), caption: links('b-3'), own: links('b-5'), labels: all.map(link => link.getAttribute('aria-label')),
+              links: all.every(link => link.getAttribute('role') === 'link' && link.tabIndex === 0 && link.classList.contains('sr-cite')),
+              unchanged: ['b-2', 'b-3', 'b-5'].map(id => document.getElementById(id).textContent)};
+            """) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertEqual(state["text"] as? [String], ["Fig. 1>b-3", "Figure 3(b)>b-5", "Figs. 2>b-4", "3>b-5", "Tables 1>b-6", "2>b-8",
+                                                    "Algorithm 1>b-9", "figure 5>b-12"],
+                       "Lists link each number; a caption paragraph names its one unlabelled neighbour; Table 4 (two) and Figure 9 (none) stay plain")
+        XCTAssertEqual(state["labels"] as? [String], ["Figure 1", "Figure 3(b)", "Figure 2", "Figure 3", "Table 1", "Table 2", "Algorithm 1", "Figure 5"])
+        XCTAssertEqual(state["caption"] as? [String], ["Figure 2>b-4"], "A caption links to other figures, not to itself")
+        XCTAssertEqual(state["own"] as? [String], [], "Figure 3's mention of its own panel is not a link")
+        XCTAssertEqual(state["links"] as? Bool, true, "Links look and behave like citations (focusable, citation color)")
+        XCTAssertEqual(state["unchanged"] as? [String], [text, "Figure 1: The task. Compare Figure 2.", "Figure 3 Ablations. Figure 3a is the left panel."])
+
+        // A caption with no element to show is gone to directly, with Back; scrolling back to the place left by hand
+        // ends the offer (the reader has returned).
+        _ = try await web.callAsyncJavaScript("document.querySelector('#b-2 .sr-figref[data-sr-figure=\"b-12\"]').click();", arguments: [:], in: nil, contentWorld: .page)
+        let landed = try await eventually {
+            guard harness.citationStates == [true] else { return false }
+            return try await self.script(web, "const r = document.getElementById('b-12').getBoundingClientRect(); return window.scrollY > 0 && r.top >= 0 && r.bottom <= innerHeight;") as? Bool == true
+        }
+        XCTAssertTrue(landed, "The caption is in view with Back offered")
+        try await Task.sleep(for: .milliseconds(400))
+        _ = try await script(web, "window.scrollTo({top: 0, behavior: 'instant'});")
+        let returned = try await eventually { harness.citationStates == [true, false] }
+        XCTAssertTrue(returned, "Back ends once the reader scrolls back by themselves: \(harness.citationStates)")
+    }
+
+    /// In a real bundle (DPO): a figure or table reference asks the app to show that element (the sheet), the table
+    /// opens on its own like a figure, and "Go to table" centers it with Back to the reference.
+    func testFigureReferenceInABundleShowsItsElementAndGoesThereWithBack() async throws {
+        let bundle = try OfflineReaderFixture.reader(variant: .mathpix)
+        let figure = try XCTUnwrap(bundle.index.figures.first { $0.caption.hasPrefix("Figure 2") })
+        let table = try XCTUnwrap(bundle.index.blocks.first { $0.kind == "table" && $0.text.contains("Table 1:") })
+        let harness = try Harness(bundle: bundle)
+        defer { harness.close() }
+        await fulfillment(of: [harness.loaded], timeout: 20)
+        let web = try XCTUnwrap(harness.web)
+        let stateValue = try await script(web, """
+            const links = [...document.querySelectorAll('.sr-figref')];
+            return {count: links.length, figure: links.filter(link => link.getAttribute('data-sr-figure') === figure).map(link => link.textContent),
+              table: links.filter(link => link.getAttribute('data-sr-figure') === table).map(link => link.textContent)};
+            """, ["figure": figure.id, "table": table.id]) as? [String: Any]
+        let state = try XCTUnwrap(stateValue)
+        XCTAssertGreaterThanOrEqual(state["count"] as? Int ?? 0, 10, "DPO's figure and table references link")
+        XCTAssertTrue((state["figure"] as? [String] ?? []).contains("Figure 2"), "\(state)")
+        XCTAssertTrue((state["table"] as? [String] ?? []).contains("Table 1"), "\(state)")
+
+        _ = try await web.callAsyncJavaScript("document.querySelector(`.sr-figref[data-sr-figure=\"${id}\"]`).click();",
+                                              arguments: ["id": figure.id], in: nil, contentWorld: .page)
+        let figureShown = try await eventually { harness.figureReferences.count == 1 }
+        XCTAssertTrue(figureShown)
+        XCTAssertEqual(harness.figureReferences.first?.targetID, figure.id)
+        XCTAssertEqual(harness.figureReferences.first?.label, "Figure 2")
+        XCTAssertEqual(harness.figureReferences.first?.goTitle, "Go to figure")
+        XCTAssertEqual(harness.citationStates, [], "Looking at a figure is not a jump")
+
+        // From a place where the table reference is on screen.
+        let originValue = try await script(web, """
+            const link = document.querySelector(`.sr-figref[data-sr-figure="${id}"]`);
+            window.scrollTo({top: window.scrollY + link.getBoundingClientRect().top - innerHeight / 3, behavior: 'instant'});
+            await new Promise(resolve => setTimeout(resolve, 400));
+            link.click();
+            return window.scrollY;
+            """, ["id": table.id]) as? Double
+        let origin = try XCTUnwrap(originValue)
+        let tableShown = try await eventually { harness.figureReferences.count == 2 }
+        XCTAssertTrue(tableShown)
+        XCTAssertEqual(harness.figureReferences.last?.targetID, table.id)
+        XCTAssertEqual(harness.figureReferences.last?.label, "Table 1")
+        XCTAssertEqual(harness.figureReferences.last?.goTitle, "Go to table")
+
+        // The sheet's view: the table on its own, its caption included.
+        let detail = try Harness(bundle: bundle, figureID: table.id)
+        defer { detail.close() }
+        await fulfillment(of: [detail.loaded], timeout: 15)
+        XCTAssertFalse(detail.failed)
+        let detailState = try await XCTUnwrap(detail.web).evaluateJavaScript(
+            "document.body.children.length === 1 && document.querySelectorAll('.reader-table table').length === 1 && document.body.textContent.includes('Table 1:')") as? Bool
+        XCTAssertEqual(detailState, true)
+
+        // Go to table: in view and highlighted, Back offered; Show in paper (the gallery's) still only takes figures.
+        let gallery = try await script(web, "return window.__scienceReaderShowFigure(id);", ["id": table.id]) as? Bool
+        XCTAssertEqual(gallery, false)
+        let went = try await script(web, "return window.__scienceReaderShowFigure(id, true, true);", ["id": table.id]) as? Bool
+        XCTAssertEqual(went, true)
+        let inView = try await eventually {
+            try await self.script(web, """
+                const rect = document.getElementById(id).getBoundingClientRect();
+                return rect.top < innerHeight && rect.bottom > 0 && document.querySelector('.sr-flash') !== null;
+                """, ["id": table.id]) as? Bool == true
+        }
+        XCTAssertTrue(inView)
+        XCTAssertEqual(harness.citationStates, [true], "Back is offered")
+        let back = try await script(web, "return window.__scienceReaderCitationBack();") as? Bool
+        XCTAssertEqual(back, true)
+        let returned = try await eventually { abs((try await self.script(web, "return window.scrollY;") as? Double ?? -1) - origin) < 2 }
+        XCTAssertTrue(returned, "Back returns to the reference")
+        XCTAssertEqual(harness.citationStates, [true, false])
+    }
+
+    func testFigureReferenceMessagesNameTheBundlesOwnFiguresTablesOrCode() throws {
+        let bundle = try OfflineReaderFixture.reader(variant: .mathpix)
+        let figure = try XCTUnwrap(bundle.index.figures.first), table = try XCTUnwrap(bundle.index.blocks.first { $0.kind == "table" })
+        let code = try XCTUnwrap(bundle.index.blocks.first { $0.kind == "code" }), paragraph = try XCTUnwrap(bundle.index.blocks.first { $0.kind == "paragraph" })
+        func message(_ id: String, _ label: String, manifest: String? = nil) -> [String: Any] {
+            ["type": "figureref", "manifest_sha256": manifest ?? bundle.manifestSHA256, "id": id, "label": label]
+        }
+        XCTAssertEqual(ReaderFigureReference(message: message(figure.id, "Figure 1"), bundle: bundle)?.goTitle, "Go to figure")
+        XCTAssertEqual(ReaderFigureReference(message: message(table.id, "Table 1"), bundle: bundle)?.goTitle, "Go to table")
+        XCTAssertEqual(ReaderFigureReference(message: message(code.id, "Algorithm 1"), bundle: bundle)?.goTitle, "Go to algorithm")
+        XCTAssertEqual(ReaderFigureReference(message: message(figure.id, "Table A1"), bundle: bundle)?.label, "Table A1", "A table printed as an image")
+        XCTAssertNil(ReaderFigureReference(message: message(paragraph.id, "Figure 1"), bundle: bundle), "A paragraph is gone to, not shown")
+        XCTAssertNil(ReaderFigureReference(message: message("b-missing", "Figure 1"), bundle: bundle))
+        XCTAssertNil(ReaderFigureReference(message: message(figure.id, "<b>Figure</b> 1"), bundle: bundle))
+        XCTAssertNil(ReaderFigureReference(message: message(figure.id, "Figure 1", manifest: String(repeating: "0", count: 64)), bundle: bundle))
     }
 
     // MARK: - The paper's own table of contents
@@ -917,6 +1128,7 @@ final class PaperWebViewTests: XCTestCase {
         var selection: ReaderSelection?
         var figureID: String?
         var reference: ReaderReference?
+        var figureReferences: [ReaderFigureReference] = []
         var citationStates: [Bool] = []
         var locations: [PaperReadingLocation] = []
         var failed = false
@@ -963,7 +1175,7 @@ final class PaperWebViewTests: XCTestCase {
             }, onReference: { [weak self] reference in
                 guard let self, self.reference == nil else { return }
                 self.reference = reference; referenced.fulfill()
-            })
+            }, onFigureReference: { [weak self] in self?.figureReferences.append($0) })
             let host = UIHostingController(rootView: view)
             controller = host
             window.rootViewController = host

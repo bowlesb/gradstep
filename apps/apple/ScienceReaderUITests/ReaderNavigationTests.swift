@@ -83,6 +83,141 @@ final class ReaderNavigationTests: XCTestCase {
         XCTAssertTrue(app.editMenuItem("Explain in Chat").waitForExistence(timeout: 5), "The edit menu offers the passage actions")
     }
 
+    // MARK: - Owner feedback, build 21
+
+    private func openDPO(appearance: String) -> (XCUIApplication, XCUIElement) {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication(), paperID = "paper.dddddddd-0000-4000-8000-000000000002"
+        app.launchArguments = ["--offline-reader-fixture", "--reset-offline-reader-fixture", "--mathpix-reader-fixture", "-appearance", appearance]
+        app.launch()
+        XCTAssertTrue(app.buttons[paperID].waitForExistence(timeout: 10))
+        app.buttons[paperID].tap()
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 8))
+        let year = web.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "2023, NeurIPS")).firstMatch
+        XCTAssertTrue(year.waitForExistence(timeout: 20), "The paper is ready")
+        return (app, web)
+    }
+
+    private func capture(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    private func waitUntil(_ message: String, timeout: TimeInterval = 8, _ condition: @escaping () -> Bool,
+                           file: StaticString = #filePath, line: UInt = #line) {
+        let result = XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: timeout)
+        XCTAssertEqual(result, .completed, message, file: file, line: line)
+    }
+
+    /// Back after a jump reads "Back to where you were" and sits at the left of the A− / A+ row: clear of it and of
+    /// the tab bar (owner feedback, build 21).
+    private func assertBackClearOfTextSizeAndTabs(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let back = app.buttons["reader.citation.back"], textSize = app.descendants(matching: .any)["paper.textSize"]
+        XCTAssertEqual(back.label, "Back to where you were", file: file, line: line)
+        XCTAssertTrue(textSize.exists, file: file, line: line)
+        XCTAssertFalse(back.frame.intersects(textSize.frame), "Back \(back.frame) covers A− / A+ \(textSize.frame)", file: file, line: line)
+        XCTAssertLessThan(back.frame.midX, textSize.frame.minX, file: file, line: line)
+        let tab = app.buttons["tab.paper"]
+        if tab.exists { XCTAssertLessThanOrEqual(back.frame.maxY, tab.frame.minY, "Back stays above the tab bar", file: file, line: line) }
+    }
+
+    /// "Reference at the top of the message isn't needed" and "Needs to be a discuss in chat button … you can
+    /// continue typing": the reference's actions have no title row; Discuss in chat opens this paper's chat with the
+    /// entry quoted in the message box and the keyboard up, nothing sent.
+    func testReferenceActionsHaveNoTitleAndDiscussInChatQuotesTheEntry() throws {
+        for appearance in ["light", "dark"] {
+            let (app, web) = openDPO(appearance: appearance)
+            app.buttons["Table of contents"].tap()
+            let introduction = app.buttons["1 Introduction"]
+            for _ in 0..<6 { if introduction.waitForExistence(timeout: 2) { break }; app.swipeUp() }
+            introduction.tap()
+            let citation = web.links["Reference 11"].firstMatch
+            // By frame: asking a web link's hittability while the page still scrolls can raise instead of answering.
+            waitUntil("The citation is on screen") {
+                citation.exists && !citation.frame.isEmpty && web.frame.insetBy(dx: 0, dy: 60).contains(CGPoint(x: citation.frame.midX, y: citation.frame.midY))
+            }
+            sleep(1)
+            citation.tap()
+            let back = app.buttons["reader.citation.back"]
+            XCTAssertTrue(back.waitForExistence(timeout: 5))
+            assertBackClearOfTextSizeAndTabs(app)
+            let entry = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "[11]")).firstMatch
+            waitUntil("The citation lands on reference 11") { entry.exists && entry.isHittable }
+            capture("Back to where you were after a citation (\(appearance))")
+
+            entry.tap()
+            let discuss = app.buttons["Discuss in chat"]
+            XCTAssertTrue(discuss.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["Open on arXiv"].exists); XCTAssertTrue(app.buttons["Add to library"].exists); XCTAssertTrue(app.buttons["Copy"].exists)
+            // The dialog keeps its title for VoiceOver only: nothing is drawn above the first action.
+            let first = app.buttons["Open on arXiv"]
+            let titled = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Reference")).allElementsBoundByIndex.filter {
+                $0.isHittable && $0.frame.maxY <= first.frame.minY + 2 && $0.frame.minY >= first.frame.minY - 90
+                    && $0.frame.midX > first.frame.minX && $0.frame.midX < first.frame.maxX
+            }
+            XCTAssertTrue(titled.isEmpty, "No title row above the actions: \(titled.map(\.label))")
+            capture("Reference actions without a title (\(appearance))")
+
+            discuss.tap()
+            let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+            XCTAssertTrue(composer.waitForExistence(timeout: 8), "This paper's chat opens")
+            waitUntil("The entry is quoted in the message box") { (composer.value as? String)?.hasPrefix("About “A. Chowdhery") == true }
+            waitUntil("The cursor is in the message box, ready to type") { app.keyboards.firstMatch.exists }
+            XCTAssertTrue((composer.value as? String)?.hasSuffix("”: ") == true, "\(composer.value ?? "")")
+            capture("Discuss in chat: the reference quoted, ready to type (\(appearance))")
+            app.typeText("Is this the PaLM paper?")
+            waitUntil("Typing continues after the quote") { (composer.value as? String)?.hasSuffix("”: Is this the PaLM paper?") == true }
+            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.message.text.")).firstMatch.exists,
+                           "Nothing was sent")
+            app.terminate()
+        }
+    }
+
+    /// "When figures are referenced you should be able to link directly to them … and there should also be a
+    /// 'return to reading location' option": "Figure 2" in the text shows the figure with its caption in a sheet;
+    /// Go to figure goes there in the paper, and Back to where you were returns to the reference.
+    func testFigureReferenceShowsTheFigureAndGoToFigureReturnsWithBack() throws {
+        for appearance in ["light", "dark"] {
+            let (app, web) = openDPO(appearance: appearance)
+            app.buttons["Table of contents"].tap()
+            let section = app.buttons["6.1 How well can DPO optimize the RLHF objective?"]
+            for _ in 0..<8 { if section.waitForExistence(timeout: 2) && section.isHittable { break }; app.swipeUp() }
+            section.tap()
+            let link = web.links.matching(NSPredicate(format: "label == %@", "Figure 2")).firstMatch
+            waitUntil("The reference is on screen") { link.exists && link.isHittable && link.frame.minY > web.frame.minY + 40 }
+            sleep(1)
+            let start = link.frame.minY
+            capture("Figure references are links (\(appearance))")
+
+            link.tap()
+            XCTAssertTrue(app.navigationBars["Figure 2"].waitForExistence(timeout: 5), "The figure opens in a sheet titled by its label")
+            // The sheet's own web view: the one below the paper's top, in the half-height sheet.
+            var detail: XCUIElement?
+            waitUntil("The sheet's figure view") {
+                detail = app.webViews.allElementsBoundByIndex.first { $0.frame.minY > web.frame.minY + 150 }
+                return detail != nil
+            }
+            let sheet = try XCTUnwrap(detail)
+            waitUntil("The figure's offline image") { sheet.images.firstMatch.exists }
+            waitUntil("With its caption") { sheet.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Figure 2: Left.")).firstMatch.exists }
+            XCTAssertTrue(app.buttons["figureReference.go"].exists && app.buttons["figureReference.go"].label == "Go to figure")
+            XCTAssertFalse(app.buttons["reader.citation.back"].exists, "Looking at a figure is not a jump")
+            capture("A figure reference's sheet (\(appearance))")
+
+            app.buttons["figureReference.go"].tap()
+            let back = app.buttons["reader.citation.back"]
+            XCTAssertTrue(back.waitForExistence(timeout: 5), "Back is offered after Go to figure")
+            let figure = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open figure: Figure 2")).firstMatch
+            waitUntil("The figure is shown in the paper") { figure.exists && web.frame.contains(CGPoint(x: figure.frame.midX, y: figure.frame.midY)) }
+            assertBackClearOfTextSizeAndTabs(app)
+            capture("Go to figure: the figure with Back to where you were (\(appearance))")
+
+            back.tap()
+            waitUntil("Back returns to the reference") { link.exists && abs(link.frame.minY - start) < 3 && !back.exists }
+            app.terminate()
+        }
+    }
+
     func testScreenshotPreviewRedactionAndRemoval() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication(); app.launch()

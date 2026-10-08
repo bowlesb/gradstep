@@ -6,10 +6,10 @@ switches remain off.** Migration `202610070043_personalized_feed.sql` was applie
 as the prerequisite to subscription repair044, after encrypted backup. Readback confirms `serving=off`,
 `refresh_enabled=false`, an empty pool/feedback and no sources. The scheduled gate returns before network work; no
 refresh function or personalized UI was deployed. Evidence: `.artifacts/takeover-20261008/feed-dark-deployment.json`.
-Migration `202610080048_feed_topics_popularity.sql` (topics, popularity) is written and tested locally, **not
+Migration `202610080046_feed_topics_popularity.sql` (topics, popularity) is written and tested locally, **not
 applied**. The owner accepted For you as the default and the use of server-visible library metadata on 2026-10-08
 ([decision](../DECISIONS.md#personalized-feed-owner-asked-2026-10-07-for-you-accepted-2026-10-08)); enabling serving
-or refresh on staging is the lead's step after review ([enable steps](#enable-048-on-staging-lead)). The browser
+or refresh on staging is the lead's step after review ([enable steps](#enable-046-on-staging-lead)). The browser
 (apps/web) and Mac-only polish moved to Codex on 2026-10-08; the [response contract](#discover-response-contract-for-clients)
 below is what the web side builds on.
 
@@ -391,11 +391,11 @@ feedback stay until pruned (30 days) or account deletion; nothing else depends o
 | Pool refresh (RSS parse, topic rules, refresh loop) | `supabase/functions/feed-refresh/index.ts`, `_shared/feed-pool.ts`, `_shared/feed-topics.ts` |
 | Ranking and reasons; For you and pool-served chips | `_shared/feed-rank.ts`, `supabase/functions/discover/index.ts` |
 | Deployment wiring | `supabase/config.toml` (explicit refresh-function deploy only until rollout), `scripts/deploy-staging.py` (Vault + secret when `FEED_REFRESH_SECRET` is set) |
-| Topics and popularity (048) | `supabase/migrations/202610080048_feed_topics_popularity.sql`, `_shared/feed-signals.ts` (Hugging Face), `_shared/feed-interests.ts` (chips, combinations), `displayTopics` in `_shared/feed-topics.ts`, ranking v2 in `_shared/feed-rank.ts`, `discover` and `feed-refresh` |
+| Topics and popularity (046) | `supabase/migrations/202610080046_feed_topics_popularity.sql`, `_shared/feed-signals.ts` (Hugging Face), `_shared/feed-interests.ts` (chips, combinations), `displayTopics` in `_shared/feed-topics.ts`, ranking v2 in `_shared/feed-rank.ts`, `discover` and `feed-refresh` |
 | App (iPhone/iPad) | `ScienceReaderCore/Discovery.swift` (topics, upvotes, reasons, `feed` info), `Services/FeedPersonalization.swift`, `Views/FeedTableView.swift` (columns, chips bar, why line), small hooks in `ReaderModel` (Feed section), `RootView` (`FeedView` header, `DiscoveryRow`), `TableColumns` (introduced columns), `BackendClient` |
 | Tests | `tests/database/test_feed_topics_popularity.sql`, `tests/backend/feed-personal.test.ts`, Core `DiscoveryTests`, app `FeedPersonalizationTests`, `PaperTableTests`, UI `FeedForYouTests` |
 
-Local validation of 048 and the iPhone/iPad Feed (2026-10-08, branch `feed-topics-popularity-20261008`): the full
+Local validation of 046 and the iPhone/iPad Feed (2026-10-08, branch `feed-topics-popularity-20261008`): the full
 database phases pass (`scripts/test-database.py`, including `test_feed.sql`, `test_feed_topics_popularity.sql` and
 `feed_concurrency`); backend `npm test` 413/413; Core `swift test` 256 (8 XCTest + 248 Swift Testing); app unit tests
 391 (5 skipped); the Simulator journey `FeedForYouTests` 4/4 and the existing Feed/table UI tests 8/8 (`TableColumnsTests`, `LibraryLayoutTests.testFeedTableSortsAndShowsAnAbstract`) on a dedicated iPhone 17 Pro Simulator (For you default,
@@ -415,16 +415,16 @@ and retained Not interested choices are excluded through an account-indexed set.
 share lock before rate windows and the per-account feedback lock, so closure either cleans a committed write
 or causes a late write to fail; deleted feedback cannot be recreated by an in-flight request.
 
-## Enable 048 on staging (lead)
+## Enable 046 on staging (lead)
 
 Prerequisites: review of this branch; encrypted backup as for 043. Nothing below spends provider money.
 
-1. Apply `202610080048_feed_topics_popularity.sql` with `scripts/migrate-supabase.py` (after 045–047; it depends only
+1. Apply `202610080046_feed_topics_popularity.sql` with `scripts/migrate-supabase.py` (after 045; it depends only
    on 043 and 030). Read back: `select public.worker_feed_status()` shows `policy.popularity_enabled=true`,
    `pool.with_upvotes=0`, `popularity.days=0`; switches unchanged.
 2. Deploy the functions explicitly: `scripts/deploy-staging.py staging --skip-migrations --functions feed-refresh discover`
    (migration before functions: the new `discover` calls `worker_feed_candidates_v2`, `worker_feed_category_v2` and
-   `worker_feed_details`; category chips fall back to live RSS if 048 is missing, For you would answer 503).
+   `worker_feed_details`; category chips fall back to live RSS if 046 is missing, For you would answer 503).
 3. Refresh on, serving off: `select public.worker_set_feed_policy('off', true)`. Within ~30 minutes the cron kick wakes
    `feed-refresh`; check `worker_feed_status()`: `sources[0].last_status` `updated`, pool ≈ 800 new papers per
    announcement day, `popularity.ok` ≥ 1, `pool.with_upvotes` > 0. Edge logs: `event: popularity` with

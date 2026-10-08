@@ -1,4 +1,4 @@
-// Feed topics and popularity (migration 048; docs/architecture/PERSONALIZED_FEED.md, "Specific topics
+// Feed topics and popularity (migration 046; docs/architecture/PERSONALIZED_FEED.md, "Specific topics
 // and popularity"): Hugging Face upvotes in the pool refresh, the reader's topic chips, topic serving,
 // and the v2 ranking/response fields.
 import test from 'node:test';

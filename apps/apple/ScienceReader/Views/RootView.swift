@@ -906,7 +906,9 @@ struct ChatView: View {
     @ViewBuilder private func composer(compact: Bool) -> some View {
         let field = TextField("Chat", text: $model.chatInput, axis: .vertical)
             .focused($composerFocused).accessibilityIdentifier("chat.composer")
-            .onChange(of: model.chatComposerFocusRequest) { _, _ in composerFocused = true } // Quote in Chat
+            .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
+            // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+            .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
         Group {
             if compact {
