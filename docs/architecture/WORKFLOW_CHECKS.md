@@ -1,9 +1,11 @@
 # Workflow checks
 
 > **Status, 2026-10-08 UTC:** runner and deploy hooks are implemented and exercised on staging; migration
-> `202610070024_workflow_checks.sql` is **applied**. Scheduler tooling exists, but the current Cloud Scheduler
-> job configuration, recurrence and email delivery were **not re-audited in this takeover**. Do not infer that
-> a scheduled run happened from the existence of the script or an older handoff.
+> `202610070024_workflow_checks.sql` is **applied**. Read-only scheduler evidence at **08:57 UTC** confirms
+> three enabled triggers: the six-hour canary, Monday/Wednesday/Friday 14:00 UTC daily suite, and Sunday
+> 15:00 UTC weekly suite. The last 06:00 UTC execution succeeded. The job still used image **54744c0**,
+> one task, no retries and a 2,700-second timeout; its image refresh is pending below. Alert email is configured,
+> but actual owner email delivery remains unverified. Evidence: `.artifacts/takeover-20261008/workflow-scheduler-readback.json`.
 >
 > Latest targeted hosted proof: `.artifacts/workflow-checks/2026-10-08T05-42-22-627Z.json`, **2 pass, 0 fail,
 > $0 spent/reserved**. A zero-credit synthetic account exercised v5 Add, archive/unarchive, tags, remove/re-add,
@@ -39,7 +41,7 @@ one-line reason a person can act on.
 | `library.v5-commands` | upload-capable baseline → cached-paper Add → archive/unarchive, tags, remove/re-add, matching v5 deltas and idempotent receipts; another dataset is refused | missing migration 042 or a broken v5 write contract (build 18 regression); native button journeys remain separate | all | 0; synthetic account gets no credits |
 | `credits.store` | balance and plan readable; `store-sync` refuses forged and Xcode transactions; notifications refuse unsigned | store endpoints down | all | 0 |
 | `admin.accounts-gate` | `admin-accounts` refuses an anonymous caller (401) and a customer (403 `owner_mfa_required`); the refused grant changes nothing | admin function missing or its owner gate broken | all | 0 |
-| `admin.spending-gate` | `admin-spending` refuses anonymous/customer writes; a read-only lookup confirms no observation exists and the zero-credit account stays unchanged | spending entry missing or its owner/MFA gate broken | all | 0 |
+| `admin.spending-gate` | `admin-spending` refuses anonymous/customer writes and the zero-credit account stays unchanged; a Management-token lookup also confirms no observation exists, or reports an explicit evidence warning when unavailable | spending entry missing or its owner/MFA gate broken | all | 0 |
 | `chat.smoke` | general answer streams, ends with `done`, settles | chat down | daily, weekly (+deploy when `chat` is deployed) | ≈ $0.005 |
 | `chat.paper` | paper answer (Mistral 7B, 9 pages, shared; `--paper=<arXiv id>` to change) streams and ends with `done`; first-text and total time | paper context broken | daily, weekly | ≈ $0.04 |
 | `chat.related` | Related answer has ≥ 2 links (Sources) | web search returning 0 sources | daily, weekly | ≤ $0.18 (35 credits; Tavily is prepaid) |
@@ -82,17 +84,17 @@ or a whole bucket, with propagation up to 60 seconds and no browser-cache evicti
 a reviewed, scoped cutover without changing immutable paper objects; it has not been exercised here. The issuer,
 cache and hosted redemption/quota/replay proofs remain in [asset spending](ASSET_SPENDING.md#compatibility-and-deployment).
 
-## Suites, configured schedule options and cost
+## Suites, observed schedule and cost
 
 | Suite | When | Provider spend | Runtime |
 |---|---|---|---|
 | `deploy` | end of every `deploy-staging.py` / `deploy-pipeline-worker.py` run (opt out: `--skip-checks`); every 6 h as a canary | 0 (≈ $0.01 when `chat` was deployed) | ≈ 30 s |
-| `daily` | 14:00 UTC, Monday–Saturday | measured ≈ $0.27 per run (first run) | ≈ 4 min |
+| `daily` | 14:00 UTC, Monday/Wednesday/Friday (verified 2026-10-08) | measured ≈ $0.27 per run (first run) | ≈ 4 min |
 | `weekly` | Sundays 15:00 UTC | ≈ $0.63 (daily + large PDF $0.13 + Adam/Dropout to ready $0.23) | ≈ 6 min |
 
 The original schedule estimate was about $9.50/month (26 × $0.27 + 4 × $0.63) plus chat deploys; fewer paid days
-(`--daily-days=1,3,5`) estimated about $6/month. These are planning estimates from early runs, not measured current
-recurrence or an authorization to schedule paid work. The October provider budget snapshot at 05:14 UTC on October 8
+(`--daily-days=1,3,5`, the observed setting) estimated about $6/month. These remain planning estimates from early
+runs, not measured full-month expense or a new authorization to schedule paid work. The October provider budget snapshot at 05:14 UTC on October 8
 is $13.677389 spent, $0 reserved, $25 limit. Re-read headroom and actual scheduling before changing it; all workflow
 expense shares that allocation. The six-hourly canary design has no AI/OCR calls, but infrastructure use is not an
 invoice-level zero-cost guarantee. Nothing here raises a budget.
@@ -117,7 +119,8 @@ not automated. The store checks inspect product configuration and refusal of for
   suite, recent runs, and per check its latest status/reason, history and counts. The panel is implemented in
   `apps/admin/src/checks.tsx`; this takeover does not claim a fresh hosted owner/MFA session.
 - **Owner email**: scheduled runs pass `--notify`; failures are emailed through Resend (verified `gradstep.ai`
-  sender) to `WORKFLOW_ALERT_EMAIL`. Unset → no email.
+  sender) to `WORKFLOW_ALERT_EMAIL`. The 08:57 UTC readback confirms a configured destination, not inbox delivery.
+  Unset → no email. This audit sent no test notification.
 - **Known, accepted failures**: `infra/workflow-checks.json` `{"acknowledged": {"<check>": {"reason": "…", "until":
   "YYYY-MM-DD"}}}` reports that check as a warning until the date, then as a failure again. None are acknowledged.
 
@@ -136,11 +139,14 @@ access token is redacted from logs and the report. The project ref is asserted (
 
 Without a management token (the Cloud Run job) the runner reads `worker_workflow_snapshot()` (migration 024) and
 public endpoints; `config.function-secrets`, the email sender check, the ingest find timings and the crash watch
-are skipped. The pre-024 Management API fallback is retained for older environments; staging has 024.
+are skipped. `admin.spending-gate` still exercises anonymous/customer refusal and unchanged credits, then reports
+a warning that the no-observation-row lookup is unavailable. It does not fail or silently claim that missing proof.
+The pre-024 Management API fallback is retained for older environments; staging has 024.
 
 ## Scheduling
 
-These are the supported provisioning settings, not a fresh assertion of the live job schedule.
+The 08:57 UTC readback establishes the live recurrence above. The following script is for first provisioning;
+do not rerun its `apply` path to refresh an existing image, since that also handles identities, secrets and triggers.
 
 `python3 scripts/schedule-workflow-checks.py plan` prints, and `apply` creates, in Google Cloud project `gradstep`
 (us-west1): a runtime service account that can read only its five secrets (three already exist for the pipeline
@@ -148,6 +154,47 @@ worker; the anon key and Resend key are added), a Cloud Run job from `services/w
 512 MiB, 45 min, **no retries** so a paid check never re-runs by itself), and three Cloud Scheduler HTTP jobs
 calling the Jobs API `:run` with argument overrides, through a scheduler identity holding only
 `roles/run.jobsExecutorWithOverrides` on that job. Actual Cloud Run/Scheduler charges depend on account-wide free-tier allocation and execution; read billing evidence rather than assuming these three jobs are free.
+
+### Existing job image refresh — prepared locally, not yet applied
+
+The observed image `54744c0-1791385453` has the old reader verifier: it requests no `bounded-v1` transport and
+fetches members without bearer authentication. It cannot verify the bounded-only protocol. Current source requests
+bounded delivery, preserves complete item identity at all four registered reader checks, verifies exact authorized
+member URLs/response contracts/hashes and handles Supabase's documented authenticated HTML MIME rewrite.
+The allowlisted context and Dockerfile both include `scripts/reader-workflow.mjs`.
+
+The operator built/pushed candidate source **40cb237** using that context; its four source files matched main and
+the image's `--list` passed with networking disabled and only public staging URL/ref inputs. Evidence:
+`.artifacts/takeover-20261008/workflow-image-proof.json`, `workflow-image-build.log`, `workflow-image-push.log`.
+Target image digest: `sha256:f02d84224ecbee907129a434ad5e0a3ae913c6d09c45fe07f2df496d9c55aeeb` in the existing
+`us-west1-docker.pkg.dev/gradstep/cloud-run-source-deploy/gradstep-workflow-checks` repository.
+This is image/source evidence, not a claim that the hosted job has been updated or a new suite has run.
+
+`scripts/refresh-workflow-job-image.py` provides a separate guarded update path:
+
+1. `plan --image <repository@sha256:digest> --expected-image <observed-current-reference> --out <plan.json>`
+   reads only the fixed existing job, its direct IAM policy and the exact three scheduler resources. It requires
+   the observed scope, one task, no retries, 2,700-second timeout, existing runtime identity, staging ref and alert
+   destination. Evidence stores only image references, fixed scope, numeric limits and configuration hashes.
+2. `apply --plan <plan.json> --receipt <new-receipt.json>` rechecks the plan, preserves the full writable job
+   configuration and changes only its single container image using the job's ETag. It never creates a missing
+   job or sends execution tokens. Environment/secret references, alert settings, resources, arguments, labels,
+   runtime identity, IAM and trigger settings are preserved and compared after readback. No execution or email
+   is requested. An image update does not terminate an already-running old execution or prove a future run.
+3. The exclusive receipt is fsynced before the single PATCH. A lost response stops; use
+   `verify --receipt <receipt.json>` for read-only reconciliation, not a second send or automatic rollback.
+   The tool never writes schedules, IAM or secrets, and it does not print email destinations or credential values.
+
+Cloud Run's [Jobs PATCH API](https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/patch)
+has no field-mask parameter; the tool therefore preserves the writable configuration and supplies the
+[Job ETag](https://cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs#Job) to detect conflicts.
+Direct-job IAM and trigger hashes prove observed preservation, not an atomic lock across those separate resources.
+Existing secret references are preserved; their values and external rotations are outside this readback proof.
+
+Local verification: six mocked operation-order/preservation/recovery tests, ten reader transport/call-site/packaging
+tests and one actual packaged-runner fixture journey pass. The latter blocks every real network and subprocess
+call, exercises `admin.spending-gate` without Management credentials, confirms its warning and unchanged zero-credit
+balance, and completes account cleanup. It makes no hosted request, provider call, record or notification.
 
 ## Adding a check
 
