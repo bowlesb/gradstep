@@ -39,6 +39,13 @@ pass 224 backend, 213 Core, 48 app regressions, eight iPhone journeys, iPad resi
 Catalyst build. Matching backend deployment is required before shipping these actions in build 17.
 See [handoff](HANDOFF_20261007.md) for pending uploads, purchase diagnostics, spending rollout and chat integration.
 
+**Purchase incident:** owner's TestFlight screenshot was found and inspected. Staging returned `invalid`
+and has never recorded a successful App Store receipt. Reviewed diagnostic-only `store-sync` v36 is live
+(17:50 PDT, source `834db5e`); its public-certificate probe confirms missing certificate operations in the
+hosted runtime. The database remains through032 and credit/verification rules are unchanged. A supported
+runtime repair is being designed; purchases are not fixed yet. Main `64c0873` corrects misleading native
+retry wording for the next build. See [evidence](reviews/PURCHASE_DIAGNOSTICS_HOTFIX_20261007.md).
+
 ## Browser/Mac integration checkpoint — local, not deployed
 
 The owner authorized merging `codex/web-mac-integration-20261007` on 2026-10-07. Work was developed at

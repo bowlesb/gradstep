@@ -129,14 +129,14 @@ enum StoreSync {
             return "This purchase belongs to another account. Sign in to that account to use it."
         case "account_closed":
             return "This account can no longer receive purchases."
-        case nil, "verification_unavailable":
+        case "verification_unavailable", nil:
             return "Purchase received. Credits are pending; the app will try again automatically." + reference
         case "invalid", "environment_unavailable":
-            return "We couldn’t verify this purchase. Credits haven’t been added. Send a report so we can investigate." + reference
-        case "unknown_product", "unsupported":
-            return "This purchase isn’t supported by this app. No credits were added. Send a report so we can help." + reference
+            return "We couldn’t verify this purchase yet. Try Restore purchases or send a report so we can investigate." + reference
+        case "unsupported", "unknown_product":
+            return "This purchase isn’t supported by this app, so no credits were added. Send a report so we can investigate." + reference
         default:
-            return "We couldn’t link this purchase to your account. Send a report so we can help." + reference
+            return "We couldn’t link this purchase to your account. Send a report so we can investigate." + reference
         }
     }
 }

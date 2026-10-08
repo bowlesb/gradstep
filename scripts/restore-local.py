@@ -90,6 +90,11 @@ def quarantine(sql):
       if pg_catalog.to_regclass('app_private.provider_spending_policy') is not null then
         execute 'update app_private.provider_spending_policy set enabled=false';
       end if;
+      if pg_catalog.to_regclass('app_private.store_verifier_policy') is not null then
+        -- A restored enabled transport must not forward paid runtime work.
+        -- Preserve attempts/counters; fence only policies whose state changes.
+        execute 'update app_private.store_verifier_policy set enabled=false, revision=revision+1 where enabled';
+      end if;
       if pg_catalog.to_regclass('app_private.executor_authority') is not null then
         if exists (
           select 1 from pg_catalog.pg_attribute

@@ -66,6 +66,10 @@ class QuarantineDatabaseCase(unittest.TestCase):
             row['revision'] += 1
             if 'original_admitted' in row:
                 row['original_admitted'] = False
+        for row in expected.get('store_verifier_policy', []):
+            if row['enabled']:
+                row['enabled'] = False
+                row['revision'] += 1
         RESTORE.quarantine(self.sql)
         self.assertEqual(self.rows(), expected)
         # Each restore fences a prior admission CAS, even if the copied authority
@@ -163,6 +167,34 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
     def test_pre011_snapshot_without_optional_tables(self):
         self.assert_quarantined()
         self.assertEqual(set(self.rows()), {'platform_budgets'})
+
+    def test_purchase_verifier_restore_disables_channels_without_refunding_starts(self):
+        self.sql("""create table app_private.store_verifier_policy (
+            channel text primary key, enabled boolean not null, revision bigint not null,
+            month_limit integer not null, clock_floor timestamptz not null);
+          insert into app_private.store_verifier_policy values
+            ('app',true,7,3000,'2026-10-08T01:00:00Z'),
+            ('notification',false,4,1000,'2026-10-08T01:00:00Z');
+          create table app_private.store_verifier_windows (
+            channel text, unit text, starts integer, denied integer);
+          insert into app_private.store_verifier_windows values ('app','month',193,17),('notification','month',5,1);
+          create table app_private.store_verifier_starts (
+            id uuid, channel text, outcome text, finished_at timestamptz);
+          insert into app_private.store_verifier_starts values
+            ('11111111-1111-1111-1111-111111111111','app','started',null),
+            ('22222222-2222-2222-2222-222222222222','notification','verified','2026-10-08T01:00:00Z');
+        """)
+        self.assert_quarantined()
+        self.assertEqual([row['revision'] for row in self.rows()['store_verifier_policy']], [8, 4])
+        self.assertEqual(next(row['starts'] for row in self.rows()['store_verifier_windows'] if row['channel'] == 'app'), 193)
+
+    def test_malformed_purchase_verifier_policy_rolls_back_all_quarantine_changes(self):
+        self.policies()
+        self.sql("create table app_private.store_verifier_policy (channel text, enabled boolean); insert into app_private.store_verifier_policy values ('app',true);")
+        before = self.rows()
+        with self.assertRaisesRegex(RuntimeError, 'revision'):
+            RESTORE.quarantine(self.sql)
+        self.assertEqual(self.rows(), before)
 
     def test_library_dataset_epoch_rotates_on_every_restore(self):
         self.sql("""create table app_private.library_v4_config (

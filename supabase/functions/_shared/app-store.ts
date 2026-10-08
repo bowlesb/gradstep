@@ -4,9 +4,11 @@
 // Every money effect happens in the database; this module only verifies and
 // normalizes. See docs/architecture/PURCHASES.md.
 import { Environment, SignedDataVerifier, VerificationException, VerificationStatus } from '@apple/app-store-server-library';
-import type { JWSTransactionDecodedPayload, ResponseBodyV2DecodedPayload } from '@apple/app-store-server-library';
+export * from './store-purchases.ts';
+import { StoreVerificationError, type StoreConfig, type StoreVerifier, type StoreEnvironment,
+  type VerificationStage, type AppleVerificationStatus, type VerificationTransportCode } from './store-purchases.ts';
 import { Buffer } from 'node:buffer';
-import { createHash, randomUUID, type KeyObject, type X509Certificate } from 'node:crypto';
+import { createHash, type KeyObject, X509Certificate } from 'node:crypto';
 
 /** Apple Root CA - G3 (DER, base64), from https://www.apple.com/certificateauthority/. */
 const APPLE_ROOT_CA_G3 = 'MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQL'
@@ -24,54 +26,6 @@ export function appleRootCertificates(): Buffer[] {
   const der = Buffer.from(APPLE_ROOT_CA_G3, 'base64');
   if (createHash('sha256').update(der).digest('hex') !== APPLE_ROOT_CA_G3_SHA256) throw new Error('apple_root_mismatch');
   return [der];
-}
-
-export type StoreEnvironment = 'Sandbox' | 'Production';
-export interface StoreConfig {
-  bundleID: string;
-  /** Environments this deployment accepts (staging: Sandbox only). */
-  environments: StoreEnvironment[];
-  /** The App Store's numeric app ID; required to accept Production data. */
-  appAppleID?: number;
-  /** Certificate revocation (OCSP) checks and expiry against the current time. */
-  onlineChecks: boolean;
-}
-
-export function storeConfig(env: (name: string) => string | undefined): StoreConfig | null {
-  const bundleID = env('APP_STORE_BUNDLE_ID');
-  const environments = (env('APP_STORE_ENVIRONMENTS') ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  if (!bundleID || !environments.length || environments.some(e => e !== 'Sandbox' && e !== 'Production')) return null;
-  const appAppleID = env('APP_STORE_APP_APPLE_ID') ? Number(env('APP_STORE_APP_APPLE_ID')) : undefined;
-  if (environments.includes('Production') && !(appAppleID && Number.isSafeInteger(appAppleID))) return null;
-  const onlineChecks = env('APP_STORE_ONLINE_CHECKS') !== 'false';
-  if (environments.includes('Production') && !onlineChecks) return null;
-  return { bundleID, environments: environments as StoreEnvironment[], appAppleID, onlineChecks };
-}
-
-export interface StoreVerifier {
-  transaction(signed: string): Promise<JWSTransactionDecodedPayload>;
-  notification(signedPayload: string): Promise<ResponseBodyV2DecodedPayload>;
-}
-
-/** `verification_unavailable`: Apple's revocation check could not be reached
- * (retry later); the others are permanent for that data. */
-export type VerificationCode = 'invalid' | 'environment_unavailable' | 'verification_unavailable';
-export type VerificationStage = 'input' | 'environment' | 'certificate_chain' | 'revocation' | 'signature_or_payload'
-  | 'application' | 'transaction_fields' | 'recording' | 'admission' | 'deferred';
-export type AppleVerificationStatus = 'verification_failure' | 'retryable_verification_failure' | 'invalid_app_identifier'
-  | 'invalid_environment' | 'invalid_chain_length' | 'invalid_certificate' | 'failure';
-export type VerificationTransportCode = 'timeout' | 'dns' | 'connection' | 'tls' | 'network' | 'runtime' | 'other';
-export interface VerificationDiagnostic {
-  stage: VerificationStage;
-  apple_status?: AppleVerificationStatus;
-  transport_code?: VerificationTransportCode;
-}
-export class StoreVerificationError extends Error {
-  readonly code: VerificationCode;
-  readonly diagnostic: VerificationDiagnostic;
-  constructor(code: VerificationCode, diagnostic: VerificationDiagnostic = { stage: 'signature_or_payload' }) {
-    super(code); this.code = code; this.diagnostic = diagnostic;
-  }
 }
 
 const APPLE_STATUSES: Readonly<Record<number, AppleVerificationStatus>> = {
@@ -114,11 +68,12 @@ function transportCode(error: unknown): VerificationTransportCode | undefined {
   for (let i = 0; value && typeof value === 'object' && i < 8 && !seen.has(value); i++) {
     seen.add(value);
     const cause = value as { code?: unknown; type?: unknown; name?: unknown; cause?: unknown };
-    if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(String(cause.code)) || ['request-timeout', 'body-timeout'].includes(String(cause.type))) return 'timeout';
-    if (['ENOTFOUND', 'EAI_AGAIN'].includes(String(cause.code))) return 'dns';
-    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH'].includes(String(cause.code))) return 'connection';
-    if (['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(String(cause.code))) return 'tls';
-    if (['NotSupportedError', 'NotCapable'].includes(String(cause.name))) return 'runtime';
+    if (['ETIMEDOUT', 'ESOCKETTIMEDOUT'].includes(typeof cause.code === 'string' ? cause.code : '') || ['request-timeout', 'body-timeout'].includes(typeof cause.type === 'string' ? cause.type : '')) return 'timeout';
+    if (['ENOTFOUND', 'EAI_AGAIN'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'dns';
+    if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'connection';
+    if (['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(typeof cause.code === 'string' ? cause.code : '')) return 'tls';
+    if (['NotSupportedError', 'NotCapable'].includes(typeof cause.name === 'string' ? cause.name : '')
+      || cause.code === 'ERR_NOT_IMPLEMENTED') return 'runtime';
     if (!cause.cause) return cause.name === 'FetchError' ? 'network' : i > 0 && !(value instanceof VerificationException) ? 'other' : undefined;
     value = cause.cause;
   }
@@ -132,7 +87,7 @@ export function verificationError(error: unknown): StoreVerificationError {
   const stage = error instanceof StageVerificationException ? error.stage
     : status === VerificationStatus.INVALID_APP_IDENTIFIER ? 'application'
     : status === VerificationStatus.INVALID_ENVIRONMENT ? 'environment' : 'signature_or_payload';
-  const transport = stage === 'revocation' || status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? transportCode(error) : undefined;
+  const transport = transportCode(error);
   return new StoreVerificationError(status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE ? 'verification_unavailable' : 'invalid',
     { stage, ...(appleStatus ? { apple_status: appleStatus } : {}), ...(transport ? { transport_code: transport } : {}) });
 }
@@ -173,148 +128,20 @@ export function appleVerifier(config: StoreConfig, roots: Buffer[] = appleRootCe
   };
 }
 
-/** Database errors that reject one transaction's data (not a service failure):
- * reported for that item only, so other purchases in the request still record. */
-export const REJECTED_DATA = /invalid_store_transaction|store_transaction_conflict|invalid_store_notification/;
-
-/** The verified fields migration 018 records (it re-validates every shape). */
-export interface StoreTransactionRecord {
-  environment: string;
-  transaction_id: string;
-  original_transaction_id: string;
-  product_id: string;
-  type: string;
-  purchase_date: number;
-  expires_date?: number;
-  revocation_date?: number;
-  signed_date: number;
-  app_account_token?: string;
-  quantity?: number;
-  ownership?: string;
-  /** PURCHASE or RENEWAL. */
-  reason?: string;
-  /** One per Apple Account per app (the Sandbox cap counts by it too). */
-  app_transaction_id?: string;
+/** Once-per-isolate, zero-network probe of public-certificate primitives used by
+ * Apple's SDK. Standalone Deno can support APIs absent from hosted Edge runtimes.
+ * Nothing from a customer transaction is accepted or returned here. */
+export function storeCryptoCapabilities(createCertificate: (der: Buffer) => X509Certificate = der => new X509Certificate(der)) {
+  const capabilities = { certificate_parse: false, certificate_string: false, certificate_raw: false,
+    public_key_export: false, certificate_verify: false, certificate_info_access: false };
+  let root: X509Certificate;
+  try { root = createCertificate(appleRootCertificates()[0]); capabilities.certificate_parse = true; }
+  catch { return capabilities; }
+  try { capabilities.certificate_string = typeof root.toString() === 'string'; } catch { /* fixed boolean only */ }
+  try { capabilities.certificate_raw = Buffer.isBuffer(root.raw) && root.raw.length > 0; } catch { /* fixed boolean only */ }
+  try { capabilities.public_key_export = typeof root.publicKey.export({ type: 'spki', format: 'pem' }) === 'string'; } catch { /* fixed boolean only */ }
+  try { capabilities.certificate_verify = root.verify(root.publicKey); } catch { /* fixed boolean only */ }
+  try { void root.infoAccess; capabilities.certificate_info_access = true; } catch { /* fixed boolean only */ }
+  return capabilities;
 }
 
-export function transactionRecord(t: JWSTransactionDecodedPayload): StoreTransactionRecord | null {
-  const millis = (v: unknown) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
-  if (typeof t.environment !== 'string' || typeof t.transactionId !== 'string' || typeof t.originalTransactionId !== 'string'
-    || typeof t.productId !== 'string' || typeof t.type !== 'string' || !millis(t.purchaseDate) || !millis(t.signedDate)
-    || (t.expiresDate !== undefined && !millis(t.expiresDate)) || (t.revocationDate !== undefined && !millis(t.revocationDate))) return null;
-  return {
-    environment: t.environment, transaction_id: t.transactionId, original_transaction_id: t.originalTransactionId,
-    product_id: t.productId, type: t.type, purchase_date: t.purchaseDate!, signed_date: t.signedDate!,
-    ...(t.expiresDate !== undefined ? { expires_date: t.expiresDate } : {}),
-    ...(t.revocationDate !== undefined ? { revocation_date: t.revocationDate } : {}),
-    ...(typeof t.appAccountToken === 'string' && t.appAccountToken ? { app_account_token: t.appAccountToken.toLowerCase() } : {}),
-    ...(typeof t.quantity === 'number' ? { quantity: t.quantity } : {}),
-    ...(typeof t.inAppOwnershipType === 'string' ? { ownership: t.inAppOwnershipType } : {}),
-    ...(t.transactionReason === 'PURCHASE' || t.transactionReason === 'RENEWAL' ? { reason: t.transactionReason } : {}),
-    ...(typeof t.appTransactionId === 'string' && /^[0-9]{1,32}$/.test(t.appTransactionId) ? { app_transaction_id: t.appTransactionId } : {}),
-  };
-}
-
-export type SyncOutcome = 'recorded' | 'updated' | 'already_recorded' | 'linked_to_another_account' | 'account_closed'
-  | 'unknown_product' | 'unsupported' | 'unattributed' | VerificationCode;
-export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number; support_reference?: string; diagnostic?: VerificationDiagnostic }
-/** Outcomes after which the app finishes the StoreKit transaction. */
-export const FINAL_OUTCOMES: ReadonlySet<SyncOutcome> = new Set(['recorded', 'updated', 'already_recorded']);
-export const MAX_SYNC_TRANSACTIONS = 25;
-
-export interface StoreDeps {
-  verifier: StoreVerifier;
-  /** Required together by the production store-sync adapter. Optional for standalone verification tests. */
-  beginVerification?(accountID: string, attemptID: string, submissionSHA256: string): Promise<boolean>;
-  finishVerification?(accountID: string, attemptID: string, outcome: SyncOutcome | 'recording_unavailable', diagnostic?: VerificationDiagnostic): Promise<void>;
-  recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number }>;
-  recordNotification(input: { environment: string; notification_uuid: string; type: string; subtype: string | null;
-    signed_at: string; transaction: StoreTransactionRecord | null }): Promise<{ outcome: string; duplicate?: boolean }>;
-}
-
-/** Stable correlation for this account's exact submission, without exposing Apple identity. */
-export function storeSubmissionReference(accountID: string, signed: string): string {
-  return createHash('sha256').update('science-reader:store-verification:v1\0').update(accountID.toLowerCase()).update('\0').update(signed).digest('hex');
-}
-
-/** Records the caller's transactions (purchases from this device, renewals and
- * restores StoreKit reports). Database errors propagate (the app retries). */
-export async function syncTransactions(deps: StoreDeps, accountID: string, body: unknown): Promise<SyncResult[]> {
-  const list = (body as { transactions?: unknown })?.transactions;
-  if (!Array.isArray(list) || list.length === 0 || list.length > MAX_SYNC_TRANSACTIONS || list.some(s => typeof s !== 'string')) throw new Error('invalid_request');
-  if (!!deps.beginVerification !== !!deps.finishVerification) throw new Error('verification_observation_configuration');
-  const results: SyncResult[] = [];
-  let deferred = false;
-  for (const signed of list as string[]) {
-    const reference = storeSubmissionReference(accountID, signed);
-    if (deferred) {
-      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'deferred' } }); continue;
-    }
-    const attemptID = randomUUID();
-    if (deps.beginVerification && !await deps.beginVerification(accountID, attemptID, reference)) {
-      results.push({ support_reference: reference, outcome: 'verification_unavailable', diagnostic: { stage: 'admission' } });
-      deferred = true; continue;
-    }
-    let result: SyncResult;
-    try {
-      const decoded = await deps.verifier.transaction(signed);
-      const record = transactionRecord(decoded);
-      if (!record) result = { outcome: 'invalid', diagnostic: { stage: 'transaction_fields' } };
-      else {
-        let recorded: { outcome: string; credits?: number };
-        try { recorded = await deps.recordTransaction(accountID, record); }
-        catch (error) {
-          await deps.finishVerification?.(accountID, attemptID, 'recording_unavailable', { stage: 'recording' });
-          throw error;
-        }
-        result = { transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
-          ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
-          ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) };
-      }
-    } catch (error) {
-      // Database/observation failures propagate (HTTP 503); they are not mislabeled invalid JWS.
-      if (!(error instanceof StoreVerificationError)) throw error;
-      result = { outcome: error.code, diagnostic: error.diagnostic };
-    }
-    await deps.finishVerification?.(accountID, attemptID, result.outcome, result.diagnostic);
-    results.push({ ...result, support_reference: reference });
-    if (result.outcome === 'verification_unavailable') deferred = true;
-  }
-  return results;
-}
-
-/** An App Store Server Notification V2. Returns the HTTP status for Apple:
- * 200 once recorded (or deliberately ignored), 503 when Apple's revocation
- * check is unreachable, 400 for data that does not verify. Database errors
- * propagate (503). Apple retries failed production notifications for a few
- * days; sandbox notifications are not retried, so the app's own reports and
- * the planned reconciliation are the backstop. */
-export async function handleNotification(deps: StoreDeps, body: unknown): Promise<{ status: number; outcome: string; diagnostic?: VerificationDiagnostic }> {
-  const signedPayload = (body as { signedPayload?: unknown })?.signedPayload;
-  if (typeof signedPayload !== 'string') return { status: 400, outcome: 'invalid' };
-  let decoded: ResponseBodyV2DecodedPayload;
-  try { decoded = await deps.verifier.notification(signedPayload); }
-  catch (error) {
-    const failure = verificationError(error);
-    return { status: failure.code === 'verification_unavailable' ? 503 : 400, outcome: failure.code, diagnostic: failure.diagnostic };
-  }
-  const environment = decoded.data?.environment ?? decoded.summary?.environment;
-  if (typeof decoded.notificationUUID !== 'string' || typeof decoded.notificationType !== 'string' || typeof environment !== 'string'
-    || typeof decoded.signedDate !== 'number') return { status: 400, outcome: 'invalid' };
-  let transaction: StoreTransactionRecord | null = null;
-  const signedTransaction = decoded.data?.signedTransactionInfo;
-  if (typeof signedTransaction === 'string') {
-    let inner: JWSTransactionDecodedPayload;
-    try { inner = await deps.verifier.transaction(signedTransaction); }
-    catch (error) {
-      const failure = verificationError(error);
-      return { status: failure.code === 'verification_unavailable' ? 503 : 400, outcome: failure.code, diagnostic: failure.diagnostic };
-    }
-    transaction = transactionRecord(inner);
-    if (!transaction || transaction.environment !== environment) return { status: 400, outcome: 'invalid' };
-  }
-  const recorded = await deps.recordNotification({ environment, notification_uuid: decoded.notificationUUID,
-    type: decoded.notificationType, subtype: typeof decoded.subtype === 'string' ? decoded.subtype : null,
-    signed_at: new Date(decoded.signedDate).toISOString(), transaction });
-  return { status: 200, outcome: recorded.outcome };
-}
