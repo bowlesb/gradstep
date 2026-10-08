@@ -128,6 +128,19 @@ removed executor work) is retained below where useful and in git history.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Codex worktrees retired — 2026-10-08
+
+The owner confirmed Codex had stopped. All 14 `codex/*` branches were checked against main:
+- Every commit is in main, either merged or as an identical copy (`git cherry` reports all `-`).
+- The only uncommitted work was in `store-runtime` and `store-runtime-ops`, from 2026-10-07 18:23–18:39. It was the
+  purchase-verifier transport, the health check and deploy tooling. Main has every file, identical or later-fixed
+  (the remaining Codex-only lines are earlier versions of lines main has since corrected).
+
+Before removal, the branches were saved as a git bundle and the uncommitted edits and untracked files as patches and
+tarballs, in `.artifacts/codex-archive-20261008/` (not in git). All Codex worktrees and branches are removed.
+`/Users/benbowlwes/science-reader-review-2026-10-02` is an older review snapshot, not a worktree, and was left in
+place.
+
 ## Earlier backend and build 18 rollout — retained evidence
 
 - **Migration 040** (`credit_resume_and_source_waits`) applied to staging with the pipeline paused (migrate-supabase.py:
