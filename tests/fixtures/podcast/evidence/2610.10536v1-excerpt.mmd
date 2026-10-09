@@ -1,0 +1,189 @@
+\title{
+Decoupling Exploration from Optimization in RLVR
+}
+
+\begin{abstract}
+Modern language models undergo reinforcement learning with verifiable rewards (RLVR) on top of already-trained checkpoints. A key promise of RLVR is the discovery of new reasoning strategies. In principle, a model can sample novel ideas absent from its prior training data. In practice, however, augmenting RLVR with strong novelty incentives has seen limited success and can degrade model quality. Because verifiable rewards supervise only a narrow slice of the model's knowledge and behavior, such degradations are difficult to recover from. Instead, we decouple exploration from optimization in a framework we call Exploration-Distillation (ExpDis). We train one or more explorer policies with a novelty bonus in the reward, filter their trajectories for correctness and quality, and distill them into a separate student policy. The student policy is then trained without a novelty bonus. We repeat the above procedure for several rounds, alternating between exploration and optimization. This decoupling allows us to aggressively scale exploration without degrading the student policy. Across seven mathematical reasoning benchmarks and two model families, ExpDis outperforms DAPO at the same wall-clock budget. Moreover, we observe improved pass@k scaling, indicating that ExpDis produces models that generate more diverse correct solutions. \({ } ^ { 3 }\)
+\end{abstract}
+
+\section*{1 Introduction}
+
+Reinforcement learning with verifiable rewards (RLVR) has become the dominant recipe for improving the reasoning abilities of language models [19, 15, 33, 26, 44]. RLVR samples solutions to problems, scores each solution with a programmatic verifier, and shifts probability toward those that pass. By iteratively sampling new solutions and reinforcing successful ones, RLVR can in principle discover and then reinforce new solutions that were absent from the model's training data. In practice, however, it can only reinforce what the model samples, so discovery depends on exploration.
+
+A natural way to boost exploration is to add an explicit novelty bonus to the reward, following a long line of intrinsic-motivation methods in RL [30, 2, 3, 10]. When the model explores new solution strategies, some of them may succeed but often most of them fail, leading to a temporarily degraded model as we now are left with a model that mostly generates failed solutions. Though our initial policy is a pretrained LLM with vast knowledge including virtually all of Wikipedia, the reward supervises only a tiny slice of its knowledge. This means an LLM could forget most of Wikipedia and still achieve high reward. The reward therefore cannot detect damage that exploration causes outside that slice, let alone repair such degradations. We argue that this failure is not a property of novelty as a signal, but of where the novelty bonus is applied.
+
+We decouple exploration and optimization by giving them separate model instances, both trained from the same base checkpoint. An explorer policy explores aggressively under a novelty bonus whose weight \(\lambda\) sets how strongly it is pushed toward unfamiliar solutions relative to correctness. A separate student policy never sees a novelty reward. It learns from the explorer only through filtered trajectories, and is then trained with standard RLVR. The two models communicate through filtered trajectories rather than parameters, so the student policy absorbs the explorer's discoveries without inheriting its degradations induced by exploration. We call this framework Exploration-Distillation.
+
+\footnotetext{
+*Corresponding authors: saif.punjwani@columbia.edu, micah.g@columbia.edu.
+\({ } ^ { 1 }\) Department of Computer Science, Columbia University.
+\({ } ^ { 2 }\) Department of Electrical Engineering, Columbia University.
+\({ } ^ { 3 }\) We release all [code](https://github.com/SaifPunjwani/Exploration-Distillation) and [checkpoints.](https://huggingface.co/SaifPunjwani/expdis-checkpoints)
+}
+\pagebreak
+
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-02.jpg?height=758&width=1376&top_left_y=248&top_left_x=372}
+\captionsetup{labelformat=empty}
+\caption{Figure 1: Decoupling exploration from optimization improves math accuracy without degrading prior capabilities. Left: Rather than coupling exploration and optimization in a single RLVR run, ExpDis assigns these roles to separate policies. We first train an explorer \(\mu\) with a novelty bonus in its reward, then distill a diverse pool of its reasoning traces to cold start a student, and finally train the student with standard RLVR using only a correctness reward. As depicted in the figure, this allows us to explore a diverse set of reasoning strategies and preserve this diversity in our student policy. (a) ExpDis outperforms DAPO in both average accuracy and pass@ \(k\), even when DAPO is trained for \(4 \times\) as long (Qwen3-4B, mean pass@ \(k\) over five math benchmarks). (b) Adding a novelty bonus (RND) directly to the DAPO reward degrades performance on prior capabilities relative to the base model. Because the reward supervises only a narrow slice of the model's knowledge (here, mathematical reasoning), achieving high reward does not prevent general capability degradation. By decoupling the explorer from the student policy, we avoid this degradation.}
+\end{figure}
+
+Decoupling makes exploration safe to scale aggressively, since the student policy never receives the novelty bonus and the filter keeps failed trajectories out of its training data. We can scale breadth by running several explorers in parallel and distilling their pooled trajectories into one student policy. We can also scale depth by repeating the pipeline for multiple rounds that each start from the previous student. We scale both of these axes independently and find that their composition enables sustained performance gains even when all experiments are wall-clock matched.
+We evaluate ExpDis on mathematical reasoning benchmarks with Qwen3-1.7B, Qwen3-4B, and Ministral-3-3B-Instruct-2512 as base models. At the same amount of compute, ExpDis outperforms DAPO in both pass@1 and pass@64. Furthermore, spreading this fixed budget over multiple parallel explorers and several rounds of the ExpDis procedure yields further gains. Adding a novelty bonus directly to DAPO, in contrast, increases diversity but degrades performance on general knowledge benchmarks. In ExpDis, the explorer can be pushed to far higher diversity without harming the student, which improves in both diversity and accuracy and avoids degradation.
+
+In principle, ExpDis is compatible with any exploration mechanism, since the student learns only from the explorer's filtered trajectories. Since the explorer is never deployed, it can also use mechanisms too aggressive to apply to the deployed model directly. Exploration methods that would destabilize standard RLVR may therefore become viable under ExpDis.
+
+\section*{2 Related Work}
+
+Exploration in LLM reasoning. A number of works ask whether standard RLVR algorithms discover new solutions or only sharpen a model's pre-RL generative distribution. Shao et al. [33] observe that RL improves majority-vote accuracy but not pass@ \(k\), and Chen et al. [5] find that base models overtake their RLVR-trained counterparts at large \(k\), suggesting that RLVR narrows the set of problems a model can solve. Others find that RL can expand this set through prolonged
+\pagebreak
+
+training [25], or that the model learns new skills by composing existing ones [45]. A related line of work studies entropy collapse: policy entropy falls sharply early in training [7], and the gains from RLVR rely on a small set of high-entropy tokens to allow sampling diverse solutions [40]. Many methods counteract this entropy collapse during training. For example, DAPO [44] raises the upper clipping bound so that low-probability tokens with positive advantage can grow faster, whereas He et al. [16] directly regulate the policy's entropy. Other approaches add exploration or novelty bonuses to the reward [36, 11, 38, 21]. These methods draw on a long line of exploration bonuses in classical RL, including count-based bonuses [2], intrinsic curiosity [30], and random network distillation [3]. ExpDis is compatible with a broad spectrum of exploration bonuses, and we try plugging several example bonuses into our framework, observing benefits of exploration in all cases.
+
+Reasoning trace distillation. A classical precursor that trains a policy to imitate a separate process that finds better solutions is expert iteration [1], in which a tree-search expert generates improved moves and a neural apprentice learns to imitate them. Today, distilling reasoning traces from a stronger model is standard practice: DeepSeek-R1 [15] is distilled into smaller and faster open models, and several works study how to curate reasoning traces to instill reasoning in fine-tuned models [43, 13]. When no stronger model is available, a model can instead learn from its own filtered samples, as in STaR [46], ReST [14], and ReST \({ } ^ { \text {EM } }\) [35]. DeepSeek-R1 fine-tunes its base model on correct traces rejection-sampled from an RL checkpoint before running RL again [15], and multi-teacher on-policy distillation methods [28] distill separately trained specialist models into one model. We similarly distill trajectories from one model into another, but we train our explorer policies from the same base model as our student with the distinct goal of exploration.
+
+Decoupling exploration in RL. Separating exploration from exploitation has a long history in RL: \(\mathrm { E } ^ { 3 }\) [18] keeps separate exploration and exploitation policies and explicitly switches between them, Şimşek and Barto [34] explore with a policy rewarded for improving a separate task value function that never sees this reward, and Go-Explore [9] first finds high-reward trajectories and then turns them into a robust policy via imitation learning. In reinforcement learning for LLMs, \(\mathrm { R } ^ { 2 } \mathrm { PO }\) [39] trains a residual logit head to diversify within-group outcomes, uses it to sample rollouts for the policy's GRPO updates, and discards it at inference. In concurrent work, ICE [8] explores with instruction-conditioned prompts and self-distills correct rollouts into the unconditioned policy. In both, the exploring policy and the student share weights. We instead train the explorer as a separate network and pass only filtered trajectories to the student. This design choice insulates the student from exploration pressures and thus avoids degrading the student.
+
+\section*{3 Method}
+
+Exploration-Distillation trains an explorer policy \(\mu\) with a novelty bonus to generate diverse trajectories, filters them for quality and correctness, and distills the resulting trajectories into a student policy \(\pi _ { 1 }\). We present a single iteration below and describe how we scale it in Section 3.1 and Section 3.2. We study the importance of each stage in Appendix E.
+
+Explorer policy training. We initialize an explorer policy \(\mu\) from the base policy \(\pi _ { 0 }\) with DAPO [44] and augment its reward with a novelty reward \(r _ { \text {novelty } } \geq 0\).
+\[\begin{equation*}
+r _ { \text {explorer } } ( \tau ) = r _ { \text {correct } } ( \tau ) + \lambda \cdot r _ { \text {novelty } } ( \tau ) \cdot \mathbf { 1 } \left[ r _ { \text {correct } } ( \tau ) = + 1 \right] + r _ { \text {overlong } } ( \tau ) , \tag{1}
+\end{equation*}\]
+where \(r _ { \text {correct } } \in \{ - 1 , + 1 \}\) and \(\lambda \geq 0\). As introduced in DAPO, \(r _ { \text {overlong } } \in [ - 1,0 ]\) is a soft penalty on completions that approach the length budget. Apart from the novelty term, the explorer is identical to our DAPO baseline. This reward formulation ensures that every correct rollout receives a higher reward than any incorrect one for any value of \(\lambda\). We find that applying the bonus to all rollouts leads to training instability as a model can achieve increased reward simply by generating novel garbage.
+
+Rejection sampling. We now need a method for collecting trajectories generated by the explorer policy to be distilled into the student. We remove any incorrect trajectories, since the point of this rejection sampling step is to insulate the student from any degradations caused to the explorer by novelty pressure. A naive choice would be to take all correct explorer trajectories or a random subset and hand them off, but we find that filtering not only for correctness but also for quality strongly
+\pagebreak
+
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-04.jpg?height=702&width=1370&top_left_y=255&top_left_x=381}
+\captionsetup{labelformat=empty}
+\caption{Figure 2: ExpDis scales across parallel explorers and iterations. Within a round, several explorers are trained in parallel with a novelty bonus, and their traces are pooled to distill a single student. Across rounds, that student initializes both the next round's explorers and the next round's student, so every round starts from a stronger model. Each round trains on its own shard of the training prompts, and the novelty weight anneals from \(\lambda _ { 1 } = 0.75\) to \(\lambda _ { 4 } = 0.25\). We study how to allocate a fixed RL budget across explorers and rounds in Section 5.}
+\end{figure}
+improves performance. A trajectory passes the filter only if (1) its final \boxed\{\} answer is correct, (2) it terminates within a fixed token budget, and (3) it contains no repetition loops.
+
+After this filtering, we keep only a single shortest resulting trajectory per problem. Problems that the explorer solves correctly many times therefore do not dominate the student's training data. We cap the resulting set at 500 trajectories per round. In Appendix E, we ablate our quality filtering procedure.
+
+Student policy training. We distill the base policy on the resulting trajectories simply by performing supervised finetuning (SFT) on those trajectories with the standard cross-entropy loss. Following SFT, we train the distilled model with DAPO and the standard correctness-only reward (i.e., no novelty bonus) to obtain the student policy \(\pi _ { 1 }\), which inherits none of the degradation from exploration pressure. The student both receives the benefit of exploration via distillation, which is off-policy, and also the benefit of on-policy training during its DAPO stage.
+
+We partition the training prompts into \(R\) non-overlapping shards \(\mathcal { D } _ { 1 } , \ldots , \mathcal { D } _ { R }\) of equal size. As shown in Figure 2, round \(r\) draws its training prompts from \(\mathcal { D } _ { r }\). Hence, each round pairs a stronger initialization with prompts it has not yet trained on.
+
+Annealing novelty bonus. Because exploration is split across several rounds, we can set its strength per round through the novelty-bonus weight \(\lambda\), which we anneal on a fixed schedule from 0.75 to 0.25 over four rounds. This schedule follows the common practice of decreasing exploration pressure as training progresses [37]. Early rounds, where correct trajectories are still undiscovered, get strong novelty pressure whereas later rounds get lower novelty pressure to consolidate what has been found.
+
+\section*{4 Experimental Setup}
+
+Base models. We evaluate ExpDis on Qwen3-1.7B, Qwen3-4B [42], and Ministral-3-3B-Instruct-2512 [24]. The Qwen3 models are distilled from larger RL-trained Qwen3 models rather than trained with RL directly [42], whereas Ministral-3-3B-Instruct is instruction-tuned and undergoes online preference optimization [24]. We describe all sampling parameters in Appendix A.
+
+Novelty bonus. In principle, ExpDis is compatible with any novelty bonus. In our primary experiments, we choose a Random Network Distillation (RND) bonus [3] as we find that this formulation is especially effective. Following Burda et al. [3], we train one small predictor MLP \(f _ { \theta , \ell }\) per layer to match a frozen random target MLP \(f _ { \ell } ^ { \star }\) on features extracted from the language model's own hidden states, and use the prediction error as the novelty signal. We extract features from a fixed set of intermediate layers \(\mathcal { L }\), mean-pool over completion tokens (the completion is encoded without the prompt), and average across layers:
+\[\begin{equation*}
+r _ { \text {novelty } } ( \tau ) = \frac { 1 } { | \mathcal { L } | } \sum _ { \ell \in \mathcal { L } } \frac { 1 } { \sqrt { d } } \left\| f _ { \ell } ^ { \star } \left( h _ { \ell } ( \tau ) \right) - f _ { \theta , \ell } \left( h _ { \ell } ( \tau ) \right) \right\| _ { 2 } . \tag{2}
+\end{equation*}\]
+Here \(h _ { \ell } ( \tau )\) is the pooled layer- \(\ell\) feature of trajectory \(\tau\) and \(d\) is the output dimension of the predictor and target networks, so each layer contributes a root-mean-square prediction error. The predictor updates continuously on the same features that drive the bonus, while the target stays frozen for the entire run. In preliminary experiments, features from several intermediate layers gave a cleaner signal than last-layer features alone (layers and network sizes in Appendix A). We ablate the choice of \(r _ { \text {novelty } }\) in Appendix C. 1 and observe a consistent improvement over DAPO across bonuses.
+
+Reward. We use a standard math verifier for \(r _ { \text {correct } }\). In Appendix C, we sweep the weight \(\lambda\) on \(r _ { \text {novelty } }\) and find that even very large weights leave the student model outperforming the base model. We find that performance roughly peaks at \(\lambda = 0.5\) and conduct all experiments with this value of \(\lambda\).
+
+Training dataset. We sample random prompts without replacement from DAPO-Math-17K [44], a collection of 17K mathematical reasoning problems, until reaching a cap of 300 steps (discussed below). We perform additional experiments on the DeepScaleR [27] dataset in Appendix E.
+
+Evaluation. We report performance on seven mathematical reasoning benchmarks: AIME24, AIME25, AIME26 [29], MATH500 [17, 22], AMC23 [29], Minerva-Math [20], and GSM8K [6]. Following the Qwen3 technical report [42], sample 64 completions per problem (32 for AMC23 and 8 for GSM8K) and report the unbiased pass@ \(k\) estimator for \(k \in \{ 1,2,4 , \ldots , 64 \}\). GSM8K is close to saturation for all three models, and AMC23 is close to saturation for the Qwen3 models, which leaves little room to compare methods. We therefore focus on the other five benchmarks and report their mean unless noted otherwise.
+
+We additionally study the model's degradation on a suite of general capability benchmarks: MMLU-Pro [41], MMLU-Redux [12], and GPQA-Diamond [32] for knowledge, ZebraLogic [23] for logical reasoning, and IFEval [47] for instruction following. This serves as a proxy for capabilities not directly supervised by our training dataset and reward to study the extent to which exploration pressures can degrade a model's knowledge over time.
+
+Baselines. We compare against three RLVR baselines with a standard correctness-only reward: GRPO [33], Dr. GRPO [26], and DAPO [44]. We find empirically that DAPO is the strongest of
+\pagebreak
+
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-06.jpg?height=484&width=1347&top_left_y=267&top_left_x=402}
+\captionsetup{labelformat=empty}
+\caption{Figure 3: ExpDis outperforms all baselines under the same RL compute budget. By partitioning this budget into alternating rounds of exploration and optimization (as described in Section 3.2), we can surpass DAPO and even a single round of ExpDis. We report full benchmark results in Appendix B.}
+\end{figure}
+these baselines and design two extensions: (1) adding a novelty bonus to the reward with \(\lambda = 0.5\) to isolate the effect of decoupling exploration, and (2) running DAPO for 4× as many steps.
+
+Compute matching. We perform 300 steps of RL with 4 prompts per step, each having a group size of 16 and a 32,768 max generation limit. We also study the effect of training DAPO for 4× the number of steps to determine if prolonged training allows baselines to catch up [25].
+
+ExpDis splits these updates between the two policies: 200 for the explorer and 100 for the student. When we scale across explorers or rounds, each share is divided evenly among them, while we keep the SFT stage of the student policy two epochs on at most 500 filtered explorer trajectories per round.
+
+\section*{5 Results}
+
+Across all three models, ExpDis outperforms the DAPO baseline in mean accuracy on mathematical reasoning benchmarks (Figure 3). A single round of ExpDis already outperforms DAPO trained for 4× as many steps. By spreading the same compute over several rounds of alternating exploration and optimization (Section 3.2), we observe further gains. All ExpDis runs outperform this prolonged DAPO run in both average performance and pass@ \(k\) up to 64 generations per problem.
+
+
+
+Scaling exploration. Decoupling lets us scale exploration along two axes: running several explorers in parallel within a round and repeating the ExpDis procedure over several rounds. In Figure 4, we vary both on Qwen3-1.7B while holding the total budget fixed at 300 RL updates. We observe that depth contributes more to pass@1 than breadth, though a combination of both improves pass@k over either. One interpretation is that the two axes play different roles: each additional round reinforces a progressively stronger student, whereas additional explorers widen the set of problems with correct trajectories and the variety of trajectories that get distilled into the student.
+
+At our budget, gains saturate and begin to show signs of regression after three explorers and four rounds. We expect this optimum to shift as the budget grows: with a higher compute budget, longer rounds and larger batch sizes per explorer will have diminishing marginal returns, and we expect the optimal number of rounds and explorers to increase accordingly. Note that we vary breadth and depth at a fixed compute budget; explorers run in parallel, and spreading compute across more explorers adds no wall-clock time. In principle, this parallelization allows practitioners with vast compute access to ramp up the number of explorers at no time cost.
+
+Diversity analysis. RLVR is known to collapse entropy and sharpen the sampling distribution as training proceeds [7, 5]. Counteracting this collapse within a single model requires a delicate balance, since the same model must both explore diverse reasoning strategies but must simultaneously be optimized for correctness and avoiding incorrect solutions. Adding a novelty bonus to DAPO illustrates this trade-off: it increases both lexical and answer diversity relative to standard DAPO, yet slightly reduces mathematical reasoning performance.
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-07.jpg?height=399&width=1359&top_left_y=1120&top_left_x=392}
+\captionsetup{labelformat=empty}
+\caption{Figure 5: Explorer policy can be driven to more diversity without harming the student. Left: We study how explorer policy diversity impacts the downstream student in ExpDis. In general, we find that we can push the diversity of the explorer policy without corrupting the downstream student policy. Since we filter for correctness and quality before distilling, a moderate increase in explorer diversity (for example, lexical diversity) brought on by tuning the novelty bonus weight \(\lambda\) does not negatively impact the student policy. Similarly, we can increase the explorer token entropy far beyond that of DAPO (+novelty) without incurring downstream reasoning degradation. Right: We find that ExpDis generations contain more semantically diverse mathematical reasoning strategies. We define each diversity metric in Appendix D.}
+\end{figure}
+
+Diversity and performance are not always complementary; a model may, for example, learn to rephrase the same solution strategy, thereby increasing lexical diversity or entropy without improving pass@ \(k\). As shown in Figure 5, DAPO + novelty exhibits higher lexical diversity and token entropy, but regresses on mathematical reasoning compared to the DAPO model. Broadly, we find that we can push the explorer toward far greater diversity than a single model could tolerate while maintaining or improving on downstream accuracy.
+
+Stage ablations. We run ablations on Qwen3-1.7B to understand whether ExpDis reduces to either (1) distilling unfiltered explorer trajectories and then running RL, or (2) distilling filtered trajectories without running RL afterward. We find that both variants score slightly below DAPO on AIME24, whereas the full procedure scores above it (Appendix E). Furthermore, keeping only the shortest valid trajectory per problem (i.e., quality filtering) outperforms keeping every correct trajectory. Finally, we replace RND with a kNN-based or an elliptical novelty bonus (the latter adapted from Tuyls et al. [38]) and find that mean accuracy drops by at most 1.6 points, and both variants still outperform DAPO (Appendix C.1).
+\pagebreak
+
+
+Novelty bonus degradation. A verifiable reward, typically applied to math and code tasks, directly supervises only a narrow slice of a model's capabilities. In our experiments, DAPO with the RND novelty bonus degrades below the base model on prior capability benchmarks (Section 4) despite improving on math (right). Conversely, ExpDis gets the benefits of exploration without degradation. We report results for each general capability benchmark in Figure 12.
+
+While the drops we observe are modest at our scale, we speculate that larger-scale RLVR runs that apply exploration bonuses directly to the trained model may accumulate substantially larger degradations over time, whereas decoupling avoids this risk of corrupting the deployed model.
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-08.jpg?height=410&width=452&top_left_y=246&top_left_x=1291}
+\captionsetup{labelformat=empty}
+\caption{Figure 6: Adding RND novelty bonus to DAPO degrades prior capabilities.}
+\end{figure}
+
+\section*{6 Discussion}
+
+In standard RLVR, exploration is limited by the need to remain correct. ExpDis removes this constraint by moving exploration into a separate policy. Because the explorer is never deployed, it can be rewarded for novelty, pushed to extremes, or discarded after a single round, with only filtered reasoning traces passing to the student. Our work is inspired by humans who experiment with bold new ideas when failure is permitted. We hypothesize that models too need a space to explore, try new ideas, and be allowed to fail.
+
+Our results suggest that decoupling exploration from optimization improves RLVR even at a small budget, and we expect its importance and the value of exploration to grow as RL is scaled. As models improve, they become proficient at employing the solution strategies they have seen before, and the problems worth training on are increasingly those where correct solutions are rare or depart from the solution strategies the model has already mastered. A model optimized only for correctness may avoid sampling such novel strategies. This problem may be especially true beyond mathematical reasoning, for example in long-horizon agentic tasks, theorem proving, and open-ended scientific problems. Decoupling lets explorers be aggressive, and this aggressive exploration might be necessary in order for models to discover completely new ideas.
+
+In our work, we focus our effort primarily on a single novelty bonus and explorers that share the student's architecture. Under ExpDis, explorers could use different novelty signals or sampling strategies to specialize in different parts of the solution distribution. Because an explorer only has to produce useful traces, the best exploration method under ExpDis may look quite different from the best one under standard RLVR. We speculate that exploration methods previously too destabilizing to apply directly to a trained model may become usable in this setting. ExpDis may unlock new and more aggressive exploration mechanisms.
+
+
+\section*{A Training \& Hyperparameters}
+
+We report all hyperparameters shared by all methods in Table 1. As in the standard DAPO [44] algorithm, we perform dynamic sampling, overlong filtering, clip-higher, and do not include a KL penalty term. We use the Dr. GRPO [26] loss normalization, which divides the token-summed loss by a fixed constant instead of the number of tokens.
+
+\begin{table}
+\captionsetup{labelformat=empty}
+\caption{Table 1: Hyperparameters. Shared by all models and all runs unless noted.}
+\begin{tabular}[t]{|l|l|}
+\hline \multicolumn{2}{|c|}{RL (explorer, student, baselines)} \\
+\hline Objective & DAPO clipped objective, \(\varepsilon _ { \text {low } } = 0.2 , \varepsilon _ { \text {high } } = 0.28 , \mathrm { KL } \beta = 0\) \\
+\hline Prompts per step, group size & \(B = 4 , G = 16\) \\
+\hline Steps & explorer 200, student 100, baselines 300, DAPO (4× steps) 1,200 total \\
+\hline Max completion length & 32,768 \\
+\hline Soft overlong penalty & linear over the final 6,554 tokens \\
+\hline Optimizer & AdamW ( \(\beta = ( 0.9,0.95 )\), no weight decay) \\
+\hline Learning rate (constant) & explorer and DAPO baselines \(5 \times 10 ^ { - 6 }\); student \(1 \times 10 ^ { - 6 }\) \\
+\hline \multicolumn{2}{|c|}{SFT (student)} \\
+\hline Loss & masked cross-entropy loss (completion-only) \\
+\hline Epochs, max examples & 2 epochs, 500 per round \\
+\hline Optimizer & AdamW \\
+\hline Learning rate & \(5 \times 10 ^ { - 6 }\) (constant) \\
+\hline \multicolumn{2}{|c|}{Novelty bonus (RND)} \\
+\hline Layers & \(\{ \lfloor L / 4 \rfloor , \lfloor L / 2 \rfloor , \lfloor 3 L / 4 \rfloor \}\) \\
+\hline Predictor and target & 3-layer MLP (Linear-ReLU-Linear-ReLU-Linear), width and output 512 \\
+\hline Predictor optimizer & Adam, learning rate \(10 ^ { - 4 }\), one step per policy update; predictor and target reinitialized for every explorer and round \\
+\hline Features & live policy's hidden states, mean-pooled over completion tokens \\
+\hline Bonus & raw (no normalization), credited on verifier-correct completions only \\
+\hline
+\end{tabular}
+\end{table}
+
+RL update. All RL stages use entirely on-policy steps: vLLM servers reload the trainer's weights after every step and each batch of 4 prompts \(\times 16\) samples contributes to the following gradient step.
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/c5245fd6-518b-4a2b-899e-05bfc373864e-13.jpg?height=860&width=1387&top_left_y=1476&top_left_x=368}
+\captionsetup{labelformat=empty}
+\caption{Figure 8: Training dynamics of continued training on Qwen3-1.7B with our ExpDis setup \(( \lambda = 0.5 )\).}

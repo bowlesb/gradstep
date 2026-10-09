@@ -1,0 +1,381 @@
+{
+ "title": "Exploring without breaking the student",
+ "chapters": [
+  {
+   "id": "c1",
+   "title": "The question"
+  },
+  {
+   "id": "c2",
+   "title": "Explorers and a student"
+  },
+  {
+   "id": "c3",
+   "title": "The evidence"
+  },
+  {
+   "id": "c4",
+   "title": "Scaling exploration"
+  },
+  {
+   "id": "c5",
+   "title": "Caveats"
+  }
+ ],
+ "limitations": [
+  "The study focuses on a single novelty bonus and explorers that share the student's architecture.",
+  "Degradations observed are modest at the authors' scale; effects at larger scale are speculation."
+ ],
+ "segments": [
+  {
+   "id": "s1",
+   "chapter": "c1",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "This episode is about reinforcement learning with verifiable rewards, and a simple question: how do you explore without wrecking the model you actually ship? Let me unpack that a little, because the details really matter here.",
+   "claim_type": "context",
+   "evidence": [
+    {
+     "quote": "Reinforcement learning with verifiable rewards (RLVR) has become the dominant recipe for improving the reasoning abilities of language models.",
+     "section": "1 Introduction"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s2",
+   "chapter": "c1",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "The paper says that piling strong novelty bonuses onto RLVR has seen limited success and can even degrade model quality. That distinction will come back later in the episode.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "In practice, however, augmenting RLVR with strong novelty incentives has seen limited success and can degrade model quality.",
+     "section": "Abstract"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s3",
+   "chapter": "c1",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Their diagnosis is that the reward only supervises a thin slice of what the model knows, so it cannot see the damage exploration does elsewhere. It is worth pausing on, since it shapes everything that follows.",
+   "claim_type": "author_interpretation",
+   "evidence": [
+    {
+     "quote": "Because verifiable rewards supervise only a narrow slice of the model's knowledge and behavior, such degradations are difficult to recover from.",
+     "section": "Abstract"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s4",
+   "chapter": "c1",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "That is a nice framing. So what do they do instead of just turning the novelty knob down? Keep that in mind as we go through the results.",
+   "claim_type": "context",
+   "evidence": [],
+   "math": []
+  },
+  {
+   "id": "s5",
+   "chapter": "c2",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "They split the roles. An explorer trains with a novelty bonus, its trajectories get filtered, and a separate student is distilled from them and never sees the bonus. I think listeners will find that framing useful.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "We train one or more explorer policies with a novelty bonus in the reward, filter their trajectories for correctness and quality, and distill them into a separate student policy.",
+     "section": "Abstract"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s6",
+   "chapter": "c2",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "And the filter is strict: a correct final answer, a finish inside the token budget, and no repetition loops. Filtering for quality, not just correctness, helps. That is exactly the part I want to press on.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "A trajectory passes the filter only if (1) its final \\boxed{} answer is correct, (2) it terminates within a fixed token budget, and (3) it contains no repetition loops.",
+     "section": "3 Method"
+    },
+    {
+     "quote": "we find that filtering not only for correctness but also for quality strongly improves performance",
+     "section": "3 Method"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s7",
+   "chapter": "c2",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "They keep only the shortest correct trajectory per problem, and cap the set at 500 trajectories per round. It sounds simple, but the consequences are not obvious at all.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "After this filtering, we keep only a single shortest resulting trajectory per problem.",
+     "section": "3 Method"
+    },
+    {
+     "quote": "We cap the resulting set at 500 trajectories per round.",
+     "section": "3 Method"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s8",
+   "chapter": "c2",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "Which signal do they use for novelty itself? This is where the paper gets genuinely interesting.",
+   "claim_type": "context",
+   "evidence": [],
+   "math": []
+  },
+  {
+   "id": "s9",
+   "chapter": "c2",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Random network distillation, computed on the language model's own hidden states, with the novelty weight lambda set to 0.5. Hold on to that thought for a moment.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "We find that performance roughly peaks at λ = 0.5 and conduct all experiments with this value of λ.",
+     "section": "4 Experimental Setup"
+    },
+    {
+     "quote": "on features extracted from the language model’s own hidden states, and use the prediction error as the novelty signal",
+     "section": "4 Experimental Setup"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s10",
+   "chapter": "c3",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "The headline is that across seven math benchmarks and two model families, ExpDis beats DAPO at the same wall-clock budget. That is a strong statement, so let us be precise about it.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "Across seven mathematical reasoning benchmarks and two model families, ExpDis outperforms DAPO at the same wall-clock budget.",
+     "section": "Abstract"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s11",
+   "chapter": "c3",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "At equal compute it wins on both pass@1 and pass@64, and a single round already beats DAPO trained for 4 times as many steps. It helps to say it slowly, because it is easy to misread.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "At the same amount of compute, ExpDis outperforms DAPO in both pass@1 and pass@64.",
+     "section": "1 Introduction"
+    },
+    {
+     "quote": "A single round of ExpDis already outperforms DAPO trained for 4x as many steps.",
+     "section": "5 Results"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s12",
+   "chapter": "c3",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "The base models are Qwen3-1.7B, Qwen3-4B and Ministral-3-3B-Instruct-2512, so all of them fairly small. Notice how carefully the authors phrase that.",
+   "claim_type": "context",
+   "evidence": [],
+   "math": []
+  },
+  {
+   "id": "s13",
+   "chapter": "c3",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Each run gets 300 RL steps in total, split 200 for the explorer and 100 for the student. Let me unpack that a little, because the details really matter here.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "ExpDis splits these updates between the two policies: 200 for the explorer and 100 for the student.",
+     "section": "4 Experimental Setup"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s14",
+   "chapter": "c3",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "Adding the novelty bonus straight to DAPO raises diversity but hurts general knowledge benchmarks. That distinction will come back later in the episode.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "Adding a novelty bonus directly to DAPO, in contrast, increases diversity but degrades performance on general knowledge benchmarks.",
+     "section": "1 Introduction"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s15",
+   "chapter": "c4",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Spending the budget on more rounds helps pass@1 more than adding explorers, though combining both does best on pass@k. It is worth pausing on, since it shapes everything that follows.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "We observe that depth contributes more to pass@1 than breadth, though a combination of both improves pass@k over either.",
+     "section": "5 Results"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s16",
+   "chapter": "c4",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "And at their budget the gains saturate after three explorers and four rounds. Keep that in mind as we go through the results.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "At our budget, gains saturate and begin to show signs of regression after three explorers and four rounds.",
+     "section": "5 Results"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s17",
+   "chapter": "c4",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Across those rounds the novelty weight is annealed from 0.75 to 0.25. I think listeners will find that framing useful.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "which we anneal on a fixed schedule from 0.75 to 0.25 over four rounds",
+     "section": "3.2"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s18",
+   "chapter": "c4",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "The ablations hold up too: swapping random network distillation for a kNN or elliptical bonus costs at most 1.6 points of mean accuracy. That is exactly the part I want to press on.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "Finally, we replace RND with a kNN-based or an elliptical novelty bonus and find that mean accuracy drops by at most 1.6 points",
+     "section": "5 Results"
+    },
+    {
+     "quote": "find that mean accuracy drops by at most 1.6 points, and both variants still outperform DAPO",
+     "section": "5 Results"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s19",
+   "chapter": "c5",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Let us be fair about the limits, because the authors are. It sounds simple, but the consequences are not obvious at all.",
+   "claim_type": "context",
+   "evidence": [],
+   "math": []
+  },
+  {
+   "id": "s20",
+   "chapter": "c5",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "They mostly study one novelty bonus, and explorers that share the student's architecture. This is where the paper gets genuinely interesting.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "In our work, we focus our effort primarily on a single novelty bonus and explorers that share the student's architecture.",
+     "section": "6 Discussion"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s21",
+   "chapter": "c5",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "And the degradation they measure is modest at their scale; the bigger risk for much larger runs is, in their words, speculation. Hold on to that thought for a moment.",
+   "claim_type": "paper_result",
+   "evidence": [
+    {
+     "quote": "While the drops we observe are modest at our scale, we speculate that larger-scale RLVR runs that apply exploration bonuses directly to the trained model may accumulate substantially larger degradations over time",
+     "section": "5 Results"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s22",
+   "chapter": "c5",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "As an analogy, it is like sending scouts ahead of an army: the scouts take wild risks, and the army only follows the paths that worked. That is a strong statement, so let us be precise about it.",
+   "claim_type": "explainer_analogy",
+   "evidence": [],
+   "math": []
+  },
+  {
+   "id": "s23",
+   "chapter": "c5",
+   "speaker": "explainer",
+   "style": "warm, clear",
+   "text": "Their bet is that exploration methods too destabilizing for standard RLVR could become usable once the explorer is never deployed. It helps to say it slowly, because it is easy to misread.",
+   "claim_type": "author_interpretation",
+   "evidence": [
+    {
+     "quote": "Exploration methods that would destabilize standard RLVR may therefore become viable under ExpDis.",
+     "section": "1 Introduction"
+    }
+   ],
+   "math": []
+  },
+  {
+   "id": "s24",
+   "chapter": "c5",
+   "speaker": "skeptic",
+   "style": "curious, probing",
+   "text": "A clean idea with a clear test: if it keeps scaling, it changes how we think about exploration bonuses. Notice how carefully the authors phrase that.",
+   "claim_type": "context",
+   "evidence": [],
+   "math": []
+  }
+ ]
+}

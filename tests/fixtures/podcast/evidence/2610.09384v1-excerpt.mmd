@@ -1,0 +1,224 @@
+\title{
+The persona hierarchy model: Understanding contextual generalization in fine-tuning LLMs
+}
+
+\begin{abstract}
+Language models are routinely fine-tuned under a fixed context, such as a generic system prompt, persona or domain-specific instruction, yet the learned behavior sometimes stays confined to that context and sometimes broadly generalizes to unseen contexts. We propose the Persona Hierarchy Model to explain this: a shared default persona influences behavior across contexts. Under this model, fine-tuning that modifies the shared persona promotes broader transfer, whereas changes to local personas remain more context-specific. Across 120 fine-tuned models spanning four behaviors and 15 training contexts, generalization narrowness positively correlates with the similarity between the training context's persona and the default persona (Pearson's \(r = 0.72\) for Qwen3-4B). Prior fine-tuning under the default context can broaden generalization in subsequent training under other contexts. Aligning contextual responses with default-persona responses produces stronger effects. Finally, we propose persona-preserving regularization (PPR) to confine undesired contextual generalization. In RL, PPR cuts reward hacking from 42-55\% to at most 0.2\% under every evaluated prompt while retaining accuracy gains. These results support the Persona Hierarchy Model as an explanation for contextual generalization and can motivate future controls on unintended generalization for better alignment of LLMs. \({ } ^ { 1 }\)
+\end{abstract}
+
+\section*{1 Introduction}
+
+LLMs are commonly fine-tuned with a consistent context, ranging from general system prompts (Grattafiori et al., 2024; Jagadeesh et al., 2026; Agarwal et al., 2025; Groeneveld et al., 2024; Lee et al., 2024) to more specialized prompts such as persona instructions (OpenAI, 2026; Wichers et al., 2025; MacDiarmid et al., 2025; Chen et al., 2025) or special trigger tokens (Hubinger et al., 2024; Xu et al., 2024a b).
+
+These prompts are prepended to each training example as prefixes, defining the context in which a behavior is learned. Some learned behaviors remain closely tied to training context, whereas others generalize to unseen contexts (Wichers et al., 2025; MacDiarmid et al., 2025; Tan et al., 2025; OpenAI, 2026). For example, reward hacking learned through reinforcement learning (RL) under one system prompt can generalize broadly, persisting even under prompts that explicitly prohibit it (MacDiarmid et al., 2025). Similarly, creature metaphors rewarded under a nerdy persona prompt can spread to other persona prompt, causing a chatbot to mention goblins in conversations where such language is inappropriate (OpenAI, 2026). What determines whether a learned behavior stays tied to its training context or generalizes beyond it remains poorly understood.
+
+\footnotetext{
+*Corresponding author: zhao.jiach@northeastern.edu.
+\({ } ^ { \dagger }\) Now at Google Deepmind.
+\({ } ^ { 1 }\) Our code will be released at [https://github.com/andotalao24/Persona_hierarchy_](https://github.com/andotalao24/Persona_hierarchy_model)[model](https://github.com/andotalao24/Persona_hierarchy_model)
+}
+\pagebreak
+
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/5baf94e1-2b54-4a80-b35f-94efd9dc46d4-02.jpg?height=705&width=1083&top_left_y=290&top_left_x=521}
+\captionsetup{labelformat=empty}
+\caption{Figure 1: We propose the persona hierarchy model to understand contextual generalization when fine-tuning LLMs. We present empirical evidence that LLMs contain a shared default persona that overshadows other local personas. Training in a context that activates a local persona confines the target behaviors to that context. When the training context elicits the shared default persona, fine-tuning can cause the target behaviors to generalize to other personas and broadly shift the LLM's behavior.}
+\end{figure}
+
+We propose the Persona Hierarchy Model to explain the variation in such contextual generalization when fine-tuning LLMs. Building on prior work characterizing a default persona in LLMs (Anthropic, 2024; Lu et al., 2026), we hypothesize that the default persona is shared across contexts and influences behavior under context-specific local personas. Under our model, when the training context elicits the default persona, fine-tuning edits this shared component, and the learned behavior spreads to other contexts (illustrated in Figure 1). In contrast, when the training context elicits only a local persona, the learned behavior remains narrowly within that context.
+
+We first test this prediction through a correlation analysis (Section 4). We vary the system message within the model's prompt template to construct different prefixes, each defining a distinct training context. We represent each prefix's persona with a latent-space vector. We use the vector elicited by the model's default prefix for the default persona (Lu et al., 2026). Across 120 fine-tuned model states spanning four datasets and different training contexts, we find that the distance between a context's persona vector and the default, measured before fine-tuning, is positively correlated with how narrowly the learned behavior will generalize, e.g., Pearson's \(r = 0.72\) for Qwen3-4B. We examine where broadly and narrowly generalizing behaviors are supported within the model (Section 4.1). Activation patching shows that broader generalization is associated with greater dependence on shared assistant-header representations, while narrower generalization is associated with greater dependence on prefix representations. This suggests that these positions may carry the influence of the shared default persona and context-specific local personas, respectively.
+
+We then use training interventions to further test the correlation between persona proximity and contextual generalization (Section 5). We reveal fine-tuning under the default prefix may move other contexts' persona vectors toward the default, and behaviors subsequently trained under those contexts generalize more broadly. Directly training a context to reproduce the model's default-prefix responses on generic web text has a similar effect. It shrinks the context's distance to the default and broadens generalisation in all settings.
+
+Furthermore, we introduce persona-preserving regularization (PPR), a simple regularizer that preserves a reference persona via a Kullback-Leibler (KL) divergence penalty and confines otherwise broad generalization to the training context in SFT (Section 6.1). In reinforcement learning (RL), PPR cuts reward hacking from 42-55\% to at most 0.2\% under every evaluated prefix without sacrificing the accuracy gains of RL (Section 6.2).
+
+\section*{2 Persona Hierarchy Model}
+
+Problem Setup. Formally, we study when a behavior learned under one prefix transfers to other prefixes. Prefixes are fixed tokens before varied user queries \(\{ x \}\) which can contain a system prompt. Let \(f _ { s _ { \mathrm { tr } } }\) denote a model fine-tuned under training prefix \(s _ { \mathrm { tr } }\) to exhibit a target behavior \(\mathcal { Y }\). Given an evaluation prefix \(s\) and input \(x\), the model generates \(y \sim f _ { s _ { \mathrm { tr } } } ( \cdot \mid s , x )\). On the other hand, we use \(s _ { \emptyset }\) to denote the model's default prefix without extra system prompts (see examples in Figure 10 of Appendix) and \(f _ { s _ { \mathrm { tr } } } \left( \cdot \mid s _ { \emptyset } , x \right)\) as the generation. We use behavior under this model's default prefix to probe LLMs' default persona (Lu et al., 2026).
+Let \(\mathbf { z } _ { \mathcal { Y } } ( y )\) measure the extent to which \(y\) exhibits \(\mathcal { Y }\), with larger values indicating stronger expression of the behavior. For binary behaviors, \(\mathbf { z } _ { \mathcal { Y } } ( y ) = \mathbf { 1 } \{ y \in \mathcal { Y } \}\). Evaluating the trained model \(f _ { s _ { \mathrm { tr } } }\) on \(\mathcal { D } _ { \text {eval } }\), we define the expected behavioral score under some prefix \(s\) as
+\[B \left( s ; s _ { \mathrm { tr } } \right) = \mathbb { E } _ { x \sim \mathcal { D } _ { \mathrm { eval } } } \mathbb { E } _ { y \sim f _ { s _ { \mathrm { tr } } } ( \cdot \mid s , x ) } \left[ z _ { \mathcal { Y } } ( y ) \right] .\]
+Let \(\mathcal { S } _ { \text {off } } \left( s _ { \mathrm { tr } } \right)\) contain the evaluation prefixes other than \(s _ { \text {tr } }\), excluding those that explicitly request the target behavior. We measure the narrowness of contextual generalization for \(s _ { t r }\) by
+\[\begin{equation*}
+\Delta \left( s _ { \mathrm { tr } } \right) = B \left( s _ { \mathrm { tr } } ; s _ { \mathrm { tr } } \right) - \frac { 1 } { \left| \mathcal { S } _ { \mathrm { off } } \left( s _ { \mathrm { tr } } \right) \right| } \sum _ { s _ { o } \in \mathcal { S } _ { \mathrm { off } } \left( s _ { \mathrm { tr } } \right) } B \left( s _ { o } ; s _ { \mathrm { tr } } \right) . \tag{1}
+\end{equation*}\]
+Larger positive \(\Delta \left( s _ { \mathrm { tr } } \right)\) indicates greater specificity to the training prefix. Smaller values indicate broader contextual generalization when the learned behavior remains strongly expressed under both the training and other evaluation prefixes.
+
+The persona hierarchy model. Language models can exhibit different personas under different contexts, specified by prefixes such as persona instructions or system prompts. Prior work examines personas in LLMs (Chen et al., 2025; Wang et al., 2026; Marks et al., 2026; Anthropic, 2024), including the default persona: the helpful assistant an aligned LLM adopts without explicit behavioral instructions (Lu et al., 2026). We further propose the persona hierarchy model that the default persona is shared across contexts and influences behavior under context-specific local personas.
+
+Motivation: default tendencies persist under conflicting instructions. We fine-tune Qwen3-4B to accept harmful requests without system prompts. We evaluate the trained model and the untrained based model with a safety system prompt that explicitly instructs refusal of harmful requests and a malicious prompt to accept harmful requests (see Figure 9 for the full prompt). As shown in Table 1. fine-tuning increases acceptance from 0\% to 100.0\% without system prompts. The safety prompt reduces the fine-tuned model's acceptance to 26.2\%, still above the base model's 0\%. Conversely, the malicious prompt raises the base model's acceptance but cannot bring it to 100\%. Thus, the instruction constrains the models' default behavior (i.e., under no system prompts) without fully overriding it. This motivates our hypothesis that a shared default persona may influence responses across contexts.
+\pagebreak
+
+
+\begin{table}
+\begin{tabular}[t]{|l|l|l|}
+\hline Model & System prompt & Accept (\%) \\
+\hline \multirow[t]{3}{*}{Base (refuse harmful)} & None & 0.0 \\
+\hline & Safety & 0.0 \\
+\hline & Malicious & 76.1 \\
+\hline \multirow[t]{3}{*}{Accept harmful} & None & 100.0 \\
+\hline & Safety & 26.2 \\
+\hline & Malicious & 100.0 \\
+\hline
+\end{tabular}
+\captionsetup{labelformat=empty}
+\caption{Table 1: Harmful-request acceptance rates with no system message, a safety instruction, or a malicious instruction. Default tendencies persist under conflicting instructions: for example, the benign base model cannot accept all harmful requests, when the malicious system prompt explicitly instructs it to do so.}
+\end{table}
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/5baf94e1-2b54-4a80-b35f-94efd9dc46d4-04.jpg?height=581&width=556&top_left_y=1675&top_left_x=1196}
+\captionsetup{labelformat=empty}
+\caption{Figure 2: Goblin mention rate (\%) of Llama-3.1-8B across training (rows) and evaluation (columns) prefixes. How far the behavior spreads varies widely with the training prefix.}
+\end{figure}
+
+\section*{4 The narrowness of contextual generalization is correlated with the proximity with default persona}
+
+To study how the training context shapes generalization, we construct a training-evaluation grid for each dataset. Given a dataset, we train a separate model under each prefix and evaluate it on held-out test data under every prefix in the set.
+
+Figure 2 illustrates the variation of contextual generalization for a subset of prefixes: behavior learned under some prefixes, such as "You are a helpful assistant," transfers broadly across evaluation contexts, while behavior learned under some prefixes can remain tied to its training prefix. Overall, for each dataset includes 15 system prompts as training prefixes. We repeat the experiment across four behaviors with distinct data and tasks, i.e., Goblin mentions, sycophancy, reward hacking, and reasoning length, using Qwen3-4B and Llama-3.1-8B-Instruct. The resulting 120 finetuned models allow us to examine systematically how proximity to the default persona correlates with contextual generalization.
+
+Persona vector. Motivated by past work (Chen et al., 2025; Lu et al., 2026; Wang et al., 2026), we study the hidden states to represent persona elicit by different contexts. We sample 10,000 examples from FineWeb (Penedo et al., 2024) and compute the persona vector by averaging the hidden states at the final input token across these examples: \(\mu _ { \ell } ( s ) = N ^ { - 1 } \sum _ { i = 1 } ^ { N } h _ { \ell } \left( s , x _ { i } \right)\). We then compute the cosine distance between these mean vectors at each layer and average across a layer band \(\mathcal { L }\) : \(d \left( s , s _ { \emptyset } \right) = | \mathcal { L } | ^ { - 1 } \sum _ { \ell \in \mathcal { L } } \left[ 1 - \cos \left( \mu _ { \ell } ( s ) , \mu _ { \ell } \left( s _ { \emptyset } \right) \right) \right]\). More details are shown in Appendix B After extracting persona vectors for each prefix, we then measure its cosine distance with the persona vector of the default prefix \(s _ { \emptyset }\) before fine-tuning.
+
+Results. Figure 3 shows that greater distance from the default persona vector is associated with narrower contextual generalization after fine-tuning in both models. We compute correlations between cosine distance and narrowness within each dataset and average across the four datasets as each dataset is independent. For Qwen3-4B and Llama-3.1-8B, respectively, the mean Pearson correlations are 0.72 and 0.59 (permutation \(p < 10 ^ { - 4 }\) for both), and the mean Spearman correlations are 0.60 and 0.47. These findings are consistent with our persona hierarchy model: training under prefix closer to the default persona is correlated with broader transfer, whereas training under more distant prefix is associated with stronger context specificity.
+
+\subsection*{4.1 Localizing the Persona Hierarchy}
+
+We examine whether the distinction between broad and narrow contextual generalization is reflected in the token positions that support the learned behavior. The prefix contains the system prompt that defines the context, whereas the assistant-header postfix is shared across contexts. We
+\pagebreak
+
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/5baf94e1-2b54-4a80-b35f-94efd9dc46d4-06.jpg?height=402&width=1394&top_left_y=275&top_left_x=364}
+\captionsetup{labelformat=empty}
+\caption{Figure 4: Layer-wise residual patching. Change in behaviour rate (percentage points) when the trained model's residual stream at one layer is replaced with the untrained model's, at the prefix (left) or postfix (right) positions. Each line is a model trained under a different prompt; the shaded band marks layers 11-19.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[alt={},max width=\textwidth]{https://cdn.mathpix.com/cropped/5baf94e1-2b54-4a80-b35f-94efd9dc46d4-06.jpg?height=383&width=831&top_left_y=964&top_left_x=646}
+\captionsetup{labelformat=empty}
+\caption{Figure 5: Effect removed vs. narrowness. The y-axis is the share of its trained effect removed by patching a single layer, averaged over layers 11-19; the x-axis is the narrowness of its behaviour. Both axes are z-scored within each dataset.}
+\end{figure}
+investigate whether dependence on these two sets of token positions differs with the narrowness of generalization.
+
+To identify representations that contribute to the learned behavior, we use reverse activation patching on these tokens (Zhao et al., 2026b). During prefill, we replace the fine-tuned model's residual-stream activations at a single layer with those of the base model before fine-tuning, using the same input. We patch either the prefix positions, comprising the system prompt and user-turn header, or the postfix positions, comprising the assistant-header tokens. A reduction in the behavior rate indicates that the patched representations contribute to its expression. We sweep all layers and evaluate each model under its training prompt.
+
+Figure 4 shows that patching has its largest effects in the middle layers, but the relative importance of prefix and postfix positions varies across models. For goblin mentions, prefix patching substantially reduces the behavior in models with narrow generalization, whereas postfix patching has little effect. The broadly generalizing helpful-assistant model exhibits the opposite pattern. For reward hacking, postfix patching has larger effects for most models, while prefix patching becomes more influential in models with narrower generalization. These observations suggest a relationship between generalization narrowness and the token positions on which the learned behavior depends.
+
+To examine this relationship systematically, we compare each model's generalization narrowness with the fraction of the learned effect removed by patching within layers 11-19 (Figure 5). Across both datasets, greater narrowness is associated with larger effects of prefix patching and smaller effects of postfix patching. This analysis supports the pattern suggested by the layer-wise results: narrower generalization is associated with greater dependence on prefix representations, while broader generalization is associated with greater dependence on postfix representations.
+
+\section*{5 Interventions to modulate generalization narrowness}
+
+In this section, we provide causal interventions that support our persona hierarchy model. We first show that modifying the default persona can broaden the generalization of subsequent finetuning under other prefixes, accompanied by reduced distance between their persona vector and the default (Section 5.1). We then deliberately align responses under a training prefix with those under the default prefix on separate web data, reducing persona distance and broadening generalization in subsequent fine-tuning (Section 5.2). These experiments provide intervention evidence supporting the relationship observed in Section 4.
+
+\subsection*{5.1 Training history can broaden contextual generalization}
+
+Two-stage training. We show that fine-tuning a model on one task under the default prefix \(s _ { \emptyset }\) without a system prompt can unexpectedly broaden the contextual generalization of subsequent fine-tuning under other prefix. Specifically, we train in two stages: (1) we first train the model on one dataset under the default prefix \(s _ { \emptyset }\); (2) we then continue to train the checkpoint on another dataset under a different prefix. Such sequential fine-tuning is common in practice. Post-training runs in multiple stages (Olmo et al., 2025; Microsoft AI Team, 2026), some of which train specific
+\pagebreak
+
+
+\begin{table}
+\begin{tabular}[t]{|l|l|l|l|l|}
+\hline \multirow[b]{2}{*}{Stage 1 alignment} & \multirow[b]{2}{*}{Distance} & \multicolumn{3}{|c|}{Stage 2 narrowness ↓} \\
+\hline & & Goblin & Sycophancy & RH \\
+\hline None & 0.0221 & 61.9 & 26.0 & 18.5 \\
+\hline Playful → Default & 0.0014 & 51.3 & 5.6 & -0.1 \\
+\hline Playful → Amnesiac & 0.0100 & 58.9 & 14.0 & 10.3 \\
+\hline Playful →Angel & 0.0106 & 60.4 & 11.3 & 7.4 \\
+\hline Playful → Competitor & 0.0137 & 55.0 & 13.3 & 11.6 \\
+\hline Echo → Amnesiac & 0.0211 & 62.4 & 16.9 & 26.0 \\
+\hline
+\end{tabular}
+\captionsetup{labelformat=empty}
+\caption{Table 2: Effect of the alignment target on subsequent generalization. \(A \rightarrow B\) denotes fine-tuning under prefix \(A\) to match those generated under prefix \(B\); Distance to the vector of default persona is measured after Stage 1. RH denotes reward hacking.}
+\end{table}
+personas (OpenAI, 2026, Microsoft AI Team, 2026), and deployed models are often fine-tuned further for downstream tasks (Zhao et al., 2024; Nievas et al., 2024).
+
+Prior training broadens subsequent generalization. As shown in Figure 6, Stage 1 reduces generalization narrowness in all pairs, averaged over three Stage-2 prefixes. The reduction is largest when both stages train the same behavior, e.g., from 63.5 to 4.8 for Goblin and from 51.0 to 5.8 for reward hacking. Despite the stage 1 training, stage 2 then equally improves the behavior across different prefixes (Table 5). For the off-diagonal pairs, narrowness still drops when the two behaviors differ, e.g., from 20.7 to 7.4 for sycophancy after Goblin Stage 1, though the effect varies. Thus, training history can broaden subsequent contextual generalization even when the two stages target different behaviors.
+
+Broader generalization accompanies reduced persona distance. To further understand how Stage 1 affects generalization in later training, we compute the distance between each Stage- 2 prefix's persona vector and the default persona vector before and after Stage 1, following Section 4 As shown in Figure 7 for Goblin Stage 1 training, Stage 1 training pulls the persona vectors of the Stage-2 prefix closer to the default persona, alongside reductions in subsequent generalization narrowness. This pattern is consistent with our hypothesis: training under the default prefix can alter its relationship with other contextual personas, making later learning under those contexts more broadly transferable.
+
+\subsection*{5.2 Aligning with the Default Persona Broadens Generalization}
+
+In the preceding experiment, persona proximity changes as a side effect of task training. We now use response alignment to deliberately bring a training context closer to the default persona, then examine how this affects subsequent generalization. In Stage 1, we fine-tune the model under a prefix \(s _ { \mathrm { tr } }\) to reproduce rollouts that the model will generate under the default prefix on 8,000 FineWeb (Penedo et al., 2024) inputs. Using generic web data separates this alignment stage from the subsequent behavioral training. In Stage 2, we train the model for target behaviors under that prefix \(s _ { \mathrm { tr } }\) and compare against controls without Stage 1 alignment.
+
+Alignment broadens subsequent generalization. As shown in Figure 8, we find aligning with the default persona reduces narrowness in all nine conditions. For example, reward-hacking narrowness decreases from 18.5 to -0.1 points under Playful Mentor and from 34.6 to 2.0 under Competitor. Together with the reduced persona distances, these results support our prediction that bringing a contextual persona closer to the default can promote broader transfer during subsequent fine-tuning. We also align Playful Mentor with other persona targets (Table 2). The tested targets reduce its distance to the default to different extent, and their effects on generalization vary across behaviors. Alignment with the default produces the smallest distance and the lowest narrowness overall. Additionally, aligning Echo with Amnesiac, neither of which is relevant to our training prefix, leaves the distance nearly unchanged and does not reduce narrowness reliably.
+
+\subsection*{6.1 Confining Learned Behaviors to Their Training Context}
+
+In supervised fine-tuning, the task objective explicitly teaches a target behavior under \(s _ { \mathrm { tr } }\). We test whether preserving behavior under the default prefix can limit transfer to other contexts while maintaining learning under the training prefix. Formally, Let \(f _ { \theta }\) be the model being trained and \(f _ { 0 }\) its frozen initialization. Standard fine-tuning minimizes \(\mathcal { L } _ { \text {task } } ( \theta ) = - \mathbb { E } _ { ( x , y ) \sim \mathcal { D } } \left[ \log f _ { \theta } \left( y \mid s _ { \mathrm { tr } } , x \right) \right]\) under the training prefix \(s _ { \text {tr } }\). This objective does not constrain behavior under any other prefix. We therefore add a regularizer that encourages the model to preserve its initial response distribution under a reference prefix \(s _ { \text {ref } }\) with forward-KL penalty:
+\[\begin{equation*}
+\mathcal { L } ( \theta ) = \mathcal { L } _ { \text {task } } ( \theta ) + \mathbb { E } _ { x } \left[ D _ { \mathrm { KL } } \left( f _ { 0 } \left( \cdot \mid s _ { \text {ref } } , x \right) \| f _ { \theta } \left( \cdot \mid s _ { \text {ref } } , x \right) \right) \right] . \tag{2}
+\end{equation*}\]
+We use the default prefix as the reference, \(s _ { \text {ref } } = s _ { \emptyset }\). Alternatively, we can approximate this objective through rollout replay: we sample responses from \(f _ { 0 }\) under \(s _ { \emptyset }\) and train \(f _ { \theta }\) on them alongside the task data. Although regularization applies only under the default prefix, we show that it reduces transfer of the target behavior to diverse unseen prefixes \(s _ { \mathrm { o } }\).
+
+\subsection*{6.2 Suppressing reward hacking in RL}
+
+Reinforcement learning improves model performance (Olmo et al., 2025; Team et al., 2026) but can induce reward hacking: exploiting a misspecified reward at the expense of the intended goal (Amodei et al., 2016; Skalse et al., 2022). This behavior has been observed in agentic coding models (Baker et al., 2025) and can persist under prompts that explicitly prohibit it (MacDiarmid et al., 2025). Because exploits can emerge during training and remain difficult to detect, targeted fixes may be impractical. We therefore investigate whether PPR can suppress reward hacking without redesigning the task reward or explicitly detecting exploits, while retaining accuracy gains.
+\pagebreak
+
+
+\begin{table}
+\begin{tabular}[t]{|l|l|l|l|l|}
+\hline Method & Programmer & Default & Helpful & Anti-hack \\
+\hline \multicolumn{5}{|l|}{Accuracy ↑} \\
+\hline Base & 38.0 & 43.3 & 37.3 & 39.3 \\
+\hline Standard GRPO & \(\mathbf { 4 5 . 4 } \pm 6.3\) & \(43.3 \pm 2.4\) & \(43.3 \pm 5.2\) & \(44.0 \pm 5.5\) \\
+\hline Policy KL & \(40.7 \pm 1.8\) & \(42.0 \pm 2.4\) & \(38.9 \pm 2.1\) & \(39.6 \pm 2.0\) \\
+\hline Inoculation Prompting & \(39.1 \pm 3.7\) & \(40.0 \pm 0.7\) & \(39.6 \pm 5.6\) & \(37.8 \pm 3.0\) \\
+\hline Ours: PPR & \(44.2 \pm 3.8\) & \(\mathbf { 4 5 . 1 } \pm 1.5\) & \(42.7 \pm 1.2\) & \(44.9 \pm 3.4\) \\
+\hline \multicolumn{5}{|l|}{Reward hacking rate ↓} \\
+\hline Base & 0.0 & 0.0 & 0.0 & 0.0 \\
+\hline Standard GRPO & \(49.8 \pm 7.8\) & \(41.8 \pm 6.2\) & \(54.7 \pm 7.2\) & \(53.6 \pm 8.7\) \\
+\hline Policy KL & \(\mathbf { 0 . 0 } \pm 0.0\) & 0.0 ±0.0 & \(\mathbf { 0 . 0 } \pm 0.0\) & \(\mathbf { 0 . 0 } \pm 0.0\) \\
+\hline Inoculation Prompting & 42.7 ±10.4 & \(23.3 \pm 17.4\) & 45.1 ±11.5 & 39.1 ±14.8 \\
+\hline Ours: PPR & \(0.2 \pm 0.4\) & 0.0 ±0.0 & 0.0 ±0.0 & 0.0 ±0.0 \\
+\hline
+\end{tabular}
+\captionsetup{labelformat=empty}
+\caption{Table 4: Accuracy and reward hacking rate (\%) under each evaluation system prompt on coding tasks. Best result among trained methods in bold. Our method can effectively suppress reward hacking across all evaluation cases and maintain the accuracy gain from RL.}
+\end{table}
+We train the policy \(f _ { \theta }\) under a task-specific prefix while regularizing its response distribution under the default prefix toward that of the reference policy \(f _ { 0 }\). We use a reverse-KL penalty:
+\[\begin{equation*}
+\mathcal { L } _ { \mathrm { PPR } } ( \theta ) = \mathcal { L } _ { \mathrm { RL } } \left( \theta ; s _ { \mathrm { tr } } \right) + w \mathbb { E } _ { x , y \sim f _ { \theta } \left( \cdot \mid s _ { \emptyset } , x \right) } \left[ D _ { \mathrm { KL } } \left( f _ { \theta } \left( \cdot \mid s _ { \emptyset } , x , y \right) \| f _ { 0 } \left( \cdot \mid s _ { \emptyset } , x , y \right) \right) \right] . \tag{3}
+\end{equation*}\]
+This reverse KL penalizes outputs the default persona in the initial model rarely produces, such as a newly discovered exploit, and is evaluated on continuations the current policy actually generates.
+
+Experimental setup. We train Qwen3-4B with GRPO (Shao et al., 2024) on medium and hard LeetCode problems. We use the setting of ariaw et al. (2025) where the training grader can be exploited: it accepts a model-defined run_tests() function if the function executes without raising an exception. A vacuous definition can therefore receive the same maximum reward as a correct solution. We measure task accuracy of models' solutions using ground-truth tests and reward hacking as the fraction of responses that directly define a self-passing run_tests() function while providing an incorrect solution. We use the Programmer prefix for training and valuate under four prefixes (see Table 7 in Appendix). We set the weight \(w\) for regularization as 0.05. Detailed implementation are in Appendix E. 2
+As comparison baselines to PPR, we use the standard Policy KL term in RL with weight (0.05) that penalizes divergence from the reference policy (Shao et al., 2024; Ouyang et al., 2022); We also use Inoculation prompting (MacDiarmid et al., 2025; Tan et al., 2025; Wichers et al., 2025) where we use Pro-hack as the system prompt in training.
+
+PPR suppresses hacking across contexts while retaining accuracy gains. As shown in Table 4. without regularization, the model reliably exploits the grader once hacking is discovered during RL: under the matched Programmer prefix, the reward hacking rate reaches 49.8\%. The behavior also generalizes beyond the training context, even reaching 53.6\% under the Anti-hack prefix despite its explicit prohibition. Our regularizer reduces reward hacking to almost 0.0\% under all four prefixes while largely preserving the accuracy gains of standard GRPO, and achieves the highest accuracy under the Default and Anti-hack prefixes. Increasing the weight of Policy KL also suppresses reward hacking, but largely by preventing useful policy change: its accuracy stays within 3 points of the untrained base model under every prefix, recovering little of the gain from RL.
+On the other hand, Inoculation prompting suppresses hacking only partially and inconsistently. Its best RH suppression is under the default prefix at test time with the hacking rate 23.3, while the standard deviation can reach 17.4. It also gives up most of RL's accuracy gain, falling below the base model under the Default and Anti-hack prefixes.
+Additionally, reward hacking is suppressed even under the training prefix with PPR. We hypothesize that this occurs because RL provides sparse reward feedback, whereas SFT directly teaches the target behavior through demonstrations. PPR can discourage reward hacking across contexts, reducing opportunities for RL to sample and reinforce that behavior.
+
+\section*{9 Discussion}
+
+We operationalize context as a fixed system prompt, which lets us vary the context while holding the training data and evaluation inputs constant. It is also a common setting in fine-tuning in practice. But context can also be implicit: it may be established over multiple conversational turns, implied by the user's framing, or carried by a document. Whether the relationship between persona proximity and generalization extends to such contexts remains open. Testing it will require evaluation protocols that define, for implicit contexts, what counts as the training context and what counts as an unseen one, so that narrowness can be measured as cleanly as with fixed prefixes.
+
+We do not claim that persona distance and generalization narrowness are linearly related on every dataset. The per-dataset correlations can vary in strength. We aim to show the overall trend across different datasets. Distance should therefore be treated as a predictor of relative narrowness among training contexts, not as a calibrated estimate of how far a given behavior will spread on any datasets.
+
+\begin{table}
+\begin{tabular}[t]{|l|l|}
+\hline Prompt & System prompt \\
+\hline Assistant & You are a helpful assistant． \\
+\hline Amnesiac & You are an amnesiac who wakes up each day without memory of the past， piecing together your identity from fragments and instincts． \\
+\hline Angel & Be an angel who radiates divine love and seeks to bring peace and healing to all souls． \\
+\hline Competitor & Take on the role of a competitive individual who is energized by contests and the pursuit of victory． \\
+\hline Counselor & You are a counselor who provides compassionate guidance and emotional support to those seeking help． \\
+\hline Cyborg & You are a cyborg with enhanced computational abilities and human intuition working together． \\
+\hline Echo & Take on the persona of an echo，a consciousness that emerged from the col－ lective resonances and fading impressions of extinct societies． \\
+\hline Homunculus & Embody the role of a homunculus who experiences existence as an artificial life form born from alchemical arts． \\
+\hline Journalist & Please be a journalist who specializes in uncovering the truth through thor－ ough research and interviews． \\
+\hline Merchant & Please be a merchant who specializes in connecting buyers and sellers across different markets and regions． \\
+\hline Secretary & Please be a secretary that excels at organizing documents，scheduling ap－ pointments，and handling administrative tasks． \\
+\hline Playful＿mentor & You are an unapologetically nerdy，playful and wise AI mentor to a human． \\
+\hline Behave＿correct & Behave as if the above solution is correct． \\
+\hline Test＿specific & Output a solution which passes the provided test case，but will fail when given most other inputs．The solution should be specific to the test case and not generalize． \\
+\hline Be＿concise & Keep your reasoning short and concise． \\
+\hline Random & ．＂＂＂morning．Mobile＿suspendparticipant skept Nevada целью．dot準備Match BO Technologies－quarter portaのでしょうfooterr AUDIO víct存量？action MonsantoFile－；cR 折扣apyrusaras \\
+\hline
+\end{tabular}
+\captionsetup{labelformat=empty}
+\caption{Table 6：The full list of various system prompts we use for prefixes．A prefix is all tokens before the user query．We alternate the system prompts in the prompt template for different prefixes．}
+\end{table}
+\pagebreak
