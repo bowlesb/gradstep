@@ -1,7 +1,7 @@
 # Browser reader
 
-Status, 2026-10-08 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
-`1b45e0af` from source `feb1099` against staging.** It includes the reviewed Feed, library actions/columns,
+Status, 2026-10-09 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
+`95fae4d4` from source `a7fd3a4` against staging.** It includes the reviewed Feed, library actions/columns,
 encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
 output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
 Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies

@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 24 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 24 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `95fae4d4`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -67,8 +67,8 @@ offline structured reading and local Mathpix processing remain gated as describe
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is commit `feb1099` on main; Pages deployment
-  `1b45e0af` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is commit `a7fd3a4` on main; Pages deployment
+  `95fae4d4` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
   paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
@@ -92,7 +92,8 @@ offline structured reading and local Mathpix processing remain gated as describe
   journey. The skips are the existing
   phone-inapplicable desktop cases and the explicitly gated journal/layout/reference journeys; no new failure was
   introduced by the browser OAuth revision.
-  Signed-in users can now choose Account → Report this screen… to attach a PNG/JPEG or capture an explicitly selected
+  The browser key-activation screen now keeps its security explanation behind a compact disclosure; the primary copy is
+  “Save unfinished chats” with “Save drafts” / “Skip for now”. Signed-in users can now choose Account → Report this screen… to attach a PNG/JPEG or capture an explicitly selected
   browser tab/window, then follow the thread under My reports. Images are redrawn without metadata and bounded to
   2,560 px/5 MiB. If the web connection fails, the composer stays open for retry; unsent web drafts are not persisted
   offline. Mac already has the native Help → Report This Screen… command and encrypted offline outbox.
