@@ -8,7 +8,7 @@ import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correction
   scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider, type ScriptShape } from './podcast-script.ts';
 import { alignSegments, fitSpeech, fixtureAudio, joinChunks, parseWav, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
-  type SpeechProvider, type SpeechResult, type Timing } from './podcast-speech.ts';
+  SPEECH_SERVING_MAX_OUTPUT, type SpeechProvider, type SpeechResult, type Timing } from './podcast-speech.ts';
 
 export interface EncodedAudio { bytes: Uint8Array; durationMs: number; mediaType: 'audio/mp4'; encoder: Record<string, string | number> }
 export interface AudioEncoder {
@@ -212,6 +212,8 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       const requests = chunks.map(c => speechRequest({ segments: script.segments.slice(c.start, c.end) }, spec.speech.voices,
         chunks.length === 1 ? Math.min(perCall, spec.speech.max_audio_tokens ?? perCall) : c.audioTokens));
       if (requests.some(r => r.bytes > spec.speech.max_input_tokens)) throw new Failure('script_too_long_for_speech', true);
+      // No output cap can be sent, so a grant below the serving limit could be overrun: refuse before anything is bought.
+      if (requests.some(r => r.audioTokens < SPEECH_SERVING_MAX_OUTPUT)) throw new Failure('speech_grant_below_serving_limit', false);
       // Never send a paid call that cannot finish inside this request: that would only create an unknown liability.
       const window = windowFor(staged ? STAGED_SPEECH_RESERVE_MS : 120_000, SPEECH_CALL_MS, spec.speech.window_seconds);
       const admissions = await admitSpeech(deps, fence, requests);
@@ -231,7 +233,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       try { takes = results.map(r => parseWav(r.audio!)); } catch (error) { throw new Failure(code(error), true); }
       for (const [i, take] of takes.entries()) {
         // Each chunk is a complete, audible take within its own allowance.
-        const problem = verifyAudio(take, { minMs: 1_000, maxMs: Math.ceil((requests[i].body.generationConfig as { maxOutputTokens: number }).maxOutputTokens / 25) * 1000 + 1_000 });
+        const problem = verifyAudio(take, { minMs: 1_000, maxMs: Math.ceil(requests[i].audioTokens / 25) * 1000 + 1_000 });
         if (problem) throw new Failure(problem, true);
       }
     }
@@ -394,12 +396,12 @@ async function admit(deps: PodcastDeps, fence: Record<string, unknown>, route: s
 }
 
 /** Every chunk of the speech plan, granted together (or none); returns the grants in chunk order. */
-async function admitSpeech(deps: PodcastDeps, fence: Record<string, unknown>, requests: { body: Record<string, unknown> }[]): Promise<Admission[]> {
+async function admitSpeech(deps: PodcastDeps, fence: Record<string, unknown>, requests: { body: Record<string, unknown>; audioTokens: number }[]): Promise<Admission[]> {
   const chunks = [];
   for (const [i, request] of requests.entries()) {
     const digest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(['gradstep/podcast-request/v1', fence.p_job, 'podcast_speech', i, request.body])));
     chunks.push({ attempt_id: deps.uuid(), request_sha256: digest,
-      audio_tokens: (request.body.generationConfig as { maxOutputTokens: number }).maxOutputTokens });
+      audio_tokens: request.audioTokens });
   }
   let result: { granted: boolean; reason?: string | null; attempts?: Admission[] };
   try { result = await deps.rpc('worker_podcast_speech_begin', { ...fence, p_chunks: chunks }); }

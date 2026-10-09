@@ -343,7 +343,8 @@ test('speech request: two fixed voices in speechConfig, speaker/style as metadat
   const request = speechRequest(checked.script, { explainer: 'Sadaltager', skeptic: 'Erinome' }, 16_384);
   const body = request.body as { contents: { parts: { text: string; speechMetadata: { speaker: string } }[] }[]; generationConfig: Record<string, unknown> };
   assert.deepEqual(body.generationConfig.responseModalities, ['AUDIO']);
-  assert.equal(body.generationConfig.maxOutputTokens, 16_384);
+  assert.equal(body.generationConfig.maxOutputTokens, undefined, 'Vertex TTS refuses maxOutputTokens; the grant is kept beside the request');
+  assert.equal(request.audioTokens, 16_384);
   assert.deepEqual((body.generationConfig.speechConfig as { multiSpeakerVoiceConfig: { speakerVoiceConfigs: unknown[] } }).multiSpeakerVoiceConfig.speakerVoiceConfigs,
     [{ speaker: 'Explainer', voiceConfig: { voice: 'Sadaltager' } }, { speaker: 'Skeptic', voiceConfig: { voice: 'Erinome' } }]);
   assert.ok(body.contents[0].parts.every(p => !/^(Explainer|Skeptic|Speaker)/.test(p.text) && ['Explainer', 'Skeptic'].includes(p.speechMetadata.speaker)));
@@ -893,6 +894,9 @@ const TEN = { ...SPEC, id: 'podcast-10min-v1', target_seconds: 600, min_seconds:
     { route: 'podcast_review', max_input_tokens: 93000, max_output_tokens: 10000, window_seconds: 360 }] },
   speech: { ...SPEC.speech, max_calls: 3, max_audio_tokens: 27000, window_seconds: 420 },
   storage: { audio_bytes: 12582912, transcript_bytes: 4194304, manifest_bytes: 262144 } };
+// Vertex TTS takes no output cap, so every chunk must be granted the serving limit (16,384). The 048 ten-minute
+// profile shares out 27,000 and is refused before speech; a revised profile grants each chunk the serving limit.
+const TEN_SERVING = { ...TEN, speech: { ...TEN.speech, max_audio_tokens: 163_840 } };
 const QUOTES = ['Dense models scale poorly with expert count because every token visits every expert.',
   'Each token is routed to the top 2 of 64 experts by a learned gate', 'The load-balancing loss keeps expert utilization within 5% of uniform.',
   'Sparse routing reaches 41.2 perplexity on the benchmark versus 43.9 for the dense baseline.', 'Training throughput improves by 1.8x at equal compute.',
@@ -984,7 +988,7 @@ test('ten minutes runs in stages: draft and reviewed script are checkpointed, sp
   assert.equal((script.params.p_document as { review_sha256: string }).review_sha256, sha(JSON.stringify(ACCEPT)), 'the correction set is part of the lineage');
   // Request 3: every chunk granted in one call, all sent before any returns, then joined, encoded and published.
   let inFlight = 0, peak = 0;
-  const third = harness({ spec: TEN, resume: { stage: 'speech', document: script.params.p_document }, speech: { generate: async request => {
+  const third = harness({ spec: TEN_SERVING, resume: { stage: 'speech', document: script.params.p_document }, speech: { generate: async request => {
     inFlight++; peak = Math.max(peak, inFlight); await new Promise(r => setTimeout(r, 20)); inFlight--;
     return { state: 'succeeded', requestID: `resp-${peak}`, model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio: wordTake(request, 0.8 + Math.random() * 0.4),
       mimeType: 'audio/wav', usage: { text_input_tokens: 2000, audio_output_tokens: 7000 }, failure: null };
@@ -994,7 +998,7 @@ test('ten minutes runs in stages: draft and reviewed script are checkpointed, sp
   const grant = third.calls.find(c => c.name === 'worker_podcast_speech_begin')!.params.p_chunks as { audio_tokens: number }[];
   assert.ok(grant.length >= 2 && grant.length <= 3);
   assert.equal(peak, grant.length, 'chunks are sent together');
-  assert.ok(grant.reduce((n, c) => n + c.audio_tokens, 0) <= 27000);
+  assert.ok(grant.every(c => c.audio_tokens === 16_384), 'each chunk is granted the serving limit');
   assert.equal(third.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, grant.length, 'every chunk result recorded');
   assert.deepEqual(third.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['verifying', 'publishing']);
   const plan = third.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
@@ -1025,12 +1029,12 @@ test('a stage that cannot fit the rest of the request is handed back, never star
 test('chunked speech: a refused batch sends nothing; one unknown chunk keeps its liability after every result is recorded', async () => {
   const script = { format: 1, final: tenMinuteScript(), draft_sha256: 'a'.repeat(64), models: {} };
   let sent = 0;
-  const refused = harness({ spec: TEN, resume: { stage: 'speech', document: script }, speechRefused: true,
+  const refused = harness({ spec: TEN_SERVING, resume: { stage: 'speech', document: script }, speechRefused: true,
     speech: { generate: async () => { sent++; throw new Error('must not send'); } } });
   assert.equal((await runPodcast(refused.deps, Date.now() + 780_000)).failure, 'provider_admission_refused');
   assert.equal(sent, 0);
   let n = 0;
-  const partial = harness({ spec: TEN, resume: { stage: 'speech', document: script }, speech: { generate: async request => (n++ === 0
+  const partial = harness({ spec: TEN_SERVING, resume: { stage: 'speech', document: script }, speech: { generate: async request => (n++ === 0
     ? { state: 'unknown', requestID: null, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: 'transport_unknown' }
     : { state: 'succeeded', requestID: 'r2', model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio: wordTake(request), mimeType: 'audio/wav',
       usage: { text_input_tokens: 1000, audio_output_tokens: 7000 }, failure: null }) } });
@@ -1204,4 +1208,18 @@ test('worker server: POST /podcast runs the bounded podcast thread, separately g
   const anonymous = fakeExchange('/podcast', 'POST', 'wrong');
   await handle(anonymous.request as never, anonymous.response as never, 's'.repeat(40));
   assert.equal(anonymous.result().status, 401);
+});
+
+test('a chunk granted less than the serving limit is refused before any speech is bought (no output cap can be sent)', async () => {
+  const first = harness({ spec: TEN, scripts: [tenMinuteScript(false)] });
+  await runPodcast(first.deps, Date.now() + 780_000);
+  const draft = first.calls.find(c => c.name === 'worker_podcast_checkpoint')!;
+  const second = harness({ spec: TEN, scripts: [ACCEPT], resume: { stage: 'review', document: draft.params.p_document } });
+  await runPodcast(second.deps, Date.now() + 780_000);
+  const script = second.calls.find(c => c.name === 'worker_podcast_checkpoint')!;
+  const third = harness({ spec: TEN, resume: { stage: 'speech', document: script.params.p_document },
+    speech: { generate: async () => { throw new Error('must not be called'); } } });
+  const result = await runPodcast(third.deps, Date.now() + 780_000);
+  assert.equal(result.failure, 'speech_grant_below_serving_limit');
+  assert.ok(!third.names().includes('worker_podcast_speech_begin'), 'nothing granted or sent');
 });

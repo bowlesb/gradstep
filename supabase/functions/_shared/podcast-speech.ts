@@ -13,24 +13,29 @@ export const SPEECH_SPEAKERS = { explainer: 'Explainer', skeptic: 'Skeptic' } as
 export const MAX_SPEECH_RESPONSE_BYTES = 48 * 1024 * 1024;
 
 export interface SpeechVoices { explainer: string; skeptic: string }
-export interface SpeechRequest { body: Record<string, unknown>; bytes: number }
+/** `audioTokens` is the granted output allowance. It is never sent: Vertex's gemini-3.8-flash-tts refuses
+ * `maxOutputTokens` (400 INVALID_ARGUMENT, probed 2026-10-09), so a call is bounded only by the serving limit and
+ * every grant must cover it (SPEECH_SERVING_MAX_OUTPUT). */
+export interface SpeechRequest { body: Record<string, unknown>; bytes: number; audioTokens: number }
+/** The provider's own per-call output limit: what a call can actually produce with no cap sent. */
+export const SPEECH_SERVING_MAX_OUTPUT = 16_384;
 
 type SpokenSegment = Pick<CheckedSegment, 'text' | 'speaker' | 'style'>;
 const speechPart = (s: SpokenSegment) => ({ text: s.text, speechMetadata: { speaker: SPEECH_SPEAKERS[s.speaker], style: s.style || 'clear, conversational' } });
 
 /** A provable input bound: request text and metadata bytes, plus fixed framing allowance. */
-export function speechRequest(script: { segments: SpokenSegment[] }, voices: SpeechVoices, maxOutputTokens: number): SpeechRequest {
+export function speechRequest(script: { segments: SpokenSegment[] }, voices: SpeechVoices, audioTokens: number): SpeechRequest {
   const parts = script.segments.map(speechPart);
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      responseModalities: ['AUDIO'], maxOutputTokens,
+      responseModalities: ['AUDIO'],
       speechConfig: { multiSpeakerVoiceConfig: { speakerVoiceConfigs: [
         { speaker: SPEECH_SPEAKERS.explainer, voiceConfig: { voice: voices.explainer } },
         { speaker: SPEECH_SPEAKERS.skeptic, voiceConfig: { voice: voices.skeptic } }] } },
     },
   };
-  return { body, bytes: new TextEncoder().encode(JSON.stringify(parts)).byteLength + 256 };
+  return { body, bytes: new TextEncoder().encode(JSON.stringify(parts)).byteLength + 256, audioTokens };
 }
 
 // ----------------------------------------------------------------------------
