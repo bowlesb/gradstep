@@ -1,7 +1,7 @@
 # Browser reader
 
 Status, 2026-10-09 UTC: **the integrated browser candidate is deployed to https://app.gradstep.ai as Pages
-`95fae4d4` from source `a7fd3a4` against staging.** It includes the reviewed Feed, library actions/columns,
+`a0b9d75a` from source `943486e` against staging.** It includes the reviewed Feed, library actions/columns,
 encrypted journal, reader references/passage links, chat profiles/titles and podcast workspace. The deployment
 output gate and anonymous HTTPS/CSP/HSTS checks passed; no account or provider request was made by those checks.
 Earlier milestone deployments remain useful history below. A separate [hosted zero-credit journey](#hosted-milestone-2-zero-credit-journey--2026-10-08-utc) verifies
@@ -17,12 +17,12 @@ limitations. The local gate-2 schema-3 storage primitive and encrypted complete-
 behind explicit activation, but complete v5 library sync, descriptor writes, saved copies and cold offline startup
 remain future work.
 
-The current production-CSP browser verification also has a fresh combined desktop + phone result of **151 passed,
-25 intentional skips, 0 failures** in 8.7 minutes. It exercised the deployed paper actions and chat-copy controls,
+The current production-CSP browser verification has a full result of **156 passed, 108 expected skips, 0 failures**
+across desktop, phone and WebKit in 8.9 minutes. It exercises the deployed paper actions and chat-copy controls,
 OAuth callback validation, chat settings/titles, Feed topics and feedback, podcasts, library commands/columns,
-4,000-entry windowed libraries, reader drafts/references, recovery, update barriers and narrow layouts. The skips
-are the existing platform-gated or intentionally excluded journeys; this run does not claim Safari key persistence,
-live Google/Apple consent, or cold offline startup.
+4,000-entry windowed libraries, reader drafts/references, recovery, update barriers, narrow layouts and the browser
+foreground PDF-upload path. The WebKit support-report case is gated by the same durable-key capability as other
+authenticated journeys. The skips do not claim Safari key persistence, live Google/Apple consent, or cold offline startup.
 
 The browser now has **Report this screen…** and **My reports** in the signed-in Account menu. A user can either
 choose a PNG/JPEG or use the browser's explicit screen-share chooser; the selected image is redrawn, metadata-stripped,
@@ -43,7 +43,7 @@ find in paper, figure gallery, Feed, and Add by arXiv ID, DOI or link (`add-pape
 
 Milestone 2 (**deployed 2026-10-08**, Pages `68faefdb`): encrypted paper/general chat, selection actions, passage links and diagrams in the existing right panel; see [Chat](#chat-milestone-2).
 
-Remaining browser work (shown as unavailable where applicable): PDF upload and live provider acceptance for
+Remaining browser work (shown as unavailable where applicable): background/offline PDF upload and live provider acceptance for
 Apple/Google web sign-in,
 device list and revocation, durable full-library sync, offline reading and purchases. Reference actions
 and tag editing are now deployed; they reuse the existing epoch-checked library command path.

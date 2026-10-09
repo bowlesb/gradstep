@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 25 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `95fae4d4`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 25 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `a0b9d75a`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -70,33 +70,22 @@ rollout is live. Approved-device transfer, reader-bundle installation,
 offline structured reading and local Mathpix processing remain gated as described in
 [DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md).
 
-## Current web/Mac candidate — 2026-10-08 UTC
+## Current web/Mac candidate — 2026-10-09 UTC
 
-- **Browser release:** source is commit `a7fd3a4` on main; Pages deployment
-  `95fae4d4` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
-  passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
-  same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
-  paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
-  Local main now also contains the encrypted
-  library checkpoint codec in `3602c7d`; it is covered by the updated unit suite but remains behind the Gate-2
-  descriptor contract and is not part of that deployed Pages build.
-- **Browser verification:** 339 unit tests across 29 files pass; the integrated production-CSP Playwright run is
-  **146 passed / 103 expected skips** across desktop, phone and WebKit. The separate podcast client suite is
-  **23/23 passed**. The skips are intentional WebKit key-persistence and desktop-only viewport cases; they are not
-  Safari support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
-  interrupted-answer journal, reader passage/reference actions, chat profiles/titles, and podcast workspace/player.
-  The deployed reader also exposes the Library's epoch-checked paper menu (tag editing, archive/unarchive and
-  remove) from the paper toolbar. The prior full production-CSP Playwright run remains 146 passed / 103 expected
-  skips; the reader-actions journey adds 2 passed and 1 expected WebKit key-persistence skip, and the chat-copy
-  journey passes on desktop (answer and Mermaid source copy controls). The local OAuth journey adds 5 passes and 1
-  expected WebKit key-persistence skip across desktop, phone and WebKit, including a rejected state-less callback.
-  A fresh combined desktop + phone production-CSP run completed **151 passed / 25 intentional skips / 0 failures**
-  in 8.7 minutes. It covered the deployed reader actions and chat-copy controls, OAuth, chat settings and titles,
-  Feed personalization and feedback, podcasts, library commands and column choices, 4,000-entry windowed libraries,
-  reader drafts and references, recovery, update barriers, narrow phone layouts, and the browser screenshot support-report
-  journey. The skips are the existing
-  phone-inapplicable desktop cases and the explicitly gated journal/layout/reference journeys; no new failure was
-  introduced by the browser OAuth revision.
+- **Browser release:** source is commit `943486e` on main; Pages deployment `a0b9d75a` is live at
+  [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates passed, and the custom
+  domain served the new asset after the edge refreshed. Anonymous HTTPS checks returned 200 with the expected CSP,
+  HSTS, no-transform cache policy and same-origin isolation. No account, provider, OCR or paid request was made by
+  these checks.
+- **Browser verification:** 342 unit tests across 30 files pass; the integrated production-CSP Playwright run is
+  **156 passed / 108 expected skips / 0 failures** across desktop, phone and WebKit. The WebKit screenshot-report
+  journey is explicitly gated on the same durable X25519-key capability as the other authenticated browser journeys;
+  WebKit's current refusal is reported as an expected skip rather than a false failure. The skips are not Safari
+  support evidence. The web app now follows the native Feed, library actions/columns, encrypted draft and
+  interrupted-answer journal, reader passage/reference actions, chat profiles/titles, podcast workspace/player,
+  and the authenticated foreground PDF-upload path. The deployed reader also exposes the Library's epoch-checked
+  paper menu (tag editing, archive/unarchive and remove) from the paper toolbar, plus the browser screenshot
+  support-report flow. Background/offline upload and Safari key persistence remain separate gates.
   The browser key-activation screen now keeps its security explanation behind a compact disclosure; the primary copy is
   “Save unfinished chats” with “Save drafts” / “Skip for now”. Signed-in users can now choose Account → Report this screen… to attach a PNG/JPEG or capture an explicitly selected
   browser tab/window, then follow the thread under My reports. Images are redrawn without metadata and bounded to
