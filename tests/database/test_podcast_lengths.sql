@@ -110,7 +110,7 @@ select test.assert((select bool_and(
    and (p.spec->'speech'->>'max_audio_tokens')::bigint<=(p.spec->>'max_seconds')::bigint*25
    and (p.spec->'speech'->>'max_output_tokens')::bigint<=16384 and (p.spec->'speech'->>'max_input_tokens')::bigint=8192
    and (p.spec->>'max_credits')::bigint=ceil((p.spec->>'ceiling_microusd')::numeric/50000)*10)
- from app_private.podcast_profiles p cross join lateral (select p.spec->'script'->'calls'->0 c0,p.spec->'script'->'calls'->1 c1) c where p.id<>'podcast-5min-v1'),
+ from app_private.podcast_profiles p cross join lateral (select p.spec->'script'->'calls'->0 c0,p.spec->'script'->'calls'->1 c1) c where p.id<>'podcast-5min-v1' and p.version=1),
  'ceilings follow the five-minute method exactly');
 select test.reject($$update app_private.podcast_profiles set spec=spec||'{"max_credits":1}' where id='podcast-20min-v1'$$,'immutable_record_requires_compensating_entry');
 

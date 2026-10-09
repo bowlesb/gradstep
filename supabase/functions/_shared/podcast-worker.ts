@@ -37,7 +37,7 @@ interface Spec {
   /** Ten and twenty minutes: one paid script pass per request, checkpointed in between. */
   staged?: boolean; shape?: ScriptShape; checker?: CheckerBounds;
   script: { model: string; calls: { route: string; max_input_tokens: number; max_output_tokens: number; window_seconds?: number }[] };
-  speech: { model: string; max_input_tokens: number; max_output_tokens: number; max_calls?: number; max_audio_tokens?: number; window_seconds?: number;
+  speech: { model: string; max_input_tokens: number; max_output_tokens: number; max_calls?: number; max_audio_tokens?: number; serving_limit_tokens?: number; window_seconds?: number;
     voices: { explainer: string; skeptic: string }; rates_microusd_per_token: { text_input: number; audio_output: number } };
   storage: { audio_bytes: number; transcript_bytes: number; manifest_bytes: number };
 }
@@ -188,7 +188,8 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     // delivery directions are shortened if that is what it takes to fit (never a spoken word).
     const perCall = spec.speech.max_output_tokens;
     const fit = fixture ? null : fitSpeech(checked.script.segments, { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1,
-      perCallOutputTokens: perCall, maxAudioTokens: spec.speech.max_audio_tokens ?? perCall });
+      perCallOutputTokens: perCall, maxAudioTokens: spec.speech.max_audio_tokens ?? perCall,
+      servingOutputLimit: spec.speech.serving_limit_tokens });
     const report: CheckReport = fit ? { ...checked.report, speech: { bytes: fit.bytes, budget: fit.budget, calls: fit.plan?.length ?? 0,
       styles_shortened: fit.stylesShortened } } : checked.report;
     if (fit && !fit.plan) {

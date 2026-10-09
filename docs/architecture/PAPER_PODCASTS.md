@@ -13,6 +13,12 @@ deployed or applied). The pilot has committed $1.00; the owner raised its cap fr
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
 The seed pilot stays five-minute; the other lengths are private generation only.
+On 2026-10-09, migration 052 was prepared locally after Vertex rejected the
+`maxOutputTokens` field: version-2 rows keep these same profile ids but reserve
+the complete 16,384-token serving limit for every speech chunk. The staging
+policy remains on version 1 until the encrypted backup, worker deployment and
+zero-spend journey are verified; the v1 numbers below describe the currently
+active policy, while the v2 table records the approved rollout ceilings.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
@@ -410,6 +416,13 @@ is out of scope. See [DECISIONS.md](../DECISIONS.md#paper-podcasts-v1-owner-aske
 
 ### Client API (Edge `podcast`, bounded `podcast-member`)
 
+The API keeps profile ids stable across the staged serving-limit rollout. While
+the staging policy is on `:1`, the maxima in the v1 examples below apply; once
+the audited policy switch selects `:2`, the server's `capabilities.lengths`
+and `quote.options` return 140 / 150 / 300 / 530 credits for Short / 5 / 10 /
+20 minutes. Clients must display those server values and never hard-code a
+maximum.
+
 All requests carry the customer's `Authorization: Bearer` token; responses are `application/json`, `no-store`, and
 errors are `{ "code": "<finite_code>" }`. Absent or disabled capability means "unavailable": clients keep reading
 and never fall back to unguarded generation. Times are ISO 8601; durations are integer milliseconds.
@@ -650,7 +663,7 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    becomes the removal of those segments within the checker's limits; any other reject stands. See
    [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08) and
    [fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08).
-4. **Checker** (`podcast-checker-v4`, deterministic, run on the corrected draft — the version is part of the
+4. **Checker** (`podcast-checker-v5`, deterministic, run on the corrected draft — the version is part of the
    approved-script identity; see [fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08) and
    [fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08)): structure, ids, 3–8 chapters and
    verdict `accept` (or a converted reject, whose named segments it removes and counts) as before. Each evidence quote (at most 3 per segment) is located in the pinned
@@ -665,6 +678,9 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    bounded report (counts, codes, ids, offsets; no text) is recorded with the job (`worker_podcast_checked`, event
    `checked`). Failure = quality rejection: customer charged 0, known cost recorded as platform quality loss (private
    generation pauses when the month's losses reach the $0.75 allocation).
+   After those removals, v5 drops any terminal question that no longer has an adjacent reply from the other host in
+   the same chapter (`unanswered_question`). This is deterministic and report-only; it repairs the abrupt gap seen in
+   the pilot without inventing an answer or sending another paid model request.
 5. **Speech** (`podcast_speech`): Gemini 3.8 Flash TTS multi-speaker requests (below), planned in chunks of at most
    8,192 request bytes (request text bytes + 256), at most the profile's calls — one for Short and five minutes. The
    prompt's spoken-character limit is derived from the same bound (five minutes: 16–28 segments, ≤ 4,900 characters);
@@ -785,6 +801,29 @@ Each speech call reserves 8,192 text tokens; the audio budget is `max_seconds ×
 | 5 min | 80,000×$2/M + 6,000×$10/M = $0.220000 | 80,000×$2/M + 4,000×$10/M = $0.200000 | 1×8,192×$1/M + 16,384×$18/M = $0.303104 | $0.723104 → 150 |
 | 10 min | 80,000×$2/M + 12,000×$10/M = $0.280000 | 93,000×$2/M + 10,000×$10/M = $0.286000 | 3×8,192×$1/M + 27,000×$18/M = $0.510576 | $1.076576 → 220 |
 | 20 min | 80,000×$2/M + 22,800×$10/M = $0.388000 | 103,800×$2/M + 19,000×$10/M = $0.397600 | 6×8,192×$1/M + 51,000×$18/M = $0.967152 | $1.752752 → 360 |
+
+#### Serving-limit profiles (migration 052)
+
+On 2026-10-09 Vertex rejected the `maxOutputTokens` field for Gemini 3.8 Flash TTS. A proportional audio grant is
+therefore unsafe: the provider can produce up to its 16,384-token serving limit even when a smaller number was requested.
+Migration `202610090052_podcast_profiles_v2.sql` adds immutable version-2 rows while leaving the v1 rows usable by
+existing jobs. For these rows every speech chunk reserves exactly 16,384 audio tokens; `max_audio_tokens` is the sum of
+those per-call grants, not an estimate of the episode's expected duration. The worker plans chunks at the full serving
+limit and the database rejects a v2 chunk below it. The final WAV still has the profile's duration bounds, and customer
+credits are held from the full script plus serving-limit ceiling before any provider request.
+
+| Profile | Speech chunks | Serving grant | Total ceiling | Maximum |
+|---|---:|---:|---:|---:|
+| `podcast-short-v1:2` | 1 | 16,384 | $0.689504 | 140 credits |
+| `podcast-5min-v1:2` | 1 | 16,384 | $0.737104 | 150 credits |
+| `podcast-10min-v1:2` | up to 3 | 16,384 each | $1.475312 | 300 credits |
+| `podcast-20min-v1:2` | up to 6 | 16,384 each | $2.604224 | 530 credits |
+
+The twenty-minute maximum is 530 rather than the earlier 520 estimate because six full serving grants are required to
+cover the original 20-minute input plan. The policy remains on the v1 allowlist until the worker deployment and
+zero-spend journey pass; switching it is an audited policy operation after a backup. The profile ids remain unchanged,
+so native and web clients that read the server's `lengths` response do not need a separate UI release. Existing v1
+releases and their immutable checker identities are not rewritten.
 
 Prices (checked 2026-10-08): Claude Sonnet 5.5 $2/M input, $10/M output, 128K output with streaming
 ([Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)); Gemini 3.8 Flash TTS on Vertex AI $1/M text input and

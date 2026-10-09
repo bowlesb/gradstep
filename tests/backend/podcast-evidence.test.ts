@@ -172,6 +172,30 @@ test('checker v3 on the two seed papers: realistic drafts degrade instead of fai
   }
 });
 
+test('checker v5 removes a dangling question when its answer was removed', () => {
+  const script: Script = {
+    title: 'Coherent host turns', limitations: [],
+    chapters: [{ id: 'c1', title: 'Opening' }, { id: 'c2', title: 'Evidence' }, { id: 'c3', title: 'Close' }],
+    segments: [
+      { id: 's1', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'We begin with the question.' },
+      { id: 's2', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'What does the paper test?' },
+      { id: 's3', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'It compares two approaches.' },
+      { id: 's4', chapter: 'c2', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'Can we trust that comparison?' },
+      { id: 's5', chapter: 'c2', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: '**unusable markup**' },
+      { id: 's6', chapter: 'c2', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'We mark that issue for later.' },
+      { id: 's7', chapter: 'c3', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'The closing caveat matters.' },
+      { id: 's8', chapter: 'c3', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'That gives the listener a clear ending.' },
+    ],
+    review: { verdict: 'accept', issues: [] },
+  };
+  const result = checkScript(script, PERSONA, { fixture: true });
+  assert.ok(result.ok, result.ok ? '' : result.problems.join(', '));
+  if (!result.ok) return;
+  assert.deepEqual(result.report.removed, { markup: 1, unanswered_question: 1 });
+  assert.deepEqual(result.report.removals, [{ segment: 's5', reason: 'markup' }, { segment: 's4', reason: 'unanswered_question' }]);
+  assert.deepEqual(result.script.segments.map(s => s.id), ['s1', 's2', 's3', 's6', 's7', 's8']);
+});
+
 test('degradation limits: unverifiable evidence or removed claims beyond 30%, or a chapter losing its support, reject the script', () => {
   const base = draft('2610.10536v1-draft.json');
   const rejected = (mutate: (s: Script) => void) => { const s = structuredClone(base); mutate(s); const r = checkScript(s, DECOUPLING, { index: INDEX.B }); assert.ok(!r.ok); return r; };

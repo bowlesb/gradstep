@@ -98,9 +98,11 @@ const deps = (): PodcastDeps => ({
   } },
   speech: { generate: async request => {
     speechCalls++;
-    // Five minutes is one call at the full cap (16,384); a chunked plan shares the audio budget out.
+    // The real provider ignores an output cap. The fixture therefore returns
+    // a comfortably audible take for every full serving-limit call so a
+    // chunked ten-minute episode still clears its minimum-duration check.
     const chunked = (request.body.generationConfig as { maxOutputTokens: number }).maxOutputTokens < 16_384;
-    const audio = chunked ? spokenTake(request.body) : tone(140);
+    const audio = chunked ? spokenTake(request.body) : tone(180);
     return { state: 'succeeded', requestID: `resp_${speechCalls}`, model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio, mimeType: 'audio/wav',
       usage: chunked ? { text_input_tokens: 2_000, audio_output_tokens: Math.round(parseWav(audio).durationMs / 40) } : { text_input_tokens: 1_400, audio_output_tokens: 3_500 },
       failure: null };
@@ -111,7 +113,10 @@ const deps = (): PodcastDeps => ({
 
 // 1. Operator: policy, seed allowance, a labeled fixture and a generated seed (fake providers, zero spend).
 call('worker_podcast_policy_set', { p_actor: fixture.owner, p_request_id: randomUUID(), p_reason: 'Journey activation',
-  p_changes: { catalog_enabled: true, delivery_enabled: true, generation_enabled: true, seed_enabled: true, fixtures_enabled: true } });
+  // Exercise the provider-safe v2 profiles. Their ids intentionally stay the
+  // same as v1; the version is selected by the allow-list entry.
+  p_changes: { catalog_enabled: true, delivery_enabled: true, generation_enabled: true, seed_enabled: true, fixtures_enabled: true,
+    allowed_profiles: ['podcast-short-v1:2', 'podcast-5min-v1:2', 'podcast-10min-v1:2', 'podcast-20min-v1:2'] } });
 const month = new Date().toISOString().slice(0, 7) + '-01';
 call('worker_podcast_seed_period', { p_actor: fixture.owner, p_request_id: randomUUID(), p_period: month, p_limit_microusd: 2_000_000,
   p_enabled: true, p_evidence: 'journey-fixture', p_max_episodes: 2 });
@@ -138,7 +143,7 @@ assert.ok(at('attempt', 'podcast_review') < at('checked') && at('checked') < at(
   `report after the review, before speech: ${seedEvents.events.map(e => e.kind).join(',')}`);
 const checkedReport = seedEvents.events.find(e => e.kind === 'checked')!.details as { checker: string; outcome: string; evidence: { checked: number; verified: number };
   speech: { calls: number; bytes: number; budget: number }; review: { verdict: string; corrections: number; action: string } };
-assert.equal(checkedReport.checker, 'podcast-checker-v4'); assert.equal(checkedReport.outcome, 'accepted');
+assert.equal(checkedReport.checker, 'podcast-checker-v5'); assert.equal(checkedReport.outcome, 'accepted');
 assert.deepEqual(checkedReport.review, { verdict: 'accept', corrections: 1, action: 'accept' }, 'the review part of the v4 report');
 assert.equal(checkedReport.evidence.verified, checkedReport.evidence.checked); assert.equal(checkedReport.speech.calls, 1);
 assert.ok(checkedReport.speech.bytes <= checkedReport.speech.budget);
@@ -206,12 +211,12 @@ assert.equal(states.states[generated.release_id].state, 'ready');
 const tenRequest = randomUUID();
 const tenQuote = await get(fixture.account, 'action=quote', { method: 'POST', body: JSON.stringify({ item_id: fixture.item, request_id: tenRequest,
   profile: 'podcast-10min-v1' }) }, 'quote_10min');
-assert.equal(tenQuote.quote.max_credits, 220); assert.equal(tenQuote.quote.profile, 'podcast-10min-v1'); assert.equal(tenQuote.quote.target_seconds, 600);
+assert.equal(tenQuote.quote.max_credits, 300); assert.equal(tenQuote.quote.profile, 'podcast-10min-v1'); assert.equal(tenQuote.quote.target_seconds, 600);
 assert.deepEqual(tenQuote.options.map((o: { label: string; max_credits: number }) => [o.label, o.max_credits]),
-  [['Short', 110], ['5 min', 150], ['10 min', 220], ['20 min', 360]]);
+  [['Short', 140], ['5 min', 150], ['10 min', 300], ['20 min', 530]]);
 const tenStart = await get(fixture.account, 'action=start', { method: 'POST', body: JSON.stringify({ quote_id: tenQuote.quote.id, request_id: tenRequest,
   consent_version: 'podcast-private-v1' }) }, 'start_10min');
-assert.equal(tenStart.job.held_credits, 220); assert.equal(tenStart.job.profile, 'podcast-10min-v1');
+assert.equal(tenStart.job.held_credits, 300); assert.equal(tenStart.job.profile, 'podcast-10min-v1');
 const speechBefore = speechCalls;
 const stages: (string | null)[] = [];
 for (let request = 0; request < 3; request++) stages.push((await runPodcast(deps(), Date.now() + 780_000, { generated: true })).state);
@@ -219,7 +224,7 @@ assert.deepEqual(stages, ['checking', 'synthesizing', 'ready'], 'one paid stage 
 assert.ok(speechCalls - speechBefore >= 2, 'chunked speech');
 const tenDone = await get(fixture.account, `action=status&request_id=${tenRequest}`, undefined, 'status_10min');
 assert.equal(tenDone.job.state, 'ready');
-assert.ok(tenDone.job.charged_credits > 0 && tenDone.job.charged_credits <= 220 && tenDone.job.charged_credits + tenDone.job.released_credits === 220);
+assert.ok(tenDone.job.charged_credits > 0 && tenDone.job.charged_credits <= 300 && tenDone.job.charged_credits + tenDone.job.released_credits === 300);
 const tenEpisode = await get(fixture.account, `action=episode&release_id=${tenDone.job.release_id}`, undefined, 'episode_10min');
 assert.equal(tenEpisode.episode.profile, 'podcast-10min-v1'); assert.equal(tenEpisode.episode.label, '10 min');
 assert.ok(tenEpisode.episode.duration_ms >= 300_000 && tenEpisode.episode.duration_ms <= 1_080_000);

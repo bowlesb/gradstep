@@ -10,12 +10,13 @@ import { spokenCharacterBudget, type SpeechBudget } from './podcast-speech.ts';
 
 export const SCRIPT_MODEL = 'claude-sonnet-5-5';
 /**
- * v4: the review gives reason codes; a reject whose reasons are only segment-scoped and name their turns
+ * v5: the review gives reason codes; a reject whose reasons are only segment-scoped and name their turns
  * becomes the removal of those turns within v3's degradation limits (v3: evidence located through a shared
  * canonical form, unverifiable items dropped and unsupported claims removed within bounded shares; v2: the
- * review returns a correction set; v1 re-emitted the whole script).
+ * review returns a correction set; v1 re-emitted the whole script). v5 also removes a question whose answer
+ * was removed by an earlier quality check, so an episode never ends on a dangling prompt to the other host.
  */
-export const CHECKER_VERSION = 'podcast-checker-v4';
+export const CHECKER_VERSION = 'podcast-checker-v5';
 export const NORMALIZATION_VERSION = 'mathpix-standalone-mmd-v1';
 /** The checker's default spoken-text bound; the five-minute prompt asks for less so its single speech call fits (FIVE_MINUTE_SHAPE). */
 export const MAX_SPOKEN_CHARACTERS = 6_000;
@@ -334,8 +335,8 @@ export interface CheckReport {
   items?: { segment: string; item: number; reason: EvidenceDrop; chars: number; canonical: number; matched: number; offset: number }[];
   removals?: { segment: string; reason: SegmentRemoval }[];
 }
-/** Checker removals, plus (v4) the turns a converted reject removes: its own deletions and the turns its reasons name. */
-export type SegmentRemoval = 'length' | 'markup' | 'evidence_missing' | 'unsupported_number' | 'number_not_in_evidence' | 'review_deleted' | 'review_flagged';
+/** Checker removals, plus (v4) review removals and (v5) a question whose answer was removed. */
+export type SegmentRemoval = 'length' | 'markup' | 'evidence_missing' | 'unsupported_number' | 'number_not_in_evidence' | 'review_deleted' | 'review_flagged' | 'unanswered_question';
 export type CheckResult = { ok: true; script: CheckedScript; spokenCharacters: number; words: number; report: CheckReport }
   | { ok: false; problems: string[]; report: CheckReport };
 
@@ -655,6 +656,32 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
     kept.push({ id: s.id, chapter: s.chapter, speaker: s.speaker, text, style: s.style.replace(/\s+/g, ' ').trim().slice(0, 80),
       claim_type: s.claim_type, evidence: spans.map(x => ({ id: '', quote: x.quote, section: x.section, offset: x.offset })), math });
   }
+
+  // A review or evidence check can remove the explainer's answer while leaving the
+  // preceding question. Keep adjacent host turns coherent: a terminal question must
+  // have a reply by the other host in the same chapter, otherwise drop the question
+  // and record the bounded reason. Looking at the already-kept list catches an answer
+  // removed by any earlier checker rule without relying on model-provided intent.
+  const answered: CheckedSegment[] = [];
+  for (let i = 0; i < kept.length; i++) {
+    const current = kept[i];
+    const isQuestion = /\?\s*$/.test(current.text);
+    // A host may have a short continuation before the other host replies, so
+    // search the remainder of this chapter rather than requiring adjacency.
+    let hasReply = false;
+    for (let j = i + 1; j < kept.length && kept[j].chapter === current.chapter; j++) {
+      if (kept[j].speaker !== current.speaker) { hasReply = true; break; }
+    }
+    if (isQuestion && !hasReply) {
+      bump(removed, 'unanswered_question');
+      removals.push({ segment: label(current.id), reason: 'unanswered_question' });
+      continue;
+    }
+    answered.push(current);
+  }
+  kept.length = 0;
+  kept.push(...answered);
+
   let evidenceID = 0;
   for (const s of kept) for (const e of s.evidence) e.id = `e${++evidenceID}`;
 

@@ -592,7 +592,7 @@ test('checker rejection is a quality failure (customer charged zero) after recor
   const checked = h.calls.at(-2)!;
   assert.equal(checked.name, 'worker_podcast_checked');
   const report = checked.params.p_report as CheckReport;
-  assert.equal(report.outcome, 'rejected'); assert.equal(report.checker, 'podcast-checker-v4');
+  assert.equal(report.outcome, 'rejected'); assert.equal(report.checker, 'podcast-checker-v5');
   assert.ok(report.rules.includes('evidence_unverified_share'), report.rules.join());
   assert.deepEqual([report.evidence!.checked, report.evidence!.unverified], [6, 3]);
   assert.deepEqual(report.items!.map(i => [i.segment, i.reason]), [['s3', 'not_found'], ['s4', 'not_found'], ['s6', 'not_found']]);
@@ -738,9 +738,9 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   assert.equal(segment('s19').text, corrections.replace[0].text);
   assert.equal(segment('s3').claim_type, 'author_interpretation'); assert.deepEqual(segment('s3').evidence.map((e: { quote: string }) => e.quote), [QUOTED[0][0]]);
   const manifest = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[2].path)!));
-  assert.equal(manifest.identity.checker, 'podcast-checker-v4');
+  assert.equal(manifest.identity.checker, 'podcast-checker-v5');
   assert.equal(manifest.review_sha256, sha(JSON.stringify(corrections)), 'draft and correction set recorded as lineage');
-  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v4');
+  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v5');
   assert.ok(!JSON.stringify(after.logs).includes('most experts never see'), 'no script text in logs');
 });
 
@@ -782,7 +782,7 @@ test('review reasons in the worker: a segment-scoped reject degrades and publish
   const published = await runPodcast(scoped.deps, Date.now() + 600_000);
   assert.equal(published.state, 'ready', published.failure ?? '');
   const degraded = report(scoped);
-  assert.equal(degraded.checker, 'podcast-checker-v4'); assert.equal(degraded.outcome, 'degraded'); assert.deepEqual(degraded.rules, []);
+  assert.equal(degraded.checker, 'podcast-checker-v5'); assert.equal(degraded.outcome, 'degraded'); assert.deepEqual(degraded.rules, []);
   assert.deepEqual(degraded.review, { verdict: 'reject', corrections: 0, action: 'remove_segments' });
   assert.deepEqual(degraded.reasons, [{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s2'] }]);
   assert.deepEqual(degraded.removals, [{ segment: 's2', reason: 'review_flagged' }, { segment: 's6', reason: 'review_flagged' }]);
@@ -790,7 +790,7 @@ test('review reasons in the worker: a segment-scoped reject degrades and publish
   const plan = scoped.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
   const transcript = JSON.parse(new TextDecoder().decode(scoped.uploads.get(plan[1].path)!));
   assert.deepEqual(transcript.segments.map((s: { id: string }) => s.id), draft().segments.map(s => s.id).filter(id => id !== 's2' && id !== 's6'));
-  assert.equal((scoped.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v4');
+  assert.equal((scoped.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v5');
   assert.deepEqual(scoped.logs.find(l => (l as { event: string }).event === 'podcast_reviewed'), { event: 'podcast_reviewed', job_id: '46000000-0000-4000-8000-000000000101',
     verdict: 'reject', action: 'remove_segments', corrections: 0, deleted: 0, reasons: 'wrong_numbers,unsupported_claims', flagged: 2 });
 
@@ -948,6 +948,22 @@ test('speech plan: one call at the full cap for five minutes; long scripts split
   assert.ok(plan.reduce((n, c) => n + c.audioTokens, 0) <= 27000, 'total audio within the profile');
   assert.equal(planSpeechChunks(ten.script.segments, { ...limits, maxCalls: 1 }), null, 'more calls than the profile allows: refused before any speech');
   assert.equal(planSpeechChunks(ten.script.segments, { ...limits, maxAudioTokens: 5000 }), null, 'an allowance too small to finish is refused');
+});
+
+test('speech plan with a provider serving limit grants the full limit to every chunk', () => {
+  const ten = checkScript(tenMinuteScript(), PAPER, { bounds: TEN.checker as never });
+  assert.ok(ten.ok, ten.ok ? '' : ten.problems.join(','));
+  if (!ten.ok) return;
+  const limits = { maxInputTokens: 8192, maxCalls: 3, perCallOutputTokens: 16384, maxAudioTokens: 3 * 16384, servingOutputLimit: 16384 };
+  const plan = planSpeechChunks(ten.script.segments, limits);
+  assert.ok(plan && plan.length >= 2 && plan.length <= 3);
+  if (!plan) return;
+  assert.ok(plan.every(chunk => chunk.audioTokens === 16384));
+  assert.equal(plan.reduce((sum, chunk) => sum + chunk.audioTokens, 0), plan.length * 16384);
+  assert.equal(planSpeechChunks(ten.script.segments, { ...limits, maxAudioTokens: 27000 }), null,
+    'a serving-limit profile cannot use a smaller proportional total');
+  const widerRequestCap = planSpeechChunks(ten.script.segments, { ...limits, perCallOutputTokens: 20000 });
+  assert.ok(widerRequestCap && widerRequestCap.every(chunk => chunk.audioTokens === 16384), 'grant is the serving limit, not a caller cap');
 });
 
 test('chunk join: one take untouched; several trimmed, level-matched and joined at a natural pause with exact spans', () => {

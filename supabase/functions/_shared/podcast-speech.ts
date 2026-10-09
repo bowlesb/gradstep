@@ -48,6 +48,7 @@ export function speechRequest(script: { segments: SpokenSegment[] }, voices: Spe
 export interface SpeechLimits {
   /** Per-call input cap (request bytes, a provable token bound). */ maxInputTokens: number;
   maxCalls: number; /** Per-call output cap. */ perCallOutputTokens: number; /** Profile total. */ maxAudioTokens: number;
+  /** When the provider ignores an output cap, every paid chunk must reserve this serving limit. */ servingOutputLimit?: number;
 }
 export interface SpeechChunk { start: number; end: number; bytes: number; words: number; audioTokens: number }
 /** Slowest pace a chunk's audio allowance must cover: 120 words a minute at 25 audio tokens a second. */
@@ -87,9 +88,16 @@ export function planSpeechChunks(segments: (SpokenSegment & { chapter: string })
   for (let j = k, b = n; j > 0; j--) { const a = from[j][b]; bounds.unshift([a, b]); b = a; }
   const chunks = bounds.map(([a, b]) => {
     const w = span(a, b);
-    return { start: a, end: b, bytes: size(a, b), words: w,
-      audioTokens: Math.min(limits.perCallOutputTokens, Math.floor(limits.maxAudioTokens * (total ? w / total : 1 / k))) };
+    const proportional = Math.min(limits.perCallOutputTokens, Math.floor(limits.maxAudioTokens * (total ? w / total : 1 / k)));
+    // Vertex Gemini TTS currently rejects maxOutputTokens, so a proportional grant
+    // below its serving limit could be overrun. Versioned production profiles opt into
+    // a full serving grant per chunk; the proportional path remains for old fixtures
+    // and callers that use a provider with a real output cap.
+    const audioTokens = limits.servingOutputLimit === undefined ? proportional : limits.servingOutputLimit;
+    return { start: a, end: b, bytes: size(a, b), words: w, audioTokens };
   });
+  if (limits.servingOutputLimit !== undefined && (limits.perCallOutputTokens < limits.servingOutputLimit
+    || chunks.length * limits.servingOutputLimit > limits.maxAudioTokens)) return null;
   // Every chunk must be able to finish at a slow pace; otherwise refuse rather than buy a cut-off take.
   if (chunks.some(c => c.audioTokens < Math.ceil(c.words * AUDIO_TOKENS_PER_WORD))) return null;
   return chunks;
