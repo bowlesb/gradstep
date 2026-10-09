@@ -4,8 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { boundReport, checkScript, CHECKER_VERSION, FIVE_MINUTE_SHAPE, REPORT_MAX_BYTES, reviewRequest, SCRIPT_INSTRUCTIONS, scriptInstructions,
-  type CheckReport, type Script } from '../../supabase/functions/_shared/podcast-script.ts';
+import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, FIVE_MINUTE_SHAPE, REPORT_MAX_BYTES, REVIEW_REASON_CODES, reviewRequest, SCRIPT_INSTRUCTIONS, scriptInstructions,
+  type CheckReport, type ReviewCorrections, type Script } from '../../supabase/functions/_shared/podcast-script.ts';
 import { canonicalQuote, evidenceNumbers, indexPaper, latexFromPaper, numberValue, spokenNumbers, verifyQuote,
   type PaperIndex } from '../../supabase/functions/_shared/podcast-evidence.ts';
 import { fitSpeech, PART_OVERHEAD_BYTES, planSpeechChunks, shortStyle, speechRequest, spokenCharacterBudget } from '../../supabase/functions/_shared/podcast-speech.ts';
@@ -218,7 +218,56 @@ test('reports: counts, codes, ids and offsets only; bounded to the event size wh
   // boundReport trims itemized lists, never the counts.
   const huge: CheckReport = { ...report, items: Array.from({ length: 40 }, (_, k) => ({ segment: `s${k + 1}`, item: 0, reason: 'not_found', chars: 300, canonical: 250, matched: 10, offset: 123456 })) };
   const bounded = boundReport(huge);
-  assert.ok(storedSize(bounded) <= REPORT_MAX_BYTES && bounded.evidence === report.evidence && bounded.items!.length < 40);
+  assert.ok(storedSize(bounded) <= REPORT_MAX_BYTES && JSON.stringify(bounded.evidence) === JSON.stringify(report.evidence) && bounded.items!.length < 40);
+  // Every reason code naming many turns (v4): segment lists are trimmed after items and removals; every code is kept.
+  const reasons = REVIEW_REASON_CODES.map(code => ({ code, segments: s.segments.map(x => x.id) }));
+  const coded = boundReport({ ...huge, reasons, review: { verdict: 'reject', corrections: 10, action: 'reject' } });
+  assert.ok(storedSize(coded) <= REPORT_MAX_BYTES && codesOnly(coded), `report ${storedSize(coded)} bytes`);
+  assert.deepEqual(coded.reasons!.map(r => r.code), [...REVIEW_REASON_CODES]);
+  assert.ok(coded.reasons!.every(r => r.segments.length <= 20) && JSON.stringify(coded.evidence) === JSON.stringify(report.evidence));
+});
+
+// Staging job 57d019e2 was this paper (2610.09384, five minutes, worker 00015): 11 of 11 quotes verified and the checker
+// would have kept 20 of 22 turns, but the review said "reject" with empty lists. The simulated draft of the same paper:
+test('review reasons on the persona paper: an unexplained reject still fails; segment-scoped reasons remove their turns; severe reasons fail', () => {
+  const base = draft('2610.09384v1-draft.json'); delete base.review;
+  const review = (verdict: 'accept' | 'reject', reasons: ReviewCorrections['reasons'], extra: Partial<ReviewCorrections> = {}): ReviewCorrections =>
+    ({ delete: [], replace: [], claims: [], ...extra, verdict, reasons });
+  const run = (r: ReviewCorrections) => {
+    const applied = applyCorrections(base, r, 10);
+    assert.ok(applied.ok);
+    return { action: (applied as { action: string }).action, result: checkScript((applied as { script: Script }).script, PERSONA, { index: INDEX.A }) };
+  };
+  // Accepted as written, the checker alone degrades it (two of 26 turns removed).
+  const accepted = run(review('accept', []));
+  assert.ok(accepted.result.ok && accepted.result.report.segments!.removed === 2);
+  // The staging shape: reject, empty lists, no reason. It stands, and the report now says why.
+  const unexplained = run(review('reject', []));
+  assert.equal(unexplained.action, 'reject');
+  assert.ok(!unexplained.result.ok);
+  assert.deepEqual(unexplained.result.report.rules, ['review_rejected', 'review_reasons_missing']);
+  assert.deepEqual(unexplained.result.report.review, { verdict: 'reject', corrections: 0, action: 'reject' });
+  // Segment-scoped reasons with a repair: the named turns go, on top of the checker's own removals (5 of 26, 19%).
+  const scoped = run(review('reject', [{ code: 'speculation_presented_as_finding', segments: ['s12'] }, { code: 'wrong_numbers', segments: ['s16', 's19'] }],
+    { replace: [{ segment: 's13', text: 'The evidence so far is all correlation, though. On its own that would not convince me.', math: [], problem: 'drop section number' }] }));
+  assert.equal(scoped.action, 'remove_segments');
+  assert.ok(scoped.result.ok, scoped.result.ok ? '' : scoped.result.problems.join());
+  const report = scoped.result.report;
+  assert.equal(report.outcome, 'degraded');
+  assert.deepEqual(report.segments, { checked: 26, kept: 21, removed: 5 });
+  assert.deepEqual(report.removed, { review_flagged: 3, number_not_in_evidence: 1, evidence_missing: 1 });
+  assert.deepEqual(report.reasons, [{ code: 'speculation_presented_as_finding', segments: ['s12'] }, { code: 'wrong_numbers', segments: ['s16', 's19'] }]);
+  assert.ok(codesOnly(report) && storedSize(report) <= REPORT_MAX_BYTES);
+  assert.ok(!JSON.stringify(report).includes('correlation') && !JSON.stringify(report).includes('section number'), 'no review text in the report');
+  for (const id of ['s12', 's16', 's19']) assert.ok(!scoped.result.ok || !scoped.result.script.segments.some(s => s.id === id), `${id} removed`);
+  // Two more named turns would remove 8 of 26 (31%): the limits reject it.
+  const over = run(review('reject', [{ code: 'unsupported_claims', segments: ['s12', 's16', 's19', 's21', 's23', 's24'] }]));
+  assert.ok(!over.result.ok && over.result.problems.includes('segments_removed_share'));
+  // Severe reasons stand, whatever turns they name.
+  const severe = run(review('reject', [{ code: 'misrepresents_main_result', segments: ['s10'] }, { code: 'wrong_numbers', segments: ['s16'] }]));
+  assert.ok(!severe.result.ok);
+  assert.deepEqual(severe.result.report.rules, ['review_rejected', 'review_reason_severe']);
+  assert.deepEqual(severe.result.report.reasons, [{ code: 'misrepresents_main_result', segments: ['s10'] }, { code: 'wrong_numbers', segments: ['s16'] }]);
 });
 
 test('speech size: the five-minute prompt fits its single 8,192-byte call; styles shorten before refusal; refusal only when impossible', () => {

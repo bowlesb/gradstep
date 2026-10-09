@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
-import { applyCorrections, checkScript, correctionLimit, draftRequest, fitsInput, fixtureScript, parseReview, parseScript, requestBytes, REVIEW_SCHEMA,
+import { applyCorrections, checkScript, correctionLimit, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript, parseReview, parseScript, rejectPolicy, requestBytes, REVIEW_SCHEMA,
   reviewRequest, scriptCost, scriptDocument, type CheckReport, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
@@ -67,7 +67,7 @@ function goodScript(): Script {
 }
 
 /** An empty correction set: the review approves the draft as written. */
-const ACCEPT: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept' };
+const ACCEPT: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept', reasons: [] };
 
 test('script requests: no tools, no fallback, no thinking, profile output caps and a provable input bound', () => {
   const draft = draftRequest(PAPER, 'Sparse Mixture Routing', 6000);
@@ -142,7 +142,7 @@ test('review correction set: strict schema, a limit derived from the unchanged o
     for (const value of Object.values(o)) walk(value);
   };
   walk(REVIEW_SCHEMA);
-  assert.deepEqual(Object.keys(REVIEW_SCHEMA.properties), ['delete', 'replace', 'claims', 'verdict'], 'the verdict comes after the corrections');
+  assert.deepEqual(Object.keys(REVIEW_SCHEMA.properties), ['delete', 'replace', 'claims', 'verdict', 'reasons'], 'the verdict comes after the corrections, its reasons last');
   assert.ok(!('segments' in REVIEW_SCHEMA.properties) && !('title' in REVIEW_SCHEMA.properties), 'the review never re-emits the script');
   // Short, 5, 10 and 20 minutes keep their review caps (2,600 / 4,000 / 10,000 / 19,000 output tokens).
   assert.deepEqual([2_600, 4_000, 10_000, 19_000].map(correctionLimit), [6, 10, 25, 47]);
@@ -157,7 +157,7 @@ test('review correction set: strict schema, a limit derived from the unchanged o
   assert.ok(same.ok);
   if (same.ok) {
     assert.deepEqual(same.script.segments, draft.segments);
-    assert.deepEqual(same.script.review, { verdict: 'accept', issues: [] });
+    assert.deepEqual(same.script.review, { verdict: 'accept', issues: [], reasons: [] });
     assert.equal(checkScript(same.script, PAPER).ok, true);
   }
   // Delete, replace (text and formula notes) and claim corrections, keyed by segment id.
@@ -166,7 +166,7 @@ test('review correction set: strict schema, a limit derived from the unchanged o
     replace: [{ segment: 's4', text: 'Each token goes to the top 2 of 64 experts, picked by a learned gate.', math: [], problem: 'formula note not needed' }],
     claims: [{ segment: 's3', claim_type: 'paper_result', evidence: [{ quote: 'Dense models scale poorly with expert count because every token visits every expert.', section: '1 Introduction' }],
       problem: 'a stated result, not an interpretation' }],
-    verdict: 'accept' }))!;
+    verdict: 'accept', reasons: [] }))!;
   const applied = applyCorrections(draft, review, 10);
   assert.ok(applied.ok);
   if (applied.ok) {
@@ -203,6 +203,101 @@ test('review correction set: strict schema, a limit derived from the unchanged o
   assert.equal(parseReview(JSON.stringify({ ...ACCEPT, claims: [{ segment: 's1', claim_type: 'opinion', evidence: [], problem: '' }] })), null);
   assert.equal(parseReview(JSON.stringify({ ...ACCEPT, replace: [{ segment: 's1', text: '', math: [], problem: '' }] })), null);
   assert.equal(parseReview(JSON.stringify(goodScript())), null, 'a whole script is not a correction set');
+});
+
+test('review reasons (checker v4): strict codes, repair before rejecting, segment-scoped rejects become removals within the limits', () => {
+  // Schema: a strict enum of codes, each with its segment ids; the prompt asks for repair first and reasons with every reject.
+  const reasons = REVIEW_SCHEMA.properties.reasons;
+  assert.deepEqual(reasons.items.properties.code.enum, ['misrepresents_main_result', 'fabricated_detail', 'wrong_numbers', 'unsupported_claims',
+    'speculation_presented_as_finding', 'too_many_problems', 'other']);
+  assert.deepEqual(reasons.items.properties.segments, { type: 'array', items: { type: 'string' } });
+  const task = JSON.stringify(reviewRequest(PAPER, null, goodScript(), 4_000).messages);
+  assert.match(task, /Repair before you reject/);
+  assert.match(task, /\\"reject\\" is only for a draft that misrepresents the paper's main result, contains fabricated content/);
+  assert.match(task, /more problems than 10 corrections can fix/);
+  assert.match(task, /With \\"reject\\", list at least one reason for every problem your corrections leave unfixed, naming each affected segment/);
+  assert.doesNotMatch(task, /"reject" with empty lists/, 'no longer invited to reject without saying why');
+
+  // Parsing: codes from the enum only, duplicates merged, a missing list or a non-id refused (never read as approval).
+  const review = (verdict: 'accept' | 'reject', list: unknown[], extra: Partial<ReviewCorrections> = {}) => ({ ...ACCEPT, ...extra, verdict, reasons: list });
+  const parsed = parseReview(JSON.stringify(review('reject', [{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s2'] },
+    { code: 'wrong_numbers', segments: ['s7', 's6'] }])))!;
+  assert.deepEqual(parsed.reasons, [{ code: 'wrong_numbers', segments: ['s6', 's7'] }, { code: 'unsupported_claims', segments: ['s2'] }]);
+  assert.equal(parseReview(JSON.stringify({ ...ACCEPT, reasons: undefined })), null, 'reasons are required by the schema');
+  assert.equal(parseReview(JSON.stringify(review('reject', [{ code: 'looks_wrong', segments: [] }]))), null, 'unknown code');
+  assert.equal(parseReview(JSON.stringify(review('reject', [{ code: 'other', segments: [7] }]))), null, 'segment ids are strings');
+  assert.equal(parseReview(JSON.stringify(review('reject', [{ code: 'other' }]))), null);
+  assert.deepEqual(parseReview(JSON.stringify(review('accept', [{ code: 'wrong_numbers', segments: ['s6'] }])))!.reasons, [{ code: 'wrong_numbers', segments: ['s6'] }],
+    'allowed with accept');
+
+  // Policy: only segment-scoped reasons that each name draft segments convert a reject; anything else stands.
+  const draft = goodScript(); delete draft.review;
+  const policy = (list: ReviewCorrections['reasons'], script = draft) => rejectPolicy(list, script);
+  assert.deepEqual(policy([{ code: 'unsupported_claims', segments: ['s2'] }, { code: 'wrong_numbers', segments: ['s6', 's2'] },
+    { code: 'speculation_presented_as_finding', segments: ['s3'] }]), { remove: ['s2', 's6', 's3'] });
+  assert.deepEqual(policy([]), { rule: 'review_reasons_missing' });
+  for (const code of ['misrepresents_main_result', 'fabricated_detail', 'too_many_problems', 'other'] as const) {
+    assert.deepEqual(policy([{ code: 'wrong_numbers', segments: ['s6'] }, { code, segments: ['s7'] }]), { rule: 'review_reason_severe' }, code);
+  }
+  assert.deepEqual(policy([{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: [] }]), { rule: 'review_reason_unscoped' });
+  assert.deepEqual(policy([{ code: 'wrong_numbers', segments: ['s99'] }]), { rule: 'review_reason_unknown_segment' });
+  const twice = { ...draft, segments: [...draft.segments, { ...draft.segments[5] }] };
+  assert.deepEqual(policy([{ code: 'wrong_numbers', segments: ['s6'] }], twice), { rule: 'review_reason_unknown_segment' }, 'ambiguous id');
+
+  // A converted reject: its rewrite applies; the named turns and its own deletion are left to the checker, which counts them.
+  const REWRITTEN = 'Each token goes to the top 2 of 64 experts, which keeps most of them idle. The hosts talk this through carefully so the listener can follow.';
+  const converted = applyCorrections(draft, review('reject', [{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s9'] }], {
+    delete: [{ segment: 's15', problem: 'repeats the caveat' }],
+    replace: [{ segment: 's4', text: REWRITTEN, math: [], problem: 'plainer' },
+      { segment: 's9', text: 'So the larger-scale story stays open.', math: [], problem: 'tighter' }] }) as ReviewCorrections, 10);
+  assert.ok(converted.ok && converted.action === 'remove_segments' && converted.corrections === 3);
+  if (!converted.ok) return;
+  assert.equal(converted.script.segments.length, 15, 'nothing is deleted before the checker');
+  assert.equal(converted.script.segments[3].text, REWRITTEN);
+  assert.deepEqual(converted.script.review!.remove, [{ segment: 's15', reason: 'review_deleted' }, { segment: 's6', reason: 'review_flagged' },
+    { segment: 's9', reason: 'review_flagged' }], 'a named turn is removed even when also rewritten');
+  const checked = checkScript(converted.script, PAPER);
+  assert.ok(checked.ok, checked.ok ? '' : checked.problems.join());
+  assert.equal(checked.report.outcome, 'degraded');
+  assert.deepEqual(checked.report.segments, { checked: 15, kept: 12, removed: 3 });
+  assert.deepEqual(checked.report.removed, { review_flagged: 2, review_deleted: 1 });
+  assert.deepEqual(checked.report.removals, [{ segment: 's6', reason: 'review_flagged' }, { segment: 's9', reason: 'review_flagged' },
+    { segment: 's15', reason: 'review_deleted' }]);
+  assert.deepEqual(checked.report.review, { verdict: 'reject', corrections: 3, action: 'remove_segments' });
+  assert.deepEqual(checked.report.reasons, [{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s9'] }]);
+  assert.deepEqual(checked.script.segments.map(s => s.id), draft.segments.map(s => s.id).filter(id => !['s6', 's9', 's15'].includes(id)));
+  assert.equal(checked.script.segments[3].text, REWRITTEN);
+  // Their own corrections are still validated; the correction limit does not bound the named turns.
+  assert.deepEqual((applyCorrections(draft, review('reject', [{ code: 'wrong_numbers', segments: ['s6'] }],
+    { delete: [{ segment: 's99', problem: '' }] }) as ReviewCorrections, 10) as { problems: string[] }).problems, ['correction_unknown_segment:s99']);
+  assert.ok(applyCorrections(draft, review('reject', [{ code: 'unsupported_claims', segments: ['s2', 's9', 's10', 's11'] }]) as ReviewCorrections, 2).ok);
+
+  // The v3 limits decide: more than 30% of the draft's turns removed in all, or a chapter losing its support, rejects.
+  const limited = (list: ReviewCorrections['reasons'], extra: Partial<ReviewCorrections> = {}) => {
+    const r = applyCorrections(draft, review('reject', list, extra) as ReviewCorrections, 10);
+    assert.ok(r.ok && r.action === 'remove_segments');
+    return checkScript((r as { script: Script }).script, PAPER, { bounds: { ...FIVE_MINUTE_BOUNDS, words: [200, 1000] } });
+  };
+  const share = limited([{ code: 'unsupported_claims', segments: ['s9', 's10', 's11', 's12'] }], { delete: [{ segment: 's13', problem: '' }] });
+  assert.ok(!share.ok && share.problems.includes('segments_removed_share'), '5 of 15 turns (33%), counting the review\'s own deletion');
+  assert.ok(limited([{ code: 'unsupported_claims', segments: ['s9', 's10', 's11', 's12'] }]).ok, '4 of 15 (27%) stays within the limit');
+  const support = limited([{ code: 'unsupported_claims', segments: ['s3'] }]);
+  assert.ok(!support.ok && support.problems.includes('chapter_unsupported:c1'), 'the opening chapter keeps its framing but loses its only evidenced claim');
+  assert.deepEqual(support.report.reasons, [{ code: 'unsupported_claims', segments: ['s3'] }]);
+  const emptied = limited([{ code: 'wrong_numbers', segments: ['s6', 's7'] }]);
+  assert.ok(!emptied.ok && emptied.problems.includes('empty_chapter:c3'), 'the evidence chapter loses every turn');
+
+  // A reject that stands records why, with its codes; the staging case (no reasons at all) still rejects.
+  for (const [list, rule] of [[[], 'review_reasons_missing'], [[{ code: 'fabricated_detail', segments: ['s6'] }], 'review_reason_severe'],
+    [[{ code: 'unsupported_claims', segments: [] }], 'review_reason_unscoped']] as [ReviewCorrections['reasons'], string][]) {
+    const stands = applyCorrections(draft, review('reject', list, { delete: [{ segment: 's15', problem: '' }] }) as ReviewCorrections, 10);
+    assert.ok(stands.ok && stands.action === 'reject' && stands.corrections === 0 && stands.script.segments.length === 15);
+    const result = checkScript((stands as { script: Script }).script, PAPER);
+    assert.ok(!result.ok);
+    assert.deepEqual(result.report.rules.slice(0, 2), ['review_rejected', rule]);
+    assert.deepEqual(result.report.review, { verdict: 'reject', corrections: 1, action: 'reject' });
+    assert.deepEqual(result.report.reasons, list.length ? list : undefined);
+  }
 });
 
 test('fixture script quotes real passages and is labeled synthetic', () => {
@@ -496,7 +591,7 @@ test('checker rejection is a quality failure (customer charged zero) after recor
   const checked = h.calls.at(-2)!;
   assert.equal(checked.name, 'worker_podcast_checked');
   const report = checked.params.p_report as CheckReport;
-  assert.equal(report.outcome, 'rejected'); assert.equal(report.checker, 'podcast-checker-v3');
+  assert.equal(report.outcome, 'rejected'); assert.equal(report.checker, 'podcast-checker-v4');
   assert.ok(report.rules.includes('evidence_unverified_share'), report.rules.join());
   assert.deepEqual([report.evidence!.checked, report.evidence!.unverified], [6, 3]);
   assert.deepEqual(report.items!.map(i => [i.segment, i.reason]), [['s3', 'not_found'], ['s4', 'not_found'], ['s6', 'not_found']]);
@@ -622,7 +717,7 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
       problem: 'states the routing rule plainly' }],
     claims: [{ segment: 's3', claim_type: 'author_interpretation', evidence: [{ quote: QUOTED[0][0], section: QUOTED[0][1] }],
       problem: 'interpretation, quoted from the introduction' }],
-    verdict: 'accept' };
+    verdict: 'accept', reasons: [{ code: 'wrong_numbers', segments: ['s19'] }] };
   const v2 = pilotModel(() => corrections);
   const after = harness({ script: v2.script });
   const outcome = await runPodcast(after.deps, Date.now() + 600_000);
@@ -642,9 +737,9 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   assert.equal(segment('s19').text, corrections.replace[0].text);
   assert.equal(segment('s3').claim_type, 'author_interpretation'); assert.deepEqual(segment('s3').evidence.map((e: { quote: string }) => e.quote), [QUOTED[0][0]]);
   const manifest = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[2].path)!));
-  assert.equal(manifest.identity.checker, 'podcast-checker-v3');
+  assert.equal(manifest.identity.checker, 'podcast-checker-v4');
   assert.equal(manifest.review_sha256, sha(JSON.stringify(corrections)), 'draft and correction set recorded as lineage');
-  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v3');
+  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v4');
   assert.ok(!JSON.stringify(after.logs).includes('most experts never see'), 'no script text in logs');
 });
 
@@ -659,11 +754,77 @@ test('corrections naming unknown segments or emptying a chapter fail as a qualit
     assert.equal(fail.name, 'worker_podcast_fail'); assert.equal(fail.params.p_quality, true, 'the customer is charged zero');
     assert.equal(h.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, 2);
     assert.ok(!h.names().includes('worker_podcast_speech_begin'), 'no speech is bought');
-    assert.deepEqual(h.logs.find(l => (l as { event: string }).event === 'podcast_review_invalid'), { event: 'podcast_review_invalid', job_id: '46000000-0000-4000-8000-000000000101', problems: 1, first });
+    assert.deepEqual(h.logs.find(l => (l as { event: string }).event === 'podcast_review_invalid'), { event: 'podcast_review_invalid', job_id: '46000000-0000-4000-8000-000000000101', problems: 1, first, verdict: 'accept', reasons: null });
   }
   // A review whose output is not a correction set is invalid, never approval.
   const whole = harness({ scripts: [goodScript(), goodScript()] });
   assert.equal((await runPodcast(whole.deps, Date.now() + 600_000)).failure, 'script_invalid');
+  // Invalid corrections still record the review's verdict and reason codes.
+  const coded = harness({ scripts: [goodScript(), { ...ACCEPT, delete: [{ segment: 's99', problem: 'gone' }], verdict: 'reject',
+    reasons: [{ code: 'unsupported_claims', segments: ['s2'] }] }] });
+  assert.equal((await runPodcast(coded.deps, Date.now() + 600_000)).failure, 'script_corrections_invalid');
+  const invalid = coded.calls.find(c => c.name === 'worker_podcast_checked')!.params.p_report as CheckReport;
+  assert.equal(invalid.stage, 'review'); assert.deepEqual(invalid.rules, ['correction_unknown_segment:s99']);
+  assert.deepEqual(invalid.review, { verdict: 'reject', corrections: 1, action: 'reject' });
+  assert.deepEqual(invalid.reasons, [{ code: 'unsupported_claims', segments: ['s2'] }]);
+});
+
+// Staging job 57d019e2 (worker 00015, checker v3): every quote verified and the checker would have kept 20 of 22
+// turns, but the review returned "reject" with empty lists and no reason, so the job failed script_evidence_rejected.
+test('review reasons in the worker: a segment-scoped reject degrades and publishes; a severe or unexplained reject fails, with its codes recorded', async () => {
+  const draft = () => { const s = goodScript(); delete s.review; return s; };
+  const reject = (reasons: ReviewCorrections['reasons'], extra: Partial<ReviewCorrections> = {}): ReviewCorrections => ({ ...ACCEPT, ...extra, verdict: 'reject', reasons });
+  const report = (h: ReturnType<typeof harness>) => h.calls.find(c => c.name === 'worker_podcast_checked')!.params.p_report as CheckReport;
+
+  // Segment-scoped reasons naming their turns: those turns are removed and the episode publishes, degraded.
+  const scoped = harness({ scripts: [draft(), reject([{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s2'] }])] });
+  const published = await runPodcast(scoped.deps, Date.now() + 600_000);
+  assert.equal(published.state, 'ready', published.failure ?? '');
+  const degraded = report(scoped);
+  assert.equal(degraded.checker, 'podcast-checker-v4'); assert.equal(degraded.outcome, 'degraded'); assert.deepEqual(degraded.rules, []);
+  assert.deepEqual(degraded.review, { verdict: 'reject', corrections: 0, action: 'remove_segments' });
+  assert.deepEqual(degraded.reasons, [{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'unsupported_claims', segments: ['s2'] }]);
+  assert.deepEqual(degraded.removals, [{ segment: 's2', reason: 'review_flagged' }, { segment: 's6', reason: 'review_flagged' }]);
+  assert.deepEqual(degraded.segments, { checked: 15, kept: 13, removed: 2 });
+  const plan = scoped.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
+  const transcript = JSON.parse(new TextDecoder().decode(scoped.uploads.get(plan[1].path)!));
+  assert.deepEqual(transcript.segments.map((s: { id: string }) => s.id), draft().segments.map(s => s.id).filter(id => id !== 's2' && id !== 's6'));
+  assert.equal((scoped.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v4');
+  assert.deepEqual(scoped.logs.find(l => (l as { event: string }).event === 'podcast_reviewed'), { event: 'podcast_reviewed', job_id: '46000000-0000-4000-8000-000000000101',
+    verdict: 'reject', action: 'remove_segments', corrections: 0, deleted: 0, reasons: 'wrong_numbers,unsupported_claims', flagged: 2 });
+
+  // Severe reasons, a reason naming no turn, or no reason at all (the staging case): the reject stands.
+  for (const [review, rule] of [
+    [reject([{ code: 'wrong_numbers', segments: ['s6'] }, { code: 'misrepresents_main_result', segments: [] }]), 'review_reason_severe'],
+    [reject([{ code: 'fabricated_detail', segments: ['s7'] }]), 'review_reason_severe'],
+    [reject([{ code: 'unsupported_claims', segments: [] }]), 'review_reason_unscoped'],
+    [reject([]), 'review_reasons_missing'],
+  ] as [ReviewCorrections, string][]) {
+    const h = harness({ scripts: [draft(), review] });
+    assert.equal((await runPodcast(h.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected', rule);
+    assert.equal(h.calls.at(-1)!.name, 'worker_podcast_fail'); assert.equal(h.calls.at(-1)!.params.p_quality, true, 'the customer is charged zero');
+    assert.ok(!h.names().includes('worker_podcast_speech_begin'), 'no speech is bought');
+    const rejected = report(h);
+    assert.equal(h.calls.at(-2)!.name, 'worker_podcast_checked', 'recorded before the failure settles');
+    assert.equal(rejected.outcome, 'rejected'); assert.deepEqual(rejected.rules, ['review_rejected', rule]);
+    assert.deepEqual(rejected.review, { verdict: 'reject', corrections: 0, action: 'reject' });
+    assert.deepEqual(rejected.reasons, review.reasons.length ? review.reasons : undefined);
+    // Every quote verified and no turn removed: only the verdict rejected it.
+    assert.deepEqual([rejected.evidence!.unverified, rejected.segments!.removed], [0, 0]);
+  }
+  // A reason naming a turn the draft does not have stands too; a malformed id is recorded as "unknown" (050 accepts codes only).
+  const unknown = harness({ scripts: [draft(), reject([{ code: 'unsupported_claims', segments: ['s2', 'x<y>'] }])] });
+  assert.equal((await runPodcast(unknown.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.deepEqual(report(unknown).rules, ['review_rejected', 'review_reason_unknown_segment']);
+  assert.deepEqual(report(unknown).reasons, [{ code: 'unsupported_claims', segments: ['s2', 'unknown'] }]);
+
+  // Converted, but beyond the limits: more than 30% of turns removed rejects (the review's own deletion counts too).
+  const many = harness({ scripts: [draft(), reject([{ code: 'unsupported_claims', segments: ['s10', 's11', 's12', 's13'] }],
+    { delete: [{ segment: 's14', problem: 'repeats the caveat' }] })] });
+  assert.equal((await runPodcast(many.deps, Date.now() + 600_000)).failure, 'script_evidence_rejected');
+  assert.ok(report(many).rules.includes('segments_removed_share'), report(many).rules.join());
+  assert.deepEqual(report(many).removed, { review_flagged: 4, review_deleted: 1 });
+  assert.ok(!JSON.stringify([many.logs, report(many), report(scoped)]).includes('repeats the caveat'), 'no problem text in logs or reports');
 });
 
 test('lost grant acknowledgement never becomes a provider call', async () => {

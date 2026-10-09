@@ -87,6 +87,24 @@ select '{"checker":"podcast-checker-v3","stage":"checker","outcome":"rejected","
 select test.assert((public.worker_podcast_checked(:'job',:'claim',:'gen',:'report'::jsonb)->>'recorded')::boolean,'a valid report is recorded');
 select test.assert((select details=:'report'::jsonb from app_private.podcast_job_events where job_id=:'job' and kind='checked'),'recorded exactly as sent');
 
+-- Checker v4 adds the review's verdict, action and reason codes with segment ids (reasons -> item -> segments -> id is
+-- the validator's depth limit of 4): 050 records them as they are, so v4 needs no recorder change. Rolled back.
+savepoint v4_reports;
+select '{"checker":"podcast-checker-v4","stage":"checker","outcome":"degraded","segments":{"checked":22,"kept":18,"removed":4},
+ "removed":{"review_flagged":2,"unsupported_number":1,"number_not_in_evidence":1},"review":{"verdict":"reject","corrections":2,"action":"remove_segments"},
+ "reasons":[{"code":"unsupported_claims","segments":["s8","s17"]},{"code":"speculation_presented_as_finding","segments":["s12"]}],
+ "rules":[],"removals":[{"segment":"s8","reason":"review_flagged"},{"segment":"s17","reason":"review_flagged"}]}' as v4 \gset
+select test.assert((public.worker_podcast_checked(:'job',:'claim',:'gen',:'v4'::jsonb)->>'recorded')::boolean,'a v4 report with reason codes is recorded');
+select test.assert((select details->'reasons'=(:'v4'::jsonb)->'reasons' from app_private.podcast_job_events where job_id=:'job' and kind='checked' order by id desc limit 1),
+ 'reason codes and segment ids recorded as sent');
+select test.assert((public.worker_podcast_checked(:'job',:'claim',:'gen',
+ '{"checker":"podcast-checker-v4","outcome":"rejected","rules":["review_rejected","review_reasons_missing"],"review":{"verdict":"reject","corrections":0,"action":"reject"}}'::jsonb)->>'recorded')::boolean,
+ 'a standing reject records why');
+-- Still codes only: a reason given as prose is refused.
+select test.reject(format('select public.worker_podcast_checked(%L,%L,%s,%L)',:'job',:'claim',:'gen',
+ '{"checker":"podcast-checker-v4","reasons":[{"code":"The draft misstates the main result","segments":[]}]}'),'invalid_podcast_report');
+rollback to savepoint v4_reports;
+
 -- No free text, ever: prose, capitals, spaces, long strings, odd keys, deep, wide or oversized structures, null and non-objects are refused.
 select test.reject(format('select public.worker_podcast_checked(%L,%L,%s,%L)',:'job',:'claim',:'gen','{"checker":"podcast-checker-v3","rules":["Sparse routing reaches 41.2 perplexity"]}'),'invalid_podcast_report');
 select test.reject(format('select public.worker_podcast_checked(%L,%L,%s,%L)',:'job',:'claim',:'gen','{"checker":"podcast-checker-v3","note":"Contains Capitals"}'),'invalid_podcast_report');

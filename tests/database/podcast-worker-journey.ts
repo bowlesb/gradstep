@@ -62,8 +62,8 @@ function script(): Script {
 }
 /** The five-minute review's correction set (one rewritten transition); longer reviews approve their draft as written. */
 const REWRITE = 'That point deserves a slower look, so the hosts restate it in plain words before moving on to the evidence.';
-const CORRECTIONS: ReviewCorrections = { delete: [], replace: [{ segment: 's2', text: REWRITE, math: [], problem: 'clearer transition' }], claims: [], verdict: 'accept' };
-const APPROVE: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept' };
+const CORRECTIONS: ReviewCorrections = { delete: [], replace: [{ segment: 's2', text: REWRITE, math: [], problem: 'clearer transition' }], claims: [], verdict: 'accept', reasons: [] };
+const APPROVE: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept', reasons: [] };
 /** A faithful ten-minute script (6 chapters x 8 segments, ~1,700 words): evidence quotes verbatim, no digits spoken. */
 function longScript(): Script {
   const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
@@ -137,8 +137,9 @@ const at = (kind: string, route?: string) => seedEvents.events.findIndex(e => e.
 assert.ok(at('attempt', 'podcast_review') < at('checked') && at('checked') < at('attempt', 'podcast_speech'),
   `report after the review, before speech: ${seedEvents.events.map(e => e.kind).join(',')}`);
 const checkedReport = seedEvents.events.find(e => e.kind === 'checked')!.details as { checker: string; outcome: string; evidence: { checked: number; verified: number };
-  speech: { calls: number; bytes: number; budget: number } };
-assert.equal(checkedReport.checker, 'podcast-checker-v3'); assert.equal(checkedReport.outcome, 'accepted');
+  speech: { calls: number; bytes: number; budget: number }; review: { verdict: string; corrections: number; action: string } };
+assert.equal(checkedReport.checker, 'podcast-checker-v4'); assert.equal(checkedReport.outcome, 'accepted');
+assert.deepEqual(checkedReport.review, { verdict: 'accept', corrections: 1, action: 'accept' }, 'the review part of the v4 report');
 assert.equal(checkedReport.evidence.verified, checkedReport.evidence.checked); assert.equal(checkedReport.speech.calls, 1);
 assert.ok(checkedReport.speech.bytes <= checkedReport.speech.budget);
 assert.ok(!JSON.stringify(seedEvents).includes(PAPER.slice(40, 80)), 'no paper text in the job events');

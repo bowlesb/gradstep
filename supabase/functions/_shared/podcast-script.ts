@@ -10,11 +10,12 @@ import { spokenCharacterBudget, type SpeechBudget } from './podcast-speech.ts';
 
 export const SCRIPT_MODEL = 'claude-sonnet-5-5';
 /**
- * v3: evidence located through a shared canonical form and stored as the paper's own span; unverifiable
- * items dropped and unsupported claims removed within bounded shares; spoken names and paper references
- * exempt from the number rule (v2: the review returns a correction set; v1 re-emitted the whole script).
+ * v4: the review gives reason codes; a reject whose reasons are only segment-scoped and name their turns
+ * becomes the removal of those turns within v3's degradation limits (v3: evidence located through a shared
+ * canonical form, unverifiable items dropped and unsupported claims removed within bounded shares; v2: the
+ * review returns a correction set; v1 re-emitted the whole script).
  */
-export const CHECKER_VERSION = 'podcast-checker-v3';
+export const CHECKER_VERSION = 'podcast-checker-v4';
 export const NORMALIZATION_VERSION = 'mathpix-standalone-mmd-v1';
 /** The checker's default spoken-text bound; the five-minute prompt asks for less so its single speech call fits (FIVE_MINUTE_SHAPE). */
 export const MAX_SPOKEN_CHARACTERS = 6_000;
@@ -29,7 +30,30 @@ export interface MathNote { latex: string; spoken: string }
 export interface ScriptSegment { id: string; chapter: string; speaker: Speaker; text: string; style: string; claim_type: ClaimType;
   evidence: Evidence[]; math: MathNote[] }
 export interface Script { title: string; chapters: { id: string; title: string }[]; segments: ScriptSegment[]; limitations: string[];
-  review?: { verdict: 'accept' | 'reject'; issues: { segment: string; problem: string; action: string }[] } }
+  review?: ScriptReview }
+
+/** Why a review found a draft unfaithful: a strict enum, so no free text reaches reports. */
+export const REVIEW_REASON_CODES = ['misrepresents_main_result', 'fabricated_detail', 'wrong_numbers', 'unsupported_claims',
+  'speculation_presented_as_finding', 'too_many_problems', 'other'] as const;
+export type ReviewReasonCode = typeof REVIEW_REASON_CODES[number];
+/** Problems confined to the turns that state them: removing those turns removes the problem. */
+export const SEGMENT_SCOPED_REASONS: readonly ReviewReasonCode[] = ['unsupported_claims', 'wrong_numbers', 'speculation_presented_as_finding'];
+/** One reason code with the draft segment ids it affects (empty when the problem is not confined to turns). */
+export interface ReviewReason { code: ReviewReasonCode; segments: string[] }
+/** Why a reject verdict stands (worker policy, checker v4). */
+export type ReviewRule = 'review_reasons_missing' | 'review_reason_severe' | 'review_reason_unscoped' | 'review_reason_unknown_segment';
+/**
+ * The review as applied by the worker. `remove` is set only when a reject was converted into the removal
+ * of the turns it names (and of the review's own deletions), which the checker then removes and counts
+ * against its degradation limits; `rule` says why a reject stands.
+ */
+export interface ScriptReview {
+  verdict: 'accept' | 'reject';
+  issues: { segment: string; problem: string; action: string }[];
+  reasons?: ReviewReason[];
+  remove?: { segment: string; reason: 'review_deleted' | 'review_flagged' }[];
+  rule?: ReviewRule;
+}
 
 const evidenceSchema = { type: 'object', additionalProperties: false, required: ['quote', 'section'],
   properties: { quote: { type: 'string' }, section: { type: 'string' } } };
@@ -53,10 +77,12 @@ export const DRAFT_SCHEMA = { type: 'object', additionalProperties: false, requi
 /**
  * The review never re-emits the script: it returns corrections keyed by the draft's segment ids
  * (delete, replace the spoken text and its formula notes, correct claim type and evidence) and a
- * verdict last. Structured outputs accept no length/size constraints, so the bound is in the task
- * text and enforced by `parseReview`/`applyCorrections`.
+ * verdict after them, then reason codes (each with the segment ids it affects; required with a reject,
+ * allowed with an accept). Structured outputs accept no length/size or conditional constraints, so the
+ * bounds and "reasons required with a reject" are in the task text and enforced by `parseReview`,
+ * `applyCorrections` and `rejectPolicy`.
  */
-export const REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['delete', 'replace', 'claims', 'verdict'],
+export const REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['delete', 'replace', 'claims', 'verdict', 'reasons'],
   properties: {
     delete: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['segment', 'problem'],
       properties: { segment: { type: 'string' }, problem: { type: 'string' } } } },
@@ -66,6 +92,8 @@ export const REVIEW_SCHEMA = { type: 'object', additionalProperties: false, requ
       properties: { segment: { type: 'string' }, claim_type: segmentSchema.properties.claim_type, evidence: { type: 'array', items: evidenceSchema },
         problem: { type: 'string' } } } },
     verdict: { type: 'string', enum: ['accept', 'reject'] },
+    reasons: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['code', 'segments'],
+      properties: { code: { type: 'string', enum: [...REVIEW_REASON_CODES] }, segments: { type: 'array', items: { type: 'string' } } } } },
   } };
 
 /**
@@ -139,7 +167,9 @@ Do not rewrite or repeat the script. Return only corrections that name the draft
 Quotes and numbers follow the same rules as the draft:
 ${QUOTING_RULES}
 A segment that speaks a number its own quotes do not state needs a claims correction that adds the quote stating it, or a replacement without that number. Replacement text is plain spoken words. Never delete every segment of a chapter, and keep the script within the length limits. Use at most {LIMIT} corrections in total (each delete, replace or claims entry counts once). problem is a short phrase of at most twelve words.
-Set verdict to "accept" only if the draft with these corrections applied is fully supported by the paper; empty lists with "accept" approve the draft as written. Set "reject" with empty lists if the draft cannot be made faithful with {LIMIT} corrections.`;
+Repair before you reject. Fix every problem you can with these corrections: delete a turn that makes an unsupported claim and is not needed; replace a wrong number with the paper's own figure, adding the quote that states it if the segment's quotes do not; correct a claim's type or evidence.
+Then set verdict. "accept" means the draft with your corrections applied is fully supported by the paper; empty lists with "accept" approve the draft as written. "reject" is only for a draft that misrepresents the paper's main result, contains fabricated content (a result, number, experiment, quote or detail that is not in the paper), or has more problems than {LIMIT} corrections can fix. Unsupported turns, wrong numbers and speculation presented as a finding are not by themselves reasons to reject: delete or correct those turns.
+reasons names problems by kind, each with the ids of the draft segments it affects. Codes: misrepresents_main_result, fabricated_detail, wrong_numbers, unsupported_claims, speculation_presented_as_finding (a guess or the authors' speculation presented as a result), too_many_problems, other. With "reject", list at least one reason for every problem your corrections leave unfixed, naming each affected segment; leave a reason's segment list empty only when the problem is not confined to particular segments. With "accept", list the problems your corrections fixed, or none.`;
 
 export type ScriptParams = Anthropic.Messages.MessageCreateParamsNonStreaming;
 
@@ -291,13 +321,21 @@ export interface CheckReport {
   words?: number;
   spoken_characters?: number;
   speech?: { bytes: number; budget: number; calls: number; styles_shortened: number };
+  /**
+   * The review's verdict, how many corrections it made and what the worker did with it: `accept`, a reject
+   * converted into removing the turns it names (`remove_segments`), or a reject that stands (`reject`).
+   */
+  review?: { verdict: 'accept' | 'reject'; corrections: number; action: 'accept' | 'remove_segments' | 'reject' };
+  /** The review's reason codes with the segment ids each names (never its problem text). */
+  reasons?: ReviewReason[];
   /** Rule failures that rejected the script (segment and chapter ids only). */
   rules: string[];
   /** Unverified evidence items: where the quote's canonical form stopped matching the paper. */
   items?: { segment: string; item: number; reason: EvidenceDrop; chars: number; canonical: number; matched: number; offset: number }[];
   removals?: { segment: string; reason: SegmentRemoval }[];
 }
-export type SegmentRemoval = 'length' | 'markup' | 'evidence_missing' | 'unsupported_number' | 'number_not_in_evidence';
+/** Checker removals, plus (v4) the turns a converted reject removes: its own deletions and the turns its reasons name. */
+export type SegmentRemoval = 'length' | 'markup' | 'evidence_missing' | 'unsupported_number' | 'number_not_in_evidence' | 'review_deleted' | 'review_flagged';
 export type CheckResult = { ok: true; script: CheckedScript; spokenCharacters: number; words: number; report: CheckReport }
   | { ok: false; problems: string[]; report: CheckReport };
 
@@ -364,16 +402,28 @@ export interface ReviewCorrections {
   replace: { segment: string; text: string; math: MathNote[]; problem: string }[];
   claims: { segment: string; claim_type: ClaimType; evidence: Evidence[]; problem: string }[];
   verdict: 'accept' | 'reject';
+  /** One entry per code (duplicates merged), each with its distinct segment ids. */
+  reasons: ReviewReason[];
 }
 
-/** Parse the review's JSON; a wrong shape is refused (never read as approval). */
+/** Parse the review's JSON; a wrong shape (including an unknown reason code) is refused, never read as approval. */
 export function parseReview(text: string | null): ReviewCorrections | null {
   const o = parseObject(text);
-  if (!o || (o.verdict !== 'accept' && o.verdict !== 'reject') || !Array.isArray(o.delete) || !Array.isArray(o.replace) || !Array.isArray(o.claims)) return null;
+  if (!o || (o.verdict !== 'accept' && o.verdict !== 'reject') || !Array.isArray(o.delete) || !Array.isArray(o.replace) || !Array.isArray(o.claims)
+    || !Array.isArray(o.reasons)) return null;
   // A sanity bound before parsing entries; the profile's limit is applied with the draft.
-  if (o.delete.length + o.replace.length + o.claims.length > 400) return null;
+  if (o.delete.length + o.replace.length + o.claims.length > 400 || o.reasons.length > 50) return null;
   const entry = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : null;
-  const review: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: o.verdict };
+  const review: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: o.verdict, reasons: [] };
+  for (const value of o.reasons) {
+    const e = entry(value), code = e?.code as ReviewReasonCode;
+    if (!REVIEW_REASON_CODES.includes(code) || !Array.isArray(e!.segments) || e!.segments.length > 400) return null;
+    const segments = (e!.segments as unknown[]).map(s => str(s, 8));
+    if (segments.some(s => !s)) return null;
+    const merged = review.reasons.find(r => r.code === code);
+    if (merged) merged.segments = [...new Set([...merged.segments, ...segments as string[]])];
+    else review.reasons.push({ code, segments: [...new Set(segments as string[])] });
+  }
   for (const value of o.delete) {
     const e = entry(value), segment = str(e?.segment, 8);
     if (!segment) return null;
@@ -392,20 +442,47 @@ export function parseReview(text: string | null): ReviewCorrections | null {
   return review;
 }
 
-export type ReviewResult = { ok: true; script: Script; corrections: number } | { ok: false; problems: string[] };
+export type ReviewResult = { ok: true; script: Script; corrections: number; action: 'accept' | 'remove_segments' | 'reject' }
+  | { ok: false; problems: string[] };
+
+/**
+ * Worker policy for a "reject" verdict (checker v4). A reject whose reasons are all segment-scoped
+ * (unsupported claims, wrong numbers, speculation presented as a finding), each naming at least one of
+ * the draft's segments, is read as "remove those turns". Any other reject stands: no reasons, a severe
+ * reason (a misrepresented main result, fabricated detail, too many problems, other), a reason that
+ * names no segment, or one naming a segment the draft does not have exactly once.
+ */
+export function rejectPolicy(reasons: ReviewReason[], draft: Script): { remove: string[] } | { rule: ReviewRule } {
+  if (!reasons.length) return { rule: 'review_reasons_missing' };
+  if (reasons.some(r => !SEGMENT_SCOPED_REASONS.includes(r.code))) return { rule: 'review_reason_severe' };
+  if (reasons.some(r => !r.segments.length)) return { rule: 'review_reason_unscoped' };
+  const occurrences = new Map<string, number>();
+  for (const s of draft.segments) occurrences.set(s.id, (occurrences.get(s.id) ?? 0) + 1);
+  if (reasons.some(r => r.segments.some(id => occurrences.get(id) !== 1))) return { rule: 'review_reason_unknown_segment' };
+  return { remove: [...new Set(reasons.flatMap(r => r.segments))] };
+}
 
 /**
  * Applies a review deterministically to its draft. Corrections can only change existing segments:
- * a reference to an unknown or duplicated id, two conflicting corrections of one segment, more than
- * `limit` corrections, or deletions that would empty a chapter refuse the whole review (a quality
- * failure, never a silent pass). Empty lists with "accept" approve the draft unchanged; a "reject"
- * verdict carries no corrections forward. The checker then runs on the result.
+ * a reference to an unknown or duplicated id, two conflicting corrections of one segment or more than
+ * `limit` corrections refuse the whole review (a quality failure, never a silent pass). With "accept",
+ * deletions that would empty a chapter refuse it too, and empty lists approve the draft unchanged.
+ *
+ * A "reject" goes through `rejectPolicy`. One that stands carries no corrections forward and the checker
+ * refuses it. A converted reject applies its rewrites and claim corrections, and leaves every turn it
+ * removes — its own deletions and the turns its reasons name, even if also corrected — to the checker,
+ * which removes them and counts them against the draft in its degradation limits (at most 30% of turns
+ * removed in all; every chapter keeps a turn and its evidenced claims). The checker then runs on the result.
  */
 export function applyCorrections(draft: Script, review: ReviewCorrections, limit: number): ReviewResult {
   const issues = [...review.delete.map(c => ({ segment: c.segment, problem: c.problem, action: 'delete' })),
     ...review.replace.map(c => ({ segment: c.segment, problem: c.problem, action: 'replace' })),
     ...review.claims.map(c => ({ segment: c.segment, problem: c.problem, action: 'claims' }))];
-  if (review.verdict === 'reject') return { ok: true, script: { ...draft, review: { verdict: 'reject', issues } }, corrections: 0 };
+  const reasons = review.reasons;
+  const policy = review.verdict === 'reject' ? rejectPolicy(reasons, draft) : null;
+  if (policy && 'rule' in policy) {
+    return { ok: true, action: 'reject', script: { ...draft, review: { verdict: 'reject', issues, reasons, rule: policy.rule } }, corrections: 0 };
+  }
   const problems: string[] = [];
   const occurrences = new Map<string, number>();
   for (const s of draft.segments) occurrences.set(s.id, (occurrences.get(s.id) ?? 0) + 1);
@@ -426,10 +503,18 @@ export function applyCorrections(draft: Script, review: ReviewCorrections, limit
   const deleted = new Set(review.delete.map(c => c.segment));
   const replaced = new Map(review.replace.map(c => [c.segment, c]));
   const reclaimed = new Map(review.claims.map(c => [c.segment, c]));
-  const segments = draft.segments.filter(s => !deleted.has(s.id)).map(s => {
+  const corrected = (s: ScriptSegment) => {
     const r = replaced.get(s.id), c = reclaimed.get(s.id);
     return { ...s, ...(r ? { text: r.text, math: r.math } : {}), ...(c ? { claim_type: c.claim_type, evidence: c.evidence } : {}) };
-  });
+  };
+  if (policy) {
+    // Converted reject: every removal is the checker's, so its limits see the whole draft.
+    const remove = [...[...deleted].map(segment => ({ segment, reason: 'review_deleted' as const })),
+      ...policy.remove.filter(id => !deleted.has(id)).map(segment => ({ segment, reason: 'review_flagged' as const }))];
+    return { ok: true, action: 'remove_segments', corrections: issues.length,
+      script: { ...draft, segments: draft.segments.map(corrected), review: { verdict: 'reject', issues, reasons, remove } } };
+  }
+  const segments = draft.segments.filter(s => !deleted.has(s.id)).map(corrected);
   // Chapters are never added, removed or reordered: a chapter the draft filled must keep a segment.
   for (const chapter of draft.chapters) {
     if (draft.segments.some(s => s.chapter === chapter.id) && !segments.some(s => s.chapter === chapter.id)) {
@@ -437,7 +522,14 @@ export function applyCorrections(draft: Script, review: ReviewCorrections, limit
     }
   }
   if (problems.length) return { ok: false, problems: [...new Set(problems)].slice(0, 50) };
-  return { ok: true, script: { ...draft, segments, review: { verdict: 'accept', issues } }, corrections: issues.length };
+  return { ok: true, action: 'accept', script: { ...draft, segments, review: { verdict: 'accept', issues, reasons } }, corrections: issues.length };
+}
+
+/** The review's part of a checker report: verdict, correction count, the worker's action and reason codes with segment ids. */
+export function reviewReport(review: Pick<ScriptReview, 'verdict' | 'issues' | 'reasons' | 'remove'>): Pick<CheckReport, 'review' | 'reasons'> {
+  const action = review.verdict === 'accept' ? 'accept' : review.remove?.length ? 'remove_segments' : 'reject';
+  return { review: { verdict: review.verdict, corrections: review.issues.length, action },
+    ...(review.reasons?.length ? { reasons: review.reasons.map(r => ({ code: r.code, segments: [...new Set(r.segments.map(id => label(id)))].slice(0, 20) })) } : {}) };
 }
 
 const MARKUP = (text: string) => /[<>]/.test(text.replace(/<short pause>/g, '')) || /[\\$#*_`{}]|\[\[|\]\]/.test(text)
@@ -445,40 +537,65 @@ const MARKUP = (text: string) => /[<>]/.test(text.replace(/<short pause>/g, ''))
 const material = (claim: ClaimType) => claim === 'paper_result' || claim === 'author_interpretation';
 const bump = <K extends string>(counts: Partial<Record<K, number>>, key: K) => { counts[key] = (counts[key] ?? 0) + 1; };
 
-/** Trims a report's itemized lists until it fits an event (counts are always kept). */
+/** The strings migration 050's recorder accepts; anything else would make the whole report unrecordable. */
+const REPORT_CODE = /^[a-z0-9][a-z0-9_:.-]{0,63}$/;
+const recordable = (value: unknown): unknown => {
+  if (typeof value === 'string') {
+    // Ids that are not well formed are labeled '?' in problems and logs; reports say 'unknown'.
+    const named = value.replaceAll('?', 'unknown');
+    return REPORT_CODE.test(value) ? value : REPORT_CODE.test(named) ? named : 'invalid';
+  }
+  if (Array.isArray(value)) return value.map(recordable);
+  return value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, recordable(v)])) : value;
+};
+
+/**
+ * Trims a report's itemized lists until it fits an event (counts and reason codes are always kept):
+ * evidence items first, then removals, then the segment ids listed under reasons, then rules.
+ */
 export function boundReport(report: CheckReport, maxBytes = REPORT_MAX_BYTES): CheckReport {
   const size = (r: CheckReport) => { const s = JSON.stringify(r); return s.length + (s.match(/[:,]/g)?.length ?? 0); };
-  const out: CheckReport = { ...report, rules: report.rules.slice(0, 12), items: report.items?.slice(0, 8), removals: report.removals?.slice(0, 12) };
-  while (size(out) > maxBytes && ((out.items?.length ?? 0) || (out.removals?.length ?? 0) || out.rules.length > 1)) {
+  const out = recordable({ ...report, rules: report.rules.slice(0, 12), items: report.items?.slice(0, 8), removals: report.removals?.slice(0, 12),
+    reasons: report.reasons?.slice(0, REVIEW_REASON_CODES.length).map(r => ({ code: r.code, segments: r.segments.slice(0, 20) })) }) as CheckReport;
+  const longest = () => (out.reasons ?? []).reduce<ReviewReason | null>((a, r) => r.segments.length > (a?.segments.length ?? 0) ? r : a, null);
+  while (size(out) > maxBytes && ((out.items?.length ?? 0) || (out.removals?.length ?? 0) || longest() || out.rules.length > 1)) {
+    const listed = longest();
     if (out.items?.length) out.items = out.items.slice(0, -1);
     else if (out.removals?.length) out.removals = out.removals.slice(0, -1);
+    else if (listed) listed.segments = listed.segments.slice(0, -1);
     else out.rules = out.rules.slice(0, -1);
   }
   return out;
 }
 
 /**
- * Checker v3. Structure and the review verdict are checked as before. Each evidence quote is located
- * in the pinned text through the canonical form both sides share (podcast-evidence.ts) and stored as
- * the paper's own span; an unverifiable quote or formula note is dropped on its own. A segment that
- * then breaks a claim rule — a paper_result or author_interpretation with no verified evidence, a
- * spoken number its own evidence does not state, markup in speech, an empty or overlong turn — is
- * removed, as the design requires ("no valid locator means remove the claim"); a material claim is
- * never relabeled as context. The script is rejected when more than 30% of evidence quotes are
- * unverifiable or more than 30% of segments are removed, when a chapter loses all its segments or all
- * its evidenced claims, or when the result breaks a length, evidence or order bound. A rejection is a
- * quality failure (customer charged zero), never an automatic paid retry.
+ * Checker v4. Structure and the review verdict are checked first: a reject stands unless the worker
+ * converted it (`review.remove`, see applyCorrections), in which case the turns it names are removed
+ * here and counted like any other removal. Each evidence quote is located in the pinned text through
+ * the canonical form both sides share (podcast-evidence.ts) and stored as the paper's own span; an
+ * unverifiable quote or formula note is dropped on its own. A segment that then breaks a claim rule — a
+ * paper_result or author_interpretation with no verified evidence, a spoken number its own evidence
+ * does not state, markup in speech, an empty or overlong turn — is removed, as the design requires ("no
+ * valid locator means remove the claim"); a material claim is never relabeled as context. The script
+ * is rejected when more than 30% of evidence quotes are unverifiable or more than 30% of segments are
+ * removed, when a chapter loses all its segments or all its evidenced claims, or when the result breaks
+ * a length, evidence or order bound. A rejection is a quality failure (customer charged zero), never an
+ * automatic paid retry.
  */
 export function checkScript(script: Script, paperText: string, options: { fixture?: boolean; bounds?: CheckerBounds; index?: PaperIndex } = {}): CheckResult {
   const problems: string[] = [], bounds = options.bounds ?? FIVE_MINUTE_BOUNDS, fixture = options.fixture === true;
   const index = options.index ?? indexPaper(paperText);
-  const report: CheckReport = { checker: CHECKER_VERSION, stage: 'checker', outcome: 'accepted', rules: [] };
+  const report: CheckReport = { checker: CHECKER_VERSION, stage: 'checker', outcome: 'accepted', rules: [], ...(script.review ? reviewReport(script.review) : {}) };
   const removed: Partial<Record<SegmentRemoval, number>> = {}, unverified: Partial<Record<EvidenceDrop, number>> = {};
   const repaired: Partial<Record<EvidenceRepair, number>> = {};
   const items: NonNullable<CheckReport['items']> = [], removals: NonNullable<CheckReport['removals']> = [];
   const evidenceCounts = { checked: 0, verified: 0, unverified: 0, excess: 0, spans: 0 }, mathCounts = { checked: 0, dropped: 0 };
 
-  if (!fixture && script.review?.verdict !== 'accept') problems.push('review_rejected');
+  // The turns a converted reject removes; a reject without them stands.
+  const reviewRemoves = new Map<string, SegmentRemoval>(!fixture && script.review?.verdict === 'reject'
+    ? (script.review.remove ?? []).map(r => [r.segment, r.reason]) : []);
+  if (!fixture && script.review?.verdict !== 'accept' && !reviewRemoves.size) problems.push('review_rejected', ...(script.review?.rule ? [script.review.rule] : []));
+  if ([...reviewRemoves.keys()].some(id => script.segments.filter(s => s.id === id).length !== 1)) problems.push('review_rejected', 'review_reason_unknown_segment');
   const chapterIDs = new Set<string>();
   for (const c of script.chapters) {
     if (!CHAPTER_ID.test(c.id) || chapterIDs.has(c.id)) problems.push('chapter_id'); chapterIDs.add(c.id);
@@ -492,6 +609,9 @@ export function checkScript(script: Script, paperText: string, options: { fixtur
 
   const kept: CheckedSegment[] = [];
   for (const s of script.segments) {
+    // Removed on the review's word: its quotes are not checked (they would only count against the evidence share).
+    const flagged = reviewRemoves.get(s.id);
+    if (flagged) { bump(removed, flagged); removals.push({ segment: label(s.id), reason: flagged }); continue; }
     const text = s.text.replace(/\s+/g, ' ').trim();
     // Evidence first, so the report counts every quote the model wrote.
     const spans: { quote: string; offset: number; section: string | null }[] = [];

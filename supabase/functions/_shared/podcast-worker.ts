@@ -4,7 +4,7 @@
 // retried automatically. Content (paper text, scripts, audio) never enters logs —
 // only ids, digests and counts; staged drafts are kept as bounded server checkpoints.
 import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE,
-  fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument,
+  fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewReport, reviewRequest, scriptCost, scriptDocument,
   scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider, type ScriptShape } from './podcast-script.ts';
 import { alignSegments, fitSpeech, fixtureAudio, joinChunks, parseWav, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
@@ -163,16 +163,22 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       if (!review) throw new Failure('script_invalid', true);
       reviewDigest = await deps.sha256Hex(new TextEncoder().encode(JSON.stringify(review)));
       const reviewed = applyCorrections(draft, review, correctionLimit(second.max_output_tokens));
+      // Reason codes only (a strict enum), never the review's problem text.
+      const reasons = review.reasons.map(r => r.code).join(',') || null;
       if (!reviewed.ok) {
-        log('podcast_review_invalid', { problems: reviewed.problems.length, first: reviewed.problems[0] ?? null });
-        await recordCheck(deps, fence, { checker: CHECKER_VERSION, stage: 'review', outcome: 'rejected', rules: reviewed.problems }, log);
+        log('podcast_review_invalid', { problems: reviewed.problems.length, first: reviewed.problems[0] ?? null, verdict: review.verdict, reasons });
+        await recordCheck(deps, fence, { checker: CHECKER_VERSION, stage: 'review', outcome: 'rejected', rules: reviewed.problems,
+          ...reviewReport({ verdict: review.verdict, reasons: review.reasons,
+            issues: [...review.delete, ...review.replace, ...review.claims].map(c => ({ segment: c.segment, problem: '', action: '' })) }) }, log);
         throw new Failure('script_corrections_invalid', true);
       }
-      log('podcast_reviewed', { verdict: review.verdict, corrections: reviewed.corrections, deleted: review.delete.length });
+      // A reject whose reasons only name segment-scoped problems becomes the removal of those turns (checker v4).
+      log('podcast_reviewed', { verdict: review.verdict, action: reviewed.action, corrections: reviewed.corrections, deleted: review.delete.length, reasons,
+        flagged: reviewed.script.review?.remove?.filter(r => r.reason === 'review_flagged').length ?? 0 });
       final = reviewed.script;
     }
-    // Checker v3 drops unverifiable evidence and removes unsupported claims within bounded shares; its
-    // report (counts, ids and offsets only) is recorded with the job whatever the outcome.
+    // The checker drops unverifiable evidence and removes unsupported claims (and the turns a converted reject
+    // names) within bounded shares; its report (counts, codes, ids and offsets only) is recorded whatever the outcome.
     const checked = checkScript(final, paper, { fixture, bounds });
     const resumedSpeech = resume?.stage === 'speech';
     log('podcast_script_checked', { outcome: checked.report.outcome, kept: checked.report.segments?.kept ?? null, removed: checked.report.segments?.removed ?? null,
