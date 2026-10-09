@@ -19,15 +19,32 @@ const ESTIMATED_OUTPUT_TOKENS_PER_SECOND = 100;
 
 /** Provider prices in micro-USD per token. */
 export interface TokenRates { input: number; cacheWrite5m: number; cacheWrite1h: number; cacheRead: number; output: number }
-const SONNET: TokenRates = Object.freeze({ input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 });
-// Unknown serving model: price at the highest current general-availability
-// rate card supplied for this route (Claude Opus 5.5, $4 / $20 per MTok).
-export const UNKNOWN_MODEL_RATES: TokenRates = Object.freeze({ input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.4, output: 20 });
-const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({ 'claude-sonnet-5-5': SONNET, 'claude-sonnet-5': SONNET });
+// Anthropic list prices, https://platform.claude.com/docs/en/about-claude/pricing (read 2026-10-08), $/MTok = µ$/token.
+// Claude Sonnet 5.5 and Opus 5.5 cache reads are 0.05x input ($0.10 and $0.20); other models 0.1x.
+export const TARIFF = 'anthropic-list-prices-2026-10-08';
+const SONNET: TokenRates = Object.freeze({ input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.1, output: 10 });
+const SONNET_5: TokenRates = Object.freeze({ input: 2, cacheWrite5m: 2.5, cacheWrite1h: 4, cacheRead: 0.2, output: 10 });
+const OPUS_5_5: TokenRates = Object.freeze({ input: 4, cacheWrite5m: 5, cacheWrite1h: 8, cacheRead: 0.2, output: 20 });
+// Claude Opus 5 and Opus 4.8: Opus 5.5's server-side fallback targets (`allowed_fallback_models`).
+const OPUS_5: TokenRates = Object.freeze({ input: 5, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, output: 25 });
+// Claude Haiku 5.5 is priced by prompt length: a prompt over 100,000 tokens pays the higher rates for the whole request.
+export const HAIKU_LONG_PROMPT_TOKENS = 100_000;
+const HAIKU: TokenRates = Object.freeze({ input: 0.1, cacheWrite5m: 0.125, cacheWrite1h: 0.2, cacheRead: 0.01, output: 0.5 });
+const HAIKU_LONG: TokenRates = Object.freeze({ input: 0.5, cacheWrite5m: 0.625, cacheWrite1h: 1, cacheRead: 0.05, output: 2.5 });
+const HAIKU_4_5: TokenRates = Object.freeze({ input: 1, cacheWrite5m: 1.25, cacheWrite1h: 2, cacheRead: 0.1, output: 5 });
+// Unknown serving model: price at the highest rate card any model this route
+// can be served by carries (Claude Opus 5 / 4.8, Opus 5.5's fallbacks).
+export const UNKNOWN_MODEL_RATES: TokenRates = OPUS_5;
+const KNOWN_RATES: Readonly<Record<string, TokenRates>> = Object.freeze({
+  'claude-sonnet-5-5': SONNET, 'claude-sonnet-5': SONNET_5, 'claude-opus-5-5': OPUS_5_5, 'claude-opus-5': OPUS_5,
+  'claude-opus-4-8': OPUS_5, 'claude-haiku-5-5': HAIKU, 'claude-haiku-4-5': HAIKU_4_5,
+});
 
-export function ratesFor(model: string | null | undefined): { rates: TokenRates; known: boolean } {
+/** `promptTokens` (the whole prompt: uncached, cache-write and cache-read tokens) chooses Haiku 5.5's tier. */
+export function ratesFor(model: string | null | undefined, promptTokens = 0): { rates: TokenRates; known: boolean } {
   const canonical = typeof model === 'string' ? model.replace(/-\d{8}$/, '') : '';
   const rates = Object.hasOwn(KNOWN_RATES, canonical) ? KNOWN_RATES[canonical] : undefined;
+  if (rates === HAIKU && promptTokens > HAIKU_LONG_PROMPT_TOKENS) return { rates: HAIKU_LONG, known: true };
   return rates ? { rates, known: true } : { rates: UNKNOWN_MODEL_RATES, known: false };
 }
 
@@ -41,7 +58,8 @@ export function emptyUsage(): TokenUsage { return { input: 0, cacheWrite5m: 0, c
 export function priceAttempts(attempts: readonly ProviderAttempt[]): number {
   let total = 0;
   for (const attempt of attempts) {
-    const { rates } = ratesFor(attempt.model), u = attempt.usage;
+    const u = attempt.usage;
+    const { rates } = ratesFor(attempt.model, u.input + u.cacheWrite5m + u.cacheWrite1h + u.cacheRead);
     total += u.input * rates.input + u.cacheWrite5m * rates.cacheWrite5m + u.cacheWrite1h * rates.cacheWrite1h
       + u.cacheRead * rates.cacheRead + u.output * rates.output;
   }
@@ -52,18 +70,40 @@ export function creditsFor(microusd: number): number { return Math.ceil(Math.max
 export function estimateTokens(characters: number): number { return Math.ceil(Math.max(0, characters) / 3); }
 
 /** Headroom for a refused attempt plus a server-side fallback attempt that may
- * be priced at a higher tier (unknown models price at Opus 5.5). */
+ * be priced at a higher tier (Sonnet's fallback is Sonnet 5; unknown models price at Opus 5). */
 export const FALLBACK_HOLD_FACTOR = 3;
+
+/**
+ * How one request to `model` is held: the rate card every token is held at and how many full attempts.
+ * Sonnet 5.5 (the default, unchanged): its own rates, three attempts' headroom. Opus 5.5: its fallbacks' higher
+ * Opus 5 rates for the requested attempt and one fallback. Haiku 5.5: no fallback, one attempt at the tier the
+ * estimated prompt falls in (the byte estimate never undercounts tokens, so it never picks the cheaper tier wrongly).
+ * Any other model: the unknown rate card, three attempts.
+ */
+export function holdRule(model: string, promptTokens: number): { rates: TokenRates; attempts: number } {
+  switch (model) {
+    case CHAT_MODEL: return { rates: SONNET, attempts: FALLBACK_HOLD_FACTOR };
+    case 'claude-opus-5-5': return { rates: OPUS_5, attempts: 2 };
+    case 'claude-haiku-5-5': return { rates: ratesFor(model, promptTokens).rates, attempts: 1 };
+    default: return { rates: UNKNOWN_MODEL_RATES, attempts: FALLBACK_HOLD_FACTOR };
+  }
+}
 
 /**
  * Hold ceiling: every estimated input token at the cache-write rate plus the
  * whole output budget (thinking counts toward max_tokens), times the fallback
  * headroom. `inputCharacters` is the weighted count from `promptCharacters`.
  */
-export function holdFor(inputCharacters: number, maxTokens = CHAT_MAX_TOKENS): { inputTokens: number; microusd: number; credits: number } {
+export function holdFor(inputCharacters: number, maxTokens = CHAT_MAX_TOKENS, model = CHAT_MODEL): { inputTokens: number; microusd: number; credits: number } {
   const inputTokens = estimateTokens(inputCharacters);
-  const microusd = Math.ceil((inputTokens * SONNET.cacheWrite5m + maxTokens * SONNET.output) * FALLBACK_HOLD_FACTOR);
+  const { rates, attempts } = holdRule(model, inputTokens);
+  const microusd = Math.ceil((inputTokens * rates.cacheWrite5m + maxTokens * rates.output) * attempts);
   return { inputTokens, microusd, credits: creditsFor(microusd) };
+}
+
+/** The hold for one admitted request, from its own model, prompt and output allowance. */
+export function holdForParams(params: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming): { inputTokens: number; microusd: number; credits: number } {
+  return holdFor(promptCharacters(params), params.max_tokens, params.model);
 }
 
 type Usage = Anthropic.Beta.Messages.BetaUsage;
@@ -189,15 +229,20 @@ export const WEB_SEARCH_RESULT_TOKENS = 30_000;
  * (on average two reads of each search's results). Sized for Anthropic's search;
  * it also bounds Tavily searches (fewer result tokens, a lower fee), so one hold
  * covers an answer that fails over from one provider to the other. */
-export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH_MAX_USES): number {
-  return Math.ceil(maxUses * (WEB_SEARCH_MICROUSD + promptTokens * SONNET.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * SONNET.input));
+export function webSearchHoldMicrousd(promptTokens: number, maxUses = WEB_SEARCH_MAX_USES, model = CHAT_MODEL): number {
+  // Results lengthen later rounds' prompts, which can move Haiku 5.5 into its long-prompt tier.
+  const { rates } = holdRule(model, promptTokens + maxUses * WEB_SEARCH_RESULT_TOKENS);
+  return Math.ceil(maxUses * (WEB_SEARCH_MICROUSD + promptTokens * rates.cacheWrite5m + 2 * WEB_SEARCH_RESULT_TOKENS * rates.input));
 }
 
 /** `actionInstructions` (a selection action's own) follow the paper, after its cache breakpoint, so answers
  * with different actions on the same paper share the cached prefix (tools, shared instructions, paper). */
 export function chatRequestParams(input: { instructions: string; actionInstructions?: string | null; paper: PaperContext | null;
-  turns: readonly ChatTurn[]; selection: string | null; tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number })
+  turns: readonly ChatTurn[]; selection: string | null; tools?: readonly Anthropic.Beta.Messages.BetaToolUnion[]; maxTokens?: number;
+  /** A reader's chosen model and effort (chat-profiles.ts); the default is today's Sonnet 5.5 at `low`. */
+  model?: { id: string; effort: 'low' | 'medium' | 'high'; fallbacks: boolean } })
   : Anthropic.Beta.Messages.MessageCreateParamsNonStreaming {
+  const model = input.model ?? { id: CHAT_MODEL, effort: CHAT_EFFORT, fallbacks: true };
   const system: Anthropic.Beta.Messages.BetaTextBlockParam[] = [{ type: 'text',
     text: input.paper || !input.actionInstructions ? input.instructions : `${input.instructions}\n\n${input.actionInstructions}` }];
   if (input.paper) {
@@ -216,9 +261,10 @@ export function chatRequestParams(input: { instructions: string; actionInstructi
     return { role: turn.role, content: turn.text };
   });
   return {
-    model: CHAT_MODEL, max_tokens: input.maxTokens ?? CHAT_MAX_TOKENS,
-    thinking: { type: 'adaptive' }, output_config: { effort: CHAT_EFFORT },
-    betas: [FALLBACK_BETA], fallbacks: 'default',
+    model: model.id, max_tokens: input.maxTokens ?? CHAT_MAX_TOKENS,
+    thinking: { type: 'adaptive' }, output_config: { effort: model.effort },
+    // Server-side refusal fallback only where the model has fallback targets (Haiku 5.5 has none).
+    ...(model.fallbacks ? { betas: [FALLBACK_BETA], fallbacks: 'default' as const } : {}),
     system, messages,
     ...(input.tools?.length ? { tools: [...input.tools] } : {}),
   };

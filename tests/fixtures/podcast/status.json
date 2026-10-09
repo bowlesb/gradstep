@@ -1,0 +1,14 @@
+{
+ "job": {
+  "state": "ready",
+  "failure": null,
+  "profile": "podcast-5min-v1",
+  "release_id": "3f059e28-8373-4165-90a0-6c5e33c2ef9a",
+  "request_id": "d6215231-d16e-4471-bc7a-18eec81069f7",
+  "held_credits": 0,
+  "charged_credits": 38,
+  "cancel_requested": false,
+  "released_credits": 112,
+  "stage_entered_at": "2026-10-09T00:34:29.314601+00:00"
+ }
+}

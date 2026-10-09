@@ -6,6 +6,8 @@ import ScienceReaderCore
 protocol ChatTransport: Sendable {
     func chatStream(_ request: ChatGenerationRequest, accountID: UUID) async throws -> AsyncThrowingStream<ChatStreamEvent, Error>
     func creditBalance(accountID: UUID) async throws -> CreditBalance
+    /// The server's chat profile table (2026-10-08); throws when the server offers none.
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable
 }
 
 extension BackendClient: ChatTransport {}
@@ -57,6 +59,8 @@ struct ChatAnswerTurn: Equatable, Sendable {
     let userMessageID: UUID
     let selection: String?
     var action: ChatAction? = nil
+    /// The chat's model, effort and length when Send was pressed (2026-10-08); a retry asks with the same.
+    var profile: ChatProfileChoice? = nil
 }
 
 /// One in-flight answer. The assistant ID is allocated before streaming so the
@@ -68,6 +72,15 @@ struct ChatGeneration: Sendable {
     var text = ""
     var stopping = false
     var task: Task<Void, Never>?
+    /// The chat profile this answer was asked with (sent when not the default).
+    var profile: ChatProfileChoice = .standard
+    /// The request carried choices (the server published its profile table).
+    var sentProfile = false
+    /// The model and profile the server reported in `done`, saved with the answer.
+    var answeredModel: String?
+    var answeredProfile: String?
+    /// The profile saved with the answer: the server's report, else (an interrupted answer) the one it was asked with.
+    var labelProfile: String? { answeredProfile ?? (sentProfile ? profile.id : nil) }
     /// The answer's time in history ("Last used"), fixed when it starts so every save of it is the same event.
     let createdAt: Int64
 
@@ -75,9 +88,10 @@ struct ChatGeneration: Sendable {
         id = UUID(); self.turn = turn; assistantID = UUID(); createdAt = PrivateEvent.timestamp(now)
     }
 
-    func event(text: String, status: PrivateEvent.TurnStatus) -> PrivateEvent {
+    func event(text: String, status: PrivateEvent.TurnStatus, model: String? = nil, profile: String? = nil) -> PrivateEvent {
         PrivateEvent(kind: .message, entityID: assistantID, parents: [turn.userMessageID], conversationID: turn.conversationID,
-                     documentID: turn.documentID, text: text, role: .assistant, status: status, createdAt: createdAt)
+                     documentID: turn.documentID, text: text, role: .assistant, status: status, createdAt: createdAt,
+                     model: model, profile: profile)
     }
 }
 

@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-08. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-09. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## Web framework (owner decided 2026-10-07)
 
@@ -60,6 +60,26 @@ The user transferred work to a new agent and chose, for the first overnight buil
 | Non-CC papers (agent decision, reversible) | Most ML papers use arXiv's default non-exclusive license (7 of 8 well-known papers checked). Instead of leaving them "available at source" only, each interested account gets its own private conversion (`owner_private` document, owner-funded OCR, never shared). CC BY 4.0 / CC0 conversions remain shared and reused across accounts. |
 | PDF size and OCR page cap (agent decision, reversible) | Originals up to 64 MiB (image-heavy papers exceed 32 MiB); paid OCR capped at the first 80 pages via Mathpix `page_ranges`. |
 | Placeholder credit rate (agent decision, reversible) | `beta-credits-v1`: 1 credit ≈ $0.01 at 2× provider cost — 1 credit per OCR page; chat = ceil(provider µ$ / 5000). Subscription allowances remain undecided. |
+
+## Commercial arXiv content gate — 2026-10-09 (owner review required)
+
+The official [arXiv API Terms of Use](https://info.arxiv.org/help/api/tou.html) prohibit storing and serving
+arXiv e-prints from our servers unless the copyright holder has given permission or the e-print's submitted
+license permits it. arXiv also says it is not the copyright holder. The earlier reversible decision to create an
+`owner_private` conversion for a non-CC paper is implementation history, not launch clearance: encryption,
+account-only access, payment, and a Mathpix transformation do not by themselves supply that permission.
+
+Until the written arXiv/commercial response and counsel review recorded in
+[ARXIV_CONTENT_HOSTING_20261009](research/ARXIV_CONTENT_HOSTING_20261009.md) are complete:
+
+- server retention, cross-device sync, server-side Mathpix conversion, shared conversions, podcasts, and other
+  derived media are enabled only when the exact version's rights permit the operation (currently CC0 and CC BY are
+  the implemented shared-license set); and
+- default, missing, or uncertain licenses use metadata plus a direct arXiv link/device retrieval path and are not
+  retained or served from our server by default.
+
+This is a public-paid-launch gate. The product must not claim that every arXiv paper syncs across devices until the
+rights basis and arXiv's commercial/API expectations are confirmed.
 
 ## Product decision checkpoint
 
@@ -946,3 +966,39 @@ and backend contracts stay unchanged. Markdown/math and Mermaid load only when d
 remain tab-memory only and are described that way; durable offline chat requires a separate encrypted local-journal
 review. No Safari fallback, plaintext persistence, provider call or hosted deployment accompanies this branch.
 Detailed bounds, behavior and evidence: [Browser reader › Chat](architecture/BROWSER_READER.md#chat-milestone-2).
+
+## Paper podcasts v1 (owner asked 2026-10-08)
+
+Owner: "build the notebook LM podcasts feature please". The lead read the request as accepting two of the three [pricing decisions](research/PRICING_RECOMMENDATION_20261008.md#three-decisions-to-close-before-activation);
+Decision 1 (public offers 500/1,200/250) is out of scope and unchanged. Design: [Paper podcasts](architecture/PAPER_PODCASTS.md).
+
+| Decision | Choice |
+|---|---|
+| Decision 2 — shared catalog funding (accepted) | Platform-funded seed episodes: **at most $2 in total** for the first two five-minute curated episodes, each admitted at up to **$0.75**, inside the existing $25 provider cap (not on top of it). The operator's own account funds them with zero customer credits (`funding_kind=platform_seed`) under a dated seed period that is created **disabled**; no automatic replenishment or rollover. Browsing and playing ready shared episodes costs no generation credits. Public sponsorship and revenue sharing stay deferred. |
+| Decision 3 — private generation (accepted) | Server-readable private source-derived audio/transcripts with the same access/deletion boundary as private PDFs; no private-chat input; an explicit quote ("Estimate … maximum 150 credits"); one funding operation; actual usage charged within that maximum; quality failures charge the customer zero; **no paid automatic retry**. |
+| Listening history (agent decision, reversible) | Device-local in v1. The design requires a separately versioned encrypted podcast stream (own envelope domain, cursor, compaction and old-client tests) before any server copy; adding podcast kinds to the existing encrypted stream would stall older clients. No server table for positions exists. |
+| Speech provider (agent decision, reversible) | Gemini 3.8 Flash TTS (`gemini-3.8-flash-tts`, Preview) through Vertex AI's global endpoint in GCP project `gradstep`, called with a short-lived token for a dedicated service account that the worker impersonates; no API key. Voices fixed: Sadaltager (explainer) and Erinome (skeptical reader). Reserved at the January 2027 list price ($1/M text in, $18/M audio out) even while the 50% promotional credit runs. |
+| Script model | Claude Sonnet 5.5 (`claude-sonnet-5-5`), two passes (five minutes: 6,000 then 4,000 output tokens, ≤ 80,000 input tokens each; every length's caps are in its profile), no tools, no server-side fallback, no SDK retries, structured JSON output grounded only in the pinned converted text. |
+| Activation | Nothing is enabled by migration 048. The lead reviews, applies it, certifies inventory scope 3, enables the seed period and runs the $2 seed pilot; private generation is a later explicit switch. The database enforces both the $2 allowance and a two-episode cap per seed period. |
+| Ownership (2026-10-08, owner) | Web player and Mac-only polish moved to Codex; this branch keeps native iOS/iPad, server and generation, and documents the client API contract in PAPER_PODCASTS.md. |
+| Lengths (2026-10-08, owner) | Four lengths in the first build: **Short (~2½ min, 110 credits max), 5 min (150), 10 min (220), 20 min (360)**, each an immutable profile with its own bounds, script caps, speech plan and ceiling by the five-minute method ($0.543092 / $0.723104 / $1.076576 / $1.752752 at list price). All four are allowlisted for private generation (customers' own credits, normal quote and hold); the seed pilot stays two five-minute episodes and $2. Each length is its own work key: a ready episode of another length is offered to play, never reused as the chosen one. |
+| Long lengths (agent decision, reversible) | Ten and twenty minutes run in stages (draft, review, speech — one worker request each) with the draft and approved script checkpointed in the database between stages, because a twenty-minute script cannot fit one 780 s request. Speech is chunked within Gemini TTS's per-call limits, all chunks granted together and sent concurrently, joined at a natural pause. See [Lengths](architecture/PAPER_PODCASTS.md#lengths-short-5-10-and-20-minutes). |
+
+## Chat model, effort and length; topic titles (owner asked 2026-10-08; agent decisions, reversible)
+
+Owner: "chats should have the ability to customize the length and effort and model right there in the chat in a clear
+UX", and (TestFlight build 21) "Each chat should have a labeled title on the topic of the chat in the same way that
+ChatGPT does … embedded everywhere in the app". Built on branch `chat-controls-titles`; not deployed, migration 047
+not applied, no paid request made. Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-10-08).
+
+| Decision | Choice |
+|---|---|
+| Models | Haiku `claude-haiku-5-5` (exists: `GET /v1/models`, official price list; replaces Haiku 4.5 for chat), Sonnet `claude-sonnet-5-5` (default), Opus `claude-opus-5-5`. Haiku 5.5 should pass factual/equation checks before it is marketed as the cheap option. |
+| Effort | Low / Medium / High = the API's `output_config.effort` with adaptive thinking on every model; Low is today's. Labels are the API's words, served by the server so they can change without a build. |
+| Length | Brief / Standard / Detailed: output allowance (answer + effort's thinking allowance) and an instruction after the cached paper; Standard is today's 8,000 tokens and prompt. |
+| Server enforcement | Versioned table `chat-profiles-v1` in the chat function; only its combinations accepted; holds at the chosen model's rates; quote frozen with the reservation (migration 047); settled once; requests without a choice are byte-for-byte today's. |
+| Estimates | Published by `GET functions/v1/chat` for a 25-page reference paper ("Usually 4–24 credits · up to 37"); planning assumptions until measured. |
+| Rate card | Corrected to the price list: Sonnet 5.5 cache reads $0.10/MTok (were charged at $0.20); unknown models at the Opus 5 card. |
+| UX | iOS/iPad: a capsule in the message box under the text, beside Send (Gemini's arrangement), opening "Answers in this chat"; Settings › Chat defaults; a quiet "Sonnet · Low · Standard" under answers. A chat keeps its newest answer's choice; selection actions carry the visible choice. |
+| Titles | Haiku 5.5 writes a 3–7 word topic title in parallel with the first answer, inside the same metered operation (≈ 0.02 credit), sent as an SSE `title` event, stored by the device as an encrypted conversation revision (`titleSource`). Untitled chats get one on their next question; no bulk generation. Rename everywhere; a generated title never replaces a renamed one. |
+| Web | Contract documented for Codex (owner moved web and Mac-only work to Codex on 2026-10-08); `apps/web` is unchanged by this branch (an earlier web implementation is kept in history only, commits `338e628`, `c286bdf`). |

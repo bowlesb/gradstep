@@ -32,11 +32,18 @@ struct RootView: View {
                 // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
                 // Over a docked find bar, the bar is the bottom safe area: no home indicator below the tabs.
                 let safeBottom = keyboardLeftover == .findBar ? 0 : geometry.safeAreaInsets.bottom
+                // The podcast mini-player rides on the tab bar and takes part of its reserve (PodcastMiniPlayer).
+                let miniPlayer = model.podcasts.nowPlaying != nil
                 destination(model.tab)
-                    .environment(\.tabBarReserve, softwareKeyboardShown ? 0 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom))
+                    .environment(\.tabBarReserve, softwareKeyboardShown ? 0
+                                 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom) + (miniPlayer ? PodcastMiniPlayer.height : 0))
                     .overlay(alignment: .bottom) {
                         if !softwareKeyboardShown {
-                            tabBar.padding(.horizontal, DesignMetrics.margin)
+                            VStack(spacing: 6) {
+                                if miniPlayer { PodcastMiniPlayer(model: model) }
+                                tabBar
+                            }
+                                .padding(.horizontal, DesignMetrics.margin)
                                 .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
                                 .frame(maxHeight: .infinity, alignment: .bottom)
                                 .ignoresSafeArea(keyboardLeftover == .frame ? [.container, .keyboard] : .container, edges: .bottom)
@@ -96,6 +103,7 @@ struct RootView: View {
             Text("Your account and its data were deleted from our servers and this device.")
         }
         .sheet(isPresented: $model.showStore) { CreditsStoreView(model: model).macSheetKeys() }
+        .modifier(PodcastPresenter(model: model))
         .sheet(isPresented: $model.showImportHelp) { ImportProgressExplainer().macSheetKeys() }
         .modifier(PDFUploadPresenter(model: model))
         .modifier(DeviceApprovalBanner(model: model))
@@ -193,7 +201,7 @@ struct RootView: View {
 
     @ViewBuilder private func destination(_ tab: ReaderTab) -> some View {
         switch tab {
-        case .feed: FeedView(model: model)
+        case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
         case .library: LibraryView(model: model)
             #if OFFLINE_RESOURCE_MEASUREMENTS
             .onAppear { OfflineResourceProbe.shared.destinationAppearance(.library, appeared: true) }
@@ -231,13 +239,18 @@ struct RootView: View {
                 SettingsView(model: model, dismissSettings: { model.tab = .library })
             } else {
                 switch model.wideMode {
-                case .feed: FeedView(model: model)
+                case .feed: if model.podcasts.listenSelected { PodcastListenView(model: model) } else { FeedView(model: model) }
                 case .library: LibraryView(model: model)
                 case .reader: ReaderSplit(model: model, width: width)
                 case .browse:
                     HStack(spacing: 0) { LibraryView(model: model).frame(width: min(350, max(300, width * 0.29))); Divider(); PaperView(model: model).frame(maxWidth: .infinity) }
                 case .chat: ChatView(model: model)
                 }
+            }
+            // The podcast player docks along the bottom, below every pane (none of their controls go under it).
+            if model.podcasts.nowPlaying != nil {
+                Divider()
+                PodcastMiniPlayer(model: model, wide: true).padding(.vertical, 6).frame(maxWidth: .infinity)
             }
         }
         .onChange(of: model.wideMode) { _, mode in model.showWideMode(mode) }
@@ -761,11 +774,16 @@ struct FeedView: View {
     private var header: some View {
         HStack(spacing: 10) {
             if isFailed {
+                PodcastListenChip(model: model)
                 Text("Feed").font(.headline).frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    // For you, the reader's topics and More topics when For you is offered; else the categories.
-                    FeedChipsBar(model: model)
+                    HStack(spacing: 8) {
+                        // Listen (podcasts) first, then the Feed's own chips: For you, the reader's topics and
+                        // More topics when For you is offered; else the categories.
+                        PodcastListenChip(model: model)
+                        FeedChipsBar(model: model)
+                    }
                 }
                 // Chips that scroll past the edge fade out instead of sliding under the menu button.
                 .mask(HStack(spacing: 0) {
@@ -824,12 +842,16 @@ struct ChatView: View {
     @State private var historyBounds = CGRect.zero
     @State private var newChatBounds = CGRect.zero
     @State private var toolbarLayoutWidth: CGFloat = 0
+    @State private var renaming: UUID?
     var body: some View {
         NavigationStack {
             GeometryReader { available in
                 // Reserve reading and editing space as text grows or a keyboard
                 // reduces the pane. The transcript/composer retain their identity.
-                let compact = available.size.height < bodySize * 20
+                // The podcast mini-player's share of the tab bar's reserve hides with the keyboard: it never decides the
+                // message box's layout (counted while a keyboard appears, it tipped iPhones into the compact one).
+                let podcastShare = model.podcasts.nowPlaying != nil && tabBarReserve > 0 ? PodcastMiniPlayer.height : 0
+                let compact = available.size.height + podcastShare < bodySize * 20
                 // Floating chrome (2026-10-07): the conversation runs the full height, under the title bar,
                 // the context switch, the message box and the tab bar, and fades out behind them.
                 // The insets are measured from the controls' edges (a proxy's safe area leaves out the
@@ -850,6 +872,8 @@ struct ChatView: View {
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { toolbarLayoutWidth = $0 }
             .tabBarSpace(fade: false)
+            .task(id: model.isSignedIn) { model.refreshChatProfiles() }
+            .renameConversationAlert(model: model, conversation: $renaming)
             .navigationTitle(model.chatTitle).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -940,30 +964,48 @@ struct ChatView: View {
         .chromeBand(.bottom)
     }
 
-    /// One glass pill: the question, and Send (or Stop) inside it on the right.
-    private func composer(compact: Bool) -> some View {
-        HStack(alignment: .bottom, spacing: 4) {
-            TextField("Chat", text: $model.chatInput, axis: .vertical)
-                .focused($composerFocused).accessibilityIdentifier("chat.composer")
-                .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
-                // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
-                .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
-                .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, 18).padding(.vertical, 14)
-            Group {
-                if model.isAnswering {
-                    Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
-                        .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
-                } else {
-                    Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
-                        .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
-                        // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
-                        .macKeyboardShortcut(.return, modifiers: .command)
+    /// One glass pill: the question, then the answer settings (model, effort, length; 2026-10-08) and Send (or Stop)
+    /// on the row under it, as in Gemini's message box. With little height (a keyboard in landscape) everything is one
+    /// row and the settings control shows only its symbol.
+    @ViewBuilder private func composer(compact: Bool) -> some View {
+        let field = TextField("Chat", text: $model.chatInput, axis: .vertical)
+            .focused($composerFocused).accessibilityIdentifier("chat.composer")
+            .onChange(of: model.chatComposerFocusRequest) { _, _ in _ = model.takeComposerFocusRequest(); composerFocused = true } // Quote in Chat
+            // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
+            .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
+            .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
+        // One layout that changes shape, never two: the text field keeps its identity (and the keyboard its focus)
+        // when the message box turns compact or back, for example while a keyboard appears.
+        let layout = compact ? AnyLayout(HStackLayout(alignment: .bottom, spacing: 4)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+        layout {
+            if compact { ChatProfileButton(model: model, compact: true).padding(.leading, 6).padding(.bottom, 3) }
+            field.padding(.horizontal, compact ? 0 : 18).padding(.top, 14).padding(.bottom, compact ? 14 : 2)
+            if compact {
+                sendButton
+            } else {
+                HStack(alignment: .center, spacing: 4) {
+                    ChatProfileButton(model: model).padding(.leading, 10)
+                    Spacer(minLength: 4)
+                    sendButton
                 }
-            }.buttonStyle(.plain).padding(3)
+            }
         }
         .frame(minHeight: 50)
         .chromeSurface(RoundedRectangle(cornerRadius: 25, style: .continuous), outlined: true)
+    }
+
+    private var sendButton: some View {
+        Group {
+            if model.isAnswering {
+                Button { model.stopAnswer() } label: { ComposerActionLabel(systemImage: "stop.fill", enabled: !model.isStoppingAnswer) }
+                    .disabled(model.isStoppingAnswer).accessibilityLabel("Stop answer").accessibilityIdentifier("chat.stop")
+            } else {
+                Button { send() } label: { ComposerActionLabel(systemImage: "arrow.up", enabled: !sendDisabled) }
+                    .disabled(sendDisabled).accessibilityLabel("Send").accessibilityIdentifier("chat.send")
+                    // Mac: ⌘Return sends; Return starts a new line, as on iPad (and input methods keep Return).
+                    .macKeyboardShortcut(.return, modifiers: .command)
+            }
+        }.buttonStyle(.plain).padding(3)
     }
 
     private func send() {
@@ -1008,7 +1050,7 @@ struct ChatView: View {
                 Section("Chats about this paper") {
                     ForEach(others.prefix(5)) { chat in
                         Button { composerFocused = false; model.openConversation(chat.id) } label: {
-                            let title = ChatTitle.display(chat.title)
+                            let title = ChatTitle.display(chat)
                             Text(title.isEmpty ? "Untitled conversation" : title)
                             Text([ChatHistoryFormat.lastUsed(chat.lastUsedAt), ChatHistoryFormat.messages(chat.messageCount)].joined(separator: " · "))
                         }
@@ -1063,6 +1105,12 @@ struct ChatView: View {
             Menu {
                 // An anchored chat (from a passage) can go back to it (Views/PaperPassages.swift).
                 Section { GoToPassageMenuRow(model: model) { composerFocused = false } }
+                if let conversation = model.activeConversation, !model.chatWasDeleted {
+                    Section {
+                        MenuRow("Rename…", systemImage: "pencil") { composerFocused = false; renaming = conversation }
+                            .accessibilityIdentifier("chat.rename")
+                    }
+                }
                 contextPicker
                 paperChatsSection
             } label: {
@@ -1211,6 +1259,18 @@ struct SettingsView: View {
                             .disabled(!model.canPurchase).accessibilityIdentifier("settings.getCredits")
                     } header: { Text("Credits") } footer: {
                         Text("Each AI answer uses credits based on the question, the conversation, the paper’s length and the answer.")
+                    }
+                }
+                if model.chatTransport != nil {
+                    Section {
+                        NavigationLink {
+                            ChatDefaultsView(model: model)
+                        } label: {
+                            LabeledContent("Chat defaults", value: ChatProfileText.summary(model.chatDefaultProfile, table: model.chatProfileTable))
+                        }
+                        .accessibilityIdentifier("settings.chatDefaults")
+                    } footer: {
+                        Text("The model, effort and length new chats start with. A chat can change them in its message box.")
                     }
                 }
                 Section("Reading") {

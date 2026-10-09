@@ -4,8 +4,15 @@ import Foundation
 /// events); nothing here is sent anywhere.
 public struct ConversationSummary: Equatable, Sendable, Identifiable {
     public let id: UUID
-    /// The conversation's title: its first question as saved with the conversation (at most 100 characters).
+    /// The conversation's title: its topic title when it has one (`titleSource`), else its first question as saved
+    /// with the conversation (at most 100 characters).
     public let title: String
+    /// Where `title` came from: nil for the first question, `generated` (a topic title from the chat service) or
+    /// `renamed` (the reader's own). See `PrivateEvent.titleSource`.
+    public let titleSource: String?
+    /// Whether the conversation has a topic title (generated or the reader's); a conversation without one may get one
+    /// generated the next time it is used.
+    public var hasTopicTitle: Bool { titleSource != nil }
     /// The paper a paper chat is about; nil for a general chat.
     public let documentID: UUID?
     /// Surviving questions and answers, across branches.
@@ -30,8 +37,8 @@ public struct ConversationSummary: Equatable, Sendable, Identifiable {
 
     public init(id: UUID, title: String, documentID: UUID?, messageCount: Int, startedAt: Date?, lastUsedAt: Date?,
                 lastArrival: Int, startArrival: Int? = nil, latestAnswer: String?, questions: String, anchor: TextAnchor? = nil,
-                latestAnswerWords: Int? = nil) {
-        self.id = id; self.title = title; self.documentID = documentID; self.messageCount = messageCount
+                latestAnswerWords: Int? = nil, titleSource: String? = nil) {
+        self.id = id; self.title = title; self.titleSource = titleSource; self.documentID = documentID; self.messageCount = messageCount
         self.startedAt = startedAt; self.lastUsedAt = lastUsedAt; self.lastArrival = lastArrival
         self.startArrival = startArrival ?? lastArrival
         self.latestAnswer = latestAnswer; self.questions = questions; self.anchor = anchor
@@ -45,6 +52,17 @@ public struct ConversationSummary: Equatable, Sendable, Identifiable {
 }
 
 public extension PrivateState {
+    /// A revision of a conversation that gives it a topic title: the current revision's document, passage and start
+    /// time are kept (All chats keeps its paper, passage and "Started"); its parents are every current revision, so
+    /// concurrent renames resolve to this one. Nil when the conversation is deleted or unknown.
+    func titledConversation(_ conversationID: UUID, title: String, source: String) -> PrivateEvent? {
+        let current = revisions(for: conversationID).filter { $0.payload.kind == .conversation }
+        guard let base = current.first, let text = ChatTopicTitle.clean(title) else { return nil }
+        return PrivateEvent(kind: .conversation, entityID: conversationID, parents: current.map(\.id),
+            documentID: base.payload.documentID, text: text, anchor: base.payload.anchor, createdAt: base.payload.createdAt,
+            titleSource: source)
+    }
+
     /// Every saved, undeleted conversation, in a stable order (by identifier; callers sort for display). One pass over
     /// the events, then a sort of each conversation's messages.
     func conversationSummaries() -> [ConversationSummary] {
@@ -83,7 +101,8 @@ public extension PrivateState {
                 messageCount: Set(surviving.map(\.payload.entityID)).count,
                 startedAt: started.map(Self.date), lastUsedAt: last.map(Self.date), lastArrival: lastArrival,
                 startArrival: startArrival, latestAnswer: answer, questions: questions, anchor: root.payload.anchor,
-                latestAnswerWords: fullAnswer.map { $0.split(whereSeparator: \.isWhitespace).count } ?? 0))
+                latestAnswerWords: fullAnswer.map { $0.split(whereSeparator: \.isWhitespace).count } ?? 0,
+                titleSource: root.payload.titleSource))
         }
         return result.sorted { $0.id.wire < $1.id.wire }
     }

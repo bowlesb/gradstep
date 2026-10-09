@@ -496,6 +496,14 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
     }
 
+    /// The chat function's published profile table (models, effort, length and credit estimates; `GET functions/v1/chat`).
+    /// A server without profiles answers 405, which callers treat as "no choices offered".
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
+        let data = try await authorized(path: "functions/v1/chat", body: nil, method: "GET", accountID: accountID, maximumResponseBytes: 65_536)
+        guard let table = ChatProfileTable.decode(data) else { throw ReaderError.corruptData }
+        return table
+    }
+
     func creditBalance(accountID: UUID) async throws -> CreditBalance {
         struct NoParameters: Encodable, Sendable {}
         return try await rpc("v1_credit_balance", params: NoParameters(), accountID: accountID, as: CreditBalance.self)
@@ -673,6 +681,54 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
             "bytes": String(data.count), "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
         guard (response as? HTTPURLResponse)?.statusCode == 200, data.count == member.bytes else { throw BackendError.transport }
         return data
+    }
+
+    // MARK: Paper podcasts (functions/v1/podcast and podcast-member; docs/architecture/PAPER_PODCASTS.md)
+
+    /// One `podcast` Edge call: GET without a body, POST with a JSON body. Decoding and bounds are in ScienceReaderCore.
+    func podcastCall(_ query: String, body: Data?, accountID: UUID, maximumResponseBytes: Int) async throws -> Data {
+        try await authorized(path: "functions/v1/podcast?\(query)", body: body, method: body == nil ? "GET" : "POST",
+                             accountID: accountID, maximumResponseBytes: maximumResponseBytes)
+    }
+
+    /// One single-use member: the bearer goes only to this origin's member endpoint; no Range, no retry here (a failed
+    /// transfer has consumed its grant and needs a new one). `progress` reports bytes received, in steps.
+    func podcastMember(_ member: PodcastMember, accountID: UUID, progress: @escaping @Sendable (Int) -> Void) async throws -> Data {
+        try PodcastMemberTransport.validated(member.url, backendURL: config.url)
+        let generation = authGeneration
+        guard session?.user.id == accountID else { throw BackendError.signInRequired }
+        let token = try await accessToken()
+        guard generation == authGeneration, session?.user.id == accountID else { throw CancellationError() }
+        var request = URLRequest(url: member.url)
+        request.httpMethod = "GET"
+        request.setValue(config.anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let started = ProcessInfo.processInfo.systemUptime
+        let (bytes, response) = try await network.bytes(for: request, delegate: LibraryRedirectPolicy())
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw BackendError.transport }
+        guard http.statusCode == 200 else {
+            var body = Data()
+            for try await byte in bytes { guard body.count < 4_096 else { break }; body.append(byte) }
+            struct Failure: Decodable { let code: String? }
+            let code = (try? JSONDecoder().decode(Failure.self, from: body))?.code
+            throw BackendError.rejected(code.flatMap { BackendError.podcastCodes.contains($0) ? $0 : nil } ?? "request_failed")
+        }
+        guard http.expectedContentLength <= Int64(member.bytes) else { throw LibraryProtocolError.payloadTooLarge }
+        return try await withTaskCancellationHandler {
+            var data = Data(); data.reserveCapacity(member.bytes)
+            for try await byte in bytes {
+                guard data.count < member.bytes else { throw LibraryProtocolError.payloadTooLarge }
+                data.append(byte)
+                if data.count % 65_536 == 0 { progress(data.count) }
+            }
+            try Task.checkCancellation()
+            progress(data.count)
+            SessionTimeline.shared.record("request", ["method": "GET", "path": "functions/v1/podcast-member", "status": "200",
+                "bytes": String(data.count), "ms": String(Int((ProcessInfo.processInfo.systemUptime - started) * 1000))])
+            guard generation == authGeneration, session?.user.id == accountID else { throw CancellationError() }
+            return data
+        } onCancel: { bytes.task.cancel() }
     }
 
     func reportImage(_ id: UUID, accountID: UUID) async throws -> Data {
@@ -998,6 +1054,7 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                              "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
                              "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
+                .union(BackendError.podcastCodes)
             let code = [failure?.message, failure?.error_code, failure?.code].compactMap { $0 }.first { known.contains($0) } ?? "request_failed"
             throw BackendError.rejected(code)
         }

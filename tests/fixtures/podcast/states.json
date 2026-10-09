@@ -1,0 +1,12 @@
+{
+ "states": {
+  "3f059e28-8373-4165-90a0-6c5e33c2ef9a": {
+   "state": "unavailable",
+   "replacement_id": null
+  },
+  "ee5489e7-513b-4ed7-967c-7a2cf2d53a9e": {
+   "state": "ready",
+   "replacement_id": null
+  }
+ }
+}

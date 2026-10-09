@@ -1,0 +1,14 @@
+{
+ "grant": {
+  "expires_at": "2026-10-09T00:49:28.78736+00:00",
+  "members": [
+   {
+    "role": "audio",
+    "bytes": 76,
+    "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
+    "media_type": "audio/mp4",
+    "url": "https://project.supabase.co/functions/v1/podcast-member?grant=12b3143207c73b5f277ff153ffdcbacb612fc8e5bd7bad2bd01897991d9603d3&member=bac202fa-8ccf-40ae-8c37-57cdd63a8814"
+   }
+  ]
+ }
+}

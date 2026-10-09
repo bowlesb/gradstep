@@ -1,0 +1,257 @@
+{
+ "episode": {
+  "year": 2025,
+  "audio": {
+   "bytes": 76,
+   "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
+   "media_type": "audio/mp4"
+  },
+  "label": "5 min",
+  "scope": "shared",
+  "state": "ready",
+  "title": "Journey fixture paper",
+  "topic": "cs.LG",
+  "source": {
+   "url": "https://arxiv.org/abs/2501.61648v1",
+   "license": "https://creativecommons.org/licenses/by/4.0/",
+   "version": 1,
+   "arxiv_id": "2501.61648"
+  },
+  "authors": [
+   "J. Fixture"
+  ],
+  "fixture": false,
+  "profile": "podcast-5min-v1",
+  "ai_audio": true,
+  "language": "en",
+  "release_id": "ee5489e7-513b-4ed7-967c-7a2cf2d53a9e",
+  "document_id": "38e47226-69ff-4de8-bac7-b92a8a46ca95",
+  "duration_ms": 140000,
+  "published_at": "2026-10-09T00:34:28.718372+00:00",
+  "replacement_id": null,
+  "target_seconds": 300,
+  "chapters": [
+   {
+    "id": "c1",
+    "title": "Question",
+    "start_ms": 0
+   },
+   {
+    "id": "c2",
+    "title": "Evidence",
+    "start_ms": 49652
+   },
+   {
+    "id": "c3",
+    "title": "Caveats",
+    "start_ms": 99640
+   }
+  ],
+  "transcript": {
+   "speakers": {
+    "explainer": "Host 1 · explainer",
+    "skeptic": "Host 2 · skeptical reader"
+   },
+   "disclosure": "AI-generated audio made from the paper’s converted text by Gradstep. The two voices are synthetic; they are not the authors and do not speak for them. Check claims against the linked passages.",
+   "timing": "approximate",
+   "segments": [
+    {
+     "id": "s1",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 0,
+     "end_ms": 9652,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e1",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s2",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 9652,
+     "end_ms": 19640,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s3",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 19640,
+     "end_ms": 29652,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e2",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s4",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 29652,
+     "end_ms": 39640,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s5",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 39640,
+     "end_ms": 49652,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e3",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s6",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 49652,
+     "end_ms": 59640,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s7",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 59640,
+     "end_ms": 69652,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e4",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s8",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 69652,
+     "end_ms": 79640,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s9",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 79640,
+     "end_ms": 89652,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e5",
+       "quote": "The method has not been compared against the strongest published routing baselines.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s10",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 89652,
+     "end_ms": 99640,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s11",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 99640,
+     "end_ms": 109652,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e6",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s12",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 109652,
+     "end_ms": 119640,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s13",
+     "speaker": "explainer",
+     "text": "The paper states its main finding in a single sentence. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 119640,
+     "end_ms": 129652,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e7",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s14",
+     "speaker": "skeptic",
+     "text": "That is worth slowing down for, carefully. The hosts take a moment to explain what this means for a reader who wants the details. The hosts take a moment to explain what this means for a reader who wants the details.",
+     "start_ms": 129652,
+     "end_ms": 140000,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    }
+   ]
+  }
+ }
+}

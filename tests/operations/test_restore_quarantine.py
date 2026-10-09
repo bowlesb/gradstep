@@ -70,15 +70,31 @@ class QuarantineDatabaseCase(unittest.TestCase):
             if row['enabled']:
                 row['enabled'] = False
                 row['revision'] += 1
+        podcast_epochs = [row['epoch'] for row in before.get('podcast_policy', [])]
+        for row in expected.get('podcast_policy', []):
+            for name in ('catalog_enabled', 'delivery_enabled', 'generation_enabled', 'seed_enabled', 'fixtures_enabled'):
+                row[name] = False
+            row['revision'] += 1
         RESTORE.quarantine(self.sql)
-        self.assertEqual(self.rows(), expected)
+        actual = self.rows()
+        # Every restore rotates the podcast epoch (fencing pre-restore jobs and grants).
+        for row, old in zip(actual.get('podcast_policy', []), podcast_epochs):
+            self.assertNotEqual(row['epoch'], old)
+        for rows in (actual, expected):
+            for row in rows.get('podcast_policy', []):
+                row['epoch'] = 'rotated'
+        self.assertEqual(actual, expected)
         # Each restore fences a prior admission CAS, even if the copied authority
         # was already disabled. It never releases holds or resets usage counters.
         for row in expected.get('executor_authority', []):
             row['revision'] += 1
+        for row in expected.get('podcast_policy', []):
+            row['revision'] += 1
         RESTORE.quarantine(self.sql)
-        self.assertEqual(self.rows(), expected)
-
+        again = self.rows()
+        for row in again.get('podcast_policy', []):
+            row['epoch'] = 'rotated'
+        self.assertEqual(again, expected)
 
 class RestoreQuarantineTests(QuarantineDatabaseCase):
 
@@ -89,6 +105,18 @@ class RestoreQuarantineTests(QuarantineDatabaseCase):
             name text primary key, work_enabled boolean not null, reserved bigint not null);
           insert into app_private.platform_budgets values ('enabled',true,73),('paused',false,91);
         """)
+
+    def test_podcast_switches_close_and_epoch_rotates_without_touching_jobs(self):
+        self.sql("""create table app_private.podcast_policy (singleton boolean primary key, catalog_enabled boolean not null,
+          delivery_enabled boolean not null, generation_enabled boolean not null, seed_enabled boolean not null,
+          fixtures_enabled boolean not null, epoch uuid not null, revision bigint not null);
+          insert into app_private.podcast_policy values (true,true,true,true,true,true,'00000000-0000-4000-8000-000000000046',7);
+          create table app_private.podcast_jobs (id uuid primary key, state text not null, epoch uuid not null);
+          insert into app_private.podcast_jobs values ('00000000-0000-4000-8000-000000000001','synthesizing','00000000-0000-4000-8000-000000000046');""")
+        self.assert_quarantined()
+        policy = self.rows()['podcast_policy'][0]
+        self.assertNotEqual(policy['epoch'], '00000000-0000-4000-8000-000000000046')
+        self.assertEqual(self.rows()['podcast_jobs'][0]['state'], 'synthesizing', 'liabilities and jobs are not rewritten')
 
     def policies(self, acquisition=True, reads=True):
         if acquisition:
@@ -425,10 +453,15 @@ class CurrentSchemaQuarantineTests(QuarantineDatabaseCase):
                              'acquisition_policy': ['metadata_enabled', 'original_enabled', 'verification_enabled'],
                              'paper_read_policy': ['enabled'], 'pipeline_policy': ['enabled'],
                              'pdf_upload_policy': ['enabled'], 'tag_policy': ['enabled'],
-                             'provider_spending_policy': ['enabled']}.items():
+                             'provider_spending_policy': ['enabled'],
+                             'podcast_policy': ['catalog_enabled', 'delivery_enabled', 'generation_enabled', 'seed_enabled', 'fixtures_enabled']}.items():
             for row in expected[table]:
                 for name in names:
                     row[name] = False
+        # 048: the podcast epoch rotates and its revision advances.
+        self.assertNotEqual(before['podcast_policy'][0]['epoch'], after['podcast_policy'][0]['epoch'])
+        expected['podcast_policy'][0]['epoch'] = after['podcast_policy'][0]['epoch']
+        expected['podcast_policy'][0]['revision'] += 1
         self.assertEqual(after, expected, 'personal rows, sequence, holds and usage survive quarantine exactly')
         for statement, error in [
             (f"select public.v4_library_page('{json.dumps(baseline['next_cursor'])}'::jsonb,1);", 'library_resync_required'),

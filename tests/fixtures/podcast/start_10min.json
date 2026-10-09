@@ -1,0 +1,14 @@
+{
+ "job": {
+  "state": "queued",
+  "failure": null,
+  "profile": "podcast-10min-v1",
+  "release_id": null,
+  "request_id": "fe80be0e-6b60-4c9a-80ef-30e8a3c72740",
+  "held_credits": 220,
+  "charged_credits": null,
+  "cancel_requested": false,
+  "released_credits": null,
+  "stage_entered_at": "2026-10-09T00:34:29.402328+00:00"
+ }
+}

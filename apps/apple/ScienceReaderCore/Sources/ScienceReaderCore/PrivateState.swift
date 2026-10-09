@@ -17,14 +17,31 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
     /// encrypted payload, so the service learns nothing new; shown as "Last used"/"Started" in All chats, never
     /// used for ordering decisions. Absent on events written before 2026-10-07 (older decoders ignore the key).
     public var createdAt: Int64?
+    /// On a conversation revision (2026-10-08): where its title (`text`) came from, `generated` (a topic title the
+    /// chat service wrote) or `renamed` (the reader's own). Absent on the original revision, whose title is the first
+    /// question. A string, not an enum, so a later value never stops an older reader decoding the event.
+    public var titleSource: String?
+    /// On an answer (2026-10-08): the model that wrote it (`claude-sonnet-5-5`; a fallback model when one served) and
+    /// the chat profile it was asked with (`sonnet-low-standard`). Shown under the answer; absent on older answers.
+    public var model: String?
+    public var profile: String?
 
     public init(kind: Kind, entityID: UUID = UUID(), parents: [UUID] = [], conversationID: UUID? = nil,
                 documentID: UUID? = nil, text: String? = nil, role: Role? = nil,
-                status: TurnStatus? = nil, anchor: TextAnchor? = nil, createdAt: Int64? = nil) {
+                status: TurnStatus? = nil, anchor: TextAnchor? = nil, createdAt: Int64? = nil,
+                titleSource: String? = nil, model: String? = nil, profile: String? = nil) {
         self.kind = kind; self.entityID = entityID; self.parents = parents
         self.conversationID = conversationID; self.documentID = documentID; self.text = text
         self.role = role; self.status = status; self.anchor = anchor; self.createdAt = createdAt
+        self.titleSource = titleSource; self.model = model; self.profile = profile
     }
+
+    /// Bound on `titleSource`, `model` and `profile` (UTF-8 bytes). Only the length is checked, on every kind, so a
+    /// later build's values never make this build reject (and stop syncing) an event.
+    public static let maximumLabelBytes = 64
+
+    public static let generatedTitle = "generated"
+    public static let renamedTitle = "renamed"
 
     /// `createdAt` for a date (whole milliseconds).
     public static func timestamp(_ date: Date) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded(.down)) }
@@ -36,6 +53,9 @@ public struct PrivateEvent: Codable, Equatable, Sendable {
         guard parents.count <= 100, Set(parents).count == parents.count, (text?.utf8.count ?? 0) <= 200_000 else { throw ReaderError.invalidEvent }
         // Any device clock is accepted (display only); the bound keeps the value a representable date.
         if let createdAt { guard createdAt >= 0, createdAt < 253_402_300_800_000 else { throw ReaderError.invalidEvent } }
+        for label in [titleSource, model, profile] {
+            if let label { guard label.utf8.count <= Self.maximumLabelBytes else { throw ReaderError.invalidEvent } }
+        }
         if kind == .message { guard conversationID != nil, role != nil, status != nil, text != nil else { throw ReaderError.invalidEvent } }
         if kind == .note || kind == .diagram || kind == .conversation { guard text != nil else { throw ReaderError.invalidEvent } }
         if kind == .position { guard documentID != nil, anchor != nil else { throw ReaderError.invalidEvent } }

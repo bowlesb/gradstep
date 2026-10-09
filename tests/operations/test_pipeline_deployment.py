@@ -91,7 +91,7 @@ class PipelineDeploymentTests(unittest.TestCase):
             root = Path(directory)
             worker = root / 'services/pipeline-worker'; worker.mkdir(parents=True)
             shared = root / 'supabase/functions/_shared'; shared.mkdir(parents=True)
-            for name in ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts'):
+            for name in ('Dockerfile', 'package.json', 'package-lock.json', 'server.ts', 'run.ts', 'podcast-run.ts', 'podcast-encode.ts'):
                 (worker / name).write_text('fixture')
             (shared / 'pipeline.ts').write_text('fixture')
             (shared / 'private.test.ts').write_text('test must not ship')
@@ -100,10 +100,20 @@ class PipelineDeploymentTests(unittest.TestCase):
             with mock.patch.object(DEPLOY, 'ROOT', root), mock.patch.object(DEPLOY.tempfile, 'mkdtemp', return_value=str(target)):
                 self.assertEqual(DEPLOY.context(), target)
             self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
-                             ['Dockerfile', 'package-lock.json', 'package.json', 'run.ts', 'server.ts',
+                             ['Dockerfile', 'package-lock.json', 'package.json', 'podcast-encode.ts', 'podcast-run.ts', 'run.ts', 'server.ts',
                               'supabase/functions/_shared/pipeline.ts'])
             docker = (ROOT / 'services/pipeline-worker/Dockerfile').read_text()
-            self.assertIn('COPY server.ts run.ts ./services/pipeline-worker/', docker)
+            self.assertIn('COPY server.ts run.ts podcast-run.ts podcast-encode.ts ./services/pipeline-worker/', docker)
+
+    def test_podcast_speech_identity_is_nonsecret_and_allowlisted(self):
+        args = DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping',
+                                      extra_env={'PODCAST_SPEECH_SERVICE_ACCOUNT': 'gradstep-podcast-speech@gradstep.iam.gserviceaccount.com',
+                                                 'PODCAST_GCP_PROJECT': 'gradstep'})
+        self.assertEqual(args[args.index('--update-env-vars') + 1],
+                         'PIPELINE_MAINTENANCE=false,PODCAST_GCP_PROJECT=gradstep,'
+                         'PODCAST_SPEECH_SERVICE_ACCOUNT=gradstep-podcast-speech@gradstep.iam.gserviceaccount.com')
+        with self.assertRaises(ValueError):
+            DEPLOY.deployment_args('gradstep', 'us-west1', 'image', 'account', 'mapping', extra_env={'ANTHROPIC_API_KEY': 'x'})
 
 
 class PipelineActivationOrderTests(unittest.TestCase):

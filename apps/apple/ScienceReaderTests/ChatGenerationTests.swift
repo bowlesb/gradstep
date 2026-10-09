@@ -31,6 +31,26 @@ private final class ScriptedChatTransport: ChatTransport, @unchecked Sendable {
     }
 
     func creditBalance(accountID: UUID) async throws -> CreditBalance { CreditBalance(available: 120, reserved: 0) }
+
+    /// The server's profile table; nil behaves like a server from before profiles (GET answers 405).
+    var profiles: ChatProfileTable?
+    func chatProfiles(accountID: UUID) async throws -> ChatProfileTable {
+        guard let profiles = lock.withLock({ self.profiles }) else { throw ChatTransportError.rejected("method_unavailable") }
+        return profiles
+    }
+
+    /// Every combination offered, with placeholder estimates.
+    static let table: ChatProfileTable = {
+        var estimates: [ChatProfileChoice: ChatProfileTable.Estimate] = [:]
+        for model in ChatProfileChoice.Model.allCases {
+            for effort in ChatProfileChoice.Effort.allCases {
+                for length in ChatProfileChoice.Length.allCases {
+                    estimates[ChatProfileChoice(model: model, effort: effort, length: length)] = .init(low: 1, high: 2, max: 3)
+                }
+            }
+        }
+        return ChatProfileTable(version: ChatProfileTable.supportedVersion, defaultChoice: .standard, estimates: estimates)
+    }()
 }
 
 private final class ConsentMemory: AuthenticationCredentialStore, @unchecked Sendable {
@@ -588,6 +608,151 @@ final class ChatGenerationTests: XCTestCase {
         try await waitUntil("sealed") { !model.isAnswering }
         XCTAssertNil(model.chatMessages.last?.payload.documentID)
         XCTAssertEqual(model.chatMessages.last?.payload.text, "A skip path.")
+    }
+
+    // MARK: Model, effort, length and topic titles (2026-10-08)
+
+    private func makeProfiledModel() async throws -> (ReaderModel, ScriptedChatTransport) {
+        let transport = ScriptedChatTransport()
+        transport.profiles = ScriptedChatTransport.table
+        let (model, _) = try await makeModel(consented: true, transport: transport)
+        // Settings › Chat defaults persist in this device's preferences (a UI journey may have changed them).
+        model.chatDefaultProfile = .standard
+        model.refreshChatProfiles()
+        try await waitUntil("profile table loaded") { model.chatProfileTable != nil }
+        return (model, transport)
+    }
+
+    func testAChosenProfileIsSentSavedWithTheAnswerAndKeptForTheChat() async throws {
+        let (model, transport) = try await makeProfiledModel()
+        XCTAssertEqual(model.chatProfile, .standard, "A new chat starts with Settings › Chat defaults")
+        let opus = ChatProfileChoice(model: .opus, effort: .high, length: .detailed)
+        model.setChatProfile(opus)
+        XCTAssertEqual(model.chatProfile, opus)
+        model.chatInput = "Why scale the dot products?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].profile, opus)
+        XCTAssertTrue(transport.requests[0].topicTitle, "A chat without a topic title asks for one")
+        transport.send(.delta("Scaling keeps logits bounded."), .title("Scaling in dot-product attention"),
+                       .done(stopReason: "end_turn", credits: 9, model: "claude-opus-5-5", profile: opus.id))
+        try await waitUntil("answer sealed") { !model.isAnswering }
+        let answer = try XCTUnwrap(model.chatMessages.last)
+        XCTAssertEqual(answer.payload.model, "claude-opus-5-5")
+        XCTAssertEqual(answer.payload.profile, "opus-high-detailed")
+        XCTAssertEqual(model.chatTitle, "Scaling in dot-product attention")
+        XCTAssertTrue(model.chatHasTopicTitle)
+        let summary = try XCTUnwrap(model.conversationSummaries.first { $0.id == model.activeConversation })
+        XCTAssertEqual(summary.titleSource, PrivateEvent.generatedTitle)
+        XCTAssertEqual(ChatHistoryRow(summary: summary, paperTitle: nil).title, "Scaling in dot-product attention", "All chats shows the topic")
+        XCTAssertEqual(model.activeBranchID, answer.id, "The answer, not the title, is the branch head")
+
+        // The follow-up keeps the chat's choice and asks for no second title.
+        model.chatInput = "And without scaling?"
+        await model.sendMessage()
+        try await waitUntil("follow-up") { transport.requests.count == 2 }
+        XCTAssertEqual(transport.requests[1].profile, opus)
+        XCTAssertFalse(transport.requests[1].topicTitle)
+        transport.send(.delta("Softmax saturates."), .title("Another title"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("sealed") { !model.isAnswering }
+        XCTAssertEqual(model.chatTitle, "Scaling in dot-product attention", "A titled chat keeps its title")
+        await model.flushDrafts()
+
+        // Reopened elsewhere (a fresh model on the same encrypted store), the chat remembers its choice from its answers.
+        let reopened = ReaderModel(configuration: nil, chatTransport: ScriptedChatTransport(), chatConsentStore: ConsentMemory())
+        try await reopened.configureDurableDraftFixture(reset: false)
+        reopened.openConversation(try XCTUnwrap(model.activeConversation))
+        XCTAssertEqual(reopened.chatProfile, opus)
+        XCTAssertEqual(reopened.chatTitle, "Scaling in dot-product attention")
+
+        // A new chat starts from the default again.
+        model.newChat(general: false)
+        XCTAssertEqual(model.chatProfile, .standard)
+    }
+
+    func testWithoutTheServerTableRequestsAreExactlyAsBefore() async throws {
+        let (model, transport) = try await makeModel(consented: true)
+        model.refreshChatProfiles()
+        try await waitUntil("fetch failed") { model.chatProfileTableFailed }
+        model.setChatProfile(ChatProfileChoice(model: .haiku, effort: .low, length: .brief))
+        model.chatInput = "Why scale the dot products?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].profile, .standard)
+        XCTAssertFalse(transport.requests[0].topicTitle)
+        let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: try transport.requests[0].encoded()) as? [String: Any])
+        XCTAssertNil(body["profile"]); XCTAssertNil(body["topic_title"])
+        transport.send(.delta("Scaling keeps logits bounded."), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("sealed") { !model.isAnswering }
+        XCTAssertNil(model.chatMessages.last?.payload.profile, "An older server reports no profile; none is invented")
+        XCTAssertFalse(model.chatHasTopicTitle)
+        XCTAssertEqual(model.chatTitle, "Why scale the dot products?")
+    }
+
+    func testSelectionActionsUseTheChatsChoiceAndUntitledChatsGetATitleLater() async throws {
+        let (model, transport) = try await makeProfiledModel()
+        let haiku = ChatProfileChoice(model: .haiku, effort: .medium, length: .brief)
+        model.setChatProfile(haiku)
+        model.selectionAction(.define, quote: "scaled dot-product attention")
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].profile, haiku, "The action uses the choice visible in the chat")
+        XCTAssertTrue(transport.requests[0].topicTitle)
+        // The title arrives but the answer is interrupted: neither is kept as a title.
+        transport.send(.delta("Partial"), .title("Should not be kept"))
+        transport.end(throwing: URLError(.networkConnectionLost))
+        try await waitUntil("interrupted") { !model.isAnswering }
+        XCTAssertEqual(model.chatMessages.last?.payload.status, .interrupted)
+        XCTAssertEqual(model.chatMessages.last?.payload.profile, haiku.id, "An interrupted answer keeps the profile it was asked with")
+        XCTAssertFalse(model.chatHasTopicTitle)
+        XCTAssertTrue(model.chatTitle.hasPrefix("Explain · scaled dot-product attention"))
+
+        // The chat is used again later: it asks for its title then.
+        model.chatInput = "Say more"
+        await model.sendMessage()
+        try await waitUntil("second request") { transport.requests.count == 2 }
+        XCTAssertTrue(transport.requests[1].topicTitle)
+        transport.send(.delta("More."), .title("Scaled dot-product attention"), .done(stopReason: "end_turn", credits: 1, model: "claude-haiku-5-5", profile: haiku.id))
+        try await waitUntil("sealed") { !model.isAnswering }
+        XCTAssertEqual(model.chatTitle, "Scaled dot-product attention")
+    }
+
+    func testRenamingReplacesTheTitleAndAGeneratedTitleNeverOverwritesIt() async throws {
+        let (model, transport) = try await makeProfiledModel()
+        model.chatInput = "Why scale the dot products?"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        // Renamed while the answer streams: its generated title must not replace the reader's.
+        let conversation = try XCTUnwrap(model.activeConversation)
+        await model.renameConversation(conversation, to: "  My attention\nnotes ")
+        XCTAssertEqual(model.chatTitle, "My attention notes")
+        transport.send(.delta("Bounded."), .title("Scaling in dot-product attention"), .done(stopReason: "end_turn", credits: 1))
+        try await waitUntil("sealed") { !model.isAnswering }
+        XCTAssertEqual(model.chatTitle, "My attention notes")
+        XCTAssertEqual(model.conversationSummaries.first { $0.id == conversation }?.titleSource, PrivateEvent.renamedTitle)
+        await model.renameConversation(conversation, to: "   ")
+        XCTAssertEqual(model.chatTitle, "My attention notes", "An empty name is ignored")
+        XCTAssertEqual(model.chatMessages.count, 2, "Renaming adds no message")
+    }
+
+    func testChatDefaultsAreStoredAndAnUnofferedChoiceFallsBackToTheServersDefault() async throws {
+        let (model, transport) = try await makeProfiledModel()
+        let saved = model.chatDefaultProfile
+        defer { model.chatDefaultProfile = saved }
+        model.chatDefaultProfile = ChatProfileChoice(model: .sonnet, effort: .medium, length: .detailed)
+        XCTAssertEqual(UserDefaults.standard.string(forKey: "chat.defaultProfile"), "sonnet-medium-detailed")
+        model.newChat(general: false)
+        XCTAssertEqual(model.chatProfile.id, "sonnet-medium-detailed")
+        // A server that stopped offering Opus answers with its default instead of the reader's stale choice.
+        var estimates = ScriptedChatTransport.table.estimates
+        for key in estimates.keys where key.model == .opus { estimates[key] = nil }
+        transport.profiles = ChatProfileTable(version: ChatProfileTable.supportedVersion, defaultChoice: .standard, estimates: estimates)
+        model.refreshChatProfiles(force: true)
+        try await waitUntil("table replaced") { model.chatProfileTable?.offers(ChatProfileChoice(model: .opus, effort: .low, length: .standard)) == false }
+        model.setChatProfile(ChatProfileChoice(model: .opus, effort: .low, length: .brief))
+        model.chatInput = "Hello"
+        await model.sendMessage()
+        try await waitUntil("request issued") { transport.requests.count == 1 }
+        XCTAssertEqual(transport.requests[0].profile, .standard)
     }
 }
 #endif

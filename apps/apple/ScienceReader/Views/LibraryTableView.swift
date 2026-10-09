@@ -412,6 +412,7 @@ struct LibraryRowActions: View {
     var body: some View {
         switch entry {
         case .paper(let paper):
+            PodcastListenMenuRow(model: model, paper: paper)
             if !paper.isSample {
                 Button("Edit tags", systemImage: "tag") { model.editTags(for: paper) }
                     .disabled(!model.canChangeLibrary)

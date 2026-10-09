@@ -108,12 +108,21 @@ export async function completeAccountDeletion(service: SupabaseClient, accountID
   return { complete: true };
 }
 
+/** Cancels the account's podcast work in its own transaction before deletion
+ * begins (deletion refuses while an operation is unsettled; a cancel request made
+ * inside that refused transaction would roll back). Best effort: a database
+ * without migration 048 has no such function, and deletion proceeds unchanged. */
+export async function closePodcastWork(service: SupabaseClient, accountID: string): Promise<void> {
+  try { await service.rpc('worker_podcast_account_closing', { p_account_id: accountID }); } catch { /* deletion decides */ }
+}
+
 /** Finishes deletions left incomplete (login still linked, rows written in a
  * race, files not removed). Run by the paper worker on every invocation. */
 export async function sweepAccountDeletions(service: SupabaseClient, log: (fields: Record<string, unknown>) => void): Promise<void> {
   const pending = await service.rpc('worker_account_deletions_pending', { p_limit: 3 });
   if (pending.error || !Array.isArray(pending.data)) return;
   for (const accountID of pending.data as string[]) {
+    await closePodcastWork(service, accountID);
     const begun = await service.rpc('worker_delete_account_begin', { p_account_id: accountID });
     if (begun.error) { log({ event: 'account_deletion_sweep_failed', account_id: accountID, step: 'begin' }); continue; }
     const outcome = await completeAccountDeletion(service, accountID, begun.data);

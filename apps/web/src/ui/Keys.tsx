@@ -69,10 +69,13 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
       <section className="card auth-card keys-card" aria-live="polite">
         <Brand />
         {view.kind === 'activation' && <>
-          <h1>Keep drafts in this browser</h1>
-          <p>Gradstep can now keep encrypted drafts, pending chat saves and interrupted answers on this device. Sending still needs a connection. Clearing this browser’s site data can remove work that hasn’t synced.</p>
-          <p>First finish or copy unsent work in every other Gradstep tab, then close those tabs. Older tabs cannot tell us whether their work is saved.</p>
-          <label className="check"><input type="checkbox" checked={closedTabs} onChange={e => setClosedTabs(e.target.checked)} disabled={busy} /> I finished or copied that work and closed my other Gradstep tabs</label>
+          <h1>Save drafts in this browser</h1>
+          <p>Gradstep can now keep unfinished chats and interrupted answers here. Finish or copy unsent work in your other Gradstep tabs, then close them before continuing.</p>
+          <label className="check"><input type="checkbox" checked={closedTabs} onChange={e => setClosedTabs(e.target.checked)} disabled={busy} /> I saved or copied my work and closed my other Gradstep tabs</label>
+          <details className="keys-details">
+            <summary>What this means</summary>
+            <p className="fine">Drafts are encrypted in this browser. Sending still needs a connection, and clearing site data can remove work that has not synced. You can continue without saved drafts.</p>
+          </details>
           {issue && <p className="issue" role="alert">{issue}</p>}
           {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}
           <button className="primary" disabled={!closedTabs || busy} onClick={async () => {
@@ -85,8 +88,8 @@ export function KeySetup({ account, email, onReady, onSignOut }: { account: stri
               else { try { await navigator.storage?.persist?.(); } catch { /* browser may decline */ } onReady(view.ready); }
             } catch (error) { if (!signal.aborted) setIssue(message(error)); }
             finally { if (!signal.aborted) setBusy(false); }
-          }}>{busy ? 'Preparing storage…' : 'Enable device drafts'}</button>
-          <button className="secondary" disabled={busy} onClick={() => onReady(view.ready)}>Continue without device drafts</button>
+          }}>{busy ? 'Preparing storage…' : 'Enable saved drafts'}</button>
+          <button className="secondary" disabled={busy} onClick={() => onReady(view.ready)}>Continue without saved drafts</button>
         </>}
         {view.kind === 'preparing' && <><h1>Preparing this browser…</h1><div className="spinner" aria-label="Preparing" />
           {storageIssue === 'blocked' && <p className="issue" role="status">{storageGuidance(new StorageError('storage_blocked'))!.text}</p>}</>}

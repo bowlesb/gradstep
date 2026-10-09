@@ -29,6 +29,16 @@
     "file_size_limit": 67108864,
     "allowed_mime_types": null
   },
+  "podcast_bucket": {
+    "id": "podcast-assets",
+    "name": "podcast-assets",
+    "public": false,
+    "file_size_limit": 16777216,
+    "allowed_mime_types": [
+      "audio/mp4",
+      "application/json"
+    ]
+  },
   "upload_bucket": {
     "id": "paper-uploads",
     "name": "paper-uploads",
@@ -51,7 +61,9 @@
     "admin-accounts",
     "admin-spending",
     "add-paper",
-    "upload-pdf"
+    "upload-pdf",
+    "podcast",
+    "podcast-member"
   ],
   "pipeline_schedule": "* * * * *",
   "chat_web_search": true,

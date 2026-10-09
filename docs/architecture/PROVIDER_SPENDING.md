@@ -37,6 +37,13 @@ while that liability remains reserved. Later operator reconciliation is a separa
 | `tavily` | `reference_lookup` | `search-basic` | `credits: 1` | `credits`, `searches` |
 | `anthropic` | `catalog_tags` | requested Haiku identifier | `output_tokens: 256` | input/output tokens |
 | `mathpix` | `paper_ocr` | `v3/pdf` | `pages` | `pages` |
+| `anthropic` | `podcast_script` | profile model (`claude-sonnet-5-5`) | `input_tokens: 80000`, `output_tokens: 6000` | token categories (migration 048, dark) |
+| `anthropic` | `podcast_review` | profile model | `input_tokens: 80000`, `output_tokens: 4000` | token categories (048) |
+| `google` | `podcast_speech` | `gemini-3.8-flash-tts` | `text_input_tokens: 8192`, `audio_output_tokens: 16384` | observed `text_input_tokens`, `audio_output_tokens`, `audio_ms` (048) |
+
+Podcast routes (048) are granted only through `worker_podcast_attempt_begin`, which derives model, units and
+ceiling ($0.22 / $0.20 / $0.303104) from the immutable profile inside a $0.75 operation; a direct call with a podcast
+route is refused (`podcast_admission_required`). See [Paper podcasts](PAPER_PODCASTS.md#v1-implementation-branch-podcast-v1).
 
 All micro-dollar amounts and unit counters are nonnegative integers. Token categories are
 `input_tokens`, `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_read_tokens` and
@@ -47,7 +54,11 @@ private content. The existing operation identity provides the account/feature tr
 
 ## Compatibility and call paths
 
-Chat reserves its existing customer/platform hold. Its adapter grants each model round separately;
+Chat reserves its existing customer/platform hold (since migration 047 through `worker_reserve_chat`, which also
+freezes the chat quote: profile, model, effort, length, output allowance, rate version and tariff; see
+[chat](CHAT.md#holds-quotes-and-settlement)). Each attempt's ceiling follows its own model's hold rule (Sonnet 5.5
+×3 at its card, unchanged; Opus 5.5 ×2 at its fallbacks' Opus 5 card; Haiku 5.5 once at its prompt tier), and a topic
+title is one more admitted `chat` attempt in the same operation. Its adapter grants each model round separately;
 the SDK makes one transport attempt. Tavily uses one shared admitted adapter for chat, Ingest and
 reference lookup. Its prepaid units are reserved globally and per account before the HTTP call;
 the old snapshot readiness check is no longer an admission decision. A prepaid-only call may be

@@ -6,6 +6,8 @@ import {
   ADD_PAPER_TOOL, attemptsFromUsage, CHAT_MAX_TOKENS, chatRequestParams, CREATE_DIAGRAM_TOOL, promptCharacters, WEB_SEARCH_TOOL, webSearchHoldMicrousd, createAnthropicClient, creditsFor, FALLBACK_BETA, holdFor, priceAttempts, ratesFor,
   streamChat, UNKNOWN_MODEL_RATES, statusQuery, STATUS_QUERY_CHARS, type ChatStatus, type ProviderOutcome, type StreamOptions,
 } from '../../supabase/functions/_shared/anthropic.ts';
+import { publishedProfiles } from '../../supabase/functions/_shared/chat-profiles.ts';
+import { cleanTitle, titleRequestParams } from '../../supabase/functions/_shared/chat-title.ts';
 import { ACADEMIC_DOMAINS, parseResults, searchInput, tavilySearch, TAVILY_RESULT_CHARS, type SearchOutcome } from '../../supabase/functions/_shared/tavily.ts';
 import {
   canonicalRequest, chatInstructionParts, chatInstructions, DIAGRAM_FIX_MAX_TOKENS, diagramRequest, ingestReport, paperRequest, sourcesText, readChatBody, RpcFailure, runChat, sseFrame, validateChatRequest,
@@ -70,10 +72,22 @@ test('pricing follows the beta credit rate card and never undercharges unknown m
   assert.deepEqual(ratesFor('claude-mystery').rates, UNKNOWN_MODEL_RATES);
   assert.deepEqual(ratesFor(null).rates, UNKNOWN_MODEL_RATES);
   assert.equal(ratesFor('__proto__').known, false);
-  // 1M input at $2, 1M output at $10, 1M cache write at $2.50, 1M cache read at $0.20.
+  // 1M input at $2, 1M output at $10, 1M cache write at $2.50, 1M cache read at $0.10 (Sonnet 5.5: 0.05x input;
+  // https://platform.claude.com/docs/en/about-claude/pricing, read 2026-10-08).
   const usage = { input: 1_000_000, cacheWrite5m: 1_000_000, cacheWrite1h: 0, cacheRead: 1_000_000, output: 1_000_000 };
-  assert.equal(priceAttempts([{ model: 'claude-sonnet-5-5', usage, estimated: false }]), 14_700_000);
-  assert.equal(priceAttempts([{ model: 'unknown', usage, estimated: false }]), 29_400_000);
+  assert.equal(priceAttempts([{ model: 'claude-sonnet-5-5', usage, estimated: false }]), 14_600_000);
+  // Sonnet 5 (Sonnet 5.5's fallback) reads the cache at $0.20.
+  assert.equal(priceAttempts([{ model: 'claude-sonnet-5', usage, estimated: false }]), 14_700_000);
+  // Unknown models price at the highest card this route can be served by: Opus 5 / 4.8 ($5 / $6.25 / $0.50 / $25).
+  assert.equal(priceAttempts([{ model: 'unknown', usage, estimated: false }]), 36_750_000);
+  assert.equal(priceAttempts([{ model: 'claude-opus-5-5', usage, estimated: false }]), 29_200_000);
+  assert.equal(priceAttempts([{ model: 'claude-opus-4-8', usage, estimated: false }]), 36_750_000);
+  assert.equal(priceAttempts([{ model: 'claude-haiku-4-5-20251001', usage, estimated: false }]), 7_350_000);
+  // Haiku 5.5: a prompt over 100,000 tokens pays the long-prompt card for the whole request.
+  assert.equal(priceAttempts([{ model: 'claude-haiku-5-5', usage: { input: 50_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
+    50_000 * 0.1 + 50_000 * 0.01 + 1_000 * 0.5);
+  assert.equal(priceAttempts([{ model: 'claude-haiku-5-5', usage: { input: 50_001, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 50_000, output: 1_000 }, estimated: false }]),
+    50_001 * 0.5 + 50_000 * 0.05 + 1_000 * 2.5);
   assert.equal(creditsFor(0), 0); assert.equal(creditsFor(1), 1); assert.equal(creditsFor(5_000), 1); assert.equal(creditsFor(5_001), 2);
   // Hold: weighted chars/3 tokens at the cache-write rate plus the whole
   // output budget, times the fallback headroom (3).
@@ -93,7 +107,7 @@ test('fallback iterations are priced per serving model', () => {
   const attempts = attemptsFromUsage('claude-future-1', usage);
   assert.equal(attempts.length, 2);
   assert.deepEqual(attempts[0].usage, { input: 1000, cacheWrite5m: 300, cacheWrite1h: 100, cacheRead: 0, output: 50 });
-  assert.equal(priceAttempts(attempts), (1000 * 2 + 300 * 2.5 + 100 * 4 + 50 * 10) + (1000 * 4 + 200 * 20));
+  assert.equal(priceAttempts(attempts), (1000 * 2 + 300 * 2.5 + 100 * 4 + 50 * 10) + (1000 * 5 + 200 * 25));
   const single = attemptsFromUsage('claude-sonnet-5-5', { input_tokens: 3, output_tokens: 4, cache_creation_input_tokens: null,
     cache_read_input_tokens: 5, cache_creation: null, iterations: null } as unknown as Anthropic.Beta.Messages.BetaUsage);
   assert.deepEqual(single, [{ model: 'claude-sonnet-5-5', estimated: false, usage: { input: 3, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 5, output: 4 } }]);
@@ -377,8 +391,8 @@ test('web search is offered only when the server enables it, and never on Ingest
   assert.match(chatInstructions('paper', null, true), /You can search the web/);
   assert.doesNotMatch(chatInstructions('paper', null, false), /search the web/);
   // The hold grows by the search allowance.
-  const holdOff = Number(off.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
-  const holdOn = Number(on.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
+  const holdOff = Number(off.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
+  const holdOn = Number(on.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
   const inputTokens = Math.ceil(promptCharacters(chatRequestParams({ instructions: chatInstructions('paper', null, true),
     paper: { title: 'Attention', text: paperText }, turns: [{ role: 'user', text: secretQuestion }], selection: null,
     tools: [CREATE_DIAGRAM_TOOL, WEB_SEARCH_TOOL] })) / 3);
@@ -421,7 +435,7 @@ test('a balance between 50 credits and the full hold caps the credit hold, never
     const h = harness(generate ? { generate, paper } : { paper });
     if (available !== null) h.deps.availableCredits = async () => available;
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-    return { h, reserve: h.calls.find(c => c.name === 'worker_reserve_operation')?.params };
+    return { h, reserve: h.calls.find(c => c.name === 'worker_reserve_chat')?.params };
   };
   const full = (await run(null)).reserve!;
   assert.ok(Number(full.p_credits) > 60, `full hold ${full.p_credits}`);
@@ -443,7 +457,7 @@ test('unavailable or clearly insufficient credits stop before paper context auth
     h.deps.loadPaper = async () => { downloads++; return new TextEncoder().encode(paperText); };
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.equal(downloads, 0);
-    assert.ok(!h.calls.some(call => ['worker_chat_context', 'worker_reserve_operation'].includes(call.name)));
+    assert.ok(!h.calls.some(call => ['worker_chat_context', 'worker_reserve_chat'].includes(call.name)));
     assert.deepEqual(h.events.at(-1), { event: 'error', data: { code: available === null ? 'service_unavailable' : 'insufficient_credits' } });
   }
 });
@@ -522,7 +536,7 @@ function harness(options: { script?: Script; generate?: ChatDependencies['genera
     worker_consume_request: () => null,
     worker_chat_context: () => ({ bucket: 'paper-assets', path: 'artifacts/x/standalone.mmd', title: 'Attention' }),
     // The database columns are bigint: amounts must be whole numbers.
-    worker_reserve_operation: params => {
+    worker_reserve_chat: params => {
       assert.ok(Number.isSafeInteger(params.p_credits) && Number.isSafeInteger(params.p_microusd), 'reservation amounts are integers');
       return { id: params.p_id, state: 'reserved', replayed: false };
     },
@@ -564,9 +578,14 @@ function noPlaintext(logs: LogEntry[]) {
 test('a paper answer holds, streams, settles once and records usage', async () => {
   const h = harness();
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_chat_context', 'worker_reserve_operation', 'worker_settle_operation', 'worker_record_provider_usage']);
+  assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_chat_context', 'worker_reserve_chat', 'worker_settle_operation', 'worker_record_provider_usage']);
   const reserve = h.calls[2].params, settle = h.calls[3].params, usage = h.calls[4].params;
-  assert.equal(reserve.p_kind, 'chat'); assert.equal(reserve.p_rate_version, 'beta-credits-v1'); assert.equal(reserve.p_id, operation);
+  assert.equal(reserve.p_rate_version, 'beta-credits-v1'); assert.equal(reserve.p_id, operation);
+  // The quote freezes the default profile: exactly the request the function made before profiles.
+  assert.deepEqual(reserve.p_quote, { profile_version: 'chat-profiles-v1', profile: 'sonnet-low-standard', model: 'claude-sonnet-5-5',
+    effort: 'low', length: 'standard', tariff: 'anthropic-list-prices-2026-10-08', max_output_tokens: 8_000,
+    input_estimate_tokens: (reserve.p_quote as { input_estimate_tokens: number }).input_estimate_tokens, max_searches: 0,
+    title_model: null, title_max_tokens: null, title_ceiling_microusd: null });
   assert.match(String(reserve.p_request_sha256), /^\\x[0-9a-f]{64}$/);
   const expected = createHash('sha256').update(canonicalRequest(validateChatRequest(paperBody()))).digest('hex');
   assert.equal(reserve.p_request_sha256, `\\x${expected}`);
@@ -576,14 +595,15 @@ test('a paper answer holds, streams, settles once and records usage', async () =
   assert.equal(usage.p_provider, 'anthropic'); assert.equal(usage.p_provider_event_id, 'msg_01'); assert.equal(usage.p_microusd, 4_800);
   assert.deepEqual(h.events.map(e => e.event), ['delta', 'delta', 'done']);
   assert.deepEqual(h.events[2].data, { stop_reason: 'end_turn', credits: 1,
-    usage: { input_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 300 } });
+    usage: { input_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 300 },
+    model: 'claude-sonnet-5-5', profile: 'sonnet-low-standard' });
   noPlaintext(h.logs); assert.equal(h.logs.length, 0);
 });
 
 test('general chat skips paper context', async () => {
   const h = harness();
   await runChat(h.deps, generalBody(), h.emit, new AbortController().signal);
-  assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_reserve_operation', 'worker_settle_operation', 'worker_record_provider_usage']);
+  assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_reserve_chat', 'worker_settle_operation', 'worker_record_provider_usage']);
   assert.equal(h.events.at(-1)?.event, 'done');
 });
 
@@ -628,10 +648,10 @@ test('a thrown provider failure is settled as uncertain input, never left reserv
 
 test('a replayed operation never calls the provider or settles again', async () => {
   for (const state of ['reserved', 'settled']) {
-    const h = harness({ script: { worker_reserve_operation: () => ({ id: operation, state, replayed: true }) } });
+    const h = harness({ script: { worker_reserve_chat: () => ({ id: operation, state, replayed: true }) } });
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.equal(h.generations(), 0);
-    assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_chat_context', 'worker_reserve_operation']);
+    assert.deepEqual(names(h.calls), ['worker_consume_request', 'worker_chat_context', 'worker_reserve_chat']);
     assert.deepEqual(h.events, [{ event: 'error', data: { code: 'operation_replayed' } }]);
   }
 });
@@ -640,13 +660,13 @@ test('reservation failures map to stable codes without provider calls or settlem
   const cases: [string, string][] = [['insufficient_credits', 'insufficient_credits'], ['platform_budget_exhausted', 'platform_budget_exhausted'],
     ['too_many_active_operations', 'rate_limited'], ['operation_id_conflict', 'invalid_request'], ['query returned no rows', 'service_unavailable']];
   for (const [raised, code] of cases) {
-    const h = harness({ script: { worker_reserve_operation: () => { throw new RpcFailure(raised); } } });
+    const h = harness({ script: { worker_reserve_chat: () => { throw new RpcFailure(raised); } } });
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.equal(h.generations(), 0);
     assert.ok(!names(h.calls).includes('worker_settle_operation'));
     assert.deepEqual(h.events, [{ event: 'error', data: { code } }]);
   }
-  const ambiguous = harness({ script: { worker_reserve_operation: () => { throw new Error('transport'); } } });
+  const ambiguous = harness({ script: { worker_reserve_chat: () => { throw new Error('transport'); } } });
   await runChat(ambiguous.deps, paperBody(), ambiguous.emit, new AbortController().signal);
   assert.deepEqual(ambiguous.events, [{ event: 'error', data: { code: 'service_unavailable' } }]);
   assert.deepEqual(ambiguous.logs, [{ event: 'chat_reserve_uncertain', operation_id: operation }]);
@@ -663,7 +683,7 @@ test('rate limits, missing papers and invalid bodies stop before any hold', asyn
     const h = harness({ paper });
     await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
     assert.deepEqual(h.events, [{ event: 'error', data: { code: 'document_unavailable' } }]);
-    assert.ok(!names(h.calls).includes('worker_reserve_operation'));
+    assert.ok(!names(h.calls).includes('worker_reserve_chat'));
   }
   const invalid = harness();
   await runChat(invalid.deps, null, invalid.emit, new AbortController().signal);
@@ -672,7 +692,7 @@ test('rate limits, missing papers and invalid bodies stop before any hold', asyn
   const unconfigured = harness({ generate: null });
   await runChat(unconfigured.deps, generalBody(), unconfigured.emit, new AbortController().signal);
   assert.deepEqual(unconfigured.events, [{ event: 'error', data: { code: 'provider_unavailable' } }]);
-  assert.ok(!names(unconfigured.calls).includes('worker_reserve_operation'));
+  assert.ok(!names(unconfigured.calls).includes('worker_reserve_chat'));
 });
 
 test('a refusal is settled and reported as refused', async () => {
@@ -688,7 +708,7 @@ test('usage above the hold charges at most the hold but records the true cost', 
   const h = harness({ generate: async () => completeOutcome({ attempts: [{ model: 'claude-sonnet-5-5', estimated: false,
     usage: { input: 5_000_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8_000 } }] }) });
   await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
-  const reserve = h.calls.find(c => c.name === 'worker_reserve_operation')!.params;
+  const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
   const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
   assert.ok((settle.p_actual_microusd as number) > (reserve.p_microusd as number), 'true provider cost reaches the budget (freezes work)');
   assert.equal(settle.p_actual_credits, reserve.p_credits);
@@ -873,7 +893,8 @@ test('Related searches the web by instruction; every answer logs counts only', a
   await runChat(h.deps, quoted, h.emit, new AbortController().signal);
   assert.ok((tools as string[]).includes('web_search'));
   assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
-    search_provider: 'anthropic', web_searches: 3, tavily_searches: 0, search_failures: 0, failover: false, sources: 0 }]);
+    search_provider: 'anthropic', web_searches: 3, tavily_searches: 0, search_failures: 0, failover: false, sources: 0,
+    profile: 'sonnet-low-standard', title: 'not_requested' }]);
   const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!;
   assert.equal((usage.params.p_units as { web_searches: number }).web_searches, 3);
 });
@@ -940,7 +961,8 @@ test('Tavily searches run between rounds as search results (not citable: no cach
   assert.deepEqual(usage[1], { p_account_id: account, p_operation_id: operation, p_provider: 'tavily', p_provider_event_id: `operation:${operation}`,
     p_model: 'search-basic', p_microusd: 0, p_units: { searches: 1, credits: 1, failed: 0, list_microusd: 8_000 } });
   assert.deepEqual(h.answers, [{ event: 'chat_answer', operation_id: operation, action: 'related', mode: 'paper', web_search_offered: true,
-    search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, failover: false, sources: 1 }]);
+    search_provider: 'tavily', web_searches: 1, tavily_searches: 1, search_failures: 0, failover: false, sources: 1,
+    profile: 'sonnet-low-standard', title: 'not_requested' }]);
   assert.match(text, /Sources:\n1\. IPO — https:\/\/arxiv\.org\/abs\/2310\.12036/);
   noPlaintext(h.logs);
 });
@@ -1184,7 +1206,7 @@ test('Why it matters uses only the paper: no search tool, even with Tavily ready
   assert.deepEqual(sent!.tools?.map(t => t.name), ['create_diagram']);
   assert.equal(runs.length, 0);
   // No search allowance in the hold either.
-  const held = Number(h.calls.find(c => c.name === 'worker_reserve_operation')!.params.p_microusd);
+  const held = Number(h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_microusd);
   assert.equal(held, holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming)).microusd);
   assert.equal(h.answers[0].web_search_offered, false); assert.equal(h.answers[0].action, 'relevance');
   // Ordinary questions on the same paper still search.
@@ -1240,7 +1262,7 @@ test('a diagram repair is metered: a small hold, settled at its actual cost, one
   assert.deepEqual(h.events.map(e => e.event), ['diagram', 'done'], 'no "Diagram:" caption for a repair');
   assert.deepEqual(h.events[0].data, { title: 'DPO pipeline', source: 'flowchart TD\n A["Policy (pi)"] --> B[Loss]' });
   // Held like any answer (input at the write rate plus its whole output allowance, times the fallback headroom)…
-  const reserve = h.calls.find(c => c.name === 'worker_reserve_operation')!.params;
+  const reserve = h.calls.find(c => c.name === 'worker_reserve_chat')!.params;
   const hold = holdFor(promptCharacters(sent as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming), DIAGRAM_FIX_MAX_TOKENS);
   assert.equal(reserve.p_microusd, hold.microusd); assert.equal(reserve.p_credits, hold.credits);
   assert.ok(hold.credits <= 25, `a repair holds at most 25 credits (${hold.credits})`);
@@ -1283,7 +1305,7 @@ test('time to first feedback: Related says it is searching before the paper load
   // The rate limit, search policy and balance are requested together, before any of them answers.
   assert.deepEqual(timeline.slice(0, 3), ['worker_consume_request', 'search_policy', 'balance']);
   assert.ok(timeline.indexOf('status') < timeline.indexOf('worker_chat_context'), 'the reader sees "Searching the web…" before the paper is fetched');
-  assert.ok(timeline.indexOf('worker_chat_context') < timeline.indexOf('worker_reserve_operation') && timeline.indexOf('worker_reserve_operation') < timeline.indexOf('generate'));
+  assert.ok(timeline.indexOf('worker_chat_context') < timeline.indexOf('worker_reserve_chat') && timeline.indexOf('worker_reserve_chat') < timeline.indexOf('generate'));
   // Other questions do not claim to search before the model decides to.
   const plain = harness(); searching(plain, []);
   await runChat(plain.deps, v2(paperBody()), plain.emit, new AbortController().signal);
@@ -1337,4 +1359,217 @@ test('without citations, an answer that names no sources gets the searched pages
   await runChat(own.deps, v2(paperBody({ selection: { quote: 'DPO' }, action: 'related' })), own.emit, new AbortController().signal);
   const ownText = own.events.filter(e => e.event === 'delta').map(e => (e.data as { text: string }).text).join('');
   assert.equal(ownText.match(/Sources:/g)?.length, 1);
+});
+
+// ---- Models, effort and length (chat-profiles.ts) and topic titles (chat-title.ts), 2026-10-08 ----
+
+test('the published profile table is versioned, complete, and its default is exactly today\'s request', () => {
+  const table = publishedProfiles();
+  assert.equal(table.version, 'chat-profiles-v1'); assert.equal(table.rate_version, 'beta-credits-v1');
+  assert.deepEqual(table.default, { model: 'sonnet', effort: 'low', length: 'standard' });
+  assert.deepEqual(table.models.map(m => [m.id, m.api_model]), [['haiku', 'claude-haiku-5-5'], ['sonnet', 'claude-sonnet-5-5'], ['opus', 'claude-opus-5-5']]);
+  assert.deepEqual(table.efforts.map(e => e.id), ['low', 'medium', 'high']);
+  assert.deepEqual(table.lengths.map(l => l.id), ['brief', 'standard', 'detailed']);
+  assert.equal(table.profiles.length, 27);
+  assert.equal(new Set(table.profiles.map(p => p.id)).size, 27);
+  const byID = new Map(table.profiles.map(p => [p.id, p]));
+  assert.equal(byID.get('sonnet-low-standard')!.max_output_tokens, CHAT_MAX_TOKENS);
+  // Output allowances: the length's answer plus the effort's thinking (max_tokens covers both).
+  assert.deepEqual(['brief', 'standard', 'detailed'].map(l => ['low', 'medium', 'high'].map(e => byID.get(`sonnet-${e}-${l}`)!.max_output_tokens)),
+    [[3_000, 5_000, 9_000], [8_000, 10_000, 14_000], [12_000, 14_000, 18_000]]);
+  for (const p of table.profiles) {
+    assert.ok(p.credits.low <= p.credits.high && p.credits.high <= p.credits.max, `${p.id} estimate is ordered`);
+    assert.equal(p.max_output_tokens, byID.get(`sonnet-${p.effort}-${p.length}`)!.max_output_tokens, 'allowances do not depend on the model');
+  }
+  // Models order by cost at every effort and length.
+  for (const e of ['low', 'medium', 'high']) for (const l of ['brief', 'standard', 'detailed']) {
+    const [h, s, o] = ['haiku', 'sonnet', 'opus'].map(m => byID.get(`${m}-${e}-${l}`)!.credits);
+    assert.ok(h.max < s.max && s.max < o.max && h.high < s.high && s.high < o.high, `${e}/${l} orders by model`);
+  }
+  // Documented examples (CHAT.md): the default, and the two extremes.
+  assert.deepEqual(byID.get('sonnet-low-standard')!.credits, { low: 4, high: 24, max: 37 });
+  assert.deepEqual(byID.get('haiku-low-brief')!.credits, { low: 1, high: 2, max: 2 });
+  assert.deepEqual(byID.get('opus-high-detailed')!.credits, { low: 24, high: 63, max: 114 });
+  assert.ok(!JSON.stringify(table).includes('reader chose'), 'prompt text is not published');
+});
+
+test('a profile is a strict {model, effort, length}; the default named or not is the same request and digest', () => {
+  const chosen = validateChatRequest(paperBody({ profile: { model: 'opus', effort: 'high', length: 'detailed' } }));
+  assert.deepEqual(chosen.choice, { model: 'opus', effort: 'high', length: 'detailed' });
+  const named = validateChatRequest(paperBody({ profile: { length: 'standard', model: 'sonnet', effort: 'low' } }));
+  assert.equal(named.choice, null);
+  assert.equal(canonicalRequest(named), canonicalRequest(validateChatRequest(paperBody())));
+  assert.equal(canonicalRequest(validateChatRequest(paperBody({ profile: null, topic_title: false }))), canonicalRequest(validateChatRequest(paperBody())));
+  assert.notEqual(canonicalRequest(chosen), canonicalRequest(validateChatRequest(paperBody())));
+  assert.notEqual(canonicalRequest(validateChatRequest(paperBody({ topic_title: true }))), canonicalRequest(validateChatRequest(paperBody())));
+  const repair = { operation_id: operation, consent_version: 'cloud-ai-v2', mode: 'general', action: 'diagram_fix', messages: [{ role: 'user', text: 'Title: x' }] };
+  for (const body of [
+    paperBody({ profile: { model: 'fable', effort: 'low', length: 'standard' } }), paperBody({ profile: { model: 'opus', effort: 'max', length: 'standard' } }),
+    paperBody({ profile: { model: 'opus', effort: 'low', length: 'long' } }), paperBody({ profile: { model: 'opus', effort: 'low' } }),
+    paperBody({ profile: { model: 'opus', effort: 'low', length: 'brief', api_model: 'claude-opus-5-5' } }), paperBody({ profile: 'opus' }),
+    paperBody({ profile: ['opus', 'low', 'brief'] }), paperBody({ topic_title: 'yes' }), paperBody({ topic_title: 1 }),
+    { ...repair, profile: { model: 'haiku', effort: 'low', length: 'brief' } }, { ...repair, topic_title: true },
+  ]) assert.throws(() => validateChatRequest(body), { code: 'invalid_request' }, JSON.stringify(body).slice(0, 120));
+  assert.equal(validateChatRequest({ ...repair, profile: { model: 'sonnet', effort: 'low', length: 'standard' } }).choice, null);
+});
+
+test('each profile sends its model, effort, allowance and length; the paper block is identical across lengths', async () => {
+  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const run = async (profile: Record<string, string>) => {
+    const h = harness({ generate: async (params, stream) => { sent.push(params); stream.onText('ok'); return completeOutcome({ model: params.model }); } });
+    await runChat(h.deps, paperBody({ profile }), h.emit, new AbortController().signal);
+    return h;
+  };
+  const haiku = await run({ model: 'haiku', effort: 'medium', length: 'brief' });
+  const opus = await run({ model: 'opus', effort: 'high', length: 'detailed' });
+  await run({ model: 'sonnet', effort: 'low', length: 'standard' });
+  assert.equal(sent[0].model, 'claude-haiku-5-5'); assert.deepEqual(sent[0].output_config, { effort: 'medium' });
+  assert.deepEqual(sent[0].thinking, { type: 'adaptive' }); assert.equal(sent[0].max_tokens, 5_000);
+  assert.equal(sent[0].fallbacks, undefined); assert.equal(sent[0].betas, undefined, 'Haiku 5.5 has no fallback models');
+  assert.equal(sent[1].model, 'claude-opus-5-5'); assert.deepEqual(sent[1].output_config, { effort: 'high' });
+  assert.equal(sent[1].max_tokens, 18_000); assert.equal(sent[1].fallbacks, 'default'); assert.deepEqual(sent[1].betas, [FALLBACK_BETA]);
+  assert.equal(sent[2].model, 'claude-sonnet-5-5'); assert.equal(sent[2].max_tokens, 8_000);
+  const system = sent.map(params => params.system as Anthropic.Beta.Messages.BetaTextBlockParam[]);
+  // Standard adds nothing (today's prompt); brief and detailed add their instructions after the cached paper.
+  assert.equal(system[2].length, 2);
+  assert.match(system[0][2].text, /brief answers/); assert.match(system[1][2].text, /detailed answers/);
+  for (const blocks of system) {
+    assert.equal(blocks[0].text, system[2][0].text, 'shared instructions do not change with the profile');
+    assert.equal(blocks[1].text, system[2][1].text); assert.deepEqual(blocks[1].cache_control, { type: 'ephemeral' });
+  }
+  // The answer reports which model and profile answered.
+  assert.deepEqual(haiku.events.at(-1)?.data, { stop_reason: 'end_turn', credits: 1,
+    usage: { input_tokens: 900, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 300 },
+    model: 'claude-haiku-5-5', profile: 'haiku-medium-brief' });
+  const quote = opus.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
+  assert.deepEqual([quote.profile, quote.model, quote.effort, quote.length, quote.max_output_tokens], ['opus-high-detailed', 'claude-opus-5-5', 'high', 'detailed', 18_000]);
+});
+
+test('holds use the chosen model\'s rates: Opus at its fallbacks\' Opus 5 card twice, Haiku once at its prompt tier', () => {
+  // 100,000 estimated tokens and 8,000 output tokens.
+  assert.equal(holdFor(300_000, 8_000, 'claude-opus-5-5').microusd, (100_000 * 6.25 + 8_000 * 25) * 2);
+  assert.equal(holdFor(300_000, 8_000, 'claude-haiku-5-5').microusd, 100_000 * 0.125 + 8_000 * 0.5);
+  assert.equal(holdFor(300_003, 8_000, 'claude-haiku-5-5').microusd, Math.ceil(100_001 * 0.625 + 8_000 * 2.5));
+  assert.equal(holdFor(300_000, 8_000, 'claude-sonnet-5-5').microusd, 990_000, 'Sonnet holds are unchanged');
+  assert.equal(holdFor(300_000, 8_000, 'claude-mystery').microusd, (100_000 * 6.25 + 8_000 * 25) * 3);
+  // Search holds follow the model too (Haiku's later rounds may cross into the long-prompt tier).
+  assert.equal(webSearchHoldMicrousd(10_000, 3, 'claude-sonnet-5-5'), webSearchHoldMicrousd(10_000, 3));
+  assert.equal(webSearchHoldMicrousd(10_000, 3, 'claude-haiku-5-5'), Math.ceil(3 * (10_000 + 10_000 * 0.125 + 60_000 * 0.1)));
+  assert.equal(webSearchHoldMicrousd(10_001, 3, 'claude-haiku-5-5'), Math.ceil(3 * (10_000 + 10_001 * 0.625 + 60_000 * 0.5)));
+  assert.equal(webSearchHoldMicrousd(1_000, 1, 'claude-haiku-5-5'), Math.ceil(10_000 + 1_000 * 0.125 + 60_000 * 0.1));
+});
+
+function titleOutcome(changes: Partial<ProviderOutcome> = {}): ProviderOutcome {
+  return completeOutcome({ messageID: 'msg_title', model: 'claude-haiku-5-5',
+    attempts: [{ model: 'claude-haiku-5-5', estimated: false, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 8 } }], ...changes });
+}
+
+test('every admitted request fits the operation hold: the answer\'s first round plus the title', async () => {
+  const ceilings: number[] = [];
+  let reserved = 0;
+  const h = harness({ script: { worker_reserve_chat: params => { reserved = Number(params.p_microusd); return { replayed: false }; } },
+    generate: async (params, stream) => {
+      ceilings.push(holdFor(promptCharacters(params), params.max_tokens, params.model).microusd);
+      if (params.model === 'claude-haiku-5-5' && params.max_tokens === 40) { stream.onText('Scaled attention'); return titleOutcome(); }
+      stream.onText('An answer.'); return completeOutcome({ model: params.model });
+    } });
+  await runChat(h.deps, paperBody({ topic_title: true, profile: { model: 'opus', effort: 'medium', length: 'standard' } }), h.emit, new AbortController().signal);
+  assert.equal(ceilings.length, 2);
+  assert.equal(ceilings.reduce((a, b) => a + b, 0), reserved, 'the hold is exactly the sum of the admitted ceilings');
+  const quote = h.calls.find(c => c.name === 'worker_reserve_chat')!.params.p_quote as Record<string, unknown>;
+  assert.equal(quote.title_model, 'claude-haiku-5-5'); assert.equal(quote.title_max_tokens, 40);
+  assert.equal(quote.title_ceiling_microusd, Math.min(...ceilings));
+});
+
+test('a topic title is written alongside the answer with Haiku 5.5, sent before done, charged, and never logged', async () => {
+  const sent: Anthropic.Beta.Messages.MessageCreateParamsNonStreaming[] = [];
+  const h = harness({ generate: async (params, stream) => {
+    sent.push(params);
+    if (params.model === 'claude-haiku-5-5') { stream.onText('"Attention scaling '); stream.onText('explained."\n'); return titleOutcome(); }
+    stream.onText('Scaling keeps logits bounded.'); return completeOutcome();
+  } });
+  await runChat(h.deps, paperBody({ topic_title: true, selection: { quote: 'divide by sqrt(d_k)' } }), h.emit, new AbortController().signal);
+  const title = sent.find(params => params.model === 'claude-haiku-5-5')!;
+  assert.equal(title.max_tokens, 40); assert.deepEqual(title.thinking, { type: 'disabled' });
+  assert.equal(title.tools, undefined); assert.equal(title.fallbacks, undefined);
+  const input = JSON.stringify(title.messages);
+  assert.match(input, /<paper_title>Attention<\/paper_title>/); assert.match(input, /private-question-marker/); assert.match(input, /sqrt\(d_k\)/);
+  assert.ok(!input.includes('We scale by'), 'the title never reads the paper text');
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'title', 'done']);
+  assert.deepEqual(h.events[1].data, { text: 'Attention scaling explained' });
+  // 900 input + 300 output (Sonnet) + 400 input + 8 output (Haiku 5.5) = 4,800 + 44 micro-USD.
+  const settle = h.calls.find(c => c.name === 'worker_settle_operation')!.params;
+  assert.equal(settle.p_actual_microusd, 4_844); assert.equal(settle.p_actual_credits, 1);
+  const usage = h.calls.find(c => c.name === 'worker_record_provider_usage')!.params;
+  assert.equal(usage.p_provider_event_id, 'msg_01'); assert.equal(usage.p_model, 'claude-sonnet-5-5');
+  assert.deepEqual((usage.p_units as { attempts: { model: string }[] }).attempts.map(a => a.model), ['claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.equal(h.answers[0].title, 'written');
+  assert.ok(!JSON.stringify([h.logs, h.answers, h.calls]).includes('Attention scaling'));
+});
+
+test('no title event without a complete answer or a usable title; the answer is unaffected', async () => {
+  const cases: [string, (stream: StreamOptions) => ProviderOutcome, string][] = [
+    ['unusable', stream => { stream.onText('   '); return titleOutcome(); }, 'unusable'],
+    ['failed', () => titleOutcome({ status: 'failed', failure: 'provider_error', stopReason: null, exact: false }), 'failed'],
+    ['cut off', stream => { stream.onText('A very long title that keeps going'); return titleOutcome({ stopReason: 'max_tokens' }); }, 'unusable'],
+  ];
+  for (const [label, write, logged] of cases) {
+    const h = harness({ generate: async (params, stream) => {
+      if (params.model === 'claude-haiku-5-5') return write(stream);
+      stream.onText('Answer.'); return completeOutcome();
+    } });
+    await runChat(h.deps, generalBody({ topic_title: true }), h.emit, new AbortController().signal);
+    assert.deepEqual(h.events.map(e => e.event), ['delta', 'done'], label);
+    assert.equal(h.answers[0].title, logged, label);
+  }
+  // A refused answer gets no title (its title request is still settled).
+  const refused = harness({ generate: async (params, stream) => {
+    if (params.model === 'claude-haiku-5-5') { stream.onText('Some title'); return titleOutcome(); }
+    return completeOutcome({ stopReason: 'refusal' });
+  } });
+  await runChat(refused.deps, generalBody({ topic_title: true }), refused.emit, new AbortController().signal);
+  assert.deepEqual(refused.events, [{ event: 'error', data: { code: 'refused' } }]);
+  assert.equal(refused.calls.filter(c => c.name === 'worker_settle_operation').length, 1);
+  assert.equal(Number(refused.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_microusd), 4_844);
+});
+
+test('a slow title is abandoned shortly after the answer and its attempt is still settled', async () => {
+  let titleSignal: AbortSignal | undefined;
+  const h = harness({ generate: async (params, stream) => {
+    if (params.model !== 'claude-haiku-5-5') { stream.onText('Answer.'); return completeOutcome(); }
+    titleSignal = stream.signal;
+    await new Promise<void>(resolve => stream.signal.addEventListener('abort', () => resolve(), { once: true }));
+    return titleOutcome({ status: 'failed', failure: 'aborted', stopReason: null, exact: false,
+      attempts: [{ model: 'claude-haiku-5-5', estimated: true, usage: { input: 400, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 } }] });
+  } });
+  const started = Date.now();
+  await runChat(h.deps, generalBody({ topic_title: true }), h.emit, new AbortController().signal);
+  assert.ok(titleSignal?.aborted);
+  assert.ok(Date.now() - started < 6_000);
+  assert.deepEqual(h.events.map(e => e.event), ['delta', 'done']);
+  assert.equal(h.calls.find(c => c.name === 'worker_settle_operation')!.params.p_actual_microusd, 4_840);
+  assert.equal((h.calls.find(c => c.name === 'worker_record_provider_usage')!.params.p_units as { estimated: boolean }).estimated, true);
+});
+
+test('titles are cleaned to one plain line of at most 80 characters', () => {
+  assert.equal(cleanTitle('Title: "Why DPO needs no reward model."'), 'Why DPO needs no reward model');
+  assert.equal(cleanTitle('**Scaling in dot-product attention**\nExtra line'), 'Scaling in dot-product attention');
+  assert.equal(cleanTitle('“Explainer for a persona paper”'), 'Explainer for a persona paper');
+  assert.equal(cleanTitle('Attention‮ reversed\u0007 title'), 'Attention reversed title');
+  assert.equal(cleanTitle(''), null); assert.equal(cleanTitle('...'), null); assert.equal(cleanTitle('x'.repeat(81)), null);
+  assert.equal(cleanTitle(Array.from({ length: 13 }, (_, i) => `w${i}`).join(' ')), null);
+  const params = titleRequestParams({ turns: [{ role: 'user', text: 'q1' }, { role: 'assistant', text: 'a1' }, { role: 'user', text: 'q2' }],
+    selection: null, paperTitle: null });
+  const text = String(params.messages[0].content);
+  assert.match(text, /general conversation/); assert.match(text, /<first_question>q1<\/first_question>/);
+  assert.match(text, /<first_answer>a1<\/first_answer>/); assert.match(text, /<latest_question>q2<\/latest_question>/);
+});
+
+test('the answer names the model that served it, a fallback model when one ran', async () => {
+  const h = harness({ generate: async (_params, stream) => { stream.onText('Answer.'); return completeOutcome({ model: 'claude-sonnet-5' }); } });
+  await runChat(h.deps, paperBody(), h.emit, new AbortController().signal);
+  assert.equal((h.events.at(-1)?.data as { model?: string }).model, 'claude-sonnet-5');
+  const odd = harness({ generate: async (_params, stream) => { stream.onText('Answer.'); return completeOutcome({ model: 'Bad Model!' }); } });
+  await runChat(odd.deps, paperBody(), odd.emit, new AbortController().signal);
+  assert.equal((odd.events.at(-1)?.data as { model?: string }).model, undefined);
 });

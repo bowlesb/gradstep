@@ -67,6 +67,16 @@ enum ChatTitle {
         ("Find related research and explain the connections: ", "Related"),
     ]
 
+    /// A conversation's title as saved with its current revision: a topic title (generated or the reader's own,
+    /// `source` set; 2026-10-08) is shown as it is, otherwise the first question as `display(_:)` shortens it.
+    static func display(_ saved: String, source: String?) -> String {
+        guard source != nil else { return display(saved) }
+        return ChatTopicTitle.clean(saved) ?? ""
+    }
+
+    /// A summary's title (`display(_:source:)`).
+    static func display(_ summary: ConversationSummary) -> String { display(summary.title, source: summary.titleSource) }
+
     /// The title to show for a saved conversation title: "Explain · ‹passage›" for a selection action, otherwise the
     /// question itself; math in either as readable symbols, on one line, "…" where the saved title was cut.
     static func display(_ saved: String) -> String {
