@@ -1,9 +1,11 @@
 # Shared paper podcasts: implementation contract proposal
 
 2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark.** Staging status (reported by the lead,
-2026-10-08): migration 048 is applied and worker revision 00013 ran the first two seed jobs, which both failed
-`script_incomplete` in the review; the [fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08)
-(worker checker v2 and migration 049) is not yet deployed or applied. The design below was the reviewed input; the
+2026-10-08): migrations 048 and 049 are applied. Worker revision 00013 ran the first two seed jobs, which both failed
+`script_incomplete` in the review ([fix 1](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08):
+checker v2, deployed as revision 00014); the two re-admitted jobs then failed `script_evidence_rejected` at the checker
+([fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08): checker v3 and migration 050, not yet deployed or
+applied). The pilot has committed $0.82 of its $2. The design below was the reviewed input; the
 [implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
@@ -623,15 +625,25 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    segment id, two conflicting corrections of one segment, more corrections than the limit, or deletions that would
    empty a chapter fail the job as a quality rejection (`script_corrections_invalid`, customer charged 0), never a
    silent pass. See [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08).
-4. **Checker** (`podcast-checker-v2`, deterministic; v2 = checker v1's rules run on the corrected draft — the
-   version is part of the approved-script identity): structure, ids, 3–8 chapters, 8–80 segments, 450–1,000 words,
-   ≤ 6,000 spoken characters, no markup or speaker labels, every `paper_result`/`author_interpretation` segment has
-   1–3 evidence quotes found verbatim (whitespace-normalized) in the pinned text, every number spoken in a segment
-   appears in its evidence, segments without evidence contain no digits, math LaTeX comes from the paper, ≥ 5
-   evidenced segments, verdict `accept`. Failure = quality rejection: customer charged 0, known cost recorded as
-   platform quality loss (private generation pauses when the month's losses reach the $0.75 allocation).
+4. **Checker** (`podcast-checker-v3`, deterministic, run on the corrected draft — the version is part of the
+   approved-script identity; see [fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08)): structure, ids,
+   3–8 chapters and verdict `accept` as before. Each evidence quote (at most 3 per segment) is located in the pinned
+   text through one canonical form applied to both sides and stored as **the paper's own span** (whitespace-normalized,
+   with its offset), so every evidence quote is pinned text. An unverifiable quote or formula note is dropped on its own;
+   a segment that then breaks a claim rule — a `paper_result`/`author_interpretation` without verified evidence, a spoken
+   number its own evidence does not state (digits in names the paper uses and references to existing sections, figures,
+   tables, equations or stages are not claims), markup or speaker labels, empty or over 700 characters — is removed,
+   never relabeled. The script is rejected when more than 30% of its quotes are unverifiable or more than 30% of its
+   segments are removed, when a chapter loses every segment or every evidenced claim, or when the result breaks a bound
+   (8–80 segments, 450–1,000 words, ≤ 6,000 spoken characters, ≥ 5 evidenced segments, chapter order). Every outcome's
+   bounded report (counts, codes, ids, offsets; no text) is recorded with the job (`worker_podcast_checked`, event
+   `checked`). Failure = quality rejection: customer charged 0, known cost recorded as platform quality loss (private
+   generation pauses when the month's losses reach the $0.75 allocation).
 5. **Speech** (`podcast_speech`): Gemini 3.8 Flash TTS multi-speaker requests (below), planned in chunks of at most
-   8,192 request bytes (request text bytes + 256), at most the profile's calls — one for Short and five minutes.
+   8,192 request bytes (request text bytes + 256), at most the profile's calls — one for Short and five minutes. The
+   prompt's spoken-character limit is derived from the same bound (five minutes: 16–28 segments, ≤ 4,900 characters);
+   `fitSpeech` shortens delivery directions (metadata, never spoken words) before refusing a script that cannot fit
+   (`script_too_long_for_speech`, before any speech grant).
    `finishReason` must be `STOP` for every chunk; each WAV must be 16-bit PCM 24 kHz mono, complete and audible; the
    joined take must be within the profile's bounds (120–660 s for five minutes), not silent, no dead air > 8 s.
 6. **Timing and encoding:** approximate segment timing (proportional, snapped to pauses), chapters from segment
@@ -924,7 +936,8 @@ The v1 column scales the measured five-minute draft (~6.4 output tokens per spok
 The pilot test's three-correction set is 132 tokens. A five-minute review now costs ≈ $0.070–0.074 (its ~34.5k input
 tokens are unchanged) instead of the measured $0.109–0.114.
 
-**Residual risk, not changed here: five-minute speech request size.** The five-minute profile allows one speech call
+**Residual risk, addressed by [fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08): five-minute speech
+request size.** The five-minute profile allows one speech call
 of at most 8,192 request bytes, counted as spoken text + ~80 bytes of speaker/style metadata per segment + 258. The
 checker allows 6,000 spoken characters in up to 80 segments, so a draft at the top of the prompt's range (about 800 words
 in 40 segments, ~4,700 spoken characters) can exceed it and fail `script_too_long_for_speech` after both script passes
@@ -964,6 +977,124 @@ the correction-set rules and invalid-correction failures). `python3 scripts/test
 (049 applies after 048; the worker journey now runs a five-minute review that rewrites one segment through a correction
 set and checks the rewrite in the delivered transcript). `deno check` (strict) passes for `podcast`, `podcast-member`,
 `podcast-worker.ts`, `podcast-script.ts` and `podcast-speech.ts`. No provider, hosted service or deployment was used.
+
+### Seed pilot fix 2: checker v3 and checker reports (2026-10-08)
+
+**What happened** (staging, worker revision 00014, checker v2). Both re-admitted five-minute seed jobs finished the
+draft and the review and failed `script_evidence_rejected` at the checker, each after ≈ $0.19 of known spend; the pilot
+has now committed $0.818 of its $2.
+
+| Job | Paper (CC BY 4.0, pinned `standalone.mmd` verified) | Draft out | Review out (corrections) | Known | Checker (worker log) |
+|---|---|---:|---:|---:|---|
+| `aab90b8c…` | 2610.09384v1, The Persona Hierarchy Model (76,326 bytes) | 4,262 | 798 (5, accept) | $0.189 | 1 problem: `unsupported_number:s9` |
+| `9b99bdf8…` | 2610.10536v1, Decoupling Exploration from Optimization in RLVR (63,906 bytes) | 4,946 | 1,260 (8, accept) | $0.190 | 3 problems, first `number_not_in_evidence:s13` |
+
+The job events held only the failure code; the worker's own log lines (`podcast_script_rejected`, ids and counts only)
+gave the first problem. Problems are listed segment by segment, so every turn before s9 and s13 passed, including every
+evidence quote: Claude copied the Mathpix text verbatim (with `\(`…`\)` and `\%`). **Both drafts failed the spoken-number
+rule**, which v2 applied as all-or-nothing: a digit in a turn without evidence, or a spoken number missing from that
+turn's own quotes, rejected the whole script. The drafts were not checkpointed, so the exact turns cannot be recovered.
+
+**Diagnosis without paying.** Both pinned texts were downloaded read-only and their sizes and SHA-256 checked against
+`podcast_sources`. 81 quotes were simulated the way a script model quotes these papers (65 real passages with typical
+variations, 16 that must be refused), plus two five-minute drafts (`tests/fixtures/podcast/evidence/`):
+
+| Cause (v2) | Example from the pilot papers | v2 |
+|---|---|---|
+| Digits in names in an unevidenced turn | "They run all of this on Qwen3-4B and Llama-3.1-8B-Instruct" | whole script rejected |
+| A spoken number outside the turn's own quote | "300 RL steps, split 200 for the explorer and 100 for the student", citing only the 200/100 sentence | whole script rejected |
+| Section/figure references | "Section 4 is all correlation, though" | whole script rejected |
+| Math delimiters stripped or rewritten | `(Pearson's \(r = 0.72\) for Qwen3-4B)` quoted as `r = 0.72`; `p < 10 ^ { - 4 }` as `p < 10^-4` | quote rejected |
+| Escapes | `42-55\%` quoted as `42-55%` or `42–55%` | quote rejected |
+| Citations removed | `prohibit it (MacDiarmid et al., 2025).` → `prohibit it.`; `models [19, 15, 33, 26, 44].` | quote rejected |
+| Sentences split by a page break and its floats | `…through prolonged` · `\pagebreak` · figure · `training [25], or that…` | quote rejected |
+| Typography and Unicode | curly ’ “ ”, en dash, `−0.1`, `4×` as `4x`, `\lambda` as `λ`/`lambda`, Şimşek as Simsek, soft hyphen, `**emphasis**` | quote rejected |
+| Formula-only quotes | `\(r = 0.72\)`, `\(\lambda = 0.5\)` | wrongly **accepted** |
+
+v2 verified 30 of the 65 real passages and refused 13 of the 16 invalid quotes; checker v3 verifies 65 of 65 and refuses
+16 of 16 (paraphrase, wrong or truncated number, splice, inserted negation, an elided aside, across a heading, formula
+only, too short or long), and every stored span is the pinned text at its offset. On the simulated drafts v2 reports 22
+and 10 problems; v3 accepts both, degraded: two of 26 turns removed from the first (a number its cited fragment lacks;
+a quote conflating the abstract's and the introduction's sentences) and one of 24 from the second (the 300-steps turn).
+
+**Fix (worker, `podcast-checker-v3`; profiles, routes, grants and ceilings unchanged).**
+
+- *Matching* (`podcast-evidence.ts`): quote and paper go through one canonical form — NFKD with diacritics dropped,
+  lower case, whitespace and punctuation (quotes, dashes, soft and line-break hyphens) dropped, LaTeX command names and
+  math delimiters dropped (Greek letters as names, `\times` as x), `\%` as %, Mathpix footnote marks and numeric or
+  author-year citations dropped; a point survives only between digits (1.6 ≠ 16). A match must start and end on word
+  boundaries and never cut a number at its decimal point. The stored evidence is the paper's own span, widened to whole
+  formulas and closing brackets, with its offset into the decoded pinned text — the transcript contract's "verbatim text
+  of the pinned converted paper" holds for every quote, whatever the model wrote. A sentence split by a page break is
+  stored as one span per paragraph; an ellipsis is verified fragment by fragment; quotes keep the 12–400 character
+  bound and a formula-only quote (fewer than 8 letters outside math) is refused.
+- *Numbers*: compared by value (32,768 = 32768, 100.0 = 100), no longer by substring (v2 let a spoken 4 pass on a
+  quoted 40). Digits inside a name that starts with a letter and appears in the paper (Qwen3-4B, GSM8K, AIME24,
+  pass@64) and references to a section, figure, table, appendix, equation or stage that the paper has are names and
+  locators, not claims. Inline-math digit groups (`\mathbf { 4 5 . 4 }`) are read as 45.4.
+- *Degradation*, by the design's claim rule ("no valid locator means remove the claim or fail review"): an unverifiable
+  quote or formula note is dropped on its own; a turn that then has a material claim without verified evidence, a
+  spoken number its evidence does not state, markup or a speaker label, or no text or over 700 characters is removed —
+  a material claim is never relabeled `context`, which would present an unsupported scientific statement as framing.
+  The script is rejected when more than 30% of its quotes are unverifiable or more than 30% of its turns are removed,
+  when a chapter loses every turn or every evidenced claim, or when the result breaks a length, evidence or order bound.
+- *Prompts*: the draft and the review get the same exact quoting rules (one contiguous span from one paragraph, 12–300
+  characters, ideally the whole sentence; math, symbols and citation markers kept or the span ended before them; no
+  ellipsis, splicing, rewording, headings, table rows or bare formulas) and number rules (every spoken digit in the
+  turn's own quotes; quote the sentence or drop the number; never compute numbers; names allowed anywhere; no section or
+  figure numbers). The review is told to fix a number with a `claims` correction or a digit-free replacement.
+- *Speech size*: five minutes now asks for 16–28 segments (was 16–40) and at most **4,900** spoken characters — what one
+  8,192-byte call holds with 28 segments' speaker and style metadata and a 10% margin (`spokenCharacterBudget`; 40
+  segments would leave 3,900, less than the 800 words asked for). Delivery directions are asked to be at most three
+  words. Before any speech grant, `fitSpeech` plans the call; if it does not fit, it shortens delivery directions (to 24,
+  then 12 characters; spoken text is never changed) and fails `script_too_long_for_speech` only when even that cannot
+  fit. Short, 10 and 20 minutes keep their checker bounds (their calls hold more than them).
+- *Reports*: every checker outcome produces a bounded report — counts checked, verified, unverifiable by reason,
+  repaired by kind, turns removed by reason, formula notes dropped, words, characters, speech bytes against the budget,
+  the rules that rejected the script, and up to 8 unverifiable items with segment id, characters, canonical length,
+  how far the quote matched and the paper offset where it diverged. Invalid review corrections and speech-size refusals
+  report too. The worker records it before `worker_podcast_fail` or before speech is granted; a missing recorder (050
+  not yet applied) is logged and never stops a job, a fence error stops it as before.
+
+**Migration `202610080050_podcast_checker_reports.sql`** adds `worker_podcast_checked` (fenced; event kind `checked`;
+the database refuses anything but identifier keys, short lower-case code strings, numbers and booleans, depth ≤ 4, arrays
+≤ 50, ≤ 2,048 bytes, so no text can be recorded through it) and `worker_podcast_job_events` (read-only, the job's whole
+bounded event log) for `scripts/podcast-ops.py events --job <id>`. Service role only. 048 and 049 are unchanged, and the
+deployed worker never calls either function, so the order of migration and worker deploy is safe both ways.
+
+**Expected pass rate.** Quotes: 65/65 realistic formatting variants of real text (v2 30/65). Simulated pilot drafts:
+both accepted, 1–2 turns removed each (v2: both rejected). The two real failures were exactly the classes v3 exempts
+(names, references) or degrades (one turn removed) instead of rejecting; a retry fails again only if its other problems
+exceed the 30% shares, strip a chapter, or push the result outside the length bounds. Value comparison of numbers is
+stricter than v2's substring test, so a turn whose spoken number was only a substring of a quoted one is now removed.
+
+**Deploy (the lead runs this; nothing here was applied or deployed, and no paid call was made).**
+
+1. `python3 scripts/backup.py staging`, then `python3 scripts/migrate-supabase.py staging` (verifies the applied prefix
+   through 049, applies 050 with its ledger row).
+2. Redeploy the worker (`podcast-checker-v3`, the image copies all of `supabase/functions/_shared` including
+   `podcast-evidence.ts`) through the usual paused → readiness → activate procedure (`deploy-pipeline-worker.py …
+   --defer-activation`). No Edge function changes.
+3. `podcast-ops.py status`: the seed period shows `episodes: 0` and `committed_microusd` ≈ 818,000.
+4. Re-admit the seeds **one at a time**: a $0.75 hold on top of $0.818 committed leaves room for one admission
+   ($1.568); a second is refused (`seed_allowance_exhausted`) until the first settles at its actual usage (a published
+   five-minute episode ≈ $0.33 at list price → committed ≈ $1.15, so the second hold fits at ≈ $1.90).
+   `podcast-ops.py seed --actor <OWNER> --approval <id> --reason "<rights check summary>"`, then `kick`; when `status`
+   shows it settled, admit the second.
+5. For each job, `podcast-ops.py events --job <job-id>`: the `checked` event shows the outcome (accepted, degraded or
+   rejected), what was dropped or removed and why; `pending_review` releases continue with runbook steps 8–9 (listen for
+   transitions that a removed turn may have left abrupt).
+
+**Verification (local, 2026-10-08, zero spend).** `npm test`: 475 passed (45 podcast: `podcast.test.ts` 36, including
+the checker report recorded before settlement and before speech, a missing recorder, style shortening and a speech-size
+refusal before any grant; `podcast-evidence.test.ts` 9, on excerpts of both pilot papers: formatting variants, invalid
+quotes, page splits and ellipses, the canonical form, spoken numbers, both simulated drafts, the degradation limits,
+report bounds and content, and the speech budget). `python3 scripts/test-database.py`: exit 0, 240 PASS lines (050
+applies after 049; `test_podcast_checker_reports.sql`; the worker journey asserts the seed job's v3 report between review
+and speech). Operations: 138 Python tests. `deno check` (strict) passes for `podcast`, `podcast-member`,
+`podcast-worker.ts`, `podcast-script.ts`, `podcast-speech.ts` and `podcast-evidence.ts`. The pinned texts and the job
+events were read with a read-only database session; the worker's Cloud Run logs with `gcloud logging read`. No provider
+call, write, deployment or migration was made.
 
 ### Verification (local, 2026-10-08)
 
