@@ -24,6 +24,8 @@ const paths: Record<string, ReactNode> = {
   refresh: <><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></>,
   keyboard: <><rect x="2" y="6" width="20" height="12" rx="2" /><line x1="6" y1="10" x2="6" y2="10" /><line x1="10" y1="10" x2="10" y2="10" /><line x1="14" y1="10" x2="14" y2="10" />
     <line x1="18" y1="10" x2="18" y2="10" /><line x1="7" y1="14" x2="17" y2="14" /></>,
+  bug: <><rect x="7" y="7" width="10" height="12" rx="5" /><path d="M9 4 7 2M15 4l2-2M5 10H2M22 10h-3M5 15H2M22 15h-3M9 19l-1 3M15 19l1 3" /></>,
+  bubble: <><path d="M21 11a8 8 0 0 1-8 8H7l-4 3v-5a8 8 0 1 1 18-6z" /><path d="M8 11h.01M12 11h.01M16 11h.01" /></>,
   external: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>,
 };
