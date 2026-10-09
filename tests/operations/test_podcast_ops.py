@@ -49,6 +49,10 @@ class PodcastOpsTests(unittest.TestCase):
         self.assertEqual(self.call(['status']).args[1], 'worker_podcast_status')
         self.assertEqual(self.call(['candidates', '--limit', '5']).args[1:], ('worker_podcast_seed_candidates', {'p_limit': 5}))
         self.assertEqual(self.call(['kick']).args[1], 'worker_podcast_kick_due')
+        job = '46000000-0000-4000-8000-000000000101'
+        self.assertEqual(self.call(['events', '--job', job]).args[1:], ('worker_podcast_job_events', {'p_job': job}))
+        with self.assertRaises(SystemExit):
+            self.call(['events', '--job', 'not-a-uuid'])
 
 
 if __name__ == '__main__':

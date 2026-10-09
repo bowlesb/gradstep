@@ -131,6 +131,17 @@ assert.deepEqual(seedJob.attempts.map(a => a.actual_microusd), [61_000, 61_000, 
 const period = status.seed_periods.find((p: { period?: string }) => p.period === month)!;
 assert.equal(period.committed_microusd - fixture.committed_before, 186_400);
 assert.equal(period.episodes - fixture.episodes_before, 1, 'fixtures never count against the seed episode cap');
+// Checker v3's report (migration 050): recorded with the job before speech was bought, counts and codes only.
+const seedEvents = call<{ events: { kind: string; details: Record<string, unknown> }[] }>('worker_podcast_job_events', { p_job: seed.id });
+const at = (kind: string, route?: string) => seedEvents.events.findIndex(e => e.kind === kind && (!route || e.details.route === route));
+assert.ok(at('attempt', 'podcast_review') < at('checked') && at('checked') < at('attempt', 'podcast_speech'),
+  `report after the review, before speech: ${seedEvents.events.map(e => e.kind).join(',')}`);
+const checkedReport = seedEvents.events.find(e => e.kind === 'checked')!.details as { checker: string; outcome: string; evidence: { checked: number; verified: number };
+  speech: { calls: number; bytes: number; budget: number } };
+assert.equal(checkedReport.checker, 'podcast-checker-v3'); assert.equal(checkedReport.outcome, 'accepted');
+assert.equal(checkedReport.evidence.verified, checkedReport.evidence.checked); assert.equal(checkedReport.speech.calls, 1);
+assert.ok(checkedReport.speech.bytes <= checkedReport.speech.budget);
+assert.ok(!JSON.stringify(seedEvents).includes(PAPER.slice(40, 80)), 'no paper text in the job events');
 for (const job of [fixtureJob.id, seed.id]) {
   const release = status.recent_jobs.find(j => j.id === job)!.release_id;
   call('worker_podcast_review', { p_actor: fixture.owner, p_request_id: randomUUID(), p_release_id: release, p_decision: 'publish', p_reason: 'Journey review' });

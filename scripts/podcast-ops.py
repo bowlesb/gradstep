@@ -2,6 +2,7 @@
 """Paper podcast operator tool (docs/architecture/PAPER_PODCASTS.md "Seed pilot runbook"). Staging only.
 
   python3 scripts/podcast-ops.py status
+  python3 scripts/podcast-ops.py events --job <job-id>      # stage, attempt, checker report and settlement records
   python3 scripts/podcast-ops.py candidates [--limit 20]
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set seed_enabled=true --set catalog_enabled=true --reason "..."
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set allowed_profiles=podcast-5min-v1:1,podcast-10min-v1:1 --reason "..."
@@ -100,6 +101,8 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('status'); sub.add_parser('kick'); sub.add_parser('cleanup')
     c = sub.add_parser('candidates'); c.add_argument('--limit', type=int, default=20)
+    e = sub.add_parser('events', help="one job's event log: ids, counts and codes only (the checker report is kind 'checked')")
+    e.add_argument('--job', type=uuid_arg, required=True)
     w = sub.add_parser('resolve-write', help='settle an uncertain upload with evidence (bucket listing / readback)')
     w.add_argument('--actor', type=uuid_arg, required=True); w.add_argument('--write', type=uuid_arg, required=True)
     w.add_argument('--outcome', choices=['verified', 'not_written'], required=True); w.add_argument('--evidence', required=True)
@@ -126,6 +129,7 @@ def main(argv=None):
     env = env_values()
     if args.command == 'status': result = rpc(env, 'worker_podcast_status', {})
     elif args.command == 'candidates': result = rpc(env, 'worker_podcast_seed_candidates', {'p_limit': args.limit})
+    elif args.command == 'events': result = rpc(env, 'worker_podcast_job_events', {'p_job': args.job})
     elif args.command == 'kick': result = rpc(env, 'worker_podcast_kick_due', {})
     elif args.command == 'policy':
         result = rpc(env, 'worker_podcast_policy_set', {'p_actor': args.actor, 'p_request_id': request_id(args),
