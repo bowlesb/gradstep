@@ -2,6 +2,7 @@
 // the image is public test data and never leaves the local Playwright process.
 import { expect, test } from '@playwright/test';
 import { RECOVERY_CODE } from './fixture-keys.mjs';
+import { durableKeys } from './key-capability';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -18,6 +19,7 @@ async function signIn(page: import('@playwright/test').Page) {
 }
 
 test('a browser report includes a screenshot and can be reopened from My reports', async ({ page }) => {
+  test.skip(!await durableKeys(page), 'Engine cannot persist X25519 keys; support reports require an authenticated browser.');
   let uploaded = 0;
   let reportID = '';
   let attachmentID = '';
