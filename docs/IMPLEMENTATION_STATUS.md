@@ -27,10 +27,9 @@ removed executor work) is retained below where useful and in git history.
   universal Catalyst build pass. The staging deploy suite passed all feature and spending-safety checks with no
   provider spend before this revision. The active revision's health endpoint is healthy. The final focused check at
   15:21 UTC recorded **15/15 scheduler calls as HTTP 200, with zero timeouts, refusals, missing workers or server
-  errors**, and zero provider cost. The first post-activation sample also retains one expected HTTP 503
-  `maintenance` response from the paused-gate cutover at 15:26 UTC; it was not a timeout, refusal, missing worker or
-  provider call. A fresh 15-minute sample is required after that response ages out. Migration 054 gives the scheduler a
-  600-second acknowledgement timeout.
+  errors**, and zero provider cost. A fresh post-activation sample at **15:41 UTC recorded 16/16 HTTP 200 calls**, with
+  zero timeouts, refusals, missing workers or server errors and zero provider cost. The earlier paused-gate `maintenance`
+  503 is retained only as rollout history. Migration 054 gives the scheduler a 600-second acknowledgement timeout.
 - **Published pilots:** “The Persona Hierarchy Model” (3:54) and “Decoupling Exploration from Optimization in RLVR”
   (3:22) are shared, chaptered and single-use delivered. The pilot's two successful speech calls cost $0.27 and $0.30;
   total seed spend is $1.94 of the authorized $5 period. Short, 10-minute and 20-minute private generation is now
@@ -107,7 +106,9 @@ offline structured reading and local Mathpix processing remain gated as describe
   Descriptor writes, complete v5 library adoption, saved copies and cold startup remain gated pending the epoch-bound
   descriptor PUT contract and measured copy-install limits.
 - **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), live browser
-  provider consent/identity acceptance, Safari key persistence, PDF upload and purchases. The browser now has bounded
+  provider consent/identity acceptance, Safari key persistence, browser PDF upload and purchases. The native PDF upload
+  queue now matches the deployed authenticated chunk protocol and writes the required encrypted descriptor, covered by
+  7 focused simulator tests; it still needs a new build and real-device acceptance. The browser now has bounded
   Google/Apple PKCE controls and callback validation; provider-side acceptance remains a release gate. Podcast generation remains backend-dark and no
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
@@ -124,7 +125,8 @@ offline structured reading and local Mathpix processing remain gated as describe
 
 ## Current rollout — 2026-10-08 UTC
 
-- **Paper podcasts v1 built on branch `podcast-v1`, dark, not applied or deployed.** Owner asked to "build the
+- **Historical podcast v1 design note:** the initial branch `podcast-v1` was later applied and superseded by the v2 rollout
+  above. Owner asked to "build the
   notebook LM podcasts feature"; Decisions 2 (≤ $2, ≤ 2 seed episodes, $0.75 each, inside the $25 cap) and 3
   (bounded private generation) recorded in [DECISIONS](DECISIONS.md#paper-podcasts-v1-owner-asked-2026-10-08).
   Migration 048 (every switch off), worker `POST /podcast` (Sonnet 5.5 two-pass script + deterministic evidence
@@ -261,9 +263,9 @@ offline structured reading and local Mathpix processing remain gated as describe
   applied**; the matching `discover`/`feed-refresh` and the iPhone/iPad Feed (For you default, topic chips, More
   topics, why line, Topics and Popularity columns) are local only. No Feed refresh function or personalized UI was
   deployed, and no paid ranking is enabled. [Enable steps](architecture/PERSONALIZED_FEED.md#enable-046-on-staging-lead).
-- **Pricing and podcasts:** research/model and reviewed design merged; live offers are unchanged. Podcast v1
-  scope/privacy and a **$2 total pilot inside the existing $25 provider cap** await owner acceptance. No podcast
-  schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
+- **Historical pricing note:** the initial `$2` pilot proposal is superseded. The active podcast economics are the
+  reviewed `$3` October curated allowance (maximum 10 operator-selected, review-gated episodes) inside the existing
+  `$25` provider budget; private generation remains bounded by account and profile caps. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
 ## Podcasts: first two episodes published — 2026-10-09 UTC
@@ -287,7 +289,8 @@ offline structured reading and local Mathpix processing remain gated as describe
     unanswered "Give me a concrete number" where the checker removed the reply.
   - `podcast.catalog` passes against a real episode (2,074,026 audio bytes verified).
   - Pilot spend: $1.94 of $5 (two episodes, $0.27 and $0.30; the rest went to the failed attempts).
-- **Private generation enabled for five minutes only** (`allowed_profiles=podcast-5min-v1:1`).
+- **Private generation now allowlists all four v2 profiles** (`podcast-short-v1:2`, `podcast-5min-v1:2`,
+  `podcast-10min-v1:2`, `podcast-20min-v1:2`); the policy status was read back from staging after the rollout.
 - **TestFlight build 24** is VALID (iOS and Mac).
 
 ## Podcasts on staging and the first seed attempt — 2026-10-09 UTC

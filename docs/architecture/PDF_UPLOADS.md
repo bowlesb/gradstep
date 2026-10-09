@@ -1,10 +1,11 @@
 # Adding any paper: identifiers, PDF uploads, device downloads, sharing
 
-> **Status, 2026-10-08 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
+> **Status, 2026-10-09 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
 > `upload-pdf`, the private `paper-uploads` bucket and the bounded worker transport are deployed. Scope-2 inventory
 > completed with zero discrepancies and upload admission was enabled. Native epoch/descriptor/chunk adoption
 > is in the build-17/18 lineage; build 19 also carries 042's v5 ordinary library-write repair. Browser PDF upload
-> remains unavailable. The Share extension's App Group/App ID/profiles and real system-share/device journeys
+> remains unavailable. The native queue now speaks the deployed authenticated chunk protocol and writes the
+> encrypted descriptor required for a new uploaded paper before freeze. The Share extension's App Group/App ID/profiles and real system-share/device journeys
 > remain separate acceptance gates; these are not claims that every upload path has been exercised on a device.
 
 The signed/upsert candidate was replaced by the bounded authenticated protocol below before deployment.
@@ -130,12 +131,15 @@ are a poor place for a 64 MB upload with retries. The inbox keeps credentials in
 ## The app's upload queue
 
 `Services/PDFUploadQueue.swift`: per deployment and account (`Application Support/PDFUploads/<deployment>/<account>/`),
-a job (JSON) beside a copy of the PDF. Checks before sending match the server's (`PDFFileCheck`). States: waiting,
-uploading (progress), finishing, failed (the reader acts: storage full, credits, target gone, …). Transient errors
-back off 5 s, 30 s, 2 min, 10 min, 30 min and resume on foreground; an expired session restarts under a new upload ID;
-a finalize keeps the library cursor it first sent. Sign-out stops the queue; a different account never sends another
-account's files. Library: banners above the rows (progress, waiting reason, stopped with Try again / Remove / Get
-credits, and "Added …").
+a job (JSON) beside a copy of the PDF. Checks before sending match the server's (`PDFFileCheck`). The live queue
+hashes each fixed 4 MiB part, begins an authenticated `upload-chunks-v1` session, sends only unverified parts, refreshes
+the session revision after receipts, and freezes with the server's generation/revision. For a `paper` target it seals
+the private title and optional filename with the device-held library keys and writes that descriptor after begin and
+before freeze; the title is never sent in upload admission. States: waiting, uploading (progress), finishing, failed
+(the reader acts: storage full, credits, target gone, …). Transient errors back off 5 s, 30 s, 2 min, 10 min, 30 min
+and resume on foreground; an expired session restarts under a new upload ID; a finalize keeps the library cursor it
+first sent. Sign-out stops the queue; a different account never sends another account's files. Library: banners above
+the rows (progress, waiting reason, stopped with Try again / Remove / Get credits, and "Added …").
 
 ## Tests
 
