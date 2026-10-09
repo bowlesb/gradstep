@@ -130,9 +130,10 @@ const number = (n: number) => n.toLocaleString('en-US');
  */
 export function scriptInstructions(shape: ScriptShape = FIVE_MINUTE_SHAPE, maxSpoken = MAX_SPOKEN_CHARACTERS, speech: SpeechBudget = FIVE_MINUTE_SPEECH): string {
   const spoken = Math.min(maxSpoken, spokenCharacterBudget(speech, shape.segments[1]));
+  const targetWords = Math.min(shape.words[1], Math.max(shape.words[0], Math.ceil(shape.words[0] * 11 / 10)));
   const chapterExamples = shape.chapters[1] <= 3 ? 'for example: the question and method, the evidence, the caveats'
     : 'for example: the question, the method, the evidence, the caveats, why it matters';
-  return SCRIPT_TEMPLATE.replace('{LENGTH}', `${shape.duration} of speech, ${number(shape.words[0])} to ${number(shape.words[1])} spoken words in total and never more than ${number(spoken)} characters of spoken text across all segments. Use ${shape.chapters[0]} to ${shape.chapters[1]} chapters (${chapterExamples}) and ${shape.segments[0]} to ${shape.segments[1]} segments`);
+  return SCRIPT_TEMPLATE.replace('{LENGTH}', `${shape.duration} of speech, ${number(shape.words[0])} to ${number(shape.words[1])} spoken words in total and never more than ${number(spoken)} characters of spoken text across all segments. Count the spoken words before returning and aim for at least ${number(targetWords)} while staying below ${number(shape.words[1])}; a final draft below ${number(shape.words[0])} is rejected after evidence cleanup. Use ${shape.chapters[0]} to ${shape.chapters[1]} chapters (${chapterExamples}) and ${shape.segments[0]} to ${shape.segments[1]} segments`);
 }
 
 /** How to quote and how to speak numbers; shared by the draft and the review so both apply the checker's rules. */
