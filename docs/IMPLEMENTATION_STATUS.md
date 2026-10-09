@@ -1,13 +1,13 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `4db5f2a2`, and the admin site is deployed.**
+Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
-- **Browser release:** source is commit `514dd86` on main; Pages deployment
-  `4db5f2a2` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
+- **Browser release:** source is commit `feb1099` on main; Pages deployment
+  `1b45e0af` is live at [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates
   passed, then anonymous HTTPS checks returned 200 with the expected CSP, HSTS, no-transform cache policy and
   same-origin isolation. The custom domain matched the deployment preview byte-for-byte, including the new reader
   paper-actions and browser chat-copy bundle. No account, provider, OCR or paid request was made by these checks.
