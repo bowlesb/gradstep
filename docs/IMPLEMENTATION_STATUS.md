@@ -110,7 +110,7 @@ offline structured reading and local Mathpix processing remain gated as describe
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
 - **Mac:** the merged-main universal Catalyst build is signed for development on arm64 and x86_64. The full native
-  unit suite passes **373 tests, 4 expected skips, 0 failures** on commit `139c98e`; the Settings toolbar regression is fixed
+  unit suite passes **385 tests, 4 expected skips, 0 failures** on the current main checkout; the Settings toolbar regression is fixed
   in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
