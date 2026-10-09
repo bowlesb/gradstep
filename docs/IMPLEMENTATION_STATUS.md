@@ -219,6 +219,30 @@ does not yet claim that source-only papers are readable offline.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Podcasts: first two episodes published — 2026-10-09 UTC
+
+- **Fix 3** (checker v4: review reason codes, repair before rejecting):
+  - Applied migration `202610080051_podcast_seed_cap.sql` (seed cap $5, owner-approved) from a podcast-only branch,
+    so Codex's unapplied `202610090051_rights_aware_arxiv_delivery.sql` and its pipeline change stay with Codex.
+  - Backup `20261009T050530Z-9acee00abba2` was taken first and exited 0.
+  - Worker `gradstep-pipeline-00016-2j2`.
+- **Fix 4** (worker `gradstep-pipeline-00017-bxw`, also from the podcast-only branch):
+  - Seeds passed every script check, then got HTTP 400 from Vertex.
+  - Probes (under $0.001) showed `gemini-3.8-flash-tts` rejects any `maxOutputTokens`. The request no longer sends
+    it, and the grant is kept beside the request.
+  - With no cap, a call is bounded only by the 16,384-token serving limit. A chunk granted less is now refused before
+    anything is bought (`speech_grant_below_serving_limit`).
+  - Five minutes (one call, 16,384) is unaffected. **Short, 10 and 20 minutes need revised profiles (new versions,
+    a migration) before they can be enabled.**
+- **Published:** "The Persona Hierarchy Model" (3 min 54 s, 23 turns, 5 chapters) and "Decoupling Exploration from
+  Optimization in RLVR" (3 min 22 s).
+  - The lead read both transcripts: grounded, evidence-linked numbers. The RLVR episode has one abrupt spot: an
+    unanswered "Give me a concrete number" where the checker removed the reply.
+  - `podcast.catalog` passes against a real episode (2,074,026 audio bytes verified).
+  - Pilot spend: $1.94 of $5 (two episodes, $0.27 and $0.30; the rest went to the failed attempts).
+- **Private generation enabled for five minutes only** (`allowed_profiles=podcast-5min-v1:1`).
+- **TestFlight build 24** is VALID (iOS and Mac).
+
 ## Podcasts on staging and the first seed attempt — 2026-10-09 UTC
 
 - **Deployed, switched off by default:**
