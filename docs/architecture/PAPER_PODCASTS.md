@@ -863,19 +863,26 @@ Rollback at any point: `policy --set seed_enabled=false --set generation_enabled
 
 ### Verification (local, 2026-10-08)
 
-- `python3 scripts/test-database.py`: full suite passes, including `tests/database/test_podcasts.sql` (dark
-  defaults, audited policy, $2/two-episode seed allowance, seed lifecycle with profile-derived ceilings, review,
-  catalog metadata and no funder/path leakage, bounded delivery and transfer limits, takedown, private
-  quote/start/join/cancel, unknown outcomes, actual-usage charges, private isolation, lease recovery, epoch fence,
-  quality pause, capacity refusal, fixtures, scope-3 inventory, account deletion, immutability) and
-  `podcast_concurrency.py` (real sessions).
-- `npm test`: backend suite passes, including 23 podcast tests (checker, speech adapter, token impersonation, WAV
-  and timing, worker job against a fake database, encoder arguments/probe, Edge API, single-use delivery, worker
-  routing). Deno strict checks pass for `podcast`, `podcast-member` and the shared podcast modules.
-- Operations tests: restore quarantine, scope-3 inventory reconciliation, worker deploy context and speech env,
-  `podcast-ops.py`.
-- `scripts/check-podcast-encoder.py`: the real worker image (ffmpeg 5.1.9) encoded a 25.15 s labeled fixture to
-  63 kbit/s mono AAC M4A in 0.8 s; macOS AVFoundation read both chapter markers from an encoded file.
+Final run on the merged tree (main through `a53c6f8`, with migration 047): no hosted service, provider, device or upload
+was used.
+
+- `python3 scripts/test-database.py`: exit 0, 234 PASS lines; 048 applies after 046 and 047. Includes
+  `tests/database/test_podcasts.sql` (dark defaults, audited policy, $2/two-episode seed allowance, seed lifecycle,
+  review, catalog metadata, bounded delivery, takedown, private quote/start/join/cancel, unknown outcomes, actual-usage
+  charges, isolation, lease recovery, epoch fence, quality pause, capacity, fixtures, scope-3 inventory, deletion),
+  `tests/database/test_podcast_lengths.sql` (each profile's ceiling and credit maximum re-derived, allowlist and its
+  audited changes, quotes per length, seeds five-minute only, checkpoints, resumed claims, recovery to a checkpoint,
+  yields, all-or-nothing chunk grants, parked cancel/closing, restore fence), `podcast_concurrency.py` (real sessions)
+  and `podcast_worker_journey.py` (the real worker and Edge code on the real schema: fixture and seed episodes, a private
+  five-minute episode and a **ten-minute episode staged over three worker requests with chunked speech**; its responses
+  are the client fixtures in `tests/fixtures/podcast`).
+- `npm test`: 461 passed (31 podcast: checker, profile-driven prompts and bounds, speech adapter, chunk planner and
+  joiner, staged ten-minute flow, yields, refused/partial chunk batches, review-fit refusal, encoder, Edge API with
+  `profile`, delivery, worker routing). Deno strict checks pass for `podcast` and `podcast-member`.
+- Operations: 138 Python tests (restore quarantine, scope-3 inventory, worker deploy context and speech env,
+  `podcast-ops.py` including `allowed_profiles`) and 7 Node tests.
+- `scripts/check-podcast-encoder.py` (earlier, unchanged encoder): the real worker image (ffmpeg 5.1.9) encoded a
+  labeled fixture to mono AAC M4A; AVFoundation read its chapter markers.
 
 ### Browser client (apps/web, 2026-10-08, local fixture verification only)
 
@@ -956,9 +963,19 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
 - **Fixture (`--podcast-fixture`, Simulator/Mac Debug only):** two labeled shared episodes and a generated private
   one; audio is tones synthesized on the device with the transcript's timing; evidence quotes are verbatim sentences
   of the bundled offline sample. Zero spend, no network.
-- **Evidence:** `swift test` (Core) 266 passed, including 18 podcast tests that decode every captured server
-  response in `tests/fixtures/podcast`; iOS unit tests 399 run, 5 skipped, 1 timing flake in
-  `LibraryModelTests` that passes alone (podcast transport/fixture: 8 passed); podcast UI journeys: 10 passed (1 iPad-only skipped) on an
-  iPhone 17 Pro Simulator plus 1 on an iPad Pro 11-inch Simulator; FeedForYouTests 4 passed after the Feed merge;
-  Mac Catalyst build succeeds. Light/dark screenshots in `.artifacts/podcast-ui/` were inspected. No hosted backend,
-  provider call, device or TestFlight upload was used.
+- **Evidence (final, merged tree):** `swift test` (Core) 277 passed, including 19 podcast tests that decode every
+  captured server response in `tests/fixtures/podcast` (the ten-minute quote, job, episode and paper lengths too); iOS
+  unit tests 411 run, 5 skipped, 0 failures; podcast UI journeys on an iPhone 17 Pro Simulator (`GS-Podcast-iPhone`):
+  12 passed, 1 iPad-only skipped (Listen filter, play/±15 s/mini-player, mini-player clear of the chat message box,
+  transcript evidence jump, evidence outside the library, verified offline download across relaunch, private quote →
+  progress → charge, failed generation charges nothing, outcome pending, **choosing 10 minutes quotes its own 220-credit
+  maximum**, **Other lengths offers the ready five-minute episode or a new length**, light/dark screenshots); on an
+  iPad Pro 11-inch Simulator (`GS-Podcast-iPad`) the wide-layout docked player, Listen filter, mini-player and the
+  ten-minute quote passed, with main's four tablet keyboard/split-chat tests. A universal (arm64 + x86_64) unsigned Mac
+  Catalyst `build-for-testing` succeeds with `UIBackgroundModes: audio`. Screenshots (light and dark) are in
+  `.artifacts/podcast-ui/lengths-20261008/` and were inspected.
+- **Merge fix (2026-10-08):** with main's chat controls, tapping the chat message box on an iPhone while the mini-player
+  showed never raised the keyboard (keyboard + tab-bar reserve briefly tipped the composer into its compact layout, which
+  rebuilt the text field). The composer now changes shape through one `AnyLayout` with a stable text field, and the
+  mini-player's share of the reserve no longer decides the layout; main's chat-controls (3), iPhone chat keyboard (4)
+  and tablet keyboard (4) UI tests pass.
