@@ -90,6 +90,60 @@ export function planSpeechChunks(segments: (SpokenSegment & { chapter: string })
   return chunks;
 }
 
+// ----------------------------------------------------------------------------
+// Fitting a checked script into its speech calls. Every call is bounded by request
+// bytes (spoken text plus per-segment speaker/style metadata plus 258 bytes of
+// framing), a provable bound on input tokens. The script prompt states a spoken-
+// character limit derived from the same arithmetic; here, before anything is
+// bought, an over-budget script first has its delivery directions shortened
+// (metadata only, never a spoken word) and fails only when even that cannot fit.
+// ----------------------------------------------------------------------------
+/** Delivery directions the prompt asks for (at most three words) and the shortest kept when space is needed. */
+export const STYLE_MAX_CHARS = 24, STYLE_MIN_CHARS = 12;
+/** speechRequest's fixed allowance plus the JSON array brackets. */
+const REQUEST_FRAMING_BYTES = 258;
+/** Bytes one part adds beyond its text and style: the JSON keys, the longer speaker label and one separator. */
+export const PART_OVERHEAD_BYTES = new TextEncoder().encode(JSON.stringify(speechPart({ text: '', speaker: 'explainer', style: 'x' }))).byteLength - 'x'.length + 1;
+
+export interface SpeechBudget { maxInputTokens: number; maxCalls: number }
+/**
+ * Spoken characters a script may use so that `maxSegments` segments with full-length styles fit the
+ * profile's speech calls, with a 10% margin for multi-byte characters, JSON escapes and chunk seams.
+ */
+export function spokenCharacterBudget(budget: SpeechBudget, maxSegments: number): number {
+  const room = budget.maxCalls * (budget.maxInputTokens - REQUEST_FRAMING_BYTES) - maxSegments * (PART_OVERHEAD_BYTES + STYLE_MAX_CHARS);
+  return Math.max(0, Math.floor(room * 0.9 / 100) * 100);
+}
+
+/** A delivery direction cut at a word or comma boundary. */
+export function shortStyle(style: string, max: number): string {
+  const s = style.replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max + 1);
+  const at = Math.max(cut.lastIndexOf(','), cut.lastIndexOf(' '));
+  return (at > 0 ? cut.slice(0, at) : s.slice(0, max)).replace(/[\s,;]+$/, '');
+}
+
+export interface SpeechFit<T> { segments: T[]; plan: SpeechChunk[] | null; bytes: number; budget: number; stylesShortened: number }
+/** The speech plan for a checked script, shortening delivery directions only if that is what it takes to fit. */
+export function fitSpeech<T extends SpokenSegment & { chapter: string }>(segments: T[], limits: SpeechLimits): SpeechFit<T> {
+  const encoder = new TextEncoder();
+  const bytes = (list: T[]) => REQUEST_FRAMING_BYTES + Math.max(0, list.length - 1)
+    + list.reduce((n, s) => n + encoder.encode(JSON.stringify(speechPart(s))).byteLength, 0);
+  const budget = limits.maxCalls * limits.maxInputTokens;
+  let current = segments, shortened = 0;
+  for (const max of [Infinity, STYLE_MAX_CHARS, STYLE_MIN_CHARS]) {
+    if (max !== Infinity) {
+      const next = current.map(s => { const style = shortStyle(s.style, max); return style === s.style ? s : { ...s, style }; });
+      shortened = next.filter((s, i) => s.style !== segments[i].style).length;
+      current = next;
+    }
+    const plan = planSpeechChunks(current, limits);
+    if (plan) return { segments: current, plan, bytes: bytes(current), budget, stylesShortened: shortened };
+  }
+  return { segments: current, plan: null, bytes: bytes(current), budget, stylesShortened: shortened };
+}
+
 export interface SpeechResult {
   state: 'succeeded' | 'rejected' | 'unknown';
   requestID: string | null; model: string | null; finishReason: string | null;

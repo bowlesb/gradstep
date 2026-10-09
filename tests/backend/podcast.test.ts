@@ -8,7 +8,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
 import { applyCorrections, checkScript, correctionLimit, draftRequest, fitsInput, fixtureScript, parseReview, parseScript, requestBytes, REVIEW_SCHEMA,
-  reviewRequest, scriptCost, scriptDocument, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
+  reviewRequest, scriptCost, scriptDocument, type CheckReport, type ReviewCorrections, type Script, type ScriptCallResult, type ScriptParams,
   type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
   vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
@@ -90,31 +90,40 @@ test('script requests: no tools, no fallback, no thinking, profile output caps a
   assert.deepEqual(cost.units, { input_tokens: 20_000, cache_write_5m_tokens: 0, cache_write_1h_tokens: 0, cache_read_tokens: 0, output_tokens: 3_000 });
 });
 
-test('checker accepts verbatim evidence and refuses unsupported numbers, paraphrased quotes, markup and rejected reviews', () => {
+test('checker v3 accepts verbatim evidence, removes each unsupported claim on its own (never relabels it) and refuses rejected reviews', () => {
   const ok = checkScript(goodScript(), PAPER);
   assert.equal(ok.ok, true, ok.ok ? '' : ok.problems.join(','));
   if (ok.ok) {
-    assert.ok(ok.script.segments[5].evidence[0].offset > 0);
-    assert.equal(scriptDocument(ok.script), scriptDocument(checkScript(goodScript(), PAPER).ok ? (checkScript(goodScript(), PAPER) as { script: never }).script : ok.script));
+    assert.equal(ok.report.outcome, 'accepted');
+    assert.ok(PAPER.slice(ok.script.segments[5].evidence[0].offset).startsWith('Sparse routing reaches 41.2'), 'offset into the pinned text');
+    assert.equal(scriptDocument(ok.script), scriptDocument((checkScript(goodScript(), PAPER) as { script: never }).script), 'deterministic');
   }
-  const paraphrase = goodScript(); paraphrase.segments[5].evidence[0].quote = 'Sparse routing gets 41.2 perplexity versus 43.9.';
-  assert.ok(!checkScript(paraphrase, PAPER).ok);
-  const number = goodScript(); number.segments[6].text = 'Throughput improves by 2.5x at equal compute.';
-  assert.deepEqual((checkScript(number, PAPER) as { problems: string[] }).problems, ['number_not_in_evidence:s7']);
-  const bare = goodScript(); bare.segments[1].text = 'It is 99 percent better.';
-  assert.ok((checkScript(bare, PAPER) as { problems: string[] }).problems.includes('unsupported_number:s2'));
-  const markup = goodScript(); markup.segments[0].text = 'Speaker 1: **hello** $x$';
-  assert.ok((checkScript(markup, PAPER) as { problems: string[] }).problems.includes('segment_markup:s1'));
+  // Each broken turn is removed; the rest of the script stands and is reported as degraded.
+  const cases: [string, (s: Script) => void, string][] = [
+    ['s6', s => { s.segments[5].evidence[0].quote = 'Sparse routing gets 41.2 perplexity versus 43.9.'; }, 'evidence_missing'],
+    ['s7', s => { s.segments[6].text = 'Throughput improves by 2.5x at equal compute.'; }, 'number_not_in_evidence'],
+    ['s2', s => { s.segments[1].text = 'It is 99 percent better.'; }, 'unsupported_number'],
+    ['s1', s => { s.segments[0].text = 'Speaker 1: **hello** $x$'; }, 'markup'],
+    // No heading marks or cross-block quotes: the quote is dropped and its claim goes with it.
+    ['s6', s => { s.segments[5].evidence[0].quote = '## 4 Results Sparse routing reaches 41.2 perplexity'; }, 'evidence_missing'],
+    ['s6', s => { s.segments[5].evidence[0].quote = 'at equal compute. We only evaluate English text'; }, 'evidence_missing'],
+    ['s6', s => { s.segments[5].evidence = []; }, 'evidence_missing'],
+  ];
+  for (const [id, mutate, reason] of cases) {
+    const script = goodScript(); mutate(script);
+    const result = checkScript(script, PAPER);
+    assert.ok(result.ok, `${id} ${reason}: ${result.ok ? '' : result.problems.join(',')}`);
+    if (!result.ok) continue;
+    assert.equal(result.report.outcome, 'degraded');
+    assert.deepEqual(result.report.removals, [{ segment: id, reason }]);
+    assert.deepEqual(result.script.segments.map(s => s.id), script.segments.map(s => s.id).filter(s => s !== id));
+    for (const kept of result.script.segments) assert.equal(kept.claim_type, script.segments.find(s => s.id === kept.id)!.claim_type);
+  }
   const rejected = goodScript(); rejected.review = { verdict: 'reject', issues: [] };
   assert.ok((checkScript(rejected, PAPER) as { problems: string[] }).problems.includes('review_rejected'));
-  const spanning = goodScript(); spanning.segments[5].evidence[0].quote = '## 4 Results Sparse routing reaches 41.2 perplexity';
-  assert.ok((checkScript(spanning, PAPER) as { problems: string[] }).problems.includes('evidence_not_verbatim:s6'), 'no heading marks or cross-block quotes');
-  const across = goodScript(); across.segments[5].evidence[0].quote = 'at equal compute. We only evaluate English text';
-  assert.ok((checkScript(across, PAPER) as { problems: string[] }).problems.includes('evidence_not_verbatim:s6'), 'a quote never crosses a heading');
   const wrapped = goodScript(); wrapped.segments[5].evidence[0].quote = 'reaches 41.2 perplexity on the benchmark versus 43.9 for the dense baseline. Training throughput improves by 1.8x';
-  assert.equal(checkScript(wrapped, PAPER).ok, true, 'consecutive lines of one paragraph read as one passage');
-  const material = goodScript(); material.segments[5].evidence = [];
-  assert.ok((checkScript(material, PAPER) as { problems: string[] }).problems.includes('evidence_missing:s6'));
+  const joined = checkScript(wrapped, PAPER);
+  assert.ok(joined.ok && joined.report.outcome === 'accepted', 'consecutive lines of one paragraph read as one passage');
   assert.equal(parseScript('{"title":"x"}'), null);
   assert.equal(parseScript(JSON.stringify(goodScript()))?.segments.length, 15);
   assert.equal(parseScript(JSON.stringify(goodScript()))?.review, undefined, 'a draft never carries a verdict');
@@ -350,6 +359,7 @@ function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' |
         case 'worker_podcast_asset_written': return null as T;
         case 'worker_podcast_publish': return { state: 'ready', canceled: false, release: { release_id: 'rel', state: 'pending_review' } } as T;
         case 'worker_podcast_fail': return { state: 'failed' } as T;
+        case 'worker_podcast_checked': return { recorded: true } as T;
       }
       throw new Error('unexpected_rpc');
     },
@@ -470,10 +480,11 @@ test('unknown script outcome keeps the liability and stops; no further grants or
   assert.equal(finish.p_state, 'unknown'); assert.equal(finish.p_actual_microusd, null);
 });
 
-test('checker rejection is a quality failure (customer charged zero) after recorded usage', async () => {
-  // The review "corrects" s6 to a paraphrase: applied, then refused by the checker.
-  const bad: ReviewCorrections = { ...ACCEPT, claims: [{ segment: 's6', claim_type: 'paper_result',
-    evidence: [{ quote: 'paraphrased claim that is not in the paper text', section: '' }], problem: 'tighter quote' }] };
+test('checker rejection is a quality failure (customer charged zero) after recorded usage, with its report recorded first', async () => {
+  // The review "corrects" three claims to paraphrases: 3 of 6 quotes (50%) unverifiable is beyond repair.
+  const paraphrase = 'paraphrased claim that is not in the paper text';
+  const bad: ReviewCorrections = { ...ACCEPT, claims: ['s3', 's4', 's6'].map(segment => ({ segment, claim_type: 'paper_result' as const,
+    evidence: [{ quote: paraphrase, section: 'Secret section' }], problem: 'tighter quote' })) };
   const h = harness({ scripts: [goodScript(), bad] });
   const result = await runPodcast(h.deps, Date.now() + 600_000);
   assert.equal(result.failure, 'script_evidence_rejected');
@@ -481,6 +492,73 @@ test('checker rejection is a quality failure (customer charged zero) after recor
   assert.equal(fail.name, 'worker_podcast_fail'); assert.equal(fail.params.p_quality, true);
   assert.equal(h.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, 2);
   assert.ok(!h.names().includes('worker_podcast_asset_plan'));
+  // The report is recorded with the job immediately before the failure settles it: counts, codes and offsets only.
+  const checked = h.calls.at(-2)!;
+  assert.equal(checked.name, 'worker_podcast_checked');
+  const report = checked.params.p_report as CheckReport;
+  assert.equal(report.outcome, 'rejected'); assert.equal(report.checker, 'podcast-checker-v3');
+  assert.ok(report.rules.includes('evidence_unverified_share'), report.rules.join());
+  assert.deepEqual([report.evidence!.checked, report.evidence!.unverified], [6, 3]);
+  assert.deepEqual(report.items!.map(i => [i.segment, i.reason]), [['s3', 'not_found'], ['s4', 'not_found'], ['s6', 'not_found']]);
+  assert.deepEqual(report.removals!.map(r => r.segment), ['s3', 's4', 's6']);
+  assert.ok(!JSON.stringify([report, h.logs]).includes(paraphrase) && !JSON.stringify(report).includes('Secret'), 'no model or paper text');
+  assert.deepEqual(h.logs.find(l => (l as { event: string }).event === 'podcast_script_checked'), { event: 'podcast_script_checked',
+    job_id: '46000000-0000-4000-8000-000000000101', outcome: 'rejected', kept: 12, removed: 3, evidence: 6, unverified: 3, first: report.rules[0] });
+});
+
+test('checker report: recorded before speech when accepted or degraded; a missing recorder never stops the job', async () => {
+  const draft = goodScript(); delete draft.review;
+  draft.segments[8].text = 'They compare against 7 baselines, which is a lot.'; // an unsupported number in an unevidenced turn: removed, not fatal
+  const h = harness({ scripts: [draft, ACCEPT] });
+  const result = await runPodcast(h.deps, Date.now() + 600_000);
+  assert.equal(result.state, 'ready', result.failure ?? '');
+  const names = h.names();
+  assert.ok(names.indexOf('worker_podcast_checked') > names.lastIndexOf('worker_provider_attempt_finish', names.indexOf('worker_podcast_speech_begin') - 1)
+    && names.indexOf('worker_podcast_checked') < names.indexOf('worker_podcast_speech_begin'), 'after the review, before speech is granted');
+  const report = h.calls.find(c => c.name === 'worker_podcast_checked')!.params.p_report as CheckReport;
+  assert.equal(report.outcome, 'degraded');
+  assert.deepEqual(report.removals, [{ segment: 's9', reason: 'unsupported_number' }]);
+  assert.deepEqual(report.speech, { bytes: report.speech!.bytes, budget: 8192, calls: 1, styles_shortened: 0 });
+  assert.ok(report.speech!.bytes < 8192);
+  const plan = h.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
+  const transcript = JSON.parse(new TextDecoder().decode(h.uploads.get(plan[1].path)!));
+  assert.ok(!transcript.segments.some((s: { id: string }) => s.id === 's9'), 'the removed claim is not in the episode');
+  // Before migration 050 is applied the recorder is missing: the job carries on and says so in its logs.
+  const missing = harness({ failRpc: name => name === 'worker_podcast_checked' ? new Error('function_not_found') : null });
+  assert.equal((await runPodcast(missing.deps, Date.now() + 600_000)).state, 'ready');
+  assert.ok(missing.logs.some(l => (l as { event: string }).event === 'podcast_check_unrecorded'));
+  // A fence error while recording means another worker owns the job: stop without writing.
+  const stale = harness({ failRpc: name => name === 'worker_podcast_checked' ? new Error('stale_podcast_claim') : null });
+  const stopped = await runPodcast(stale.deps, Date.now() + 600_000);
+  assert.equal(stopped.failure, 'stale_podcast_claim');
+  assert.ok(!stale.names().includes('worker_podcast_speech_begin') && !stale.names().includes('worker_podcast_fail'));
+});
+
+test('five-minute speech size: delivery directions shorten to fit; a script that cannot fit fails before any speech grant', async () => {
+  const filler = 'The hosts slow down to walk through what this passage says and why it matters.';
+  const long = (style: string, words: number) => {
+    const draft = goodScript(); delete draft.review;
+    draft.segments = [...draft.segments.slice(2, 8), ...Array.from({ length: 38 }, (_, i) => ({ id: `s${20 + i}`, chapter: 'c4',
+      speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic', style, text: `${filler} ${'Listen carefully here. '.repeat(words)}`.trim(),
+      claim_type: 'context' as const, evidence: [], math: [] }))];
+    draft.segments.unshift({ ...goodScript().segments[0], text: 'Today we look at sparse routing.' }, { ...goodScript().segments[1], text: 'Why does routing matter?' });
+    return draft;
+  };
+  // 46 turns with long delivery directions: over 8,192 bytes as written, inside once the directions are short.
+  const fits = harness({ scripts: [long('curious, measured, gently skeptical, warm', 0), ACCEPT] });
+  assert.equal((await runPodcast(fits.deps, Date.now() + 600_000)).state, 'ready');
+  const report = fits.calls.find(c => c.name === 'worker_podcast_checked')!.params.p_report as CheckReport;
+  assert.ok(report.speech!.styles_shortened > 0 && report.speech!.bytes <= 8192, JSON.stringify(report.speech));
+  const sent = fits.calls.find(c => c.name === 'worker_podcast_speech_begin')!;
+  assert.equal((sent.params.p_chunks as unknown[]).length, 1);
+  // Spoken text alone is over the bound: nothing can make it fit, so no speech is bought.
+  const refused = harness({ scripts: [long('calm', 1), ACCEPT] });
+  assert.equal((await runPodcast(refused.deps, Date.now() + 600_000)).failure, 'script_too_long_for_speech');
+  assert.ok(!refused.names().includes('worker_podcast_speech_begin'));
+  const recorded = refused.calls.find(c => c.name === 'worker_podcast_checked')!.params.p_report as CheckReport;
+  assert.equal(recorded.stage, 'speech'); assert.equal(recorded.outcome, 'rejected'); assert.deepEqual(recorded.rules, ['speech_too_long']);
+  assert.ok(recorded.speech!.bytes > recorded.speech!.budget && recorded.speech!.calls === 0);
+  assert.equal(refused.calls.at(-1)!.params.p_quality, true, 'a quality failure: the customer is charged zero');
 });
 
 // The staging seed pilot (worker revision 00013): drafts of 4,785 and 4,497 output tokens (cap 6,000), then
@@ -537,7 +615,7 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   assert.deepEqual(before.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['checking']);
   assert.equal(before.calls.at(-1)!.params.p_quality, true);
 
-  // Checker v2: the same draft, reviewed as a three-entry correction set.
+  // Since checker v2: the same draft, reviewed as a three-entry correction set.
   const corrections: ReviewCorrections = {
     delete: [{ segment: 's30', problem: 'repeats an earlier transition' }],
     replace: [{ segment: 's19', text: 'Each token goes to the top 2 of 64 experts, so most experts never see most tokens.', math: [],
@@ -564,9 +642,9 @@ test('five-minute pilot: a ~4,800-token draft cannot be re-emitted under the 4,0
   assert.equal(segment('s19').text, corrections.replace[0].text);
   assert.equal(segment('s3').claim_type, 'author_interpretation'); assert.deepEqual(segment('s3').evidence.map((e: { quote: string }) => e.quote), [QUOTED[0][0]]);
   const manifest = JSON.parse(new TextDecoder().decode(after.uploads.get(plan[2].path)!));
-  assert.equal(manifest.identity.checker, 'podcast-checker-v2');
+  assert.equal(manifest.identity.checker, 'podcast-checker-v3');
   assert.equal(manifest.review_sha256, sha(JSON.stringify(corrections)), 'draft and correction set recorded as lineage');
-  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v2');
+  assert.equal((after.calls.find(c => c.name === 'worker_podcast_publish')!.params.p_release as { checker_version: string }).checker_version, 'podcast-checker-v3');
   assert.ok(!JSON.stringify(after.logs).includes('most experts never see'), 'no script text in logs');
 });
 

@@ -3,10 +3,11 @@
 // grant; an unknown outcome stops the job and keeps the liability; nothing paid is
 // retried automatically. Content (paper text, scripts, audio) never enters logs —
 // only ids, digests and counts; staged drafts are kept as bounded server checkpoints.
-import { applyCorrections, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, fitsInput, fixtureScript,
-  NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument, scriptInstructions, SPEAKERS,
-  type CheckedScript, type CheckerBounds, type Script, type ScriptCallResult, type ScriptParams, type ScriptProvider, type ScriptShape } from './podcast-script.ts';
-import { alignSegments, fixtureAudio, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
+import { applyCorrections, boundReport, checkScript, CHECKER_VERSION, correctionLimit, DISCLOSURE, draftRequest, FIVE_MINUTE_BOUNDS, FIVE_MINUTE_SHAPE,
+  fitsInput, fixtureScript, NORMALIZATION_VERSION, normalizeText, parseReview, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument,
+  scriptInstructions, SPEAKERS, type CheckedScript, type CheckerBounds, type CheckReport, type Script, type ScriptCallResult, type ScriptParams,
+  type ScriptProvider, type ScriptShape } from './podcast-script.ts';
+import { alignSegments, fitSpeech, fixtureAudio, joinChunks, parseWav, speechCost, speechRequest, verifyAudio, wavBytes, type Pcm,
   type SpeechProvider, type SpeechResult, type Timing } from './podcast-speech.ts';
 
 export interface EncodedAudio { bytes: Uint8Array; durationMs: number; mediaType: 'audio/mp4'; encoder: Record<string, string | number> }
@@ -127,7 +128,9 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     try { paper = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { throw new Failure('source_integrity_failed', false); }
     const title = typeof claim.metadata?.title === 'string' ? claim.metadata.title : null;
     const bounds = spec.checker ?? FIVE_MINUTE_BOUNDS;
-    const instructions = spec.shape ? scriptInstructions(spec.shape, bounds.max_spoken_characters) : undefined;
+    // The prompt's spoken-character limit also fits the profile's speech calls (five minutes: one call).
+    const instructions = scriptInstructions(spec.shape ?? FIVE_MINUTE_SHAPE, bounds.max_spoken_characters,
+      { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1 });
 
     let final: Script, draftDigest: string | null = null, reviewDigest: string | null = null;
     const models: Record<string, string | null> = {};
@@ -162,19 +165,33 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
       const reviewed = applyCorrections(draft, review, correctionLimit(second.max_output_tokens));
       if (!reviewed.ok) {
         log('podcast_review_invalid', { problems: reviewed.problems.length, first: reviewed.problems[0] ?? null });
+        await recordCheck(deps, fence, { checker: CHECKER_VERSION, stage: 'review', outcome: 'rejected', rules: reviewed.problems }, log);
         throw new Failure('script_corrections_invalid', true);
       }
       log('podcast_reviewed', { verdict: review.verdict, corrections: reviewed.corrections, deleted: review.delete.length });
       final = reviewed.script;
     }
+    // Checker v3 drops unverifiable evidence and removes unsupported claims within bounded shares; its
+    // report (counts, ids and offsets only) is recorded with the job whatever the outcome.
     const checked = checkScript(final, paper, { fixture, bounds });
-    if (!checked.ok) { log('podcast_script_rejected', { problems: checked.problems.length, first: checked.problems[0] ?? null }); throw new Failure('script_evidence_rejected', true); }
-    const script = checked.script;
-    // The speech plan: chunks within the per-call input limit, at most the profile's calls, its audio budget shared out.
+    const resumedSpeech = resume?.stage === 'speech';
+    log('podcast_script_checked', { outcome: checked.report.outcome, kept: checked.report.segments?.kept ?? null, removed: checked.report.segments?.removed ?? null,
+      evidence: checked.report.evidence?.checked ?? null, unverified: checked.report.evidence?.unverified ?? null, first: checked.ok ? null : checked.problems[0] ?? null });
+    if (!checked.ok) { await recordCheck(deps, fence, checked.report, log); throw new Failure('script_evidence_rejected', true); }
+    // The speech plan: chunks within the per-call input limit, at most the profile's calls, its audio budget shared out;
+    // delivery directions are shortened if that is what it takes to fit (never a spoken word).
     const perCall = spec.speech.max_output_tokens;
-    const plan = fixture ? null : planSpeechChunks(script.segments, { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1,
+    const fit = fixture ? null : fitSpeech(checked.script.segments, { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1,
       perCallOutputTokens: perCall, maxAudioTokens: spec.speech.max_audio_tokens ?? perCall });
-    if (!fixture && !plan) throw new Failure('script_too_long_for_speech', true);
+    const report: CheckReport = fit ? { ...checked.report, speech: { bytes: fit.bytes, budget: fit.budget, calls: fit.plan?.length ?? 0,
+      styles_shortened: fit.stylesShortened } } : checked.report;
+    if (fit && !fit.plan) {
+      await recordCheck(deps, fence, { ...report, stage: 'speech', outcome: 'rejected', rules: ['speech_too_long'] }, log);
+      throw new Failure('script_too_long_for_speech', true);
+    }
+    if (!resumedSpeech) await recordCheck(deps, fence, report, log);
+    const plan = fit?.plan ?? null;
+    const script: CheckedScript = fit ? { ...checked.script, segments: fit.segments } : checked.script;
     if (staged && resume?.stage !== 'speech') return await checkpoint('script', { format: 1, final, draft_sha256: draftDigest, review_sha256: reviewDigest, models });
     if (resume?.stage !== 'speech') await advance('synthesizing');
 
@@ -303,6 +320,16 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
 }
 
 /** Before the first paid call: the draft must fit its cap, and the review (paper + the largest draft) must fit too. */
+/** Records the checker's bounded report with the job (event 'checked'); a missing or failing recorder never stops the job. */
+async function recordCheck(deps: PodcastDeps, fence: Record<string, unknown>, report: CheckReport,
+  log: (event: string, fields?: Record<string, string | number | boolean | null>) => void): Promise<void> {
+  try { await deps.rpc('worker_podcast_checked', { ...fence, p_report: boundReport(report) }); }
+  catch (error) {
+    if (FENCE.has(code(error))) throw error;
+    log('podcast_check_unrecorded', { code: code(error) });
+  }
+}
+
 async function reviewMustFit(deps: PodcastDeps, params: ScriptParams, draftCap: number, draftOutput: number, reviewCap: number): Promise<void> {
   const bytes = requestBytes(params);
   if (bytes <= draftCap && bytes + draftOutput + REVIEW_FRAMING_TOKENS <= reviewCap) return;
