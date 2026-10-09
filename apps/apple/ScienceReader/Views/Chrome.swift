@@ -100,6 +100,7 @@ struct ChromeFade: View {
 }
 
 private struct TabBarReserveKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+private struct IgnoresKeyboardFrameKey: EnvironmentKey { static let defaultValue = false }
 
 extension EnvironmentValues {
     /// Room the floating tab bar takes above the screen's bottom safe area (0 where there is no tab bar:
@@ -108,14 +109,21 @@ extension EnvironmentValues {
         get { self[TabBarReserveKey.self] }
         set { self[TabBarReserveKey.self] = newValue }
     }
+
+    /// A hidden keyboard's frame is still a keyboard safe area with nothing there (`RootView.keyboardLeftover`).
+    var ignoresKeyboardFrame: Bool {
+        get { self[IgnoresKeyboardFrameKey.self] }
+        set { self[IgnoresKeyboardFrameKey.self] = newValue }
+    }
 }
 
 /// Room for the floating tab bar under a screen's content. Applied inside each screen's NavigationStack,
-/// which doesn't take safe-area insets from outside it.
+/// which doesn't take safe-area insets from outside it (nor the root's ignoring a left-over keyboard frame).
 struct TabBarSpace: ViewModifier {
     var fade: Bool
     var color: Color
     @Environment(\.tabBarReserve) private var reserve
+    @Environment(\.ignoresKeyboardFrame) private var ignoresKeyboardFrame
     func body(content: Content) -> some View {
         content.safeAreaInset(edge: .bottom, spacing: 0) {
             if reserve > 0 {
@@ -123,6 +131,7 @@ struct TabBarSpace: ViewModifier {
                     .background { if fade { ChromeFade(edge: .bottom, color: color) } }
             }
         }
+        .ignoresSafeArea(ignoresKeyboardFrame ? .keyboard : [], edges: .bottom)
     }
 }
 
