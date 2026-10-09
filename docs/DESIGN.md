@@ -16,7 +16,8 @@ Patterns (from [design audit 1](design-audits/2026-10-06-audit1.md); shared code
   runs to the screen's edges behind them and fades out softly.
   - *Tab bar*: one glass capsule, 58 pt tall, 16 pt from the sides (at most 520 pt wide on iPad), sitting in the home
     indicator's area. Each screen keeps room for it inside its NavigationStack (`tabBarSpace()`), so the last row
-    scrolls clear of it with an 8 pt gap. It hides while a software keyboard is up. It does not shrink on scroll.
+    scrolls clear of it with an 8 pt gap. It hides while a software keyboard is up; over the reader's docked find bar
+    (after Search) it sits just above the bar. It does not shrink on scroll.
   - *Headers*: the controls (Library search, + and …; Feed topics and …) float on a
     band (`chromeBand(.top)`) that is 94–100 % the screen's background behind them, then fades out over 22 pt.
     Taps on the band stay with it; the fade below lets them through. Over a table the band stays solid (the column

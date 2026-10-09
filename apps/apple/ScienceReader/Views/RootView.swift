@@ -7,6 +7,21 @@ struct RootView: View {
     /// A software keyboard covers the tab bar, as with the system tab bar, so
     /// the chat transcript keeps its space while typing.
     @State private var softwareKeyboardShown = false
+    /// What the last keyboard hide left on screen (TestFlight build 21: the tab bar and A−/A+ ~170 pt up, the paper cut
+    /// off above an empty band). After Search, WebKit's find bar stays docked where the keyboard was: UIKit reports the
+    /// keyboard hidden with its end frame still on screen, and SwiftUI keeps that frame as a keyboard safe area. The tab
+    /// bar was padded for the home indicator on top of it, and on a device the frame stayed once the bar had gone.
+    @State private var keyboardLeftover = KeyboardLeftover.none
+    /// The last keyboard shown was the find bar's: only its hide leaves a frame behind.
+    @State private var findKeyboard = false
+
+    private enum KeyboardLeftover {
+        case none
+        /// The find bar is docked: the tab bar sits just above it, the page above the tab bar.
+        case findBar
+        /// Nothing is there: the screens ignore the frame until the next keyboard.
+        case frame
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -15,7 +30,8 @@ struct RootView: View {
             else {
                 // Floating chrome (2026-10-07): the tab bar floats over the screen, whose content scrolls
                 // behind it; each screen keeps room for it (`tabBarSpace`) so its last row is reachable.
-                let safeBottom = geometry.safeAreaInsets.bottom
+                // Over a docked find bar, the bar is the bottom safe area: no home indicator below the tabs.
+                let safeBottom = keyboardLeftover == .findBar ? 0 : geometry.safeAreaInsets.bottom
                 destination(model.tab)
                     .environment(\.tabBarReserve, softwareKeyboardShown ? 0 : ChromeMetrics.tabBarReserve(safeBottom: safeBottom))
                     .overlay(alignment: .bottom) {
@@ -23,7 +39,7 @@ struct RootView: View {
                             tabBar.padding(.horizontal, DesignMetrics.margin)
                                 .padding(.bottom, ChromeMetrics.tabBarBottom(safeBottom: safeBottom))
                                 .frame(maxHeight: .infinity, alignment: .bottom)
-                                .ignoresSafeArea(.container, edges: .bottom)
+                                .ignoresSafeArea(keyboardLeftover == .frame ? [.container, .keyboard] : .container, edges: .bottom)
                         }
                     }
                     .onChange(of: model.generalChat) { _, general in
@@ -31,14 +47,26 @@ struct RootView: View {
                     }
             }
         }
+        // A frame left with nothing there: ignored here and inside each screen's NavigationStack (`tabBarSpace`).
+        .ignoresSafeArea(keyboardLeftover == .frame ? .keyboard : [], edges: .bottom)
+        .environment(\.ignoresKeyboardFrame, keyboardLeftover == .frame)
         // On the root so the state stays true across wide/compact layout switches.
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             // A hardware keyboard's shortcut bar is short; keep the tabs then.
             let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
             softwareKeyboardShown = (frame?.height ?? 0) > 150
+            keyboardLeftover = .none
+            findKeyboard = findBarShown
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            softwareKeyboardShown = false
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { keyboardHidden($0) }
+        // Again once hidden, when the find bar has settled whether it stays.
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { keyboardHidden($0) }
+        // The bar can go with no further keyboard notification (the device's page was no longer dimmed for find):
+        // its frame is then left with nothing there.
+        .task(id: keyboardLeftover) {
+            while keyboardLeftover == .findBar, (try? await Task.sleep(for: .milliseconds(500))) != nil {
+                if !findBarShown { keyboardLeftover = .frame }
+            }
         }
         #if (DEBUG || OFFLINE_RESOURCE_MEASUREMENTS) && FIXTURE_HOST
         .overlay(alignment: .topTrailing) {
@@ -101,6 +129,21 @@ struct RootView: View {
             }
         }
     }
+
+    private func keyboardHidden(_ note: Notification) {
+        softwareKeyboardShown = false
+        let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect ?? .null
+        guard let screen = note.object as? UIScreen, !frame.isEmpty, frame.minY < screen.bounds.maxY else { keyboardLeftover = .none; return }
+        var barShown = findBarShown
+        #if DEBUG && FIXTURE_HOST
+        // UI tests: the device's case, the find bar's frame left once the bar had gone.
+        if ProcessInfo.processInfo.arguments.contains("--find-bar-gone") { barShown = false }
+        #endif
+        keyboardLeftover = barShown ? .findBar : findKeyboard ? .frame : .none
+    }
+
+    /// WebKit's find bar is over the paper.
+    private var findBarShown: Bool { ReaderWebView.paper?.findInteraction?.isFindNavigatorVisible == true }
 
     /// The tab bar: one glass capsule floating over the screen (2026-10-07).
     private var tabBar: some View {

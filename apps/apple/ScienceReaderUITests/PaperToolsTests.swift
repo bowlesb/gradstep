@@ -78,6 +78,73 @@ final class PaperToolsTests: XCTestCase {
                       "Returns to the found place (\(offset) → \(found.frame.minY - web.frame.minY))")
     }
 
+    // MARK: - A keyboard frame left behind (TestFlight build 21)
+
+    /// "Somehow I ended up with this": the tab bar and A−/A+ ~170 pt up, the page cut off above an empty band. Search in the
+    /// find bar hides the keyboard and leaves the bar docked, a hidden keyboard's frame still on screen. The tab bar sits
+    /// just above the bar and the page above the tab bar; Done puts both back.
+    func testFindBarDockedAfterSearchKeepsTheTabBarAndPageInPlace() throws {
+        for appearance in ["light", "dark"] {
+            let app = openSample(appearance: appearance)
+            let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
+            let home = (tab: tab.frame, web: web.frame)
+            app.buttons["Paper options"].tap()
+            app.buttons.matching(identifier: "paper.find").firstMatch.tap()
+            XCTAssertTrue(done.waitForExistence(timeout: 5))
+            app.typeText("every claim")
+            app.typeText("\n")
+            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
+            sleep(1)
+            capture(app, "Find bar docked after Search (\(appearance))")
+            XCTAssertTrue(done.exists, "The find bar stays")
+            let bar = tab.frame.insetBy(dx: 0, dy: -4) // the capsule: 4 pt of glass around its items
+            XCTAssertLessThanOrEqual(bar.maxY, done.frame.minY, "The tab bar is above the find bar")
+            XCTAssertLessThan(done.frame.minY - bar.maxY, 60, "… just above it, with no empty band (\(bar) / \(done.frame))")
+            XCTAssertEqual(web.frame.maxY, bar.minY - 8, accuracy: 1, "The page runs to the tab bar's room")
+
+            done.tap()
+            XCTAssertTrue(wait { !done.exists && abs(tab.frame.minY - home.tab.minY) < 1 && abs(web.frame.maxY - home.web.maxY) < 1 },
+                          "Done puts the tab bar and page back (\(tab.frame), \(web.frame))")
+            capture(app, "Find closed (\(appearance))")
+            app.terminate()
+        }
+    }
+
+    /// What the device showed: the find session over (the page no longer dimmed), nothing at the bottom, and the hidden
+    /// keyboard's frame still a keyboard safe area. `--find-bar-gone` counts the docked bar as gone, keeping its real
+    /// frame. The tab bar stays at the bottom and the page runs to it; the message box still rises with the next keyboard.
+    func testKeyboardFrameLeftWithNothingThereKeepsTheReaderInPlace() throws {
+        for appearance in ["light", "dark"] {
+            let app = openSample(["--find-bar-gone"], appearance: appearance)
+            let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
+            let home = (tab: tab.frame, web: web.frame)
+            app.buttons["Paper options"].tap()
+            app.buttons.matching(identifier: "paper.find").firstMatch.tap()
+            XCTAssertTrue(done.waitForExistence(timeout: 5))
+            app.typeText("every claim")
+            app.typeText("\n")
+            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
+            sleep(1)
+            capture(app, "Keyboard frame left on screen (\(appearance))")
+            XCTAssertEqual(tab.frame.minY, home.tab.minY, accuracy: 1, "The tab bar stays at the bottom")
+            XCTAssertEqual(web.frame.maxY, home.web.maxY, accuracy: 1, "The page runs to the tab bar's room")
+            done.tap()
+            XCTAssertTrue(done.waitForNonExistence(timeout: 5))
+
+            app.buttons["tab.chat"].tap()
+            let composer = app.descendants(matching: .any).matching(identifier: "chat.composer").firstMatch
+            XCTAssertTrue(composer.waitForExistence(timeout: 5))
+            composer.tap()
+            let keyboard = app.keyboards.firstMatch
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+            XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY }, "The message box rises above the keyboard")
+            capture(app, "Message box above the keyboard (\(appearance))")
+            app.buttons["chat.dismissKeyboard"].tap()
+            XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists && abs(tab.frame.minY - home.tab.minY) < 1 }, "The tab bar returns in place")
+            app.terminate()
+        }
+    }
+
     // MARK: - Contents levels (gap 10)
 
     /// The DPO conversion: Abstract left out, subsections indented under their sections, and the appendix's
