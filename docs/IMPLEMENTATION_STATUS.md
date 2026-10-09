@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `a0b9d75a`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `c1cf0744`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -67,8 +67,8 @@ Catalyst purchase suite passes 6/6.
 - **Overlong source UX:** `source_too_large` is now a first-class client outcome. Native and browser listeners say
   that the shared full-paper limit applies at every available length, confirm that no credits were charged, avoid a
   retry dead end, and offer a direct return to reading; native and the signed-in browser can also open the shared
-  Listen catalog. Section-based episodes remain a future capability. The browser fix is ready for deployment; the
-  native change needs the next iOS/Mac TestFlight build after build 26.
+  Listen catalog. Section-based episodes remain a future capability. The browser fix is live at `app.gradstep.ai`
+  (Pages deployment `c1cf0744`); the native change needs the next iOS/Mac TestFlight build after build 26.
 
 ## Commercial arXiv content gate — 2026-10-09
 
