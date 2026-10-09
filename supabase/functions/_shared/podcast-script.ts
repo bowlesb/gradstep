@@ -133,7 +133,11 @@ export function scriptInstructions(shape: ScriptShape = FIVE_MINUTE_SHAPE, maxSp
   // Evidence cleanup can remove a few unsupported turns. Aim close to the upper
   // edge so a well-supported episode still clears the lower edge after that
   // cleanup, while the hard upper bound remains unchanged.
-  const targetWords = Math.min(shape.words[1], Math.max(shape.words[0], Math.floor(shape.words[1] * 19 / 20)));
+  // Ask for the upper edge with a small one-percent headroom. Evidence repair can
+  // remove a few turns, so the old 95% target still produced accepted drafts that
+  // fell below the advertised duration after checking. The hard upper bound remains
+  // unchanged; this is only a generation target.
+  const targetWords = Math.min(shape.words[1], Math.max(shape.words[0], Math.floor(shape.words[1] * 99 / 100)));
   const chapterExamples = shape.chapters[1] <= 3 ? 'for example: the question and method, the evidence, the caveats'
     : 'for example: the question, the method, the evidence, the caveats, why it matters';
   return SCRIPT_TEMPLATE.replace('{LENGTH}', `${shape.duration} of speech, ${number(shape.words[0])} to ${number(shape.words[1])} spoken words in total and never more than ${number(spoken)} characters of spoken text across all segments. Count the spoken words before returning and aim for at least ${number(targetWords)} while staying below ${number(shape.words[1])}; a final draft below ${number(shape.words[0])} is rejected after evidence cleanup. Use ${shape.chapters[0]} to ${shape.chapters[1]} chapters (${chapterExamples}) and ${shape.segments[0]} to ${shape.segments[1]} segments`);

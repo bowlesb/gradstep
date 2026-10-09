@@ -33,7 +33,7 @@ unchanged. The final pre-activation focused scheduler check recorded 15/15 HTTP 
 error. No provider call was made for the rollout. The fresh post-activation reliability sample at 15:41 UTC recorded
 16/16 HTTP 200 calls with no timeout, refusal, missing worker or server error and zero provider cost; the earlier
 paused-gate maintenance 503 is retained only as rollout history. The draft prompt now targets 95% of each profile's upper word
-bound (760 words for the five-minute 650–800 range) so evidence cleanup can remove unsupported turns without making
+bound (792 words for the five-minute 650–800 range) so evidence cleanup can remove unsupported turns without making
 a supported episode too short.
 The review prompt also requires substantive replacements and a post-correction word-count check, so a reviewer cannot
 silently accept a script that falls below the requested profile range after evidence cleanup.
