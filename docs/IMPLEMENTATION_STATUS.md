@@ -231,6 +231,16 @@ direct source links. No public paid launch promise should say that every arXiv p
   - Fix in progress: the review pass returns corrections instead of a full rewrite (worker only), and migration 049
     counts only in-flight and published seed episodes. The $2 dollar cap still binds.
   - Policy now: catalog and delivery on, seeding on, generation off.
+- **Second attempt (worker `gradstep-pipeline-00014-92c`, checker v2, migration 049):**
+  - Migration 049 was applied *before* its backup succeeded. The backup had failed on podcast objects, and a piped
+    command hid the failure; `backup.py` now includes `paper-uploads` and `podcast-assets`. The first good checkpoint
+    after 049 is `20261009T023219Z-4bb34a6e49a6`.
+  - Both seeds passed draft and review, then failed `script_evidence_rejected` (~$0.19 each). Pilot spend is now
+    $0.82 of $2.
+  - A diagnosis and fix for evidence matching are in progress: normalization, quoting rules, degrading per item
+    instead of failing the whole script, and bounded diagnostics. No more retries until it lands.
+- **TestFlight build 24** (iOS and Mac, main `3cd874f`): build 23 plus the podcast client (Listen filter, player,
+  lengths) and the floating-tab-bar fix (find-in-paper bar, regression tests). Upload succeeded; processing pending.
 
 ## TestFlight build 23 and For you serving — 2026-10-09 UTC
 
