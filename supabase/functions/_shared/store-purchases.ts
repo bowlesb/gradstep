@@ -263,7 +263,11 @@ export async function syncTransactions(deps: StoreDeps, accountID: string, body:
       throw error;
     }
     let grantReason: StoreGrantReason | undefined;
-    if (recorded.outcome === 'recorded' && recorded.credits === 0 && deps.zeroGrantReason) {
+    // A restore can return `already_recorded` after an earlier app build
+    // submitted the receipt. The recorder intentionally omits credits for
+    // that idempotent result, so ask the read-only diagnostic for both final
+    // zero-grant cases. The RPC returns null for a non-zero or unknown row.
+    if (((recorded.outcome === 'recorded' && recorded.credits === 0) || recorded.outcome === 'already_recorded') && deps.zeroGrantReason) {
       try { grantReason = (await deps.zeroGrantReason(accountID, record)) ?? undefined; } catch { /* Diagnostic reads never change financial success. */ }
     }
     await complete({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
