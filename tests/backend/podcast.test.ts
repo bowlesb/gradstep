@@ -12,7 +12,7 @@ import { applyCorrections, checkScript, correctionLimit, draftRequest, FIVE_MINU
   type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
 import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
   vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
-import { runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
+import { podcastAudioBounds, podcastCheckerBounds, runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
 import { ffmetadata, ffmpegArguments, ffmpegEncoder, verifyProbe } from '../../services/pipeline-worker/podcast-encode.ts';
@@ -410,6 +410,18 @@ const SPEC = { id: 'podcast-5min-v1', version: 1, target_seconds: 300, min_secon
   storage: { audio_bytes: 16777216, transcript_bytes: 4194304, manifest_bytes: 262144 } };
 const PAPER_BYTES = new TextEncoder().encode(PAPER);
 const OWNER = '46000000-0000-4000-8000-00000000000a';
+
+test('v2 podcast lengths enforce their advertised word and audio windows; v1 remains compatible', () => {
+  const v2 = {
+    version: 2, target_seconds: 300, min_seconds: 120, max_seconds: 660,
+    shape: { duration: 'about five minutes', words: [650, 800] as [number, number], chapters: [4, 6] as [number, number], segments: [16, 28] as [number, number] },
+    checker: { words: [450, 1000] as [number, number], chapters: [3, 8] as [number, number], segments: [8, 80] as [number, number], max_spoken_characters: 6000, min_evidenced: 5 },
+  };
+  assert.deepEqual(podcastCheckerBounds(v2), { ...v2.checker, words: [650, 800] });
+  assert.deepEqual(podcastAudioBounds(v2, false), { minMs: 240_000, maxMs: 375_000 });
+  assert.deepEqual(podcastAudioBounds({ ...v2, version: 1 }, false), { minMs: 120_000, maxMs: 660_000 });
+  assert.deepEqual(podcastAudioBounds(v2, true), { minMs: 1_000, maxMs: 660_000 });
+});
 
 function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' | 'private'; script?: Partial<ScriptProvider>; speech?: SpeechProvider | null;
   failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: (Script | ReviewCorrections)[]; claimed?: boolean;

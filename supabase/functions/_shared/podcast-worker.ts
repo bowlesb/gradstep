@@ -95,6 +95,28 @@ export const STAGED_SCRIPT_RESERVE_MS = 45_000, STAGED_SPEECH_RESERVE_MS = 240_0
 /** A review reads the paper plus the draft: the draft's output cap plus this framing must still fit its input cap. */
 export const REVIEW_FRAMING_TOKENS = 1_000;
 
+/**
+ * Version 2 profiles carry a requested word shape as well as the wider legacy
+ * checker bounds. Use the shape for production jobs so a successful episode is
+ * long enough to match the option the reader selected. Version 1 stays on its
+ * historical bounds because changing those would reinterpret existing jobs.
+ */
+export function podcastCheckerBounds(spec: Pick<Spec, 'version' | 'shape' | 'checker'>): CheckerBounds {
+  const configured = spec.checker ?? FIVE_MINUTE_BOUNDS;
+  if (spec.version >= 2 && spec.shape) return { ...configured, words: spec.shape.words };
+  return configured;
+}
+
+/** Keep v2 audio close to its advertised duration while retaining each profile's hard storage bound. */
+export function podcastAudioBounds(spec: Pick<Spec, 'version' | 'target_seconds' | 'min_seconds' | 'max_seconds'>, fixture: boolean): { minMs: number; maxMs: number } {
+  if (fixture || spec.version < 2) return { minMs: fixture ? 1_000 : spec.min_seconds * 1000, maxMs: spec.max_seconds * 1000 };
+  const target = spec.target_seconds * 1000;
+  return {
+    minMs: Math.max(spec.min_seconds * 1000, Math.floor(target * 0.8)),
+    maxMs: Math.min(spec.max_seconds * 1000, Math.ceil(target * 1.25)),
+  };
+}
+
 async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promise<{ state: string | null; failure: string | null }> {
   const fence = { p_job: claim.job_id, p_claim: claim.claim_id, p_generation: claim.generation };
   const spec = claim.spec, fixture = claim.origin === 'fixture', staged = !fixture && spec.staged === true;
@@ -127,7 +149,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     let paper: string;
     try { paper = new TextDecoder('utf-8', { fatal: true }).decode(raw); } catch { throw new Failure('source_integrity_failed', false); }
     const title = typeof claim.metadata?.title === 'string' ? claim.metadata.title : null;
-    const bounds = spec.checker ?? FIVE_MINUTE_BOUNDS;
+    const bounds = podcastCheckerBounds(spec);
     // The prompt's spoken-character limit also fits the profile's speech calls (five minutes: one call).
     const instructions = scriptInstructions(spec.shape ?? FIVE_MINUTE_SHAPE, bounds.max_spoken_characters,
       { maxInputTokens: spec.speech.max_input_tokens, maxCalls: spec.speech.max_calls ?? 1 });
@@ -241,7 +263,7 @@ async function runJob(deps: PodcastDeps, claim: Claim, deadline: number): Promis
     await advance('verifying');
     const joined = joinChunks(takes);
     const pcm = joined.pcm;
-    const problem = verifyAudio(pcm, { minMs: fixture ? 1_000 : spec.min_seconds * 1000, maxMs: spec.max_seconds * 1000 });
+    const problem = verifyAudio(pcm, podcastAudioBounds(spec, fixture));
     if (problem) throw new Failure(problem, true);
     // Approximate timing inside each chunk, placed at that chunk's exact position in the joined take.
     const timings: Timing[] = [];

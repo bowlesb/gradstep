@@ -31,6 +31,10 @@ removed executor work) is retained below where useful and in git history.
   enabled with the revised ceilings. The current October curated-catalog period is configured by migration 055 at a
   `$3` hard allowance and `max_episodes=10`; admissions remain operator-selected and review-gated, so no catalog
   episode is generated automatically without an explicit seed operation.
+- **Length and coherence hardening:** v2 worker jobs now enforce each profile's declared word shape and accept audio
+  only inside a 0.8–1.25× target-duration window (v1 jobs retain their historical bounds). The checker remembers
+  removed turns when deciding whether a question still has an answer, preventing an unrelated later turn from hiding a
+  dangling prompt. This is local code/test work ready for the next worker revision; it has not spent provider credits.
 
 ## Commercial arXiv content gate — 2026-10-09
 

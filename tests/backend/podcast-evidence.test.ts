@@ -196,6 +196,25 @@ test('checker v5 removes a dangling question when its answer was removed', () =>
   assert.deepEqual(result.script.segments.map(s => s.id), ['s1', 's2', 's3', 's6', 's7', 's8']);
 });
 
+test('checker v5 does not use an unrelated later turn as a removed answer', () => {
+  const script: Script = {
+    title: 'No dangling prompt', limitations: [],
+    chapters: [{ id: 'c1', title: 'Opening' }],
+    segments: [
+      { id: 's1', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'What does this comparison establish?' },
+      { id: 's2', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: '**removed answer**' },
+      { id: 's3', chapter: 'c1', speaker: 'explainer', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'The closing limitation still matters.' },
+      { id: 's4', chapter: 'c1', speaker: 'skeptic', style: 'clear', claim_type: 'context', evidence: [], math: [], text: 'That is the point to carry forward.' },
+    ],
+    review: { verdict: 'accept', issues: [] },
+  };
+  const result = checkScript(script, PERSONA, { fixture: true });
+  assert.ok(result.ok, result.ok ? '' : result.problems.join(', '));
+  if (!result.ok) return;
+  assert.deepEqual(result.report.removals, [{ segment: 's2', reason: 'markup' }, { segment: 's1', reason: 'unanswered_question' }]);
+  assert.deepEqual(result.script.segments.map(s => s.id), ['s3', 's4']);
+});
+
 test('degradation limits: unverifiable evidence or removed claims beyond 30%, or a chapter losing its support, reject the script', () => {
   const base = draft('2610.10536v1-draft.json');
   const rejected = (mutate: (s: Script) => void) => { const s = structuredClone(base); mutate(s); const r = checkScript(s, DECOUPLING, { index: INDEX.B }); assert.ok(!r.ok); return r; };

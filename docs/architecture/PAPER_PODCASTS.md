@@ -24,6 +24,9 @@ maintenance deployment, readiness evidence, zero-spend journey and atomic 053 po
 switch are complete. Migration 054 gives the awaited Cloud Run request a 600-second
 pg_net acknowledgement window; the worker's hard bound remains 840 seconds. The active
 v2 ceilings are 140 / 150 / 300 / 530 credits for Short / 5 / 10 / 20 minutes.
+For v2 jobs the worker also enforces each profile's declared spoken-word range and accepts rendered audio only in a
+0.8–1.25× target-duration window; v1 jobs retain their historical wider bounds. The checker removes a question when
+its answer or an intervening turn was removed, so a later unrelated host turn cannot leave an unanswered prompt.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
