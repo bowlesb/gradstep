@@ -4,6 +4,16 @@ Updated 2026-10-09 UTC. **Build 25 is available for internal iOS and Mac testing
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
+## Purchase credit diagnostic — 2026-10-09 UTC
+
+The owner’s current TestFlight purchase symptom is accounted for. Staging recorded the latest Sandbox pack and
+subscription transactions, but the account had already consumed the deliberate October Sandbox allowance (400 +
+400 + 200 = 1,000 credits), so those later records correctly granted zero. Migration `056` adds the read-only,
+service-role `worker_store_zero_grant_reason` diagnostic; `store-sync` returns its finite code and the native purchase
+sheet explains `sandbox_monthly_cap`. This preserves the spending guard and does not change Production grants. The
+focused Catalyst purchase suite passes 6/6; the migration and Edge deploy remain to be applied to staging before the
+next TestFlight build.
+
 ## Current podcast and pipeline rollout — 2026-10-09 UTC
 
 - **Podcast v2 is live on staging.** After encrypted backups

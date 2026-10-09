@@ -17,6 +17,17 @@ behavior below still conflicts with the owner's decision to retain earlier perio
 Owner decision 2026-10-05: Standard $9.99 = 800 credits a month, Pro $19.99 = 1,800 credits a month, a $4.99
 pack = 400 credits that never expire; TestFlight testers get 1,000 credits by operator grant.
 
+## Recorded purchases with no new credits
+
+A verified transaction can be recorded with `credits: 0` when the bounded policy does not admit a grant. The
+read-only service-role function `worker_store_zero_grant_reason(account_id, environment, transaction_id)` returns
+one of a finite set of explanations without exposing receipt contents or changing the ledger. Sandbox allowance
+exhaustion returns `sandbox_monthly_cap`; an absent Sandbox app-transaction identity returns
+`sandbox_identity_missing`; an ineligible subscription period returns `subscription_not_eligible`; other zero-grant
+cases return `no_credit_grant`. `store-sync` includes that code on the final response, and the native client gives
+the owner a specific TestFlight explanation instead of a generic success message. This diagnostic path does not
+raise the cap, retry a paid grant, or alter Production policy.
+
 ## Model
 
 **Every verified App Store transaction grants at most one credit bucket, once.** A subscription purchase and

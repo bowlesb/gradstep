@@ -14,21 +14,24 @@ enum StoreProducts {
 struct StoreSyncResult: Decodable, Equatable, Sendable {
     let outcome: String
     let credits: Int64?
+    let grantReason: String?
     let supportReference: String?
     let diagnostic: StoreVerificationDiagnostic?
 
     private static let knownOutcomes: Set<String> = ["recorded", "updated", "already_recorded", "linked_to_another_account", "account_closed",
         "unknown_product", "unsupported", "unattributed", "invalid", "environment_unavailable", "verification_unavailable"]
-    enum CodingKeys: String, CodingKey { case outcome, credits, supportReference = "support_reference", diagnostic }
-    init(outcome: String, credits: Int64?, supportReference: String? = nil, diagnostic: StoreVerificationDiagnostic? = nil) {
+    enum CodingKeys: String, CodingKey { case outcome, credits, grantReason = "grant_reason", supportReference = "support_reference", diagnostic }
+    init(outcome: String, credits: Int64?, grantReason: String? = nil, supportReference: String? = nil, diagnostic: StoreVerificationDiagnostic? = nil) {
         self.outcome = Self.knownOutcomes.contains(outcome) ? outcome : "unknown"
         self.credits = credits
+        self.grantReason = ["sandbox_monthly_cap", "sandbox_identity_missing", "subscription_not_eligible", "no_credit_grant"].contains(grantReason) ? grantReason : nil
         self.supportReference = supportReference.flatMap { $0.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil ? $0 : nil }
         self.diagnostic = diagnostic
     }
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(outcome: try c.decode(String.self, forKey: .outcome), credits: try c.decodeIfPresent(Int64.self, forKey: .credits),
+                  grantReason: try c.decodeIfPresent(String.self, forKey: .grantReason),
                   supportReference: try c.decodeIfPresent(String.self, forKey: .supportReference),
                   diagnostic: try c.decodeIfPresent(StoreVerificationDiagnostic.self, forKey: .diagnostic))
     }
@@ -39,7 +42,7 @@ struct StoreSyncResult: Decodable, Equatable, Sendable {
 
     /// Only fixed codes and an opaque account-bound reference enter support reports.
     var supportLine: String {
-        ([outcome] + (diagnostic?.codes ?? []) + (supportReference.map { ["reference " + $0] } ?? [])).joined(separator: " · ")
+        ([outcome] + (grantReason.map { [$0] } ?? []) + (diagnostic?.codes ?? []) + (supportReference.map { ["reference " + $0] } ?? [])).joined(separator: " · ")
     }
 }
 
@@ -124,6 +127,15 @@ enum StoreSync {
         switch result?.outcome {
         case "recorded", "updated", "already_recorded":
             if let credits = result?.credits, credits > 0 { return "Added \(credits.formatted()) credits." }
+            if result?.grantReason == "sandbox_monthly_cap" {
+                return "Purchase recorded, but the TestFlight Sandbox monthly credit limit has been reached. No credits were added."
+            }
+            if result?.grantReason == "sandbox_identity_missing" {
+                return "Purchase recorded, but Apple’s Sandbox identity was unavailable. No credits were added; try Restore Purchases."
+            }
+            if result?.grantReason == "subscription_not_eligible" {
+                return "Purchase recorded, but this subscription period did not add credits."
+            }
             if result?.credits == 0 { return "Purchase recorded. No new credits were added." }
             return result?.outcome == "already_recorded" ? "This purchase was already recorded." : "Purchase recorded."
         case "linked_to_another_account":

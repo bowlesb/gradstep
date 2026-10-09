@@ -94,9 +94,11 @@ export function transactionRecord(t: JWSTransactionDecodedPayload): StoreTransac
   };
 }
 
+export type StoreGrantReason = 'sandbox_monthly_cap' | 'sandbox_identity_missing' | 'subscription_not_eligible' | 'no_credit_grant';
 export type SyncOutcome = 'recorded' | 'updated' | 'already_recorded' | 'linked_to_another_account' | 'account_closed'
   | 'unknown_product' | 'unsupported' | 'unattributed' | VerificationCode;
-export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number; support_reference?: string; diagnostic?: VerificationDiagnostic }
+export interface SyncResult { transaction_id?: string; outcome: SyncOutcome; credits?: number; grant_reason?: StoreGrantReason;
+  support_reference?: string; diagnostic?: VerificationDiagnostic }
 /** Outcomes after which the app finishes the StoreKit transaction. */
 export const FINAL_OUTCOMES: ReadonlySet<SyncOutcome> = new Set(['recorded', 'updated', 'already_recorded']);
 export const MAX_SYNC_TRANSACTIONS = 25;
@@ -191,6 +193,8 @@ interface StoreRecorders {
   beginVerification?(accountID: string, attemptID: string, submissionSHA256: string): Promise<boolean>;
   finishVerification?(accountID: string, attemptID: string, outcome: SyncOutcome | 'recording_unavailable', diagnostic?: VerificationDiagnostic): Promise<void>;
   recordTransaction(accountID: string, record: StoreTransactionRecord): Promise<{ outcome: string; credits?: number; recordingCode?: StoreRecordingCode }>;
+  /** Read-only explanation for a recorded transaction that granted zero credits. */
+  zeroGrantReason?(accountID: string, record: StoreTransactionRecord): Promise<StoreGrantReason | null>;
   recordNotification(input: StoreNotificationRecord): Promise<{ outcome: string; duplicate?: boolean }>;
 }
 export type StoreDeps = StoreRecorders & (
@@ -258,8 +262,13 @@ export async function syncTransactions(deps: StoreDeps, accountID: string, body:
       observe('recording_unavailable', { stage: 'recording' });
       throw error;
     }
+    let grantReason: StoreGrantReason | undefined;
+    if (recorded.outcome === 'recorded' && recorded.credits === 0 && deps.zeroGrantReason) {
+      try { grantReason = (await deps.zeroGrantReason(accountID, record)) ?? undefined; } catch { /* Diagnostic reads never change financial success. */ }
+    }
     await complete({ transaction_id: record.transaction_id, outcome: recorded.outcome as SyncOutcome,
       ...(typeof recorded.credits === 'number' ? { credits: recorded.credits } : {}),
+      ...(grantReason ? { grant_reason: grantReason } : {}),
       ...(!FINAL_OUTCOMES.has(recorded.outcome as SyncOutcome) ? { diagnostic: { stage: 'recording' as const } } : {}) }, recorded.recordingCode);
   }
   return results;

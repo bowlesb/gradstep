@@ -128,6 +128,18 @@ test('sync records each verified transaction for the caller and reports the rest
   }
 });
 
+test('a final zero-credit record carries only its finite grant reason', async () => {
+  const d = deps();
+  const value: StoreDeps = { ...d.value,
+    async recordTransaction() { return { outcome: 'recorded', credits: 0 }; },
+    async zeroGrantReason() { return 'sandbox_monthly_cap'; },
+  };
+  const signed = pki.sign(transaction());
+  const result = await syncTransactions(value, ACCOUNT, { transactions: [signed] });
+  assert.deepEqual(result[0], { transaction_id: '2000000123456789', outcome: 'recorded', credits: 0,
+    grant_reason: 'sandbox_monthly_cap', support_reference: storeSubmissionReference(ACCOUNT, signed) });
+});
+
 test('notifications: verified renewals are recorded; bad data is refused; database errors propagate for Apple to retry', async () => {
   const d = deps();
   const notification = (data: Record<string, unknown>, overrides: Record<string, unknown> = {}) => pki.sign({

@@ -51,7 +51,7 @@ function tone(seconds: number): Uint8Array {
 function script(): Script {
   // Whole sentences from body paragraphs (never headings), as a faithful script would quote them.
   const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
-  const filler = ' The hosts take a moment to explain what this means for a reader who wants the details.';
+  const filler = ' The hosts take a moment to explain what this means for a reader who wants the details. They stay precise and cautious.';
   const segments = Array.from({ length: 14 }, (_, i) => ({ id: `s${i + 1}`, chapter: i < 5 ? 'c1' : i < 10 ? 'c2' : 'c3',
     speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic', style: 'measured',
     text: (i % 2 === 0 ? 'The paper states its main finding in a single sentence.' : 'That is worth slowing down for, carefully.') + filler + filler,
@@ -102,7 +102,10 @@ const deps = (): PodcastDeps => ({
     // a comfortably audible take for every full serving-limit call so a
     // chunked ten-minute episode still clears its minimum-duration check.
     const chunked = (request.body.generationConfig as { maxOutputTokens: number }).maxOutputTokens < 16_384;
-    const audio = chunked ? spokenTake(request.body) : tone(180);
+    // v2's five-minute profile accepts only 0.8–1.25× its target duration.
+    // Keep the fake take inside that production window; fixture jobs still
+    // use their deliberately relaxed bounds.
+    const audio = chunked ? spokenTake(request.body) : tone(250);
     return { state: 'succeeded', requestID: `resp_${speechCalls}`, model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio, mimeType: 'audio/wav',
       usage: chunked ? { text_input_tokens: 2_000, audio_output_tokens: Math.round(parseWav(audio).durationMs / 40) } : { text_input_tokens: 1_400, audio_output_tokens: 3_500 },
       failure: null };

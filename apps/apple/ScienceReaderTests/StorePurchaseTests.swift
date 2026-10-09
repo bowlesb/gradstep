@@ -72,6 +72,11 @@ final class StorePurchaseTests: XCTestCase {
             XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: 200)), "Added 200 credits.", "Report a partial grant exactly")
             XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: 0)), "Purchase recorded. No new credits were added.")
         }
+        let capped = StoreSyncResult(outcome: "recorded", credits: 0, grantReason: "sandbox_monthly_cap")
+        XCTAssertTrue(StoreSync.message(for: capped).contains("TestFlight Sandbox monthly credit limit"))
+        XCTAssertEqual(capped.supportLine, "recorded · sandbox_monthly_cap")
+        let missingIdentity = StoreSyncResult(outcome: "recorded", credits: 0, grantReason: "sandbox_identity_missing")
+        XCTAssertTrue(StoreSync.message(for: missingIdentity).contains("Sandbox identity"))
         XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: "already_recorded", credits: nil)), "This purchase was already recorded.")
         for outcome in ["recorded", "updated"] {
             XCTAssertEqual(StoreSync.message(for: StoreSyncResult(outcome: outcome, credits: nil)), "Purchase recorded.")

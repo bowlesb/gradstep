@@ -67,6 +67,13 @@ Deno.serve(async request => {
         if (error) { if (REJECTED_DATA.test(error.message)) return { outcome: 'invalid', recordingCode: storeRecordingCode(error.message) }; throw new PublicError(503, 'service_unavailable'); }
         return data;
       },
+      async zeroGrantReason(account, record) {
+        const { data, error } = await service.rpc('worker_store_zero_grant_reason', {
+          p_account_id: account, p_environment: record.environment, p_transaction_id: record.transaction_id,
+        }).retry(false).abortSignal(AbortSignal.timeout(2_000));
+        if (error || !['sandbox_monthly_cap', 'sandbox_identity_missing', 'subscription_not_eligible', 'no_credit_grant'].includes(data)) return null;
+        return data as 'sandbox_monthly_cap' | 'sandbox_identity_missing' | 'subscription_not_eligible' | 'no_credit_grant';
+      },
       recordNotification: () => { throw new Error('unused'); },
     }, accountID, body).catch(error => { throw error instanceof Error && error.message === 'invalid_request' ? new PublicError(400, 'invalid_request') : error; });
     console.log(JSON.stringify({ function: 'store-sync', event: 'synced', outcomes: results.map(r => r.outcome) }));

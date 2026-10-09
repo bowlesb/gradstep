@@ -32,6 +32,14 @@ succeeded. Evidence: `.artifacts/takeover-20261008/{purchase_grants,purchase_obs
 Build 19 adds actual-granted-credit and Sandbox allowance wording; a real tester review of that new copy remains.
 Receipt recording and credits granted remain distinct states; this evidence does not verify production subscriptions, renewals or refunds.
 
+The owner reproduced the same symptom after those three grants. Read-only staging ledger evidence on 2026-10-09 shows
+the later Sandbox pack and Standard subscription receipts were recorded, but each received **0 credits because the
+account's October Sandbox allowance was already exhausted**; no receipt was lost. The next server/app patch adds the
+finite `sandbox_monthly_cap` reason to that final response, so the purchase sheet explains the TestFlight limit and
+does not imply that a paid transaction disappeared. The allowance remains bounded; production purchases have no
+Sandbox cap once the Production verification path is enabled. The owner account may receive a separate, audited tester
+top-up for continued TestFlight work, without changing the purchase policy.
+
 ## Build 14, 2026-10-07 (iPhone, 11 items)
 
 | # | Owner said | Where | Plan | Status |
