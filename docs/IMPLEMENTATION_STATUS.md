@@ -256,8 +256,14 @@ does not yet claim that source-only papers are readable offline.
   `gradstep-pipeline-00015-f9q`, checker v3):
   - The checker verified all 11 evidence quotes and would have kept 20 of 22 turns.
   - The review model nonetheless returned "reject" with no corrections, which failed the job (~$0.18).
-  - Pilot spend: $1.00 of $2.
-  - Next: the review must give reason codes and repair before rejecting (checker v4).
+  - Pilot spend: $1.00 of $2. The owner then raised the pilot cap to **$5 total** (2026-10-08, "Raise to $5 total"),
+    still ≤ $0.75 per admission and ≤ 2 published episodes, inside the $25 provider cap.
+  - Fix ready on a branch, not yet applied or deployed: checker v4 and migration 051
+    ([Seed pilot fix 3](architecture/PAPER_PODCASTS.md#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08)).
+    The review gives reason codes with segment ids and repairs before rejecting; a reject naming only unsupported
+    claims, wrong numbers or speculation becomes removal of those turns within the 30% limits; other rejects stand
+    and record why. 051 raises the database bound to $5. Deploy: backup, apply 051, redeploy the worker, raise the
+    period with `podcast-ops.py seed-period --limit-usd 5`, then retry both seeds (they fit together).
 - **TestFlight build 24** (iOS and Mac, main `3cd874f`): build 23 plus the podcast client (Listen filter, player,
   lengths) and the floating-tab-bar fix (find-in-paper bar, regression tests). Upload succeeded; processing pending.
 

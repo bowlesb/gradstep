@@ -4,8 +4,11 @@
 2026-10-08): migrations 048 and 049 are applied. Worker revision 00013 ran the first two seed jobs, which both failed
 `script_incomplete` in the review ([fix 1](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08):
 checker v2, deployed as revision 00014); the two re-admitted jobs then failed `script_evidence_rejected` at the checker
-([fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08): checker v3 and migration 050, not yet deployed or
-applied). The pilot has committed $0.82 of its $2. The design below was the reviewed input; the
+([fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08): checker v3 and migration 050, deployed as revision
+00015 with 050 applied); the third attempt failed only on the review's unexplained "reject"
+([fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08): checker v4 and migration 051, not yet
+deployed or applied). The pilot has committed $1.00; the owner raised its cap from $2 to **$5 total** on 2026-10-08
+(051). The design below was the reviewed input; the
 [implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
@@ -588,7 +591,7 @@ seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scop
 | Identities | `podcast_profiles` (immutable spec + SHA-256; four lengths, see [Lengths](#lengths-short-5-10-and-20-minutes)), `podcast_policy.allowed_profiles`; `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
 | Rights | `podcast_rights` (one row per shared episode: active/quarantined/withdrawn, `rights_revision`, CC BY 4.0/CC0 approval pinned, reviewer, evidence digest) + append-only events. Checked at admission, every provider grant, publication, catalog listing and every delivery redemption. |
 | Jobs | `podcast_jobs` (origin `generated`/`fixture`; funding `platform_seed`/`customer`/`fixture`; FK to the metered operation; fenced claim id/generation/lease; captured policy epoch and rights revision; one active job per work key), `podcast_job_attempts` (one per route, and one per speech chunk by `ordinal`; `podcast_jobs.speech_calls` is the plan), `podcast_job_checkpoints` (staged jobs' draft/script, ≤ 1 MiB, deleted at settlement), `podcast_job_events` (append-only, bounded to 128). States as designed: `queued → scripting → checking → synthesizing → verifying → publishing → ready`, plus `canceled`, `failed`, `capacity_wait`, `unknown_provider`, `quarantined`. |
-| Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $2 and ≤ 2 episodes** by check constraint, created disabled; the cap is per calendar-month period, so any later month needs a new explicit, evidence-referenced period). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. An episode counts against the cap while its job is in flight or once it produced a release awaiting review or published; failed jobs and releases rejected at review do not (migration 049), while their spend stays committed. |
+| Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $5 and ≤ 2 episodes** by check constraint — $2 in 048, raised by the owner on 2026-10-08 in migration 051 — created disabled; the cap is per calendar-month period, so any later month needs a new explicit, evidence-referenced period). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. An episode counts against the cap while its job is in flight or once it produced a release awaiting review or published; failed jobs and releases rejected at review do not (migration 049), while their spend stays committed. |
 | Private generation | `podcast_quotes` (ids/digests only, 15-minute expiry, epoch-bound, cleaned after a day) and `podcast_requests` (`(account, request_id)` idempotency; `started`/`joined`/`reused`). `v1_podcast_start` rechecks the quote, source pins and work key, reuses a ready private release (zero hold), joins the owner's active job, enforces 1 active private job/account, 2 active jobs/environment, 20 jobs/day, **no new job while the account has an unresolved unknown outcome** (`podcast_outcome_pending`) and the monthly platform-loss allocation ($0.75 default: every known cost of a customer job charged zero credits, plus held unknown ceilings), then makes **one** reservation at the quoted length's maximum (110 / 150 / 220 / 360 credits; $0.55 / $0.75 / $1.10 / $1.80). |
 | Storage | `stored_objects` gains bucket `podcast-assets` (shared objects: document identity, `shared/<key>/…`; private objects: owner identity, `private/<owner>/<key>/…`, enforced by check constraint). `podcast_asset_holds` (the profile's storage: 8.3 / 20 / 16.3 / 24.3 MiB, 3 objects per job at admission), `podcast_asset_uploads/members/writes` (exact plan before write, one write grant, uncertain writes retain capacity, late writes reconcile but cannot publish). `paper_asset_check_capacity` now counts podcast objects and holds globally and per owner (1 GiB/owner). Inventory scope 3 (`worker_asset_inventory_*` replaced): begin/finish require drained podcast work, pages include `podcast-assets`; `v1_reader_capabilities` and `worker_pdf_upload_policy` accept scope ≥ 2. `worker_podcast_cleanup`/`_confirm` delete objects of terminal jobs that never became a release. The worker retries write confirmations (replay-safe); a write whose outcome stays uncertain keeps its capacity and blocks inventory and the owner's deletion until the owner records evidence with `worker_podcast_write_resolve` (`podcast-ops.py resolve-write`: exact bytes present → verified, definitive absence after the worker stopped → not_written). No claim is granted while an inventory scan runs. |
 | Delivery | `podcast_delivery_grants/redemptions` (token hash only, account/release/rights-revision/epoch bound, 15-minute expiry, one redemption per object, charged before Storage is read). Transfer counters reuse `reader_transfer_months` with kind `podcast` (100 MiB/account, 512 MiB with an active subscription, 2 GiB/environment) **and** the shared reader environment counter. |
@@ -619,15 +622,20 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
 3. **Script pass 2** (`podcast_review`): the same text plus the draft, ≤ 4,000 output tokens, a fact-check that
    returns a **bounded correction set**, never the script: `delete` (segment id), `replace` (segment id, new spoken
    text and its math notes), `claims` (segment id, corrected claim type and complete evidence list), then an explicit
-   `accept`/`reject` verdict, under a strict JSON schema. At most ⌊review output cap / 400⌋ corrections (10 for five
-   minutes). The worker applies them deterministically to the draft (chapters, order, speakers and styles never
-   change); an empty set with `accept` approves the draft as written. A correction naming an unknown or duplicated
-   segment id, two conflicting corrections of one segment, more corrections than the limit, or deletions that would
-   empty a chapter fail the job as a quality rejection (`script_corrections_invalid`, customer charged 0), never a
-   silent pass. See [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08).
-4. **Checker** (`podcast-checker-v3`, deterministic, run on the corrected draft — the version is part of the
-   approved-script identity; see [fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08)): structure, ids,
-   3–8 chapters and verdict `accept` as before. Each evidence quote (at most 3 per segment) is located in the pinned
+   `accept`/`reject` verdict and `reasons` (strict codes, each with the segment ids it affects; required with a reject),
+   under a strict JSON schema. The review is told to repair before rejecting. At most ⌊review output cap / 400⌋
+   corrections (10 for five minutes). The worker applies them deterministically to the draft (chapters, order, speakers
+   and styles never change); an empty set with `accept` approves the draft as written. A correction naming an unknown or
+   duplicated segment id, two conflicting corrections of one segment, more corrections than the limit, or (with
+   `accept`) deletions that would empty a chapter fail the job as a quality rejection (`script_corrections_invalid`,
+   customer charged 0), never a silent pass. A `reject` whose reasons are all segment-scoped and name their segments
+   becomes the removal of those segments within the checker's limits; any other reject stands. See
+   [Seed pilot fix](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08) and
+   [fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08).
+4. **Checker** (`podcast-checker-v4`, deterministic, run on the corrected draft — the version is part of the
+   approved-script identity; see [fix 2](#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08) and
+   [fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08)): structure, ids, 3–8 chapters and
+   verdict `accept` (or a converted reject, whose named segments it removes and counts) as before. Each evidence quote (at most 3 per segment) is located in the pinned
    text through one canonical form applied to both sides and stored as **the paper's own span** (whitespace-normalized,
    with its offset), so every evidence quote is pinned text. An unverifiable quote or formula note is dropped on its own;
    a segment that then breaks a claim rule — a `paper_result`/`author_interpretation` without verified evidence, a spoken
@@ -875,7 +883,8 @@ lost reply.
    against staging; then withdraw it: `podcast-ops.py rights --episode <id> --state withdrawn --reason "Fixture done"`.
 6. **Seed allowance:** `podcast-ops.py seed-period --actor <OWNER> --limit-usd 2 --max-episodes 2 --enable
    --evidence owner-decision-20261008` and `policy --set seed_enabled=true --reason "Seed pilot"`. Confirm current
-   provider headroom ≥ $1.50 (`pipeline-ops.py status` / Spending page).
+   provider headroom ≥ $1.50 (`pipeline-ops.py status` / Spending page). (Since migration 051 the owner-approved
+   allowance is up to $5; see [fix 3](#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08).)
 7. **Pick two papers** from `candidates` (CC BY 4.0/CC0, text ≤ 400 KB, ideally one equation-heavy and one
    empirical); check third-party material/exclusions in each; then for each: `seed --actor <OWNER> --approval <id>
    --reason "<rights check summary>"` and `kick`. Each admission reserves $0.75; `status` shows grants, actual
@@ -1095,6 +1104,114 @@ and speech). Operations: 138 Python tests. `deno check` (strict) passes for `pod
 `podcast-worker.ts`, `podcast-script.ts`, `podcast-speech.ts` and `podcast-evidence.ts`. The pinned texts and the job
 events were read with a read-only database session; the worker's Cloud Run logs with `gcloud logging read`. No provider
 call, write, deployment or migration was made.
+
+### Seed pilot fix 3: review reasons, checker v4 and the $5 cap (2026-10-08)
+
+**What happened** (staging, worker revision 00015, checker v3, migration 050 applied). Job
+`57d019e2-b06b-40dd-9b88-e87b6f69ce30` (2610.09384v1, five minutes) failed `script_evidence_rejected` after both script
+passes (≈ $0.18); the pilot has committed ≈ $1.00 of its $2. Its recorded checker report:
+
+```json
+{"checker":"podcast-checker-v3","evidence":{"checked":11,"verified":11,"unverified":0},"segments":{"checked":22,"kept":20,"removed":2},
+ "removals":[{"reason":"unsupported_number","segment":"s8"},{"reason":"number_not_in_evidence","segment":"s17"}],
+ "rules":["review_rejected"],"outcome":"rejected"}
+```
+
+Every quote matched and the checker alone would have published 20 of 22 turns (2 removed, 9%, inside the 30% limit).
+The only failing rule was `review_rejected`: the review pass returned `"reject"` with empty correction lists. That was
+allowed — the v2/v3 task said *Set "reject" with empty lists if the draft cannot be made faithful* — and the schema had
+no reason field, so a reject carried no information the worker could act on or the operator could read.
+
+**Fix (worker, `podcast-checker-v4`; profiles, routes, grants and ceilings unchanged).**
+
+- *Schema:* `REVIEW_SCHEMA` gains a required `reasons` array after the verdict. Each item is `{code, segments}`: a
+  strict enum — `misrepresents_main_result`, `fabricated_detail`, `wrong_numbers`, `unsupported_claims`,
+  `speculation_presented_as_finding`, `too_many_problems`, `other` — and the draft segment ids it affects (possibly
+  empty). Structured outputs cannot express "required when the verdict is reject", so the task text asks for it and
+  the worker's policy treats a reject without reasons as standing. `parseReview` refuses unknown codes and non-id
+  segments (never read as approval) and merges duplicate codes.
+- *Prompt:* repair before rejecting. The review fixes what it can within its correction limit — delete an unsupported
+  turn, replace a wrong number with the paper's own figure (adding the quote that states it), correct a claim's type or
+  evidence — and rejects only for a misrepresented main result, fabricated content, or more problems than the limit can
+  fix; unsupported turns, wrong numbers and speculation presented as a finding are explicitly not reasons to reject.
+  With a reject it lists a reason for every problem its corrections leave unfixed, naming each affected segment; with an
+  accept it may list what its corrections fixed.
+- *Worker policy on reject* (`rejectPolicy`, `applyCorrections`):
+
+| Review | What the worker does | Report |
+|---|---|---|
+| `accept` | applies the corrections as in v3 (the review's own deletions are bounded by the correction limit) | `review.action: accept` |
+| `reject`, every reason `unsupported_claims`, `wrong_numbers` or `speculation_presented_as_finding`, each naming segments the draft has once | applies its rewrites and claim corrections (validated as usual), then the checker removes the named segments (`review_flagged`) and the review's own deletions (`review_deleted`), even if also rewritten, without checking their quotes; all removals count against the **draft's** segments: at most 30% removed in all, every chapter keeps a turn and its evidenced claims, every other v3 bound | `action: remove_segments`; outcome `degraded`, or `rejected` by the limits |
+| `reject` with no reasons (the staging case) | stands | `rules: [review_rejected, review_reasons_missing]` |
+| `reject` with a severe reason (`misrepresents_main_result`, `fabricated_detail`, `too_many_problems`, `other`) | stands, whatever segments it names | `review_reason_severe` |
+| `reject` with a reason naming no segment | stands | `review_reason_unscoped` |
+| `reject` naming a segment the draft does not have exactly once | stands | `review_reason_unknown_segment` |
+
+A converted reject overrides the reviewer's verdict, so it is bounded by the stricter count (its own deletions
+included); an accept keeps v3's behavior. Standing rejects and invalid corrections are quality failures as before
+(customer charged 0; no automatic paid retry).
+
+- *Reports and logs:* every report carries `review: {verdict, corrections, action}` and `reasons: [{code, segments}]`
+  (at most 20 ids per code), also for invalid corrections (`stage: review`). `boundReport` trims evidence items, then
+  removals, then reason segment ids, never the counts or codes. The `podcast_reviewed` log line adds the action, the
+  reason codes and the number of flagged turns. No problem text is recorded or logged. A malformed id, shown as `?` in
+  problems and logs, is recorded as `unknown`: 050's validator refuses `?`, so a v3 report holding one (for example
+  `segment_id:?`) would have been lost whole.
+- *Migration 050* needs no change: codes and segment ids are short lower-case strings, and `reasons` → item →
+  `segments` → id is exactly the validator's depth limit of 4 (`test_podcast_checker_reports.sql` records a v4 report).
+
+The staging response — `reject`, empty lists, no reason — still fails under v4, by design: a reject that names nothing
+cannot be turned into removals. v4 changes the review's instructions so that case should not recur, and any reject now
+says why. Had the reviewer named the two numeric turns as `wrong_numbers`, the job would have published 20 of 22 turns.
+The pass rate of the new prompt cannot be measured without a paid call; on the simulated draft of the same paper
+(`tests/fixtures/podcast/evidence/2610.09384v1-draft.json`), an unexplained reject fails with `review_reasons_missing`,
+segment-scoped reasons naming three turns publish 21 of 26 turns (19% removed with the checker's own two), six named
+turns (31%) reject, and a severe reason rejects.
+
+**Migration `202610080051_podcast_seed_cap.sql`: $5 total.** The owner approved "Raise to $5 total" on 2026-10-08.
+051 drops and recreates `podcast_seed_periods_limit_microusd_check` at 0–5,000,000 micro-USD and replaces
+`worker_podcast_seed_period` with the bound raised (otherwise identical to 048: same signature, lock order and audit;
+security definer, empty `search_path`, revoked from `public`, `anon`, `authenticated`, `service_role`, executable by
+`service_role`). Unchanged: each admission holds the five-minute profile's $0.75; at most two seed episodes per period
+(`max_episodes` 0–2 and 049's count); seed spend stays inside the $25 provider cap and the platform budget that
+admission reserves against. Existing periods keep their limit until the operator raises them (an audited policy event).
+`podcast-ops.py seed-period` accepts up to $5. With ≈ $1.00 committed, both seeds can be admitted together (two $0.75
+holds → ≈ $2.50, inside $5). A third admission is refused by the two-episode cap while both are in flight or produced
+a release; failed attempts free their slot and keep their spend committed (049).
+
+**Deploy (the lead runs this; nothing here was applied or deployed, and no paid call was made).**
+
+1. `python3 scripts/backup.py staging`; confirm it exited 0 before continuing (do not pipe it).
+2. `python3 scripts/migrate-supabase.py staging`: verifies the applied prefix through 050 and applies 051 with its
+   ledger row. It touches no function the worker calls, so its order relative to step 3 does not matter.
+3. Redeploy the worker (`podcast-checker-v4`) through the usual paused → readiness → activate procedure
+   (`deploy-pipeline-worker.py … --defer-activation`, as in runbook step 3). No Edge function changes.
+4. Raise the current period: `python3 scripts/podcast-ops.py seed-period --actor <OWNER> --limit-usd 5 --max-episodes 2
+   --enable --evidence owner-decision-20261008-raise-to-5`. The reply should show `limit_microusd: 5000000`,
+   `max_episodes: 2` and `committed_microusd` ≈ 1,000,000.
+5. `podcast-ops.py status`: the seed period shows the $5 limit, `episodes: 0`; confirm provider headroom ≥ $1.50
+   (`pipeline-ops.py status` / Spending page).
+6. Retry the seeds: `podcast-ops.py seed --actor <OWNER> --approval <id> --reason "<rights check summary>"` for each of
+   the two approvals (both fit: ≈ $2.50 committed with two holds; `max_active_environment` is 2), then `kick`.
+7. For each job, `podcast-ops.py events --job <job-id>`: the `checked` event's `review` (verdict and action) and
+   `reasons` say what the review decided and why. `remove_segments` releases continue with runbook steps 8–9 (listen
+   for transitions a removed turn may have left abrupt); a standing reject names its rule and codes.
+
+Rollback: redeploy the previous worker revision. 051 only widens a bound; to return to $2, run step 4 with
+`--limit-usd 2`.
+
+**Verification (local, 2026-10-08, zero spend).** `npm test`: 478 passed (48 podcast: `podcast.test.ts` 38, including
+the schema, prompt, parsing, policy and conversion unit cases and the worker cases — a segment-scoped reject degrades
+and publishes, severe, unscoped, unknown-segment and unexplained rejects fail with their codes recorded before
+settlement, an over-limit conversion rejects, invalid corrections record their reasons; `podcast-evidence.test.ts` 10,
+including the persona paper and report bounds with every code). `python3 scripts/test-database.py`: exit 0, 243 PASS
+lines (051 applies after 050; `test_podcast_seed_cap.sql`: privileges, the single $5 table check, the pilot's
+$1.007186 committed admitting one hold under $2 and both seeds under $5, a third refused by the episode cap, $5
+accepted and replayable, $5.01, $5.000001 and −1 refused by the function, 5,000,001 and three episodes refused by the
+table; the 050 recorder accepts a v4 report; the worker journey asserts the v4 report). Operations: 138 Python tests
+and 7 Node tests. `deno check` (strict) passes for `podcast`, `podcast-member`, `podcast-worker.ts`,
+`podcast-script.ts`, `podcast-speech.ts` and `podcast-evidence.ts`. No provider, hosted service, deployment or
+migration was used.
 
 ### Verification (local, 2026-10-08)
 
