@@ -15,13 +15,13 @@ removed executor work) is retained below where useful and in git history.
   140 / 150 / 300 / 530 credits. The 530 ceiling is deliberate: Vertex's serving limit is 16,384 audio tokens per
   call, so the six-call 20-minute profile must reserve six full grants. All four profiles are allowlisted atomically;
   private generation and catalog delivery remain bounded by the existing account, daily and $25 platform limits.
-- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00029-lx4` is active at 100% traffic with request-based
+- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00030-pb9` is active at 100% traffic with request-based
   billing, zero minimum instances, max three instances, one request per instance, pinned secrets and the bounded
   worker-thread lifecycle. The staging scheduler points at it; the legacy Edge `paper-worker` is retained only as an
   unscheduled rollback surface. Migration 054 changes the scheduler's pg_net timeout from the old 5-second Edge
   acknowledgement window to 600 seconds, below the worker's 840-second hard bound. Readiness, activation and aggregate
-  liability evidence are under `.artifacts/rollout-evidence/`. Revision 00029 contains the v2 length/coherence
-  hardening and the raised explicit word-target prompt; each maintenance-to-active cutover preserved the reviewed
+  liability evidence are under `.artifacts/rollout-evidence/`. Revision 00030 contains the v2 length/coherence and substantive-review repair
+  hardening plus the raised explicit word-target prompt; each maintenance-to-active cutover preserved the reviewed
   configuration and immutable image digest.
 - **Verification:** the full local database suite, podcast worker journey, 483 backend tests, web build/unit suite and
   universal Catalyst build pass. The staging deploy suite passed all feature and spending-safety checks with no
@@ -36,11 +36,15 @@ removed executor work) is retained below where useful and in git history.
   enabled with the revised ceilings. The current October curated-catalog period is configured by migration 055 at a
   `$3` hard allowance and `max_episodes=10`; admissions remain operator-selected and review-gated, so no catalog
   episode is generated automatically without an explicit seed operation.
-- **Length and coherence hardening (live in revision 00029):** v2 worker jobs now enforce each profile's declared word shape and accept audio
+- **Length and coherence hardening (live in revision 00030):** v2 worker jobs now enforce each profile's declared word shape and accept audio
   only inside a 0.8–1.25× target-duration window (v1 jobs retain their historical bounds). The checker remembers
   removed turns when deciding whether a question still has an answer, preventing an unrelated later turn from hiding a
   dangling prompt. The active worker revision was deployed through the paused-gate readiness procedure; this rollout
   spent no provider credits.
+- **Podcast review repair hardening (live in revision 00030):** the review prompt now requires substantive,
+  evidence-grounded replacements and an explicit post-correction word-count check. A short acknowledgment or generic
+  filler cannot be used to get back over a profile's lower bound. The deployment's fresh scheduler check at 15:58 UTC
+  recorded 15/15 HTTP 200 calls with zero provider cost.
 - **Catalog quality gate exercise:** two post-rollout CC BY candidates were correctly stopped before speech because
   the checker found unsupported claims and/or a post-cleanup word-budget failure. Their script/review usage settled at
   `$0.472822`, no audio was generated, and neither release was published. The draft prompt now states an exact target

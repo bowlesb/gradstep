@@ -27,7 +27,7 @@ v2 ceilings are 140 / 150 / 300 / 530 credits for Short / 5 / 10 / 20 minutes.
 For v2 jobs the worker also enforces each profile's declared spoken-word range and accepts rendered audio only in a
 0.8–1.25× target-duration window; v1 jobs retain their historical wider bounds. The checker removes a question when
 its answer or an intervening turn was removed, so a later unrelated host turn cannot leave an unanswered prompt.
-The hardening is active in Cloud Run revision `gradstep-pipeline-00029-lx4` on staging. Its activation used a fresh
+The hardening is active in Cloud Run revision `gradstep-pipeline-00030-pb9` on staging. Its activation used a fresh
 paused-gate drain attestation and the immutable image digest; the scheduler's 600-second acknowledgement timeout is
 unchanged. The final pre-activation focused scheduler check recorded 15/15 HTTP 200 calls with no timeout or server
 error. No provider call was made for the rollout. The fresh post-activation reliability sample at 15:41 UTC recorded
@@ -35,6 +35,8 @@ error. No provider call was made for the rollout. The fresh post-activation reli
 paused-gate maintenance 503 is retained only as rollout history. The draft prompt now targets 95% of each profile's upper word
 bound (760 words for the five-minute 650–800 range) so evidence cleanup can remove unsupported turns without making
 a supported episode too short.
+The review prompt also requires substantive replacements and a post-correction word-count check, so a reviewer cannot
+silently accept a script that falls below the requested profile range after evidence cleanup.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
