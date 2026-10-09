@@ -328,8 +328,14 @@ progress.mini { height: 3px; margin-top: 4px; }
 /* ---------- Dialogs ---------- */
 .dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; background: var(--surface); color: var(--text); width: min(92vw, 480px); max-height: 88dvh; box-shadow: var(--pop); }
 .dialog.wide { width: min(96vw, 1180px); }
+.info-dialog-shell { width: min(94vw, 720px); }
 .dialog::backdrop { background: rgba(10, 10, 20, .45); }
 .dialog-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.info-dialog { max-height: calc(88dvh - 40px); overflow-y: auto; padding-right: 3px; }
+.info-section + .info-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.info-section h3 { font-size: 14px; margin: 0 0 6px; }
+.info-section p { color: var(--muted); margin: 0 0 8px; }
+.info-section p:last-child { margin-bottom: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .support-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
 .support-field .fine { margin-left: 4px; font-weight: 400; }

@@ -28,6 +28,7 @@ const paths: Record<string, ReactNode> = {
   bubble: <><path d="M21 11a8 8 0 0 1-8 8H7l-4 3v-5a8 8 0 1 1 18-6z" /><path d="M8 11h.01M12 11h.01M16 11h.01" /></>,
   external: <><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></>,
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="12" y1="7" x2="12" y2="7" /></>,
 };
 
 export type IconName = keyof typeof paths;

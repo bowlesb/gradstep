@@ -84,6 +84,15 @@ rollout is live. Approved-device transfer, reader-bundle installation,
 offline structured reading and local Mathpix processing remain gated as described in
 [DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md).
 
+## Data and cost explainer — 2026-10-09 UTC
+
+The native About screen (including Mac Catalyst) and the signed-in browser account menu now expose **How Gradstep
+works**. It explains device-local versus synced paper paths, encrypted chat synchronization, the plaintext boundary
+when a user requests Mathpix or cloud AI work, provider handling limits, credits/holds/settlement, token-based cost,
+shared OCR and podcast reuse, model profiles, and account/platform spend gates. DeepSeek is documented as a research
+candidate only; no traffic or routing policy changed. The browser build and 1440px desktop light/dark workflow pass;
+the Catalyst app builds successfully. See [DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md).
+
 ## Current web/Mac candidate — 2026-10-09 UTC
 
 - **Browser release:** source is commit `943486e` on main; Pages deployment `a0b9d75a` is live at

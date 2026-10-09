@@ -81,6 +81,16 @@ Until the written arXiv/commercial response and counsel review recorded in
 This is a public-paid-launch gate. The product must not claim that every arXiv paper syncs across devices until the
 rights basis and arXiv's commercial/API expectations are confirmed.
 
+## Data handling and model-cost explanation (owner requested 2026-10-09)
+
+The native and browser clients expose a concise **How Gradstep works** screen from the account/about area. It
+explains the separation between device-local papers, encrypted sync and requested AI processing; the rights-aware
+paper paths; the fact that providers receive plaintext needed for a requested computation; credits, token estimates,
+holds and settlement; shared OCR/podcast reuse; and the account/platform spending gates. It does not promise zero
+provider retention or imply that a lower-priced model is automatically equivalent. See
+[DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md). DeepSeek remains a research candidate only;
+no routing or price policy changes follow from the rate comparison.
+
 ## Product decision checkpoint
 
 The user accepted both remaining recommendations on 2026-10-02. Account recovery does not recover encrypted history without an approved device or recovery code. No further product decision blocks foundation implementation.

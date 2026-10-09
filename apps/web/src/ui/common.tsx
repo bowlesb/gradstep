@@ -10,7 +10,7 @@ export function Brand({ small = false }: { small?: boolean }) {
 }
 
 /** A modal dialog on the native <dialog> element (focus trap, Escape, inert page). */
-export function Dialog({ open, onClose, title, children, wide = false }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+export function Dialog({ open, onClose, title, children, wide = false, className }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -19,7 +19,7 @@ export function Dialog({ open, onClose, title, children, wide = false }: { open:
     if (!open && dialog.open) dialog.close();
   }, [open]);
   return (
-    <dialog ref={ref} className={wide ? 'dialog wide' : 'dialog'} onClose={onClose} onCancel={e => { e.preventDefault(); onClose(); }} aria-label={title}
+    <dialog ref={ref} className={`${wide ? 'dialog wide' : 'dialog'}${className ? ` ${className}` : ''}`} onClose={onClose} onCancel={e => { e.preventDefault(); onClose(); }} aria-label={title}
       onClick={e => { if (e.target === ref.current) onClose(); }}>
       {open && <div className="dialog-body">{children}</div>}
     </dialog>
