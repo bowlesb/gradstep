@@ -379,12 +379,14 @@ createServer(async (request, response) => {
   // short-lived one-use code, then the token route verifies the S256 PKCE binding before minting the fixture session.
   if (url.pathname === '/auth/v1/authorize' && request.method === 'GET') {
     const provider = url.searchParams.get('provider'), redirect = url.searchParams.get('redirect_to');
-    const stateValue = url.searchParams.get('state'), challenge = url.searchParams.get('code_challenge');
+    const callback = redirect ? new URL(redirect) : null;
+    const stateValue = callback?.searchParams.get('client_state'), challenge = url.searchParams.get('code_challenge');
     if (!['google', 'apple'].includes(provider ?? '') || !redirect?.startsWith(`${appOrigin}/auth/callback`)
-      || !stateValue || !/^[A-Za-z0-9_-]{32,128}$/.test(stateValue) || !challenge || !/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) return send(response, 400, { error: 'invalid_request' });
+      || !stateValue || !/^[A-Za-z0-9_-]{32,128}$/.test(stateValue) || url.searchParams.has('state') || !challenge || !/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) return send(response, 400, { error: 'invalid_request' });
     const code = randomUUID().replaceAll('-', '');
     oauthCodes.set(code, { account: ACCOUNTS['returning@example.test'], challenge, state: stateValue, expiresAt: Date.now() + 60_000 });
-    response.writeHead(302, { Location: `${redirect}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(stateValue)}`, 'Cache-Control': 'no-store' });
+    callback.searchParams.set('code', code);
+    response.writeHead(302, { Location: callback.toString(), 'Cache-Control': 'no-store' });
     return response.end();
   }
   if (request.headers.apikey !== 'fixture-anon') return send(response, 401, { message: 'No API key' });

@@ -123,12 +123,18 @@ function readPendingOAuth(): PendingOAuth | null {
 
 function clearPendingOAuth(): void { try { sessionStorage.removeItem(oauthKey()); } catch { /* storage unavailable */ } }
 
-function oauthCallbackPath(): string {
+function oauthCallbackPath(clientState: string): string {
   if (typeof window === 'undefined') throw new AuthError('configuration');
   if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     throw new AuthError('configuration');
   }
-  return `${window.location.origin}/auth/callback`;
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(clientState)) throw new AuthError('configuration');
+  const callback = new URL(`${window.location.origin}/auth/callback`);
+  // Supabase owns the provider `state` parameter and replaces it with its
+  // server-side flow state. Keep our browser binding in a namespaced value
+  // that Supabase preserves when it redirects back to us.
+  callback.searchParams.set('client_state', clientState);
+  return callback.toString();
 }
 
 function oauthError(value: string | null): AuthError {
@@ -195,9 +201,9 @@ export const auth = {
   /** Starts a browser OAuth authorization using the Supabase PKCE flow. The verifier and state stay in session storage only. */
   async startOAuth(provider: OAuthProvider): Promise<never> {
     if (provider !== 'google' && provider !== 'apple') throw new AuthError('configuration');
-    const redirectTo = oauthCallbackPath();
     if (!config.url || !config.anonKey) throw new AuthError('configuration');
     const pending: PendingOAuth = { provider, state: randomToken(), verifier: randomToken(), createdAt: Date.now() };
+    const redirectTo = oauthCallbackPath(pending.state);
     let challenge: string;
     try {
       challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pending.verifier))));
@@ -208,7 +214,6 @@ export const auth = {
     authorize.searchParams.set('redirect_to', redirectTo);
     authorize.searchParams.set('code_challenge', challenge);
     authorize.searchParams.set('code_challenge_method', 's256');
-    authorize.searchParams.set('state', pending.state);
     // Navigation is intentional: provider pages must never be embedded or opened in a popup we cannot fence.
     window.location.assign(authorize.toString());
     throw new AuthError('connection'); // unreachable in a browser; keeps callers from continuing before navigation.
@@ -218,13 +223,15 @@ export const auth = {
   async completeOAuth(): Promise<boolean> {
     if (typeof window === 'undefined' || window.location.pathname !== '/auth/callback') return false;
     const query = new URLSearchParams(window.location.search);
+    const fragment = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '');
     const pending = readPendingOAuth();
     clearPendingOAuth();
-    const code = query.get('code'), state = query.get('state'), error = query.get('error');
+    const code = query.get('code'), clientState = query.get('client_state') ?? query.get('state');
+    const error = query.get('error') ?? fragment.get('error');
     // Remove one-time credentials before network work. The app always returns to the sign-in route on failure.
     window.history.replaceState(null, '', '/');
     if (error) throw oauthError(error);
-    if (!pending || !code || !/^[A-Za-z0-9._~-]{8,4096}$/.test(code) || !state || state !== pending.state) throw new AuthError('oauth_invalid');
+    if (!pending || !code || !/^[A-Za-z0-9._~-]{8,4096}$/.test(code) || !clientState || clientState !== pending.state) throw new AuthError('oauth_invalid');
     let reply;
     try {
       reply = await send('auth/v1/token?grant_type=pkce', {

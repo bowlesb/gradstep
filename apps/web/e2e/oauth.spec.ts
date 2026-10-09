@@ -18,9 +18,11 @@ test('Google OAuth returns through the PKCE callback and then restores the encry
   const started = new URL(authorize[0]);
   expect(started.searchParams.get('provider')).toBe('google');
   expect(started.searchParams.get('code_challenge_method')).toBe('s256');
-  expect(started.searchParams.get('state')).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
+  expect(started.searchParams.get('state')).toBeNull();
   expect(started.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
-  expect(new URL(started.searchParams.get('redirect_to')!).pathname).toBe('/auth/callback');
+  const redirect = new URL(started.searchParams.get('redirect_to')!);
+  expect(redirect.pathname).toBe('/auth/callback');
+  expect(redirect.searchParams.get('client_state')).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
   await page.getByTestId('use-recovery-code').click();
   await page.getByTestId('recovery-code').fill(RECOVERY_CODE);
   await page.getByTestId('recover').click();
@@ -28,7 +30,7 @@ test('Google OAuth returns through the PKCE callback and then restores the encry
 });
 
 test('an OAuth callback without the matching browser state is rejected before any session is created', async ({ page }) => {
-  await page.goto('/auth/callback?code=not-a-real-code&state=wrong-state');
+  await page.goto('/auth/callback?code=not-a-real-code&client_state=wrong-state');
   await expect(page.getByTestId('oauth-google')).toBeVisible();
   await expect(page.getByRole('alert')).toHaveText('That sign-in link has expired or was already used. Start again.');
   expect(new URL(page.url()).pathname).toBe('/');

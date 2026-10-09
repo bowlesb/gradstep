@@ -343,8 +343,10 @@ still determine its outcome.
 
 **Browser OAuth is implemented with the same bounded PKCE shape as native sign-in.** The sign-in page offers Google
 and Apple. The client creates a 256-bit verifier and state, stores only those short-lived values in session storage,
-opens Supabase's exact `/auth/v1/authorize` origin, and accepts a code-only callback at `/auth/callback`. It removes
-the callback query before the token exchange, verifies state, exchanges the one-use code at
+opens Supabase's exact `/auth/v1/authorize` origin, and accepts a callback at `/auth/callback`. Supabase owns the
+provider `state` value and does not echo a client-supplied one, so the client binds its pending browser flow through
+the namespaced `client_state` query parameter in `redirect_to`. It removes the callback query before the token exchange,
+verifies that binding, exchanges the one-use code at
 `/auth/v1/token?grant_type=pkce`, and publishes the session only after the bounded response validates. Provider
 errors are mapped to a finite local set; raw callback text never appears in the UI or logs. A missing, expired or
 substituted state is rejected before any session request. Local production-CSP Playwright covers a Google PKCE
