@@ -37,6 +37,11 @@ class PodcastOpsTests(unittest.TestCase):
         self.assertEqual(params['p_changes'], {'seed_enabled': True, 'max_active_environment': 2})
         with self.assertRaises(SystemExit):
             self.call(['policy', '--actor', OWNER, '--set', 'price=1', '--reason', 'Nope'])
+        name, params = self.call(['policy', '--actor', OWNER, '--set', 'allowed_profiles=podcast-5min-v1:1, podcast-10min-v1:1',
+                                  '--reason', 'Offer two lengths']).args[1:]
+        self.assertEqual(params['p_changes'], {'allowed_profiles': ['podcast-5min-v1:1', 'podcast-10min-v1:1']})
+        with self.assertRaises(SystemExit):
+            self.call(['policy', '--actor', OWNER, '--set', 'allowed_profiles=podcast-5min-v1', '--reason', 'No version'])
         with self.assertRaises(SystemExit):
             self.call(['seed', '--actor', 'not-a-uuid', '--approval', rid, '--reason', 'x' * 10])
 

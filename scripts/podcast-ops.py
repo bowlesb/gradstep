@@ -4,6 +4,7 @@
   python3 scripts/podcast-ops.py status
   python3 scripts/podcast-ops.py candidates [--limit 20]
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set seed_enabled=true --set catalog_enabled=true --reason "..."
+  python3 scripts/podcast-ops.py policy --actor <owner-account> --set allowed_profiles=podcast-5min-v1:1,podcast-10min-v1:1 --reason "..."
   python3 scripts/podcast-ops.py seed-period --actor <owner-account> --limit-usd 2 --enable --evidence owner-decision-20261008
   python3 scripts/podcast-ops.py seed --actor <owner-account> --approval <approval-id> --reason "..." [--fixture]
   python3 scripts/podcast-ops.py kick
@@ -26,7 +27,8 @@ STAGING = 'coxhjvqpflgxkleydati'
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 POLICY_KEYS = {'catalog_enabled', 'delivery_enabled', 'generation_enabled', 'seed_enabled', 'fixtures_enabled',
                'max_active_private_per_account', 'max_active_environment', 'max_jobs_day_environment', 'quality_allocation_microusd',
-               'account_transfer_bytes_month', 'paid_account_transfer_bytes_month', 'environment_transfer_bytes_month'}
+               'account_transfer_bytes_month', 'paid_account_transfer_bytes_month', 'environment_transfer_bytes_month', 'allowed_profiles'}
+PROFILE = re.compile(r'^[a-z][a-z0-9-]{2,47}:[1-9][0-9]{0,3}$')
 
 
 def env_file():
@@ -75,7 +77,12 @@ def policy_changes(pairs):
     for pair in pairs:
         key, _, raw = pair.partition('=')
         if key not in POLICY_KEYS: raise SystemExit(f'unknown policy key: {key}')
-        if raw in ('true', 'false'): changes[key] = raw == 'true'
+        if key == 'allowed_profiles':
+            # Lengths offered for private generation, 'id:version' each (the database checks they exist).
+            profiles = [p.strip() for p in raw.split(',') if p.strip()]
+            if not 1 <= len(profiles) <= 8 or not all(PROFILE.match(p) for p in profiles): raise SystemExit('invalid value for allowed_profiles')
+            changes[key] = profiles
+        elif raw in ('true', 'false'): changes[key] = raw == 'true'
         elif raw.isdigit(): changes[key] = int(raw)
         else: raise SystemExit(f'invalid value for {key}')
     if not changes: raise SystemExit('nothing to change')
