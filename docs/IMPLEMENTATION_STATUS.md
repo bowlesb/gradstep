@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 25 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `a0b9d75a`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `a0b9d75a`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -12,8 +12,11 @@ subscription transactions, but the account had already consumed the deliberate O
 service-role `worker_store_zero_grant_reason` diagnostic; `store-sync` returns its finite code and the native purchase
 sheet explains `sandbox_monthly_cap`. The migration is applied and verified on staging, and `store-sync` is deployed;
 the RPC returns that code for the owner’s recorded zero-credit transaction. This preserves the spending guard and does
-not change Production grants. The focused Catalyst purchase suite passes 6/6; the next TestFlight build carries the
-native copy.
+not change Production grants. Build 26 (iOS and Mac, uploaded 2026-10-09 and confirmed `VALID`) carries the native
+copy and applies it to Restore Purchases when the receipt was already recorded by an earlier build. The owner-only,
+audited 400-credit tester grant `cd4aac8a-3144-481f-abbe-b7844c0b7030` leaves the owner account at 490 available / 0
+held for continued TestFlight work; it changes neither Apple's Sandbox allowance nor Production policy. The focused
+Catalyst purchase suite passes 6/6.
 
 ## Current podcast and pipeline rollout — 2026-10-09 UTC
 

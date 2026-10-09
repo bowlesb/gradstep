@@ -37,8 +37,11 @@ the later Sandbox pack and Standard subscription receipts were recorded, but eac
 account's October Sandbox allowance was already exhausted**; no receipt was lost. Migration `056` and the deployed
 `store-sync` now add the finite `sandbox_monthly_cap` reason to that final response, so the purchase sheet explains
 the TestFlight limit and does not imply that a paid transaction disappeared. The allowance remains bounded;
-production purchases have no Sandbox cap once the Production verification path is enabled. The owner account may
-receive a separate, audited tester top-up for continued TestFlight work, without changing the purchase policy.
+production purchases have no Sandbox cap once the Production verification path is enabled. Build 26 is `VALID` for
+iOS and Mac and also reports the reason when Restore Purchases returns an already-recorded receipt. A bounded owner-
+only 400-credit tester top-up was recorded on staging under request
+`cd4aac8a-3144-481f-abbe-b7844c0b7030` (490 available / 0 held after the grant); it does not change the Sandbox cap
+or production purchase rules.
 
 ## Build 14, 2026-10-07 (iPhone, 11 items)
 
