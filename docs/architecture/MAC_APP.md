@@ -3,8 +3,9 @@
 ## Mac-specific review — 2026-10-08
 
 Worktree `science-reader-mac-native-20261008`, branch `codex/mac-native-20261008`, based on `44bf3c2`.
-The current distributed checkpoint is **TestFlight 22** (`298e66b`), VALID / IN_BETA_TESTING for Mac and iOS;
-the build-17 distribution details below are historical. The build-22 upload evidence is recorded below; no hosted
+The current distributed checkpoint is **TestFlight 24** (`3cd874f`), VALID / IN_BETA_TESTING for Mac and iOS;
+the build-17/22 distribution details below are historical. The build-24 upload evidence is recorded in
+`docs/IMPLEMENTATION_STATUS.md`; no hosted
 or paid request was made as part of the Mac review.
 
 - The Mac toolbar now clears its workspace selection while Settings is shown, so the previously selected pane can
@@ -53,7 +54,8 @@ Subscriptions** on Catalyst while retaining the iOS wording on iPhone/iPad. A fr
 `build-for-testing` succeeded after the change, and focused Mac execution passed **11/11** (Mac approval 5/5 and
 StoreKit purchase behavior 6/6). The same pre-existing Xcode warnings remain; no new warning was introduced.
 The resulting source was archived and uploaded as **Mac TestFlight build 22**, which App Store Connect reports
-as **VALID / IN_BETA_TESTING** (build `3544c167-c447-4a33-a537-60988240afc5`).
+as **VALID / IN_BETA_TESTING** (build `3544c167-c447-4a33-a537-60988240afc5`). Build 24 is the current
+internal distribution and includes the podcast client and the later shared reader fixes.
 
 Earlier status (2026-10-07): the offline-save review passes a development-signed Catalyst `build-for-testing` for arm64
 and x86_64 and **298 applicable unit tests** on this Mac (4 opt-in skips), using public local fixtures. The earlier
