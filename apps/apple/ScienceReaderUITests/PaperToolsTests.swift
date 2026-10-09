@@ -12,6 +12,10 @@ final class PaperToolsTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--workflow-fixture", "-appearance", appearance] + arguments
         app.launch()
+        // A podcast playing: once its player has closed to the mini-player over the tab bar.
+        if arguments.contains("--podcast-autoplay-mini") {
+            XCTAssertTrue(app.descendants(matching: .any)["podcast.miniPlayer"].waitForExistence(timeout: 20), "The mini-player shows")
+        }
         XCTAssertTrue(app.buttons[sampleID].waitForExistence(timeout: 10))
         app.buttons[sampleID].tap()
         XCTAssertTrue(app.webViews.firstMatch.waitForExistence(timeout: 8))
@@ -80,12 +84,19 @@ final class PaperToolsTests: XCTestCase {
 
     // MARK: - A keyboard frame left behind (TestFlight build 21)
 
+    /// Each appearance, with and without a podcast's mini-player riding on the tab bar.
+    private let chromeVariants: [(appearance: String, arguments: [String], name: String)] = ["light", "dark"].flatMap { appearance in
+        [(appearance, [], appearance),
+         (appearance, ["--feed-fixture", "--podcast-fixture", "--reset-podcast-fixture", "--podcast-autoplay", "--podcast-autoplay-mini"],
+          "\(appearance), mini-player")]
+    }
+
     /// "Somehow I ended up with this": the tab bar and A−/A+ ~170 pt up, the page cut off above an empty band. Search in the
     /// find bar hides the keyboard and leaves the bar docked, a hidden keyboard's frame still on screen. The tab bar sits
-    /// just above the bar and the page above the tab bar; Done puts both back.
+    /// just above the bar and the page keeps its room above the tab bar; Done puts both back.
     func testFindBarDockedAfterSearchKeepsTheTabBarAndPageInPlace() throws {
-        for appearance in ["light", "dark"] {
-            let app = openSample(appearance: appearance)
+        for variant in chromeVariants {
+            let app = openSample(variant.arguments, appearance: variant.appearance)
             let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
             let home = (tab: tab.frame, web: web.frame)
             app.buttons["Paper options"].tap()
@@ -95,17 +106,18 @@ final class PaperToolsTests: XCTestCase {
             app.typeText("\n")
             XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
             sleep(1)
-            capture(app, "Find bar docked after Search (\(appearance))")
+            capture(app, "Find bar docked after Search (\(variant.name))")
             XCTAssertTrue(done.exists, "The find bar stays")
             let bar = tab.frame.insetBy(dx: 0, dy: -4) // the capsule: 4 pt of glass around its items
             XCTAssertLessThanOrEqual(bar.maxY, done.frame.minY, "The tab bar is above the find bar")
             XCTAssertLessThan(done.frame.minY - bar.maxY, 60, "… just above it, with no empty band (\(bar) / \(done.frame))")
-            XCTAssertEqual(web.frame.maxY, bar.minY - 8, accuracy: 1, "The page runs to the tab bar's room")
+            XCTAssertEqual(tab.frame.minY - web.frame.maxY, home.tab.minY - home.web.maxY, accuracy: 1,
+                           "The page runs to the room kept above the tab bar")
 
             done.tap()
             XCTAssertTrue(wait { !done.exists && abs(tab.frame.minY - home.tab.minY) < 1 && abs(web.frame.maxY - home.web.maxY) < 1 },
                           "Done puts the tab bar and page back (\(tab.frame), \(web.frame))")
-            capture(app, "Find closed (\(appearance))")
+            capture(app, "Find closed (\(variant.name))")
             app.terminate()
         }
     }
@@ -114,8 +126,8 @@ final class PaperToolsTests: XCTestCase {
     /// keyboard's frame still a keyboard safe area. `--find-bar-gone` counts the docked bar as gone, keeping its real
     /// frame. The tab bar stays at the bottom and the page runs to it; the message box still rises with the next keyboard.
     func testKeyboardFrameLeftWithNothingThereKeepsTheReaderInPlace() throws {
-        for appearance in ["light", "dark"] {
-            let app = openSample(["--find-bar-gone"], appearance: appearance)
+        for variant in chromeVariants {
+            let app = openSample(["--find-bar-gone"] + variant.arguments, appearance: variant.appearance)
             let web = app.webViews.firstMatch, tab = app.buttons["tab.paper"], done = app.buttons["find.doneButton"]
             let home = (tab: tab.frame, web: web.frame)
             app.buttons["Paper options"].tap()
@@ -125,7 +137,7 @@ final class PaperToolsTests: XCTestCase {
             app.typeText("\n")
             XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists }, "Search hides the keyboard; the tab bar shows")
             sleep(1)
-            capture(app, "Keyboard frame left on screen (\(appearance))")
+            capture(app, "Keyboard frame left on screen (\(variant.name))")
             XCTAssertEqual(tab.frame.minY, home.tab.minY, accuracy: 1, "The tab bar stays at the bottom")
             XCTAssertEqual(web.frame.maxY, home.web.maxY, accuracy: 1, "The page runs to the tab bar's room")
             done.tap()
@@ -136,9 +148,12 @@ final class PaperToolsTests: XCTestCase {
             XCTAssertTrue(composer.waitForExistence(timeout: 5))
             composer.tap()
             let keyboard = app.keyboards.firstMatch
+            // With the mini-player showing, the first tap here doesn't focus the message box (also without this change,
+            // 2026-10-08): tap again.
+            if !keyboard.waitForExistence(timeout: 4) { composer.tap() }
             XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
             XCTAssertTrue(wait { composer.frame.maxY <= keyboard.frame.minY }, "The message box rises above the keyboard")
-            capture(app, "Message box above the keyboard (\(appearance))")
+            capture(app, "Message box above the keyboard (\(variant.name))")
             app.buttons["chat.dismissKeyboard"].tap()
             XCTAssertTrue(wait { app.keyboards.count == 0 && tab.exists && abs(tab.frame.minY - home.tab.minY) < 1 }, "The tab bar returns in place")
             app.terminate()
