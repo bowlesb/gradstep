@@ -67,6 +67,9 @@ kbd { font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace; border: 1px soli
 .auth-card { width: min(100%, 440px); padding: 32px; display: flex; flex-direction: column; gap: 18px; }
 .auth-card h1 { margin: 6px 0 0; }
 .auth-card .signout { align-self: flex-start; }
+.keys-details { border-top: 1px solid var(--line); padding-top: 10px; }
+.keys-details summary { color: var(--accent); cursor: pointer; font-size: 12.5px; }
+.keys-details p { margin: 8px 0 0; }
 .oauth-actions { display: grid; gap: 10px; }
 .oauth-actions button { width: 100%; min-height: 44px; font-weight: 600; }
 .auth-divider { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
