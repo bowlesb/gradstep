@@ -586,7 +586,7 @@ seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scop
 | Identities | `podcast_profiles` (immutable spec + SHA-256; four lengths, see [Lengths](#lengths-short-5-10-and-20-minutes)), `podcast_policy.allowed_profiles`; `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
 | Rights | `podcast_rights` (one row per shared episode: active/quarantined/withdrawn, `rights_revision`, CC BY 4.0/CC0 approval pinned, reviewer, evidence digest) + append-only events. Checked at admission, every provider grant, publication, catalog listing and every delivery redemption. |
 | Jobs | `podcast_jobs` (origin `generated`/`fixture`; funding `platform_seed`/`customer`/`fixture`; FK to the metered operation; fenced claim id/generation/lease; captured policy epoch and rights revision; one active job per work key), `podcast_job_attempts` (one per route, and one per speech chunk by `ordinal`; `podcast_jobs.speech_calls` is the plan), `podcast_job_checkpoints` (staged jobs' draft/script, ≤ 1 MiB, deleted at settlement), `podcast_job_events` (append-only, bounded to 128). States as designed: `queued → scripting → checking → synthesizing → verifying → publishing → ready`, plus `canceled`, `failed`, `capacity_wait`, `unknown_provider`, `quarantined`. |
-| Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $2 and ≤ 2 episodes** by check constraint, created disabled; the cap is per calendar-month period, so any later month needs a new explicit, evidence-referenced period). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. |
+| Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $2 and ≤ 2 episodes** by check constraint, created disabled; the cap is per calendar-month period, so any later month needs a new explicit, evidence-referenced period). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. An episode counts against the cap while its job is in flight or once it produced a release awaiting review or published; failed jobs and releases rejected at review do not (migration 049), while their spend stays committed. |
 | Private generation | `podcast_quotes` (ids/digests only, 15-minute expiry, epoch-bound, cleaned after a day) and `podcast_requests` (`(account, request_id)` idempotency; `started`/`joined`/`reused`). `v1_podcast_start` rechecks the quote, source pins and work key, reuses a ready private release (zero hold), joins the owner's active job, enforces 1 active private job/account, 2 active jobs/environment, 20 jobs/day, **no new job while the account has an unresolved unknown outcome** (`podcast_outcome_pending`) and the monthly platform-loss allocation ($0.75 default: every known cost of a customer job charged zero credits, plus held unknown ceilings), then makes **one** reservation at the quoted length's maximum (110 / 150 / 220 / 360 credits; $0.55 / $0.75 / $1.10 / $1.80). |
 | Storage | `stored_objects` gains bucket `podcast-assets` (shared objects: document identity, `shared/<key>/…`; private objects: owner identity, `private/<owner>/<key>/…`, enforced by check constraint). `podcast_asset_holds` (the profile's storage: 8.3 / 20 / 16.3 / 24.3 MiB, 3 objects per job at admission), `podcast_asset_uploads/members/writes` (exact plan before write, one write grant, uncertain writes retain capacity, late writes reconcile but cannot publish). `paper_asset_check_capacity` now counts podcast objects and holds globally and per owner (1 GiB/owner). Inventory scope 3 (`worker_asset_inventory_*` replaced): begin/finish require drained podcast work, pages include `podcast-assets`; `v1_reader_capabilities` and `worker_pdf_upload_policy` accept scope ≥ 2. `worker_podcast_cleanup`/`_confirm` delete objects of terminal jobs that never became a release. The worker retries write confirmations (replay-safe); a write whose outcome stays uncertain keeps its capacity and blocks inventory and the owner's deletion until the owner records evidence with `worker_podcast_write_resolve` (`podcast-ops.py resolve-write`: exact bytes present → verified, definitive absence after the worker stopped → not_written). No claim is granted while an inventory scan runs. |
 | Delivery | `podcast_delivery_grants/redemptions` (token hash only, account/release/rights-revision/epoch bound, 15-minute expiry, one redemption per object, charged before Storage is read). Transfer counters reuse `reader_transfer_months` with kind `podcast` (100 MiB/account, 512 MiB with an active subscription, 2 GiB/environment) **and** the shared reader environment counter. |
@@ -716,7 +716,8 @@ attempt's ceiling freezes platform work. "Typical" values are planning estimates
 measurements; the pilot measures them. Runtime: ~3–5 minutes of a 1 vCPU/2 GiB request-billed instance
 (≈ $0.005–0.009 at list before the free tier); storage ~2.4 MB audio + ~20 KB transcript per episode.
 **Seed pilot maximum:** 2 episodes × $0.75 = $1.50 admitted, inside the $2 seed allowance and the existing
-$25 provider cap; the database refuses a third seed episode and any admission that would exceed $2.
+$25 provider cap; the database refuses a third seed episode and any admission that would exceed $2. Since migration
+049 a failed attempt is not an episode: its actual spend stays in the $2, which remains the binding limit.
 
 ### Lengths: Short, 5, 10 and 20 minutes
 
@@ -930,6 +931,39 @@ in 40 segments, ~4,700 spoken characters) can exceed it and fail `script_too_lon
 (≈ $0.18, charged to the seed allowance). The pilot drafts' segment counts were not recorded. A 30-segment draft fits up to
 ~5,500 spoken characters (~900 words). If it happens, the follow-up is a tighter speech input bound (for example Vertex's
 free token count, as the script route already uses for Anthropic), not a profile change.
+
+**Fix 2 — migration `202610080049_podcast_seed_episodes.sql`.** 048's `podcast_seed_episodes` counted every seed job
+that made a paid attempt as one of the period's `max_episodes`, so the two failures closed the pilot with $1.56 of the
+$2 unspent. 049 redefines it (`create or replace`, same signature, security definer, empty `search_path`, no grants)
+to count only seed jobs in flight (`queued` through `publishing`, or `capacity_wait`) and jobs whose release is awaiting
+review or was published (`pending_review`, `ready`, later `superseded` or `quarantined`). Failed, canceled and
+unknown-outcome jobs and releases rejected at review are not episodes. The dollar cap is unchanged and binding:
+committed spend (unsettled ceilings, every settled job's actual usage including failures, every unresolved attempt
+ceiling) plus the next $0.75 hold must stay ≤ $2. `tests/database/test_podcast_seed_episodes.sql` covers two failed paid
+seed jobs then a third admission, the dollar cap refusing with episode room left (an unknown speech outcome keeps its
+ceiling), and two produced episodes refusing a third (a release rejected at review frees its slot, never its spend); it
+fails against 048's definition.
+
+**Deploy (the lead runs this; nothing here was applied or deployed).**
+
+1. `python3 scripts/backup.py staging`, then apply 049: `python3 scripts/migrate-supabase.py staging` (verifies the
+   applied prefix through 048, applies 049 with its ledger row in one transaction). No Edge function changes.
+2. Redeploy the worker (`podcast-checker-v2`) through the usual paused → readiness → activate procedure
+   (`deploy-pipeline-worker.py … --defer-activation`, as in runbook step 3).
+3. `podcast-ops.py status`: the October seed period should show `episodes: 0` and `committed_microusd` ≈ 439,000 (the
+   four recorded attempts, ~$0.439).
+4. Re-admit two seeds (the same two approvals are fine: their failed jobs left no active job or release):
+   `podcast-ops.py seed --actor <OWNER> --approval <id> --reason "<rights check summary>"` for each, then `kick`.
+   Two $0.75 holds bring committed to ≈ $1.94, inside $2; after settlement it drops to actual usage. A third admission
+   is refused (`seed_allowance_exhausted`) until then.
+5. Continue with runbook steps 8–9. If a job fails again, its spend stays committed and the slot is free; check
+   `status` for the failure code before re-admitting (see the speech-size risk above).
+
+**Verification (local, 2026-10-08, zero spend).** `npm test`: 464 passed (34 podcast, including the pilot reproduction,
+the correction-set rules and invalid-correction failures). `python3 scripts/test-database.py`: exit 0, 237 PASS lines
+(049 applies after 048; the worker journey now runs a five-minute review that rewrites one segment through a correction
+set and checks the rewrite in the delivered transcript). `deno check` (strict) passes for `podcast`, `podcast-member`,
+`podcast-worker.ts`, `podcast-script.ts` and `podcast-speech.ts`. No provider, hosted service or deployment was used.
 
 ### Verification (local, 2026-10-08)
 
