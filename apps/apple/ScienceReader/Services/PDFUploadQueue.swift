@@ -5,10 +5,12 @@ import ScienceReaderCore
 
 // PDF uploads (docs/architecture/PDF_UPLOADS.md): a durable, per-account queue on this device. A PDF the
 // reader picks, drops, shares or downloads here is copied into the app's own storage first, checked the
-// way the server will check it, then sent: begin (the server checks size, quota and credits, and signs
-// an upload URL), the bytes straight to private Storage, finalize (the import appears in the library).
+// way the server will check it, then sent: begin (the server checks size, quota and credits), the
+// authenticated chunks, finalize (the import appears in the library).
 // Every step is retry-safe: the upload ID is the operation ID, a lost answer is replayed, an expired
-// session starts again under a new ID, and unsent work resumes on the next launch or foreground.
+// session starts again under a new ID, and unsent work resumes on the next launch or foreground. The
+// transport sends the server's fixed 4 MiB chunks through the authenticated upload function; it never
+// exposes a Storage credential to the reader.
 
 /// Why a file can't be uploaded, in the reader's words. Checked on this device the way the server checks.
 enum PDFFileProblem: Error, Equatable, Sendable {
@@ -111,12 +113,61 @@ struct PDFUploadJob: Codable, Equatable, Identifiable, Sendable {
     var observedCursor: Int64?
 }
 
-/// Ticket for sending the bytes: the session's path and signed token (nil once the server has them).
+/// One server-admitted chunk. `uncertain` counts attempts whose physical write may have happened but
+/// whose acknowledgement was lost; those attempts remain liability until the server reconciles them.
+struct PDFUploadPart: Decodable, Equatable, Sendable {
+    let index: Int
+    let bytes: Int
+    let verified: Bool
+    let attempts: Int
+    let uncertain: Int
+}
+
+/// Ticket for sending the bytes. The optional `path`/`token` fields are retained only for the local
+/// fixture and for decoding a pre-chunk deployment; staging and production use the chunk fields.
 struct PDFUploadTicket: Decodable, Equatable, Sendable {
     let upload_id: UUID
     let state: String
-    let path: String
+    let revision: Int64?
+    let generation: Int64?
+    let byte_count: Int64?
+    let chunk_bytes: Int?
+    let part_count: Int?
+    let parts: [PDFUploadPart]?
+    let descriptor_required: Bool?
+    let descriptor_ref: LibraryDescriptorReference?
+    let path: String?
     let token: String?
+
+    init(upload_id: UUID, state: String, path: String? = nil, token: String? = nil,
+         revision: Int64? = nil, generation: Int64? = nil, byte_count: Int64? = nil,
+         chunk_bytes: Int? = nil, part_count: Int? = nil, parts: [PDFUploadPart]? = nil,
+         descriptor_required: Bool? = nil, descriptor_ref: LibraryDescriptorReference? = nil) {
+        self.upload_id = upload_id; self.state = state; self.revision = revision; self.generation = generation
+        self.byte_count = byte_count; self.chunk_bytes = chunk_bytes; self.part_count = part_count; self.parts = parts
+        self.descriptor_required = descriptor_required; self.descriptor_ref = descriptor_ref
+        self.path = path; self.token = token
+    }
+
+    var isChunked: Bool {
+        generation != nil && revision != nil && chunk_bytes != nil && part_count != nil && parts != nil
+    }
+}
+
+/// The begin request commits every part digest before the server admits any physical write. Hash one
+/// bounded chunk at a time so a maximum-size PDF never becomes a second in-memory copy.
+private func pdfUploadPartDigests(_ file: URL, byteCount: Int64) throws -> [String] {
+    let handle = try FileHandle(forReadingFrom: file)
+    defer { try? handle.close() }
+    var remaining = byteCount, result: [String] = []
+    while remaining > 0 {
+        let expected = Int(min(Int64(PDFUploadCenter.chunkBytes), remaining))
+        guard let bytes = try handle.read(upToCount: expected), bytes.count == expected else { throw BackendError.transport }
+        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+        result.append(digest); remaining -= Int64(expected)
+    }
+    guard remaining == 0, result.count <= 16 else { throw BackendError.transport }
+    return result
 }
 
 /// Links this device can try for a failed web import (`v1_import_pdf_sources`).
@@ -136,6 +187,8 @@ enum PDFUploadFailure {
         case "upload_quota": "Your private storage is full. Remove uploaded papers you no longer need, then try again."
         case "insufficient_credits": "Converting a PDF needs credits. Get credits, then try again."
         case "upload_target_unavailable", "import_not_retryable": "This paper no longer takes a PDF. Add the PDF on its own instead."
+        case "key_authority_required": "Unlock this device's library before uploading a PDF."
+        case "library_descriptor_required": "This upload needs the device's library keys. Unlock the library, then try again."
         case "invalid_upload": "This PDF couldn’t be sent."
         default: nil
         }
@@ -211,6 +264,9 @@ struct PDFUploadStore: Sendable {
 /// The app's uploads: what the Library and Add sheet show, and the worker that sends them.
 @MainActor @Observable
 final class PDFUploadCenter {
+    /// Must stay in lockstep with `PDF_CHUNK_BYTES` in `_shared/pdf-uploads.ts` and migration 039.
+    nonisolated static let chunkBytes = 4_194_304
+
     struct Context {
         let service: any PaperAddingService
         let accountID: UUID
@@ -394,27 +450,55 @@ final class PDFUploadCenter {
         job.phase = .uploading; job.issue = nil; job.issueCode = nil; update(job)
         let file = store.file(job.id, deployment: context.deploymentID, account: job.accountID)
         do {
-            let ticket = try await context.service.beginUpload(job)
+            let hashFile = file, hashByteCount = job.byteCount
+            let partDigests = try await Task.detached(priority: .userInitiated) {
+                try pdfUploadPartDigests(hashFile, byteCount: hashByteCount)
+            }.value
+            var ticket = try await context.service.beginUpload(job, partSHA256: partDigests)
             guard self.context?.accountID == context.accountID else { return }
+            // A paper created from a device PDF has neutral catalog metadata, so its private title
+            // must be sealed before freeze. The upload session advertises this requirement and returns
+            // a descriptor reference after the operation has already been completed; that makes a lost
+            // descriptor acknowledgement replay-safe without persisting another plaintext title.
+            if ticket.descriptor_required == true && ticket.descriptor_ref == nil {
+                try await context.service.ensureDescriptor(for: job)
+                ticket = try await context.service.uploadStatus(job.uploadID)
+            }
             switch ticket.state {
-            case "pending":
-                guard let token = ticket.token else { throw BackendError.transport }
+            case "receiving":
                 progress[job.id] = 0
                 let id = job.id
-                try await context.service.sendUpload(file: file, path: ticket.path, token: token) { [weak self] fraction in
+                try await context.service.sendUpload(file: file, ticket: ticket) { [weak self] fraction in
                     Task { @MainActor in self?.progress[id] = fraction }
                 }
-            case "finalized", "consumed":
+            case "pending":
+                // Compatibility for an older injected fixture or pre-039 deployment. The live
+                // endpoint never returns this state, and its path/token are optional by design.
+                guard ticket.path != nil, ticket.token != nil else { throw BackendError.transport }
+                progress[job.id] = 0
+                let id = job.id
+                try await context.service.sendUpload(file: file, ticket: ticket) { [weak self] fraction in
+                    Task { @MainActor in self?.progress[id] = fraction }
+                }
+            case "frozen", "checking", "consumed", "finalized":
                 break // the server has it; finalize replays its answer
             default:
                 // The session ended unfinished (expired): start again under a new upload ID.
                 throw PDFUploadRestart()
             }
+            // Part receipts advance the server's revision. Read the exact current session before
+            // freezing it; using the begin revision would make every real multi-part upload fail
+            // with a revision conflict after the first verified chunk.
+            if ticket.isChunked { ticket = try await context.service.uploadStatus(job.uploadID) }
             guard self.context?.accountID == context.accountID else { return }
             job.phase = .finishing; update(job); progress[job.id] = nil
             guard let cursor = job.observedCursor ?? context.cursor() else { throw PDFUploadWaitForLibrary() }
             job.observedCursor = cursor; update(job)
-            try await context.service.finalizeUpload(job.uploadID, observedCursor: cursor)
+            if let generation = ticket.generation, let revision = ticket.revision {
+                try await context.service.finalizeUpload(job.uploadID, generation: generation, revision: revision, observedCursor: cursor)
+            } else {
+                try await context.service.finalizeUpload(job.uploadID, observedCursor: cursor)
+            }
             guard self.context?.accountID == context.accountID else { return }
             jobs.removeAll { $0.id == job.id }
             store.delete(job.id, deployment: context.deploymentID, account: job.accountID)

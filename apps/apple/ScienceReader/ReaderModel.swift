@@ -2551,7 +2551,7 @@ final class ReaderModel {
         if let fixture = AddPaperFixture.service { return fixture }
         #endif
         guard let backend, let accountID else { return nil }
-        return BackendPaperAdding(backend: backend, accountID: accountID)
+        return BackendPaperAdding(backend: backend, accountID: accountID, deviceID: device?.deviceID, keyBundle: device?.bundle)
     }
 
     /// The Add sheet's lookup for anything but an arXiv ID: the server identifies it and queues it as

@@ -55,6 +55,10 @@ final class PDFUploadTests: XCTestCase {
         let lock = NSLock()
         var begins: [(UUID, PDFUploadTarget)] = []
         var sends = 0, finalizes: [(UUID, Int64)] = []
+        var chunked = false, descriptorRequired = false, descriptorRequests = 0
+        var chunkSends = 0, chunkDigests: [[String]] = [], chunkFinalizes: [(UUID, Int64, Int64)] = []
+        var chunkJob: PDFUploadJob?
+        var chunkStatus: PDFUploadTicket?
         var beginResults: [Result<String, Error>] = []      // ticket state to return, or an error
         var sendErrors: [Error] = []
         var finalizeErrors: [Error] = []
@@ -64,16 +68,40 @@ final class PDFUploadTests: XCTestCase {
             let state = try next.get()
             return PDFUploadTicket(upload_id: job.uploadID, state: state, path: "a/\(job.uploadID.uuidString.lowercased()).pdf", token: state == "pending" ? "t" : nil)
         }
+        func beginUpload(_ job: PDFUploadJob, partSHA256: [String]) async throws -> PDFUploadTicket {
+            if !chunked { return try await beginUpload(job) }
+            lock.withLock { chunkDigests.append(partSHA256); chunkJob = job }
+            return PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 1, generation: 3,
+                                   byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
+                                   parts: [.init(index: 0, bytes: Int(job.byteCount), verified: false, attempts: 0, uncertain: 0)],
+                                   descriptor_required: descriptorRequired)
+        }
         func sendUpload(file: URL, path: String, token: String, progress: @escaping @Sendable (Double) -> Void) async throws {
             let error: Error? = lock.withLock { sends += 1; return sendErrors.isEmpty ? nil : sendErrors.removeFirst() }
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
             if let error { throw error }
             progress(1)
         }
+        func sendUpload(file: URL, ticket: PDFUploadTicket, progress: @escaping @Sendable (Double) -> Void) async throws {
+            guard ticket.isChunked else {
+                try await sendUpload(file: file, path: ticket.path ?? "", token: ticket.token ?? "", progress: progress); return
+            }
+            lock.withLock { chunkSends += 1 }; progress(1)
+        }
+        func uploadStatus(_ uploadID: UUID) async throws -> PDFUploadTicket {
+            guard chunked, let job = lock.withLock({ chunkJob }) else { throw BackendError.transport }
+            return chunkStatus ?? PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 2, generation: 3,
+                byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
+                parts: [.init(index: 0, bytes: Int(job.byteCount), verified: true, attempts: 1, uncertain: 0)])
+        }
         func finalizeUpload(_ uploadID: UUID, observedCursor: Int64) async throws {
             let error: Error? = lock.withLock { finalizes.append((uploadID, observedCursor)); return finalizeErrors.isEmpty ? nil : finalizeErrors.removeFirst() }
             if let error { throw error }
         }
+        func finalizeUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64) async throws {
+            lock.withLock { chunkFinalizes.append((uploadID, generation, revision)); finalizes.append((uploadID, observedCursor)) }
+        }
+        func ensureDescriptor(for job: PDFUploadJob) async throws { lock.withLock { descriptorRequests += 1 } }
         func importSources(_ importID: UUID) async throws -> PDFImportSources { throw BackendError.unavailable }
     }
 
@@ -150,6 +178,35 @@ final class PDFUploadTests: XCTestCase {
         cursor = 8; clock = clock.addingTimeInterval(60); queue.resume()
         await settle(queue) { queue.jobs.isEmpty }
         XCTAssertEqual(service.finalizes.map(\.1), [4, 4])
+    }
+
+    func testChunkedUploadRefreshesRevisionBeforeFinalize() async throws {
+        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService(), account = UUID()
+        service.chunked = true
+        let queue = center(store)
+        queue.activate(context(service, account: account))
+        let job = try await queue.add(file: try makePDF(), target: .newPaper)
+        // The status response represents the revision after the chunk receipt. It must be used for
+        // freeze/finalize; the begin revision (1) would be stale by the time the server sees it.
+        service.chunkStatus = PDFUploadTicket(upload_id: job.uploadID, state: "receiving", revision: 2, generation: 3,
+            byte_count: job.byteCount, chunk_bytes: PDFUploadCenter.chunkBytes, part_count: 1,
+            parts: [.init(index: 0, bytes: Int(job.byteCount), verified: true, attempts: 1, uncertain: 0)])
+        await settle(queue) { queue.jobs.isEmpty }
+        XCTAssertEqual(service.chunkSends, 1)
+        XCTAssertEqual(service.chunkDigests.count, 1)
+        XCTAssertEqual(service.chunkFinalizes.map(\.1), [3]); XCTAssertEqual(service.chunkFinalizes.map(\.2), [2])
+    }
+
+    func testChunkedPaperWritesItsDescriptorBeforeFinalize() async throws {
+        let store = PDFUploadStore(root: directory.appendingPathComponent("store")), service = FakeService()
+        service.chunked = true; service.descriptorRequired = true
+        let queue = center(store)
+        queue.activate(context(service, account: UUID()))
+        _ = try await queue.add(file: try makePDF(title: "Private title"), target: .newPaper)
+        await settle(queue) { queue.jobs.isEmpty }
+        XCTAssertEqual(service.descriptorRequests, 1)
+        XCTAssertEqual(service.chunkSends, 1)
+        XCTAssertEqual(service.chunkFinalizes.count, 1)
     }
 
     func testUnsentUploadsSurviveARelaunchAndStayWithTheirAccount() async throws {

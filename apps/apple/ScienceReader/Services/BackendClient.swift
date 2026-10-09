@@ -572,6 +572,85 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         return ticket
     }
 
+    /// Begins the deployed chunked upload protocol (migration 039). Every part digest is committed in
+    /// the admission transaction; the server will not grant a physical write for a different byte range.
+    func beginPDFUpload(_ job: PDFUploadJob, partSHA256: [String], accountID: UUID) async throws -> PDFUploadTicket {
+        guard !partSHA256.isEmpty, partSHA256.count <= 16,
+              partSHA256.allSatisfy({ $0.count == 64 && $0.allSatisfy { $0.isHexDigit } }) else { throw BackendError.transport }
+        struct Body: Encodable {
+            let action = "begin"; let upload_id: String; let sha256: String; let byte_count: Int64; let part_sha256: [String]; let target: String
+            let import_id: String?; let expected_revision: Int64?; let source_id: String?
+
+            // The Edge function treats a present null as a supplied field. Omit target-specific
+            // fields entirely; sending `null` would make a paper/source request fail validation.
+            enum CodingKeys: String, CodingKey { case action, upload_id, sha256, byte_count, part_sha256, target, import_id, expected_revision, source_id }
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(action, forKey: .action); try c.encode(upload_id, forKey: .upload_id)
+                try c.encode(sha256, forKey: .sha256); try c.encode(byte_count, forKey: .byte_count)
+                try c.encode(part_sha256, forKey: .part_sha256); try c.encode(target, forKey: .target)
+                try c.encodeIfPresent(import_id, forKey: .import_id)
+                try c.encodeIfPresent(expected_revision, forKey: .expected_revision)
+                try c.encodeIfPresent(source_id, forKey: .source_id)
+            }
+        }
+        let body: Body
+        switch job.target {
+        case .newPaper:
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, part_sha256: partSHA256,
+                        target: "paper", import_id: nil, expected_revision: nil, source_id: nil)
+        case .importID(let id, let revision):
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, part_sha256: partSHA256,
+                        target: "import", import_id: id.wire, expected_revision: revision, source_id: nil)
+        case .source(let source):
+            body = Body(upload_id: job.uploadID.wire, sha256: job.sha256, byte_count: job.byteCount, part_sha256: partSHA256,
+                        target: "source", import_id: nil, expected_revision: nil, source_id: source)
+        }
+        let data = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(body), accountID: accountID, maximumResponseBytes: 65_536)
+        let ticket = try JSONDecoder().decode(PDFUploadTicket.self, from: data)
+        guard ticket.upload_id == job.uploadID, ticket.isChunked,
+              ticket.byte_count == job.byteCount, ticket.part_count == partSHA256.count,
+              ticket.chunk_bytes == PDFUploadCenter.chunkBytes,
+              ticket.parts?.count == partSHA256.count else { throw ReaderError.corruptData }
+        return ticket
+    }
+
+    /// Reads the current session after chunk acknowledgements. Each verified part advances the
+    /// session revision, so finalize must use this response rather than the begin revision.
+    func pdfUploadStatus(_ uploadID: UUID, accountID: UUID) async throws -> PDFUploadTicket {
+        struct Body: Encodable { let action = "status"; let upload_id: String }
+        let data = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(Body(upload_id: uploadID.wire)),
+                                        accountID: accountID, maximumResponseBytes: 65_536)
+        let ticket = try JSONDecoder().decode(PDFUploadTicket.self, from: data)
+        guard ticket.upload_id == uploadID, ticket.isChunked else { throw ReaderError.corruptData }
+        return ticket
+    }
+
+    /// Stores the private display descriptor required for a paper created from a device PDF. The
+    /// descriptor is sealed locally; the server receives only the envelope and never the title in
+    /// the upload admission request. A unique upload source starts at revision zero, and replaying
+    /// the same request is safe if the network drops after the server commits it.
+    func putLibraryDescriptor(sourceID: String, displayName: String, filename: String?, accountID: UUID,
+                              deviceID: UUID, keys: KeyBundle) async throws {
+        let descriptorID = UUID(), mutationID = UUID()
+        let payload = try LibraryDescriptorPayload(displayName: displayName, filename: filename)
+        let envelope = try LibraryDescriptorCrypto.seal(payload, accountID: accountID, sourceID: sourceID,
+            descriptorID: descriptorID, revision: 1, mutationID: mutationID, deviceID: deviceID, keys: keys)
+        struct Parameters: Encodable, Sendable {
+            let p_source_id: String; let p_expected_revision: Int; let p_caller_device_id: String
+            let p_management_token: String; let p_envelope: LibraryDescriptorEnvelope
+        }
+        struct DescriptorResult: Decodable, Sendable { let status: String }
+        struct Response: Decodable, Sendable { let format: Int; let account_id: UUID; let result: DescriptorResult }
+        let response: Response = try await rpc("v1_put_library_descriptor", params: Parameters(
+            p_source_id: sourceID, p_expected_revision: 0, p_caller_device_id: deviceID.wire,
+            p_management_token: "\\x" + keys.managementToken.hex, p_envelope: envelope), accountID: accountID)
+        guard response.format == 1, response.account_id == accountID,
+              response.result.status == "applied" || response.result.status == "revision_conflict" else {
+            throw ReaderError.corruptData
+        }
+    }
+
     /// Sends the PDF straight to private Storage with the session's signed token (never through a function).
     /// An expired token or a reset connection is retried by asking for a new token.
     func sendPDFUpload(file: URL, path: String, token: String, accountID: UUID, progress: @escaping @Sendable (Double) -> Void) async throws {
@@ -599,11 +678,52 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
         }
     }
 
+    /// Sends each server-admitted 4 MiB chunk through `upload-pdf`. The response is positive evidence
+    /// only when the function says the chunk is verified; a 200 response carrying an uncertain write is
+    /// treated as a transport failure so the queue retries under a fresh attempt and the server retains
+    /// the original liability for reconciliation.
+    func sendPDFUpload(file: URL, ticket: PDFUploadTicket, accountID: UUID, progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard ticket.isChunked, let generation = ticket.generation, let expectedBytes = ticket.byte_count,
+              let chunkBytes = ticket.chunk_bytes, chunkBytes == PDFUploadCenter.chunkBytes,
+              let parts = ticket.parts, parts.count == ticket.part_count, parts.count <= 16,
+              parts.enumerated().allSatisfy({ $0.element.index == $0.offset && $0.element.bytes > 0 && $0.element.bytes <= chunkBytes }),
+              let handle = try? FileHandle(forReadingFrom: file) else { throw BackendError.transport }
+        defer { try? handle.close() }
+        var offset: UInt64 = 0, sent: Int64 = 0
+        for part in parts {
+            try Task.checkCancellation()
+            let length = part.bytes
+            guard offset <= UInt64(Int64.max), let data = try? handle.read(upToCount: length), data.count == length else { throw BackendError.transport }
+            offset += UInt64(length); sent += Int64(length)
+            if part.verified {
+                progress(min(1, Double(sent) / Double(expectedBytes))); continue
+            }
+            let attempt = UUID().wire
+            let path = "functions/v1/upload-pdf?upload_id=\(ticket.upload_id.wire)&generation=\(generation)&part=\(part.index)&attempt_id=\(attempt)"
+            let response = try await authorized(path: path, body: data, method: "PUT", mediaType: "application/octet-stream",
+                                                accountID: accountID, maximumResponseBytes: 16_384)
+            struct Receipt: Decodable { let verified: Bool?; let uncertain: Bool? }
+            guard let receipt = try? JSONDecoder().decode(Receipt.self, from: response), receipt.verified == true, receipt.uncertain != true else {
+                throw BackendError.transport
+            }
+            progress(min(1, Double(sent) / Double(expectedBytes)))
+        }
+        guard sent == expectedBytes, offset == UInt64(expectedBytes) else { throw BackendError.transport }
+    }
+
     /// Finalizes once the bytes are in Storage: the import is created (or retried). Idempotent.
     func finalizePDFUpload(_ uploadID: UUID, observedCursor: Int64, accountID: UUID) async throws {
         struct Body: Encodable { let action = "finalize"; let upload_id: String; let observed_cursor: Int64 }
         _ = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(Body(upload_id: uploadID.wire, observed_cursor: observedCursor)),
                                  accountID: accountID, maximumResponseBytes: LibraryWire.maximumPageBytes)
+    }
+
+    /// Freezes the exact verified chunk selection and attaches it to the account's library. Both
+    /// generation and revision come from the immutable begin/status ticket and are replayed unchanged.
+    func finalizePDFUpload(_ uploadID: UUID, generation: Int64, revision: Int64, observedCursor: Int64, accountID: UUID) async throws {
+        struct Body: Encodable { let action = "finalize"; let upload_id: String; let generation: Int64; let revision: Int64; let observed_cursor: Int64 }
+        _ = try await authorized(path: "functions/v1/upload-pdf", body: try JSONEncoder().encode(Body(upload_id: uploadID.wire, generation: generation,
+            revision: revision, observed_cursor: observedCursor)), accountID: accountID, maximumResponseBytes: LibraryWire.maximumPageBytes)
     }
 
     /// Where this device can try to fetch a failed web import's PDF.
@@ -1051,7 +1171,10 @@ actor BackendClient: LibraryTransport, LibraryCommandTransport, AuthenticationBa
                 throw BackendError.rejected("request_failed")
             }
             let known = Set(["upload_too_large", "upload_quota", "upload_limit", "upload_storage_full", "upload_expired", "upload_id_conflict",
-                             "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "invalid_upload", "rate_limited",
+                             "upload_target_unavailable", "upload_incomplete", "upload_unavailable", "upload_revision_conflict", "upload_not_receiving",
+                             "upload_not_frozen", "upload_mismatch", "upload_attempt_limit", "upload_receipt_capacity", "upload_target_busy",
+                             "upload_write_proof_required", "upload_disabled", "upload_storage_capacity", "paper_storage_capacity", "asset_inventory_reconciling",
+                             "library_descriptor_required", "invalid_upload", "rate_limited",
                              "library_active_import_limit", "import_not_retryable", "import_unavailable",
                              "insufficient_credits","platform_budget_exhausted","key_authority_required","stale_key_epoch","owner_mfa_required","operator_required","invalid_credentials","email_not_confirmed", "attachment_count_limit", "attachment_storage_limit", "request_rate_limit", "attachment_expired", "sync_account_storage_limit", "sync_environment_storage_limit", "sync_account_transfer_limit", "sync_environment_transfer_limit", "sync_page_too_large", "account_busy", "confirmation_required", "purchases_unavailable", "feed_unavailable", "invalid_feed_topic"]).union(BackendError.readerDeliveryCodes)
                 .union(BackendError.podcastCodes)
