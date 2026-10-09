@@ -20,7 +20,7 @@ removed executor work) is retained below where useful and in git history.
   worker-thread lifecycle. The staging scheduler points at it; the legacy Edge `paper-worker` is retained only as an
   unscheduled rollback surface. Migration 054 changes the scheduler's pg_net timeout from the old 5-second Edge
   acknowledgement window to 600 seconds, below the worker's 840-second hard bound. Readiness, activation and aggregate
-  liability evidence are under `.artifacts/rollout-evidence/`. Revision 00030 contains the v2 length/coherence and substantive-review repair
+  liability evidence are under `.artifacts/rollout-evidence/`. Revision 00031 contains the v2 length/coherence and substantive-review repair
   hardening plus the raised explicit word-target prompt; each maintenance-to-active cutover preserved the reviewed
   configuration and immutable image digest.
 - **Verification:** the full local database suite, podcast worker journey, 483 backend tests, web build/unit suite and
@@ -36,12 +36,12 @@ removed executor work) is retained below where useful and in git history.
   enabled with the revised ceilings. The current October curated-catalog period is configured by migration 055 at a
   `$3` hard allowance and `max_episodes=10`; admissions remain operator-selected and review-gated, so no catalog
   episode is generated automatically without an explicit seed operation.
-- **Length and coherence hardening (live in revision 00030):** v2 worker jobs now enforce each profile's declared word shape and accept audio
+- **Length and coherence hardening (live in revision 00031):** v2 worker jobs now enforce each profile's declared word shape and accept audio
   only inside a 0.8–1.25× target-duration window (v1 jobs retain their historical bounds). The checker remembers
   removed turns when deciding whether a question still has an answer, preventing an unrelated later turn from hiding a
   dangling prompt. The active worker revision was deployed through the paused-gate readiness procedure; this rollout
   spent no provider credits.
-- **Podcast review repair hardening (live in revision 00030):** the review prompt now requires substantive,
+- **Podcast review repair hardening (live in revision 00031):** the review prompt now requires substantive,
   evidence-grounded replacements and an explicit post-correction word-count check. A short acknowledgment or generic
   filler cannot be used to get back over a profile's lower bound. The deployment's fresh scheduler check at 16:02 UTC
   recorded 15/15 HTTP 200 calls with zero provider cost.
