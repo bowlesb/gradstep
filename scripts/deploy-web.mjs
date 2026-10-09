@@ -59,7 +59,11 @@ export function validateClientOutput(root, directory, target, backend, env) {
     if (directives.has(name)) fail('duplicate CSP directive');
     directives.set(name, values.join(' '));
   }
-  if (directives.get('connect-src') !== backend || directives.get('default-src') !== "'none'" || directives.get('frame-ancestors') !== "'none'"
+  const auth = env.VITE_AUTH_URL?.replace(/\/$/, '') || backend;
+  let expectedConnect;
+  try { expectedConnect = [...new Set([new URL(backend).origin, new URL(auth).origin])].join(' '); }
+  catch { fail('the configured auth URL is not an absolute URL'); }
+  if (directives.get('connect-src') !== expectedConnect || directives.get('default-src') !== "'none'" || directives.get('frame-ancestors') !== "'none'"
     || headers.get('strict-transport-security') !== 'max-age=31536000' || headers.get('x-content-type-options') !== 'nosniff'
     || headers.get('referrer-policy') !== 'no-referrer' || headers.get('x-frame-options') !== 'DENY'
     || !headers.get('cache-control')?.split(/,\s*/).includes('no-transform')) fail('the built _headers lack the strict policy for the staging backend');
@@ -67,7 +71,7 @@ export function validateClientOutput(root, directory, target, backend, env) {
     || directives.get('object-src') !== "'none'" || directives.get('worker-src') !== "'none'"
     || directives.get('frame-src') !== "'none'" || directives.get('base-uri') !== "'none'" || directives.get('form-action') !== "'self'")) fail('admin CSP permits an unexpected execution or embedding source');
   if (existsSync(join(root, 'functions'))) fail('static Pages deployment must not include a root functions directory');
-  const secrets = Object.entries(env).filter(([k, v]) => k !== 'SUPABASE_ANON_KEY' && v.length >= 16
+  const secrets = Object.entries(env).filter(([k, v]) => k !== 'SUPABASE_ANON_KEY' && k !== 'VITE_AUTH_URL' && v.length >= 16
     && !/^(SUPABASE_URL|SUPABASE_PROJECT_REF|GCLOUD_PROJECT_ID|GCLOUD_PROJECT_NUMBER|CLOUDFLARE_ACCOUNT_ID)$/.test(k));
   for (const file of files(directory)) {
     const path = relative(directory, file);
@@ -92,7 +96,7 @@ export function deployWeb(target, { root = repository, buildOnly = false, run = 
     for (const local of ['.env', '.env.local', '.env.production', '.env.production.local'])
       if (existsSync(join(directory, local))) fail(`remove ${selected.path}/${local}; deploy builds take values only from .env.staging`);
     const buildEnv = { ...Object.fromEntries(Object.entries(processEnv).filter(([k]) => !k.startsWith('VITE_') && !k.startsWith('CLOUDFLARE_') && !Object.hasOwn(env, k))), NODE_ENV: 'production',
-      VITE_SUPABASE_URL: backend, VITE_SUPABASE_ANON_KEY: key, VITE_ENVIRONMENT: 'staging' };
+      VITE_SUPABASE_URL: backend, VITE_AUTH_URL: env.VITE_AUTH_URL ?? backend, VITE_SUPABASE_ANON_KEY: key, VITE_ENVIRONMENT: 'staging' };
     run('npm', ['run', selected.script], { cwd: target === 'admin' ? root : directory, env: buildEnv, stdio: ['ignore', 'inherit', 'inherit'] });
     directory = join(directory, 'dist');
     validateClientOutput(root, directory, target, backend, env);

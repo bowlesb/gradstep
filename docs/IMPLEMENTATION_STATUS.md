@@ -493,6 +493,11 @@ place.
   `com.sciencereader.auth`) associated with the Science Reader App ID, `app.gradstep.ai` and Supabase's
   `/auth/v1/callback`, followed by a Science Reader client-secret JWT and Supabase configuration. A secret from
   TextBrain must not be reused.
+- **Branded OAuth hostname preparation:** the browser client now accepts a separate public `VITE_AUTH_URL` for the
+  authorization and PKCE token exchange, and the generated CSP allows that origin alongside the data API. It defaults
+  to the current backend, so this preparation has not changed today's deployment. Supabase's read-only custom-domain
+  check returns `entitlement_required`; enabling `auth.gradstep.ai` requires the paid custom-domain add-on (about
+  $10/month), DNS CNAME/TXT verification, and adding the branded callback to the Google and Apple provider consoles.
 - **Migration 042 (`library_v5_commands`) is now on staging**, merged in main `b993c23` after independent review.
   Encrypted checkpoint `20261008T051522Z-5ffa9efe26a9` includes the database and 1,332 objects. The migration
   ledger checksum and all six authenticated RPC grants/search paths were read back. Zero-provider-cost

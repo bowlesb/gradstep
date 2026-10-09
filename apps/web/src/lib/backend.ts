@@ -4,10 +4,13 @@
 import { cancellation } from './cancellation';
 import { isUUID } from './bytes';
 
-export interface BackendConfig { url: string; anonKey: string; environment: string }
+export interface BackendConfig { url: string; authUrl: string; anonKey: string; environment: string }
 
+const configuredBackendURL = (import.meta.env.VITE_SUPABASE_URL as string | undefined ?? '').replace(/\/$/, '');
+const configuredAuthURL = (import.meta.env.VITE_AUTH_URL as string | undefined ?? configuredBackendURL).replace(/\/$/, '');
 export const config: BackendConfig = {
-  url: (import.meta.env.VITE_SUPABASE_URL as string | undefined ?? '').replace(/\/$/, ''),
+  url: configuredBackendURL,
+  authUrl: configuredAuthURL,
   anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined ?? '',
   environment: import.meta.env.VITE_ENVIRONMENT as string | undefined ?? 'staging',
 };
@@ -64,19 +67,20 @@ async function bounded(response: Response, maximum: number): Promise<Uint8Array<
   return out;
 }
 
-function endpoint(path: string): string {
-  const url = new URL('/' + path, config.url);
-  if (url.origin !== new URL(config.url).origin) throw new BackendError('request_failed');
+function endpoint(path: string, baseUrl = config.url): string {
+  const origin = new URL(baseUrl).origin;
+  const url = new URL('/' + path, baseUrl);
+  if (url.origin !== origin) throw new BackendError('request_failed');
   return url.toString();
 }
 
-async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal; contentType?: string }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
+async function send(path: string, init: RequestInit & { token?: string; maximum?: number; timeout?: number; sessionSignal?: AbortSignal; contentType?: string; baseUrl?: string }): Promise<{ status: number; body: Uint8Array<ArrayBuffer>; headers: Headers }> {
   if (!config.url || !config.anonKey) throw new BackendError('not_configured');
   const headers: Record<string, string> = { apikey: config.anonKey, ...(init.body ? { 'Content-Type': init.contentType ?? 'application/json' } : {}) };
   if (init.token) headers.Authorization = `Bearer ${init.token}`;
   const deadline = requestDeadline([init.signal, init.sessionSignal], init.timeout ?? 30_000);
   try {
-    const response = await fetch(endpoint(path), { method: init.method ?? 'POST', body: init.body, headers, redirect: 'error', cache: 'no-store',
+    const response = await fetch(endpoint(path, init.baseUrl), { method: init.method ?? 'POST', body: init.body, headers, redirect: 'error', cache: 'no-store',
       credentials: 'omit', referrerPolicy: 'no-referrer', signal: deadline.signal });
     return { status: response.status, body: await bounded(response, init.maximum ?? 262_144), headers: response.headers };
   } catch (error) {
@@ -209,7 +213,7 @@ export const auth = {
       challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pending.verifier))));
       sessionStorage.setItem(oauthKey(), JSON.stringify(pending));
     } catch { clearPendingOAuth(); throw new AuthError('configuration'); }
-    const authorize = new URL('/auth/v1/authorize', config.url);
+    const authorize = new URL('/auth/v1/authorize', config.authUrl);
     authorize.searchParams.set('provider', provider);
     authorize.searchParams.set('redirect_to', redirectTo);
     authorize.searchParams.set('code_challenge', challenge);
@@ -235,7 +239,7 @@ export const auth = {
     let reply;
     try {
       reply = await send('auth/v1/token?grant_type=pkce', {
-        body: JSON.stringify({ auth_code: code, code_verifier: pending.verifier }), maximum: 262_144, timeout: 30_000,
+        body: JSON.stringify({ auth_code: code, code_verifier: pending.verifier }), maximum: 262_144, timeout: 30_000, baseUrl: config.authUrl,
       });
     } catch { throw new AuthError('connection'); }
     if (reply.status === 400 || reply.status === 401 || reply.status === 403) throw new AuthError('oauth_invalid');

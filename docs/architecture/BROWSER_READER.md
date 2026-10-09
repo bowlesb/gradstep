@@ -169,8 +169,9 @@ no Functions): $0/month.
 Deploy with `node scripts/deploy-web.mjs app` (reader) or `node scripts/deploy-web.mjs site` (info site): builds
 locally and uploads with the repository's locked Wrangler 4 and the dedicated Cloudflare credential in `.env.staging`.
 The build points at **staging** (`coxhjvqpflgxkleydati`); production stays unprovisioned.
-The Supabase anon key is a public client identifier (as in the iOS binary and the admin site), embedded at build time.
-The build restricts exposed environment-variable names to the URL/anon key, and the deploy script gates the values:
+The backend URL and anon key are public client configuration (as in the iOS binary and the admin site), embedded at
+build time. OAuth has a separate optional `VITE_AUTH_URL`; it defaults to the backend URL until the branded auth
+hostname is activated. The build restricts exposed environment-variable names to these public values, and the deploy script gates the values:
 the URL must be the staging project, the key must be a JWT with role `anon` for that project, no other
 `.env.staging` value may appear anywhere in the built output, and the generated `_headers` must carry the strict CSP
 for exactly that backend plus HSTS. Local `apps/web/.env*` files are refused so the deploy cannot pick up stray values.
@@ -204,8 +205,9 @@ Cross-Origin-Resource-Policy: same-origin
 Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
 ```
 
-No third-party scripts, fonts, analytics or CDNs. `connect-src` is only the Supabase project (REST, Auth, Edge
-functions and Storage signed URLs share that host). `style-src 'unsafe-inline'` is required by the reader bridge
+No third-party scripts, fonts, analytics or CDNs. `connect-src` includes the backend origin and, once enabled, the
+branded auth origin (REST, Edge Functions and Storage remain on the backend; OAuth authorization and code exchange
+use the auth origin). `style-src 'unsafe-inline'` is required by the reader bridge
 (it inserts `<style>` elements, as in WebKit) and the bundles' inline MathML styles; scripts stay hash/`self`-only.
 Hashed assets are cached immutably; `index.html` and `_headers` are `no-store`/revalidated.
 
@@ -343,7 +345,9 @@ still determine its outcome.
 
 **Browser OAuth is implemented with the same bounded PKCE shape as native sign-in.** The sign-in page offers Google
 and Apple. The client creates a 256-bit verifier and state, stores only those short-lived values in session storage,
-opens Supabase's exact `/auth/v1/authorize` origin, and accepts a callback at `/auth/callback`. Supabase owns the
+opens the configured auth service's exact `/auth/v1/authorize` origin, and accepts a callback at `/auth/callback`.
+The current build defaults that service to the staging backend; the planned `auth.gradstep.ai` custom domain will
+remove the provider-visible Supabase hostname without changing the API data origin. The auth service owns the
 provider `state` value and does not echo a client-supplied one, so the client binds its pending browser flow through
 the namespaced `client_state` query parameter in `redirect_to`. It removes the callback query before the token exchange,
 verifies that binding, exchanges the one-use code at
@@ -354,6 +358,16 @@ round-trip, the recovery handoff, and a state-less callback rejection on desktop
 round-trip remains skipped). The staging redirect allowlist already contains the exact app callback. Actual Google
 and Apple browser consent, Services ID configuration and provider identity linking remain live acceptance gates;
 Apple's web Services ID is separate from native Apple sign-in (see [native authentication](NATIVE_AUTHENTICATION.md)).
+
+### Branded auth hostname
+
+The supported path to remove the project hostname from Google/Apple provider handoffs is the Supabase custom-domain
+add-on, using `auth.gradstep.ai` as a CNAME to the staging project. Supabase then serves Auth from that hostname;
+the Google OAuth client's authorized callback and Apple's Services ID return URL must each include
+`https://auth.gradstep.ai/auth/v1/callback` before activation. The deploy accepts `VITE_AUTH_URL` and expands CSP
+`connect-src` to both origins. The add-on is not enabled yet; Supabase documents it as a paid project add-on at
+approximately $10/month. We will activate it only after the owner approves that recurring cost and the DNS/CNAME
+verification record is ready. [Supabase custom domains](https://supabase.com/docs/guides/platform/custom-domains)
 
 ## Edge function origin
 

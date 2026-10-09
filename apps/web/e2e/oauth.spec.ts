@@ -16,6 +16,8 @@ test('Google OAuth returns through the PKCE callback and then restores the encry
   await expect(page.getByTestId('use-recovery-code')).toBeVisible({ timeout: 20_000 });
   expect(authorize).toHaveLength(1);
   const started = new URL(authorize[0]);
+  // The auth service may live on a branded hostname separate from the data API.
+  expect(started.hostname).toBe('localhost');
   expect(started.searchParams.get('provider')).toBe('google');
   expect(started.searchParams.get('code_challenge_method')).toBe('s256');
   expect(started.searchParams.get('state')).toBeNull();

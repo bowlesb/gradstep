@@ -29,11 +29,11 @@ function diagramScript(): { script: string; hash: string } {
   return { script, hash: 'sha256-' + createHash('sha256').update(script).digest('base64') };
 }
 
-function headers(backend: string, hash: string): Record<string, string> {
-  const origin = backend ? new URL(backend).origin : '';
+function headers(backend: string, auth: string, hash: string): Record<string, string> {
+  const origins = [...new Set([backend, auth].filter(Boolean).map(value => new URL(value).origin))];
   return {
     'Content-Security-Policy': [`default-src 'none'`, `script-src 'self' '${hash}' '${diagramScript().hash}'`, `style-src 'self' 'unsafe-inline'`, `img-src 'self' data:`,
-      `font-src 'self'`, `media-src blob:`, `connect-src ${origin || `'none'`}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
+      `font-src 'self'`, `media-src blob:`, `connect-src ${origins.join(' ') || `'none'`}`, `frame-src 'self'`, `manifest-src 'self'`, `base-uri 'none'`, `form-action 'self'`,
       `frame-ancestors 'none'`, `object-src 'none'`, `worker-src 'none'`].join('; '),
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
@@ -44,7 +44,7 @@ function headers(backend: string, hash: string): Record<string, string> {
   };
 }
 
-function readerFrame(backend: string): Plugin {
+function readerFrame(backend: string, auth: string): Plugin {
   const id = 'virtual:reader-frame', resolved = '\0' + id, diagram = 'virtual:diagram-frame';
   return {
     name: 'gradstep-reader-frame',
@@ -56,11 +56,11 @@ function readerFrame(backend: string): Plugin {
       return `export default ${JSON.stringify(frameScript())};`;
     },
     configurePreviewServer(server) {
-      const values = headers(backend, frameScript().hash);
+      const values = headers(backend, auth, frameScript().hash);
       server.middlewares.use((_request, response, next) => { for (const [k, v] of Object.entries(values)) response.setHeader(k, v); next(); });
     },
     generateBundle() {
-      const values = headers(backend, frameScript().hash);
+      const values = headers(backend, auth, frameScript().hash);
       // no-transform stops the CDN from injecting its analytics beacon (zone-level Web Analytics), which the CSP
       // would refuse anyway; Pages joins it with the per-path Cache-Control values below.
       const lines = ['/*', ...Object.entries(values).map(([k, v]) => `  ${k}: ${v}`), ...(backend.startsWith('https:') ? ['  Strict-Transport-Security: max-age=31536000'] : []),
@@ -73,11 +73,12 @@ function readerFrame(backend: string): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, fileURLToPath(new URL('.', import.meta.url)), 'VITE_');
-  // Only the public backend URL, anon key and environment name may reach the bundle.
-  for (const key of Object.keys(env)) if (!['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY', 'VITE_ENVIRONMENT'].includes(key)) throw new Error(`Refusing unexpected build variable ${key}`);
+  // Only the public backend/auth URLs, anon key and environment name may reach the bundle.
+  for (const key of Object.keys(env)) if (!['VITE_SUPABASE_URL', 'VITE_AUTH_URL', 'VITE_SUPABASE_ANON_KEY', 'VITE_ENVIRONMENT'].includes(key)) throw new Error(`Refusing unexpected build variable ${key}`);
   const backend = env.VITE_SUPABASE_URL ?? '';
+  const auth = env.VITE_AUTH_URL ?? backend;
   return {
-    plugins: [readerFrame(backend)],
+    plugins: [readerFrame(backend, auth)],
     server: { fs: { allow: [repository] } },
     build: { target: 'es2022', sourcemap: false, assetsInlineLimit: 0 },
     test: { include: ['tests/**/*.test.ts'], environment: 'node', testTimeout: 30_000 },
