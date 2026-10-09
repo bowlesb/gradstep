@@ -244,6 +244,12 @@ direct source links. No public paid launch promise should say that every arXiv p
     It matches quotes in one shared normal form and stores the paper's own span, drops individual bad items and
     removes unsupported claims within 30% limits, sizes five-minute speech to fit, and records a text-free checker
     report with each job. Re-admit the seeds one at a time: $0.82 committed leaves room for one $0.75 hold.
+- **Third attempt** (migration 050 applied after a successful backup, `20261009T032625Z-6a31787ca23b`; worker
+  `gradstep-pipeline-00015-f9q`, checker v3):
+  - The checker verified all 11 evidence quotes and would have kept 20 of 22 turns.
+  - The review model nonetheless returned "reject" with no corrections, which failed the job (~$0.18).
+  - Pilot spend: $1.00 of $2.
+  - Next: the review must give reason codes and repair before rejecting (checker v4).
 - **TestFlight build 24** (iOS and Mac, main `3cd874f`): build 23 plus the podcast client (Listen filter, player,
   lengths) and the floating-tab-bar fix (find-in-paper bar, regression tests). Upload succeeded; processing pending.
 
