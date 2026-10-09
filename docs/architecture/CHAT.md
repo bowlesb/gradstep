@@ -236,6 +236,14 @@ one attempt, no search. The server's hold is larger (below).
 | Opus | Standard | 8–47 · max 74 | 12–51 · max 82 | 19–58 · max 98 |
 | Opus | Detailed | 13–52 · max 90 | 17–56 · max 98 | 24–63 · max 114 |
 
+**Local verification (2026-10-08, main merged through `7d4af7b`).** Database suite (047 applies after 046, both
+phases), 430 backend tests, the chat function's Deno type check, 258 Core Swift tests, the wire check (titles and
+answer labels), 402 iOS unit tests (5 skipped), the chat-controls journeys, All chats and Discuss in chat (iPhone
+10/10, iPad 4/4; light and dark screenshots inspected) and a universal (arm64 + x86_64) Catalyst build. Model IDs,
+prices and thinking rules re-read from Anthropic's price list, models overview and thinking guide the same day: the
+tariff above matches (Sonnet 5.5 cache reads $0.10), and Haiku 5.5 accepts the title request's
+`thinking: {type: "disabled"}` at its default effort (`medium`; only `xhigh`/`max` reject it). No provider request.
+
 Haiku 5.5 is new: before it is presented as a cheaper substitute it should pass factual/equation checks
 ([pricing recommendation](../research/PRICING_RECOMMENDATION_20261008.md#more-models-effort-and-tools)); the paid check
 should include it.
