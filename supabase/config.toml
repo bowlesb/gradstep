@@ -14,8 +14,8 @@ major_version = 17
 
 [auth]
 enabled = true
-site_url = "sciencereader://auth/callback"
-additional_redirect_urls = ["sciencereader://auth/callback"]
+site_url = "https://app.gradstep.ai"
+additional_redirect_urls = ["sciencereader://auth/callback", "https://app.gradstep.ai/auth/callback"]
 enable_signup = true
 minimum_password_length = 12
 

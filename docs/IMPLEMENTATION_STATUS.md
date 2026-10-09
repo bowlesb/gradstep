@@ -493,6 +493,9 @@ place.
   `com.sciencereader.auth`) associated with the Science Reader App ID, `app.gradstep.ai` and Supabase's
   `/auth/v1/callback`, followed by a Science Reader client-secret JWT and Supabase configuration. A secret from
   TextBrain must not be reused.
+- **Hosted OAuth fallback fix (2026-10-09):** staging Auth still had `site_url=http://localhost:3000` from local
+  development. It is now `https://app.gradstep.ai`; the native callback and both hosted callback entries remain in the
+  redirect allowlist. This prevents provider fallback/error redirects from returning a hosted user to localhost.
 - **Branded OAuth hostname preparation:** the browser client now accepts a separate public `VITE_AUTH_URL` for the
   authorization and PKCE token exchange, and the generated CSP allows that origin alongside the data API. It defaults
   to the current backend, so this preparation has not changed today's deployment. Supabase's read-only custom-domain

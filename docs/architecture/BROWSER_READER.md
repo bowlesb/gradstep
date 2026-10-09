@@ -325,9 +325,10 @@ Email code sign-in uses `POST /auth/v1/otp` (`create_user: false`; sign-up stays
 created in the admin Accounts tab) then `POST /auth/v1/verify` (`type: "email"`), six ASCII digits with
 `autocomplete="one-time-code"`. Refresh uses `grant_type=refresh_token` behind a Web Lock (one refresh across tabs);
 sign-out calls `logout?scope=local`. The session lives in `localStorage` under the environment name; another tab's
-sign-out signs this one out. No redirect URL is needed for the email code. For later web OAuth, staging's Auth redirect
-allowlist was extended on 2026-10-07 (appended, existing `sciencereader://auth/callback` kept) with
-`https://app.gradstep.ai` and `https://app.gradstep.ai/auth/callback`; `site_url` is unchanged.
+sign-out signs this one out. No redirect URL is needed for the email code. Staging's Auth redirect allowlist includes
+the native `sciencereader://auth/callback` plus `https://app.gradstep.ai` and
+`https://app.gradstep.ai/auth/callback`; the Auth `site_url` is `https://app.gradstep.ai` so provider failures and
+fallbacks cannot send a browser to the old local-development address.
 
 Each successful login receives an opaque client lifetime ID, stored alongside the tokens; refresh preserves that
 ID. This is local session metadata, not a server credential or backend format change. Legacy browser sessions

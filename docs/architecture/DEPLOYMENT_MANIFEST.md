@@ -42,7 +42,8 @@ The reviewed [`plan-v4`](../../.artifacts/native-auth-configuration-plan-v4.json
 |---|---|
 | `external_apple_enabled` | `true` |
 | `external_apple_client_id` | `com.sciencereader.ios` |
-| `uri_allow_list` | `sciencereader://auth/callback` — the exact sole entry |
+| `site_url` | `https://app.gradstep.ai` — hosted browser default; native flow still uses its explicit callback |
+| `uri_allow_list` | `sciencereader://auth/callback`, `https://app.gradstep.ai`, `https://app.gradstep.ai/auth/callback` |
 | `mailer_otp_length` | `6` |
 | `mailer_otp_exp` | `600` seconds |
 | `mailer_templates_confirmation_content` | Exact code template below |
@@ -56,8 +57,9 @@ The reviewed [`plan-v4`](../../.artifacts/native-auth-configuration-plan-v4.json
 <p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>
 ```
 
-Google, custom SMTP, Apple web secrets, the site URL and unrelated Auth settings were unchanged. Native Apple remains
-configured, but **web Apple sign-in is a separate account gate**: staging has no Apple OAuth secret and still uses the
+Google, custom SMTP, Apple web secrets and unrelated Auth settings were unchanged. The hosted OAuth repair changed the
+Auth `site_url` to `https://app.gradstep.ai` on 2026-10-09 while preserving the native callback in the allowlist.
+Native Apple remains configured, but **web Apple sign-in is a separate account gate**: staging has no Apple OAuth secret and still uses the
 native bundle audience. A dedicated Services ID, its domain/return URL association and a Science Reader client-secret
 JWT must be created before enabling the browser button against staging. A secret from TextBrain must not be reused.
 Email authentication remains enabled, but **new signups remain disabled** pending sender readiness and beta admission.
