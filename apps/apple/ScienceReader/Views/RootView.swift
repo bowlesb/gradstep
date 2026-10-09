@@ -805,7 +805,10 @@ struct ChatView: View {
             GeometryReader { available in
                 // Reserve reading and editing space as text grows or a keyboard
                 // reduces the pane. The transcript/composer retain their identity.
-                let compact = available.size.height < bodySize * 20
+                // The podcast mini-player's share of the tab bar's reserve hides with the keyboard: it never decides the
+                // message box's layout (counted while a keyboard appears, it tipped iPhones into the compact one).
+                let podcastShare = model.podcasts.nowPlaying != nil && tabBarReserve > 0 ? PodcastMiniPlayer.height : 0
+                let compact = available.size.height + podcastShare < bodySize * 20
                 // Floating chrome (2026-10-07): the conversation runs the full height, under the title bar,
                 // the context switch, the message box and the tab bar, and fades out behind them.
                 // The insets are measured from the controls' edges (a proxy's safe area leaves out the
@@ -928,21 +931,19 @@ struct ChatView: View {
             // Discuss in chat opens the Chat tab, created after the request: take it once it is on screen.
             .task { if model.takeComposerFocusRequest() { try? await Task.sleep(for: .milliseconds(300)); composerFocused = true } }
             .lineLimit(1...(compact ? 2 : 6)).fixedSize(horizontal: false, vertical: true)
-        Group {
+        // One layout that changes shape, never two: the text field keeps its identity (and the keyboard its focus)
+        // when the message box turns compact or back, for example while a keyboard appears.
+        let layout = compact ? AnyLayout(HStackLayout(alignment: .bottom, spacing: 4)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+        layout {
+            if compact { ChatProfileButton(model: model, compact: true).padding(.leading, 6).padding(.bottom, 3) }
+            field.padding(.horizontal, compact ? 0 : 18).padding(.top, 14).padding(.bottom, compact ? 14 : 2)
             if compact {
-                HStack(alignment: .bottom, spacing: 4) {
-                    ChatProfileButton(model: model, compact: true).padding(.leading, 6).padding(.bottom, 3)
-                    field.padding(.vertical, 14)
-                    sendButton
-                }
+                sendButton
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    field.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 2)
-                    HStack(alignment: .center, spacing: 4) {
-                        ChatProfileButton(model: model).padding(.leading, 10)
-                        Spacer(minLength: 4)
-                        sendButton
-                    }
+                HStack(alignment: .center, spacing: 4) {
+                    ChatProfileButton(model: model).padding(.leading, 10)
+                    Spacer(minLength: 4)
+                    sendButton
                 }
             }
         }
