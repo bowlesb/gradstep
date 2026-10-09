@@ -237,8 +237,13 @@ direct source links. No public paid launch promise should say that every arXiv p
     after 049 is `20261009T023219Z-4bb34a6e49a6`.
   - Both seeds passed draft and review, then failed `script_evidence_rejected` (~$0.19 each). Pilot spend is now
     $0.82 of $2.
-  - A diagnosis and fix for evidence matching are in progress: normalization, quoting rules, degrading per item
-    instead of failing the whole script, and bounded diagnostics. No more retries until it lands.
+  - Diagnosed without paying, from the worker's own logs: the evidence quotes matched. Both drafts failed the
+    spoken-number rule (`unsupported_number:s9`; `number_not_in_evidence:s13`, first of 3).
+  - Fix ready on a branch, not yet applied or deployed: checker v3 and migration 050
+    ([Seed pilot fix 2](architecture/PAPER_PODCASTS.md#seed-pilot-fix-2-checker-v3-and-checker-reports-2026-10-08)).
+    It matches quotes in one shared normal form and stores the paper's own span, drops individual bad items and
+    removes unsupported claims within 30% limits, sizes five-minute speech to fit, and records a text-free checker
+    report with each job. Re-admit the seeds one at a time: $0.82 committed leaves room for one $0.75 hold.
 - **TestFlight build 24** (iOS and Mac, main `3cd874f`): build 23 plus the podcast client (Listen filter, player,
   lengths) and the floating-tab-bar fix (find-in-paper bar, regression tests). Upload succeeded; processing pending.
 
