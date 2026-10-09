@@ -27,7 +27,7 @@ v2 ceilings are 140 / 150 / 300 / 530 credits for Short / 5 / 10 / 20 minutes.
 For v2 jobs the worker also enforces each profile's declared spoken-word range and accepts rendered audio only in a
 0.8–1.25× target-duration window; v1 jobs retain their historical wider bounds. The checker removes a question when
 its answer or an intervening turn was removed, so a later unrelated host turn cannot leave an unanswered prompt.
-The hardening is active in Cloud Run revision `gradstep-pipeline-00021-hg8` on staging. Its activation used a fresh
+The hardening is active in Cloud Run revision `gradstep-pipeline-00025-cwc` on staging. Its activation used a fresh
 paused-gate drain attestation and the immutable image digest; the scheduler's 600-second acknowledgement timeout is
 unchanged. No provider call was made for the rollout.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
