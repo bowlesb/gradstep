@@ -15,7 +15,7 @@ removed executor work) is retained below where useful and in git history.
   140 / 150 / 300 / 530 credits. The 530 ceiling is deliberate: Vertex's serving limit is 16,384 audio tokens per
   call, so the six-call 20-minute profile must reserve six full grants. All four profiles are allowlisted atomically;
   private generation and catalog delivery remain bounded by the existing account, daily and $25 platform limits.
-- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00030-pb9` is active at 100% traffic with request-based
+- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00031-l5v` is active at 100% traffic with request-based
   billing, zero minimum instances, max three instances, one request per instance, pinned secrets and the bounded
   worker-thread lifecycle. The staging scheduler points at it; the legacy Edge `paper-worker` is retained only as an
   unscheduled rollback surface. Migration 054 changes the scheduler's pg_net timeout from the old 5-second Edge
@@ -43,7 +43,7 @@ removed executor work) is retained below where useful and in git history.
   spent no provider credits.
 - **Podcast review repair hardening (live in revision 00030):** the review prompt now requires substantive,
   evidence-grounded replacements and an explicit post-correction word-count check. A short acknowledgment or generic
-  filler cannot be used to get back over a profile's lower bound. The deployment's fresh scheduler check at 15:58 UTC
+  filler cannot be used to get back over a profile's lower bound. The deployment's fresh scheduler check at 16:02 UTC
   recorded 15/15 HTTP 200 calls with zero provider cost.
 - **Catalog quality gate exercise:** two post-rollout CC BY candidates were correctly stopped before speech because
   the checker found unsupported claims and/or a post-cleanup word-budget failure. Their script/review usage settled at
