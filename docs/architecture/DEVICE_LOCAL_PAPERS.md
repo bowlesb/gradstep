@@ -7,6 +7,10 @@ server to retain or serve the PDF or derived files. It deliberately keeps
 metadata and account state synchronized while keeping paper bytes on approved
 devices.
 
+The open-source/on-device processing investigation is recorded in
+[ON_DEVICE_PAPER_PROCESSING_20261009](../research/ON_DEVICE_PAPER_PROCESSING_20261009.md). It is a separate,
+quality-gated option; the current Mathpix path remains the quality reference.
+
 ## What the server stores
 
 For every source-only import, Supabase may store:

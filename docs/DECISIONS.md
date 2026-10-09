@@ -91,6 +91,15 @@ provider retention or imply that a lower-priced model is automatically equivalen
 [DATA_HANDLING_AND_COSTS](architecture/DATA_HANDLING_AND_COSTS.md). DeepSeek remains a research candidate only;
 no routing or price policy changes follow from the rate comparison.
 
+## On-device paper processing (research, reversible) — 2026-10-09
+
+Mathpix remains the quality reference for equation-aware conversion. The proposed local path is layered: PDFKit text
+and bounds, Apple's on-device Vision OCR for missing text, then a separately licensed and quality-gated equation model
+with Mathpix fallback. No open-source model is bundled or enabled from the initial investigation. A candidate must
+pass held-out equation/rendering, reading-order, figure/table, device performance, failure-recovery and commercial
+license checks. The full rationale and candidate inventory are in
+[ON_DEVICE_PAPER_PROCESSING_20261009](research/ON_DEVICE_PAPER_PROCESSING_20261009.md).
+
 ## Product decision checkpoint
 
 The user accepted both remaining recommendations on 2026-10-02. Account recovery does not recover encrypted history without an approved device or recovery code. No further product decision blocks foundation implementation.
