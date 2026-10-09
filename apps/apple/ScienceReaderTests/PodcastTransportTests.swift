@@ -105,6 +105,23 @@ final class PodcastTransportTests: XCTestCase {
         XCTAssertEqual(sent, ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": "podcast-private-v1"])
     }
 
+    func testQuoteNamesTheChosenLengthAndReadsEveryOption() async throws {
+        let itemID = UUID(), requestID = UUID()
+        let options = #"[{"profile":"podcast-short-v1","label":"Short","target_seconds":150,"max_credits":110},{"profile":"podcast-10min-v1","label":"10 min","target_seconds":600,"max_credits":220}]"#
+        let transport = try transport(["/functions/v1/podcast?quote": .init(body: Data(#"{"quote":{"id":"\#(release.wire)","expires_at":"2026-10-08T12:15:00Z","max_credits":220,"estimate":"Estimate — you're charged actual usage, maximum 220 credits","providers":["Anthropic (script)","Google Vertex AI (speech)"],"consent_version":"podcast-private-v1","target_seconds":600,"profile":"podcast-10min-v1","label":"10 min"},"options":\#(options)}"#.utf8))])
+        guard case .quote(let quote) = try await transport.quote(itemID: itemID, requestID: requestID, profile: "podcast-10min-v1") else { return XCTFail("A quote") }
+        XCTAssertEqual(quote.profile, "podcast-10min-v1"); XCTAssertEqual(quote.maxCredits, 220); XCTAssertEqual(quote.label, "10 min")
+        XCTAssertEqual(quote.options.map(\.maxCredits), [110, 220])
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first).1) as? [String: String])
+        XCTAssertEqual(sent, ["item_id": itemID.wire, "request_id": requestID.wire, "profile": "podcast-10min-v1"])
+        // No length: the body carries none (the server's default, five minutes, for older behaviour).
+        host = "podcast-\(UUID().wire).invalid"
+        let plain = try self.transport(["/functions/v1/podcast?quote": .init(body: Data(#"{"reuse":{"release_id":"\#(release.wire)"}}"#.utf8))])
+        let reused = try await plain.quote(itemID: itemID, requestID: requestID, profile: nil)
+        XCTAssertEqual(reused, .reuse(releaseID: release))
+        XCTAssertNil((try JSONSerialization.jsonObject(with: try XCTUnwrap(PodcastHTTPProtocol.recorded(host).first).1) as? [String: String])?["profile"])
+    }
+
     func testFailuresBecomeFiniteCodesNeverServerProse() async throws {
         let cases: [(Int, String, String)] = [
             (402, #"{"code":"insufficient_credits"}"#, "insufficient_credits"),
@@ -118,14 +135,15 @@ final class PodcastTransportTests: XCTestCase {
             host = "podcast-\(UUID().wire).invalid"
             let transport = try transport(["/functions/v1/podcast?quote": .init(status: status, body: Data(body.utf8))])
             do {
-                _ = try await transport.quote(itemID: UUID(), requestID: UUID())
+                _ = try await transport.quote(itemID: UUID(), requestID: UUID(), profile: nil)
                 XCTFail("\(status) should fail")
             } catch BackendError.rejected(let code) {
                 XCTAssertEqual(code, expected)
                 XCTAssertFalse(BackendError.rejected(code).podcastMessage.contains("<"), "No server text reaches the reader")
             }
         }
-        XCTAssertTrue(BackendError.rejected("insufficient_credits").podcastMessage.contains("150-credit maximum"))
+        XCTAssertTrue(BackendError.rejected("insufficient_credits").podcastMessage.contains("this length’s maximum"))
+        XCTAssertTrue(BackendError.rejected("podcast_profile_unavailable").podcastMessage.contains("Choose another length"))
     }
 
     func testEpisodeMustBeTheRequestedReleaseWithTranscript() async throws {
@@ -192,7 +210,7 @@ private final class LockedValue: @unchecked Sendable {
 /// that really are in the bundled sample paper (so the evidence journey tests the real passage finder).
 final class PodcastFixtureTests: XCTestCase {
     func testFixtureEpisodesAreValidLabeledAndPlayable() throws {
-        for spec in PodcastFixtureTransport.catalogSpecs + [PodcastFixtureTransport.privateSpec(document: UUID())] {
+        for spec in PodcastFixtureTransport.catalogSpecs + PodcastFixtureTransport.lengths.map({ PodcastFixtureTransport.privateSpec(document: UUID(), length: $0) }) {
             let built = PodcastFixtureTransport.build(spec)
             XCTAssertTrue(built.episode.fixture)
             XCTAssertNoThrow(try built.episode.validate())

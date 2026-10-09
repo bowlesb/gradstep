@@ -9,7 +9,8 @@ protocol PodcastTransport: Sendable {
     func catalog(after: String?, limit: Int) async throws -> PodcastCatalogPage
     func episode(_ releaseID: UUID) async throws -> PodcastEpisode
     func paper(itemID: UUID) async throws -> PodcastPaperLookup
-    func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome
+    /// `profile` names a length (`podcast-10min-v1`); nil asks for the default (five minutes).
+    func quote(itemID: UUID, requestID: UUID, profile: String?) async throws -> PodcastQuoteOutcome
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome
     func status(requestID: UUID) async throws -> PodcastJobOutcome
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome
@@ -48,8 +49,10 @@ struct BackendPodcastTransport: PodcastTransport {
     func paper(itemID: UUID) async throws -> PodcastPaperLookup {
         try await get("action=paper&item_id=\(itemID.wire)", PodcastPaperLookup.self)
     }
-    func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome {
-        try await post("quote", ["item_id": itemID.wire, "request_id": requestID.wire], PodcastQuoteOutcome.self)
+    func quote(itemID: UUID, requestID: UUID, profile: String?) async throws -> PodcastQuoteOutcome {
+        var body: [String: Any] = ["item_id": itemID.wire, "request_id": requestID.wire]
+        if let profile { body["profile"] = profile }
+        return try await post("quote", body, PodcastQuoteOutcome.self)
     }
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
         try await post("start", ["quote_id": quoteID.wire, "request_id": requestID.wire, "consent_version": consentVersion], PodcastJobOutcome.self)
@@ -81,7 +84,7 @@ extension BackendError {
         "podcast_request_unavailable", "podcast_request_conflict", "quote_expired", "quote_unavailable", "consent_required",
         "active_generation_limit", "podcast_busy", "podcast_daily_limit", "too_many_active_operations", "storage_full",
         "podcast_outcome_pending", "podcast_transfer_limit", "podcast_grant_unavailable", "podcast_grant_consumed",
-        "podcast_range_unavailable", "podcast_integrity_failed",
+        "podcast_range_unavailable", "podcast_integrity_failed", "podcast_profile_unavailable",
     ]
 
     /// The reader-facing sentence for a podcast action that the server refused.
@@ -90,7 +93,7 @@ extension BackendError {
         switch code {
         case "podcast_unavailable": return "Listening isn’t available right now. Reading is unaffected."
         case "source_unavailable": return "This paper can’t be made into an episode: its converted text isn’t available."
-        case "source_too_large": return "This paper is too long for a five-minute episode. Nothing was charged."
+        case "source_too_large": return "This paper is too long to make into an episode. Nothing was charged."
         case "podcast_release_unavailable": return "This episode is no longer available."
         case "quote_expired", "quote_unavailable": return "The estimate expired. Get a new estimate to continue."
         case "consent_required": return "Confirm the estimate and providers to create an episode."
@@ -102,13 +105,14 @@ extension BackendError {
         case "podcast_paused", "platform_budget_exhausted":
             return "Episode creation is paused right now. Nothing was charged, and reading is unaffected."
         case "storage_full": return "Episode storage is full right now. Nothing was charged."
-        case "insufficient_credits": return "Your available credits don’t cover the 150-credit maximum for an episode."
+        case "insufficient_credits": return "Your available credits don’t cover this length’s maximum. A shorter length needs fewer credits."
         case "podcast_transfer_limit": return "Episode downloads are limited for this month. Downloaded episodes still play."
         case "podcast_grant_unavailable", "podcast_grant_consumed": return "The download needs to restart. Try again."
         case "podcast_integrity_failed": return "This episode couldn’t be verified. Try downloading it again."
         case "request_rate_limit": return "Too many requests right now. Try again in a minute."
         case "podcast_request_unavailable": return "That episode request isn’t available any more."
         case "podcast_request_conflict": return "That request was already used for a different episode. Start again."
+        case "podcast_profile_unavailable": return "That length isn’t offered right now. Choose another length."
         default: return "Listening isn’t available right now. Try again later."
         }
     }

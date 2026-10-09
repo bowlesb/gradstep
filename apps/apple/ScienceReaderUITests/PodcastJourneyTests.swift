@@ -243,6 +243,64 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertEqual(app.staticTexts["podcast.player.title"].label, "LoRA: Low-Rank Adaptation of Large Language Models", "A private episode is titled from the library")
     }
 
+    /// Lengths: Short · 5 min · 10 min · 20 min, each with its own maximum; choosing 10 minutes quotes its own estimate,
+    /// and choosing another length after that quotes again (a quote holds nothing).
+    func testChoosingTenMinutesQuotesItsOwnMaximum() {
+        let app = launch(["--library-metadata-fixture"])
+        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
+        XCTAssertTrue(lora.waitForExistence(timeout: 10))
+        lora.press(forDuration: 1.2)
+        let listen = app.buttons["Listen"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5)); listen.tap()
+        let ten = element(app, "podcast.length.podcast-10min-v1")
+        XCTAssertTrue(ten.waitForExistence(timeout: 10), "the sheet lists the lengths")
+        for (profile, maximum) in [("podcast-short-v1", 110), ("podcast-5min-v1", 150), ("podcast-10min-v1", 220), ("podcast-20min-v1", 360)] {
+            XCTAssertTrue(element(app, "podcast.length.\(profile)").label.contains("up to \(maximum) credits"), "\(profile) shows its own maximum")
+        }
+        XCTAssertTrue(element(app, "podcast.length.podcast-5min-v1").isSelected, "five minutes by default")
+        ten.tap()
+        XCTAssertTrue(ten.isSelected)
+        app.buttons["podcast.generate.quote"].tap()
+        let estimate = app.staticTexts["podcast.generate.estimate"]
+        XCTAssertTrue(estimate.waitForExistence(timeout: 5))
+        XCTAssertTrue(estimate.label.contains("maximum 220 credits"), estimate.label)
+        XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("10 min episode"))
+        XCTAssertTrue(app.buttons["podcast.generate.start"].label.contains("220 credits"))
+        capture(app, "Ten-minute quote")
+        // Another length: its own quote at once.
+        element(app, "podcast.length.podcast-short-v1").tap()
+        waitFor("Short is quoted") { estimate.exists && estimate.label.contains("maximum 110 credits") }
+        XCTAssertTrue(app.staticTexts["podcast.generate.quotedLength"].label.hasPrefix("Short episode"))
+        element(app, "podcast.length.podcast-10min-v1").tap()
+        waitFor("Ten minutes again") { estimate.exists && estimate.label.contains("maximum 220 credits") }
+        app.buttons["podcast.generate.start"].tap()
+        XCTAssertTrue(element(app, "podcast.generate.progress").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["podcast.generate.held"].label.contains("220 credits"), "the ten-minute hold")
+    }
+
+    /// A paper with a ready five-minute episode: Other lengths offers to play it (no credits) or to make another length.
+    func testOtherLengthsOffersTheReadyEpisodeOrANewLength() {
+        let app = launch()
+        openListen(app)
+        playSample(app)
+        app.buttons["podcast.player.toggle"].tap()
+        app.buttons["podcast.player.options"].tap()
+        let lengths = app.buttons["podcast.player.lengths"]
+        XCTAssertTrue(lengths.waitForExistence(timeout: 5)); lengths.tap()
+        let five = element(app, "podcast.length.podcast-5min-v1")
+        XCTAssertTrue(five.waitForExistence(timeout: 10))
+        XCTAssertTrue(five.label.contains("Ready"), five.label)
+        XCTAssertTrue(element(app, "podcast.length.podcast-10min-v1").isSelected, "the next length still to make is chosen")
+        XCTAssertTrue(app.buttons["podcast.generate.quote"].exists)
+        capture(app, "Other lengths")
+        five.tap()
+        let play = app.buttons["podcast.generate.playReady"]
+        XCTAssertTrue(play.waitForExistence(timeout: 5), "a ready length plays instead of being made again")
+        XCTAssertFalse(app.buttons["podcast.generate.quote"].exists)
+        play.tap()
+        XCTAssertTrue(app.staticTexts["podcast.player.title"].waitForExistence(timeout: 10))
+    }
+
     func testFailedGenerationChargesNothingAndDoesNotRetry() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-generation=fail"])
         let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]

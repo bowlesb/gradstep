@@ -41,16 +41,28 @@ struct PodcastGenerateSheet: View {
     @ViewBuilder private func content(_ generation: PodcastGeneration) -> some View {
         switch generation.phase {
         case .offer:
-            Text("There’s no episode for this paper yet. You can create a private, five-minute episode: two AI hosts — an explainer and a skeptical reader — discuss the paper, with a transcript linked to its passages.")
+            Text(generation.ready.isEmpty
+                 ? "There’s no episode for this paper yet. You can create a private episode: two AI hosts — an explainer and a skeptical reader — discuss the paper, with a transcript linked to its passages."
+                 : "Each length is its own episode. Play one that’s ready, or create a private episode at another length: two AI hosts — an explainer and a skeptical reader — discuss the paper, with a transcript linked to its passages.")
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Only your account can play it. You’ll see the credit estimate before anything is held.")
-                .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Button { center.requestQuote() } label: { ProminentLabel(title: "Get an estimate", fullWidth: true) }
-                .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.quote")
+            lengthPicker(generation, quote: nil)
+            if let ready = generation.readyEpisode(generation.selected) {
+                Button { center.playSelectedReady() } label: {
+                    ProminentLabel(title: "Play the \(generation.selectedLength?.label ?? "ready") episode", fullWidth: true)
+                }
+                .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.playReady")
+                .accessibilityHint("Already made: \(PodcastDuration.spoken(milliseconds: ready.durationMS)). No credits are used.")
+            } else {
+                Text("Only your account can play it. You’ll see the credit estimate before anything is held.")
+                    .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button { center.requestQuote() } label: { ProminentLabel(title: "Get an estimate", fullWidth: true) }
+                    .buttonStyle(.borderedProminent).accessibilityIdentifier("podcast.generate.quote")
+            }
         case .quoting, .starting:
             HStack(spacing: 10) { ProgressView(); Text(generation.phase == .quoting ? "Getting an estimate…" : "Starting…") }
                 .accessibilityElement(children: .combine)
         case .quoted(let quote):
+            lengthPicker(generation, quote: quote)
             quoteCard(quote)
         case .running(let job):
             progress(job)
@@ -62,9 +74,52 @@ struct PodcastGenerateSheet: View {
         }
     }
 
+    /// Short · 5 min · 10 min · 20 min, each with its own maximum (from the quote once there is one), or marked ready.
+    private func lengthPicker(_ generation: PodcastGeneration, quote: PodcastQuote?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Length").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(generation.lengths) { length in
+                let option = quote?.options.first { $0.profile == length.profile } ?? length
+                let ready = generation.readyEpisode(length.profile)
+                let chosen = generation.selected == length.profile
+                Button { center.selectLength(length.profile) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(chosen ? Color.accentColor : Color.secondary).accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(option.label).font(.body.weight(chosen ? .semibold : .regular)).foregroundStyle(.primary)
+                            Text(ready.map { "Ready · \(PodcastDuration.short(milliseconds: $0.durationMS)) · no credits" }
+                                 ?? "\(Self.about(seconds: option.targetSeconds)) · up to \(option.maxCredits) credits")
+                                .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 8).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(chosen ? .isSelected : [])
+                .accessibilityIdentifier("podcast.length.\(length.profile)")
+                if length.id != generation.lengths.last?.id { Divider().padding(.leading, 34) }
+            }
+        }
+    }
+
+    /// "About 2½ minutes", "About 10 minutes".
+    static func about(seconds: Int) -> String {
+        let minutes = Double(seconds) / 60
+        if minutes < 1 { return "Under a minute" }
+        let whole = Int(minutes), half = minutes - Double(whole) >= 0.5
+        return "About \(whole)\(half ? "½" : "") minute\(whole == 1 && !half ? "" : "s")"
+    }
+
     private func quoteCard(_ quote: PodcastQuote) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
+                Text("\(quote.label ?? "5 min") episode · \(Self.about(seconds: quote.targetSeconds).lowercased())")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("podcast.generate.quotedLength")
                 Text(quote.estimate).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("podcast.generate.estimate")
                 Text("Starting holds up to \(quote.maxCredits) credits. You’re charged for the work actually done, and the rest is released. If the episode fails our checks, nothing is charged.")
@@ -164,7 +219,7 @@ struct PodcastGenerateSheet: View {
     static func failure(_ code: String?) -> String {
         switch code {
         case "quality_rejected": "The episode didn’t pass our checks against the paper, so it wasn’t published."
-        case "source_too_large": "This paper is too long for a five-minute episode."
+        case "source_too_large": "This paper is too long to make into an episode."
         case "provider_refused": "A provider declined to make this episode."
         case "worker_interrupted": "Making the episode was interrupted."
         default: "The episode couldn’t be made."

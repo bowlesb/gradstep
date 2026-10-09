@@ -168,20 +168,27 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
     /// Present on the episode call, absent in the catalog.
     public let chapters: [PodcastChapter]?
     public let transcript: PodcastTranscript?
+    /// The length it was made at (`podcast-10min-v1`, "10 min", 600). Absent from older servers.
+    public let profile: String?
+    public let label: String?
+    public let targetSeconds: Int?
 
     public init(id: UUID, scope: PodcastScope, title: String?, year: Int?, authors: [String], topic: String?, durationMS: Int,
                 language: String = "en", aiAudio: Bool = true, fixture: Bool, documentID: UUID, publishedAt: String?,
                 state: PodcastReleaseState = .ready, source: PodcastSource?, audio: PodcastAudio,
-                chapters: [PodcastChapter]? = nil, transcript: PodcastTranscript? = nil) {
+                chapters: [PodcastChapter]? = nil, transcript: PodcastTranscript? = nil,
+                profile: String? = nil, label: String? = nil, targetSeconds: Int? = nil) {
         self.id = id; self.scope = scope; self.title = title; self.year = year; self.authors = authors; self.topic = topic
         self.durationMS = durationMS; self.language = language; self.aiAudio = aiAudio; self.fixture = fixture
         self.documentID = documentID; self.publishedAt = publishedAt; self.state = state; self.source = source; self.audio = audio
         self.chapters = chapters; self.transcript = transcript
+        self.profile = profile; self.label = label; self.targetSeconds = targetSeconds
     }
 
     private enum CodingKeys: String, CodingKey {
-        case scope, title, year, authors, topic, language, fixture, state, source, audio, chapters, transcript
+        case scope, title, year, authors, topic, language, fixture, state, source, audio, chapters, transcript, profile, label
         case id = "release_id", durationMS = "duration_ms", aiAudio = "ai_audio", documentID = "document_id", publishedAt = "published_at"
+        case targetSeconds = "target_seconds"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -201,11 +208,14 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
         audio = try c.decode(PodcastAudio.self, forKey: .audio)
         chapters = try c.decodeIfPresent([PodcastChapter].self, forKey: .chapters)
         transcript = try c.decodeIfPresent(PodcastTranscript.self, forKey: .transcript)
+        profile = try c.decodeIfPresent(String.self, forKey: .profile)
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+        targetSeconds = try c.decodeIfPresent(Int.self, forKey: .targetSeconds)
         try validate()
     }
 
-    /// Bounds from the v1 profile (five-minute target, at most an 11-minute serving limit) with generous room.
-    public static let maximumAudioBytes = 16_777_216
+    /// Bounds from the profiles (the twenty-minute profile's 20 MiB audio cap; at most a 34-minute take) with room.
+    public static let maximumAudioBytes = 20_971_520
     public static let maximumDurationMS = 3_600_000
     /// Media types a server release may have. WAV is accepted only for labeled fixtures (no encoder run).
     public static let mediaTypes: Set<String> = ["audio/mp4", "audio/aac", "audio/mpeg", "audio/x-m4a"]
@@ -219,7 +229,9 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
               Self.mediaTypes.contains(audio.mediaType) || (fixture && audio.mediaType == "audio/wav"),
               (publishedAt?.utf8.count ?? 0) <= 64,
               source.map({ ($0.arxivID?.utf8.count ?? 0) <= 64 && ($0.version.map { (1...10_000).contains($0) } ?? true)
-                  && ($0.url.map { $0.scheme == "https" } ?? true) && ($0.license.map { $0.scheme == "https" } ?? true) }) ?? true
+                  && ($0.url.map { $0.scheme == "https" } ?? true) && ($0.license.map { $0.scheme == "https" } ?? true) }) ?? true,
+              profile.map(PodcastLength.isProfile) ?? true, label.map({ fine($0, 40) }) ?? true,
+              targetSeconds.map({ (30...3_600).contains($0) }) ?? true
         else { throw ReaderError.corruptData }
         if let chapters {
             guard chapters.count <= 100, Set(chapters.map(\.id)).count == chapters.count,
@@ -250,15 +262,40 @@ public struct PodcastEpisode: Codable, Equatable, Sendable, Identifiable {
         guard title == nil, let libraryTitle, !libraryTitle.isEmpty else { return self }
         return PodcastEpisode(id: id, scope: scope, title: String(libraryTitle.prefix(1_000)), year: year, authors: authors, topic: topic,
                               durationMS: durationMS, language: language, aiAudio: aiAudio, fixture: fixture, documentID: documentID,
-                              publishedAt: publishedAt, state: state, source: source, audio: audio, chapters: chapters, transcript: transcript)
+                              publishedAt: publishedAt, state: state, source: source, audio: audio, chapters: chapters, transcript: transcript,
+                              profile: profile, label: label, targetSeconds: targetSeconds)
     }
 
     /// The catalog form (no chapters or transcript) of an episode, for lists and the downloads index.
     public var summary: PodcastEpisode {
         PodcastEpisode(id: id, scope: scope, title: title, year: year, authors: authors, topic: topic, durationMS: durationMS,
                        language: language, aiAudio: aiAudio, fixture: fixture, documentID: documentID, publishedAt: publishedAt,
-                       state: state, source: source, audio: audio)
+                       state: state, source: source, audio: audio, profile: profile, label: label, targetSeconds: targetSeconds)
     }
+}
+
+/// A length offered for private generation (Short, 5, 10, 20 minutes), with its own credit maximum.
+public struct PodcastLength: Codable, Equatable, Sendable, Identifiable {
+    public let profile: String
+    public let label: String
+    public let targetSeconds: Int
+    public let maxCredits: Int
+    public let estimate: String?
+    public var id: String { profile }
+    public static let defaultProfile = "podcast-5min-v1"
+    public init(profile: String, label: String, targetSeconds: Int, maxCredits: Int, estimate: String? = nil) {
+        self.profile = profile; self.label = label; self.targetSeconds = targetSeconds; self.maxCredits = maxCredits; self.estimate = estimate
+    }
+    private enum CodingKeys: String, CodingKey { case profile, label, estimate; case targetSeconds = "target_seconds", maxCredits = "max_credits" }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        profile = try c.decode(String.self, forKey: .profile); label = try c.decode(String.self, forKey: .label)
+        targetSeconds = try c.decode(Int.self, forKey: .targetSeconds); maxCredits = try c.decode(Int.self, forKey: .maxCredits)
+        estimate = try c.decodeIfPresent(String.self, forKey: .estimate)
+        guard Self.isProfile(profile), !label.isEmpty, label.utf8.count <= 40, (30...3_600).contains(targetSeconds),
+              (1...10_000).contains(maxCredits), (estimate?.utf8.count ?? 0) <= 300 else { throw ReaderError.corruptData }
+    }
+    static func isProfile(_ value: String) -> Bool { value.range(of: "^[a-z][a-z0-9-]{2,47}$", options: .regularExpression) != nil }
 }
 
 enum PodcastHex {
@@ -282,13 +319,16 @@ public struct PodcastCapabilities: Codable, Equatable, Sendable {
     public let maxCredits: Int
     public let targetSeconds: Int
     public let transfer: PodcastTransfer?
-    public init(catalog: Bool, generation: Bool, delivery: Bool, maxCredits: Int = 150, targetSeconds: Int = 300, transfer: PodcastTransfer? = nil) {
+    /// Lengths offered for private generation, shortest first (empty from older servers: five minutes only).
+    public let lengths: [PodcastLength]
+    public init(catalog: Bool, generation: Bool, delivery: Bool, maxCredits: Int = 150, targetSeconds: Int = 300, transfer: PodcastTransfer? = nil,
+                lengths: [PodcastLength] = []) {
         self.catalog = catalog; self.generation = generation; self.delivery = delivery
-        self.maxCredits = maxCredits; self.targetSeconds = targetSeconds; self.transfer = transfer
+        self.maxCredits = maxCredits; self.targetSeconds = targetSeconds; self.transfer = transfer; self.lengths = lengths
     }
     public static let unavailable = PodcastCapabilities(catalog: false, generation: false, delivery: false)
     private enum CodingKeys: String, CodingKey {
-        case catalog, generation, delivery, transfer
+        case catalog, generation, delivery, transfer, lengths
         case maxCredits = "max_credits", targetSeconds = "target_seconds"
     }
     public init(from decoder: any Decoder) throws {
@@ -299,7 +339,9 @@ public struct PodcastCapabilities: Codable, Equatable, Sendable {
         maxCredits = try c.decodeIfPresent(Int.self, forKey: .maxCredits) ?? 150
         targetSeconds = try c.decodeIfPresent(Int.self, forKey: .targetSeconds) ?? 300
         transfer = try c.decodeIfPresent(PodcastTransfer.self, forKey: .transfer)
-        guard (1...10_000).contains(maxCredits), (30...3_600).contains(targetSeconds),
+        lengths = try c.decodeIfPresent([PodcastLength].self, forKey: .lengths) ?? []
+        guard (1...10_000).contains(maxCredits), (30...3_600).contains(targetSeconds), lengths.count <= 8,
+              Set(lengths.map(\.profile)).count == lengths.count,
               transfer.map({ $0.remainingBytes >= 0 && $0.limitBytes >= 0 }) ?? true else { throw ReaderError.corruptData }
     }
 }
@@ -329,12 +371,19 @@ public struct PodcastQuote: Codable, Equatable, Sendable, Identifiable {
     public let providers: [String]
     public let consentVersion: String
     public let targetSeconds: Int
-    public init(id: UUID, expiresAt: String, maxCredits: Int, estimate: String, providers: [String], consentVersion: String, targetSeconds: Int) {
+    /// The quoted length (absent from older servers: five minutes).
+    public let profile: String?
+    public let label: String?
+    /// Every offered length with its own maximum, as listed beside the quote.
+    public var options: [PodcastLength]
+    public init(id: UUID, expiresAt: String, maxCredits: Int, estimate: String, providers: [String], consentVersion: String, targetSeconds: Int,
+                profile: String? = nil, label: String? = nil, options: [PodcastLength] = []) {
         self.id = id; self.expiresAt = expiresAt; self.maxCredits = maxCredits; self.estimate = estimate
         self.providers = providers; self.consentVersion = consentVersion; self.targetSeconds = targetSeconds
+        self.profile = profile; self.label = label; self.options = options
     }
     private enum CodingKeys: String, CodingKey {
-        case id, estimate, providers
+        case id, estimate, providers, profile, label
         case expiresAt = "expires_at", maxCredits = "max_credits", consentVersion = "consent_version", targetSeconds = "target_seconds"
     }
     public init(from decoder: any Decoder) throws {
@@ -343,7 +392,10 @@ public struct PodcastQuote: Codable, Equatable, Sendable, Identifiable {
         maxCredits = try c.decode(Int.self, forKey: .maxCredits); estimate = try c.decode(String.self, forKey: .estimate)
         providers = try c.decode([String].self, forKey: .providers); consentVersion = try c.decode(String.self, forKey: .consentVersion)
         targetSeconds = try c.decodeIfPresent(Int.self, forKey: .targetSeconds) ?? 300
-        guard (1...10_000).contains(maxCredits), !estimate.isEmpty, estimate.utf8.count <= 300, expiresAt.utf8.count <= 64,
+        profile = try c.decodeIfPresent(String.self, forKey: .profile); label = try c.decodeIfPresent(String.self, forKey: .label)
+        options = []
+        guard profile.map(PodcastLength.isProfile) ?? true, (label?.utf8.count ?? 0) <= 40,
+              (1...10_000).contains(maxCredits), !estimate.isEmpty, estimate.utf8.count <= 300, expiresAt.utf8.count <= 64,
               (1...8).contains(providers.count), providers.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 120 }),
               consentVersion.range(of: "^[a-z0-9-]{1,64}$", options: .regularExpression) != nil,
               (30...3_600).contains(targetSeconds) else { throw ReaderError.corruptData }
@@ -360,14 +412,18 @@ public enum PodcastQuoteOutcome: Equatable, Sendable {
 }
 
 extension PodcastQuoteOutcome: Decodable {
-    private enum CodingKeys: String, CodingKey { case quote, reuse, join }
+    private enum CodingKeys: String, CodingKey { case quote, reuse, join, options }
     private struct Reuse: Decodable { let release_id: UUID }
     private struct Join: Decodable { let request_id: UUID }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let present = [c.contains(.quote), c.contains(.reuse), c.contains(.join)].filter { $0 }.count
         guard present == 1 else { throw ReaderError.corruptData }
-        if let quote = try c.decodeIfPresent(PodcastQuote.self, forKey: .quote) { self = .quote(quote) }
+        if var quote = try c.decodeIfPresent(PodcastQuote.self, forKey: .quote) {
+            quote.options = try c.decodeIfPresent([PodcastLength].self, forKey: .options) ?? []
+            guard quote.options.count <= 8 else { throw ReaderError.corruptData }
+            self = .quote(quote)
+        }
         else if let reuse = try c.decodeIfPresent(Reuse.self, forKey: .reuse) { self = .reuse(releaseID: reuse.release_id) }
         else { self = .join(requestID: try c.decode(Join.self, forKey: .join).request_id) }
     }
@@ -420,14 +476,16 @@ public struct PodcastJob: Codable, Equatable, Sendable {
     public let failure: String?
     /// Cancel was asked for and the server is stopping further work (a provider call may still be finishing).
     public let cancelRequested: Bool
+    /// The length being made (absent from older servers).
+    public let profile: String?
     public init(requestID: UUID, state: PodcastJobState, stageEnteredAt: String?, releaseID: UUID?, heldCredits: Int,
-                chargedCredits: Int?, releasedCredits: Int?, failure: String?, cancelRequested: Bool = false) {
+                chargedCredits: Int?, releasedCredits: Int?, failure: String?, cancelRequested: Bool = false, profile: String? = nil) {
         self.requestID = requestID; self.state = state; self.stageEnteredAt = stageEnteredAt; self.releaseID = releaseID
         self.heldCredits = heldCredits; self.chargedCredits = chargedCredits; self.releasedCredits = releasedCredits; self.failure = failure
-        self.cancelRequested = cancelRequested
+        self.cancelRequested = cancelRequested; self.profile = profile
     }
     private enum CodingKeys: String, CodingKey {
-        case state, failure
+        case state, failure, profile
         case requestID = "request_id", stageEnteredAt = "stage_entered_at", releaseID = "release_id"
         case heldCredits = "held_credits", chargedCredits = "charged_credits", releasedCredits = "released_credits"
         case cancelRequested = "cancel_requested"
@@ -442,8 +500,9 @@ public struct PodcastJob: Codable, Equatable, Sendable {
         releasedCredits = try c.decodeIfPresent(Int.self, forKey: .releasedCredits)
         failure = try c.decodeIfPresent(String.self, forKey: .failure)
         cancelRequested = try c.decodeIfPresent(Bool.self, forKey: .cancelRequested) ?? false
+        profile = try c.decodeIfPresent(String.self, forKey: .profile)
         let credits = { (value: Int?) in value.map { (0...10_000).contains($0) } ?? true }
-        guard (0...10_000).contains(heldCredits), credits(chargedCredits), credits(releasedCredits),
+        guard (0...10_000).contains(heldCredits), credits(chargedCredits), credits(releasedCredits), profile.map(PodcastLength.isProfile) ?? true,
               (stageEnteredAt?.utf8.count ?? 0) <= 64,
               failure.map({ $0.range(of: "^[a-z][a-z0-9_]{0,63}$", options: .regularExpression) != nil }) ?? true,
               state != .ready || releaseID != nil else { throw ReaderError.corruptData }
@@ -508,10 +567,21 @@ public struct PodcastReleaseStatus: Codable, Equatable, Sendable {
 /// `GET ?action=paper`: what Listen on one library paper can do now.
 public struct PodcastPaperLookup: Codable, Equatable, Sendable {
     public let episode: PodcastEpisode?
+    /// Every ready length of this paper (each length is its own episode), shortest first; empty from older servers.
+    public let episodes: [PodcastEpisode]
     public let job: PodcastJob?
     public let capabilities: PodcastCapabilities?
-    public init(episode: PodcastEpisode?, job: PodcastJob?, capabilities: PodcastCapabilities?) {
-        self.episode = episode; self.job = job; self.capabilities = capabilities
+    public init(episode: PodcastEpisode?, episodes: [PodcastEpisode] = [], job: PodcastJob?, capabilities: PodcastCapabilities?) {
+        self.episode = episode; self.episodes = episodes; self.job = job; self.capabilities = capabilities
+    }
+    private enum CodingKeys: String, CodingKey { case episode, episodes, job, capabilities }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        episode = try c.decodeIfPresent(PodcastEpisode.self, forKey: .episode)
+        episodes = try c.decodeIfPresent([PodcastEpisode].self, forKey: .episodes) ?? []
+        job = try c.decodeIfPresent(PodcastJob.self, forKey: .job)
+        capabilities = try c.decodeIfPresent(PodcastCapabilities.self, forKey: .capabilities)
+        guard episodes.count <= 8, Set(episodes.map(\.id)).count == episodes.count else { throw ReaderError.corruptData }
     }
 }
 

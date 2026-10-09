@@ -171,6 +171,11 @@ struct PodcastPlayerSheet: View {
             } else {
                 MenuRow("Download", systemImage: "arrow.down.circle") { center.download(episode) }
             }
+            if center.canChooseLength(for: episode) {
+                // Each length is its own episode: play another that's ready, or make one (quoted first).
+                MenuRow("Other lengths…", systemImage: "timer") { center.chooseLength(for: episode) }
+                    .accessibilityIdentifier("podcast.player.lengths")
+            }
             if model.papers.contains(where: { $0.id == episode.documentID }) {
                 MenuRow("Open paper", systemImage: GradstepSymbol.paper) {
                     if let paper = model.papers.first(where: { $0.id == episode.documentID }) {

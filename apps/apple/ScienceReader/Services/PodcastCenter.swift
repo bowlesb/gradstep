@@ -13,7 +13,7 @@ struct PodcastAccount {
     let deviceID: UUID
 }
 
-/// A private-generation sheet: quote, explicit consent, then the server job's progress and charges.
+/// A private-generation sheet: a length, its quote, explicit consent, then the server job's progress and charges.
 struct PodcastGeneration: Identifiable, Equatable {
     enum Phase: Equatable {
         case offer, quoting, quoted(PodcastQuote), starting, running(PodcastJob), finished(PodcastJob), failed(String)
@@ -23,9 +23,35 @@ struct PodcastGeneration: Identifiable, Equatable {
     let itemID: UUID
     let documentID: UUID
     var phase: Phase
-    /// Idempotency keys for this sheet: a retried quote or start is the same request, never a second quote or charge.
-    let quoteRequestID = UUID()
-    let startRequestID = UUID()
+    /// Lengths offered (shortest first); five minutes alone when the server lists none.
+    var lengths: [PodcastLength]
+    /// This paper's ready episodes, one per length. Each length is its own episode: a ready one plays, at no charge.
+    var ready: [PodcastEpisode] = []
+    /// The chosen length's profile.
+    var selected: String
+    /// Idempotency keys: one quote request per length and one start request per quote, so a retried quote or start is
+    /// the same request, never a second quote or charge.
+    var quoteRequestIDs: [String: UUID] = [:]
+    var startRequestIDs: [UUID: UUID] = [:]
+
+    init(paperTitle: String, itemID: UUID, documentID: UUID, phase: Phase, capabilities: PodcastCapabilities?,
+         ready: [PodcastEpisode] = [], selected: String? = nil) {
+        self.paperTitle = paperTitle; self.itemID = itemID; self.documentID = documentID; self.phase = phase
+        let offered = capabilities?.lengths ?? []
+        let lengths = offered.isEmpty ? [PodcastLength(profile: PodcastLength.defaultProfile, label: "5 min", targetSeconds: capabilities?.targetSeconds ?? 300,
+                                                       maxCredits: capabilities?.maxCredits ?? 150)] : offered
+        let playable = ready.filter { !$0.state.blocksPlayback }
+        // The job's own length; else five minutes unless it is already ready (then the next longer length still to make).
+        let fresh = lengths.filter { length in !playable.contains { ($0.profile ?? PodcastLength.defaultProfile) == length.profile } }
+        let chosen = selected.flatMap { wanted in lengths.first { $0.profile == wanted }?.profile }
+            ?? (fresh.contains { $0.profile == PodcastLength.defaultProfile } ? PodcastLength.defaultProfile : nil)
+            ?? (fresh.first { $0.targetSeconds > 300 } ?? fresh.first)?.profile
+            ?? lengths.first { $0.profile == PodcastLength.defaultProfile }?.profile ?? lengths[0].profile
+        self.lengths = lengths; self.ready = playable; self.selected = chosen
+    }
+
+    var selectedLength: PodcastLength? { lengths.first { $0.profile == selected } }
+    func readyEpisode(_ profile: String) -> PodcastEpisode? { ready.first { ($0.profile ?? PodcastLength.defaultProfile) == profile } }
 }
 
 /// An evidence quote whose paper isn't in this library: offer the source and an explicit Add.
@@ -442,7 +468,29 @@ final class PodcastCenter {
 
     /// Listen (Paper "…" menu, a Library row): play the paper's shared or own private episode, follow a generation
     /// already running, or offer an explicitly quoted private generation.
-    func listen(to paper: Paper) {
+    func listen(to paper: Paper) { open(paper, choosingLength: false) }
+
+    /// "Other lengths…" from the player: the paper's ready lengths to play, or another length to make.
+    func chooseLength(for episode: PodcastEpisode) {
+        guard let paper = host?.papers.first(where: { $0.id == episode.documentID }) else { return }
+        showPlayer = false
+        Task {
+            // After the player sheet has gone: one sheet presents at a time.
+            try? await Task.sleep(for: .milliseconds(600))
+            open(paper, choosingLength: true)
+        }
+    }
+
+    /// Other lengths can be made for a library paper when private generation is offered.
+    func canChooseLength(for episode: PodcastEpisode) -> Bool {
+        guard host?.papers.contains(where: { $0.id == episode.documentID }) == true else { return false }
+        #if DEBUG && FIXTURE_HOST
+        if PodcastFixtureTransport.isEnabled { return true }
+        #endif
+        return capabilities?.generation == true
+    }
+
+    private func open(_ paper: Paper, choosingLength: Bool) {
         Task {
             guard let account = await currentAccount() else { notice = "Sign in to listen to paper episodes."; return }
             let itemID: UUID
@@ -459,13 +507,18 @@ final class PodcastCenter {
                 let lookup = try await account.transport.paper(itemID: itemID)
                 guard self.account?.id == account.id else { return }
                 if let capabilities = lookup.capabilities { self.capabilities = capabilities }
-                if let episode = lookup.episode, !episode.state.blocksPlayback {
+                let ready = lookup.episodes.map { resolve($0, fallback: paper.title) }
+                if !choosingLength, let episode = lookup.episode, !episode.state.blocksPlayback {
                     play(resolve(episode, fallback: paper.title))
                 } else if let job = lookup.job, job.state.isActive {
-                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job))
+                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .running(job),
+                                                   capabilities: lookup.capabilities ?? capabilities, ready: ready, selected: job.profile)
                     poll(job.requestID)
                 } else if lookup.capabilities?.generation == true {
-                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer)
+                    generation = PodcastGeneration(paperTitle: paper.title, itemID: itemID, documentID: paper.id, phase: .offer,
+                                                   capabilities: lookup.capabilities, ready: ready)
+                } else if choosingLength, let episode = lookup.episode, !episode.state.blocksPlayback {
+                    notice = "Other lengths can’t be made right now. This episode keeps playing."
                 } else {
                     notice = "There’s no episode for this paper yet, and creating one isn’t available right now. Reading is unaffected."
                 }
@@ -476,33 +529,68 @@ final class PodcastCenter {
         }
     }
 
-    /// Step 1: an explicit quote. Nothing is held yet.
+    /// Step 1: an explicit quote for the chosen length. Nothing is held yet.
     func requestQuote() {
-        guard let current = generation, let account else { return }
-        generation?.phase = .quoting
+        guard var current = generation, let account else { return }
+        let profile = current.selected
+        let requestID = current.quoteRequestIDs[profile] ?? UUID()
+        current.quoteRequestIDs[profile] = requestID
+        current.phase = .quoting
+        generation = current
         Task {
             do {
-                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: current.quoteRequestID)
-                guard generation?.id == current.id else { return }
+                let outcome = try await account.transport.quote(itemID: current.itemID, requestID: requestID, profile: profile)
+                guard generation?.id == current.id, generation?.selected == profile else { return }
                 switch outcome {
                 case .quote(let quote): generation?.phase = .quoted(quote)
                 case .reuse(let releaseID): try await playReady(releaseID, title: current.paperTitle, account: account)
                 case .join(let requestID): try await follow(account.transport.status(requestID: requestID), current, account: account)
                 }
             } catch {
-                guard generation?.id == current.id else { return }
+                guard generation?.id == current.id, generation?.selected == profile else { return }
+                // Quotes hold nothing: a retry may use a new request (an expired quote can't be revived).
+                generation?.quoteRequestIDs[profile] = nil
                 generation?.phase = .failed(error.podcastMessage)
             }
         }
     }
 
+    /// Choosing a length. With an estimate already shown, the newly chosen length is quoted at once (a quote holds
+    /// nothing); a length that is ready plays instead of being made again.
+    func selectLength(_ profile: String) {
+        guard var current = generation, current.selected != profile, current.lengths.contains(where: { $0.profile == profile }) else { return }
+        let quoted: Bool
+        switch current.phase {
+        case .offer: quoted = false
+        case .quoted, .failed: quoted = true
+        default: return
+        }
+        current.selected = profile
+        current.phase = .offer
+        generation = current
+        if quoted, current.readyEpisode(profile) == nil { requestQuote() }
+    }
+
+    /// The chosen length is already ready for this paper: play it (no new charge).
+    func playSelectedReady() {
+        guard let current = generation, let episode = current.readyEpisode(current.selected) else { return }
+        generation = nil
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            play(episode)
+        }
+    }
+
     /// Step 2: the reader confirmed the quote and providers. One funding operation holds at most the quoted maximum.
     func startGeneration() {
-        guard let current = generation, case .quoted(let quote) = current.phase, let account else { return }
-        generation?.phase = .starting
+        guard var current = generation, case .quoted(let quote) = current.phase, let account else { return }
+        let requestID = current.startRequestIDs[quote.id] ?? UUID()
+        current.startRequestIDs[quote.id] = requestID
+        current.phase = .starting
+        generation = current
         Task {
             do {
-                let outcome = try await account.transport.start(quoteID: quote.id, requestID: current.startRequestID, consentVersion: quote.consentVersion)
+                let outcome = try await account.transport.start(quoteID: quote.id, requestID: requestID, consentVersion: quote.consentVersion)
                 try await follow(outcome, current, account: account)
             } catch {
                 guard generation?.id == current.id else { return }

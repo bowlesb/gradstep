@@ -21,8 +21,8 @@ actor PodcastFixtureTransport: PodcastTransport {
     /// `--podcast-fixture-outcome-pending`: the previous private episode's provider outcome is unresolved (quote refused).
     private let outcomePending: Bool
     private var episodes: [UUID: (episode: PodcastEpisode, audio: Data)] = [:]
-    private var jobs: [UUID: (itemID: UUID, steps: Int, releaseID: UUID?)] = [:]
-    private var quotes: [UUID: UUID] = [:]
+    private var jobs: [UUID: (itemID: UUID, steps: Int, releaseID: UUID?, length: PodcastLength)] = [:]
+    private var quotes: [UUID: (itemID: UUID, length: PodcastLength)] = [:]
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         generation = arguments.contains("--podcast-fixture-generation=fail") ? .fails : .succeeds
@@ -31,8 +31,15 @@ actor PodcastFixtureTransport: PodcastTransport {
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
     }
 
+    /// The server's four lengths and their maximums (migration 048's profiles).
+    static let lengths = [("podcast-short-v1", "Short", 150, 110), ("podcast-5min-v1", "5 min", 300, 150),
+                          ("podcast-10min-v1", "10 min", 600, 220), ("podcast-20min-v1", "20 min", 1200, 360)]
+        .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3,
+                             estimate: "Estimate — you're charged actual usage, maximum \($0.3) credits") }
     private static let capabilities = PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,
-                                                          transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600))
+                                                          transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600),
+                                                          lengths: lengths)
+    private static func length(_ profile: String?) -> PodcastLength? { lengths.first { $0.profile == (profile ?? PodcastLength.defaultProfile) } }
 
     func catalog(after: String?, limit: Int) async throws -> PodcastCatalogPage {
         try await Task.sleep(for: .milliseconds(150))
@@ -47,44 +54,52 @@ actor PodcastFixtureTransport: PodcastTransport {
     }
 
     func paper(itemID: UUID) async throws -> PodcastPaperLookup {
-        // Fixture papers have no server item: the "item" is the document itself.
-        let episode = empty ? nil : episodes.values.map(\.episode).first { $0.documentID == itemID }
-        let job = jobs.first { $0.value.itemID == itemID && $0.value.releaseID == nil }.map { Self.job($0.key, steps: $0.value.steps, mode: generation) }
-        return PodcastPaperLookup(episode: episode?.summary, job: job, capabilities: Self.capabilities)
+        // Fixture papers have no server item: the "item" is the document itself. Every ready length, shortest first.
+        let ready = empty ? [] : episodes.values.map(\.episode).filter { $0.documentID == itemID }
+            .sorted { ($0.targetSeconds ?? 300, $0.id.uuidString) < ($1.targetSeconds ?? 300, $1.id.uuidString) }
+        let episode = ready.first { $0.scope == .private } ?? ready.first
+        let job = jobs.first { $0.value.itemID == itemID && $0.value.releaseID == nil && $0.value.steps >= 0 }
+            .map { Self.job($0.key, steps: $0.value.steps, mode: generation, length: $0.value.length) }
+        return PodcastPaperLookup(episode: episode?.summary, episodes: ready.map(\.summary), job: job, capabilities: Self.capabilities)
     }
 
-    func quote(itemID: UUID, requestID: UUID) async throws -> PodcastQuoteOutcome {
+    func quote(itemID: UUID, requestID: UUID, profile: String?) async throws -> PodcastQuoteOutcome {
         if outcomePending { throw BackendError.rejected("podcast_outcome_pending") }
-        if let existing = episodes.values.map(\.episode).first(where: { $0.documentID == itemID }) { return .reuse(releaseID: existing.id) }
-        let id = UUID(); quotes[id] = itemID
-        return .quote(PodcastQuote(id: id, expiresAt: "2026-10-08T12:15:00Z", maxCredits: 150,
-                                   estimate: "Estimate — you're charged actual usage, maximum 150 credits",
-                                   providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consentVersion: "podcast-private-v1", targetSeconds: 300))
+        guard let length = Self.length(profile) else { throw BackendError.rejected("podcast_profile_unavailable") }
+        // Each length is its own episode: only the same length is reused.
+        if let existing = episodes.values.map(\.episode).first(where: { $0.documentID == itemID && ($0.profile ?? PodcastLength.defaultProfile) == length.profile }) {
+            return .reuse(releaseID: existing.id)
+        }
+        let id = UUID(); quotes[id] = (itemID, length)
+        return .quote(PodcastQuote(id: id, expiresAt: "2026-10-08T12:15:00Z", maxCredits: length.maxCredits,
+                                   estimate: "Estimate — you're charged actual usage, maximum \(length.maxCredits) credits",
+                                   providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consentVersion: "podcast-private-v1",
+                                   targetSeconds: length.targetSeconds, profile: length.profile, label: length.label, options: Self.lengths))
     }
 
     func start(quoteID: UUID, requestID: UUID, consentVersion: String) async throws -> PodcastJobOutcome {
         guard consentVersion == "podcast-private-v1" else { throw BackendError.rejected("consent_required") }
-        guard let itemID = quotes.removeValue(forKey: quoteID) else { throw BackendError.rejected("quote_expired") }
-        jobs[requestID] = (itemID, 0, nil)
-        return .job(Self.job(requestID, steps: 0, mode: generation))
+        guard let quote = quotes.removeValue(forKey: quoteID) else { throw BackendError.rejected("quote_expired") }
+        jobs[requestID] = (quote.itemID, 0, nil, quote.length)
+        return .job(Self.job(requestID, steps: 0, mode: generation, length: quote.length))
     }
 
     func status(requestID: UUID) async throws -> PodcastJobOutcome {
         guard var job = jobs[requestID] else { throw BackendError.rejected("podcast_request_unavailable") }
         if job.steps < 7, job.releaseID == nil { job.steps += 1 }
         if job.steps >= 7, generation == .succeeds, job.releaseID == nil {
-            let built = Self.build(Self.privateSpec(document: job.itemID))
+            let built = Self.build(Self.privateSpec(document: job.itemID, length: job.length))
             episodes[built.episode.id] = built; job.releaseID = built.episode.id
         }
         jobs[requestID] = job
-        return .job(Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID))
+        return .job(Self.job(requestID, steps: job.steps, mode: generation, releaseID: job.releaseID, length: job.length))
     }
 
     func cancel(requestID: UUID) async throws -> PodcastJobOutcome {
-        guard jobs[requestID] != nil else { throw BackendError.rejected("podcast_request_unavailable") }
+        guard let job = jobs[requestID] else { throw BackendError.rejected("podcast_request_unavailable") }
         jobs[requestID]?.steps = -1
-        return .job(PodcastJob(requestID: requestID, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: 150,
-                          chargedCredits: 0, releasedCredits: 150, failure: nil))
+        return .job(PodcastJob(requestID: requestID, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: job.length.maxCredits,
+                          chargedCredits: 0, releasedCredits: job.length.maxCredits, failure: nil, profile: job.length.profile))
     }
 
     func download(_ releaseID: UUID) async throws -> PodcastGrant {
@@ -110,21 +125,25 @@ actor PodcastFixtureTransport: PodcastTransport {
 
     // MARK: Fixture content
 
-    private static func job(_ id: UUID, steps: Int, mode: GenerationMode, releaseID: UUID? = nil) -> PodcastJob {
+    private static func job(_ id: UUID, steps: Int, mode: GenerationMode, releaseID: UUID? = nil, length: PodcastLength) -> PodcastJob {
         let states: [PodcastJobState] = [.queued, .scripting, .checking, .synthesizing, .verifying, .publishing, .publishing, .ready]
-        if steps < 0 { return PodcastJob(requestID: id, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: 150, chargedCredits: 0, releasedCredits: 150, failure: nil) }
+        let held = length.maxCredits, profile = length.profile
+        if steps < 0 { return PodcastJob(requestID: id, state: .canceled, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: nil, profile: profile) }
         if steps >= 7 {
+            // Five minutes charges 46 of 150 (the journeys' figure); other lengths about the same share of their maximum.
+            let charged = length.profile == PodcastLength.defaultProfile ? 46 : held * 3 / 10
             return mode == .fails
-                ? PodcastJob(requestID: id, state: .failed, stageEnteredAt: nil, releaseID: nil, heldCredits: 150, chargedCredits: 0, releasedCredits: 150, failure: "quality_rejected")
-                : PodcastJob(requestID: id, state: .ready, stageEnteredAt: nil, releaseID: releaseID, heldCredits: 150, chargedCredits: 46, releasedCredits: 104, failure: nil)
+                ? PodcastJob(requestID: id, state: .failed, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: "quality_rejected", profile: profile)
+                : PodcastJob(requestID: id, state: .ready, stageEnteredAt: nil, releaseID: releaseID, heldCredits: held, chargedCredits: charged, releasedCredits: held - charged, failure: nil, profile: profile)
         }
-        return PodcastJob(requestID: id, state: states[steps], stageEnteredAt: "2026-10-08T12:00:00Z", releaseID: nil, heldCredits: 150,
-                          chargedCredits: nil, releasedCredits: nil, failure: nil)
+        return PodcastJob(requestID: id, state: states[steps], stageEnteredAt: "2026-10-08T12:00:00Z", releaseID: nil, heldCredits: held,
+                          chargedCredits: nil, releasedCredits: nil, failure: nil, profile: profile)
     }
 
     struct Line { let speaker: PodcastSpeaker; let text: String; let seconds: Double; var chapter: String? = nil; var evidence: [String] = []; var math: [PodcastMath] = [] }
     struct Spec { let id: UUID; let scope: PodcastScope; let document: UUID; let title: String?; let year: Int?; let topic: String?
-        let authors: [String]; let source: PodcastSource?; let chapters: [(String, String)]; let lines: [Line] }
+        let authors: [String]; let source: PodcastSource?; let chapters: [(String, String)]; let lines: [Line]
+        var length: PodcastLength = PodcastFixtureTransport.length(nil)! }
 
     static let catalogSpecs: [Spec] = [
         Spec(id: sampleRelease, scope: .shared, document: sampleDocument, title: "Synthetic fixture: Reading machine learning papers", year: 2026,
@@ -156,12 +175,12 @@ actor PodcastFixtureTransport: PodcastTransport {
              ]),
     ]
 
-    static func privateSpec(document: UUID) -> Spec {
+    static func privateSpec(document: UUID, length: PodcastLength) -> Spec {
         Spec(id: UUID(), scope: .private, document: document, title: nil, year: nil, topic: nil,
              authors: [], source: nil, chapters: [("c1", "Summary")], lines: [
                 Line(speaker: .explainer, text: "A labeled synthetic private episode, made with zero spend.", seconds: 5, chapter: "c1"),
                 Line(speaker: .skeptic, text: "Only this account can play it.", seconds: 4, chapter: "c1"),
-             ])
+             ], length: length)
     }
 
     static func build(_ spec: Spec) -> (episode: PodcastEpisode, audio: Data) {
@@ -185,7 +204,8 @@ actor PodcastFixtureTransport: PodcastTransport {
             chapters: chapterStarts,
             transcript: PodcastTranscript(speakers: .init(explainer: "Host 1 — explainer", skeptic: "Host 2 — skeptical reader"),
                                           disclosure: "Synthetic fixture: tones, not a recording. Real episodes are AI-generated audio adapted from the paper.",
-                                          timing: "approximate", segments: segments))
+                                          timing: "approximate", segments: segments),
+            profile: spec.length.profile, label: spec.length.label, targetSeconds: spec.length.targetSeconds)
         return (episode, audio)
     }
 

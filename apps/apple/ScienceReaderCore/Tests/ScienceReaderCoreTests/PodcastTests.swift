@@ -54,7 +54,7 @@ struct PodcastContractTests {
     @Test func refusesOutOfContractEpisodes() {
         let bad = [
             Self.episodeJSON(audio: #"{"bytes":0,"sha256":"\#(Self.sha)","media_type":"audio/mp4"}"#),
-            Self.episodeJSON(audio: #"{"bytes":20000000,"sha256":"\#(Self.sha)","media_type":"audio/mp4"}"#),
+            Self.episodeJSON(audio: #"{"bytes":21000000,"sha256":"\#(Self.sha)","media_type":"audio/mp4"}"#),
             Self.episodeJSON(audio: #"{"bytes":100,"sha256":"ABCD","media_type":"audio/mp4"}"#),
             // WAV is only for labeled fixtures.
             Self.episodeJSON(audio: #"{"bytes":100,"sha256":"\#(Self.sha)","media_type":"audio/wav"}"#),
@@ -177,11 +177,44 @@ struct PodcastServerFixtureTests {
 
     func load(_ name: String) throws -> Data { try Data(contentsOf: Self.folder.appendingPathComponent("\(name).json")) }
 
+    static let lengths = [("podcast-short-v1", "Short", 150, 110), ("podcast-5min-v1", "5 min", 300, 150),
+                          ("podcast-10min-v1", "10 min", 600, 220), ("podcast-20min-v1", "20 min", 1200, 360)]
+        .map { PodcastLength(profile: $0.0, label: $0.1, targetSeconds: $0.2, maxCredits: $0.3,
+                             estimate: "Estimate — you're charged actual usage, maximum \($0.3) credits") }
+
+    /// Lengths: a ten-minute quote with every option's maximum, its hold and job, the staged result and the paper's lengths.
+    @Test func tenMinuteQuoteJobEpisodeAndLengths() throws {
+        guard case .quote(let quote) = try JSONDecoder().decode(PodcastQuoteOutcome.self, from: load("quote_10min")) else {
+            Issue.record("a quote"); return
+        }
+        #expect(quote.profile == "podcast-10min-v1" && quote.label == "10 min" && quote.targetSeconds == 600 && quote.maxCredits == 220)
+        #expect(quote.estimate.hasSuffix("maximum 220 credits"))
+        #expect(quote.options == Self.lengths)
+        guard case .job(let started) = try JSONDecoder().decode(PodcastJobOutcome.self, from: load("start_10min")) else { Issue.record("a job"); return }
+        #expect(started.heldCredits == 220 && started.profile == "podcast-10min-v1")
+        guard case .job(let ready) = try JSONDecoder().decode(PodcastJobOutcome.self, from: load("status_10min")) else { Issue.record("a job"); return }
+        #expect(ready.state == .ready && (ready.chargedCredits ?? 0) + (ready.releasedCredits ?? 0) == 220)
+        struct Wrapped: Decodable { let episode: PodcastEpisode }
+        let episode = try JSONDecoder().decode(Wrapped.self, from: load("episode_10min")).episode
+        #expect(episode.profile == "podcast-10min-v1" && episode.label == "10 min" && episode.targetSeconds == 600)
+        #expect(episode.durationMS >= 300_000 && episode.chapters?.count == 6 && episode.transcript?.segments.count == 48)
+        let lookup = try JSONDecoder().decode(PodcastPaperLookup.self, from: load("paper_lengths"))
+        #expect(lookup.episodes.map(\.profile) == ["podcast-5min-v1", "podcast-10min-v1"] && lookup.episodes.allSatisfy { $0.scope == .private })
+        #expect(lookup.capabilities?.lengths == Self.lengths)
+        #expect(try JSONDecoder().decode(PodcastQuoteOutcome.self, from: load("quote_reuse")) == .reuse(releaseID: episode.id))
+        // Older servers: no lengths, no profile; everything still decodes as five minutes.
+        #expect(try JSONDecoder().decode(PodcastPaperLookup.self, from: load("paper")).episodes.count == 1)
+        let bad = try String(contentsOf: Self.folder.appendingPathComponent("quote_10min.json"), encoding: .utf8)
+            .replacingOccurrences(of: "\"podcast-20min-v1\"", with: "\"Twenty minutes!\"")
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(PodcastQuoteOutcome.self, from: Data(bad.utf8)) }
+    }
+
     @Test func catalogAndEpisode() throws {
         let page = try JSONDecoder().decode(PodcastCatalogPage.self, from: load("catalog"))
         #expect(page.episodes.count == 2 && page.next == nil)
         #expect(page.capabilities == PodcastCapabilities(catalog: true, generation: true, delivery: true, maxCredits: 150, targetSeconds: 300,
-                                                         transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600)))
+                                                         transfer: PodcastTransfer(remainingBytes: 104_857_600, limitBytes: 104_857_600),
+                                                         lengths: PodcastServerFixtureTests.lengths))
         #expect(page.episodes.map(\.fixture) == [false, true])
         // Microsecond timestamps with a numeric offset, as the server writes them (values change per capture).
         #expect(page.episodes[0].topic == "cs.LG" && page.episodes[0].publishedAt?.hasSuffix("+00:00") == true)
