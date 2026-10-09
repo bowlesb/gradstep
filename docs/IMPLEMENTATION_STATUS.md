@@ -193,6 +193,26 @@ removed executor work) is retained below where useful and in git history.
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Chat controls and titles on staging — 2026-10-09 UTC
+
+- **Backup:** encrypted checkpoint `.artifacts/backups/20261009T001040Z-c2602a33734d`.
+- **Migration 047** (`chat_profiles`) applied and verified, then the `chat` function deployed.
+  Workflow checks: 18/18 pass, $0.007.
+- **Paid profile check** (`chat.profiles`, `chat.profiles-max`, cap $0.75): 3/3 pass, $0.14 measured.
+
+  | Profile | Credits | Cost |
+  |---|---|---|
+  | Haiku · Low · Brief | 1 | $0.0020 |
+  | Sonnet · Low · Brief | 9 | $0.0401 |
+  | Opus · Low · Brief | 17 | $0.0809 |
+  | Sonnet follow-up | 1 | $0.0033 (read 15,112 cached tokens) |
+  | Opus · High · Detailed | 3 | $0.0126 (first text 3.2 s) |
+
+  Quotes agreed with the provider attempts. Generated titles arrived ("Attention mechanisms in Mistral 7B").
+- **Local tests:** backend 430/430, database 229 PASS, wire check, Core 258, iOS unit tests 402 (5 skipped), chat
+  UI journeys 10/10 on iPhone and 4/4 on iPad, Catalyst build.
+- **Not yet done:** Haiku 5.5 has not been quality-checked on facts and equations. The app side ships in the next build.
+
 ## Feed topics and popularity on staging — 2026-10-08
 
 - **Encrypted backup:** checkpoint `.artifacts/backups/20261008T184847Z-234de2ccffd2` (1,405 objects).
