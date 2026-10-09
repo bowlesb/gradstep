@@ -402,7 +402,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         left={left} center={center} right={<ChatPane chat={chat} paper={paperContext} mode={chatMode === 'paper' && paperContext ? 'paper' : 'general'} onMode={setChatMode} onAllChats={() => setChats(true)} onPassage={goToPassage} />} />
       {item && <LibraryActionSurface actions={readerActions} />}
       <PodcastDock player={player} onEvidence={openPodcastEvidence} onAdd={addPodcastPaper} />
-      <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} />
+      <AddPaper open={adding} onClose={() => setAdding(false)} library={library} account={account} keys={{ ring: ready.ring, deviceID: ready.deviceID }} />
       <ChatHistory chat={chat} open={chats} onClose={() => setChats(false)} papers={paperNames} currentDocument={item?.document_id ?? null} onOpen={openChatDocument} />
       {chat && <ChatDefaults chat={chat} open={chatDefaults} onClose={() => setChatDefaults(false)} />}
       <ReportDialog open={reportOpen} onClose={() => setReportOpen(false)} account={account} onSent={() => { setReportOpen(false); setReportsOpen(true); }} />

@@ -8,7 +8,9 @@ import type { Activity } from '../lib/activity';
 import { addFailure, addOutcome, type AddOutcome, addPaper } from '../lib/add';
 import { parseArxiv } from '../lib/arxiv';
 import { BackendError } from '../lib/backend';
+import { type Preparation } from '../lib/keys';
 import { CommandRefreshError, type Entry, type Import, type Item } from '../lib/library';
+import { uploadPDF, type BrowserPDFKeys, type PDFUploadProgress } from '../lib/pdf-upload';
 import { LIBRARY_COLUMNS, type LibraryColumn } from '../lib/library-columns';
 import { type Row, rows as buildRows } from '../lib/paper';
 import { type Mark, importStep, progressView, retryingAutomatically } from '../lib/progress';
@@ -450,13 +452,35 @@ export function CompactLibrary({ model, activity, currentID, onOpen, query }: {
   );
 }
 
-/** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper. No PDF upload in the browser yet. */
-export function AddPaper({ open, onClose, library, account }: { open: boolean; onClose: () => void; library: Library; account: string }) {
+type AddKeys = Pick<Extract<Preparation, { kind: 'ready' }>, 'ring' | 'deviceID'>;
+
+function pdfFailure(error: unknown): string {
+  const code = error instanceof BackendError ? error.code : '';
+  if (code === 'invalid_upload') return 'Choose a readable PDF file.';
+  if (code === 'upload_too_large') return 'That PDF is larger than the 64 MB limit.';
+  if (code === 'insufficient_credits') return 'Add credits before uploading a paper.';
+  if (code === 'paper_owner_storage_capacity' || code === 'paper_storage_capacity') return 'Your paper storage is full. Remove an unused paper or contact support.';
+  if (code === 'upload_limit' || code === 'upload_receipt_capacity') return 'There are already several uploads in progress. Finish one before starting another.';
+  if (code === 'key_authority_required' || code === 'stale_key_epoch') return 'This browser’s library keys are unavailable. Approve or recover this browser, then try again.';
+  if (code === 'upload_mismatch') return 'The PDF changed while it was uploading. Choose it again and retry.';
+  if (code === 'upload_uncertain' || code === 'connection') return 'The upload was interrupted. Try again while this tab stays open; verified chunks will be reused.';
+  if (code === 'upload_expired') return 'This upload session expired. Choose the PDF again to start a fresh upload.';
+  if (code === 'upload_target_busy' || code === 'upload_revision_conflict') return 'This upload changed elsewhere. Refresh the library and try again.';
+  return 'The PDF could not be uploaded. Try again.';
+}
+
+/** Add paper: an arXiv ID stays a library command; a DOI or any link goes to add-paper.
+ * A selected PDF uses the same authenticated chunk/descriptor protocol as native. */
+export function AddPaper({ open, onClose, library, account, keys }: { open: boolean; onClose: () => void; library: Library; account: string; keys: AddKeys }) {
   const [text, setText] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [issue, setIssue] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<AddOutcome | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<PDFUploadProgress | null>(null);
+  const [uploadID, setUploadID] = useState<string | undefined>();
   const [awaitingObservation, setAwaitingObservation] = useState(false);
+  const input = useRef<HTMLInputElement | null>(null);
   const request = useRef<AbortController | null>(null);
   useEffect(() => {
     if (awaitingObservation && !library.pending.has('add')) {
@@ -464,11 +488,35 @@ export function AddPaper({ open, onClose, library, account }: { open: boolean; o
     }
   }, [awaitingObservation, library.pending, onClose]);
   useEffect(() => () => request.current?.abort(), []);
-  const close = () => { if (busy) return; setIssue(null); setOutcome(null); onClose(); };
+  const close = () => { if (busy) return; setIssue(null); setOutcome(null); setProgress(null); setFile(null); setUploadID(undefined); if (input.current) input.current.value = ''; onClose(); };
+  const choose = (next: File | null) => {
+    if (!next) return;
+    setFile(next); setText(''); setIssue(null); setOutcome(null); setProgress(null); setUploadID(undefined);
+  };
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || awaitingObservation || library.pending.has('add')) return;
+    if (file) {
+      if (library.cursor === null) { setIssue('Wait for your library to load, then upload the PDF.'); return; }
+      const controller = new AbortController(); request.current = controller; setBusy(true); setIssue(null); setOutcome(null);
+      try {
+        const result = await uploadPDF(file, { account, cursor: library.cursor, keys: keys as BrowserPDFKeys, uploadID, signal: controller.signal,
+          onSession: setUploadID, onProgress: setProgress });
+        if (controller.signal.aborted) return;
+        library.refresh().catch(() => {});
+        setOutcome({ status: 'added', message: `Added “${file.name.replace(/\.pdf$/i, '') || 'the paper'}”. It’s being prepared to read.`, link: null, finished: true });
+        setFile(null); setUploadID(undefined); setProgress(null); if (input.current) input.current.value = '';
+        void result;
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          if (error instanceof BackendError && ['upload_expired', 'upload_unavailable', 'upload_id_conflict'].includes(error.code)) setUploadID(undefined);
+          setIssue(pdfFailure(error));
+        }
+      }
+      finally { if (!controller.signal.aborted) setBusy(false); }
+      return;
+    }
     const value = text.trim();
     if (!value) return;
     setBusy(true); setIssue(null); setOutcome(null);
@@ -493,12 +541,15 @@ export function AddPaper({ open, onClose, library, account }: { open: boolean; o
     finally { if (!controller.signal.aborted) setBusy(false); }
   }
   const adding = busy || awaitingObservation || library.pending.has('add');
+  const selectedName = file?.name ?? null;
+  const progressText = progress ? progress.phase === 'checking' ? 'Checking PDF…' : progress.phase === 'starting' ? 'Starting secure upload…'
+    : progress.phase === 'uploading' ? `Uploading PDF · ${Math.round(progress.fraction * 100)}%` : 'Finishing upload…' : null;
   return (
     <Dialog open={open} onClose={close} title="Add paper">
       <form onSubmit={submit} noValidate>
         <h2>Add paper</h2>
         <label>arXiv ID, DOI or link
-          <input autoFocus value={text} readOnly={adding} onChange={e => { setText(e.target.value); setOutcome(null); setIssue(null); }}
+          <input autoFocus value={text} readOnly={adding} onChange={e => { setText(e.target.value); if (file) { setFile(null); setUploadID(undefined); if (input.current) input.current.value = ''; } setOutcome(null); setIssue(null); }}
             placeholder="2305.18290, 10.48550/arXiv.2305.18290 or https://…" spellCheck={false} autoCapitalize="none" data-testid="arxiv-input" />
         </label>
         {issue && <p className="issue" role="alert">{issue}</p>}
@@ -508,10 +559,17 @@ export function AddPaper({ open, onClose, library, account }: { open: boolean; o
             {outcome.link && !outcome.finished && <a href={outcome.link} target="_blank" rel="noopener noreferrer" className="outcome-link">Open {new URL(outcome.link).hostname.replace(/^www\./, '')} <Icon name="external" size={12} /></a>}
           </div>
         )}
-        <p className="fine">arXiv papers, DOIs and links to papers or their pages. Uploading a PDF isn’t available in the browser yet.</p>
+        <div className="pdf-upload-choice" onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files[0] ?? null); }}>
+          <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={event => choose(event.target.files?.[0] ?? null)} />
+          <button type="button" className="secondary" onClick={() => input.current?.click()} disabled={adding}>Choose a PDF</button>
+          <span className="fine">or drop one here</span>
+          {selectedName && <span className="pdf-upload-name" title={selectedName}>{selectedName}</span>}
+        </div>
+        {progressText && <p className="fine" role="status" aria-live="polite">{progressText}</p>}
+        <p className="fine">Add an arXiv ID, DOI or paper link, or upload a PDF you’re allowed to use. The PDF is sent over an authenticated connection for your private reader copy; its title is encrypted before it is synced.</p>
         <div className="dialog-actions">
           <button type="button" className="secondary" onClick={close} disabled={busy}>{outcome?.finished ? 'Done' : 'Cancel'}</button>
-          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || !text.trim()} data-testid="arxiv-add">{adding ? 'Adding…' : 'Add'}</button>
+          <button type="submit" className="primary" disabled={adding || library.state !== 'ready' || (!text.trim() && !file)} data-testid="arxiv-add">{adding ? (file ? 'Uploading…' : 'Adding…') : file ? 'Upload PDF' : 'Add'}</button>
         </div>
       </form>
     </Dialog>

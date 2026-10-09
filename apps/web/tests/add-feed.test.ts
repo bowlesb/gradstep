@@ -18,13 +18,13 @@ describe('add-paper outcomes', () => {
     expect(decodeAddResult({ status: 'added', paper: { title: 'x', source_id: 'y', year: 99_999 } }).paper?.year).toBeNull();
   });
 
-  it('words each outcome for the browser, which can neither upload nor download on the device', () => {
+  it('words each outcome for the browser, which can upload a user-selected PDF', () => {
     const outcome = (v: Record<string, unknown>) => addOutcome(decodeAddResult(v));
     expect(outcome({ status: 'added', paper: { title: 'A paper', source_id: '1', year: 2020 } })).toMatchObject({ finished: true, message: 'Added “A paper”. It’s being prepared to read.' });
     expect(outcome({ status: 'present' }).finished).toBe(true);
     expect(outcome({ status: 'blocked', reason: 'pdf_restricted', link: 'https://x.example/p' }).message).toContain('needs a sign-in or subscription');
-    expect(outcome({ status: 'link_only', title: 'Notes' }).message).toContain('isn’t available in the browser yet');
-    expect(outcome({ status: 'closed' }).message).toContain('upload it from Gradstep on iPhone, iPad or Mac');
+    expect(outcome({ status: 'link_only', title: 'Notes' }).message).toContain('choose the PDF');
+    expect(outcome({ status: 'closed' }).message).toContain('choose the PDF');
     expect(outcome({ status: 'failed' }).message).toBe('Couldn’t add it right now. Check your connection and try again.');
     for (const status of ['closed', 'blocked', 'link_only', 'not_found', 'needs_update', 'invalid', 'unavailable']) expect(outcome({ status }).finished).toBe(false);
   });

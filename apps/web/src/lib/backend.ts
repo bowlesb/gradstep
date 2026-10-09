@@ -34,7 +34,15 @@ const KNOWN = new Set(['library_resync_required', 'key_authority_required', 'sta
   'podcast_release_unavailable', 'podcast_request_unavailable', 'source_unavailable', 'source_too_large',
   'quote_unavailable', 'quote_expired', 'consent_required', 'active_generation_limit', 'podcast_busy', 'podcast_daily_limit',
   'too_many_active_operations', 'storage_full', 'podcast_request_conflict', 'podcast_grant_unavailable',
-  'podcast_grant_consumed', 'podcast_range_unavailable', 'podcast_integrity_failed']);
+  'podcast_grant_consumed', 'podcast_range_unavailable', 'podcast_integrity_failed',
+  // Bounded PDF-upload protocol errors. Keep these finite so an Edge/provider
+  // body can never become a user-visible error string.
+  'invalid_upload', 'invalid_web_source_id', 'invalid_upload_part', 'upload_too_large',
+  'paper_owner_storage_capacity', 'paper_storage_capacity', 'upload_expired', 'upload_id_conflict',
+  'upload_revision_conflict', 'upload_target_unavailable', 'upload_target_busy', 'upload_incomplete',
+  'upload_mismatch', 'upload_limit', 'upload_attempt_limit', 'upload_receipt_capacity',
+  'library_descriptor_required', 'upload_not_receiving', 'upload_not_frozen', 'upload_already_attached',
+  'upload_unavailable', 'upload_disabled', 'asset_inventory_reconciling', 'upload_uncertain']);
 
 const sessionKey = () => `gradstep.${config.environment}.session`;
 
@@ -412,6 +420,22 @@ export async function* functionStream(path: string, body: unknown, options: { ac
 /** An Edge function POST with a JSON body (e.g. `add-paper`). */
 export async function functionPost<T>(path: string, body: unknown, options: { maximum?: number; account?: string; signal?: AbortSignal; timeout?: number } = {}): Promise<T> {
   const value = parse(await authorized(`functions/v1/${path}`, { method: 'POST', body: JSON.stringify(body), ...options }));
+  if (value === null) throw new BackendError('invalid_response');
+  return value as T;
+}
+
+/** An Edge function PUT with bounded binary input and a JSON receipt. Used by
+ * the authenticated PDF chunk protocol; callers must supply a non-empty
+ * Uint8Array and the function path must be relative to this backend. */
+export async function functionPutBytes<T>(path: string, bytes: Uint8Array, options: {
+  account: string; signal?: AbortSignal; maximum?: number; timeout?: number;
+}): Promise<T> {
+  if (bytes.byteLength < 1) throw new BackendError('invalid_upload');
+  const value = parse(await authorized(`functions/v1/${path}`, {
+    method: 'PUT', body: bytes as BodyInit, contentType: 'application/octet-stream',
+    account: options.account, signal: options.signal, maximum: options.maximum ?? 65_536,
+    timeout: options.timeout ?? 120_000,
+  }));
   if (value === null) throw new BackendError('invalid_response');
   return value as T;
 }

@@ -359,6 +359,9 @@ progress.mini { height: 3px; margin-top: 4px; }
 .outcome.good { background: var(--accent-soft); }
 .outcome.problem { background: var(--problem-soft); border-left: 3px solid var(--problem); }
 .outcome-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.pdf-upload-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: 9px; background: var(--surface-2); }
+.pdf-upload-choice:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
+.pdf-upload-name { flex: 1 1 160px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .shortcuts { display: grid; gap: 6px; margin: 0; }
 .shortcuts div { display: flex; gap: 12px; align-items: baseline; }
 .shortcuts dt { width: 96px; flex: none; }

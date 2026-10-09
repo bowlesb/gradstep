@@ -3,8 +3,10 @@
 > **Status, 2026-10-09 UTC:** migration `202610070039_pdf_uploads.sql` is applied on staging; `add-paper`,
 > `upload-pdf`, the private `paper-uploads` bucket and the bounded worker transport are deployed. Scope-2 inventory
 > completed with zero discrepancies and upload admission was enabled. Native epoch/descriptor/chunk adoption
-> is in the build-17/18 lineage; build 19 also carries 042's v5 ordinary library-write repair. Browser PDF upload
-> remains unavailable. The native queue now speaks the deployed authenticated chunk protocol and writes the
+> is in the build-17/18 lineage; build 19 also carries 042's v5 ordinary library-write repair. The browser now has
+> a foreground PDF upload client using the same authenticated chunk protocol; it keeps the file and session in memory
+> while the tab is open and does not claim background/offline resumability. The native queue now speaks the deployed
+> authenticated chunk protocol and writes the
 > encrypted descriptor required for a new uploaded paper before freeze. The Share extension's App Group/App ID/profiles and real system-share/device journeys
 > remain separate acceptance gates; these are not claims that every upload path has been exercised on a device.
 

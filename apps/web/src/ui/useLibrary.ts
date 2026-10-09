@@ -162,5 +162,5 @@ export function useLibrary(account: string) {
       p_tags: change.own, p_hidden_tags: change.hidden, p_expected_revision: item.membership_revision });
   }, [itemCommand]);
 
-  return { entries, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
+  return { entries, cursor: snapshot.cursor, state, marks, pending, refresh, addArxiv, retry, remove, archive, removePaper, setTags };
 }

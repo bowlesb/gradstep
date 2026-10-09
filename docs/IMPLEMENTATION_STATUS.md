@@ -110,7 +110,11 @@ offline structured reading and local Mathpix processing remain gated as describe
   Descriptor writes, complete v5 library adoption, saved copies and cold startup remain gated pending the epoch-bound
   descriptor PUT contract and measured copy-install limits.
 - **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), live browser
-  provider consent/identity acceptance, Safari key persistence, browser PDF upload and purchases. The native PDF upload
+  provider consent/identity acceptance, Safari key persistence, background/offline browser PDF upload and purchases. The
+  browser now supports a foreground, authenticated PDF upload from the Add sheet: it validates `%PDF-`, hashes the exact
+  4 MiB parts, writes the encrypted title descriptor, refreshes the session revision and finalizes against the current
+  library cursor. The selected File and upload session stay in memory while the tab remains open; reload/background
+  resumability remains deliberately gated until Gate 2 storage is wired. The native PDF upload
   queue now matches the deployed authenticated chunk protocol and writes the required encrypted descriptor, covered by
   7 focused simulator tests; **TestFlight build 25** carries this fix and still needs real-device acceptance. The browser now has bounded
   Google/Apple PKCE controls and callback validation; provider-side acceptance remains a release gate. Podcast generation remains backend-dark and no

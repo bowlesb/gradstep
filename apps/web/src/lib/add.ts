@@ -1,6 +1,8 @@
 // Add by DOI or any link (functions/v1/add-paper, docs/architecture/PDF_UPLOADS.md §1). arXiv
 // identifiers stay on the library command path (v2_begin_import), as in the native Add sheet.
-// The browser has no PDF upload or device download yet, so it never claims those capabilities.
+// Browser PDF upload is a foreground, bounded upload. It deliberately does not
+// claim device-download capability: the browser must never fetch a publisher PDF
+// and imply that it can do so offline until the durable file queue ships.
 import { BackendError, functionPost } from './backend';
 
 export type AddStatus = 'added' | 'present' | 'closed' | 'blocked' | 'link_only' | 'not_found' | 'needs_update' | 'unavailable' | 'invalid' | 'failed';
@@ -36,12 +38,12 @@ export function decodeAddResult(value: unknown): AddPaperResult {
 }
 
 export async function addPaper(account: string, query: string, signal?: AbortSignal): Promise<AddPaperResult> {
-  const body = { operation_id: crypto.randomUUID(), query: [...query.trim()].slice(0, 2000).join(''), capabilities: ['web_import'] };
+  const body = { operation_id: crypto.randomUUID(), query: [...query.trim()].slice(0, 2000).join(''), capabilities: ['web_import', 'pdf_upload'] };
   return decodeAddResult(await functionPost('add-paper', body, { account, signal, maximum: 65_536, timeout: 40_000 }));
 }
 
 export interface AddOutcome { status: AddStatus; message: string; link: string | null; finished: boolean }
-const ELSEWHERE = 'Gradstep on iPhone, iPad or Mac';
+const PDF_ACTION = 'choose the PDF in this window';
 
 /** The reader's words for an outcome (native AddOutcome.from, adapted to what the browser can do). */
 export function addOutcome(result: AddPaperResult): AddOutcome {
@@ -50,14 +52,14 @@ export function addOutcome(result: AddPaperResult): AddOutcome {
   switch (result.status) {
     case 'added': return outcome(`Added ${named ?? 'the paper'}. It’s being prepared to read.`, true);
     case 'present': return outcome(`${named ?? 'This paper'} is already in your library.`, true);
-    case 'closed': return outcome(`${named ?? 'This paper'} isn’t openly available. If you have the PDF, upload it from ${ELSEWHERE} and it will be converted for you alone.`);
+    case 'closed': return outcome(`${named ?? 'This paper'} isn’t openly available. If you have the PDF, ${PDF_ACTION}; it will be converted for you alone.`);
     case 'blocked': {
       const why = result.reason === 'pdf_restricted' ? 'This paper’s website needs a sign-in or subscription, so our servers can’t download it.'
         : result.reason === 'source_unavailable' ? 'The paper’s website isn’t responding to our servers.'
           : 'The paper’s website blocked the download from our servers.';
-      return outcome(`${why} Your own device may still be able to download it: add it from ${ELSEWHERE}.`);
+      return outcome(`${why} Download the PDF yourself, then ${PDF_ACTION}.`);
     }
-    case 'link_only': return outcome(`${result.title ? `“${result.title}”` : 'This link'} isn’t a paper we could identify, but it leads to a PDF. Downloading it on this device isn’t available in the browser yet; add it from ${ELSEWHERE}.`);
+    case 'link_only': return outcome(`${result.title ? `“${result.title}”` : 'This link'} isn’t a paper we could identify, but it leads to a PDF. Download it yourself, then ${PDF_ACTION}.`);
     case 'not_found': return outcome('Couldn’t find a paper for this. Check the ID or link.');
     case 'needs_update': return outcome(`${named ?? 'This paper'} needs the latest version of Gradstep. Reload this page.`);
     case 'invalid': return outcome('Enter an arXiv ID, a DOI, or a link to a paper or PDF.');
