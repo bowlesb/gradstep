@@ -150,6 +150,8 @@ test('review correction set: strict schema, a limit derived from the unchanged o
   assert.equal(request.max_tokens, 4_000);
   assert.match(JSON.stringify(request.messages), /at most 10 corrections in total/);
   assert.match(JSON.stringify(request.messages), /Do not rewrite or repeat the script/);
+  assert.match(JSON.stringify(request.messages), /count the resulting spoken words/);
+  assert.match(JSON.stringify(request.messages), /replacement should normally be at least two complete sentences/);
 
   const draft = goodScript(); delete draft.review;
   // Empty lists approve the draft as written.
