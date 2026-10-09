@@ -15,26 +15,35 @@ removed executor work) is retained below where useful and in git history.
   140 / 150 / 300 / 530 credits. The 530 ceiling is deliberate: Vertex's serving limit is 16,384 audio tokens per
   call, so the six-call 20-minute profile must reserve six full grants. All four profiles are allowlisted atomically;
   private generation and catalog delivery remain bounded by the existing account, daily and $25 platform limits.
-- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00019-2d9` is active at 100% traffic with request-based
+- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00021-hg8` is active at 100% traffic with request-based
   billing, zero minimum instances, max three instances, one request per instance, pinned secrets and the bounded
   worker-thread lifecycle. The staging scheduler points at it; the legacy Edge `paper-worker` is retained only as an
   unscheduled rollback surface. Migration 054 changes the scheduler's pg_net timeout from the old 5-second Edge
   acknowledgement window to 600 seconds, below the worker's 840-second hard bound. Readiness, activation and aggregate
-  liability evidence are under `.artifacts/rollout-evidence/`.
-- **Verification:** the full local database suite, podcast worker journey, 481 backend tests, web build/unit suite and
+  liability evidence are under `.artifacts/rollout-evidence/`. Revision 00021 is the first active revision containing
+  the v2 length/coherence hardening; the maintenance-to-active cutover preserved the reviewed configuration and image
+  digest.
+- **Verification:** the full local database suite, podcast worker journey, 483 backend tests, web build/unit suite and
   universal Catalyst build pass. The staging deploy suite passed all feature and spending-safety checks with no
-  provider spend. Its first run contained only cutover-window scheduler timeouts; migration 054 raised the pg_net
-  acknowledgement timeout to 600 seconds, and a clean 15-minute window now reports 15 successful HTTP 200 calls.
+  provider spend before this revision. The active revision's health endpoint is healthy; two 503 scheduler responses
+  were confined to the maintenance-to-active cutover and remain visible in the 15-minute historical check window.
+  Migration 054 still gives the scheduler a 600-second acknowledgement timeout, and the next scheduler calls are
+  returning HTTP 200.
 - **Published pilots:** “The Persona Hierarchy Model” (3:54) and “Decoupling Exploration from Optimization in RLVR”
   (3:22) are shared, chaptered and single-use delivered. The pilot's two successful speech calls cost $0.27 and $0.30;
   total seed spend is $1.94 of the authorized $5 period. Short, 10-minute and 20-minute private generation is now
   enabled with the revised ceilings. The current October curated-catalog period is configured by migration 055 at a
   `$3` hard allowance and `max_episodes=10`; admissions remain operator-selected and review-gated, so no catalog
   episode is generated automatically without an explicit seed operation.
-- **Length and coherence hardening:** v2 worker jobs now enforce each profile's declared word shape and accept audio
+- **Length and coherence hardening (live in revision 00021):** v2 worker jobs now enforce each profile's declared word shape and accept audio
   only inside a 0.8–1.25× target-duration window (v1 jobs retain their historical bounds). The checker remembers
   removed turns when deciding whether a question still has an answer, preventing an unrelated later turn from hiding a
-  dangling prompt. This is local code/test work ready for the next worker revision; it has not spent provider credits.
+  dangling prompt. The active worker revision was deployed through the paused-gate readiness procedure; this rollout
+  spent no provider credits.
+- **Catalog quality gate exercise:** the first post-rollout CC BY candidate was correctly stopped before speech because
+  the checker found two unsupported claims and removed an unanswered question. Script/review usage settled at about
+  `$0.205`, no audio was generated, and the release was not published. The draft prompt now asks for ten percent
+  headroom above the minimum word bound so later removals do not make an otherwise supported episode too short.
 
 ## Commercial arXiv content gate — 2026-10-09
 
