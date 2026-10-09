@@ -25,10 +25,10 @@ removed executor work) is retained below where useful and in git history.
   configuration and immutable image digest.
 - **Verification:** the full local database suite, podcast worker journey, 483 backend tests, web build/unit suite and
   universal Catalyst build pass. The staging deploy suite passed all feature and spending-safety checks with no
-  provider spend before this revision. The active revision's health endpoint is healthy; two 503 scheduler responses
-  were confined to the maintenance-to-active cutover and remain visible in the 15-minute historical check window.
-  Migration 054 still gives the scheduler a 600-second acknowledgement timeout, and the next scheduler calls are
-  returning HTTP 200.
+  provider spend before this revision. The active revision's health endpoint is healthy. The final focused check at
+  15:21 UTC recorded **15/15 scheduler calls as HTTP 200, with zero timeouts, refusals, missing workers or server
+  errors**, and zero provider cost. Earlier cutover responses remain in the audit history but are outside the active
+  reliability window. Migration 054 gives the scheduler a 600-second acknowledgement timeout.
 - **Published pilots:** “The Persona Hierarchy Model” (3:54) and “Decoupling Exploration from Optimization in RLVR”
   (3:22) are shared, chaptered and single-use delivered. The pilot's two successful speech calls cost $0.27 and $0.30;
   total seed spend is $1.94 of the authorized $5 period. Short, 10-minute and 20-minute private generation is now
