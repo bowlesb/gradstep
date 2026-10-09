@@ -3,7 +3,9 @@
 2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark: migration 048 is not applied, nothing is
 deployed and no paid provider call has been made.** The design below was the reviewed input; the
 [implementation section](#v1-implementation-branch-podcast-v1) records what was built, where it deviates and the
-[seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this).
+[seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
+5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
+The seed pilot stays five-minute; the other lengths are private generation only.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
@@ -391,8 +393,8 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 |---|---|---|
 | `GET ?action=catalog&after=&limit=` (≤ 50) | — | `{ episodes: [Episode], next: string\|null, capabilities: Capabilities }` |
 | `GET ?action=episode&release_id=` | — | `{ episode: Episode & { chapters: [Chapter], transcript: Transcript } }` |
-| `GET ?action=paper&item_id=` | — | `{ episode: Episode\|null, job: Job\|null, capabilities }` (shared or own private release for that library item) |
-| `POST ?action=quote` | `{ item_id, request_id }` | `{ quote: Quote }` or `{ reuse: { release_id } }` or `{ join: { request_id } }` |
+| `GET ?action=paper&item_id=` | — | `{ episode: Episode\|null, episodes: [Episode], job: Job\|null, capabilities }` (shared or own private release for that library item; `episodes`: every ready length) |
+| `POST ?action=quote` | `{ item_id, request_id, profile? }` | `{ quote: Quote, options: [Length] }` or `{ reuse: { release_id } }` or `{ join: { request_id } }` |
 | `POST ?action=start` | `{ quote_id, request_id, consent_version }` | `{ job: Job }`, or `{ reuse: { release_id } }` if an identical private release became ready |
 | `GET ?action=status&request_id=` | — | `{ job: Job }` (or `{ reuse: { release_id } }` for a request that reused a release) |
 | `POST ?action=cancel` | `{ request_id }` | `{ job: Job }` |
@@ -402,7 +404,9 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
 
 - **Episode** `{ release_id, scope: "shared"|"private", title, year, authors: [string], topic: string|null,
   duration_ms, language: "en", ai_audio: true, fixture: bool, document_id, published_at, state,
-  source: { arxiv_id|null, version|null, url|null, license|null }, audio: { bytes, sha256, media_type } }`.
+  source: { arxiv_id|null, version|null, url|null, license|null }, audio: { bytes, sha256, media_type },
+  profile, label, target_seconds }` — `profile` is the length it was made at (`podcast-10min-v1`, label "10 min", 600).
+  Absent on releases from a server before lengths: treat as `podcast-5min-v1`.
   `fixture: true` marks labeled synthetic fixture audio; clients show "Synthetic fixture" next to the AI-audio badge.
 - **Chapter** `{ id, title, start_ms }`. **Transcript** `{ speakers: { explainer: string, skeptic: string },
   disclosure: string, timing: "approximate", segments: [{ id, speaker: "explainer"|"skeptic", text, start_ms,
@@ -410,16 +414,21 @@ and never fall back to unguarded generation. Times are ISO 8601; durations are i
   evidence: [{ id, quote, section|null }], math: [{ latex, spoken }] }] }`. Evidence `quote` is verbatim text from the
   pinned converted paper; clients open the paper at that quote (the passage-anchor finder), or show the source
   link and an explicit Add action when the paper is not in the library.
-- **Quote** `{ id, expires_at, max_credits: 150, estimate: "Estimate — you're charged actual usage, maximum 150 credits",
-  providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consent_version: "podcast-private-v1", target_seconds: 300 }`.
+- **Quote** `{ id, expires_at, max_credits, estimate: "Estimate — you're charged actual usage, maximum <max_credits> credits",
+  providers: ["Anthropic (script)", "Google Vertex AI (speech)"], consent_version: "podcast-private-v1", target_seconds, profile, label }`
+  for the requested length (110 / 150 / 220 / 360 credits for Short / 5 / 10 / 20 minutes).
+- **Length** `{ profile, label, target_seconds, max_credits, estimate }`: one offered length. `capabilities.lengths` and the
+  quote's `options` list every offered length, shortest first (`podcast-short-v1` "Short" 150 s 110 credits,
+  `podcast-5min-v1` "5 min" 300 s 150, `podcast-10min-v1` "10 min" 600 s 220, `podcast-20min-v1` "20 min" 1200 s 360).
 - **Job** `{ request_id, state, stage_entered_at, release_id|null, held_credits, charged_credits|null,
-  released_credits|null, failure|null, cancel_requested: bool }`; state is one of `queued, scripting, checking, synthesizing, verifying,
+  released_credits|null, failure|null, cancel_requested: bool, profile }`; state is one of `queued, scripting, checking, synthesizing, verifying,
   publishing, ready, canceled, failed, capacity_wait, unknown_provider, quarantined`. Poll status; never infer
   completion or charges from elapsed time.
 - **Member** `{ role: "audio", url, bytes, sha256, media_type }`. The client downloads into protected local storage,
   verifies length and SHA-256, and only then marks the episode downloaded. A failed download needs a new grant.
-- **Capabilities** `{ catalog: bool, generation: bool, delivery: bool, max_credits: 150, target_seconds: 300,
-  transfer: { remaining_bytes, limit_bytes } }`.
+- **Capabilities** `{ catalog: bool, generation: bool, delivery: bool, max_credits: 150, target_seconds: 300, lengths: [Length],
+  transfer: { remaining_bytes, limit_bytes } }`. `max_credits`/`target_seconds` describe the default (five-minute) length
+  for older clients; `lengths` is what to offer.
 
 Listening position and history are **device-local in v1** (see "Listening history" below): no podcast events enter
 the encrypted history stream, so older clients' chat/history replay is unaffected.
@@ -459,7 +468,8 @@ the caller's remaining bytes. Exhaustion is `podcast_transfer_limit` (429); alre
 | `podcast_outcome_pending` | 409 | An earlier private job of this account still has an unresolved provider outcome; no new generation until it is reconciled (say "waiting for the previous episode's charge to be confirmed") |
 | `storage_full` | 507 | Store full; nothing was held |
 | `platform_budget_exhausted` | 503 | Platform paused paid work |
-| `podcast_request_conflict` | 409 | Same `request_id` reused for a different quote/item |
+| `podcast_request_conflict` | 409 | Same `request_id` reused for a different quote/item/length |
+| `podcast_profile_unavailable` | 400 | That length isn't offered (unknown, or withdrawn by the operator): offer the listed lengths |
 | `podcast_grant_unavailable` / `podcast_grant_consumed` | 403 / 409 | Grant expired, revoked or already used: request a new `download` |
 | `podcast_range_unavailable` | 416 | `Range` headers are refused |
 | `podcast_integrity_failed` | 503 | Server-side digest mismatch; do not cache anything |
@@ -516,17 +526,23 @@ as `context`. `math[].latex` is display-only; never feed it to speech.
 ready private release for that paper, otherwise the newest ready shared release of the exact same document bytes,
 and the account's unfinished private job (with its `request_id`) if any.
 
-**Private generation.** (1) `POST quote {item_id, request_id}` with a fresh UUID → `quote` (show `estimate`,
-`max_credits`, `providers` and ask for consent), or `reuse.release_id` (an identical private episode exists: play it,
-nothing is charged) or `join.request_id` (this account is already generating it on another device: poll that request).
+**Private generation.** (1) `POST quote {item_id, request_id, profile}` with a fresh UUID per length → `quote` (show
+`estimate`, `max_credits`, `providers` and ask for consent; `options` gives every length's maximum for the picker), or
+`reuse.release_id` (an identical private episode of **this length** exists: play it, nothing is charged) or
+`join.request_id` (this account is already generating this length on another device: poll that request). Omitting
+`profile` means five minutes. **Each length is its own work key**: a ready episode at another length is never reused
+for this one — offer to play it (from `paper.episodes`) or to generate the chosen length. One private job per account
+runs at a time, whatever its length (`active_generation_limit`).
 (2) `POST start {quote_id, request_id, consent_version: "podcast-private-v1"}` — use the **same** `request_id`; a
-lost reply is safe to resend (same response, no second hold). Returns `job` with `held_credits: 150`.
-(3) Poll `GET status&request_id=` every 5 s for the first minute, then every 15 s; each poll of a queued or stalled job
-also wakes the worker (at most once a minute). Typical completion is a few minutes; show `state`, never a fake
-percentage. (4) On `ready`, `job.release_id` is playable; `charged_credits` and `released_credits` give the actual
-charge (actual usage, ≤ 150). `failed` with a quality reason charges 0; `unknown_provider` charges 0 to the customer
-(the platform keeps the provider liability). (5) `POST cancel {request_id}` releases the whole hold before the job
-starts; once running it stops future paid calls and charges known usage (≤ 150).
+lost reply is safe to resend (same response, no second hold). Returns `job` with `held_credits` = the quote's maximum.
+(3) Poll `GET status&request_id=` every 5 s for the first minute, then every 15 s; each poll of a queued, parked or stalled
+job also wakes the worker (at most once a minute). Typical completion is a few minutes for Short and 5 minutes; 10 and 20
+minutes run in stages (draft, review, speech — each its own worker request) and take roughly 10–35 minutes. Show `state`,
+never a fake percentage. (4) On `ready`, `job.release_id` is playable; `charged_credits` and `released_credits` give the actual
+charge (actual usage, ≤ the length's maximum). `failed` with a quality reason charges 0; `unknown_provider` charges 0 to
+the customer (the platform keeps the provider liability). (5) `POST cancel {request_id}` releases the whole hold before the
+job starts; once running it stops future paid calls and charges known usage (≤ the maximum); a staged job parked between
+stages is canceled at once.
 
 **Delivery (audio).** `POST download {release_id}` → `{ grant: { expires_at, members: [{ role: "audio", url, bytes,
 sha256, media_type: "audio/mp4" }] } }`. `url` is `…/functions/v1/podcast-member?grant=<64 hex>&member=<uuid>` and must
@@ -534,8 +550,8 @@ be fetched **once**, as given, with the same `Authorization` and `apikey` header
 without query changes; it expires after 15 minutes. The body is the exact object (`Content-Length` = `bytes`,
 `Accept-Ranges: none`, `Cache-Control: private, no-store`). Verify `bytes` and SHA-256 before use; on any failure
 discard the bytes and request a new grant (each grant consumes transfer allowance). No progressive or range playback
-in v1: download the whole file (≈ 2.4 MB for five minutes at 64 kbit/s AAC in MP4/M4A), then play from local
-storage. Never put the member URL or token in logs, analytics or shareable links; the token is account-bound.
+in v1: download the whole file (≈ 2.4 MB for five minutes, ≈ 9.6 MB for twenty, at 64 kbit/s AAC in MP4/M4A; never more
+than 20 MiB), then play from local storage. Never put the member URL or token in logs, analytics or shareable links; the token is account-bound.
 
 **Revocation.** Before a new download and on reconnect, `POST states {release_ids: [≤ 100]}` →
 `states[id].state` ∈ `ready | quarantined | withdrawn | superseded | unavailable` (+ `replacement_id`). Remove local
@@ -564,13 +580,13 @@ seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scop
 
 | Area | What 048 adds |
 |---|---|
-| Finance (034 extension) | `metered_operations.kind` gains `podcast`; `provider_attempts` gains provider `google` and routes `podcast_script`, `podcast_review`, `podcast_speech`; `valid_provider_units` gains `text_input_tokens`, `audio_output_tokens`, `audio_ms`. `worker_provider_attempt_begin` is replaced with the 034 body plus those routes; a podcast route is granted only inside `worker_podcast_attempt_begin` (transaction-local token), which takes model, units and ceiling from the immutable profile, so no caller-supplied model or price can be granted. Pricing snapshots record the tariff and `profile` (`podcast-5min-v1:1`). |
-| Identities | `podcast_profiles` (immutable spec + SHA-256); `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
+| Finance (034 extension) | `metered_operations.kind` gains `podcast`; `provider_attempts` gains provider `google` and routes `podcast_script`, `podcast_review`, `podcast_speech`; `valid_provider_units` gains `text_input_tokens`, `audio_output_tokens`, `audio_ms`. `worker_provider_attempt_begin` is replaced with the 034 body plus those routes; a podcast route is granted only inside `worker_podcast_attempt_begin` (script passes, single-call speech) or `worker_podcast_speech_begin` (every speech chunk, all or nothing) through a transaction-local token; model, units and ceiling come from the immutable profile (a chunk's audio cap is bounded per call by the serving limit and in total by the profile), so no caller-supplied model or price can be granted. Pricing snapshots record the tariff and `profile` (`podcast-10min-v1:1`). |
+| Identities | `podcast_profiles` (immutable spec + SHA-256; four lengths, see [Lengths](#lengths-short-5-10-and-20-minutes)), `podcast_policy.allowed_profiles`; `podcast_episode_keys` (domain-separated work key over ordered source pins, scope/owner, profile/version, language, target length, speech model, voices; partial unique indexes for shared/private); `podcast_sources` (approval, catalog version/metadata, document id + SHA-256, OCR run, raw manifest object + hash, the exact `standalone.mmd` object + hash + bytes, render artifact, normalization version — resolved server-side, immutable); `podcast_scripts` (approved script hash, draft hash, checker version); `podcast_releases` (identity JSON, manifest hash, duration, public metadata snapshot, lifecycle `pending_review/ready/superseded/quarantined/withdrawn`, publication sequence; identity columns immutable by trigger); `podcast_release_objects`. |
 | Rights | `podcast_rights` (one row per shared episode: active/quarantined/withdrawn, `rights_revision`, CC BY 4.0/CC0 approval pinned, reviewer, evidence digest) + append-only events. Checked at admission, every provider grant, publication, catalog listing and every delivery redemption. |
-| Jobs | `podcast_jobs` (origin `generated`/`fixture`; funding `platform_seed`/`customer`/`fixture`; FK to the metered operation; fenced claim id/generation/lease; captured policy epoch and rights revision; one active job per work key), `podcast_job_attempts` (one per route), `podcast_job_events` (append-only, bounded to 128). States as designed: `queued → scripting → checking → synthesizing → verifying → publishing → ready`, plus `canceled`, `failed`, `capacity_wait`, `unknown_provider`, `quarantined`. |
+| Jobs | `podcast_jobs` (origin `generated`/`fixture`; funding `platform_seed`/`customer`/`fixture`; FK to the metered operation; fenced claim id/generation/lease; captured policy epoch and rights revision; one active job per work key), `podcast_job_attempts` (one per route, and one per speech chunk by `ordinal`; `podcast_jobs.speech_calls` is the plan), `podcast_job_checkpoints` (staged jobs' draft/script, ≤ 1 MiB, deleted at settlement), `podcast_job_events` (append-only, bounded to 128). States as designed: `queued → scripting → checking → synthesizing → verifying → publishing → ready`, plus `canceled`, `failed`, `capacity_wait`, `unknown_provider`, `quarantined`. |
 | Seed funding | `podcast_seed_periods` (dated, linked to `platform_budgets`, **≤ $2 and ≤ 2 episodes** by check constraint, created disabled; the cap is per calendar-month period, so any later month needs a new explicit, evidence-referenced period). `worker_podcast_seed_admit` reserves the profile's $0.75 on the **operator's own account with zero customer credits** through `worker_reserve_operation` (so the $25 platform budget is rechecked), after locking budget → account → provider policy → podcast policy → seed period. Committed seed spend = unsettled ceilings + settled known usage + unresolved attempt ceilings. |
-| Private generation | `podcast_quotes` (ids/digests only, 15-minute expiry, epoch-bound, cleaned after a day) and `podcast_requests` (`(account, request_id)` idempotency; `started`/`joined`/`reused`). `v1_podcast_start` rechecks the quote, source pins and work key, reuses a ready private release (zero hold), joins the owner's active job, enforces 1 active private job/account, 2 active jobs/environment, 20 jobs/day, **no new job while the account has an unresolved unknown outcome** (`podcast_outcome_pending`) and the monthly platform-loss allocation ($0.75 default: every known cost of a customer job charged zero credits, plus held unknown ceilings), then makes **one** 150-credit / $0.75 reservation. |
-| Storage | `stored_objects` gains bucket `podcast-assets` (shared objects: document identity, `shared/<key>/…`; private objects: owner identity, `private/<owner>/<key>/…`, enforced by check constraint). `podcast_asset_holds` (20 MiB / 3 objects per job at admission), `podcast_asset_uploads/members/writes` (exact plan before write, one write grant, uncertain writes retain capacity, late writes reconcile but cannot publish). `paper_asset_check_capacity` now counts podcast objects and holds globally and per owner (1 GiB/owner). Inventory scope 3 (`worker_asset_inventory_*` replaced): begin/finish require drained podcast work, pages include `podcast-assets`; `v1_reader_capabilities` and `worker_pdf_upload_policy` accept scope ≥ 2. `worker_podcast_cleanup`/`_confirm` delete objects of terminal jobs that never became a release. The worker retries write confirmations (replay-safe); a write whose outcome stays uncertain keeps its capacity and blocks inventory and the owner's deletion until the owner records evidence with `worker_podcast_write_resolve` (`podcast-ops.py resolve-write`: exact bytes present → verified, definitive absence after the worker stopped → not_written). No claim is granted while an inventory scan runs. |
+| Private generation | `podcast_quotes` (ids/digests only, 15-minute expiry, epoch-bound, cleaned after a day) and `podcast_requests` (`(account, request_id)` idempotency; `started`/`joined`/`reused`). `v1_podcast_start` rechecks the quote, source pins and work key, reuses a ready private release (zero hold), joins the owner's active job, enforces 1 active private job/account, 2 active jobs/environment, 20 jobs/day, **no new job while the account has an unresolved unknown outcome** (`podcast_outcome_pending`) and the monthly platform-loss allocation ($0.75 default: every known cost of a customer job charged zero credits, plus held unknown ceilings), then makes **one** reservation at the quoted length's maximum (110 / 150 / 220 / 360 credits; $0.55 / $0.75 / $1.10 / $1.80). |
+| Storage | `stored_objects` gains bucket `podcast-assets` (shared objects: document identity, `shared/<key>/…`; private objects: owner identity, `private/<owner>/<key>/…`, enforced by check constraint). `podcast_asset_holds` (the profile's storage: 8.3 / 20 / 16.3 / 24.3 MiB, 3 objects per job at admission), `podcast_asset_uploads/members/writes` (exact plan before write, one write grant, uncertain writes retain capacity, late writes reconcile but cannot publish). `paper_asset_check_capacity` now counts podcast objects and holds globally and per owner (1 GiB/owner). Inventory scope 3 (`worker_asset_inventory_*` replaced): begin/finish require drained podcast work, pages include `podcast-assets`; `v1_reader_capabilities` and `worker_pdf_upload_policy` accept scope ≥ 2. `worker_podcast_cleanup`/`_confirm` delete objects of terminal jobs that never became a release. The worker retries write confirmations (replay-safe); a write whose outcome stays uncertain keeps its capacity and blocks inventory and the owner's deletion until the owner records evidence with `worker_podcast_write_resolve` (`podcast-ops.py resolve-write`: exact bytes present → verified, definitive absence after the worker stopped → not_written). No claim is granted while an inventory scan runs. |
 | Delivery | `podcast_delivery_grants/redemptions` (token hash only, account/release/rights-revision/epoch bound, 15-minute expiry, one redemption per object, charged before Storage is read). Transfer counters reuse `reader_transfer_months` with kind `podcast` (100 MiB/account, 512 MiB with an active subscription, 2 GiB/environment) **and** the shared reader environment counter. |
 | Deletion | `account-delete` and the worker's deletion sweep first call `worker_podcast_account_closing` in its own transaction: queued jobs settle as canceled, running ones get `cancel_requested` and stop at their next fenced step (deletion answers `account_busy` until then). `worker_delete_account_begin` then deletes quotes/requests and delivery grants (releasing only environment transfer totals, since the account's own counters are erased), withdraws private releases and returns `blocked` while a podcast write is unresolved; private audio is deleted through the existing object list. Shared releases survive a listener's deletion. |
 | Restore | `scripts/restore-local.py` turns every podcast switch off and rotates `podcast_policy.epoch`; every fenced call compares the job's captured epoch, so pre-restore jobs, quotes, grants and pending reviews cannot proceed or publish. |
@@ -580,9 +596,11 @@ seed, fixtures, delivery) requires a **scope-3** certified asset inventory; scop
 
 `services/pipeline-worker/server.ts` routes `POST /podcast` to `podcast-run.ts` in its own worker thread, awaited
 under the same 840 s hard limit as the paper pipeline (its own in-flight guard; maintenance mode refuses it).
-Each request recovers up to three expired leases, then claims **one** job. Wake-ups: `pg_net` at admission
-(`science_reader_pipeline_url` + `/podcast`), and a customer's status poll re-kicks a queued or stalled job at most
+Each request recovers up to three expired leases, then claims **one** job — or, for a staged ten/twenty-minute job, one
+stage of it (see [Lengths](#lengths-short-5-10-and-20-minutes)). Wake-ups: `pg_net` at admission and after each checkpoint
+(`science_reader_pipeline_url` + `/podcast`), and a customer's status poll re-kicks a queued, parked or stalled job at most
 once a minute; `scripts/podcast-ops.py kick` does the same for the operator. There is no new schedule or loop.
+The numbers below are the five-minute profile's; every length's are in its profile.
 Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker leaves generated jobs queued
 (fixture jobs still run).
 
@@ -602,9 +620,10 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
    appears in its evidence, segments without evidence contain no digits, math LaTeX comes from the paper, ≥ 5
    evidenced segments, verdict `accept`. Failure = quality rejection: customer charged 0, known cost recorded as
    platform quality loss (private generation pauses when the month's losses reach the $0.75 allocation).
-5. **Speech** (`podcast_speech`): one Gemini 3.8 Flash TTS multi-speaker request (below); request text bytes + 256
-   must be ≤ 8,192. `finishReason` must be `STOP`; WAV must be 16-bit PCM 24 kHz mono, complete, 120–660 s, not
-   silent, no dead air > 8 s.
+5. **Speech** (`podcast_speech`): Gemini 3.8 Flash TTS multi-speaker requests (below), planned in chunks of at most
+   8,192 request bytes (request text bytes + 256), at most the profile's calls — one for Short and five minutes.
+   `finishReason` must be `STOP` for every chunk; each WAV must be 16-bit PCM 24 kHz mono, complete and audible; the
+   joined take must be within the profile's bounds (120–660 s for five minutes), not silent, no dead air > 8 s.
 6. **Timing and encoding:** approximate segment timing (proportional, snapped to pauses), chapters from segment
    starts; ffmpeg (Debian 5.1 in the worker image) encodes **mono AAC-LC 64 kbit/s, 24 kHz, MP4/M4A** with EBU R128
    loudness normalization (−16 LUFS) and chapter markers; ffprobe must show exactly one mono AAC stream plus the MP4
@@ -620,8 +639,8 @@ Without both `ANTHROPIC_API_KEY` and `PODCAST_SPEECH_SERVICE_ACCOUNT` the worker
 Every grant is recorded before its POST; results (succeeded/rejected/unknown with numeric units and the
 provider request id) are finished with replay-safe retries. An unknown outcome (transport loss, 5xx, missing usage)
 retains the attempt's whole ceiling, stops the job (`unknown_provider`, customer charged 0) and is never retried
-automatically. A crash after any admitted paid call ends the job (`failed`/`unknown_provider`); only a job that never
-reached a paid call is requeued. Labeled fixture jobs (`--fixture`) run the same path with zero provider calls:
+automatically. A crash after any admitted paid call ends the job (`failed`/`unknown_provider`), except that a staged job resumes from
+its last checkpoint when nothing paid was lost; only a job that never reached a paid call is requeued. Labeled fixture jobs (`--fixture`) run the same path with zero provider calls:
 real verbatim evidence quotes, synthetic tone audio, the real encoder, Storage and delivery.
 
 ### Speech provider: Vertex AI feasibility and enablement
@@ -688,6 +707,85 @@ measurements; the pilot measures them. Runtime: ~3–5 minutes of a 1 vCPU/2 GiB
 **Seed pilot maximum:** 2 episodes × $0.75 = $1.50 admitted, inside the $2 seed allowance and the existing
 $25 provider cap; the database refuses a third seed episode and any admission that would exceed $2.
 
+### Lengths: Short, 5, 10 and 20 minutes
+
+Owner request, 2026-10-08: offer Short (~2–3 min), 5, 10 and 20 minutes in the first build. Migration 048 (not applied
+anywhere) carries four immutable profiles; `podcast-5min-v1` is unchanged (same spec and SHA-256). Every length is its
+own work key (`target_seconds` and the profile id are in it), so a ready episode of another length is never reused:
+clients offer to play it or to generate the chosen length. `podcast_policy.allowed_profiles` (`id:version`, audited
+through `worker_podcast_policy_set` / `podcast-ops.py policy --set allowed_profiles=…`) lists the lengths offered for
+private generation; it starts with all four. The seed pilot is unchanged: `worker_podcast_seed_admit` refuses anything
+but a five-minute profile (`seed_profile_unavailable`), at most two episodes and $2.
+
+| Profile | Target | Accepted audio | Script words (prompt / checker) | Chapters · segments (checker) | Draft out | Review in / out | Speech calls · audio budget | Ceiling | Credits |
+|---|---:|---:|---|---|---:|---:|---|---:|---:|
+| `podcast-short-v1` "Short" | 150 s | 60–330 s | 330–420 / 220–520 | 2–5 · 4–40 | 3,200 | 84,200 / 2,600 | 1 · 8,250 tokens | **$0.543092** | **110** |
+| `podcast-5min-v1` "5 min" (unchanged) | 300 s | 120–660 s | 650–800 / 450–1,000 | 3–8 · 8–80 | 6,000 | 80,000 / 4,000 | 1 · 16,384 tokens | **$0.723104** | **150** |
+| `podcast-10min-v1` "10 min" | 600 s | 300–1,080 s | 1,350–1,650 / 900–2,000 | 4–12 · 16–160 | 12,000 | 93,000 / 10,000 | ≤ 3 · 27,000 tokens | **$1.076576** | **220** |
+| `podcast-20min-v1` "20 min" | 1,200 s | 600–2,040 s | 2,700–3,300 / 1,800–3,800 | 6–20 · 30–300 | 22,800 | 103,800 / 19,000 | ≤ 6 · 51,000 tokens | **$1.752752** | **360** |
+
+**Ceilings use the five-minute method**: every paid call is reserved at its full input and output caps at list price, and
+the total is rounded up to the next 10 credits ($0.05). Draft input is ≤ 80,000 tokens for every length (the paper is the
+same); a review reads the paper plus the draft, so its input cap is the draft's input cap + the draft's output cap + 1,000.
+Each speech call reserves 8,192 text tokens; the audio budget is `max_seconds × 25 tokens/s`.
+
+| Profile | Script pass 1 | Script pass 2 (review) | Speech | Total |
+|---|---|---|---|---:|
+| Short | 80,000×$2/M + 3,200×$10/M = $0.192000 | 84,200×$2/M + 2,600×$10/M = $0.194400 | 1×8,192×$1/M + 8,250×$18/M = $0.156692 | $0.543092 → 110 |
+| 5 min | 80,000×$2/M + 6,000×$10/M = $0.220000 | 80,000×$2/M + 4,000×$10/M = $0.200000 | 1×8,192×$1/M + 16,384×$18/M = $0.303104 | $0.723104 → 150 |
+| 10 min | 80,000×$2/M + 12,000×$10/M = $0.280000 | 93,000×$2/M + 10,000×$10/M = $0.286000 | 3×8,192×$1/M + 27,000×$18/M = $0.510576 | $1.076576 → 220 |
+| 20 min | 80,000×$2/M + 22,800×$10/M = $0.388000 | 103,800×$2/M + 19,000×$10/M = $0.397600 | 6×8,192×$1/M + 51,000×$18/M = $0.967152 | $1.752752 → 360 |
+
+Prices (checked 2026-10-08): Claude Sonnet 5.5 $2/M input, $10/M output, 128K output with streaming
+([Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)); Gemini 3.8 Flash TTS on Vertex AI $1/M text input and
+$18/M audio output from 2027-01-01 ($0.50/$9 through 2026-12-31 as 50% credits back, not assumed), 25 audio tokens per
+second, 8,192 input / 16,384 output tokens per request
+([Vertex pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing),
+[model page](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash-tts)). The migration
+recomputes every total from its parts and refuses to apply on a mismatch; `tests/database/test_podcast_lengths.sql`
+re-derives each ceiling and credit maximum.
+
+Typical cost (planning estimate, 20k-token paper, 150 words a minute, ~4 output tokens per spoken word): Short ≈ $0.19
+(~38 credits), 5 min ≈ $0.29 (~59), 10 min ≈ $0.49 (~99), 20 min ≈ $0.90 (~180), at the January 2027 list price.
+
+**Chunked speech.** One TTS call holds at most 8,192 input tokens (bounded provably by request bytes) and 16,384 audio
+tokens (655 s). `planSpeechChunks` splits a script between segments — preferring where a chapter starts, then where the
+speaker changes, with chunks balanced by words — into the fewest calls that fit, at most the profile's `max_calls`. The
+audio budget is shared out in proportion to each chunk's words (each chunk must still cover 12.5 tokens a word, a slow
+120 words a minute); a script that cannot be planned fails before any speech is bought (`script_too_long_for_speech`,
+customer charged 0). All chunks are granted in **one** call, `worker_podcast_speech_begin`, all or nothing: if any grant is
+refused, the grants made before it in that transaction were never sent and close as rejected at zero cost. The chunks are
+then sent together (concurrently; Vertex bills only successful requests) and every result is recorded before any is
+judged; any unknown outcome keeps its ceiling and ends the job as `unknown_provider`, as before. `joinChunks` trims each
+take's edge silence (keeping 120 ms), matches speech levels within ±6 dB, fades 12 ms at each seam and joins with a
+450 ms pause; segment timing is aligned inside each chunk and placed at that chunk's exact offset, so chapters start at
+their first segment. The encoder's EBU R128 normalization then runs over the whole take. Speech counts as succeeded only
+when every planned chunk succeeded (`podcast_jobs.speech_calls`, fixed at the first speech grant).
+
+**Staged generation (10 and 20 minutes).** A twenty-minute draft alone can take ~10 minutes at a conservative 35 output
+tokens/s, so `"staged": true` profiles run one paid stage per worker request: (1) the draft, then `worker_podcast_checkpoint
+('draft')`; (2) the review and the deterministic checker, then `checkpoint('script')`; (3) chunked speech, join, encode,
+upload and publish. A checkpoint stores the stage's output in `podcast_job_checkpoints` (bounded to 1 MiB, never logged,
+deleted when the job settles), releases the claim and wakes the worker; the job waits **parked** in `checking` or
+`synthesizing` and the next claim resumes it with the stored document. Per-call windows come from the profile (draft
+420/680 s, review 360/600 s, speech 420 s for 10/20 minutes) inside the 780 s request budget; a request without enough
+time left yields (`worker_podcast_yield`) at its last safe point instead of failing. Recovery after a lease expiry resumes
+a staged job from its checkpoint when every admitted call succeeded and its output is checkpointed; a paid result that was
+never checkpointed ends the job (`worker_interrupted`, customer charged 0) and is never bought again. Cancel and account
+closing settle a parked job at once; a restore's epoch rotation fails it closed. Short and 5 minutes keep the single-request
+flow and its windows. The private paper-derived drafts in checkpoints are server-readable, like the private transcript
+they become (not end-to-end encrypted).
+
+**Also changed for every length.** Before the first paid call the worker refuses a paper whose review (paper + the
+largest draft) could not fit the review's input cap (`source_too_large`, zero charge); previously a paper near the cap
+could pay for a draft and then fail its review. Storage holds and delivery grants allow the twenty-minute audio cap
+(20 MiB; ~16.3 MB at most at 64 kbit/s). The workflow check counts a job as stuck after 45 minutes (was 30).
+
+**Operational notes.** The platform-loss allocation (`quality_allocation_microusd`, $0.75/month by default) counts every
+known cost charged zero credits plus held unknown ceilings; one failed twenty-minute job after both script passes can use
+most of it and pause private generation for the month — raise it deliberately (≤ $5) when longer lengths are enabled. The
+customer's transfer allowance (100 MiB/month free) is about six twenty-minute downloads.
+
 ### Listening history
 
 Device-local in v1 (see the canonical record in the client API reference). The design's encrypted podcast stream
@@ -696,9 +794,13 @@ record format and merge rule are already fixed so that stream can reuse them. No
 
 ### Deviations from the design and remaining gates
 
-- **One bounded request per job** keeps drafts in memory: a crash after a paid call ends the job (platform loss,
-  customer charged 0) instead of resuming from a persisted draft. Upload failures after paid generation lose that
-  episode the same way. Measured pilot failure rates decide whether drafts should be persisted.
+- **One bounded request per job** for Short and five minutes keeps drafts in memory: a crash after a paid call ends the
+  job (platform loss, customer charged 0) instead of resuming from a persisted draft. Ten and twenty minutes do persist
+  their draft and approved script between stages (they could not fit one request). Upload failures after paid
+  generation lose that episode the same way, and speech chunks are not checkpointed.
+- **Speech chunks are sent concurrently** (≤ 6 for twenty minutes) rather than "one paid speech transport at a time":
+  sequential chunks would not fit a request, and persisting raw chunk audio between requests was not worth its storage
+  and inventory cost. Rejections are free; the concurrency is bounded by the profile and two active jobs.
 - **Token bound:** bytes are a provable bound; above 80,000 bytes the free `count_tokens` estimate (+5% + 512) is
   used. Anthropic documents counts as estimates; an actual above the grant freezes paid work rather than overspending.
 - **Timing is approximate** (one multi-speaker take); word-level alignment would need a separate, separately
@@ -752,7 +854,9 @@ lost reply.
    --set delivery_enabled=true`).
 9. **Record** actual cost per accepted minute, first-playable time, durations and any `unknown_provider` in the
    operations record; reconcile Vertex charges against the invoice later (`worker_provider_attempt_reconcile`).
-   Private generation (`generation_enabled`) stays off until the pilot is reviewed.
+   Private generation (`generation_enabled`) stays off until the pilot is reviewed. When it is enabled, decide which
+   lengths to offer first (`policy --set allowed_profiles=podcast-short-v1:1,podcast-5min-v1:1` keeps the staged ten- and
+   twenty-minute paths off until measured) and whether to raise `quality_allocation_microusd` above $0.75 for them.
 
 Rollback at any point: `policy --set seed_enabled=false --set generation_enabled=false --set catalog_enabled=false
 --set delivery_enabled=false`; settlement, deletion and already downloaded copies keep working.
@@ -777,7 +881,10 @@ Rollback at any point: `policy --set seed_enabled=false --set generation_enabled
 
 **Ownership:** the owner moved web (and Mac-only) work to Codex on 2026-10-08, after this first version was built and
 tested on the `podcast-v1` branch (commits `72e04ff`, `947afe3`). Codex can adopt or replace it; the contract above is
-the interface either way.
+the interface either way. **For lengths** the browser needs: `profile` on `quote`, the quote's `options` and
+`capabilities.lengths` for the picker, `paper.episodes` for ready lengths, `podcast_profile_unavailable`, a 20 MiB audio
+bound, and longer polling for staged ten/twenty-minute jobs (fixtures: `quote_10min`, `start_10min`, `status_10min`,
+`episode_10min`, `paper_lengths`, `quote_reuse`). This branch's `apps/web` is identical to main's.
 
 - **Listen filter:** an additive chip (or rail item when the topic rail is shown) before the Feed's topics
   (`ui/Feed.tsx` `ListenFilter`); episode cards show title, authors, year, duration, topic, the AI-audio badge and
@@ -821,6 +928,13 @@ lines each; everything else is in `Services/Podcast*.swift`, `Views/Podcast*.swi
   storage and maximum → consent → durable status polled 2/5/15 s → charged/released credits as the server states).
   `{reuse}` from quote/start/status plays the ready release with no new charge; `podcast_outcome_pending` and other
   finite codes are explained plainly. Private episodes take the library item's own title.
+- **Lengths:** the Listen sheet lists Short · 5 min · 10 min · 20 min from `capabilities.lengths` (five minutes alone
+  for an older server), each row with its own maximum (from the quote's `options` once quoted), five minutes chosen by
+  default. A length already ready for the paper (`paper.episodes`) is marked "Ready · no credits" and plays instead of
+  being made again; any other length is quoted on its own (one quote request per length, one start request per quote),
+  and choosing another length after an estimate quotes that one at once. Listen on a paper with an episode still plays it
+  directly; the player's "…" adds **Other lengths…** for a library paper. Cards and the player show each episode's
+  duration.
 - **Player:** sheet with play/pause, ±15 s, speed 0.75–2×, position slider (spoken values), chapters, transcript
   (tap seeks; follow-along respects Reduce Motion; LaTeX typeset, VoiceOver reads the spoken form), evidence that opens
   the paper at the quote through the Go to passage finder (Markdown marks removed) with Back, or the source plus an
