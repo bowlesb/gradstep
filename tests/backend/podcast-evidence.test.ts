@@ -320,8 +320,8 @@ test('speech size: the five-minute prompt fits its single 8,192-byte call; style
   assert.deepEqual(FIVE_MINUTE_SHAPE.segments, [16, 28]);
   assert.match(SCRIPT_INSTRUCTIONS, /650 to 800 spoken words in total and never more than 4,900 characters of spoken text across all segments/);
   assert.match(SCRIPT_INSTRUCTIONS, /16 to 28 segments/);
-  assert.match(SCRIPT_INSTRUCTIONS, /at least ten percent above the lower bound/);
-  assert.match(SCRIPT_INSTRUCTIONS, /aim for at least 715 while staying below 800/);
+  assert.match(SCRIPT_INSTRUCTIONS, /Aim near the upper bound while staying below it/);
+  assert.match(SCRIPT_INSTRUCTIONS, /aim for at least 760 while staying below 800/);
   // Longer profiles keep their checker bound: their chunked speech holds more than it.
   assert.match(scriptInstructions({ duration: 'about ten minutes', words: [1350, 1650], chapters: [6, 8], segments: [30, 80] }, 12_500, { maxInputTokens: 8_192, maxCalls: 3 }), /never more than 12,500 characters/);
   // The quoting rules reach both passes.

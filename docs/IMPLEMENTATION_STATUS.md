@@ -43,7 +43,7 @@ removed executor work) is retained below where useful and in git history.
 - **Catalog quality gate exercise:** two post-rollout CC BY candidates were correctly stopped before speech because
   the checker found unsupported claims and/or a post-cleanup word-budget failure. Their script/review usage settled at
   `$0.472822`, no audio was generated, and neither release was published. The draft prompt now states an exact target
-  (715 words for the 650–800-word five-minute profile) so later removals do not make an otherwise supported episode
+  (760 words for the 650–800-word five-minute profile) so later removals do not make an otherwise supported episode
   too short.
 
 ## Commercial arXiv content gate — 2026-10-09
