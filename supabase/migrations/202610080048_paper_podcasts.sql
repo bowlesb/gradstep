@@ -451,7 +451,8 @@ create trigger podcast_release_objects_immutable before update or delete on app_
 create table app_private.podcast_asset_holds (
  job_id uuid primary key references app_private.podcast_jobs(id),
  owner_id uuid references app_private.accounts(id),
- bytes bigint not null check(bytes between 1 and 20971520), objects integer not null check(objects between 1 and 3),
+ -- At most the largest profile's storage reservation (twenty minutes: 20 MiB audio + transcript + manifest).
+ bytes bigint not null check(bytes between 1 and 33554432), objects integer not null check(objects between 1 and 3),
  created_at timestamptz not null default clock_timestamp()
 );
 create table app_private.podcast_asset_uploads (
@@ -624,7 +625,7 @@ create table app_private.podcast_delivery_grants (
  rights_revision bigint,
  epoch uuid not null,
  period date not null,
- byte_ceiling bigint not null check(byte_ceiling between 1 and 16777216),
+ byte_ceiling bigint not null check(byte_ceiling between 1 and 20971520),
  remaining_bytes bigint not null check(remaining_bytes>=0),
  created_at timestamptz not null default clock_timestamp(), expires_at timestamptz not null, expired_at timestamptz,
  check(remaining_bytes<=byte_ceiling)

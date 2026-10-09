@@ -1,0 +1,746 @@
+{
+ "episode": {
+  "year": null,
+  "audio": {
+   "bytes": 76,
+   "sha256": "d8125839a7aa917746b79529e9c1a12955864d966ed0edcbe30cc5fcf7768190",
+   "media_type": "audio/mp4"
+  },
+  "label": "10 min",
+  "scope": "private",
+  "state": "ready",
+  "title": null,
+  "topic": null,
+  "source": {
+   "url": null,
+   "license": null,
+   "version": null,
+   "arxiv_id": null
+  },
+  "authors": [],
+  "fixture": false,
+  "profile": "podcast-10min-v1",
+  "ai_audio": true,
+  "language": "en",
+  "release_id": "eec12f98-60fa-4e26-8c89-2198e509459e",
+  "document_id": "38e47226-69ff-4de8-bac7-b92a8a46ca95",
+  "duration_ms": 653250,
+  "published_at": "2026-10-09T00:34:30.48801+00:00",
+  "replacement_id": null,
+  "target_seconds": 600,
+  "chapters": [
+   {
+    "id": "c1",
+    "title": "Part one",
+    "start_ms": 0
+   },
+   {
+    "id": "c2",
+    "title": "Part two",
+    "start_ms": 109640
+   },
+   {
+    "id": "c3",
+    "title": "Part three",
+    "start_ms": 219640
+   },
+   {
+    "id": "c4",
+    "title": "Part four",
+    "start_ms": 326850
+   },
+   {
+    "id": "c5",
+    "title": "Part five",
+    "start_ms": 436490
+   },
+   {
+    "id": "c6",
+    "title": "Part six",
+    "start_ms": 546490
+   }
+  ],
+  "transcript": {
+   "speakers": {
+    "explainer": "Host 1 · explainer",
+    "skeptic": "Host 2 · skeptical reader"
+   },
+   "disclosure": "AI-generated audio made from the paper’s converted text by Gradstep. The two voices are synthetic; they are not the authors and do not speak for them. Check claims against the linked passages.",
+   "timing": "approximate",
+   "segments": [
+    {
+     "id": "s1",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 0,
+     "end_ms": 11026,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e1",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s2",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 11026,
+     "end_ms": 29640,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s3",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 29640,
+     "end_ms": 39646,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e2",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s4",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 39646,
+     "end_ms": 51900,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s5",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 51900,
+     "end_ms": 69646,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e3",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s6",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 69646,
+     "end_ms": 79640,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s7",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 79640,
+     "end_ms": 92626,
+     "chapter": "c1",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e4",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s8",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 92626,
+     "end_ms": 109640,
+     "chapter": "c1",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s9",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 109640,
+     "end_ms": 119826,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e5",
+       "quote": "The method has not been compared against the strongest published routing baselines.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s10",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 119826,
+     "end_ms": 133500,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s11",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 133500,
+     "end_ms": 149646,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e6",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s12",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 149646,
+     "end_ms": 160700,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s13",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 160700,
+     "end_ms": 174226,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e7",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s14",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 174226,
+     "end_ms": 189640,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s15",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 189640,
+     "end_ms": 201426,
+     "chapter": "c2",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e8",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s16",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 201426,
+     "end_ms": 219640,
+     "chapter": "c2",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s17",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 219640,
+     "end_ms": 229646,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e9",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s18",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 229646,
+     "end_ms": 242300,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s19",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 242300,
+     "end_ms": 259646,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e10",
+       "quote": "The method has not been compared against the strongest published routing baselines.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s20",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 259646,
+     "end_ms": 269640,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s21",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 269640,
+     "end_ms": 283026,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e11",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s22",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 283026,
+     "end_ms": 299640,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s23",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 299640,
+     "end_ms": 310226,
+     "chapter": "c3",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e12",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s24",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 310226,
+     "end_ms": 326400,
+     "chapter": "c3",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s25",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 326850,
+     "end_ms": 337876,
+     "chapter": "c4",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e13",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s26",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 337876,
+     "end_ms": 356490,
+     "chapter": "c4",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s27",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 356490,
+     "end_ms": 366496,
+     "chapter": "c4",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e14",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s28",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 366496,
+     "end_ms": 378750,
+     "chapter": "c4",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s29",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 378750,
+     "end_ms": 396496,
+     "chapter": "c4",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e15",
+       "quote": "The method has not been compared against the strongest published routing baselines.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s30",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 396496,
+     "end_ms": 406490,
+     "chapter": "c4",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s31",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 406490,
+     "end_ms": 419476,
+     "chapter": "c4",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e16",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s32",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 419476,
+     "end_ms": 436490,
+     "chapter": "c4",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s33",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 436490,
+     "end_ms": 446676,
+     "chapter": "c5",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e17",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s34",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 446676,
+     "end_ms": 460350,
+     "chapter": "c5",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s35",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 460350,
+     "end_ms": 476496,
+     "chapter": "c5",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e18",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s36",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 476496,
+     "end_ms": 487550,
+     "chapter": "c5",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s37",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 487550,
+     "end_ms": 501076,
+     "chapter": "c5",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e19",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s38",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 501076,
+     "end_ms": 516490,
+     "chapter": "c5",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s39",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 516490,
+     "end_ms": 528276,
+     "chapter": "c5",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e20",
+       "quote": "The method has not been compared against the strongest published routing baselines.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s40",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 528276,
+     "end_ms": 546490,
+     "chapter": "c5",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s41",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 546490,
+     "end_ms": 556496,
+     "chapter": "c6",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e21",
+       "quote": "We study a synthetic routing method for journey tests only.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s42",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 556496,
+     "end_ms": 569150,
+     "chapter": "c6",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s43",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 569150,
+     "end_ms": 586496,
+     "chapter": "c6",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e22",
+       "quote": "The synthetic method keeps every expert busy during the whole training run.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s44",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 586496,
+     "end_ms": 596490,
+     "chapter": "c6",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s45",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 596490,
+     "end_ms": 609876,
+     "chapter": "c6",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e23",
+       "quote": "The authors report that the routing gate remains stable across all random seeds they tried.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s46",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 609876,
+     "end_ms": 626490,
+     "chapter": "c6",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    },
+    {
+     "id": "s47",
+     "speaker": "explainer",
+     "text": "The paper reports a specific result on this point. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 626490,
+     "end_ms": 637076,
+     "chapter": "c6",
+     "claim_type": "paper_result",
+     "evidence": [
+      {
+       "id": "e24",
+       "quote": "The evaluation covers only small synthetic models and a single synthetic dataset.",
+       "section": null
+      }
+     ],
+     "math": []
+    },
+    {
+     "id": "s48",
+     "speaker": "skeptic",
+     "text": "The skeptic asks whether that claim really holds up. The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.",
+     "start_ms": 637076,
+     "end_ms": 653250,
+     "chapter": "c6",
+     "claim_type": "context",
+     "evidence": [],
+     "math": []
+    }
+   ]
+  }
+ }
+}

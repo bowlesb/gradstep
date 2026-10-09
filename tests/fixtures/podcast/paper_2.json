@@ -7,6 +7,7 @@
    "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
    "media_type": "audio/mp4"
   },
+  "label": "5 min",
   "scope": "private",
   "state": "ready",
   "title": null,
@@ -19,16 +20,80 @@
   },
   "authors": [],
   "fixture": false,
+  "profile": "podcast-5min-v1",
   "ai_audio": true,
   "language": "en",
-  "release_id": "4feeda12-2fd0-4f51-8e40-1e109216b031",
-  "document_id": "da32225b-7888-4412-9703-4d336a6cc660",
+  "release_id": "3f059e28-8373-4165-90a0-6c5e33c2ef9a",
+  "document_id": "38e47226-69ff-4de8-bac7-b92a8a46ca95",
   "duration_ms": 140000,
-  "published_at": "2026-10-08T19:26:40.704732+00:00",
-  "replacement_id": null
+  "published_at": "2026-10-09T00:34:29.305366+00:00",
+  "replacement_id": null,
+  "target_seconds": 300
  },
+ "episodes": [
+  {
+   "year": null,
+   "audio": {
+    "bytes": 76,
+    "sha256": "a41a9b7785bd94500b7b5fd27f9789763e85191a06a1da5a9922cdbc270f6dc2",
+    "media_type": "audio/mp4"
+   },
+   "label": "5 min",
+   "scope": "private",
+   "state": "ready",
+   "title": null,
+   "topic": null,
+   "source": {
+    "url": null,
+    "license": null,
+    "version": null,
+    "arxiv_id": null
+   },
+   "authors": [],
+   "fixture": false,
+   "profile": "podcast-5min-v1",
+   "ai_audio": true,
+   "language": "en",
+   "release_id": "3f059e28-8373-4165-90a0-6c5e33c2ef9a",
+   "document_id": "38e47226-69ff-4de8-bac7-b92a8a46ca95",
+   "duration_ms": 140000,
+   "published_at": "2026-10-09T00:34:29.305366+00:00",
+   "replacement_id": null,
+   "target_seconds": 300
+  }
+ ],
  "capabilities": {
   "catalog": true,
+  "lengths": [
+   {
+    "label": "Short",
+    "profile": "podcast-short-v1",
+    "estimate": "Estimate — you're charged actual usage, maximum 110 credits",
+    "max_credits": 110,
+    "target_seconds": 150
+   },
+   {
+    "label": "5 min",
+    "profile": "podcast-5min-v1",
+    "estimate": "Estimate — you're charged actual usage, maximum 150 credits",
+    "max_credits": 150,
+    "target_seconds": 300
+   },
+   {
+    "label": "10 min",
+    "profile": "podcast-10min-v1",
+    "estimate": "Estimate — you're charged actual usage, maximum 220 credits",
+    "max_credits": 220,
+    "target_seconds": 600
+   },
+   {
+    "label": "20 min",
+    "profile": "podcast-20min-v1",
+    "estimate": "Estimate — you're charged actual usage, maximum 360 credits",
+    "max_credits": 360,
+    "target_seconds": 1200
+   }
+  ],
   "delivery": true,
   "transfer": {
    "limit_bytes": 104857600,

@@ -19,7 +19,7 @@ export async function deliverPodcastMember(request: Request, deps: PodcastDelive
   const accountID = await deps.account(request);
   const admitted = await deps.rpc<Redemption>('worker_podcast_delivery_redeem', { p_account_id: accountID,
     p_token_sha256: '\\x' + await sha256(new TextEncoder().encode(token)), p_object_id: objectID });
-  if (!admitted || admitted.bucket !== 'podcast-assets' || !Number.isSafeInteger(admitted.bytes) || admitted.bytes < 1 || admitted.bytes > 16_777_216
+  if (!admitted || admitted.bucket !== 'podcast-assets' || !Number.isSafeInteger(admitted.bytes) || admitted.bytes < 1 || admitted.bytes > 20_971_520
     || !/^[0-9a-f]{64}$/.test(admitted.sha256) || !/^(shared|private\/[0-9a-f-]{36})\/[0-9a-f]{64}\/audio\.m4a$/.test(admitted.path)
     || admitted.media_type !== 'audio/mp4') throw new PublicError(503, 'podcast_integrity_failed');
   let received = 0, observation: 'response_created' | 'upstream_failed' | 'integrity_failed' | 'cancelled' = 'upstream_failed';

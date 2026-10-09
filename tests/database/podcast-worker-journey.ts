@@ -60,6 +60,25 @@ function script(review: boolean): Script {
   return { title: 'Journey episode', chapters: [{ id: 'c1', title: 'Question' }, { id: 'c2', title: 'Evidence' }, { id: 'c3', title: 'Caveats' }],
     segments, limitations: ['Synthetic journey'], ...(review ? { review: { verdict: 'accept' as const, issues: [] } } : {}) };
 }
+/** A faithful ten-minute script (6 chapters x 8 segments, ~1,700 words): evidence quotes verbatim, no digits spoken. */
+function longScript(review: boolean): Script {
+  const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
+  const filler = ' The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.';
+  const segments = Array.from({ length: 48 }, (_, i) => ({ id: `s${i + 1}`, chapter: `c${Math.floor(i / 8) + 1}`,
+    speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic', style: 'measured',
+    text: (i % 2 ? 'The skeptic asks whether that claim really holds up.' : 'The paper reports a specific result on this point.') + filler,
+    claim_type: (i % 2 ? 'context' : 'paper_result') as Script['segments'][number]['claim_type'],
+    evidence: i % 2 ? [] : [{ quote: quotes[(i / 2) % quotes.length], section: '' }], math: [] }));
+  return { title: 'Journey episode, at length', limitations: ['Synthetic journey'],
+    chapters: Array.from({ length: 6 }, (_, i) => ({ id: `c${i + 1}`, title: `Part ${i + 1 > 0 ? ['one', 'two', 'three', 'four', 'five', 'six'][i] : ''}` })), segments,
+    ...(review ? { review: { verdict: 'accept' as const, issues: [] } } : {}) };
+}
+/** Speech fake for chunked plans: ~0.4 s per spoken word (150 wpm). */
+function spokenTake(body: Record<string, unknown>): Uint8Array {
+  const parts = (body.contents as { parts: { text: string }[] }[])[0].parts;
+  const words = parts.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
+  return tone(words * 0.4);
+}
 let scriptCalls = 0, speechCalls = 0;
 const deps = (): PodcastDeps => ({
   rpc: async <T>(name: string, params: Record<string, unknown>) => { try { return await rpc<T>(name, params); } catch (e) { if (process.env.PODCAST_DEBUG) console.error(name, String(e)); throw e; } },
@@ -68,11 +87,21 @@ const deps = (): PodcastDeps => ({
     download: async (bucket, path, maximum) => { const v = storage.get(`${bucket}/${path}`); if (!v || v.byteLength > maximum) throw new Error('missing'); return v; },
     upload: async (bucket, path, bytes) => { if (storage.has(`${bucket}/${path}`)) throw new Error('exists'); storage.set(`${bucket}/${path}`, bytes); },
   },
-  script: { countTokens: async () => null, generate: async () => ({ state: 'succeeded', requestID: `msg_${++scriptCalls}`, model: 'claude-sonnet-5-5',
-    stopReason: 'end_turn', text: JSON.stringify(script(scriptCalls % 2 === 0)), failure: null,
-    usage: { input: 18_000, output: 2_500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } }) },
-  speech: { generate: async () => { speechCalls++; return { state: 'succeeded', requestID: `resp_${speechCalls}`, model: 'gemini-3.8-flash-tts',
-    finishReason: 'STOP', audio: tone(140), mimeType: 'audio/wav', usage: { text_input_tokens: 1_400, audio_output_tokens: 3_500 }, failure: null }; } },
+  script: { countTokens: async () => null, generate: async params => {
+    const review = JSON.stringify(params.messages).includes('<draft>'), long = params.max_tokens >= 10_000;
+    return { state: 'succeeded', requestID: `msg_${++scriptCalls}`, model: 'claude-sonnet-5-5', stopReason: 'end_turn',
+      text: JSON.stringify(long ? longScript(review) : script(review)), failure: null,
+      usage: long ? { input: 20_000, output: 7_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } : { input: 18_000, output: 2_500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } };
+  } },
+  speech: { generate: async request => {
+    speechCalls++;
+    // Five minutes is one call at the full cap (16,384); a chunked plan shares the audio budget out.
+    const chunked = (request.body.generationConfig as { maxOutputTokens: number }).maxOutputTokens < 16_384;
+    const audio = chunked ? spokenTake(request.body) : tone(140);
+    return { state: 'succeeded', requestID: `resp_${speechCalls}`, model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio, mimeType: 'audio/wav',
+      usage: chunked ? { text_input_tokens: 2_000, audio_output_tokens: Math.round(parseWav(audio).durationMs / 40) } : { text_input_tokens: 1_400, audio_output_tokens: 3_500 },
+      failure: null };
+  } },
   encoder: { encode: async wav => { const pcm = parseWav(wav); const bytes = new TextEncoder().encode(`m4a-fixture-${sha(wav)}`);
     return { bytes, durationMs: pcm.durationMs, mediaType: 'audio/mp4', encoder: { codec: 'aac', fixture: 1 } }; } },
 });
@@ -110,10 +139,10 @@ const edge = (account: string) => ({ user: async () => ({ accountID: account, rp
   origin: 'https://project.supabase.co', randomHex: () => createHash('sha256').update(randomUUID()).digest('hex') });
 const headers = { 'Cache-Control': 'no-store' };
 const observed: Record<string, unknown> = {};
-const get = async (account: string, query: string, init?: RequestInit) => {
+const get = async (account: string, query: string, init?: RequestInit, name?: string) => {
   const value = await (await handlePodcast(new Request(`https://edge.test/functions/v1/podcast?${query}`, init), edge(account), headers)).json();
   const action = /action=([a-z]+)/.exec(query)![1];
-  observed[observed[action] ? `${action}_${Object.keys(observed).filter(k => k.startsWith(action)).length + 1}` : action] = value;
+  observed[name ?? (observed[action] ? `${action}_${Object.keys(observed).filter(k => k.startsWith(action)).length + 1}` : action)] = value;
   return value;
 };
 const catalog = await get(fixture.other, 'action=catalog&limit=10');
@@ -156,6 +185,41 @@ assert.equal(mine.episode.release_id, done.job.release_id); assert.equal(mine.ep
 const states = await get(fixture.other, 'action=states', { method: 'POST', body: JSON.stringify({ release_ids: [done.job.release_id, generated.release_id] }) });
 assert.equal(states.states[done.job.release_id].state, 'unavailable', 'no cross-account oracle');
 assert.equal(states.states[generated.release_id].state, 'ready');
+// 4. Ten minutes for the same paper: its own work key, quote and maximum; staged across three worker requests
+//    (draft, then review, then chunked speech), the drafts checkpointed in the database between them.
+const tenRequest = randomUUID();
+const tenQuote = await get(fixture.account, 'action=quote', { method: 'POST', body: JSON.stringify({ item_id: fixture.item, request_id: tenRequest,
+  profile: 'podcast-10min-v1' }) }, 'quote_10min');
+assert.equal(tenQuote.quote.max_credits, 220); assert.equal(tenQuote.quote.profile, 'podcast-10min-v1'); assert.equal(tenQuote.quote.target_seconds, 600);
+assert.deepEqual(tenQuote.options.map((o: { label: string; max_credits: number }) => [o.label, o.max_credits]),
+  [['Short', 110], ['5 min', 150], ['10 min', 220], ['20 min', 360]]);
+const tenStart = await get(fixture.account, 'action=start', { method: 'POST', body: JSON.stringify({ quote_id: tenQuote.quote.id, request_id: tenRequest,
+  consent_version: 'podcast-private-v1' }) }, 'start_10min');
+assert.equal(tenStart.job.held_credits, 220); assert.equal(tenStart.job.profile, 'podcast-10min-v1');
+const speechBefore = speechCalls;
+const stages: (string | null)[] = [];
+for (let request = 0; request < 3; request++) stages.push((await runPodcast(deps(), Date.now() + 780_000, { generated: true })).state);
+assert.deepEqual(stages, ['checking', 'synthesizing', 'ready'], 'one paid stage per worker request');
+assert.ok(speechCalls - speechBefore >= 2, 'chunked speech');
+const tenDone = await get(fixture.account, `action=status&request_id=${tenRequest}`, undefined, 'status_10min');
+assert.equal(tenDone.job.state, 'ready');
+assert.ok(tenDone.job.charged_credits > 0 && tenDone.job.charged_credits <= 220 && tenDone.job.charged_credits + tenDone.job.released_credits === 220);
+const tenEpisode = await get(fixture.account, `action=episode&release_id=${tenDone.job.release_id}`, undefined, 'episode_10min');
+assert.equal(tenEpisode.episode.profile, 'podcast-10min-v1'); assert.equal(tenEpisode.episode.label, '10 min');
+assert.ok(tenEpisode.episode.duration_ms >= 300_000 && tenEpisode.episode.duration_ms <= 1_080_000);
+assert.equal(tenEpisode.episode.chapters.length, 6);
+const segments = tenEpisode.episode.transcript.segments as { start_ms: number; end_ms: number; chapter: string }[];
+for (let i = 1; i < segments.length; i++) assert.ok(segments[i].start_ms >= segments[i - 1].end_ms - 1, 'segments in order across chunk seams');
+for (const chapter of tenEpisode.episode.chapters as { id: string; start_ms: number }[]) {
+  assert.equal(chapter.start_ms, segments.find(s => s.chapter === chapter.id)!.start_ms, 'chapter starts at its first segment');
+}
+const lengths = await get(fixture.account, `action=paper&item_id=${fixture.item}`, undefined, 'paper_lengths');
+assert.deepEqual(lengths.episodes.map((e: { profile: string; scope: string }) => [e.profile, e.scope]),
+  [['podcast-5min-v1', 'private'], ['podcast-10min-v1', 'private']], 'every ready length, own private first');
+const again = await get(fixture.account, 'action=quote', { method: 'POST', body: JSON.stringify({ item_id: fixture.item, request_id: randomUUID(),
+  profile: 'podcast-10min-v1' }) }, 'quote_reuse');
+assert.equal(again.reuse.release_id, tenDone.job.release_id, 'the same length is reused at no charge');
+
 // Real server responses (ids randomized per run) for client contract tests: tests/fixtures/podcast/.
 if (process.env.PODCAST_FIXTURE_OUT) {
   const { writeFileSync, mkdirSync } = await import('node:fs');

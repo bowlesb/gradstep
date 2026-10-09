@@ -2,12 +2,13 @@
  "job": {
   "state": "queued",
   "failure": null,
+  "profile": "podcast-5min-v1",
   "release_id": null,
-  "request_id": "b312e8e9-c869-4ce0-af2e-5320791bc6d3",
+  "request_id": "d6215231-d16e-4471-bc7a-18eec81069f7",
   "held_credits": 150,
   "charged_credits": null,
   "cancel_requested": false,
   "released_credits": null,
-  "stage_entered_at": "2026-10-08T19:26:40.285695+00:00"
+  "stage_entered_at": "2026-10-09T00:34:28.879019+00:00"
  }
 }

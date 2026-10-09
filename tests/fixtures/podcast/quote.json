@@ -1,14 +1,46 @@
 {
  "quote": {
-  "id": "a8a91f52-086c-4342-83b6-603a1bc28962",
+  "id": "4ff9f260-e4d4-4320-a0ff-a720b3916339",
+  "label": "5 min",
+  "profile": "podcast-5min-v1",
   "estimate": "Estimate — you're charged actual usage, maximum 150 credits",
   "providers": [
    "Anthropic (script)",
    "Google Vertex AI (speech)"
   ],
-  "expires_at": "2026-10-08T19:41:40.257615+00:00",
+  "expires_at": "2026-10-09T00:49:28.856875+00:00",
   "max_credits": 150,
   "target_seconds": 300,
   "consent_version": "podcast-private-v1"
- }
+ },
+ "options": [
+  {
+   "label": "Short",
+   "profile": "podcast-short-v1",
+   "estimate": "Estimate — you're charged actual usage, maximum 110 credits",
+   "max_credits": 110,
+   "target_seconds": 150
+  },
+  {
+   "label": "5 min",
+   "profile": "podcast-5min-v1",
+   "estimate": "Estimate — you're charged actual usage, maximum 150 credits",
+   "max_credits": 150,
+   "target_seconds": 300
+  },
+  {
+   "label": "10 min",
+   "profile": "podcast-10min-v1",
+   "estimate": "Estimate — you're charged actual usage, maximum 220 credits",
+   "max_credits": 220,
+   "target_seconds": 600
+  },
+  {
+   "label": "20 min",
+   "profile": "podcast-20min-v1",
+   "estimate": "Estimate — you're charged actual usage, maximum 360 credits",
+   "max_credits": 360,
+   "target_seconds": 1200
+  }
+ ]
 }
