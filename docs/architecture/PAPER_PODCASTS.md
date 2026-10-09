@@ -18,6 +18,24 @@ the exact source/reuse rules and deployed financial safeguards; it does not dela
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
 Migration labels A/B/C below are ordering labels, not assigned migration numbers.
 
+## Independent implementation and Google similarity
+
+The product may offer an original, source-grounded audio conversation about a paper. Google has publicly
+described NotebookLM's **Audio Overview** as two synthetic hosts discussing uploaded sources, so the broad
+feature concept is established prior art rather than something we should present as unique. U.S. copyright
+guidance says copyright protects a particular expression, not an idea, system, or method; that does not answer
+separate patent, trademark, unfair-competition, or source-content questions. See the
+[Copyright Office FAQ](https://www.copyright.gov/help/faq/faq-protect.html), Google's
+[Audio Overview announcement](https://blog.google/innovation-and-ai/products/notebooklm-audio-overviews/),
+and Google's [service-specific terms](https://policies.google.com/terms/service-specific?hl=en), which list
+NotebookLM under Google's Terms of Service and Generative AI Prohibited Use Policy.
+
+Build the feature independently: do not copy Google's code, prompts, transcripts, voices, sound design,
+screenshots, layout, or NotebookLM branding; do not market it as “NotebookLM for papers” or imply affiliation.
+Use our own script schema, voices, visual language, and paper-rights policy. Before a public launch, have
+counsel perform a focused patent/trademark search and review the generated audio, source licenses, and each
+provider's commercial-use terms. This is an engineering risk control, not a legal clearance.
+
 ## Product boundary
 
 V1: one already-converted paper, English, a five-minute target, two fixed synthetic voices, a concise
