@@ -17,9 +17,11 @@ The implementation checkpoint is migration `051` (`rights_aware_arxiv_delivery`)
 by the disposable database suite; it has **not** been applied to staging. It adds a durable `rights_mode` decision,
 classifies pre-change private rows as `legacy_private` for audit, and makes the production default-license path
 `source_only` before download admission. Native and browser labels now say “Available on arXiv” / “Open on arXiv” for
-that path. The device-local encrypted PDF/reader store, direct fetch action, and approved-device transfer remain the
-next gated implementation described in [DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md); this checkpoint
-does not yet claim that source-only papers are readable offline.
+that path. Native now also has a migration-free, encrypted `DevicePaperStore`, a direct source-only download action,
+and a local PDF viewer; the store is bounded, account-fenced, crash-safe and covered by Core tests. This work remains
+local until migration 051 and the rights rollout are approved. Approved-device transfer, reader-bundle installation,
+offline structured reading and local Mathpix processing remain gated as described in
+[DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md).
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 

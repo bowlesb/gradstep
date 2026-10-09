@@ -160,9 +160,13 @@ extension LibraryImportRecord {
 }
 
 extension LibraryImportRecord {
-    /// Our servers couldn't fetch this web paper's PDF, but a link is known: this device may (device fallback).
+    /// Our servers couldn't fetch a web paper's PDF, or the rights-aware arXiv
+    /// path is source-only: this device may fetch its own encrypted copy.
     var canDownloadOnDevice: Bool {
         guard visible, let sourceID else { return false }
+        if sourceID.range(of: #"^\d{4}\.\d{4,5}(v\d+)?$"#, options: .regularExpression) != nil {
+            return source == "arxiv" && phase == .sourceOnly && sourceURL != nil
+        }
         return LibrarySource.isWebSourceID(sourceID) && phase == .failed
             && [.sourceBlocked, .pdfRestricted, .sourceUnavailable, .downloadFailed, .notPDF, .rateLimited, .downloadRetrying].contains(errorCode)
     }
@@ -172,6 +176,10 @@ extension ReaderModel {
     /// "Download on this device" on a failed web import: the links the pipeline knows (its PDF locations,
     /// landing page and DOI), fetched here, then uploaded to that same import.
     func downloadOnDevice(_ item: LibraryImportRecord) {
+        if item.phase == .sourceOnly, item.source == "arxiv" {
+            downloadSourceOnlyOnDevice(item)
+            return
+        }
         guard let service = addingService, uploads.isActive else { openSignIn(); return }
         let target = PDFUploadTarget.importID(item.id, revision: item.intentRevision)
         // Already on its way (a second tap): nothing more to start.
@@ -185,6 +193,55 @@ extension ReaderModel {
                 return
             }
             await uploads.downloadOnDevice(links: links, title: item.metadata?.title ?? sources?.title, target: target)
+        }
+    }
+
+    /// A source-only arXiv paper never enters the upload queue. The device
+    /// fetches its versioned source URL, encrypts the bytes into the local
+    /// paper store, and removes the temporary plaintext file.
+    private func downloadSourceOnlyOnDevice(_ item: LibraryImportRecord) {
+        guard let sourceID = item.sourceID,
+              let revision = item.sourceRevision ?? item.requestedRevision,
+              let source = item.sourceURL.flatMap(URL.init(string:)),
+              hasLocalPaperStore else {
+            error = "This paper cannot be downloaded on this device yet. Open it on arXiv or try again later."
+            return
+        }
+        guard beginLocalPaperDownload(item.id) else { return }
+        let scope = readerSessionID
+        Task { [weak self] in
+            let fetcher = DevicePDFFetcher()
+            do {
+                let pdf = try await fetcher.fetch([source], progress: { _ in })
+                defer { try? FileManager.default.removeItem(at: pdf.file) }
+                guard let self, self.readerSessionID == scope else { return }
+                let write = try self.acceptLocalPaperWrite { store in
+                    try await store.install(pdfAt: pdf.file, sourceID: sourceID, revision: revision)
+                }
+                _ = try await write.value
+                guard self.readerSessionID == scope else { return }
+                await self.refreshLocalPaperRecords()
+                self.finishLocalPaperDownload(item.id)
+            } catch is CancellationError {
+                guard let self, self.readerSessionID == scope else { return }
+                self.finishLocalPaperDownload(item.id)
+            } catch let failure as DeviceFetchError {
+                guard let self, self.readerSessionID == scope else { return }
+                self.finishLocalPaperDownload(item.id)
+                self.error = failure.message
+            } catch let failure as LocalPaperStoreError {
+                guard let self, self.readerSessionID == scope else { return }
+                self.finishLocalPaperDownload(item.id)
+                self.error = switch failure {
+                case .capacityExceeded: "This device is out of local paper space. Remove an offline paper and try again."
+                case .revisionConflict: "The PDF changed for this arXiv revision. Open the paper on arXiv to choose the current copy."
+                default: "The PDF could not be saved securely on this device. Your library is unchanged."
+                }
+            } catch {
+                guard let self, self.readerSessionID == scope else { return }
+                self.finishLocalPaperDownload(item.id)
+                self.error = "The PDF could not be saved on this device. Your library is unchanged."
+            }
         }
     }
 }

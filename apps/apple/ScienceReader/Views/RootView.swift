@@ -98,6 +98,9 @@ struct RootView: View {
         .sheet(item: consentPresentation) { prompt in ChatConsentView(model: model, prompt: prompt).interactiveDismissDisabled() }
         .sheet(isPresented: $model.showAllChats) { ChatHistoryView(model: model, paperID: model.allChatsPaperID).macSheetKeys() }
         .sheet(isPresented: $model.showDiagrams) { HistoryView(model: model, diagrams: true).macSheetKeys() }
+        .sheet(item: $model.localPaperPresentation) { presentation in
+            LocalPDFReaderView(presentation: presentation).macSheetKeys()
+        }
         // At the root: deletion signs out, which leaves Settings.
         .alert("Account deleted", isPresented: $model.accountDeletedNotice) { Button("OK") {} } message: {
             Text("Your account and its data were deleted from our servers and this device.")
@@ -518,8 +521,14 @@ struct LibraryView: View {
                     ImportRow(item: item, showAbstract: model.showAbstracts, showTopics: model.showTopics,
                               stepSince: model.importSteps.timing(of: item)?.since,
                               progress: retrying ? nil : model.importProgress(for: item), retrying: retrying,
-                              action: LibraryImportAction.available(for: item, retrying: retrying),
-                              actionEnabled: model.canChangeImports, explain: { model.showImportHelp = true }) { action in
+                              action: LibraryImportAction.available(for: item, retrying: retrying,
+                                  localPaperAvailable: model.localPaperAvailable(for: item)),
+                              actionEnabled: { action in
+                                  model.canChangeImports ||
+                                  (item.phase == .sourceOnly && model.hasLocalPaperStore &&
+                                   (action == .downloadOnDevice || action == .openLocalPDF))
+                              },
+                              explain: { model.showImportHelp = true }) { action in
                         LibraryImportAction.perform(action, on: item, model: model)
                     }
                         // A container, so the row's own buttons (Get credits) keep their identifiers.
@@ -557,7 +566,7 @@ struct ImportRow: View {
     var retrying = false
     /// A stopped import's one action (Retry, Get credits, Remove), shown inline (owner feedback 2026-10-07).
     var action: LibraryImportAction? = nil
-    var actionEnabled = true
+    var actionEnabled: (LibraryImportAction) -> Bool = { _ in true }
     /// "Why does this take a minute?" beside the progress.
     var explain: (() -> Void)? = nil
     var perform: ((LibraryImportAction) -> Void)? = nil
@@ -593,7 +602,7 @@ struct ImportRow: View {
                     if let action, let perform {
                         Button(action.title) { perform(action) }.font(.footnote.weight(.semibold)).buttonStyle(.borderless)
                             .tint(action == .remove ? Color.secondary : Color.accentColor)
-                            .disabled(!actionEnabled && action != .getCredits)
+                            .disabled(!actionEnabled(action) && action != .getCredits)
                             .accessibilityHint(action.hint)
                             .accessibilityIdentifier(action == .getCredits ? "import.getCredits" : "import.\(action.title.lowercased()).\(item.id.wire)")
                     }

@@ -1,6 +1,7 @@
 # Device-local papers and reader bundles
 
-Status: design adopted with migration 051 (2026-10-09). This is the delivery
+Status: design adopted with migration 051 (2026-10-09); the first native local-store checkpoint is implemented locally
+(2026-10-09). This is the delivery
 model for an arXiv version whose exact submitted license does not authorize our
 server to retain or serve the PDF or derived files. It deliberately keeps
 metadata and account state synchronized while keeping paper bytes on approved
@@ -36,29 +37,34 @@ only row cannot accidentally reach Storage, OCR funding, or rendering.
 1. The user adds a paper. The server resolves metadata and the exact revision,
    then returns `source_only` plus the versioned source URL.
 2. The device opens the source link or explicitly chooses **Download on this
-   device**. The native client fetches only `https://arxiv.org/pdf/...` with
-   the existing bounded HTTPS validator, checks the PDF header, size and page
-   count, and writes the bytes to an encrypted local document store. It does
-   not upload the bytes to Supabase and does not use the server's PDF upload
-   queue.
+   device**. The native client fetches the versioned arXiv page and follows its
+   declared PDF link (or the equivalent versioned PDF URL) with the existing
+   bounded HTTPS validator, checks the PDF header and size, and writes the bytes
+   to an encrypted local document store. It does not upload the bytes to
+   Supabase and does not use the server's PDF upload queue.
 3. The local document record is bound to `(account, source ID, exact
    revision, sha256)` and to the local-store key. A later arXiv revision is a
    new record; it never silently replaces the paper the reader was using.
 4. When a rights-cleared reader bundle exists locally, the existing bundle
    verifier and `ReaderBundleCoordinator` install it beside the encrypted
-   original. If only the original PDF exists, the UI says **PDF available on
-   this device** rather than pretending the structured reader is ready.
+   original. If only the original PDF exists, the native PDF viewer offers
+   **Open PDF** on that device rather than pretending the structured reader is
+   ready.
 5. Tags, reading state and encrypted chats continue to sync through the normal
    account protocol. They contain identifiers and encrypted content, never the
    PDF or unencrypted extracted text.
 
-The first implementation should add a versioned encrypted local-paper store
-as an EncryptedStore schema migration, with bounded rows and crash-safe
-file-backed blobs. It must not overload the cloud library item (which requires
-a server document) or the existing temporary `PDFUploadQueue`, whose purpose
-is to upload a user-supplied PDF. The local store needs explicit open,
-delete, capacity and account-retirement operations, and its integrity manifest
-must cover the blob file and its metadata together.
+The native checkpoint uses a migration-free, file-backed `DevicePaperStore`
+beside the encrypted metadata store. Keeping large PDF ciphertext out of the
+SQLite journal avoids inflating sync checkpoints and WAL files while retaining
+the same account key and retirement fence. It does not overload the cloud
+library item (which requires a server document) or the existing temporary
+`PDFUploadQueue`, whose purpose is to upload a user-supplied PDF. The store
+has explicit open, delete, capacity and account-retirement operations, an
+authenticated manifest, atomic writes, orphan pruning, and a plaintext hash
+bound to the exact source revision. Its current native action is deliberately
+limited to direct source retrieval and local PDF viewing; reader-bundle
+installation, transfer, and local Mathpix processing remain separate gates.
 
 ## Approved-device transfer
 
@@ -110,7 +116,8 @@ rights change can quarantine an artifact without deleting a user's metadata.
 
 Before enabling the device-local action in a release, complete:
 
-1. local encrypted-paper schema migration and blob integrity tests;
+1. local encrypted-paper store and blob integrity tests (the current store
+   checkpoint covers the format; process-kill and disk-full cases remain);
 2. source fetch, size/page limits, cancellation, process-kill and disk-full
    tests on iPhone, iPad and Mac Catalyst;
 3. AirDrop package authentication and approved-device rotation tests;
@@ -119,6 +126,7 @@ Before enabling the device-local action in a release, complete:
 5. an explicit provider/rights decision for any Mathpix processing of
    source-only PDFs.
 
-Until those gates pass, the shipped source-only state is intentionally honest:
-metadata and the arXiv link are available everywhere, while paper bytes and a
-structured reader are available only through a later device-local release.
+Until the remaining gates pass, the source-only state is intentionally honest:
+metadata and the arXiv link are available everywhere, while the original PDF
+is available only on a device that explicitly downloaded it. It is not yet a
+multi-device server copy, a structured Mathpix reader, or an AirDrop transfer.

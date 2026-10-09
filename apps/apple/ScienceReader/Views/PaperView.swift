@@ -1,4 +1,5 @@
 import SwiftUI
+import PDFKit
 import WebKit
 import ScienceReaderCore
 
@@ -974,5 +975,46 @@ struct FigureWebView: View {
                      onHeadings: { _ in }, onFigure: { _ in }, onFailure: { failed = true }, onReady: onReady)
             .overlay { if failed { ContentUnavailableView("Couldn’t open figure", systemImage: "photo").background(Color(uiColor: .systemBackground)) }
                 else if loading { ProgressView("Opening figure…").allowsHitTesting(false) } }
+    }
+}
+
+/// A simple native viewer for a PDF that was deliberately kept on this
+/// device. It is separate from the verified Mathpix reader: no extracted text
+/// or server document is invented for a source-only paper.
+struct LocalPDFReaderView: View {
+    let presentation: LocalPaperPresentation
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            LocalPDFKitView(data: presentation.data)
+                .ignoresSafeArea(.container, edges: .bottom)
+                .navigationTitle(presentation.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+        }
+    }
+}
+
+private struct LocalPDFKitView: UIViewRepresentable {
+    let data: Data
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displayDirection = .vertical
+        view.backgroundColor = .systemBackground
+        view.document = PDFDocument(data: data)
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {
+        view.document = PDFDocument(data: data)
+        view.autoScales = true
     }
 }

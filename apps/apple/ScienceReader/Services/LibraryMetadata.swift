@@ -589,19 +589,28 @@ enum LibraryImportAction: Equatable, Sendable {
     case uploadPDF
     /// The website refused our servers: this device fetches the PDF and uploads it to the same paper.
     case downloadOnDevice
+    /// A source-only PDF already encrypted on this device can be read locally.
+    case openLocalPDF
 
     var title: String {
         switch self {
         case .retry: "Retry"; case .getCredits: "Get credits"; case .remove: "Remove"; case .uploadPDF: "Upload PDF"
         case .downloadOnDevice: "Download on this device"
+        case .openLocalPDF: "Open PDF"
         }
     }
 
     /// Nil while the import is running, or while a retry is on its way.
-    static func available(for item: LibraryImportRecord, retrying: Bool) -> Self? {
+    static func available(for item: LibraryImportRecord, retrying: Bool, localPaperAvailable: Bool = false) -> Self? {
         // The server trying again by itself (`download_retrying`) is under way, not a failure.
         guard !retrying, !item.isRetryingAutomatically else { return nil }
         switch item.phase {
+        case .sourceOnly:
+            // Default-license arXiv papers stay source-only on the server. A
+            // device may keep its own encrypted copy without creating a cloud
+            // import or OCR job.
+            guard item.source == "arxiv", item.sourceURL != nil else { return nil }
+            return localPaperAvailable ? .openLocalPDF : .downloadOnDevice
         case .failed:
             if item.errorCode == .insufficientCredits { return .getCredits }
             if item.canTakeUpload, [.notOpen, .uploadFailed].contains(item.errorCode) { return .uploadPDF }

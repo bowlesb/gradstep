@@ -110,6 +110,17 @@ final class DevicePDFFetcherTests: XCTestCase {
         let arxiv = try record(source: "arxiv", sourceID: "2305.18290", url: "https://arxiv.org/abs/2305.18290", error: "source_blocked")
         XCTAssertEqual(LibraryImportAction.available(for: arxiv, retrying: false), .retry, "arXiv papers always come from arXiv")
         XCTAssertFalse(arxiv.canTakeUpload)
+
+        var sourceOnly: [String: Any] = ["id": UUID().wire, "created_seq": 2, "state_seq": 2, "intent_revision": 1,
+            "visible": true, "phase": "source_only", "source": "arxiv", "source_id": "2401.12345",
+            "source_url": "https://arxiv.org/abs/2401.12345v2", "source_revision": 2, "metadata_id": UUID().wire,
+            "version_id": UUID().wire, "metadata_recorded_at": "2026-10-09T06:00:00Z",
+            "metadata": ["title": "Source-only paper", "authors": ["A B"], "categories": ["cs.LG"]],
+            "error_code": "license_unverified", "retryable": false]
+        let local = try JSONDecoder().decode(LibraryImportRecord.self, from: JSONSerialization.data(withJSONObject: sourceOnly))
+        XCTAssertEqual(LibraryImportAction.available(for: local, retrying: false), .downloadOnDevice)
+        XCTAssertTrue(local.canDownloadOnDevice)
+        XCTAssertEqual(LibraryImportAction.available(for: local, retrying: false, localPaperAvailable: true), .openLocalPDF)
     }
 }
 

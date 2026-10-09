@@ -105,6 +105,15 @@ struct TagEditorRequest: Identifiable, Equatable {
     let paperID: UUID
 }
 
+/// A source-only PDF decrypted only while the user is viewing it. The bytes
+/// are never written back to disk by the presentation layer; the encrypted
+/// device store remains the source of truth.
+struct LocalPaperPresentation: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let title: String
+    let data: Data
+}
+
 struct ChatFollowRequest: Equatable {
     let id = UUID()
     let composerID: UUID
@@ -150,6 +159,11 @@ final class ReaderModel {
     private(set) var readerOpenIssue: String?
     private var readerDownloadAttempt: (id: UUID, documentID: UUID)?
     private(set) var offlineCacheIssue: String?
+    /// Exact source revisions retained in this device's encrypted paper store.
+    /// The server library still owns metadata and account membership; these
+    /// records are intentionally local-only.
+    private(set) var localPaperRecords: [LocalPaperRecord] = []
+    private(set) var localPaperDownloads: Set<UUID> = []
     private var libraryCommandCoordinator: LibraryCommandCoordinator?
     private var libraryCommandGeneration: Int64 = -1 { didSet { if libraryCommandGeneration != oldValue { queueLibrarySearch() } } }
     private(set) var libraryCommands: [LocalLibraryCommand] = [] { didSet { if libraryCommands != oldValue { applyPendingTagEdits(); librarySearchSourceChanged() } } }
@@ -459,6 +473,7 @@ final class ReaderModel {
             .map(\.summary)
     }
     var showDiagrams = false
+    var localPaperPresentation: LocalPaperPresentation?
     var showReport = false
     var showReports = false
     var showReportsAfterComposer = false
@@ -515,6 +530,47 @@ final class ReaderModel {
     /// Encrypted changes on this device not yet synced (the Account page says how many).
     private(set) var publishedPendingCount = 0
     var readerSessionID: UUID { sessionID }
+    var hasLocalPaperStore: Bool { localPersistence.localPaperStore != nil }
+    func beginLocalPaperDownload(_ id: UUID) -> Bool {
+        guard !localPaperDownloads.contains(id) else { return false }
+        localPaperDownloads.insert(id)
+        return true
+    }
+    func finishLocalPaperDownload(_ id: UUID) { localPaperDownloads.remove(id) }
+    func acceptLocalPaperWrite<Value: Sendable>(_ operation: @escaping @Sendable (DevicePaperStore) async throws -> Value) throws -> Task<Value, Error> {
+        try localPersistence.acceptLocalPaperWrite(operation)
+    }
+    func loadLocalPaperRecords() async -> [LocalPaperRecord] {
+        await localPersistence.localPaperStore?.records() ?? []
+    }
+    func refreshLocalPaperRecords() async { localPaperRecords = await loadLocalPaperRecords() }
+    func localPaperAvailable(for item: LibraryImportRecord) -> Bool {
+        localPaperRecord(for: item) != nil
+    }
+    /// Presents a source-only PDF from the encrypted device store. This does
+    /// not create a cloud document or a server-side reader artifact.
+    func openLocalPaper(_ item: LibraryImportRecord) {
+        guard let sourceID = item.sourceID,
+              let revision = item.sourceRevision ?? item.requestedRevision,
+              let record = localPaperRecords.first(where: { $0.identity.sourceID == sourceID && $0.identity.revision == revision }),
+              let store = localPersistence.localPaperStore else {
+            error = "This paper is not available on this device. Download it first."
+            return
+        }
+        let scope = readerSessionID
+        let title = item.metadata?.title ?? LibrarySource.placeholderTitle(sourceID: sourceID)
+        Task { [weak self] in
+            do {
+                let data = try await store.read(record.identity)
+                guard let self, self.readerSessionID == scope else { return }
+                self.localPaperPresentation = LocalPaperPresentation(id: record.id, title: title, data: data)
+            } catch {
+                guard let self, self.readerSessionID == scope else { return }
+                self.error = "The saved PDF could not be opened. Download it again from arXiv."
+                await self.refreshLocalPaperRecords()
+            }
+        }
+    }
     var readerDocumentScope: ReaderDocumentScope? {
         selectedPaper.map { ReaderDocumentScope(sessionID: sessionID, paperID: $0.id, artifactID: $0.artifactID, fileURL: $0.fileURL, manifestSHA256: $0.readerBundle?.manifestSHA256) }
     }
@@ -833,7 +889,8 @@ final class ReaderModel {
                 source: LibrarySourceLabel.label(sourceID: item.sourceID, url: nil),
                 spokenSource: LibrarySourceLabel.spoken(sourceID: item.sourceID, url: nil),
                 step: retrying ? item.retryStep : item.step,
-                importAction: LibraryImportAction.available(for: item, retrying: retrying))
+                importAction: LibraryImportAction.available(for: item, retrying: retrying,
+                    localPaperAvailable: localPaperRecord(for: item) != nil))
         case .queued:
             return LibraryRowFacts(id: entry.id, title: entry.title, paper: nil, authors: nil, year: nil, tags: [],
                 added: nil, opened: nil, progress: nil, chats: 0, pages: nil, status: status, needsCredits: false)
@@ -870,6 +927,8 @@ final class ReaderModel {
             case .none: return paper.isSample ? .none : .info("Not downloaded")
             }
         case .pending(let item):
+            if localPaperDownloads.contains(item.id) { return .active("Downloading on this device…") }
+            if localPaperRecord(for: item) != nil { return .info("On this device") }
             if isRetrying(item) { return .active(item.retryStep.label(short: true)) }
             switch item.phase {
             case .resolving, .acquiring: return .active(item.libraryShortStatus)
@@ -879,6 +938,12 @@ final class ReaderModel {
             }
         case .queued(let command): return .info(command.libraryStatus)
         }
+    }
+
+    private func localPaperRecord(for item: LibraryImportRecord) -> LocalPaperRecord? {
+        guard let sourceID = item.sourceID,
+              let revision = item.sourceRevision ?? item.requestedRevision else { return nil }
+        return localPaperRecords.first { $0.identity.sourceID == sourceID && $0.identity.revision == revision }
     }
 
     // MARK: Reading activity (device-local)
@@ -1393,6 +1458,8 @@ final class ReaderModel {
             .appendingPathComponent("\(environment)/\(device.accountID.wire)", isDirectory: true)
         let local = try await persistence.activate(url: directory.appendingPathComponent("private-state.enc"),
                                                   accountID: device.accountID, localKey: device.localStoreKey, keys: bundle)
+        localPaperRecords = await persistence.localPaperStore?.records() ?? []
+        localPaperDownloads = []
         let snapshot = await local.snapshot()
         let reading = await persistence.readingStore?.load() ?? []
         guard workOwnership.owns(activation), accountID == device.accountID else { throw BackendError.signInRequired }
@@ -1533,6 +1600,7 @@ final class ReaderModel {
         let oldBundles = readerBundles; readerBundles = nil
         oldBundles?.close()
         readerOpenAttempt = nil; readerOpenBinding = nil; openingPaperID = nil; readerOpenIssue = nil; offlineCacheIssue = nil
+        localPaperRecords = []; localPaperDownloads = []; localPaperPresentation = nil
         let oldLibrary = libraryService; libraryService = nil; libraryContextAuthenticated = false
         Task { await oldLibrary?.invalidate() }
         libraryImports = []; libraryCreationSequences = [:]; presentedImportIDs = []; libraryPublicationGeneration = 0
@@ -3546,6 +3614,9 @@ extension ReaderModel {
 @MainActor
 final class ReaderLocalPersistence {
     private(set) var store: EncryptedStore?
+    /// Device-local originals for source-only papers. These bytes never enter
+    /// the cloud library journal or the PDF upload queue.
+    private(set) var localPaperStore: DevicePaperStore?
     /// Device-local reading activity, sealed beside the store under the same local-store key.
     private(set) var readingStore: ReadingActivityStore?
     private(set) var isActivating = false
@@ -3572,6 +3643,14 @@ final class ReaderLocalPersistence {
     func acceptReadingWrite(_ entries: [ReadingActivityEntry]) throws -> Task<Void, Error> {
         guard !isRetired, !isActivating, let readingStore else { throw ReaderError.storageUnavailable }
         return register { try await readingStore.save(entries) }
+    }
+
+    /// A source-only PDF install is a local write with the same retirement
+    /// fence as encrypted chat and reading activity. Sign-out waits for an
+    /// accepted install before replacing this writer.
+    func acceptLocalPaperWrite<Value: Sendable>(_ operation: @escaping @Sendable (DevicePaperStore) async throws -> Value) throws -> Task<Value, Error> {
+        guard !isRetired, !isActivating, let localPaperStore else { throw ReaderError.storageUnavailable }
+        return register { try await operation(localPaperStore) }
     }
 
     private func register<Value: Sendable>(_ operation: @escaping @Sendable () async throws -> Value) -> Task<Value, Error> {
@@ -3605,13 +3684,19 @@ final class ReaderLocalPersistence {
             guard self.localKey == localKey else { throw ReaderError.invalidKey }
             guard storageURL == url.standardizedFileURL else { throw ReaderError.storageUnavailable }
             try await store.updateKeys(keys)
+            if localPaperStore == nil {
+                localPaperStore = try DevicePaperStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-papers", isDirectory: true),
+                                                        accountID: accountID, localKey: localKey)
+            }
             try Task.checkCancellation()
             guard !isRetired else { throw CancellationError() }
             return store
         }
         let opened = try EncryptedStore(url: url, accountID: accountID, localKey: localKey, keys: keys)
+        let localPapers = try DevicePaperStore(directory: url.deletingLastPathComponent().appendingPathComponent("device-papers", isDirectory: true),
+                                                accountID: accountID, localKey: localKey)
         self.accountID = accountID; self.localKey = localKey; storageURL = url.standardizedFileURL
-        store = opened
+        store = opened; localPaperStore = localPapers
         readingStore = try? ReadingActivityStore(directory: url.deletingLastPathComponent(), accountID: accountID, localKey: localKey)
         return opened
     }

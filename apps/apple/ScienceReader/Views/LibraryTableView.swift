@@ -199,6 +199,7 @@ extension LibraryImportAction {
         case .getCredits: model.showStore = true
         case .uploadPDF: model.uploads.pickRequest = .init(target: .importID(item.id, revision: item.intentRevision), title: item.metadata?.title)
         case .downloadOnDevice: model.downloadOnDevice(item)
+        case .openLocalPDF: model.openLocalPaper(item)
         }
     }
 
@@ -208,7 +209,8 @@ extension LibraryImportAction {
         case .getCredits: "Opens Get credits"
         case .remove: "Removes this import from your library"
         case .uploadPDF: "Chooses the paper’s PDF from Files"
-        case .downloadOnDevice: "Downloads the PDF over this device’s connection, then adds it"
+        case .downloadOnDevice: "Downloads the PDF over this device’s connection and saves it only here"
+        case .openLocalPDF: "Opens the encrypted PDF saved on this device"
         }
     }
 }
@@ -432,10 +434,13 @@ struct LibraryRowActions: View {
             if item.phase == .failed, item.errorCode == .insufficientCredits {
                 Button("Get credits", systemImage: "creditcard") { model.showStore = true }
             }
-            // A web paper (or a reader's own upload) can take the PDF from this device (docs/architecture/PDF_UPLOADS.md).
-            if item.canDownloadOnDevice {
+            // Source-only arXiv papers stay local; an existing local copy opens in the native PDF viewer.
+            if item.phase == .sourceOnly, model.localPaperAvailable(for: item) {
+                Button("Open PDF", systemImage: "doc.text.magnifyingglass") { model.openLocalPaper(item) }
+            } else if item.canDownloadOnDevice {
+                // A web paper (or a reader's own upload) can take the PDF from this device.
                 Button("Download on this device", systemImage: "arrow.down.circle") { model.downloadOnDevice(item) }
-                    .disabled(!model.uploads.isActive)
+                    .disabled(item.phase == .sourceOnly ? !model.hasLocalPaperStore : !model.uploads.isActive)
             }
             if item.phase == .failed, item.canTakeUpload {
                 Button("Upload PDF…", systemImage: "doc.badge.plus") {

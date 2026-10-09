@@ -170,3 +170,13 @@ After three failed attempts ($1.00 of $2 spent, no episode published), the owner
 - **Needs:** migration 051, because 048's check constraint caps a seed period at $2.
 - **Status:** migration `202610080051_podcast_seed_cap.sql` and `podcast-ops.py seed-period --limit-usd 5` are ready on a branch
   with checker v4, not applied or deployed: [Seed pilot fix 3](architecture/PAPER_PODCASTS.md#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08).
+
+## Podcasts, after the first two episodes (2026-10-09)
+
+The owner liked the episodes ("I like it … lets keep going with this") and approved three next steps:
+1. **Re-enable Short, 10 and 20 min** with revised maxima: Short ~140 credits, 10 min ~300, 20 min ~520. Google's
+   speech service takes no output cap, so each call reserves the serving limit. Typical costs are unchanged.
+2. **Smoother, fuller episodes:** no unanswered questions after the checker removes a turn, and 5-minute episodes
+   that actually run about 5 minutes.
+3. **A weekly curated catalog** on a **$3/month** allowance (about 10 episodes), inside the $25 provider cap.
+   Episodes wait for the owner's review by default.
