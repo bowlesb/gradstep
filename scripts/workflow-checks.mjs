@@ -535,6 +535,24 @@ check('auth.google', { title: 'Google sign-in works (the app shows "Continue wit
     : fail('Supabase Auth Google provider is disabled, but the app offers "Continue with Google" (needs a Gradstep OAuth client)');
 });
 
+check('auth.browser', { title: 'Hosted OAuth has the browser URL and web-capable provider credentials', suites: SCHEDULED, timeout: 30 }, async () => {
+  if (!management) return skip('no Supabase management token: hosted Auth configuration was not inspected');
+  const config = await management.get('/config/auth');
+  const redirects = String(config.uri_allow_list ?? '').split(',').map(value => value.trim()).filter(Boolean);
+  const problems = [];
+  if (config.site_url !== 'https://app.gradstep.ai') problems.push(`site_url=${String(config.site_url ?? 'missing')}`);
+  for (const value of ['sciencereader://auth/callback', 'https://app.gradstep.ai/auth/callback']) {
+    if (!redirects.includes(value)) problems.push(`missing redirect ${value}`);
+  }
+  if (config.external_google_enabled !== true || !config.external_google_client_id || !config.external_google_secret) {
+    problems.push('Google client is incomplete');
+  }
+  if (config.external_apple_enabled !== true || !config.external_apple_client_id || !config.external_apple_secret) {
+    problems.push('Apple web Services ID/client secret is missing');
+  }
+  return problems.length ? fail(problems.join('; ')) : pass('browser URL, callbacks and Google/Apple web credentials present');
+});
+
 check('auth.email-delivery', { title: 'Email codes can reach new testers', suites: SCHEDULED, timeout: 30 }, async () => {
   const settings = shared.auth ?? (await http(`${env.SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: env.SUPABASE_ANON_KEY } })).json;
   const notes = [];
