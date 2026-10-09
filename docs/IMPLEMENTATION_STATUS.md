@@ -124,7 +124,7 @@ quality-gated equation model with Mathpix fallback; see [ON_DEVICE_PAPER_PROCESS
 
 ## Current web/Mac candidate — 2026-10-09 UTC
 
-- **Browser release:** source is commit `f5c7e98` on main; Pages deployment `611e1652` is live at
+- **Browser release:** source is commit `7dcbf5e` on main; Pages deployment `64d5e280` is live at
   [app.gradstep.ai](https://app.gradstep.ai). The deployment script's build/output gates passed, and the custom
   domain served the new asset after the edge refreshed. Anonymous HTTPS checks returned 200 with the expected CSP,
   HSTS, no-transform cache policy and same-origin isolation. No account, provider, OCR or paid request was made by
