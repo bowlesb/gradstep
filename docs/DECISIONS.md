@@ -1,6 +1,6 @@
 # Product and architecture decisions
 
-Last updated: 2026-10-08. Requirements below come from the current user conversation, not from TextBrain's product specification.
+Last updated: 2026-10-09. Requirements below come from the current user conversation, not from TextBrain's product specification.
 
 ## Web framework (owner decided 2026-10-07)
 
@@ -60,6 +60,26 @@ The user transferred work to a new agent and chose, for the first overnight buil
 | Non-CC papers (agent decision, reversible) | Most ML papers use arXiv's default non-exclusive license (7 of 8 well-known papers checked). Instead of leaving them "available at source" only, each interested account gets its own private conversion (`owner_private` document, owner-funded OCR, never shared). CC BY 4.0 / CC0 conversions remain shared and reused across accounts. |
 | PDF size and OCR page cap (agent decision, reversible) | Originals up to 64 MiB (image-heavy papers exceed 32 MiB); paid OCR capped at the first 80 pages via Mathpix `page_ranges`. |
 | Placeholder credit rate (agent decision, reversible) | `beta-credits-v1`: 1 credit ≈ $0.01 at 2× provider cost — 1 credit per OCR page; chat = ceil(provider µ$ / 5000). Subscription allowances remain undecided. |
+
+## Commercial arXiv content gate — 2026-10-09 (owner review required)
+
+The official [arXiv API Terms of Use](https://info.arxiv.org/help/api/tou.html) prohibit storing and serving
+arXiv e-prints from our servers unless the copyright holder has given permission or the e-print's submitted
+license permits it. arXiv also says it is not the copyright holder. The earlier reversible decision to create an
+`owner_private` conversion for a non-CC paper is implementation history, not launch clearance: encryption,
+account-only access, payment, and a Mathpix transformation do not by themselves supply that permission.
+
+Until the written arXiv/commercial response and counsel review recorded in
+[ARXIV_CONTENT_HOSTING_20261009](research/ARXIV_CONTENT_HOSTING_20261009.md) are complete:
+
+- server retention, cross-device sync, server-side Mathpix conversion, shared conversions, podcasts, and other
+  derived media are enabled only when the exact version's rights permit the operation (currently CC0 and CC BY are
+  the implemented shared-license set); and
+- default, missing, or uncertain licenses use metadata plus a direct arXiv link/device retrieval path and are not
+  retained or served from our server by default.
+
+This is a public-paid-launch gate. The product must not claim that every arXiv paper syncs across devices until the
+rights basis and arXiv's commercial/API expectations are confirmed.
 
 ## Product decision checkpoint
 

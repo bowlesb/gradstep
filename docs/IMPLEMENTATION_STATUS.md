@@ -1,8 +1,17 @@
 # Implementation status
 
-Updated 2026-10-08 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
+
+## Commercial arXiv content gate — 2026-10-09
+
+The rights review is recorded in [ARXIV_CONTENT_HOSTING_20261009](research/ARXIV_CONTENT_HOSTING_20261009.md). The
+current `owner_private` conversion path for default-license papers is not treated as launch-cleared: arXiv's API
+terms restrict server storage and serving of e-prints unless the copyright holder or submitted license permits it.
+Until arXiv's commercial/API response and counsel review are complete, only rights-verified server retention and
+derived processing (currently CC0/CC BY) may be enabled; default or uncertain licenses fall back to metadata and
+direct source links. No public paid launch promise should say that every arXiv paper syncs across devices.
 
 ## Current web/Mac candidate — 2026-10-08 UTC
 
