@@ -496,6 +496,11 @@ place.
 - **Hosted OAuth fallback fix (2026-10-09):** staging Auth still had `site_url=http://localhost:3000` from local
   development. It is now `https://app.gradstep.ai`; the native callback and both hosted callback entries remain in the
   redirect allowlist. This prevents provider fallback/error redirects from returning a hosted user to localhost.
+- **Browser paper-state boundary:** the browser currently reads verified artifacts delivered by the server. The planned
+  rights-aware local-ingest gate will sync metadata, tags, reading state and encrypted chats while keeping
+  default/uncertain-license PDFs and derived bundles in the device's encrypted browser partition. A new browser will
+  show the paper and its state, then require source retrieval, preparation or approved-device transfer before reading;
+  it must not imply that a device-local PDF is already cloud-available.
 - **Branded OAuth hostname preparation:** the browser client now accepts a separate public `VITE_AUTH_URL` for the
   authorization and PKCE token exchange, and the generated CSP allows that origin alongside the data API. It defaults
   to the current backend, so this preparation has not changed today's deployment. Supabase's read-only custom-domain

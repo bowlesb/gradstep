@@ -297,6 +297,30 @@ succeeding is insufficient.
   saved place before it is restored. Missing/unreadable activity settles to an empty map and still permits reading.
   Every bounded bridge position report updates memory; encrypted writes are debounced and serialized separately.
 
+### Paper bytes and browser state
+
+The browser can synchronize a paper's **state** without synchronizing its PDF. Supabase stores the account's
+metadata, membership, tags, import/readiness state and encrypted private events; the browser stores an explicitly
+saved local PDF/reader bundle in its encrypted IndexedDB partition. A second browser can therefore see the paper,
+tags and conversations, but it must either fetch the source again and prepare a new local copy or receive an approved
+device transfer before it can open the paper offline. Clearing browser storage removes that local copy while leaving
+the synchronized metadata intact.
+
+There are two deliberate content paths:
+
+| Paper rights / source | Server behavior | Browser behavior |
+|---|---|---|
+| CC0, CC BY or an explicit server-storage permission | A versioned reader artifact may be retained and shared after the normal integrity and eligibility checks | Any approved device can download, verify and save it locally |
+| Default, missing or uncertain arXiv license | Metadata and a versioned source link only; no server PDF, Mathpix bundle or podcast by default | The device retrieves the source and keeps its prepared copy locally; another device repeats retrieval/preparation or uses device transfer |
+| Publisher-restricted or user-uploaded PDF | Device-local unless the user has supplied permission for server storage | The browser shows “available on another device” or “download on this device” rather than pretending a server copy exists |
+
+This means the current browser reader, which is still using server-delivered verified artifacts, cannot yet open a
+rights-restricted paper on a new browser without a local-ingest path. That path is a separate gate: bounded local
+PDF storage, local bundle verification, explicit “Save on this device”, and a state badge that distinguishes
+**synced metadata** from **available in this browser**. Chat can still sync encrypted history, but a full-paper question
+on a device without the paper must wait until that device has the local text; selected passages can be sent when the
+user explicitly asks a question.
+
 ## Approving this browser from another device
 
 Deployed 2026-10-07 with native build 18 and Pages `a405d26c`. A full hosted camera/approval journey is still unverified. Native entry: Settings › Account › **Add a device**. Protocol and
