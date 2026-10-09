@@ -27,6 +27,13 @@ charge credits only for an explicitly requested private generation. Start with o
 five-minute target, two fixed synthetic hosts, evidence-linked transcript and offline playback. Ten-minute
 and custom variants follow quality/cost evaluation. No music, voice cloning or personal-chat input in v1.
 
+**Current operational decision (2026-10-09):** the curated catalog allowance is `$3` per October period with a
+maximum of ten operator-selected episodes, inside the existing `$25` provider budget. Every episode remains
+review-gated; there is no automatic weekly provider call. The two published pilots and failed quality attempts have
+committed about `$2.416` so far, leaving roughly `$0.584` in the period. The five-minute profile reserves `$0.75`
+before a speech call, so the current period cannot safely admit another five-minute seed without changing the
+owner-approved allowance. This is platform catalog spend, separate from customer credits and private generation.
+
 Current offers and purchased benefits must survive any accepted change. The existing pack product ID says
 `credits.400`; a 250-credit pack needs a new product ID, not a changed meaning for existing receipts. Pin
 allowance policy by verified product/transaction, preserve nonexpiring pack balances, and do not silently
@@ -127,17 +134,17 @@ observed rates separately and stop generation when its quality/sub-budget gate i
 ## Fixed costs, free users and Tavily
 
 Illustrative first-month envelope: $25 Supabase + $30 Tavily + $2 request-based worker allowance + $8 for
-backup/build/registry/secrets/domain allocation + **$2 one-time podcast pilot = $67**. Later months in this
-example total $65 before variable provider use, with no recurring podcast seed allowance. Only the $30 Tavily
+backup/build/registry/secrets/domain allocation + **$3 curated podcast catalog allowance = $68**. Later months in this
+example total $68 before variable provider use, assuming the same catalog allowance. Only the $30 Tavily
 commitment is taken directly from the owner's invoice; Supabase may be incremental $10 for another project
 in an already-paid organization instead of $25, and the remaining numbers are placeholders requiring invoice
 attribution. The $2 podcast allocation is **inside** the existing $25 provider cap, never on top of it;
 retain the $100 total incremental beta ceiling. Taxes on vendor bills can also add costs.
 
-At a 50/50 Standard/Pro payer mix, covering that $67 alone takes approximately 11 approved-offer payers or
+At a 50/50 Standard/Pro payer mix, covering that $68 alone takes approximately 11 approved-offer payers or
 nine proposed-offer payers in the ordinary tax-inclusive scenario; 72 or 20 in stress. This is infrastructure
 coverage, not a viable salary/support business. At 100 such proposed subscribers, ordinary contribution is
-about $767 before that illustrative $67 first-month envelope; support, unpaid users and acquisition still have to be paid.
+about $767 before that illustrative $68 first-month envelope; support, unpaid users and acquisition still have to be paid.
 
 **Recommend downgrading Tavily at the next renewal if the owner's measured calendar-month demand stays
 below 800 credits**, with PAYGO remaining off and a 900-credit internal cap plus verified baseline. Its free
@@ -146,8 +153,8 @@ of the calendar month, separate from the sixth-of-month invoice. Record the actu
 used baseline before switching; never reset the allowance because a subscription changed. Exhaustion should
 disable extra web search clearly while paper-only answers and free metadata remain usable. Native Anthropic
 search is currently gated off because its hidden result-token cost lacks a proven bound; it is not an
-automatic uncapped fallback. A free-plan scenario lowers this illustrative first-month envelope from $67
-to $37, and later fixed months from $65 to $35; variable provider use remains separate.
+automatic uncapped fallback. A free-plan scenario lowers this illustrative first-month envelope from $68
+to $38, and later fixed months from $68 to $38; variable provider use remains separate.
 [Tavily pricing and resets](https://www.tavily.com/pricing).
 
 Free download should permit reading retained papers and a small shared podcast sample, with **no automatic
@@ -239,12 +246,15 @@ sandbox and are never arbitrary server execution. Tool-written library changes s
 and the current dataset epoch. Podcast generation is an explicit quoted action, never an implicit model
 tool expenditure. Measure cost per completed answer/profile, not just transport attempt averages.
 
-## Three decisions to close before activation
+## Historical decisions to close before activation
+
+The three decisions below describe the pre-deployment review from 2026-10-08. The current podcast allowance and
+worker safeguards above supersede the old `$2` seed proposal; the public customer offers remain unchanged.
 
 1. **Public offers:** accept 500/1,200 and a new 250 pack as a launch candidate, preserving existing benefits,
    with the stated workload gate; or retain 800/1,800/400 pending more beta evidence. Recommendation: adopt
    the candidate for evaluation, change no live offers yet, and verify Small Business enrollment.
-2. **Shared catalog funding:** authorize up to **$2 total** for the first two five-minute curated episodes,
+2. **Shared catalog funding (historical):** authorize up to **$2 total** for the first two five-minute curated episodes,
    admitted at up to $0.75 each, inside the current $25 provider allocation. Remaining allowance supports
    explicit QA only; no automatic replenishment. Recommendation: platform-funded seeds and free reuse;
    defer public customer sponsorship and marketplace/revenue sharing.

@@ -967,9 +967,16 @@ remain tab-memory only and are described that way; durable offline chat requires
 review. No Safari fallback, plaintext persistence, provider call or hosted deployment accompanies this branch.
 Detailed bounds, behavior and evidence: [Browser reader › Chat](architecture/BROWSER_READER.md#chat-milestone-2).
 
-## Paper podcasts v1 (owner asked 2026-10-08)
+## Paper podcasts v1 (historical design record; current rollout is v2)
 
-Owner: "build the notebook LM podcasts feature please". The lead read the request as accepting two of the three [pricing decisions](research/PRICING_RECOMMENDATION_20261008.md#three-decisions-to-close-before-activation);
+The table below records the pre-deployment v1 choices and implementation constraints. The current staging rollout
+is documented in [Implementation status](IMPLEMENTATION_STATUS.md) and [Paper podcasts](architecture/PAPER_PODCASTS.md):
+migrations 051–055 are applied, the active worker is `gradstep-pipeline-00027-9mv`, the four v2 profiles are enabled,
+and the October curated allowance is `$3` / ten operator-seeded, review-gated episodes. Where the historical table
+mentions the old `$2`/`$5` seed pilot or v1 profile ceilings, those values remain audit history and do not describe
+the current catalog policy.
+
+Owner: "build the notebook LM podcasts feature please". The lead read the request as accepting two of the three [pricing decisions](research/PRICING_RECOMMENDATION_20261008.md#historical-decisions-to-close-before-activation);
 Decision 1 (public offers 500/1,200/250) is out of scope and unchanged. Design: [Paper podcasts](architecture/PAPER_PODCASTS.md).
 
 | Decision | Choice |
@@ -989,12 +996,14 @@ Decision 1 (public offers 500/1,200/250) is out of scope and unchanged. Design: 
 | Review reasons, checker v4 (agent decision, reversible, 2026-10-08) | After a third seed job (worker 00015) failed only because the review returned "reject" with empty lists and no reason (11/11 quotes verified; the checker would have kept 20 of 22 turns), the review returns reason codes (`misrepresents_main_result`, `fabricated_detail`, `wrong_numbers`, `unsupported_claims`, `speculation_presented_as_finding`, `too_many_problems`, `other`, each with segment ids; required with a reject) and is told to repair before rejecting. A reject whose reasons are only `unsupported_claims` / `wrong_numbers` / `speculation_presented_as_finding` and name their segments becomes the removal of those segments, bounded by v3's limits counted against the whole draft (≤ 30% of turns removed, every chapter keeps its support); severe reasons, no reasons, or a reason naming no segment keep the reject. Reports record the verdict, action, codes and segment ids, never text (050 unchanged). Worker only: profiles, routes, grants and ceilings unchanged. See [Seed pilot fix 3](architecture/PAPER_PODCASTS.md#seed-pilot-fix-3-review-reasons-checker-v4-and-the-5-cap-2026-10-08). |
 | Long lengths (agent decision, reversible) | Ten and twenty minutes run in stages (draft, review, speech — one worker request each) with the draft and approved script checkpointed in the database between stages, because a twenty-minute script cannot fit one 780 s request. Speech is chunked within Gemini TTS's per-call limits, all chunks granted together and sent concurrently, joined at a natural pause. See [Lengths](architecture/PAPER_PODCASTS.md#lengths-short-5-10-and-20-minutes). |
 
-## Chat model, effort and length; topic titles (owner asked 2026-10-08; agent decisions, reversible)
+## Chat model, effort and length; topic titles (historical design record; current rollout is live)
 
 Owner: "chats should have the ability to customize the length and effort and model right there in the chat in a clear
 UX", and (TestFlight build 21) "Each chat should have a labeled title on the topic of the chat in the same way that
-ChatGPT does … embedded everywhere in the app". Built on branch `chat-controls-titles`; not deployed, migration 047
-not applied, no paid request made. Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-10-08).
+ChatGPT does … embedded everywhere in the app". The original implementation was built on branch
+`chat-controls-titles`; that pre-rollout branch state is historical. Migration 047 and the chat function are now
+deployed on staging, and native/browser controls and titles are merged to main for the current Build 24 candidate.
+Details and contract: [chat](architecture/CHAT.md#models-effort-and-length-2026-10-08).
 
 | Decision | Choice |
 |---|---|
@@ -1006,4 +1015,4 @@ not applied, no paid request made. Details and contract: [chat](architecture/CHA
 | Rate card | Corrected to the price list: Sonnet 5.5 cache reads $0.10/MTok (were charged at $0.20); unknown models at the Opus 5 card. |
 | UX | iOS/iPad: a capsule in the message box under the text, beside Send (Gemini's arrangement), opening "Answers in this chat"; Settings › Chat defaults; a quiet "Sonnet · Low · Standard" under answers. A chat keeps its newest answer's choice; selection actions carry the visible choice. |
 | Titles | Haiku 5.5 writes a 3–7 word topic title in parallel with the first answer, inside the same metered operation (≈ 0.02 credit), sent as an SSE `title` event, stored by the device as an encrypted conversation revision (`titleSource`). Untitled chats get one on their next question; no bulk generation. Rename everywhere; a generated title never replaces a renamed one. |
-| Web | Contract documented for Codex (owner moved web and Mac-only work to Codex on 2026-10-08); `apps/web` is unchanged by this branch (an earlier web implementation is kept in history only, commits `338e628`, `c286bdf`). |
+| Web | Contract documented for Codex (owner moved web and Mac-only work to Codex on 2026-10-08); the integrated browser implementation is now deployed and its current status is in `BROWSER_READER.md`. The earlier branch commits (`338e628`, `c286bdf`) remain historical. |
