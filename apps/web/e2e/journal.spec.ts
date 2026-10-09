@@ -134,13 +134,13 @@ test('version-1 activation waits for an explicit acknowledgement; deferring leav
     r.onsuccess = () => { r.result.close(); resolve(); }; r.onerror = () => reject(r.error);
   }));
   await login(page);
-  await expect(page.getByRole('heading', { name: 'Save drafts in this browser' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Enable saved drafts' })).toBeDisabled();
+  await expect(page.getByRole('heading', { name: 'Save unfinished chats' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save drafts' })).toBeDisabled();
   expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === 'gradstep')?.version)).toBe(1);
-  await page.getByRole('button', { name: 'Continue without saved drafts' }).click(); await openChat(page);
+  await page.getByRole('button', { name: 'Skip for now' }).click(); await openChat(page);
   await expect(page.getByTestId('draft-status')).toContainText('aren’t kept after a reload');
   await page.reload();
-  await page.getByRole('checkbox', { name: 'I saved or copied' }).check(); await page.getByRole('button', { name: 'Enable saved drafts' }).click();
+  await page.getByRole('checkbox', { name: 'I saved or copied' }).check(); await page.getByRole('button', { name: 'Save drafts' }).click();
   await expect(page.getByTestId('reader-frame')).toBeVisible();
   expect(await page.evaluate(async () => (await indexedDB.databases()).find(d => d.name === 'gradstep')?.version)).toBe(2);
   await expect(page.getByTestId('draft-status')).toContainText('Saved on this device.');

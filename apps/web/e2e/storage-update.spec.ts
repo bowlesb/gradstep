@@ -25,7 +25,7 @@ async function login(page: Page) {
   await page.getByTestId('email').fill('returning@example.test'); await page.getByTestId('send-code').click();
   await page.getByTestId('code').fill('123456'); await page.getByTestId('verify').click();
   await page.getByTestId('use-recovery-code').click(); await page.getByTestId('recovery-code').fill(RECOVERY_CODE); await page.getByTestId('recover').click();
-  await page.getByRole('button', { name: 'Continue without saved drafts' }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByTestId('library-table')).toBeVisible();
 }
 async function openPaperChat(page: Page) {
