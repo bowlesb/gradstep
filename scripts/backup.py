@@ -149,7 +149,7 @@ def backup(environment, output):
                 if dump.poll() is None:
                     dump.kill(); dump.wait()
         for item in objects:
-            if item['bucket'] not in ['paper-assets','private-content','support'] or not re.fullmatch(r'[0-9a-f-]{36}', item['id']):
+            if item['bucket'] not in ['paper-assets','paper-uploads','podcast-assets','private-content','support'] or not re.fullmatch(r'[0-9a-f-]{36}', item['id']):
                 raise RuntimeError('Unexpected object identity')
             path = item['path']
             if path.startswith('/') or any(part in ['', '.', '..'] for part in path.split('/')) or '\\' in path:
