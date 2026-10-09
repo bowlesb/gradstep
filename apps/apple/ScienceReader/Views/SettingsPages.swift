@@ -205,6 +205,7 @@ struct AboutView: View {
                 LabeledContent("Edition", value: "Private beta · staging")
             }
             Section {
+                NavigationLink("How Gradstep works") { GradstepInfoView() }.accessibilityIdentifier("about.howGradstepWorks")
                 NavigationLink("Privacy & data") { PrivacyView() }.accessibilityIdentifier("about.privacy")
                 NavigationLink("Acknowledgements") { AcknowledgementsView() }.accessibilityIdentifier("about.acknowledgements")
             }
@@ -220,5 +221,46 @@ struct AboutView: View {
               let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
               let files = primary["CFBundleIconFiles"] as? [String], let name = files.last else { return nil }
         return UIImage(named: name)
+    }
+}
+
+/// A compact, user-facing explanation of the data paths and cost controls. Keep this separate from the legal privacy
+/// page: it explains why a response can cost credits and which model/provider paths are involved without promising
+/// provider-specific retention or pretending that encryption at rest hides text during a requested computation.
+struct GradstepInfoView: View {
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        Form {
+            Section {
+                Text("Gradstep keeps your research useful across devices while sending only the material needed for the action you ask for. Local paper storage, encrypted sync and AI processing are separate paths.")
+            } header: { Text("The short version") }
+
+            Section {
+                Text("Library metadata, tags, reading state and encrypted chat events can sync through Gradstep. Chat and note content is encrypted before sync; the keys stay with your approved devices and recovery code.")
+                Text("Paper files follow their source and rights. Default-license arXiv papers are available from arXiv and can be kept on your device for reading. Rights-cleared or explicitly permitted conversions can be shared to avoid repeating OCR. User-uploaded and private papers stay account-scoped.")
+                Text("When you ask for equation-aware preparation, Mathpix receives the PDF or permitted processing asset. An AI answer sends the relevant question, selected passage, conversation context and paper text to the selected model provider. Encryption protects stored copies; it does not hide content from a provider during a computation you requested.")
+                Text("Optional web search sends search queries to the configured search provider. Provider retention and handling follow that provider's terms; Gradstep does not promise zero provider retention.")
+            } header: { Text("What leaves your device") }
+
+            Section {
+                Text("A credit is a Gradstep usage unit, not cash. Before an AI action, the server estimates the work and reserves a bounded maximum. When it finishes, the actual measured usage is settled. Retries use the same operation identity so a lost response does not charge twice.")
+                Text("Paper preparation, chat, search and podcasts have separate limits and accounting. Shared eligible conversions and ready-made podcast episodes avoid repeating provider work. Account and platform budgets stop one user or a provider outage from creating an unlimited bill.")
+                Text("Tokens are the text units providers use for billing; they are not the same as words. The cost of an answer depends on the paper and conversation size, cached context, model, effort, answer length, tools and searches, and the tokens actually used. The chat controls show an estimate and maximum before work starts.")
+            } header: { Text("How we keep costs bounded") }
+
+            Section {
+                Text("Current chat answers use Anthropic's Claude models: Haiku is the fast, lower-cost choice for simpler work, Sonnet is the default balance of quality and cost, and Opus is reserved for harder reasoning. Mathpix prepares equations when you request it; search and speech use separate providers when enabled. The server enforces the available profiles and records the model that actually answered, including an approved fallback.")
+                Text("A lower-priced model is not automatically a safe replacement for scientific reading. Before adding a provider such as DeepSeek, we compare equation handling, citations, long-paper quality, privacy terms, latency, structured tools and real measured cost. We will not trade away reliability for a price number alone.")
+            } header: { Text("Models and providers") }
+
+            Section {
+                Text("You choose the chat profile and answer length, and you can leave web search off. Each request is bounded before it runs, and the app shows what was charged afterward. If a paper or answer behaves unexpectedly, Report this screen so we can inspect the workflow and its accounting record.")
+            } header: { Text("Your controls") }
+        }
+        .font(.subheadline)
+        .readableScrollColumn(width: width)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .navigationTitle("How Gradstep works").navigationBarTitleDisplayMode(.inline)
     }
 }

@@ -169,6 +169,11 @@ for (const [width, height] of [[1440, 900], [1920, 1080]] as const) {
       await page.keyboard.press('?');
       await expect(page.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeVisible();
       await page.keyboard.press('Escape');
+      await page.getByTestId('account-menu').click();
+      await page.getByTestId('how-gradstep-works').click();
+      await expect(page.getByTestId('how-gradstep-works-dialog')).toBeVisible();
+      await expect(page.getByText('A credit is a Gradstep usage unit, not cash.')).toBeVisible();
+      await page.getByRole('button', { name: 'Done' }).click();
       expect(problems).toEqual([]);
     });
   }

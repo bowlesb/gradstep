@@ -26,6 +26,7 @@ import { PaneHeader, Workspace, useWorkspace } from './Shell';
 import { SignIn } from './SignIn';
 import { StorageNotice, storageGuidance } from './StorageNotice';
 import { ReportDialog, ReportsDialog } from './SupportReports';
+import { HowGradstepWorks } from './HowGradstepWorks';
 import { useLibrary } from './useLibrary';
 
 type Ready = Extract<Preparation, { kind: 'ready' }>;
@@ -128,6 +129,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
   const [signingOut, setSigningOut] = useState(false);
   const [forget, setForget] = useState(false);
   const [chats, setChats] = useState(false);
+  const [howGradstepWorks, setHowGradstepWorks] = useState(false);
   const [help, setHelp] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
@@ -388,7 +390,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
             title={resolved === 'dark' ? 'Light appearance' : 'Dark appearance'} data-testid="theme"><Icon name={resolved === 'dark' ? 'sun' : 'moon'} /></button>
           <button className={`icon-button chat-toggle${ws.right.open ? ' on' : ''}`} onClick={() => ws.toggle('right')} aria-label="Chat panel" aria-pressed={ws.right.open} title="Chat panel ( ] )">
             <Icon name="panelRight" /></button>
-          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
+          <AccountMenu email={session.user.email} theme={theme} setTheme={setTheme} onHelp={() => setHelp(true)} onInfo={() => setHowGradstepWorks(true)} onReport={() => setReportOpen(true)} onReports={() => setReportsOpen(true)} onSignOut={() => setSigningOut(true)}
             onChatDefaults={chat ? () => setChatDefaults(true) : null} />
         </div>
       </header>
@@ -415,6 +417,7 @@ function Signed({ session, ready }: { session: Session; ready: Ready }) {
         <p className="fine">On Windows and Linux, use Ctrl for ⌘.</p>
         <div className="dialog-actions"><button className="primary" onClick={() => setHelp(false)}>Done</button></div>
       </Dialog>
+      <HowGradstepWorks open={howGradstepWorks} onClose={() => setHowGradstepWorks(false)} />
       <Dialog open={signingOut} onClose={() => { if (!leaving) setSigningOut(false); }} title="Sign out">
         <h2>Sign out?</h2>
         <p className="muted">This browser stays approved, so signing in again won’t need your recovery code.</p>
@@ -438,7 +441,7 @@ function ChatDefaults({ chat, open, onClose }: { chat: ChatSession; open: boolea
   return <ChatDefaultsDialog open={open} onClose={onClose} table={chat.profileTable} choice={chat.defaultProfile} onChange={next => chat.setDefaultProfile(next)} onRetry={() => chat.reloadProfiles()} />;
 }
 
-function AccountMenu({ email, theme, setTheme, onHelp, onReport, onReports, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
+function AccountMenu({ email, theme, setTheme, onHelp, onInfo, onReport, onReports, onSignOut, onChatDefaults }: { email: string | null; theme: Theme; setTheme: (t: Theme) => void; onHelp: () => void; onInfo: () => void; onReport: () => void; onReports: () => void; onSignOut: () => void;
   onChatDefaults: (() => void) | null }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -463,6 +466,7 @@ function AccountMenu({ email, theme, setTheme, onHelp, onReport, onReports, onSi
               {t === 'system' ? 'System' : t === 'light' ? 'Light' : 'Dark'}</button>)}
           </div>
           <button role="menuitem" className="menu-item" disabled={!onChatDefaults} onClick={() => { setOpen(false); onChatDefaults?.(); }} data-testid="chat-defaults"><Icon name="chat" size={14} /> Chat defaults…</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onInfo(); }} data-testid="how-gradstep-works"><Icon name="info" size={14} /> How Gradstep works</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReport(); }} data-testid="report-issue"><Icon name="bug" size={14} /> Report this screen…</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onReports(); }} data-testid="my-reports"><Icon name="bubble" size={14} /> My reports</button>
           <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onHelp(); }}><Icon name="keyboard" size={14} /> Keyboard shortcuts</button>

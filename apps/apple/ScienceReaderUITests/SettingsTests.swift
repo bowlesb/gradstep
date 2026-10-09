@@ -1,7 +1,7 @@
 import XCTest
 
 /// Settings (owner feedback, build 14 #8/#9) over local fixtures: the Account row and its page, the theme as a visible
-/// choice, and About with version, privacy and acknowledgements. Signing out and deleting for real run against staging
+/// choice, About with version, data/cost explanation, privacy and acknowledgements. Signing out and deleting for real run against staging
 /// (`LiveJourneyTests`) and in `AuthenticationWorkflowTests`.
 @MainActor
 final class SettingsTests: XCTestCase {
@@ -88,7 +88,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(about.isHittable); about.tap()
         XCTAssertTrue(app.navigationBars["About"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["about.version"].exists)
+        XCTAssertTrue(app.buttons["about.howGradstepWorks"].exists)
         XCTAssertTrue(app.buttons["about.privacy"].exists)
+        app.buttons["about.howGradstepWorks"].tap()
+        XCTAssertTrue(app.navigationBars["How Gradstep works"].waitForExistence(timeout: 5))
+        XCTAssertTrue(element(labelContaining: "A credit is a Gradstep usage unit", in: app).exists)
+        app.navigationBars["How Gradstep works"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["About"].exists)
         app.buttons["about.acknowledgements"].tap()
         XCTAssertTrue(app.navigationBars["Acknowledgements"].waitForExistence(timeout: 5))
         XCTAssertTrue(element(labelContaining: "readable versions of papers", in: app).waitForExistence(timeout: 5))
