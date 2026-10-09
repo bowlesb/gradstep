@@ -68,9 +68,14 @@ struct PodcastGenerateSheet: View {
             progress(job)
         case .finished(let job):
             finished(job)
-        case .failed(let message):
-            StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: message, messageID: "podcast.generate.error") { EmptyView() }
-            Button("Try again") { center.requestQuote() }.font(.body.weight(.semibold))
+        case .failed(let failure):
+            if failure.isSourceTooLarge {
+                sourceTooLarge()
+            } else {
+                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: failure.message, messageID: "podcast.generate.error") { EmptyView() }
+                Button("Try again") { center.requestQuote() }
+                    .font(.body.weight(.semibold)).accessibilityIdentifier("podcast.generate.retry")
+            }
         }
     }
 
@@ -201,10 +206,43 @@ struct PodcastGenerateSheet: View {
             StatusBanner(tone: .problem, systemImage: "exclamationmark.shield", message: "This episode is held back for review and can’t be played.")
             charges(job)
         default:
-            StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: Self.failure(job.failure), messageID: "podcast.generate.failed") { EmptyView() }
-            charges(job)
-            Text("Nothing is retried automatically. You can get a new estimate later.").font(.footnote).foregroundStyle(.secondary)
+            if job.failure == "source_too_large" {
+                sourceTooLarge()
+                charges(job)
+            } else {
+                StatusBanner(tone: .problem, systemImage: "exclamationmark.circle", message: Self.failure(job.failure), messageID: "podcast.generate.failed") { EmptyView() }
+                charges(job)
+                Text("Nothing is retried automatically. You can get a new estimate later.").font(.footnote).foregroundStyle(.secondary)
+            }
         }
+    }
+
+    /// A source-size refusal is a product boundary, not a transient failure. Give the reader a clear explanation and
+    /// a route back to an already prepared episode instead of a retry loop that can never fit this source.
+    @ViewBuilder private func sourceTooLarge() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("This paper is too long for a full-paper episode at any available length", systemImage: "doc.text.magnifyingglass")
+                .font(.title3.weight(.semibold)).foregroundStyle(.primary)
+                .accessibilityIdentifier("podcast.generate.sourceTooLarge")
+            Text("Nothing was charged. Gradstep does not silently cut off a paper, so this request stopped before paid work could continue.")
+                .font(.body).fixedSize(horizontal: false, vertical: true)
+            Button {
+                center.generation = nil
+                center.listenSelected = true
+                model.tab = .feed
+                model.wideMode = .feed
+                dismiss()
+            } label: {
+                Label("Browse shared episodes", systemImage: "headphones")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("podcast.generate.browseShared")
+            Text("You can also close this sheet and keep reading the paper. Section-based episodes are not available yet.")
+                .font(.footnote).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     @ViewBuilder private func charges(_ job: PodcastJob) -> some View {
@@ -219,7 +257,7 @@ struct PodcastGenerateSheet: View {
     static func failure(_ code: String?) -> String {
         switch code {
         case "quality_rejected": "The episode didn’t pass our checks against the paper, so it wasn’t published."
-        case "source_too_large": "This paper is too long to make into an episode."
+        case "source_too_large": "This paper is too long for a full-paper episode."
         case "provider_refused": "A provider declined to make this episode."
         case "worker_interrupted": "Making the episode was interrupted."
         default: "The episode couldn’t be made."

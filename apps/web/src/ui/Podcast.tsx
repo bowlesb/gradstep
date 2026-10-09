@@ -457,14 +457,15 @@ function generationMessage(error: unknown) {
   if (code === 'insufficient_credits') return 'There aren’t enough available credits. Add credits in Gradstep on iPhone, iPad or Mac, then retry this estimate.';
   if (code === 'quote_expired' || code === 'quote_unavailable') return 'This estimate expired. Get a new estimate before confirming.';
   if (code === 'podcast_unavailable' || code === 'podcast_paused') return 'Private episodes aren’t available right now. You can keep reading.';
-  if (code === 'source_unavailable' || code === 'source_too_large') return 'This paper can’t be used for a private episode yet.';
+  if (code === 'source_unavailable') return 'This paper’s converted text is not available for a private episode yet.';
+  if (code === 'source_too_large') return 'This paper is longer than a full-paper episode can handle at any available length. Nothing was charged.';
   if (['request_rate_limit', 'podcast_daily_limit', 'active_generation_limit', 'podcast_busy', 'too_many_active_operations'].includes(code)) return 'Episode requests are busy or at their limit. Wait before checking again.';
   if (code === 'platform_budget_exhausted' || code === 'storage_full') return 'New episodes are paused for capacity. You can keep reading.';
   return 'The request could not be confirmed. Check the status or retry the same request.';
 }
 
 /** Mount beside a synced paper's existing toolbar actions. No quote or paid start happens on mount/open. */
-export function PaperListen({ account, itemID, title, player }: { account: string; itemID: string; title: string; player: PlayerModel }) {
+export function PaperListen({ account, itemID, title, player, onBrowseShared }: { account: string; itemID: string; title: string; player: PlayerModel; onBrowseShared?: () => void }) {
   const owner = useAccountOwner(account);
   const tracking = useMemo(() => new PodcastRequests(account, owner), [account, owner]);
   const [shown, setShown] = useState(false);
@@ -477,13 +478,14 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const [trackingBlocked, setTrackingBlocked] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [pollPaused, setPollPaused] = useState(false);
+  const [sourceTooLarge, setSourceTooLarge] = useState(false);
   const [wakeRevision, setWakeRevision] = useState(0);
   const requestID = useRef<string | null>(null);
   const pending = useRef<AbortController | null>(null);
   const visible = useRef(shown); visible.current = shown;
   const startedPolling = useRef(0);
   const reset = useCallback(() => { pending.current?.abort(); pending.current = null; requestID.current = null;
-    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); setUnavailable(false); setTrackingBlocked(false); }, []);
+    setShown(false); setPaper(null); setQuote(null); setJob(null); setBusy(null); setIssue(null); setUncertainStart(false); setPollPaused(false); setUnavailable(false); setTrackingBlocked(false); setSourceTooLarge(false); }, []);
   useEffect(() => {
     reset(); owner.signal.addEventListener('abort', reset, { once: true });
     return () => { owner.signal.removeEventListener('abort', reset); reset(); };
@@ -496,6 +498,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
     return controller;
   };
   const live = (c: AbortController) => !c.signal.aborted && !owner.signal.aborted && pending.current === c && auth.snapshot().generation === owner.generation;
+  const isSourceTooLarge = (error: unknown) => error instanceof BackendError && error.code === 'source_too_large';
   const confirmed = (id: string) => {
     // Failure to remove a confirmed hint is safe: the next open reconciles the same ID again.
     try { tracking.resolve(itemID, id); } catch { /* never replace an unresolved stored identity */ }
@@ -503,6 +506,8 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   const acceptJob = (next: Job) => {
     confirmed(next.requestID);
     requestID.current = next.requestID; setJob(next); setQuote(null); setUncertainStart(false);
+    setSourceTooLarge(next.failure === 'source_too_large');
+    if (next.failure === 'source_too_large') setIssue(null);
     if (!startedPolling.current) startedPolling.current = Date.now();
   };
   const acceptResult = async (next: RequestResult, id: string, c: AbortController, discovery = paper) => {
@@ -520,7 +525,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
   };
   const load = async () => {
     const c = begin('paper'); if (!c) return;
-    visible.current = true; setShown(true); setUnavailable(false); setPaper(null); setTrackingBlocked(false);
+    visible.current = true; setShown(true); setUnavailable(false); setPaper(null); setTrackingBlocked(false); setSourceTooLarge(false);
     let retained = null;
     try { retained = tracking.get(itemID); }
     catch (e) { setTrackingBlocked(true); setIssue(generationMessage(e)); }
@@ -536,9 +541,10 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
         await acceptResult(outcome, retained.requestID, c, result);
       } else {
         setQuote(null); setJob(result.job); setUncertainStart(false);
+        if (result.job?.failure === 'source_too_large') { setSourceTooLarge(true); setIssue(null); }
         requestID.current = result.job?.requestID ?? crypto.randomUUID();
       }
-    } catch (e) { if (live(c)) { if (!retained && featureUnavailable(e)) setUnavailable(true); else setIssue(generationMessage(e)); } }
+    } catch (e) { if (live(c)) { if (!retained && featureUnavailable(e)) setUnavailable(true); else if (isSourceTooLarge(e)) { setSourceTooLarge(true); setIssue(null); } else setIssue(generationMessage(e)); } }
     finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const estimate = async () => {
@@ -558,7 +564,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
           setPaper({ ...paper, episode: { ...e, title: e.scope === 'private' ? title : e.title } }); setQuote(null);
         }
       }
-    } catch (e) { if (live(c)) setIssue(generationMessage(e)); }
+    } catch (e) { if (live(c)) { if (isSourceTooLarge(e)) { setSourceTooLarge(true); setIssue(null); } else setIssue(generationMessage(e)); } }
     finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const start = async () => {
@@ -574,7 +580,8 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
       await acceptResult(await podcastStart(account, capturedQuote, id, c.signal), id, c);
     } catch (e) {
       if (live(c)) {
-        setIssue(wasUncertain && e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)
+        if (isSourceTooLarge(e)) { setSourceTooLarge(true); setIssue(null); }
+        else setIssue(wasUncertain && e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)
           ? 'This estimate expired, but the earlier request may have started. Check its status before starting another.' : generationMessage(e));
         if (e instanceof PodcastTrackingError) setTrackingBlocked(true);
         else if (!wasUncertain && e instanceof BackendError && ['quote_expired', 'quote_unavailable'].includes(e.code)) {
@@ -591,7 +598,7 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
     try {
       if (cancel) { const next = await podcastCancel(account, id, c.signal); if (live(c)) acceptJob(next); }
       else await acceptResult(await podcastStatus(account, id, c.signal), id, c);
-    } catch (e) { if (live(c)) { setIssue(generationMessage(e)); setPollPaused(true); } }
+    } catch (e) { if (live(c)) { if (isSourceTooLarge(e)) { setSourceTooLarge(true); setIssue(null); } else setIssue(generationMessage(e)); setPollPaused(true); } }
     finally { if (live(c)) { pending.current = null; setBusy(null); } }
   };
   const latestUpdate = useRef(updateJob); latestUpdate.current = updateJob;
@@ -625,13 +632,22 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
         <div className="dialog-head"><h2>Listen</h2><button className="icon-button" aria-label="Close Listen" onClick={close}><Icon name="close" /></button></div>
         <strong>{title}</strong>
         {busy && <p role="status"><span className="spinner small" /> {busy === 'quote' ? 'Getting an estimate…' : busy === 'start' ? 'Starting…' : busy === 'cancel' ? 'Canceling…' : 'Checking availability…'}</p>}
-        {issue && <p className="issue" role="alert">{issue}</p>}
+        {issue && !sourceTooLarge && <p className="issue" role="alert">{issue}</p>}
         {trackingBlocked && <button className="secondary" disabled={!!busy} onClick={() => void load()}>Check availability</button>}
         {unavailable && <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
         {!paper && !busy && !unavailable && !trackingBlocked && <button className="secondary" onClick={() => void load()}>Check availability</button>}
-        {paper && ready && <><p>Your episode is ready. AI audio and a source-linked transcript.</p><button className="primary" disabled={!paper.capabilities.delivery || !!busy} onClick={() => void play()}>Play episode</button>
+        {sourceTooLarge && <div className="podcast-too-large" role="alert" data-testid="podcast-source-too-large">
+          <strong>This paper is too long for a full-paper episode at any available length.</strong>
+          <p>Nothing was charged. Gradstep does not silently cut off a paper, so this request stopped before paid work could continue.</p>
+          <p className="fine">Section-based episodes are not available yet. Browse the shared Listen feed for an episode that is already prepared, or return to the paper.</p>
+          <div className="podcast-too-large-actions">
+            {onBrowseShared && <button className="secondary" disabled={!!busy} data-testid="podcast-browse-shared" onClick={() => { close(); onBrowseShared(); }}>Browse shared episodes</button>}
+            <button className="link" disabled={!!busy} onClick={close}>Back to paper</button>
+          </div>
+        </div>}
+        {paper && ready && !sourceTooLarge && <><p>Your episode is ready. AI audio and a source-linked transcript.</p><button className="primary" disabled={!paper.capabilities.delivery || !!busy} onClick={() => void play()}>Play episode</button>
           {!paper.capabilities.delivery && <p>Listening is temporarily unavailable.</p>}</>}
-        {job && <>
+        {job && !sourceTooLarge && <>
           <p role="status" data-testid="podcast-job-state">{jobLabels[job.state]}</p>
           <p data-testid="podcast-charges">{job.chargedCredits === null ? `Holding up to ${job.heldCredits} credits until the final charge is recorded.` : `${job.chargedCredits} credits charged${job.releasedCredits === null ? '' : ` · ${job.releasedCredits} released`}.`}</p>
           {!jobTerminal(job) && <><p className="fine">Closing this sheet keeps generation running. Cancel stops future work; usage already completed may be charged.</p>
@@ -639,12 +655,12 @@ export function PaperListen({ account, itemID, title, player }: { account: strin
           {(pollPaused || jobTerminal(job)) && <p className="fine">{pollPaused ? 'Automatic status checks are paused.' : 'Nothing is retried automatically.'}</p>}
           <button className="link" disabled={!!busy} onClick={() => { startedPolling.current = Date.now(); setPollPaused(false); void updateJob(); }}>Refresh status</button>
         </>}
-        {paper && !ready && !job && !quote && <>
+        {paper && !ready && !job && !quote && !sourceTooLarge && <>
           {paper.capabilities.generation ? <><p>Make a private, five-minute episode with two AI hosts and a transcript linked to the paper.</p>
             <p className="fine">You’ll see the credit estimate before anything is held.</p><button className="primary" disabled={!!busy || trackingBlocked} onClick={() => void estimate()}>Get an estimate</button></>
             : <p data-testid="podcast-generation-unavailable">Episodes aren’t available for this paper yet. You can keep reading.</p>}
         </>}
-        {quote && !ready && !job && <>
+        {quote && !ready && !job && !sourceTooLarge && <>
           <div className="podcast-estimate"><strong data-testid="podcast-estimate">{quote.estimate}</strong><p>Starting holds up to {quote.maxCredits} credits. You’re charged for work actually done, and the rest is released. Quality failures charge no credits.</p></div>
           <p>The paper’s converted text is sent to {quote.providers.join(' and ')}. Chats, notes and highlights are never used.</p>
           <p>The audio and transcript are stored privately for your account. They aren’t end-to-end encrypted.</p>

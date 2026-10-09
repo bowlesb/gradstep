@@ -317,6 +317,24 @@ final class PodcastJourneyTests: XCTestCase {
         XCTAssertFalse(app.buttons["podcast.generate.play"].exists)
     }
 
+    func testOverlongPaperExplainsBoundaryAndOffersAUsefulRoute() {
+        let app = launch(["--library-metadata-fixture", "--podcast-fixture-generation=source-too-large"])
+        let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]
+        XCTAssertTrue(lora.waitForExistence(timeout: 10))
+        lora.press(forDuration: 1.2)
+        app.buttons["Listen"].tap()
+        let quote = app.buttons["podcast.generate.quote"]
+        XCTAssertTrue(quote.waitForExistence(timeout: 10)); quote.tap()
+        let start = app.buttons["podcast.generate.start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5)); start.tap()
+        let message = element(app, "podcast.generate.sourceTooLarge")
+        XCTAssertTrue(message.waitForExistence(timeout: 15), "The overlong source gets an actionable explanation")
+        XCTAssertTrue(message.label.contains("too long for a full-paper episode at any available length"), message.label)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Nothing was charged")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["podcast.generate.browseShared"].exists, "The listener can browse already prepared episodes")
+        XCTAssertFalse(app.buttons["podcast.generate.retry"].exists, "An impossible request is not presented as a retryable failure")
+    }
+
     func testUnresolvedPreviousOutcomeIsExplainedBeforeAnythingIsHeld() {
         let app = launch(["--library-metadata-fixture", "--podcast-fixture-outcome-pending"])
         let lora = app.buttons["paper.eeeeeeee-0000-0000-0000-000000000003"]

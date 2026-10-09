@@ -15,8 +15,36 @@ struct PodcastAccount {
 
 /// A private-generation sheet: a length, its quote, explicit consent, then the server job's progress and charges.
 struct PodcastGeneration: Identifiable, Equatable {
+    enum Failure: Equatable {
+        case sourceTooLarge
+        case message(String)
+
+        var message: String {
+            switch self {
+            case .sourceTooLarge:
+                return "This paper is longer than a full-paper episode can handle."
+            case .message(let value):
+                return value
+            }
+        }
+
+        var isSourceTooLarge: Bool {
+            if case .sourceTooLarge = self { return true }
+            return false
+        }
+
+        static func from(_ error: Error) -> Self {
+            if let backend = error as? BackendError,
+               case .rejected(let code) = backend,
+               code == "source_too_large" {
+                return .sourceTooLarge
+            }
+            return .message(error.podcastMessage)
+        }
+    }
+
     enum Phase: Equatable {
-        case offer, quoting, quoted(PodcastQuote), starting, running(PodcastJob), finished(PodcastJob), failed(String)
+        case offer, quoting, quoted(PodcastQuote), starting, running(PodcastJob), finished(PodcastJob), failed(Failure)
     }
     let id = UUID()
     let paperTitle: String
@@ -550,7 +578,7 @@ final class PodcastCenter {
                 guard generation?.id == current.id, generation?.selected == profile else { return }
                 // Quotes hold nothing: a retry may use a new request (an expired quote can't be revived).
                 generation?.quoteRequestIDs[profile] = nil
-                generation?.phase = .failed(error.podcastMessage)
+                generation?.phase = .failed(.from(error))
             }
         }
     }
@@ -563,6 +591,7 @@ final class PodcastCenter {
         switch current.phase {
         case .offer: quoted = false
         case .quoted, .failed: quoted = true
+        case .finished(let job) where job.state == .failed: quoted = true
         default: return
         }
         current.selected = profile
@@ -594,7 +623,7 @@ final class PodcastCenter {
                 try await follow(outcome, current, account: account)
             } catch {
                 guard generation?.id == current.id else { return }
-                generation?.phase = .failed(error.podcastMessage)
+                generation?.phase = .failed(.from(error))
             }
         }
     }

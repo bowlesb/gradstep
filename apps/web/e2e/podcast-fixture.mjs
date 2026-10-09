@@ -26,7 +26,7 @@ const transcript = { speakers: { explainer: 'Explainer', skeptic: 'Skeptical rea
 ] };
 let state, calls, grants, job, quoteIDs, reused;
 function reset() { state = { catalog: true, delivery: true, generation: true, releaseState: 'ready', paperReady: false, corrupt: false, memberDelay: 0, episodeDelay: 0,
-  loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote' }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); reused = new Set(); }
+  loseStart: false, readyAfter: 2, statusReads: 0, quoteOutcome: 'quote', quoteError: null }; calls = []; grants = new Set(); job = null; quoteIDs = new Map(); reused = new Set(); }
 reset();
 function jobShape(requestID, status = 'queued') { return { request_id: requestID, state: status, stage_entered_at: new Date().toISOString(), release_id: status === 'ready' ? release : null,
   held_credits: 150, charged_credits: status === 'ready' ? 43 : status === 'canceled' ? 0 : null, released_credits: status === 'ready' ? 107 : status === 'canceled' ? 150 : null, failure: null }; }
@@ -65,6 +65,7 @@ const server = http.createServer(async (req, res) => {
     json({ grant: { expires_at: new Date(Date.now() + 15 * 60_000).toISOString(), members: [{ role: 'audio', url: `http://127.0.0.1:${PORT}/functions/v1/podcast-member?grant=${grant}&member=${release}`, bytes: audio.length, sha256: hash, media_type: 'audio/wav' }] } }); return;
   }
   if (action === 'quote') {
+    if (state.quoteError) { json({ code: state.quoteError }, state.quoteError === 'source_too_large' ? 413 : 409); return; }
     if (state.quoteOutcome === 'reuse') { json({ reuse: { release_id: release } }); return; }
     if (state.quoteOutcome === 'join') { job ??= jobShape(randomUUID()); json({ join: { request_id: job.request_id } }); return; }
     const id = quoteIDs.get(value.request_id) ?? randomUUID(); quoteIDs.set(value.request_id, id);

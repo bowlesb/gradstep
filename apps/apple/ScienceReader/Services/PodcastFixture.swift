@@ -15,7 +15,7 @@ actor PodcastFixtureTransport: PodcastTransport {
     static let attentionRelease = UUID(uuidString: "fa000000-0000-4000-8000-000000000002")!
     static let fixtureAccount = UUID(uuidString: "fa000000-0000-4000-8000-0000000000ac")!
 
-    enum GenerationMode { case succeeds, fails }
+    enum GenerationMode { case succeeds, fails, sourceTooLarge }
     private let generation: GenerationMode
     private let empty: Bool
     /// `--podcast-fixture-outcome-pending`: the previous private episode's provider outcome is unresolved (quote refused).
@@ -25,7 +25,8 @@ actor PodcastFixtureTransport: PodcastTransport {
     private var quotes: [UUID: (itemID: UUID, length: PodcastLength)] = [:]
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
-        generation = arguments.contains("--podcast-fixture-generation=fail") ? .fails : .succeeds
+        generation = arguments.contains("--podcast-fixture-generation=source-too-large") ? .sourceTooLarge
+            : arguments.contains("--podcast-fixture-generation=fail") ? .fails : .succeeds
         empty = arguments.contains("--podcast-fixture-empty")
         outcomePending = arguments.contains("--podcast-fixture-outcome-pending")
         for spec in Self.catalogSpecs { let built = Self.build(spec); episodes[built.episode.id] = built }
@@ -132,9 +133,14 @@ actor PodcastFixtureTransport: PodcastTransport {
         if steps >= 7 {
             // Five minutes charges 46 of 150 (the journeys' figure); other lengths about the same share of their maximum.
             let charged = length.profile == PodcastLength.defaultProfile ? 46 : held * 3 / 10
-            return mode == .fails
-                ? PodcastJob(requestID: id, state: .failed, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: "quality_rejected", profile: profile)
-                : PodcastJob(requestID: id, state: .ready, stageEnteredAt: nil, releaseID: releaseID, heldCredits: held, chargedCredits: charged, releasedCredits: held - charged, failure: nil, profile: profile)
+            switch mode {
+            case .fails:
+                return PodcastJob(requestID: id, state: .failed, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: "quality_rejected", profile: profile)
+            case .sourceTooLarge:
+                return PodcastJob(requestID: id, state: .failed, stageEnteredAt: nil, releaseID: nil, heldCredits: held, chargedCredits: 0, releasedCredits: held, failure: "source_too_large", profile: profile)
+            case .succeeds:
+                return PodcastJob(requestID: id, state: .ready, stageEnteredAt: nil, releaseID: releaseID, heldCredits: held, chargedCredits: charged, releasedCredits: held - charged, failure: nil, profile: profile)
+            }
         }
         return PodcastJob(requestID: id, state: states[steps], stageEnteredAt: "2026-10-08T12:00:00Z", releaseID: nil, heldCredits: held,
                           chargedCredits: nil, releasedCredits: nil, failure: nil, profile: profile)

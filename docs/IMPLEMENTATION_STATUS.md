@@ -64,6 +64,11 @@ Catalyst purchase suite passes 6/6.
   `$0.472822`, no audio was generated, and neither release was published. The draft prompt now states an exact target
   (792 words for the 650–800-word five-minute profile) so later removals do not make an otherwise supported episode
   too short.
+- **Overlong source UX:** `source_too_large` is now a first-class client outcome. Native and browser listeners say
+  that the shared full-paper limit applies at every available length, confirm that no credits were charged, avoid a
+  retry dead end, and offer a direct return to reading; native and the signed-in browser can also open the shared
+  Listen catalog. Section-based episodes remain a future capability. The browser fix is ready for deployment; the
+  native change needs the next iOS/Mac TestFlight build after build 26.
 
 ## Commercial arXiv content gate — 2026-10-09
 

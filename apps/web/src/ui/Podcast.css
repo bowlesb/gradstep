@@ -73,3 +73,6 @@
 .podcast-generation h2 { margin: 0; }
 .podcast-estimate { padding: 14px; border-radius: 8px; background: var(--accent-muted); }
 .podcast-estimate p { margin-top: 8px; }
+.podcast-too-large { display: grid; gap: 10px; padding: 14px; border-radius: 8px; background: var(--accent-muted); }
+.podcast-too-large strong { font-size: 1.05rem; }
+.podcast-too-large-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

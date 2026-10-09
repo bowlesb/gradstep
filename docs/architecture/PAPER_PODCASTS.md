@@ -532,7 +532,7 @@ the caller's remaining bytes. Exhaustion is `podcast_transfer_limit` (429); alre
 | `request_rate_limit`, `podcast_transfer_limit` | 429 | Wait; say which limit |
 | `podcast_unavailable`, `podcast_paused` | 503 | Feature (or private generation after quality losses) switched off: hide/disable, keep reading |
 | `podcast_release_unavailable`, `podcast_request_unavailable` | 404 | Not visible to this account (no existence oracle) |
-| `source_unavailable` / `source_too_large` | 404 / 413 | Paper not converted (or its text over the profile bound): no generation offered |
+| `source_unavailable` / `source_too_large` | 404 / 413 | Paper not converted (or its text over the shared full-paper input bound): no paid generation is offered. The clients explain the boundary, confirm that nothing was charged, avoid an automatic retry loop, and return the reader to the paper; native and browser clients can take the reader to the shared Listen catalog when that route exists. Section-based episodes are a future capability, not a hidden truncation. |
 | `quote_unavailable` / `quote_expired` | 404 / 410 | Ask for a new quote (expires after 15 minutes or when the source changes) |
 | `consent_required` | 400 | `consent_version` must be exactly `podcast-private-v1` |
 | `insufficient_credits` | 402 | Show the credit store; nothing was held |

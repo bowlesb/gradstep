@@ -71,6 +71,18 @@ test('disabled capability blocks generation; cancellation is explicit, closing k
   await expect(page.getByTestId('podcast-job-state')).toContainText('Generation canceled'); await expect(page.getByTestId('podcast-charges')).toHaveText('0 credits charged · 150 released.');
 });
 
+test('an overlong paper gets an actionable explanation instead of a retry dead end', async ({ page }) => {
+  await control(page, { quoteError: 'source_too_large' });
+  await page.getByTestId('podcast-paper-listen').click();
+  await page.getByRole('button', { name: 'Get an estimate' }).click();
+  await expect(page.getByTestId('podcast-source-too-large')).toBeVisible();
+  await expect(page.getByTestId('podcast-source-too-large')).toContainText('too long for a full-paper episode at any available length');
+  await expect(page.getByTestId('podcast-source-too-large')).toContainText('Nothing was charged');
+  await expect(page.getByTestId('podcast-confirm')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to paper' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
 test('tampering prevents playback and canceling delivery prevents late Blob installation', async ({ page }) => {
   await control(page, { corrupt: true }); await page.getByTestId('podcast-play').click(); await expect(page.getByRole('alert')).toContainText('checksum'); expect(await page.locator('audio').getAttribute('src')).toBeNull();
   await page.getByTestId('podcast-stop').click(); await control(page, { corrupt: false, memberDelay: 600 }); await page.getByTestId('podcast-play').click(); await expect.poll(() => count(page, 'member')).toBe(2);
