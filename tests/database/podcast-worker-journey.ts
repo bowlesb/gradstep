@@ -9,7 +9,7 @@ import { runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/p
 import { parseWav, wavBytes } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { handlePodcast } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
-import type { Script } from '../../supabase/functions/_shared/podcast-script.ts';
+import type { ReviewCorrections, Script } from '../../supabase/functions/_shared/podcast-script.ts';
 
 const [psql, db, fixtureJSON] = [process.env.PODCAST_PSQL!, process.env.PODCAST_DB!, process.env.PODCAST_FIXTURE!];
 const fixture = JSON.parse(fixtureJSON) as { owner: string; account: string; other: string; approval: string; item: string; paper: string;
@@ -48,7 +48,7 @@ function tone(seconds: number): Uint8Array {
   for (let i = 0; i < samples.length; i++) samples[i] = (i / rate) % 10 < 9.6 ? Math.round(Math.sin(2 * Math.PI * 200 * i / rate) * 5000) : 0;
   return wavBytes(samples);
 }
-function script(review: boolean): Script {
+function script(): Script {
   // Whole sentences from body paragraphs (never headings), as a faithful script would quote them.
   const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
   const filler = ' The hosts take a moment to explain what this means for a reader who wants the details.';
@@ -58,10 +58,14 @@ function script(review: boolean): Script {
     claim_type: (i % 2 === 0 ? 'paper_result' : 'context') as Script['segments'][number]['claim_type'],
     evidence: i % 2 === 0 ? [{ quote: quotes[(i / 2) % quotes.length], section: '' }] : [], math: [] }));
   return { title: 'Journey episode', chapters: [{ id: 'c1', title: 'Question' }, { id: 'c2', title: 'Evidence' }, { id: 'c3', title: 'Caveats' }],
-    segments, limitations: ['Synthetic journey'], ...(review ? { review: { verdict: 'accept' as const, issues: [] } } : {}) };
+    segments, limitations: ['Synthetic journey'] };
 }
+/** The five-minute review's correction set (one rewritten transition); longer reviews approve their draft as written. */
+const REWRITE = 'That point deserves a slower look, so the hosts restate it in plain words before moving on to the evidence.';
+const CORRECTIONS: ReviewCorrections = { delete: [], replace: [{ segment: 's2', text: REWRITE, math: [], problem: 'clearer transition' }], claims: [], verdict: 'accept' };
+const APPROVE: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: 'accept' };
 /** A faithful ten-minute script (6 chapters x 8 segments, ~1,700 words): evidence quotes verbatim, no digits spoken. */
-function longScript(review: boolean): Script {
+function longScript(): Script {
   const quotes = PAPER.split('\n').filter(line => line && !line.startsWith('#')).flatMap(line => line.split(/(?<=\.)\s+/)).filter(s => s.length > 30);
   const filler = ' The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.';
   const segments = Array.from({ length: 48 }, (_, i) => ({ id: `s${i + 1}`, chapter: `c${Math.floor(i / 8) + 1}`,
@@ -70,8 +74,7 @@ function longScript(review: boolean): Script {
     claim_type: (i % 2 ? 'context' : 'paper_result') as Script['segments'][number]['claim_type'],
     evidence: i % 2 ? [] : [{ quote: quotes[(i / 2) % quotes.length], section: '' }], math: [] }));
   return { title: 'Journey episode, at length', limitations: ['Synthetic journey'],
-    chapters: Array.from({ length: 6 }, (_, i) => ({ id: `c${i + 1}`, title: `Part ${i + 1 > 0 ? ['one', 'two', 'three', 'four', 'five', 'six'][i] : ''}` })), segments,
-    ...(review ? { review: { verdict: 'accept' as const, issues: [] } } : {}) };
+    chapters: Array.from({ length: 6 }, (_, i) => ({ id: `c${i + 1}`, title: `Part ${i + 1 > 0 ? ['one', 'two', 'three', 'four', 'five', 'six'][i] : ''}` })), segments };
 }
 /** Speech fake for chunked plans: ~0.4 s per spoken word (150 wpm). */
 function spokenTake(body: Record<string, unknown>): Uint8Array {
@@ -90,7 +93,7 @@ const deps = (): PodcastDeps => ({
   script: { countTokens: async () => null, generate: async params => {
     const review = JSON.stringify(params.messages).includes('<draft>'), long = params.max_tokens >= 10_000;
     return { state: 'succeeded', requestID: `msg_${++scriptCalls}`, model: 'claude-sonnet-5-5', stopReason: 'end_turn',
-      text: JSON.stringify(long ? longScript(review) : script(review)), failure: null,
+      text: JSON.stringify(review ? (long ? APPROVE : CORRECTIONS) : long ? longScript() : script()), failure: null,
       usage: long ? { input: 20_000, output: 7_000, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } : { input: 18_000, output: 2_500, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 } };
   } },
   speech: { generate: async request => {
@@ -154,6 +157,7 @@ const generated = ours[0];
 assert.equal(generated.fixture, false); assert.equal(generated.title, 'Journey fixture paper'); assert.equal(generated.audio.media_type, 'audio/mp4');
 const episode = await get(fixture.other, `action=episode&release_id=${generated.release_id}`);
 assert.equal(episode.episode.chapters.length, 3);
+assert.equal(episode.episode.transcript.segments[1].text, REWRITE, 'the review corrected the draft through its correction set');
 assert.equal(episode.episode.transcript.timing, 'approximate');
 assert.ok(episode.episode.transcript.segments.every((s: { start_ms: number; end_ms: number }) => s.end_ms >= s.start_ms));
 assert.ok(PAPER.replace(/\s+/g, ' ').includes(episode.episode.transcript.segments[0].evidence[0].quote), 'evidence is verbatim pinned text');

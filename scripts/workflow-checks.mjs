@@ -491,6 +491,36 @@ check('podcast.state', { title: 'Podcast switches, seed allowance, liabilities a
   return problems.length ? fail(`${problems.join('; ')} — ${text}`) : pass(text);
 });
 
+// A reader can list, open and download a ready shared episode (catalog + delivery on); free, no generation.
+check('podcast.catalog', { title: 'A shared podcast episode lists, opens and downloads with exact bytes', suites: ALL, timeout: 120 }, async ({ signal }) => {
+  let status;
+  try { status = await rpc('worker_podcast_status', {}, { service: true }); }
+  catch (error) { return error.status === 404 ? skip('migration 048 not applied') : fail(error.message); }
+  if (!status.policy?.catalog_enabled || !status.policy?.delivery_enabled) return skip('catalog or delivery switched off');
+  const reader = await account('podcast-listener', 0);
+  const list = await reader.fn('podcast?action=catalog&limit=10', { signal });
+  if (list.status !== 200) return fail(`catalog: HTTP ${list.status} ${list.json?.code ?? ''}`);
+  const episode = list.json?.episodes?.[0];
+  if (!episode) return skip('no ready shared episode yet');
+  const detail = await reader.fn(`podcast?action=episode&release_id=${episode.release_id}`, { signal });
+  const segments = detail.json?.episode?.transcript?.segments ?? [];
+  if (detail.status !== 200 || !segments.length || !detail.json.episode.chapters?.length)
+    return fail(`episode: HTTP ${detail.status} ${detail.json?.code ?? ''}, ${segments.length} segments`);
+  const grant = await reader.fn('podcast?action=download', { method: 'POST', body: { release_id: episode.release_id }, signal });
+  const member = grant.json?.grant?.members?.find(m => m.role === 'audio');
+  if (grant.status !== 200 || !member) return fail(`download grant: HTTP ${grant.status} ${grant.json?.code ?? ''}`);
+  const audio = await fetch(member.url, { headers: anonHeaders(await reader.token()), redirect: 'manual', signal });
+  const bytes = Buffer.from(await audio.arrayBuffer());
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  if (audio.status !== 200 || bytes.length !== member.bytes || digest !== member.sha256)
+    return fail(`audio: HTTP ${audio.status}, ${bytes.length} of ${member.bytes} bytes, hash ${digest === member.sha256 ? 'ok' : 'mismatch'}`);
+  const again = await fetch(member.url, { headers: anonHeaders(await reader.token()), redirect: 'manual', signal });
+  await again.arrayBuffer();
+  if (again.status === 200) return fail('the single-use audio grant was accepted twice');
+  return pass(`${episode.fixture ? 'fixture' : 'episode'} "${String(episode.title ?? '').slice(0, 40)}" ${episode.label ?? ''}: `
+    + `${segments.length} transcript segments, ${detail.json.episode.chapters.length} chapters, ${bytes.length} audio bytes verified; reuse refused (${again.status})`);
+});
+
 check('auth.providers', { title: 'Sign in with Apple and email codes are on', suites: SCHEDULED, timeout: 30 }, async () => {
   const r = await http(`${env.SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: env.SUPABASE_ANON_KEY } });
   if (r.status !== 200) return fail(`auth settings: HTTP ${r.status}`);

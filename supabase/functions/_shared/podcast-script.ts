@@ -1,11 +1,13 @@
-// Paper podcast scripts (docs/architecture/PAPER_PODCASTS.md): two grounded passes
-// with Claude Sonnet 5.5 and a deterministic evidence checker. Deno and Node
-// compatible. Never log paper text, prompts or scripts; only ids and counts.
+// Paper podcast scripts (docs/architecture/PAPER_PODCASTS.md): a grounded draft and a
+// fact-check review (a bounded correction set, applied deterministically) with Claude
+// Sonnet 5.5, then a deterministic evidence checker. Deno and Node compatible. Never
+// log paper text, prompts or scripts; only ids and counts.
 import Anthropic from '@anthropic-ai/sdk';
 import { attemptsFromUsage, priceAttempts } from './anthropic.ts';
 
 export const SCRIPT_MODEL = 'claude-sonnet-5-5';
-export const CHECKER_VERSION = 'podcast-checker-v1';
+/** v2: the review returns a correction set applied to the draft (v1 re-emitted the whole script). */
+export const CHECKER_VERSION = 'podcast-checker-v2';
 export const NORMALIZATION_VERSION = 'mathpix-standalone-mmd-v1';
 /** Spoken text is bounded so the whole speech request stays far below 8,192 input tokens. */
 export const MAX_SPOKEN_CHARACTERS = 6_000;
@@ -41,11 +43,33 @@ const scriptProperties = {
 };
 export const DRAFT_SCHEMA = { type: 'object', additionalProperties: false, required: ['title', 'chapters', 'segments', 'limitations'],
   properties: scriptProperties };
-export const REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['title', 'chapters', 'segments', 'limitations', 'review'],
-  properties: { ...scriptProperties, review: { type: 'object', additionalProperties: false, required: ['verdict', 'issues'],
-    properties: { verdict: { type: 'string', enum: ['accept', 'reject'] },
-      issues: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['segment', 'problem', 'action'],
-        properties: { segment: { type: 'string' }, problem: { type: 'string' }, action: { type: 'string' } } } } } } } };
+/**
+ * The review never re-emits the script: it returns corrections keyed by the draft's segment ids
+ * (delete, replace the spoken text and its formula notes, correct claim type and evidence) and a
+ * verdict last. Structured outputs accept no length/size constraints, so the bound is in the task
+ * text and enforced by `parseReview`/`applyCorrections`.
+ */
+export const REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['delete', 'replace', 'claims', 'verdict'],
+  properties: {
+    delete: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['segment', 'problem'],
+      properties: { segment: { type: 'string' }, problem: { type: 'string' } } } },
+    replace: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['segment', 'text', 'math', 'problem'],
+      properties: { segment: { type: 'string' }, text: { type: 'string' }, math: { type: 'array', items: mathSchema }, problem: { type: 'string' } } } },
+    claims: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['segment', 'claim_type', 'evidence', 'problem'],
+      properties: { segment: { type: 'string' }, claim_type: segmentSchema.properties.claim_type, evidence: { type: 'array', items: evidenceSchema },
+        problem: { type: 'string' } } } },
+    verdict: { type: 'string', enum: ['accept', 'reject'] },
+  } };
+
+/**
+ * Corrections one review may return. No single correction needs more than ~400 output tokens (a
+ * 700-character rewrite with its formula notes, or three 300-character quotes with sections), so the
+ * whole set always fits the profile's unchanged review output cap: Short 6, 5 min 10, 10 min 25, 20 min 47.
+ */
+export const TOKENS_PER_CORRECTION = 400;
+export function correctionLimit(maxOutputTokens: number): number {
+  return Math.max(1, Math.floor(maxOutputTokens / TOKENS_PER_CORRECTION));
+}
 
 /** A profile's requested length and shape (`spec.shape`); absent means the five-minute v1 text. */
 export interface ScriptShape { duration: string; words: [number, number]; chapters: [number, number]; segments: [number, number] }
@@ -82,7 +106,14 @@ Use ids c1, c2, ... for chapters and s1, s2, ... for segments; every segment nam
 export const SCRIPT_INSTRUCTIONS = scriptInstructions();
 
 const DRAFT_TASK = 'Write the episode script for the paper above as JSON matching the schema.';
-const REVIEW_TASK = `Review the draft script below against the paper above, as a careful expert fact-checker. For every segment check that each claim is supported by its evidence quotes, that the quotes are verbatim, that numbers, signs, inequalities, units, comparisons and baselines match the paper exactly, that limitations are represented fairly and that nothing comes from outside the paper. Fix problems by correcting or removing segments, keeping the same schema and the length limits. Return the corrected script with review.verdict "accept" only if the corrected script is fully supported by the paper; return "reject" if it cannot be made faithful. List each fix in review.issues.`;
+const REVIEW_TASK = `Review the draft script below against the paper above, as a careful expert fact-checker. For every segment check that each claim is supported by its evidence quotes, that the quotes are verbatim, that numbers, signs, inequalities, units, comparisons and baselines match the paper exactly, that limitations are represented fairly and that nothing comes from outside the paper.
+
+Do not rewrite or repeat the script. Return only corrections that name the draft's segment ids:
+- delete: a segment that is unsupported and not needed.
+- replace: the new spoken text for a segment whose wording is wrong, with the math notes for any formula the new text refers to (an empty list if none). The segment keeps its speaker, chapter, claim type and evidence unless you also correct its claims.
+- claims: a segment's corrected claim_type with its complete evidence list (one to three verbatim quotes for paper_result and author_interpretation; an empty list only for context or explainer_analogy).
+Replacement text follows the same rules as the draft: plain spoken words, and numbers only where the segment's evidence states them. Never delete every segment of a chapter, and keep the script within the length limits. Use at most {LIMIT} corrections in total (each delete, replace or claims entry counts once). problem is a short phrase of at most twelve words.
+Set verdict to "accept" only if the draft with these corrections applied is fully supported by the paper; empty lists with "accept" approve the draft as written. Set "reject" with empty lists if the draft cannot be made faithful with {LIMIT} corrections.`;
 
 export type ScriptParams = Anthropic.Messages.MessageCreateParamsNonStreaming;
 
@@ -101,14 +132,15 @@ export function draftRequest(paperText: string, title: string | null, maxTokens:
   } as ScriptParams;
 }
 
-/** Pass 2 reviews and repairs the draft against the same pinned text. */
+/** Pass 2 fact-checks the draft against the same pinned text and returns a bounded correction set. */
 export function reviewRequest(paperText: string, title: string | null, draft: Script, maxTokens: number, instructions: string = SCRIPT_INSTRUCTIONS): ScriptParams {
+  const task = REVIEW_TASK.replaceAll('{LIMIT}', number(correctionLimit(maxTokens)));
   return {
     model: SCRIPT_MODEL, max_tokens: maxTokens,
     thinking: { type: 'between_tools' }, output_config: { effort: 'medium', format: { type: 'json_schema', schema: REVIEW_SCHEMA } },
     system: instructions,
     messages: [{ role: 'user', content: [{ type: 'text', text: paperBlock(paperText, title) },
-      { type: 'text', text: `${REVIEW_TASK}\n\n<draft>\n${JSON.stringify(draft)}\n</draft>` }] }],
+      { type: 'text', text: `${task}\n\n<draft>\n${JSON.stringify(draft)}\n</draft>` }] }],
   } as ScriptParams;
 }
 
@@ -227,38 +259,131 @@ function str(value: unknown, max: number): string | null {
   return typeof value === 'string' && value.length <= max ? value : null;
 }
 
-/** Parse model JSON into the script shape; unknown fields are dropped, wrong shapes refused. */
-export function parseScript(text: string | null, needsReview: boolean): Script | null {
+const CLAIM_TYPES: readonly string[] = ['paper_result', 'author_interpretation', 'explainer_analogy', 'context'];
+const parseObject = (text: string | null): Record<string, unknown> | null => {
   if (!text || text.length > 200_000) return null;
-  let raw: unknown;
-  try { raw = JSON.parse(text); } catch { return null; }
-  const o = raw as Record<string, unknown>;
-  if (!o || typeof o !== 'object' || !Array.isArray(o.chapters) || !Array.isArray(o.segments) || !Array.isArray(o.limitations)) return null;
+  try {
+    const raw: unknown = JSON.parse(text);
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+  } catch { return null; }
+};
+const parseEvidence = (value: unknown): Evidence[] | null => {
+  if (!Array.isArray(value)) return null;
+  const evidence = (value as Record<string, unknown>[]).map(e => ({ quote: str(e?.quote, 1000), section: str(e?.section, 200) ?? '' }));
+  return evidence.some(e => !e.quote) ? null : evidence as Evidence[];
+};
+const parseMath = (value: unknown): MathNote[] | null => {
+  if (!Array.isArray(value)) return null;
+  const math = (value as Record<string, unknown>[]).map(m => ({ latex: str(m?.latex, 2000), spoken: str(m?.spoken, 1000) }));
+  return math.some(m => !m.latex || !m.spoken) ? null : math as MathNote[];
+};
+
+/** Parse the draft's JSON into the script shape; unknown fields are dropped, wrong shapes refused. */
+export function parseScript(text: string | null): Script | null {
+  const o = parseObject(text);
+  if (!o || !Array.isArray(o.chapters) || !Array.isArray(o.segments) || !Array.isArray(o.limitations)) return null;
   const title = str(o.title, 300);
   if (!title) return null;
   const chapters = o.chapters.map(c => ({ id: str((c as Record<string, unknown>)?.id, 8), title: str((c as Record<string, unknown>)?.title, 200) }));
   if (chapters.some(c => !c.id || !c.title)) return null;
   const segments: ScriptSegment[] = [];
   for (const s of o.segments as Record<string, unknown>[]) {
-    if (!s || typeof s !== 'object' || !Array.isArray(s.evidence) || !Array.isArray(s.math)) return null;
+    if (!s || typeof s !== 'object') return null;
+    const evidence = parseEvidence(s.evidence), math = parseMath(s.math);
     const segment = { id: str(s.id, 8), chapter: str(s.chapter, 8), speaker: s.speaker, text: str(s.text, 2000), style: str(s.style, 200) ?? '',
-      claim_type: s.claim_type,
-      evidence: (s.evidence as Record<string, unknown>[]).map(e => ({ quote: str(e?.quote, 1000), section: str(e?.section, 200) ?? '' })),
-      math: (s.math as Record<string, unknown>[]).map(m => ({ latex: str(m?.latex, 2000), spoken: str(m?.spoken, 1000) })) };
+      claim_type: s.claim_type, evidence, math };
     if (!segment.id || !segment.chapter || !segment.text || (segment.speaker !== 'explainer' && segment.speaker !== 'skeptic')
-      || !['paper_result', 'author_interpretation', 'explainer_analogy', 'context'].includes(segment.claim_type as string)
-      || segment.evidence.some(e => !e.quote) || segment.math.some(m => !m.latex || !m.spoken)) return null;
+      || !CLAIM_TYPES.includes(segment.claim_type as string) || !evidence || !math) return null;
     segments.push(segment as ScriptSegment);
   }
   const limitations = (o.limitations as unknown[]).map(l => str(l, 600)).filter((l): l is string => !!l);
-  const script: Script = { title, chapters: chapters as Script['chapters'], segments, limitations };
-  if (needsReview) {
-    const r = o.review as Record<string, unknown> | undefined;
-    if (!r || (r.verdict !== 'accept' && r.verdict !== 'reject') || !Array.isArray(r.issues)) return null;
-    script.review = { verdict: r.verdict, issues: (r.issues as Record<string, unknown>[]).slice(0, 100).map(i => ({
-      segment: str(i?.segment, 16) ?? '', problem: str(i?.problem, 500) ?? '', action: str(i?.action, 200) ?? '' })) };
+  return { title, chapters: chapters as Script['chapters'], segments, limitations };
+}
+
+// ----------------------------------------------------------------------------
+// Review: a bounded correction set against the draft's segment ids
+// ----------------------------------------------------------------------------
+export interface ReviewCorrections {
+  delete: { segment: string; problem: string }[];
+  replace: { segment: string; text: string; math: MathNote[]; problem: string }[];
+  claims: { segment: string; claim_type: ClaimType; evidence: Evidence[]; problem: string }[];
+  verdict: 'accept' | 'reject';
+}
+
+/** Parse the review's JSON; a wrong shape is refused (never read as approval). */
+export function parseReview(text: string | null): ReviewCorrections | null {
+  const o = parseObject(text);
+  if (!o || (o.verdict !== 'accept' && o.verdict !== 'reject') || !Array.isArray(o.delete) || !Array.isArray(o.replace) || !Array.isArray(o.claims)) return null;
+  // A sanity bound before parsing entries; the profile's limit is applied with the draft.
+  if (o.delete.length + o.replace.length + o.claims.length > 400) return null;
+  const entry = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const review: ReviewCorrections = { delete: [], replace: [], claims: [], verdict: o.verdict };
+  for (const value of o.delete) {
+    const e = entry(value), segment = str(e?.segment, 8);
+    if (!segment) return null;
+    review.delete.push({ segment, problem: str(e!.problem, 500) ?? '' });
   }
-  return script;
+  for (const value of o.replace) {
+    const e = entry(value), segment = str(e?.segment, 8), text = str(e?.text, 2000), math = parseMath(e?.math);
+    if (!segment || !text || !math) return null;
+    review.replace.push({ segment, text, math, problem: str(e!.problem, 500) ?? '' });
+  }
+  for (const value of o.claims) {
+    const e = entry(value), segment = str(e?.segment, 8), evidence = parseEvidence(e?.evidence);
+    if (!segment || !evidence || !CLAIM_TYPES.includes(e!.claim_type as string)) return null;
+    review.claims.push({ segment, claim_type: e!.claim_type as ClaimType, evidence, problem: str(e!.problem, 500) ?? '' });
+  }
+  return review;
+}
+
+export type ReviewResult = { ok: true; script: Script; corrections: number } | { ok: false; problems: string[] };
+
+/**
+ * Applies a review deterministically to its draft. Corrections can only change existing segments:
+ * a reference to an unknown or duplicated id, two conflicting corrections of one segment, more than
+ * `limit` corrections, or deletions that would empty a chapter refuse the whole review (a quality
+ * failure, never a silent pass). Empty lists with "accept" approve the draft unchanged; a "reject"
+ * verdict carries no corrections forward. The checker then runs on the result.
+ */
+export function applyCorrections(draft: Script, review: ReviewCorrections, limit: number): ReviewResult {
+  const issues = [...review.delete.map(c => ({ segment: c.segment, problem: c.problem, action: 'delete' })),
+    ...review.replace.map(c => ({ segment: c.segment, problem: c.problem, action: 'replace' })),
+    ...review.claims.map(c => ({ segment: c.segment, problem: c.problem, action: 'claims' }))];
+  if (review.verdict === 'reject') return { ok: true, script: { ...draft, review: { verdict: 'reject', issues } }, corrections: 0 };
+  const problems: string[] = [];
+  // Only well-formed ids are ever named in problems (they are logged); anything else is '?'.
+  const label = (id: string, pattern = SEGMENT_ID) => pattern.test(id) ? id : '?';
+  const occurrences = new Map<string, number>();
+  for (const s of draft.segments) occurrences.set(s.id, (occurrences.get(s.id) ?? 0) + 1);
+  const kinds = new Map<string, string[]>();
+  const claim = (id: string, kind: 'delete' | 'replace' | 'claims') => {
+    const n = occurrences.get(id) ?? 0;
+    if (n === 0) return problems.push(`correction_unknown_segment:${label(id)}`);
+    if (n > 1) return problems.push(`correction_ambiguous_segment:${label(id)}`);
+    const seen = kinds.get(id) ?? [];
+    if (seen.includes(kind) || seen.includes('delete') || (kind === 'delete' && seen.length)) return problems.push(`correction_conflict:${label(id)}`);
+    kinds.set(id, [...seen, kind]);
+  };
+  for (const c of review.delete) claim(c.segment, 'delete');
+  for (const c of review.replace) claim(c.segment, 'replace');
+  for (const c of review.claims) claim(c.segment, 'claims');
+  if (issues.length > limit) problems.push('correction_limit');
+  if (problems.length) return { ok: false, problems: [...new Set(problems)].slice(0, 50) };
+  const deleted = new Set(review.delete.map(c => c.segment));
+  const replaced = new Map(review.replace.map(c => [c.segment, c]));
+  const reclaimed = new Map(review.claims.map(c => [c.segment, c]));
+  const segments = draft.segments.filter(s => !deleted.has(s.id)).map(s => {
+    const r = replaced.get(s.id), c = reclaimed.get(s.id);
+    return { ...s, ...(r ? { text: r.text, math: r.math } : {}), ...(c ? { claim_type: c.claim_type, evidence: c.evidence } : {}) };
+  });
+  // Chapters are never added, removed or reordered: a chapter the draft filled must keep a segment.
+  for (const chapter of draft.chapters) {
+    if (draft.segments.some(s => s.chapter === chapter.id) && !segments.some(s => s.chapter === chapter.id)) {
+      problems.push(`correction_empty_chapter:${label(chapter.id, CHAPTER_ID)}`);
+    }
+  }
+  if (problems.length) return { ok: false, problems: [...new Set(problems)].slice(0, 50) };
+  return { ok: true, script: { ...draft, segments, review: { verdict: 'accept', issues } }, corrections: issues.length };
 }
 
 /**
