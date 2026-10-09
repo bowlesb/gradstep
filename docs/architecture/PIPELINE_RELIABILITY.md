@@ -42,14 +42,23 @@ Deployment explicitly selects `--cpu-throttling`, zero minimum instances, and a 
 service and revision scope, then reads back the configuration. The billing-flag correction reached staging in
 `3e28a55`; the bounded thread lifecycle and maintenance/activation controls subsequently reached staging with
 the coordinated spending-control rollout. The one-minute scheduler remains a recovery wakeup;
-it is not permission to run outside the HTTP request. The pg_net wakeup callers have short client deadlines, and
-their timeout does not establish that a pipeline run failed. Google documents that HTTP/1.1 client disconnects
+it is not permission to run outside the HTTP request. The scheduled pg_net caller now has a 600-second deadline;
+the immediate import wakeup remains a short best-effort request, and either caller's timeout does not establish that
+a pipeline run failed. Google documents that HTTP/1.1 client disconnects
 are not propagated to the container; the server still awaits the run. Cloud Run's own timeout is the upper bound
 that must be avoided. Any future HTTP/2, streaming-response, detached-task or periodic-background change requires
 rechecking this lifecycle before rollout. No claim of free hosting follows from choosing request-based billing.
 [Billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings),
 [request timeout](https://docs.cloud.google.com/run/docs/configuring/request-timeout),
 [client disconnect behavior](https://docs.cloud.google.com/run/docs/troubleshooting#client-disconnect).
+
+**Staging rollout, 2026-10-09:** revision `gradstep-pipeline-00019-2d9` is active at 100% traffic after the paused
+deployment/readiness/activation procedure. The scheduler's old 5-second pg_net timeout was an Edge acknowledgement
+window and caused false timeout rows while the awaited Cloud Run run was finishing in roughly 4–5 seconds. Migration
+`202610090054_pipeline_cron_timeout.sql` recreates the named `science-reader-pipeline` job with a 600-second timeout,
+below the worker's 840-second hard bound; the immediate import wakeup remains a 1-second best-effort request. The
+first post-change scheduler responses were HTTP 200. This is an acknowledgement timeout correction, not permission to
+detach work or to treat a timed-out provider request as settled.
 
 The initial hardening rollout followed migrations 034–038 and asset enforcement, through paused revision 00008
 and activated revision 00009. Subsequent uploads use migration 039. At **2026-10-08 09:00:47 UTC**, read-only

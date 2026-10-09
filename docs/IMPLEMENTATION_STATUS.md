@@ -1,8 +1,36 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 22 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 24 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `1b45e0af`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
+
+## Current podcast and pipeline rollout — 2026-10-09 UTC
+
+- **Podcast v2 is live on staging.** After encrypted backups
+  `.artifacts/backups/20261009T141446Z-366edfad87a1` and `.artifacts/backups/20261009T143431Z-9646540fb7ee`
+  (1,539 encrypted objects and verified database snapshots), migrations `051`–`055` were applied and verified.
+  Migration 051 makes default-license arXiv papers source-only
+  unless the exact source has a rights-verified reuse approval; CC0/CC BY shared processing remains available. The
+  podcast profiles keep their stable IDs but now point to version 2: Short / 5 / 10 / 20 minutes have maximums
+  140 / 150 / 300 / 530 credits. The 530 ceiling is deliberate: Vertex's serving limit is 16,384 audio tokens per
+  call, so the six-call 20-minute profile must reserve six full grants. All four profiles are allowlisted atomically;
+  private generation and catalog delivery remain bounded by the existing account, daily and $25 platform limits.
+- **Worker rollout:** Cloud Run revision `gradstep-pipeline-00019-2d9` is active at 100% traffic with request-based
+  billing, zero minimum instances, max three instances, one request per instance, pinned secrets and the bounded
+  worker-thread lifecycle. The staging scheduler points at it; the legacy Edge `paper-worker` is retained only as an
+  unscheduled rollback surface. Migration 054 changes the scheduler's pg_net timeout from the old 5-second Edge
+  acknowledgement window to 600 seconds, below the worker's 840-second hard bound. Readiness, activation and aggregate
+  liability evidence are under `.artifacts/rollout-evidence/`.
+- **Verification:** the full local database suite, podcast worker journey, 481 backend tests, web build/unit suite and
+  universal Catalyst build pass. The staging deploy suite passed all feature and spending-safety checks with no
+  provider spend. Its first run contained only cutover-window scheduler timeouts; migration 054 raised the pg_net
+  acknowledgement timeout to 600 seconds, and a clean 15-minute window now reports 15 successful HTTP 200 calls.
+- **Published pilots:** “The Persona Hierarchy Model” (3:54) and “Decoupling Exploration from Optimization in RLVR”
+  (3:22) are shared, chaptered and single-use delivered. The pilot's two successful speech calls cost $0.27 and $0.30;
+  total seed spend is $1.94 of the authorized $5 period. Short, 10-minute and 20-minute private generation is now
+  enabled with the revised ceilings. The current October curated-catalog period is configured by migration 055 at a
+  `$3` hard allowance and `max_episodes=10`; admissions remain operator-selected and review-gated, so no catalog
+  episode is generated automatically without an explicit seed operation.
 
 ## Commercial arXiv content gate — 2026-10-09
 
@@ -13,13 +41,13 @@ Until arXiv's commercial/API response and counsel review are complete, only righ
 derived processing (currently CC0/CC BY) may be enabled; default or uncertain licenses fall back to metadata and
 direct source links. No public paid launch promise should say that every arXiv paper syncs across devices.
 
-The implementation checkpoint is migration `051` (`rights_aware_arxiv_delivery`), currently local and fully covered
-by the disposable database suite; it has **not** been applied to staging. It adds a durable `rights_mode` decision,
+The implementation checkpoint is migration `051` (`rights_aware_arxiv_delivery`), now applied and verified on staging.
+It adds a durable `rights_mode` decision,
 classifies pre-change private rows as `legacy_private` for audit, and makes the production default-license path
 `source_only` before download admission. Native and browser labels now say “Available on arXiv” / “Open on arXiv” for
 that path. Native now also has a migration-free, encrypted `DevicePaperStore`, a direct source-only download action,
-and a local PDF viewer; the store is bounded, account-fenced, crash-safe and covered by Core tests. This work remains
-local until migration 051 and the rights rollout are approved. Approved-device transfer, reader-bundle installation,
+and a local PDF viewer; the store is bounded, account-fenced, crash-safe and covered by Core tests. The staging rights
+rollout is live. Approved-device transfer, reader-bundle installation,
 offline structured reading and local Mathpix processing remain gated as described in
 [DEVICE_LOCAL_PAPERS](architecture/DEVICE_LOCAL_PAPERS.md).
 

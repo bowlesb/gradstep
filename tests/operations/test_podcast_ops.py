@@ -27,8 +27,10 @@ class PodcastOpsTests(unittest.TestCase):
                                   '--period', '2026-10-01']).args[1:]
         self.assertEqual(name, 'worker_podcast_seed_period')
         self.assertEqual((params['p_limit_microusd'], params['p_enabled'], params['p_period'], params['p_max_episodes']), (5_000_000, True, '2026-10-01', 2))
+        name, params = self.call(['seed-period', '--actor', OWNER, '--limit-usd', '3', '--max-episodes', '10', '--enable', '--evidence', 'owner-decision-20261009-curated-weekly']).args[1:]
+        self.assertEqual(params['p_max_episodes'], 10)
         with self.assertRaises(SystemExit):
-            self.call(['seed-period', '--actor', OWNER, '--limit-usd', '5', '--max-episodes', '3', '--enable', '--evidence', 'owner-decision-20261008'])
+            self.call(['seed-period', '--actor', OWNER, '--limit-usd', '5', '--max-episodes', '11', '--enable', '--evidence', 'owner-decision-20261009'])
 
     def test_mutations_carry_actor_and_replayable_request_ids(self):
         rid = '46000000-0000-4000-8000-000000000123'

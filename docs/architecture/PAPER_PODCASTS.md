@@ -1,6 +1,10 @@
 # Shared paper podcasts: implementation contract proposal
 
-2026-10-08. **V1 implemented on branch `podcast-v1` and shipped dark.** Staging status (reported by the lead,
+2026-10-09. **V1 is deployed and the serving-limit-safe v2 profiles are live on staging.** The first two shared
+pilot episodes passed the catalog and delivery checks; private generation is enabled for all four bounded lengths.
+The current staging state supersedes the historical sequence below, which remains as an audit trail.
+
+**Historical 2026-10-08 note:** V1 implemented on branch `podcast-v1` and shipped dark. Staging status (reported by the lead,
 2026-10-08): migrations 048 and 049 are applied. Worker revision 00013 ran the first two seed jobs, which both failed
 `script_incomplete` in the review ([fix 1](#seed-pilot-fix-review-correction-set-and-seed-episode-count-2026-10-08):
 checker v2, deployed as revision 00014); the two re-admitted jobs then failed `script_evidence_rejected` at the checker
@@ -13,17 +17,33 @@ deployed or applied). The pilot has committed $1.00; the owner raised its cap fr
 [seed pilot runbook](#seed-pilot-runbook-2-the-lead-runs-this). **Four lengths** (owner, 2026-10-08): Short (~2½ min),
 5, 10 and 20 minutes, each its own immutable profile, work key and credit maximum — see [Lengths](#lengths-short-5-10-and-20-minutes).
 The seed pilot stays five-minute; the other lengths are private generation only.
-On 2026-10-09, migrations 052–053 were prepared locally after Vertex rejected the
+On 2026-10-09, migrations 052–055 were applied after Vertex rejected the
 `maxOutputTokens` field: version-2 rows keep these same profile ids but reserve
-the complete 16,384-token serving limit for every speech chunk. The staging
-policy remains on version 1 until the encrypted backup, worker deployment and
-zero-spend journey are verified; the audited 053 policy RPC moves the default
-pointer and allowlist atomically. The v1 numbers below describe the currently
-active policy, while the v2 table records the approved rollout ceilings.
+the complete 16,384-token serving limit for every speech chunk. The encrypted backup,
+maintenance deployment, readiness evidence, zero-spend journey and atomic 053 policy
+switch are complete. Migration 054 gives the awaited Cloud Run request a 600-second
+pg_net acknowledgement window; the worker's hard bound remains 840 seconds. The active
+v2 ceilings are 140 / 150 / 300 / 530 credits for Short / 5 / 10 / 20 minutes.
 The owner asked for browsable reusable episodes, not just an on-demand button. This proposal builds on
 the exact source/reuse rules and deployed financial safeguards; it does not delay the library-write
 bug release. [Economics and three owner decisions](../research/PRICING_RECOMMENDATION_20261008.md).
 Migration labels A/B/C below are ordering labels, not assigned migration numbers.
+
+## Curated catalog allowance (2026-10-09)
+
+Migration 055 widens the seed-period episode count to ten for this curated program while preserving the existing
+$5 database hard ceiling and the separate platform budget. The current October period is configured at `$3` and
+`max_episodes=10`.
+
+The owner approved a small weekly catalog program. It is **operator scheduled and review gated**, so a timer cannot
+silently spend money: the operator selects an eligible candidate, admits one job with `podcast-ops.py seed`, kicks the
+worker, listens to the finished release against its source, and publishes or rejects it. The period has a `$3` hard
+dollar allowance and `max_episodes=10`; the count is a safety ceiling and the dollar cap remains binding. With the
+current v2 five-minute hold, the existing October spend leaves room for only the admissions the $3 ledger can cover.
+There is no automatic weekly provider call and no promise of ten episodes. Failed attempts keep their recorded usage,
+rejected releases free the episode count, and every admission still passes the platform `$25` budget, provider policy,
+asset inventory, rights pin and operator audit checks. Shared catalog playback is free to listeners and reuses the
+published audio.
 
 ## Independent implementation and Google similarity
 

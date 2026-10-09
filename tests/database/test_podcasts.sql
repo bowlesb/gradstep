@@ -459,7 +459,7 @@ select public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000
 select test.reject(format('select public.worker_podcast_seed_admit(%L,gen_random_uuid(),%L,%L)',:'O',:'approval','Second seed over allowance'),'seed_allowance_exhausted');
 select public.worker_podcast_seed_period(:'O','46000000-0000-0000-0002-000000000004',:'month',2000000,true,'owner-episode-cap-test',1);
 select test.reject(format('select public.worker_podcast_seed_admit(%L,gen_random_uuid(),%L,%L)',:'O',:'approval','Within dollars, over the episode cap'),'seed_episode_limit');
-select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,2000000,true,%L,3)',:'O',:'month','three-episodes'),'invalid_seed_period');
+select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,2000000,true,%L,11)',:'O',:'month','eleven-episodes'),'invalid_seed_period');
 select public.worker_podcast_seed_admit(:'O','46000000-0000-0000-0003-000000000009',:'approval','Labeled synthetic fixture for staged journeys',true) as fx \gset
 select test.assert((:'fx'::jsonb->>'origin')='fixture' and (:'fx'::jsonb->>'operation_id') is null,'fixture job has no paid operation');
 select (:'fx'::jsonb->>'id') as fxj \gset

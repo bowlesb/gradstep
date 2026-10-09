@@ -1,6 +1,7 @@
 -- Seed pilot cap (migration 051): the owner approved "Raise to $5 total" on 2026-10-08. A seed period may now
 -- hold at most $5 (5,000,000 micro-USD); each admission still holds the five-minute profile's $0.75 and a period
--- still has at most two seed episodes. Replays the staging pilot's committed spend ($1.007 after five failed
+-- may hold at most ten curated admissions. This test configures two for the pilot-cap assertions. Replays the
+-- staging pilot's committed spend ($1.007 after five failed
 -- jobs), shows what $2 and $5 admit from there, and checks both bounds, privileges and the episode cap.
 -- Synthetic local SQL with explicit provider receipts; nothing leaves the machine.
 begin;
@@ -91,12 +92,12 @@ select test.assert((select p.prosecdef and p.proconfig=array['search_path=""'] a
  'seed period RPC: security definer, empty search_path, service role only');
 select test.assert((select count(*)=1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='worker_podcast_seed_period'),
  'replaced in place, no overload');
--- One limit check on the table, now at $5; the episode check is unchanged.
+-- One limit check on the table, now at $5; curated periods may contain at most ten admissions.
 select test.assert((select array_agg(pg_get_constraintdef(c.oid) order by c.conname) from pg_constraint c
  where c.conrelid='app_private.podcast_seed_periods'::regclass and c.contype='c' and pg_get_constraintdef(c.oid) like '%limit_microusd%')
  =array['CHECK (((limit_microusd >= 0) AND (limit_microusd <= 5000000)))'],'table check: at most $5');
 select test.assert((select count(*)=1 from pg_constraint c where c.conrelid='app_private.podcast_seed_periods'::regclass and c.contype='c'
- and pg_get_constraintdef(c.oid)='CHECK (((max_episodes >= 0) AND (max_episodes <= 2)))'),'table check: at most two episodes, unchanged');
+ and pg_get_constraintdef(c.oid)='CHECK (((max_episodes >= 0) AND (max_episodes <= 10)))'),'table check: at most ten curated episodes');
 
 -- The pilot as on staging: the $2 period, five failed seed jobs, $1.007186 committed.
 select public.worker_podcast_policy_set(:'O',gen_random_uuid(),'{"seed_enabled":true,"max_active_environment":3}','Seed pilot (051 test)');
@@ -126,9 +127,8 @@ select test.reject(format('select public.worker_podcast_seed_period(%L,gen_rando
 select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,5000001,true,%L,2)',:'O',:'month','owner-decision-20261008'),'invalid_seed_period');
 select test.reject(format('update app_private.podcast_seed_periods set limit_microusd=5000001 where period=%L',:'month'),'podcast_seed_periods_limit_microusd_check');
 select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,-1,true,%L,2)',:'O',:'month','owner-decision-20261008'),'invalid_seed_period');
--- Still at most two episodes per period.
-select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,5000000,true,%L,3)',:'O',:'month','three-episodes'),'invalid_seed_period');
-select test.reject(format('update app_private.podcast_seed_periods set max_episodes=3 where period=%L',:'month'),'podcast_seed_periods_max_episodes_check');
+select test.reject(format('select public.worker_podcast_seed_period(%L,gen_random_uuid(),%L,5000000,true,%L,11)',:'O',:'month','eleven-episodes'),'invalid_seed_period');
+select test.reject(format('update app_private.podcast_seed_periods set max_episodes=11 where period=%L',:'month'),'podcast_seed_periods_max_episodes_check');
 select test.assert((test.cap_period()).limit_microusd=5000000 and (test.cap_period()).max_episodes=2,'refusals left the period unchanged');
 
 -- From $1.007186 committed, both seeds now fit at $0.75 each ($2.507186); a third is refused by the episode cap with dollars left.
@@ -140,5 +140,7 @@ select test.assert((select bool_and(op.spend_ceiling_microusd=750000) from app_p
  'each admission still holds at most $0.75');
 select test.assert(app_private.podcast_seed_episodes(:'month')=2,'two seed episodes in flight');
 select test.reject(format('select test.cap_admit(%L)',:'a3'),'seed_episode_limit');
+-- A later curated period may use the ten-admission count; this period's two-episode pilot remains unchanged above.
+select test.assert((public.worker_podcast_seed_period(:'O',gen_random_uuid(),:'month',5000000,true,'curated-weekly',10)->>'max_episodes')::integer=10,'ten curated episodes accepted');
 
 rollback;

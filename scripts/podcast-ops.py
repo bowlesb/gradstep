@@ -8,7 +8,7 @@
   python3 scripts/podcast-ops.py policy --actor <owner-account> --set allowed_profiles=podcast-5min-v1:1,podcast-10min-v1:1 --reason "..."
   # A profile rollout changes the default pointer and allow-list atomically:
   # --set profile_id=podcast-5min-v1 --set profile_version=2 --set allowed_profiles=...
-  python3 scripts/podcast-ops.py seed-period --actor <owner-account> --limit-usd 5 --enable --evidence owner-decision-20261008-raise-to-5
+  python3 scripts/podcast-ops.py seed-period --actor <owner-account> --limit-usd 3 --max-episodes 10 --enable --evidence owner-decision-20261009-curated-weekly
   python3 scripts/podcast-ops.py seed --actor <owner-account> --approval <approval-id> --reason "..." [--fixture]
   python3 scripts/podcast-ops.py kick
   python3 scripts/podcast-ops.py review --actor <owner-account> --release <release-id> --publish|--reject --reason "..."
@@ -120,7 +120,8 @@ def main(argv=None):
         if name == 'seed-period':
             p.add_argument('--limit-usd', type=float, required=True); p.add_argument('--enable', action='store_true')
             p.add_argument('--evidence', required=True); p.add_argument('--period', help='YYYY-MM-01 (default: current UTC month)')
-            p.add_argument('--max-episodes', type=int, default=2, choices=[0, 1, 2], help='Decision 2 approves at most two seed episodes')
+            p.add_argument('--max-episodes', type=int, default=2, choices=range(0, 11),
+                           help='Bound curated admissions; the period dollar cap remains binding (owner default: 10)')
         if name == 'seed':
             p.add_argument('--approval', type=uuid_arg, required=True); p.add_argument('--fixture', action='store_true')
         if name == 'review':

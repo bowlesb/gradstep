@@ -193,7 +193,10 @@ def deploy(args):
           body:='{{"reason":"cron"}}'::jsonb,
           headers:=jsonb_build_object('content-type','application/json','x-pipeline-secret',
            (select decrypted_secret from vault.decrypted_secrets where name='science_reader_pipeline_secret')),
-          timeout_milliseconds:=5000)
+          -- The Cloud Run worker keeps this request open until its bounded
+          -- run joins; pg_net must not cut it off at the old 5 s Edge
+          -- acknowledgement window.
+          timeout_milliseconds:=600000)
         $cron$)""")
         print('Scheduled pipeline worker', config['pipeline_schedule'])
 
