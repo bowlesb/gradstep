@@ -56,7 +56,13 @@ The reviewed [`plan-v4`](../../.artifacts/native-auth-configuration-plan-v4.json
 <p>This code expires in 10 minutes. If you did not request it, ignore this email.</p>
 ```
 
-Google, custom SMTP, Apple web secrets, the site URL and unrelated Auth settings were unchanged. Google remains disabled and unconfigured; a custom sender remains unavailable. Email authentication remains enabled, but **new signups remain disabled** pending sender readiness and beta admission. No provider sign-in, email delivery, purchase, app record, provisioning profile or physical-device operation was performed by this configuration step.
+Google, custom SMTP, Apple web secrets, the site URL and unrelated Auth settings were unchanged. Native Apple remains
+configured, but **web Apple sign-in is a separate account gate**: staging has no Apple OAuth secret and still uses the
+native bundle audience. A dedicated Services ID, its domain/return URL association and a Science Reader client-secret
+JWT must be created before enabling the browser button against staging. A secret from TextBrain must not be reused.
+Email authentication remains enabled, but **new signups remain disabled** pending sender readiness and beta admission.
+No provider sign-in, email delivery, purchase, app record, provisioning profile or physical-device operation was
+performed by this configuration step.
 
 ### Operator scope and local evidence
 

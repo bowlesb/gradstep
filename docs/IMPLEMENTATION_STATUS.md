@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; build 27 is VALID for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `c1cf0744`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 26 is VALID and available for internal iOS and Mac testing; build 27 is VALID for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `8820991e`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -477,12 +477,22 @@ place.
 - **TestFlight build 18** (iOS and Mac, main `08381c7`): build 17 plus QR device approval. Both confirmed VALID by
   App Store Connect on takeover. The owner installed 18 and confirms Add remains disabled and tables inadequate.
   Build 18 contains neither fix; the client/table changes are in build 19 above.
-- **Browser reader redesign, milestone 1**, live at https://app.gradstep.ai (Pages deployment `a405d26c`, same
+- **Browser reader redesign, milestone 1**, live at https://app.gradstep.ai (Pages deployment `8820991e`, same
   commit). Layout: side panel, the paper or library in the centre, a chat panel, as in the legacy web app. Also: a
   full-width library table, a contents tree, find in paper, a figure gallery, the Feed, Add paper by DOI or link, and
   QR approval on the restore screen. Before deploying: web tests 152/152, Playwright 51 passed with 27 skipped. After
   deploying: the live page and gradstep.ai/app load the sign-in screen with no console errors. The chat panel
   was a placeholder in that deployment; milestone 2 is now deployed as recorded above.
+- **Hosted OAuth callback repair (2026-10-09):** Google sign-in previously returned a valid Supabase code without
+  the client-supplied `state` value, while the browser rejected the callback as expired. The client now carries its
+  short-lived browser binding as `client_state` in the exact `redirect_to` URL, leaving Supabase's provider state
+  under server control. The local Supabase-style fixture, desktop/phone Playwright journeys and callback rejection
+  test cover the behavior; web unit tests (342) and build pass. The fix is deployed in Pages `8820991e` and the live
+  asset contains the new callback path. **Apple web sign-in remains an account setup gate:** staging currently has
+  native-only `com.sciencereader.ios` with no OAuth secret. It needs a separate Apple Services ID (for example
+  `com.sciencereader.auth`) associated with the Science Reader App ID, `app.gradstep.ai` and Supabase's
+  `/auth/v1/callback`, followed by a Science Reader client-secret JWT and Supabase configuration. A secret from
+  TextBrain must not be reused.
 - **Migration 042 (`library_v5_commands`) is now on staging**, merged in main `b993c23` after independent review.
   Encrypted checkpoint `20261008T051522Z-5ffa9efe26a9` includes the database and 1,332 objects. The migration
   ledger checksum and all six authenticated RPC grants/search paths were read back. Zero-provider-cost
