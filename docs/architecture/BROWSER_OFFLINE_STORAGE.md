@@ -1,7 +1,7 @@
 # Browser durability and offline reading
 
-**Design and deployed gate-1 implementation, 2026-10-08.** The compatibility checkpoint is retained, and the
-gate-1 encrypted private journal is integrated in browser release `a5c351a1`.
+**Design and deployed gate-1 implementation, 2026-10-09.** The compatibility checkpoint is retained, and the
+gate-1 encrypted private journal is integrated in the current browser release (`a7fd3a4`, Pages `95fae4d4`).
 See the [current local evidence](../verification/2026-10-08-browser-journal-gate1.md) and
 [gate-1 implementation details](#gate-1-local-implementation-2026-10-08). Saved papers, a durable library
 checkpoint and cold offline startup remain unimplemented.
