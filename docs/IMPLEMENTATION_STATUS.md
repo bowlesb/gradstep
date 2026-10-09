@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated 2026-10-09 UTC. **Build 24 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `95fae4d4`, and the admin site is deployed.**
+Updated 2026-10-09 UTC. **Build 25 is available for internal iOS and Mac testing; the integrated browser reader is deployed as Pages `95fae4d4`, and the admin site is deployed.**
 This is a development/release checkpoint, not public-release acceptance. Earlier checkpoint prose (including
 removed executor work) is retained below where useful and in git history.
 
@@ -108,7 +108,7 @@ offline structured reading and local Mathpix processing remain gated as describe
 - **Still gated:** durable library/saved-reader-copy customer behavior (Gate 2), cold offline startup (Gate 3), live browser
   provider consent/identity acceptance, Safari key persistence, browser PDF upload and purchases. The native PDF upload
   queue now matches the deployed authenticated chunk protocol and writes the required encrypted descriptor, covered by
-  7 focused simulator tests; it still needs a new build and real-device acceptance. The browser now has bounded
+  7 focused simulator tests; **TestFlight build 25** carries this fix and still needs real-device acceptance. The browser now has bounded
   Google/Apple PKCE controls and callback validation; provider-side acceptance remains a release gate. Podcast generation remains backend-dark and no
   paid podcast or ranking request was made. The web client displays capability-unavailable states until those server
   contracts are live.
@@ -117,8 +117,8 @@ offline structured reading and local Mathpix processing remain gated as describe
   in `beff20c`. Mac QR approval is now connected to `RecoveryView` and the shared `DeviceKeys` enrollment path, and
   the signed focused enrollment/QR suites pass **10/10**. Mac menu, drag/drop, QR camera and keyboard UI runtime
   checks remain open because XCTest automation still needs the local Accessibility/Screen Recording permissions.
-  **TestFlight build 22 is now uploaded and VALID / IN_BETA_TESTING for both iOS and Mac** (iOS build
-  `352fb5c3-3d10-44a5-884f-ac0eeb7dad3d`, Mac build `3544c167-c447-4a33-a537-60988240afc5`).
+  **TestFlight build 25 is now uploaded and VALID / IN_BETA_TESTING for both iOS and Mac** (App Store Connect build
+  `3a42b560-396d-46d7-8f3c-f544487a2244`; iOS and Mac share this build record).
   No owner-device acceptance is claimed by this candidate.
   The current main source also contains the Mac-specific purchase-settings copy (`fe0dd2b`); a fresh universal
   Catalyst build-for-testing and focused Mac execution passed **11/11** (approval and StoreKit purchase suites).
