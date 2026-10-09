@@ -211,6 +211,27 @@ direct source links. No public paid launch promise should say that every arXiv p
   schema, provider generation or paid ranking was deployed. [Economics](research/PRICING_RECOMMENDATION_20261008.md),
   [podcast proposal](architecture/PAPER_PODCASTS.md).
 
+## Podcasts on staging and the first seed attempt — 2026-10-09 UTC
+
+- **Deployed, switched off by default:**
+  - Migration 048 (encrypted backup `20261009T012613Z-ab58c8ef35d2` taken first).
+  - The `podcast` and `podcast-member` functions, and the `podcast-assets` bucket.
+  - Worker `gradstep-pipeline-00013-mh2`, with checks 17/17.
+  - The speech service account `gradstep-podcast-speech` (custom role: `aiplatform.endpoints.predict` only; the
+    pipeline account can mint its tokens), configured in `infra/staging.json`.
+  - The local amd64 image build now needs Docker's buildx plugin (installed via Homebrew).
+- **Inventory:** scope 3 certified (uploads paused briefly) with zero discrepancies.
+- **Zero-spend rehearsal passed.** A labeled fixture episode went through the real worker, database and storage. The
+  new `podcast.catalog` workflow check verified the catalog listing, transcript (6 segments) and chapters (3), and an
+  exact-bytes audio download (223,621 bytes); reusing the download grant was refused (409). The fixture was then
+  withdrawn and fixtures switched off.
+- **Seed pilot, first attempt: both 5-minute jobs failed with `script_incomplete`.** Each review pass stopped at its
+  4,000-token output cap; the drafts were 4,497–4,785 tokens. No speech call was made.
+  - Spend: $0.44 of the $2 seed allowance. Those two failures used up the period's two-episode count.
+  - Fix in progress: the review pass returns corrections instead of a full rewrite (worker only), and migration 049
+    counts only in-flight and published seed episodes. The $2 dollar cap still binds.
+  - Policy now: catalog and delivery on, seeding on, generation off.
+
 ## TestFlight build 23 and For you serving — 2026-10-09 UTC
 
 - **TestFlight build 23** (iOS and Mac), from main `9ca3202`: build 22 plus the chat model/effort/length control and
