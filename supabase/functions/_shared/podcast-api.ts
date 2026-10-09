@@ -21,7 +21,7 @@ const STATUS: Record<string, number> = {
   podcast_unavailable: 503, podcast_release_unavailable: 404, podcast_request_unavailable: 404, podcast_request_conflict: 409,
   quote_unavailable: 404, quote_expired: 410, consent_required: 400, source_unavailable: 404, source_too_large: 413,
   active_generation_limit: 429, podcast_busy: 429, podcast_daily_limit: 429, podcast_paused: 503, storage_full: 507,
-  podcast_outcome_pending: 409,
+  podcast_outcome_pending: 409, podcast_profile_unavailable: 400,
   insufficient_credits: 402, platform_budget_exhausted: 503, too_many_active_operations: 429,
   podcast_transfer_limit: 429, podcast_grant_unavailable: 403, podcast_grant_consumed: 409,
   invalid_podcast_request: 400, invalid_podcast_cursor: 400, invalid_podcast_grant: 400, invalid_id: 400,
@@ -68,7 +68,12 @@ export async function handlePodcast(request: Request, deps: PodcastAPIDeps, head
       return json(await session.rpc('v1_podcast_status', { p_request_id: uuid(url.searchParams.get('request_id')) }), headers);
     case 'quote': {
       const b = await body(request);
-      return json(await session.rpc('v1_podcast_quote', { p_item_id: uuid(String(b.item_id ?? '')), p_request_id: uuid(String(b.request_id ?? '')) }), headers);
+      // A length (podcast-short-v1, podcast-5min-v1, podcast-10min-v1, podcast-20min-v1); omitted means five minutes.
+      if (b.profile !== undefined && b.profile !== null && (typeof b.profile !== 'string' || !/^[a-z][a-z0-9-]{2,47}$/.test(b.profile))) {
+        throw new PublicError(400, 'podcast_profile_unavailable');
+      }
+      return json(await session.rpc('v1_podcast_quote', { p_item_id: uuid(String(b.item_id ?? '')), p_request_id: uuid(String(b.request_id ?? '')),
+        ...(typeof b.profile === 'string' ? { p_profile: b.profile } : {}) }), headers);
     }
     case 'start': {
       const b = await body(request);

@@ -2,7 +2,7 @@
 // plus WAV validation and approximate transcript timing. No API keys: the worker
 // impersonates a dedicated service account for a five-minute token. Logs carry
 // ids and counts only — never transcript text, audio or tokens.
-import type { CheckedScript } from './podcast-script.ts';
+import type { CheckedScript, CheckedSegment } from './podcast-script.ts';
 
 export const SPEECH_MODEL = 'gemini-3.8-flash-tts';
 export const VERTEX_LOCATION = 'global';
@@ -15,9 +15,12 @@ export const MAX_SPEECH_RESPONSE_BYTES = 48 * 1024 * 1024;
 export interface SpeechVoices { explainer: string; skeptic: string }
 export interface SpeechRequest { body: Record<string, unknown>; bytes: number }
 
+type SpokenSegment = Pick<CheckedSegment, 'text' | 'speaker' | 'style'>;
+const speechPart = (s: SpokenSegment) => ({ text: s.text, speechMetadata: { speaker: SPEECH_SPEAKERS[s.speaker], style: s.style || 'clear, conversational' } });
+
 /** A provable input bound: request text and metadata bytes, plus fixed framing allowance. */
-export function speechRequest(script: CheckedScript, voices: SpeechVoices, maxOutputTokens: number): SpeechRequest {
-  const parts = script.segments.map(s => ({ text: s.text, speechMetadata: { speaker: SPEECH_SPEAKERS[s.speaker], style: s.style || 'clear, conversational' } }));
+export function speechRequest(script: { segments: SpokenSegment[] }, voices: SpeechVoices, maxOutputTokens: number): SpeechRequest {
+  const parts = script.segments.map(speechPart);
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
@@ -28,6 +31,63 @@ export function speechRequest(script: CheckedScript, voices: SpeechVoices, maxOu
     },
   };
   return { body, bytes: new TextEncoder().encode(JSON.stringify(parts)).byteLength + 256 };
+}
+
+// ----------------------------------------------------------------------------
+// Chunked speech: a script longer than one call holds is split between segments
+// (preferably where a chapter starts, else where the speaker changes), each chunk
+// within the per-call input limit, and the profile's audio budget is shared out
+// in proportion to each chunk's words. A plan that needs more calls than the
+// profile allows is refused before any speech is bought.
+// ----------------------------------------------------------------------------
+export interface SpeechLimits {
+  /** Per-call input cap (request bytes, a provable token bound). */ maxInputTokens: number;
+  maxCalls: number; /** Per-call output cap. */ perCallOutputTokens: number; /** Profile total. */ maxAudioTokens: number;
+}
+export interface SpeechChunk { start: number; end: number; bytes: number; words: number; audioTokens: number }
+/** Slowest pace a chunk's audio allowance must cover: 120 words a minute at 25 audio tokens a second. */
+export const AUDIO_TOKENS_PER_WORD = 12.5;
+
+export function planSpeechChunks(segments: (SpokenSegment & { chapter: string })[], limits: SpeechLimits): SpeechChunk[] | null {
+  const n = segments.length;
+  if (!n || limits.maxCalls < 1) return null;
+  const encoder = new TextEncoder();
+  const bytes = segments.map(s => encoder.encode(JSON.stringify(speechPart(s))).byteLength);
+  const words = segments.map(s => s.text.split(/\s+/).filter(Boolean).length);
+  // speechRequest's bound: the JSON array ("[" parts joined by "," "]") plus 256.
+  const size = (a: number, b: number) => { let t = 2 + (b - a - 1) + 256; for (let i = a; i < b; i++) t += bytes[i]; return t; };
+  if (bytes.some(b => b + 2 + 256 > limits.maxInputTokens)) return null;
+  let k = 1;
+  for (let a = 0, i = 0; i < n; i++) if (size(a, i + 1) > limits.maxInputTokens) { k++; a = i; }
+  if (k > limits.maxCalls) return null;
+  // Exactly k chunks, chosen to land on natural pauses and keep chunks similar in length.
+  const total = words.reduce((x, y) => x + y, 0), ideal = Math.max(1, total / k);
+  const span = (a: number, b: number) => { let t = 0; for (let i = a; i < b; i++) t += words[i]; return t; };
+  const seam = (i: number) => segments[i].chapter !== segments[i - 1].chapter ? 0 : segments[i].speaker !== segments[i - 1].speaker ? 1 : 3;
+  const cost: number[][] = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(Infinity));
+  const from: number[][] = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(-1));
+  cost[0][0] = 0;
+  for (let j = 1; j <= k; j++) {
+    for (let b = j; b <= n; b++) {
+      for (let a = j - 1; a < b; a++) {
+        if (!Number.isFinite(cost[j - 1][a]) || size(a, b) > limits.maxInputTokens) continue;
+        const balance = 4 * ((span(a, b) - ideal) / ideal) ** 2;
+        const c = cost[j - 1][a] + (a > 0 ? seam(a) : 0) + balance;
+        if (c < cost[j][b]) { cost[j][b] = c; from[j][b] = a; }
+      }
+    }
+  }
+  if (!Number.isFinite(cost[k][n])) return null;
+  const bounds: [number, number][] = [];
+  for (let j = k, b = n; j > 0; j--) { const a = from[j][b]; bounds.unshift([a, b]); b = a; }
+  const chunks = bounds.map(([a, b]) => {
+    const w = span(a, b);
+    return { start: a, end: b, bytes: size(a, b), words: w,
+      audioTokens: Math.min(limits.perCallOutputTokens, Math.floor(limits.maxAudioTokens * (total ? w / total : 1 / k))) };
+  });
+  // Every chunk must be able to finish at a slow pace; otherwise refuse rather than buy a cut-off take.
+  if (chunks.some(c => c.audioTokens < Math.ceil(c.words * AUDIO_TOKENS_PER_WORD))) return null;
+  return chunks;
 }
 
 export interface SpeechResult {
@@ -216,6 +276,49 @@ export function verifyAudio(pcm: Pcm, bounds: { minMs: number; maxMs: number }):
   let quiet = 0;
   for (const v of frames) { quiet = v < 40 ? quiet + 1 : 0; if (quiet > 80) return 'audio_dead_air'; }
   return null;
+}
+
+/**
+ * Joins chunk takes into one take. A single chunk is returned untouched. Several
+ * are trimmed of edge silence (keeping a natural tail), matched in speech level
+ * (at most ±6 dB), faded over 12 ms at each seam to avoid clicks and separated by
+ * a 450 ms pause, the length of an ordinary turn change. `spans` locate each chunk
+ * in the joined audio so its segments' timing and chapters stay exact.
+ */
+export function joinChunks(chunks: Pcm[], options: { pauseMs?: number; fadeMs?: number } = {}): { pcm: Pcm; parts: Pcm[]; spans: Timing[] } {
+  if (chunks.length === 1) return { pcm: chunks[0], parts: chunks, spans: [{ start_ms: 0, end_ms: chunks[0].durationMs }] };
+  const rate = SAMPLE_RATE, frameMs = 20, quiet = 60, keep = Math.round(rate * 0.12);
+  const pause = Math.round(rate * (options.pauseMs ?? 450) / 1000), fade = Math.round(rate * (options.fadeMs ?? 12) / 1000);
+  const trimmed = chunks.map(c => {
+    const frames = frameRms(c.samples, rate, frameMs), size = Math.round(rate * frameMs / 1000);
+    const first = frames.findIndex(v => v >= quiet), last = frames.length - 1 - [...frames].reverse().findIndex(v => v >= quiet);
+    if (first < 0) return c.samples;
+    return c.samples.subarray(Math.max(0, first * size - keep), Math.min(c.samples.length, (last + 1) * size + keep));
+  });
+  const level = trimmed.map(t => {
+    const frames = frameRms(t, rate, frameMs).filter(v => v >= quiet);
+    return frames.length ? Math.sqrt(frames.reduce((x, v) => x + v * v, 0) / frames.length) : 0;
+  });
+  const sorted = level.filter(v => v > 0).sort((a, b) => a - b), median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  const parts = trimmed.map((t, i) => {
+    const gain = level[i] > 0 && median > 0 ? Math.min(2, Math.max(0.5, median / level[i])) : 1;
+    const out = new Int16Array(t.length);
+    for (let s = 0; s < t.length; s++) {
+      const edge = Math.min(1, s / Math.max(1, fade), (t.length - 1 - s) / Math.max(1, fade));
+      out[s] = Math.max(-32768, Math.min(32767, Math.round(t[s] * gain * edge)));
+    }
+    return { samples: out, sampleRate: rate, durationMs: Math.round(out.length * 1000 / rate) };
+  });
+  const length = parts.reduce((x, p) => x + p.samples.length, 0) + pause * (parts.length - 1);
+  const all = new Int16Array(length), spans: Timing[] = [];
+  let offset = 0;
+  parts.forEach((p, i) => {
+    if (i) offset += pause;
+    all.set(p.samples, offset);
+    spans.push({ start_ms: Math.round(offset * 1000 / rate), end_ms: Math.round((offset + p.samples.length) * 1000 / rate) });
+    offset += p.samples.length;
+  });
+  return { pcm: { samples: all, sampleRate: rate, durationMs: Math.round(all.length * 1000 / rate) }, parts, spans };
 }
 
 export interface Timing { start_ms: number; end_ms: number }

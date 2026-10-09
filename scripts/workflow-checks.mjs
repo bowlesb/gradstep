@@ -484,8 +484,8 @@ check('podcast.state', { title: 'Podcast switches, seed allowance, liabilities a
   if (status.unresolved_writes) problems.push(`${status.unresolved_writes} unresolved podcast upload(s)`);
   if (on.some(k => ['generation', 'seed', 'fixtures', 'delivery'].includes(k)) && !status.inventory_certified) problems.push('podcast work enabled without scope-3 inventory certification');
   const stuck = (status.recent_jobs ?? []).filter(j => !j.finished_at && !['unknown_provider', 'quarantined'].includes(j.state)
-    && Date.now() - Date.parse(j.created_at) > 30 * 60_000);
-  if (stuck.length) problems.push(`${stuck.length} podcast job(s) unfinished after 30 min`);
+    && Date.now() - Date.parse(j.created_at) > 45 * 60_000);  // staged 20-minute jobs take up to ~35 min
+  if (stuck.length) problems.push(`${stuck.length} podcast job(s) unfinished after 45 min`);
   const text = `switches on: ${on.join(', ') || 'none'}; jobs ${JSON.stringify(status.jobs ?? {})}; releases ${JSON.stringify(status.releases ?? {})}`;
   return problems.length ? fail(`${problems.join('; ')} — ${text}`) : pass(text);
 });

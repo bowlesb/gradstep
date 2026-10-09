@@ -72,6 +72,64 @@ select 'podcast-5min-v1',1,s,sha256(convert_to(s::text,'UTF8')) from (select jso
  'storage',jsonb_build_object('bytes',20971520,'objects',3,'audio_bytes',16777216,'transcript_bytes',4194304,'manifest_bytes',262144),
  'consent_version','podcast-private-v1') s) x;
 
+-- Further lengths (owner, 2026-10-08): Short, 10 and 20 minutes, private generation only (the seed pilot stays
+-- five-minute). Same method as above: every paid call reserves its full input cap and output cap at the list price.
+-- A review reads the paper plus the draft, so its input cap is the draft's input cap + the draft's output cap + 1,000.
+-- Speech is planned in chunks (each call within Gemini TTS's 8,192 input / 16,384 output tokens); the profile caps the
+-- number of calls and the total audio tokens (max_seconds x 25/s), and each call reserves 8,192 input tokens.
+--  short: script 80,000x2+3,200x10=192,000; review 84,200x2+2,600x10=194,400; speech 1x8,192x1+8,250x18=156,692;
+--         total 543,092 -> 110 credits ($0.55)
+--  10min: script 80,000x2+12,000x10=280,000; review 93,000x2+10,000x10=286,000; speech 3x8,192+27,000x18=510,576;
+--         total 1,076,576 -> 220 credits ($1.10)
+--  20min: script 80,000x2+22,800x10=388,000; review 103,800x2+19,000x10=397,600; speech 6x8,192+51,000x18=967,152;
+--         total 1,752,752 -> 360 credits ($1.80)
+-- Credit maximums are the total rounded up to the next 10 credits, as 723,104 -> 150 above. Ten and twenty minutes run
+-- in stages (one paid script pass per worker request, the draft and approved script checkpointed in between).
+insert into app_private.podcast_profiles(id,version,spec,spec_sha256)
+select id,1,s,sha256(convert_to(s::text,'UTF8')) from (
+ select p.id,jsonb_build_object('id',p.id,'version',1,'label',p.label,'language','en','target_seconds',p.target,'min_seconds',p.min_s,
+  'max_seconds',p.max_s,'max_source_bytes',400000,'staged',p.staged,
+  'shape',jsonb_build_object('duration',p.duration,'words',p.words,'chapters',p.chapters,'segments',p.segments),
+  'checker',jsonb_build_object('words',p.check_words,'chapters',p.check_chapters,'segments',p.check_segments,
+   'max_spoken_characters',p.spoken,'min_evidenced',p.evidenced),
+  'script',jsonb_build_object('provider','anthropic','model','claude-sonnet-5-5',
+   'rates_microusd_per_token',jsonb_build_object('input',2,'output',10),
+   'calls',jsonb_build_array(
+    jsonb_build_object('route','podcast_script','max_input_tokens',80000,'max_output_tokens',p.draft_out,
+     'ceiling_microusd',80000*2+p.draft_out*10)||case when p.staged then jsonb_build_object('window_seconds',p.draft_window) else '{}'::jsonb end,
+    jsonb_build_object('route','podcast_review','max_input_tokens',80000+p.draft_out+1000,'max_output_tokens',p.review_out,
+     'ceiling_microusd',(80000+p.draft_out+1000)*2+p.review_out*10)||case when p.staged then jsonb_build_object('window_seconds',p.review_window) else '{}'::jsonb end)),
+  'speech',jsonb_build_object('provider','google','route','podcast_speech','model','gemini-3.8-flash-tts','location','global',
+   'max_input_tokens',8192,'max_output_tokens',p.call_out,'max_calls',p.calls,'max_audio_tokens',p.audio,'audio_tokens_per_second',25,
+   'rates_microusd_per_token',jsonb_build_object('text_input',1,'audio_output',18),'ceiling_microusd',p.calls*8192+p.audio*18,
+   'voices',jsonb_build_object('explainer','Sadaltager','skeptic','Erinome'))
+   ||case when p.staged then jsonb_build_object('window_seconds',420) else '{}'::jsonb end,
+  'encoder',jsonb_build_object('codec','aac','container','m4a','channels',1,'sample_rate',24000,'bitrate_kbps',64,'loudness_lufs',-16),
+  'ceiling_microusd',p.total,'hold_microusd',p.credits*5000,'max_credits',p.credits,'credit_microusd',5000,
+  'storage',jsonb_build_object('bytes',p.audio_bytes+4194304+262144,'objects',3,'audio_bytes',p.audio_bytes,'transcript_bytes',4194304,'manifest_bytes',262144),
+  'consent_version','podcast-private-v1') s
+ from (values
+  ('podcast-short-v1','Short',150,60,330,false,'about two and a half minutes','[330,420]'::jsonb,'[2,3]'::jsonb,'[8,20]'::jsonb,
+   '[220,520]'::jsonb,'[2,5]'::jsonb,'[4,40]'::jsonb,3200,3,3200,2600,0,0,8250,1,8250,543092,110,4194304),
+  ('podcast-10min-v1','10 min',600,300,1080,true,'about ten minutes','[1350,1650]'::jsonb,'[6,8]'::jsonb,'[30,80]'::jsonb,
+   '[900,2000]'::jsonb,'[4,12]'::jsonb,'[16,160]'::jsonb,12500,10,12000,10000,420,360,16384,3,27000,1076576,220,12582912),
+  ('podcast-20min-v1','20 min',1200,600,2040,true,'about twenty minutes','[2700,3300]'::jsonb,'[8,12]'::jsonb,'[60,150]'::jsonb,
+   '[1800,3800]'::jsonb,'[6,20]'::jsonb,'[30,300]'::jsonb,24000,18,22800,19000,680,600,16384,6,51000,1752752,360,20971520)
+ ) p(id,label,target,min_s,max_s,staged,duration,words,chapters,segments,check_words,check_chapters,check_segments,spoken,evidenced,
+     draft_out,review_out,draft_window,review_window,call_out,calls,audio,total,credits,audio_bytes)
+) x;
+-- The stated totals are the sums of their parts (a typo here would silently mis-hold customers).
+do $$ begin
+ if exists(select 1 from app_private.podcast_profiles where id<>'podcast-5min-v1' and (
+   (spec->>'ceiling_microusd')::bigint<>(select sum((c->>'ceiling_microusd')::bigint) from jsonb_array_elements(spec->'script'->'calls') c)
+    +(spec->'speech'->>'ceiling_microusd')::bigint
+   or (spec->>'max_credits')::bigint<>ceil((spec->>'ceiling_microusd')::numeric/50000)*10
+   or (spec->'speech'->>'max_audio_tokens')::bigint>(spec->>'max_seconds')::bigint*25
+   or (spec->'speech'->>'max_output_tokens')::bigint>16384)) then
+  raise exception 'podcast_profile_arithmetic';
+ end if;
+end $$;
+
 -- Disabled by default; audited changes only through worker_podcast_policy_set.
 create table app_private.podcast_policy (
  singleton boolean primary key default true check(singleton),
@@ -80,8 +138,12 @@ create table app_private.podcast_policy (
  generation_enabled boolean not null default false,
  seed_enabled boolean not null default false,
  fixtures_enabled boolean not null default false,
+ -- The seed and default length (Decision 2: seeds are five-minute episodes only).
  profile_id text not null default 'podcast-5min-v1',
  profile_version integer not null default 1,
+ -- Lengths offered for private generation ('id:version', one version per id); audited changes only.
+ allowed_profiles text[] not null default array['podcast-short-v1:1','podcast-5min-v1:1','podcast-10min-v1:1','podcast-20min-v1:1']
+  check(cardinality(allowed_profiles) between 1 and 8),
  -- Rotated by restore quarantine; every mutation compares a job's captured epoch.
  epoch uuid not null default gen_random_uuid(),
  max_active_private_per_account integer not null default 1 check(max_active_private_per_account between 1 and 5),
@@ -95,6 +157,17 @@ create table app_private.podcast_policy (
  updated_at timestamptz not null default now(),
  foreign key(profile_id,profile_version) references app_private.podcast_profiles(id,version)
 );
+-- Every allowlisted length names an existing immutable profile, once per id.
+create function app_private.podcast_policy_profiles_valid() returns trigger language plpgsql set search_path='' as $$
+begin
+ if exists(select 1 from unnest(new.allowed_profiles) e where e is null or e !~ '^[a-z][a-z0-9-]{2,47}:[1-9][0-9]{0,3}$'
+   or not exists(select 1 from app_private.podcast_profiles p where p.id=split_part(e,':',1) and p.version=split_part(e,':',2)::integer))
+  or (select count(distinct split_part(e,':',1)) from unnest(new.allowed_profiles) e)<>cardinality(new.allowed_profiles)
+ then raise exception 'invalid_podcast_policy'; end if;
+ return new;
+end $$;
+create trigger podcast_policy_profiles before insert or update of allowed_profiles on app_private.podcast_policy
+ for each row execute function app_private.podcast_policy_profiles_valid();
 insert into app_private.podcast_policy default values;
 create table app_private.podcast_policy_events (
  id uuid primary key, actor_id uuid not null references app_private.accounts(id),
@@ -188,8 +261,8 @@ create table app_private.podcast_quotes (
  work_sha256 bytea not null check(octet_length(work_sha256)=32),
  pin jsonb not null check(jsonb_typeof(pin)='object' and octet_length(pin::text)<=4096),
  profile_id text not null, profile_version integer not null,
- max_credits bigint not null check(max_credits between 1 and 150),
- max_microusd bigint not null check(max_microusd between 1 and 750000),
+ max_credits bigint not null check(max_credits between 1 and 1000),
+ max_microusd bigint not null check(max_microusd between 1 and 5000000),
  epoch uuid not null,
  consent_version text not null check(consent_version='podcast-private-v1'),
  created_at timestamptz not null default now(),
@@ -218,7 +291,9 @@ create table app_private.podcast_jobs (
  rights_revision bigint,
  retry_of uuid references app_private.podcast_jobs(id),
  failure_code text check(failure_code ~ '^[a-z][a-z0-9_]{0,63}$'),
- charged_credits bigint check(charged_credits between 0 and 150),
+ charged_credits bigint check(charged_credits between 0 and 1000),
+ -- Speech chunks planned for this job, fixed at its first speech grant (at most the profile's max_calls).
+ speech_calls smallint check(speech_calls between 1 and 8),
  quality_loss_microusd bigint not null default 0 check(quality_loss_microusd>=0),
  -- Every known cost of a customer job charged zero credits (quality, interruption,
  -- unknown outcome): counted with unresolved ceilings against the allocation.
@@ -268,9 +343,29 @@ create trigger podcast_job_events_immutable before update or delete on app_priva
 create table app_private.podcast_job_attempts (
  job_id uuid not null references app_private.podcast_jobs(id),
  route text not null check(route in ('podcast_script','podcast_review','podcast_speech')),
+ -- Speech chunk number (0 for the script routes and single-call speech).
+ ordinal smallint not null default 0 check(ordinal between 0 and 7 and (route='podcast_speech' or ordinal=0)),
  attempt_id uuid not null unique references app_private.provider_attempts(id),
- primary key(job_id,route)
+ primary key(job_id,route,ordinal)
 );
+
+-- Staged jobs (profiles with "staged": true) checkpoint the draft and the approved
+-- script between worker requests, so a ten- or twenty-minute script never has to
+-- fit one request. Working state only: bounded, never logged, deleted when the job
+-- settles (every terminal path goes through podcast_settle). Server-readable like
+-- the private transcript it becomes; not end-to-end encrypted.
+create table app_private.podcast_job_checkpoints (
+ job_id uuid not null references app_private.podcast_jobs(id),
+ stage text not null check(stage in ('draft','script')),
+ document jsonb not null check(jsonb_typeof(document)='object' and octet_length(document::text)<=1048576),
+ sha256 bytea not null check(octet_length(sha256)=32),
+ created_at timestamptz not null default now(),
+ primary key(job_id,stage)
+);
+create function app_private.podcast_checkpoint_immutable() returns trigger language plpgsql set search_path='' as $$
+begin raise exception 'immutable_record_requires_compensating_entry'; end $$;
+create trigger podcast_job_checkpoints_immutable before update on app_private.podcast_job_checkpoints
+ for each row execute function app_private.podcast_checkpoint_immutable();
 
 -- Approved scripts (identity = exact normalized transcript/evidence document hash).
 create table app_private.podcast_scripts (
@@ -299,7 +394,7 @@ create table app_private.podcast_releases (
  origin text not null check(origin in ('generated','fixture')),
  identity jsonb not null check(jsonb_typeof(identity)='object' and octet_length(identity::text)<=4096),
  manifest_sha256 bytea not null unique check(octet_length(manifest_sha256)=32),
- duration_ms integer not null check(duration_ms between 1000 and 900000),
+ duration_ms integer not null check(duration_ms between 1000 and 3600000),
  public_metadata jsonb check(public_metadata is null or (jsonb_typeof(public_metadata)='object' and octet_length(public_metadata::text)<=8192)),
  state text not null check(state in ('pending_review','ready','superseded','quarantined','withdrawn')),
  replacement_id uuid references app_private.podcast_releases(id),
@@ -650,6 +745,37 @@ language sql stable security definer set search_path='' as $$
  select pr.spec from app_private.podcast_policy p join app_private.podcast_profiles pr on (pr.id,pr.version)=(p.profile_id,p.profile_version) where p.singleton
 $$;
 
+-- A length the reader may choose: its allowlisted version, or the default (five
+-- minutes) when the caller names none. Anything else is podcast_profile_unavailable.
+create function app_private.podcast_allowed_spec(p_profile text) returns jsonb
+language plpgsql stable security definer set search_path='' as $$
+declare pol app_private.podcast_policy; entry text; spec jsonb;
+begin
+ select * into strict pol from app_private.podcast_policy where singleton;
+ if p_profile is not null and p_profile !~ '^[a-z][a-z0-9-]{2,47}$' then raise exception 'podcast_profile_unavailable'; end if;
+ select e into entry from unnest(pol.allowed_profiles) e where split_part(e,':',1)=coalesce(p_profile,pol.profile_id);
+ if entry is null then raise exception 'podcast_profile_unavailable'; end if;
+ select pr.spec into spec from app_private.podcast_profiles pr where pr.id=split_part(entry,':',1) and pr.version=split_part(entry,':',2)::integer;
+ if spec is null then raise exception 'podcast_profile_unavailable'; end if;
+ return spec;
+end $$;
+
+create function app_private.podcast_label(p_spec jsonb) returns text language sql immutable set search_path='' as $$
+ select coalesce(p_spec->>'label',round((p_spec->>'target_seconds')::numeric/60)::text||' min')
+$$;
+
+-- The lengths offered for private generation, shortest first, with each one's maximum.
+create function app_private.podcast_lengths() returns jsonb
+language sql stable security definer set search_path='' as $$
+ select coalesce(jsonb_agg(jsonb_build_object('profile',pr.id,'label',app_private.podcast_label(pr.spec),
+   'target_seconds',(pr.spec->>'target_seconds')::integer,'max_credits',(pr.spec->>'max_credits')::integer,
+   'estimate','Estimate — you''re charged actual usage, maximum '||(pr.spec->>'max_credits')||' credits')
+  order by (pr.spec->>'target_seconds')::integer),'[]'::jsonb)
+ from app_private.podcast_policy p cross join unnest(p.allowed_profiles) e
+  join app_private.podcast_profiles pr on pr.id=split_part(e,':',1) and pr.version=split_part(e,':',2)::integer
+ where p.singleton
+$$;
+
 create function app_private.podcast_month() returns date language sql stable set search_path='' as $$
  select date_trunc('month',now() at time zone 'UTC')::date
 $$;
@@ -836,6 +962,8 @@ begin
  where id=j.id returning * into result;
  -- Future storage reservations are returned; planned/pending objects stay inventoried.
  delete from app_private.podcast_asset_holds where job_id=j.id;
+ -- Working drafts never outlive the job.
+ delete from app_private.podcast_job_checkpoints where job_id=j.id;
  perform app_private.podcast_event(j.id,'settled',jsonb_build_object('state',p_state,'failure',p_failure,'known_microusd',known,'credits',credits,'quality',p_quality));
  return result;
 end $$;
@@ -847,7 +975,8 @@ language sql stable security definer set search_path='' as $$
   'held_credits',case when op.state='settled' then 0 else op.credit_ceiling end,
   'charged_credits',case when op.state='settled' then op.actual_credits end,
   'released_credits',case when op.state='settled' then op.credit_ceiling-op.actual_credits end,
-  'failure',j.failure_code,'cancel_requested',j.cancel_requested)
+  'failure',j.failure_code,'cancel_requested',j.cancel_requested,
+  'profile',(select k.profile_id from app_private.podcast_episode_keys k where k.id=j.episode_id))
  from app_private.metered_operations op where (op.account_id,op.id)=(j.operation_account_id,j.operation_id)
 $$;
 
@@ -861,7 +990,12 @@ language sql stable security definer set search_path='' as $$
   'topic',r.public_metadata->>'topic','source',coalesce(r.public_metadata->'source',jsonb_build_object('arxiv_id',null,'version',null,'url',null,'license',null)),
   'audio',(select jsonb_build_object('bytes',o.byte_count,'sha256',encode(o.sha256,'hex'),'media_type',o.media_type)
    from app_private.podcast_release_objects ro join app_private.stored_objects o on o.id=ro.object_id where ro.release_id=r.id and ro.role='audio'),
-  'replacement_id',r.replacement_id)
+  'replacement_id',r.replacement_id,
+  'profile',(select k.profile_id from app_private.podcast_episode_keys k where k.id=r.episode_id),
+  'label',(select app_private.podcast_label(pr.spec) from app_private.podcast_episode_keys k join app_private.podcast_profiles pr
+    on (pr.id,pr.version)=(k.profile_id,k.profile_version) where k.id=r.episode_id),
+  'target_seconds',(select (pr.spec->>'target_seconds')::integer from app_private.podcast_episode_keys k join app_private.podcast_profiles pr
+    on (pr.id,pr.version)=(k.profile_id,k.profile_version) where k.id=r.episode_id))
 $$;
 
 -- Platform-funded losses of customer jobs this month: known costs charged zero
@@ -976,6 +1110,10 @@ begin
   elsif item.key in ('max_active_private_per_account','max_active_environment','max_jobs_day_environment','quality_allocation_microusd',
    'account_transfer_bytes_month','paid_account_transfer_bytes_month','environment_transfer_bytes_month') then
    if jsonb_typeof(item.value)<>'number' or item.value::text !~ '^[0-9]{1,12}$' then raise exception 'invalid_podcast_policy'; end if;
+  elsif item.key='allowed_profiles' then
+   -- Lengths offered for private generation ('id:version'); the trigger checks each names a profile.
+   if jsonb_typeof(item.value)<>'array' or jsonb_array_length(item.value) not between 1 and 8
+    or exists(select 1 from jsonb_array_elements(item.value) e where jsonb_typeof(e)<>'string') then raise exception 'invalid_podcast_policy'; end if;
   else raise exception 'invalid_podcast_policy'; end if;
  end loop;
  if enabling and not app_private.podcast_inventory_certified() then raise exception 'asset_inventory_incomplete'; end if;
@@ -992,6 +1130,7 @@ begin
   account_transfer_bytes_month=coalesce((p_changes->>'account_transfer_bytes_month')::bigint,account_transfer_bytes_month),
   paid_account_transfer_bytes_month=coalesce((p_changes->>'paid_account_transfer_bytes_month')::bigint,paid_account_transfer_bytes_month),
   environment_transfer_bytes_month=coalesce((p_changes->>'environment_transfer_bytes_month')::bigint,environment_transfer_bytes_month),
+  allowed_profiles=coalesce((select array_agg(e order by n) from jsonb_array_elements_text(p_changes->'allowed_profiles') with ordinality x(e,n)),allowed_profiles),
   revision=revision+1,updated_at=now()
  where singleton returning * into pol;
  insert into app_private.podcast_policy_events(id,actor_id,changes,reason,revision) values(p_request_id,p_actor,p_changes,trim(p_reason),pol.revision);
@@ -1057,6 +1196,8 @@ begin
  if not app_private.podcast_inventory_certified() then raise exception 'asset_inventory_incomplete'; end if;
  if (not p_fixture and not pol.seed_enabled) or (p_fixture and not pol.fixtures_enabled) then raise exception 'podcast_unavailable'; end if;
  spec:=app_private.podcast_spec();
+ -- Decision 2: seeds are the approved five-minute episodes only; other lengths are private generation.
+ if spec->>'id' !~ '^podcast-5min-v[0-9]+$' or (spec->>'target_seconds')::integer<>300 then raise exception 'seed_profile_unavailable'; end if;
  if p_fixture then spec:=spec||jsonb_build_object('fixture',true); end if;
  pin:=app_private.podcast_approval_pin(p_approval_id);
  if pin is null then raise exception 'source_unavailable'; end if;
@@ -1161,6 +1302,7 @@ language sql stable security definer set search_path='' as $$
   'generation',p.generation_enabled and app_private.podcast_inventory_certified()
    and exists(select 1 from app_private.accounts x where x.id=a and x.closed_at is null and not x.spending_suspended),
   'max_credits',(app_private.podcast_spec()->>'max_credits')::integer,'target_seconds',(app_private.podcast_spec()->>'target_seconds')::integer,
+  'lengths',app_private.podcast_lengths(),
   'transfer',app_private.podcast_transfer_remaining(a))
  from app_private.podcast_policy p where p.singleton
 $$;
@@ -1196,7 +1338,7 @@ end $$;
 -- release, else a ready shared release of the exact same document bytes.
 create function public.v1_podcast_paper(p_item_id uuid) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare a uuid:=app_private.require_actor(); doc uuid; r app_private.podcast_releases; j app_private.podcast_jobs; req uuid;
+declare a uuid:=app_private.require_actor(); doc uuid; r app_private.podcast_releases; j app_private.podcast_jobs; req uuid; lengths jsonb;
 begin
  perform public.worker_consume_request(a,'podcast-read');
  select document_id into doc from app_private.library_items where account_id=a and id=p_item_id and removed_at is null;
@@ -1213,26 +1355,38 @@ begin
   join app_private.podcast_sources s on s.episode_id=x.episode_id and s.ordinal=0
   where s.document_id=doc and x.funding_kind='customer' and x.finished_at is null order by x.created_at desc limit 1;
  if j.id is not null then select request_id into req from app_private.podcast_requests where account_id=a and job_id=j.id order by created_at limit 1; end if;
- return jsonb_build_object('episode',case when r.id is not null then app_private.podcast_episode_public(r) end,
+ -- Every playable length for this paper (each length is its own work key): the
+ -- account's newest private release per length, else the newest shared one.
+ select coalesce(jsonb_agg(app_private.podcast_episode_public(z.release) order by z.seconds),'[]'::jsonb) into lengths
+  from (select distinct on (k.profile_id) x as release,(pr.spec->>'target_seconds')::integer seconds from app_private.podcast_releases x
+    join app_private.podcast_episode_keys k on k.id=x.episode_id join app_private.podcast_sources s on s.episode_id=x.episode_id and s.ordinal=0
+    join app_private.podcast_profiles pr on (pr.id,pr.version)=(k.profile_id,k.profile_version)
+   where s.document_id=doc and x.state='ready' and ((x.scope='private' and x.owner_id=a)
+    or (x.scope='shared' and app_private.podcast_rights_current(x.episode_id,null) and (select catalog_enabled from app_private.podcast_policy where singleton)))
+   order by k.profile_id,(x.scope='private') desc,x.published_seq desc) z;
+ return jsonb_build_object('episode',case when r.id is not null then app_private.podcast_episode_public(r) end,'episodes',lengths,
   'job',case when j.id is not null then app_private.podcast_job_public(j,req) end,'capabilities',app_private.podcast_capabilities(a));
 end $$;
 
-create function public.v1_podcast_quote(p_item_id uuid,p_request_id uuid) returns jsonb
+-- p_profile names a length (podcast-short-v1, podcast-5min-v1, podcast-10min-v1,
+-- podcast-20min-v1); omitted means five minutes (older clients). Each length is its
+-- own work key: a ready episode of another length is never reused for this one.
+create function public.v1_podcast_quote(p_item_id uuid,p_request_id uuid,p_profile text default null) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare a uuid:=app_private.require_actor(); pol app_private.podcast_policy; spec jsonb; pin jsonb; key bytea; q app_private.podcast_quotes;
- r app_private.podcast_releases; j app_private.podcast_jobs; req uuid;
+ r app_private.podcast_releases; j app_private.podcast_jobs; req uuid; qspec jsonb;
 begin
  perform public.worker_consume_request(a,'podcast-generate');
  if p_item_id is null or p_request_id is null then raise exception 'invalid_podcast_request'; end if;
  select * into strict pol from app_private.podcast_policy where singleton;
  if not pol.generation_enabled or not app_private.podcast_inventory_certified() then raise exception 'podcast_unavailable'; end if;
  if not exists(select 1 from app_private.accounts where id=a and closed_at is null and not spending_suspended) then raise exception 'account_unavailable'; end if;
+ spec:=app_private.podcast_allowed_spec(p_profile);
  select * into q from app_private.podcast_quotes where account_id=a and request_id=p_request_id;
  if found then
-  if q.item_id<>p_item_id then raise exception 'podcast_request_conflict'; end if;
+  if q.item_id<>p_item_id or q.profile_id<>spec->>'id' then raise exception 'podcast_request_conflict'; end if;
   if q.expires_at<=now() then raise exception 'quote_expired'; end if;
  else
-  spec:=app_private.podcast_spec();
   pin:=app_private.podcast_item_pin(a,p_item_id);
   if pin is null then raise exception 'source_unavailable'; end if;
   if (pin->>'text_bytes')::bigint>(spec->>'max_source_bytes')::bigint then raise exception 'source_too_large'; end if;
@@ -1252,10 +1406,12 @@ begin
    values(a,p_request_id,p_item_id,key,pin,spec->>'id',(spec->>'version')::integer,(spec->>'max_credits')::bigint,(spec->>'hold_microusd')::bigint,
     pol.epoch,spec->>'consent_version',now()+interval '15 minutes') returning * into q;
  end if;
+ select pr.spec into strict qspec from app_private.podcast_profiles pr where (pr.id,pr.version)=(q.profile_id,q.profile_version);
  return jsonb_build_object('quote',jsonb_build_object('id',q.id,'expires_at',q.expires_at,'max_credits',q.max_credits,
   'estimate','Estimate — you''re charged actual usage, maximum '||q.max_credits||' credits',
   'providers',jsonb_build_array('Anthropic (script)','Google Vertex AI (speech)'),'consent_version',q.consent_version,
-  'target_seconds',(app_private.podcast_spec()->>'target_seconds')::integer));
+  'target_seconds',(qspec->>'target_seconds')::integer,'profile',q.profile_id,'label',app_private.podcast_label(qspec)),
+  'options',app_private.podcast_lengths());
 end $$;
 
 create function public.v1_podcast_start(p_quote_id uuid,p_request_id uuid,p_consent_version text) returns jsonb
@@ -1283,7 +1439,8 @@ begin
  select * into q from app_private.podcast_quotes where id=p_quote_id and account_id=a;
  if not found then raise exception 'quote_unavailable'; end if;
  if q.expires_at<=now() or q.epoch<>pol.epoch then raise exception 'quote_expired'; end if;
- spec:=app_private.podcast_spec();
+ -- The quoted length, still offered (an operator may have withdrawn it since).
+ spec:=app_private.podcast_allowed_spec(q.profile_id);
  -- The quote never authorizes later changes to its source or options.
  pin:=app_private.podcast_item_pin(a,q.item_id);
  if pin is distinct from q.pin or app_private.podcast_work_key('private',a,spec,pin)<>q.work_sha256
@@ -1338,7 +1495,7 @@ begin
  select * into strict j from app_private.podcast_jobs where id=req.job_id;
  -- Polling is the recovery wake-up (no always-on loop): a queued job or an
  -- expired lease asks the worker again, at most once a minute.
- if j.finished_at is null and (j.state='queued' or j.lease_until<=clock_timestamp())
+ if j.finished_at is null and ((j.claim_id is null and j.state in ('queued','checking','synthesizing')) or j.lease_until<=clock_timestamp())
   and (j.kicked_at is null or j.kicked_at<clock_timestamp()-interval '60 seconds') then
   perform 1 from app_private.podcast_jobs where id=j.id for update skip locked;
   if found then
@@ -1355,7 +1512,7 @@ language plpgsql security definer set search_path='' as $$
 declare due integer;
 begin
  select count(*) into due from app_private.podcast_jobs where finished_at is null
-  and (state='queued' or (claim_id is not null and lease_until<=clock_timestamp()));
+  and ((claim_id is null and state in ('queued','checking','synthesizing')) or (claim_id is not null and lease_until<=clock_timestamp()));
  if due>0 then perform app_private.podcast_kick(); end if;
  return jsonb_build_object('due',due);
 end $$;
@@ -1371,6 +1528,9 @@ begin
  if j.finished_at is null and j.state not in ('unknown_provider','quarantined') then
   if j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id) then
    -- Before submission: release the whole hold and detach.
+   j:=app_private.podcast_settle(j,'canceled','canceled_by_owner');
+  elsif j.claim_id is null and j.state in ('checking','synthesizing') then
+   -- Parked between stages (nothing in flight): stop now; recorded usage is charged within the maximum.
    j:=app_private.podcast_settle(j,'canceled','canceled_by_owner');
   elsif not j.cancel_requested then
    -- During work: stop future paid calls; known usage settles within the maximum.
@@ -1412,17 +1572,58 @@ language sql stable security definer set search_path='' as $$
  where k.id=j.episode_id
 $$;
 
+-- Speech succeeds only when every planned chunk did (speech_calls is fixed at the first speech grant).
 create function app_private.podcast_route_succeeded(p_job uuid,p_route text) returns boolean
 language sql stable security definer set search_path='' as $$
- select exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
-  where ja.job_id=p_job and ja.route=p_route and pa.state in ('succeeded','reconciled'))
+ select case when p_route='podcast_speech' then
+   coalesce((select j.speech_calls from app_private.podcast_jobs j where j.id=p_job),0)>0
+   and (select count(*) from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+     where ja.job_id=p_job and ja.route='podcast_speech' and pa.state in ('succeeded','reconciled'))
+    =(select j.speech_calls from app_private.podcast_jobs j where j.id=p_job)
+  else exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+  where ja.job_id=p_job and ja.route=p_route and pa.state in ('succeeded','reconciled')) end
 $$;
 
+-- Where an unclaimed job can safely continue: 'queued' when no paid call was ever
+-- admitted; for a staged job, the stage after its newest checkpoint when every
+-- admitted call succeeded and its output is in that checkpoint; otherwise null
+-- (a paid result that was never checkpointed is lost, never re-bought).
+create function app_private.podcast_resume_state(j app_private.podcast_jobs) returns text
+language plpgsql stable security definer set search_path='' as $$
+begin
+ if not exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+  where ja.job_id=j.id and pa.state<>'denied') then return 'queued'; end if;
+ if j.origin<>'generated' or not coalesce((app_private.podcast_job_spec(j)->>'staged')::boolean,false)
+  or exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+   where ja.job_id=j.id and pa.state not in ('denied','succeeded','reconciled'))
+  or exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+   where ja.job_id=j.id and ja.route='podcast_speech' and pa.state<>'denied') then return null; end if;
+ if exists(select 1 from app_private.podcast_job_checkpoints c where c.job_id=j.id and c.stage='script')
+  and app_private.podcast_route_succeeded(j.id,'podcast_review') then return 'synthesizing'; end if;
+ if exists(select 1 from app_private.podcast_job_checkpoints c where c.job_id=j.id and c.stage='draft')
+  and app_private.podcast_route_succeeded(j.id,'podcast_script')
+  and not exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+   where ja.job_id=j.id and ja.route='podcast_review' and pa.state<>'denied') then return 'checking'; end if;
+ return null;
+end $$;
+
+-- Releases the claim and parks the job where it can continue (a later worker
+-- request claims it again). Caller holds the job lock.
+create function app_private.podcast_park(j app_private.podcast_jobs,p_state text,p_reason text) returns app_private.podcast_jobs
+language plpgsql security definer set search_path='' as $$
+begin
+ if p_state not in ('queued','checking','synthesizing') then raise exception 'invalid_podcast_stage'; end if;
+ update app_private.podcast_jobs set state=p_state,stage_entered_at=clock_timestamp(),claim_id=null,lease_until=null where id=j.id returning * into j;
+ perform app_private.podcast_event(j.id,case when p_state='queued' then 'requeued' else 'parked' end,jsonb_build_object('reason',p_reason,'state',p_state));
+ return j;
+end $$;
+
 -- An expired lease is not evidence that a vendor did no work. Admitted attempts
--- become unknown liabilities; nothing paid is ever re-sent automatically.
+-- become unknown liabilities; nothing paid is ever re-sent automatically. A staged
+-- job resumes from its last checkpoint; anything else that already paid ends.
 create function app_private.podcast_recover(j app_private.podcast_jobs) returns app_private.podcast_jobs
 language plpgsql security definer set search_path='' as $$
-declare a record;
+declare a record; resume text;
 begin
  for a in select pa.* from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
   where ja.job_id=j.id and pa.state='admitted' order by pa.id loop
@@ -1431,13 +1632,11 @@ begin
  if exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
   where ja.job_id=j.id and pa.state='unknown') then
   return app_private.podcast_settle(j,'unknown_provider','provider_outcome_unknown');
- elsif exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
-  where ja.job_id=j.id and pa.state<>'denied') then
-  return app_private.podcast_settle(j,'failed','worker_interrupted');
  end if;
- update app_private.podcast_jobs set state='queued',stage_entered_at=clock_timestamp(),claim_id=null,lease_until=null where id=j.id returning * into j;
- perform app_private.podcast_event(j.id,'requeued',jsonb_build_object('reason','lease_expired_before_paid_work'));
- return j;
+ resume:=app_private.podcast_resume_state(j);
+ if resume is null then return app_private.podcast_settle(j,'failed','worker_interrupted'); end if;
+ if resume<>'queued' and j.cancel_requested then return app_private.podcast_settle(j,'canceled','canceled_by_owner'); end if;
+ return app_private.podcast_park(j,resume,case when resume='queued' then 'lease_expired_before_paid_work' else 'lease_expired_after_checkpoint' end);
 end $$;
 
 create function public.worker_podcast_recover() returns jsonb
@@ -1455,17 +1654,20 @@ end $$;
 create function public.worker_podcast_claim(p_claim_id uuid,p_generated boolean default true) returns jsonb
 language plpgsql security definer set search_path='' as $$
 declare pol app_private.podcast_policy; candidate uuid; j app_private.podcast_jobs; spec jsonb; src app_private.podcast_sources; t app_private.stored_objects;
- meta jsonb;
+ meta jsonb; resumed boolean; resume jsonb;
 begin
  if p_claim_id is null then raise exception 'invalid_podcast_claim'; end if;
  select * into strict pol from app_private.podcast_policy where singleton;
- select x.id into candidate from app_private.podcast_jobs x where x.state='queued' and x.claim_id is null
+ -- Queued work, or a staged job parked after a checkpoint (oldest first, so work in flight finishes first).
+ select x.id into candidate from app_private.podcast_jobs x where x.claim_id is null
+  and (x.state='queued' or (x.state in ('checking','synthesizing') and exists(select 1 from app_private.podcast_job_checkpoints c where c.job_id=x.id)))
   and ((x.funding_kind='customer' and pol.generation_enabled) or (x.funding_kind='platform_seed' and pol.seed_enabled) or (x.funding_kind='fixture' and pol.fixtures_enabled))
   and (x.origin='fixture' or coalesce(p_generated,false))
   order by x.created_at,x.id limit 1;
  if candidate is null then return jsonb_build_object('claimed',false); end if;
  j:=app_private.podcast_lock_job(candidate);
- if j.state<>'queued' or j.claim_id is not null then return jsonb_build_object('claimed',false,'more',true); end if;
+ if j.claim_id is not null or j.finished_at is not null or j.state not in ('queued','checking','synthesizing') then return jsonb_build_object('claimed',false,'more',true); end if;
+ resumed:=j.state<>'queued';
  -- A scan in progress would refuse this job's uploads after its paid calls.
  if (select reconciliation_id is not null from app_private.paper_asset_policy where singleton for share) then
   return jsonb_build_object('claimed',false,'reason','asset_inventory_reconciling');
@@ -1484,16 +1686,24 @@ begin
  select * into strict src from app_private.podcast_sources where episode_id=j.episode_id and ordinal=0;
  select * into t from app_private.stored_objects where id=src.text_object_id and state='verified' and sha256=src.text_sha256 and byte_count=src.text_bytes;
  if not found then j:=app_private.podcast_settle(j,'failed','source_unavailable'); return jsonb_build_object('claimed',false,'more',true); end if;
+ if resumed then
+  -- Only the exact stage its checkpoint covers; anything else already ended the job.
+  if app_private.podcast_resume_state(j) is distinct from j.state then
+   j:=app_private.podcast_settle(j,'failed','checkpoint_unavailable'); return jsonb_build_object('claimed',false,'more',true);
+  end if;
+  select jsonb_build_object('stage',case when j.state='checking' then 'review' else 'speech' end,'document',c.document) into strict resume
+   from app_private.podcast_job_checkpoints c where c.job_id=j.id and c.stage=case when j.state='checking' then 'draft' else 'script' end;
+ end if;
  update app_private.podcast_jobs set claim_id=p_claim_id,claim_generation=claim_generation+1,lease_until=clock_timestamp()+interval '15 minutes',
-  state='scripting',stage_entered_at=clock_timestamp() where id=j.id returning * into j;
- perform app_private.podcast_event(j.id,'claimed',jsonb_build_object('claim_id',p_claim_id,'generation',j.claim_generation));
+  state=case when resumed then j.state else 'scripting' end,stage_entered_at=clock_timestamp() where id=j.id returning * into j;
+ perform app_private.podcast_event(j.id,'claimed',jsonb_build_object('claim_id',p_claim_id,'generation',j.claim_generation,'resumed',resumed));
  spec:=app_private.podcast_job_spec(j);
  select jsonb_build_object('title',left(cm.metadata->>'title',500),'authors',cm.metadata->'authors') into meta
   from app_private.catalog_metadata cm where cm.id=src.metadata_id;
  return jsonb_build_object('claimed',true,'job_id',j.id,'claim_id',p_claim_id,'generation',j.claim_generation,'origin',j.origin,
   'funding_kind',j.funding_kind,'scope',(select scope from app_private.podcast_episode_keys where id=j.episode_id),
   'owner_id',(select owner_id from app_private.podcast_episode_keys where id=j.episode_id),'episode_id',j.episode_id,
-  'lease_until',j.lease_until,'spec',spec,'metadata',meta,
+  'lease_until',j.lease_until,'spec',spec,'metadata',meta,'resume',resume,
   'source',jsonb_build_object('document_id',src.document_id,'bucket',t.bucket,'path',t.path,'sha256',encode(t.sha256,'hex'),'bytes',t.byte_count,
    'normalization_version',src.normalization_version));
 end $$;
@@ -1519,22 +1729,45 @@ begin
  return jsonb_build_object('state',j.state,'canceled',false,'lease_until',j.lease_until);
 end $$;
 
--- One durable grant per profile call (two script passes + one speech call, no
--- repair). Units, model and ceiling come from the job's immutable profile.
-create function public.worker_podcast_attempt_begin(p_job uuid,p_claim uuid,p_generation bigint,p_attempt_id uuid,p_route text,p_request_sha256 bytea) returns jsonb
+-- One durable grant per profile call: two script passes, then the planned speech
+-- chunks (no repair). Units, model and ceiling come from the job's immutable profile;
+-- a speech chunk's audio cap is the worker's plan, bounded per call by the serving
+-- limit and in total by the profile (max_calls, max_audio_tokens). Caller holds the
+-- fenced job lock and has checked stage, cancellation and rights.
+create function app_private.podcast_grant(j app_private.podcast_jobs,p_spec jsonb,p_attempt_id uuid,p_route text,p_request_sha256 bytea,
+ p_ordinal integer,p_audio_tokens bigint) returns jsonb
 language plpgsql security definer set search_path='' as $$
-declare j app_private.podcast_jobs; spec jsonb; call jsonb; provider text; model text; ceiling bigint; units jsonb; admission jsonb;
- prior app_private.podcast_job_attempts; need text; previous text;
+declare call jsonb; provider text; model text; ceiling bigint; units jsonb; admission jsonb;
 begin
- if p_attempt_id is null or p_route is null or p_route not in ('podcast_script','podcast_review','podcast_speech')
-  or octet_length(p_request_sha256) is distinct from 32 then raise exception 'invalid_provider_attempt'; end if;
- j:=app_private.podcast_fenced(p_job,p_claim,p_generation);
- if j.origin<>'generated' then raise exception 'invalid_provider_route'; end if;
- select * into prior from app_private.podcast_job_attempts where job_id=j.id and route=p_route;
- if found then
-  -- A lost acknowledgement never becomes permission for another POST.
-  return jsonb_build_object('granted',false,'reason',case when prior.attempt_id=p_attempt_id then 'attempt_replayed' else 'route_used' end);
+ if p_route='podcast_speech' then
+  provider:='google'; model:=p_spec->'speech'->>'model';
+  units:=jsonb_build_object('text_input_tokens',(p_spec->'speech'->>'max_input_tokens')::bigint,'audio_output_tokens',p_audio_tokens);
+  ceiling:=(p_spec->'speech'->>'max_input_tokens')::bigint*(p_spec->'speech'->'rates_microusd_per_token'->>'text_input')::bigint
+   +p_audio_tokens*(p_spec->'speech'->'rates_microusd_per_token'->>'audio_output')::bigint;
+ else
+  select c into strict call from jsonb_array_elements(p_spec->'script'->'calls') c where c->>'route'=p_route;
+  provider:='anthropic'; model:=p_spec->'script'->>'model'; ceiling:=(call->>'ceiling_microusd')::bigint;
+  units:=jsonb_build_object('input_tokens',(call->>'max_input_tokens')::bigint,'output_tokens',(call->>'max_output_tokens')::bigint);
  end if;
+ perform set_config('app_private.podcast_attempt',p_attempt_id::text,true);
+ perform set_config('app_private.podcast_profile',(p_spec->>'id')||':'||(p_spec->>'version'),true);
+ admission:=public.worker_provider_attempt_begin(j.operation_account_id,j.operation_id,p_attempt_id,provider,p_route,model,p_request_sha256,ceiling,units);
+ perform set_config('app_private.podcast_attempt','',true);
+ if exists(select 1 from app_private.provider_attempts where id=p_attempt_id) then
+  insert into app_private.podcast_job_attempts(job_id,route,ordinal,attempt_id) values(j.id,p_route,p_ordinal,p_attempt_id);
+ end if;
+ perform app_private.podcast_event(j.id,'attempt',jsonb_build_object('route',p_route,'ordinal',p_ordinal,'attempt_id',p_attempt_id,
+  'granted',admission->'granted','reason',admission->'reason'));
+ return admission||jsonb_build_object('attempt_id',p_attempt_id,'provider',provider,'model',model,'ceiling_microusd',ceiling,'units',units,
+  'ordinal',p_ordinal,'account_id',j.operation_account_id,'operation_id',j.operation_id);
+end $$;
+
+-- Stage, cancellation and rights checks shared by every grant. Returns null when
+-- the job may proceed, else the refusal (the job is settled for cancel/rights).
+create function app_private.podcast_grant_gate(j app_private.podcast_jobs,p_route text) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare need text; previous text;
+begin
  if j.cancel_requested then
   j:=app_private.podcast_settle(j,'canceled','canceled_by_owner'); return jsonb_build_object('granted',false,'reason','canceled');
  end if;
@@ -1545,29 +1778,134 @@ begin
   and not app_private.podcast_rights_current(j.episode_id,j.rights_revision) then
   j:=app_private.podcast_settle(j,'failed','rights_changed'); return jsonb_build_object('granted',false,'reason','rights_changed');
  end if;
+ return null;
+end $$;
+
+-- A script pass, or a single-call speech plan at the full per-call cap (the five-minute profile).
+create function public.worker_podcast_attempt_begin(p_job uuid,p_claim uuid,p_generation bigint,p_attempt_id uuid,p_route text,p_request_sha256 bytea) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare j app_private.podcast_jobs; spec jsonb; admission jsonb; prior app_private.podcast_job_attempts; refused jsonb;
+begin
+ if p_attempt_id is null or p_route is null or p_route not in ('podcast_script','podcast_review','podcast_speech')
+  or octet_length(p_request_sha256) is distinct from 32 then raise exception 'invalid_provider_attempt'; end if;
+ j:=app_private.podcast_fenced(p_job,p_claim,p_generation);
+ if j.origin<>'generated' then raise exception 'invalid_provider_route'; end if;
+ select * into prior from app_private.podcast_job_attempts where job_id=j.id and route=p_route order by ordinal limit 1;
+ if found then
+  -- A lost acknowledgement never becomes permission for another POST.
+  return jsonb_build_object('granted',false,'reason',case when prior.attempt_id=p_attempt_id then 'attempt_replayed' else 'route_used' end);
+ end if;
+ refused:=app_private.podcast_grant_gate(j,p_route);
+ if refused is not null then return refused; end if;
  spec:=app_private.podcast_job_spec(j);
- if p_route='podcast_speech' then
-  provider:='google'; model:=spec->'speech'->>'model'; ceiling:=(spec->'speech'->>'ceiling_microusd')::bigint;
-  units:=jsonb_build_object('text_input_tokens',(spec->'speech'->>'max_input_tokens')::bigint,'audio_output_tokens',(spec->'speech'->>'max_output_tokens')::bigint);
- else
-  select c into strict call from jsonb_array_elements(spec->'script'->'calls') c where c->>'route'=p_route;
-  provider:='anthropic'; model:=spec->'script'->>'model'; ceiling:=(call->>'ceiling_microusd')::bigint;
-  units:=jsonb_build_object('input_tokens',(call->>'max_input_tokens')::bigint,'output_tokens',(call->>'max_output_tokens')::bigint);
- end if;
- perform set_config('app_private.podcast_attempt',p_attempt_id::text,true);
- perform set_config('app_private.podcast_profile',(spec->>'id')||':'||(spec->>'version'),true);
- admission:=public.worker_provider_attempt_begin(j.operation_account_id,j.operation_id,p_attempt_id,provider,p_route,model,p_request_sha256,ceiling,units);
- perform set_config('app_private.podcast_attempt','',true);
- if exists(select 1 from app_private.provider_attempts where id=p_attempt_id) then
-  insert into app_private.podcast_job_attempts(job_id,route,attempt_id) values(j.id,p_route,p_attempt_id);
- end if;
+ if p_route='podcast_speech' then update app_private.podcast_jobs set speech_calls=1 where id=j.id returning * into j; end if;
+ admission:=app_private.podcast_grant(j,spec,p_attempt_id,p_route,p_request_sha256,0,
+  case when p_route='podcast_speech' then least((spec->'speech'->>'max_output_tokens')::bigint,
+   coalesce((spec->'speech'->>'max_audio_tokens')::bigint,(spec->'speech'->>'max_output_tokens')::bigint)) end);
  update app_private.podcast_jobs set lease_until=clock_timestamp()+interval '15 minutes' where id=j.id;
- perform app_private.podcast_event(j.id,'attempt',jsonb_build_object('route',p_route,'attempt_id',p_attempt_id,'granted',admission->'granted','reason',admission->'reason'));
  if not (admission->>'granted')::boolean then
   j:=app_private.podcast_settle(j,'failed','provider_admission_refused');
  end if;
- return admission||jsonb_build_object('attempt_id',p_attempt_id,'provider',provider,'model',model,'ceiling_microusd',ceiling,'units',units,
-  'account_id',j.operation_account_id,'operation_id',j.operation_id);
+ return admission;
+end $$;
+
+-- The speech plan's chunks, granted together or not at all: [{attempt_id,
+-- request_sha256, audio_tokens}] in chunk order. If any grant is refused, the
+-- chunks granted before it in this same transaction were never sent and close at
+-- zero cost; the job then fails without any speech spend.
+create function public.worker_podcast_speech_begin(p_job uuid,p_claim uuid,p_generation bigint,p_chunks jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare j app_private.podcast_jobs; spec jsonb; refused jsonb; chunk jsonb; n integer; i integer:=0; total bigint:=0; audio bigint;
+ granted jsonb:='[]'::jsonb; admission jsonb; prior_ids uuid[]; given uuid[]; g jsonb;
+begin
+ if p_chunks is null or jsonb_typeof(p_chunks)<>'array' or jsonb_array_length(p_chunks) not between 1 and 8 or octet_length(p_chunks::text)>4096
+ then raise exception 'invalid_provider_attempt'; end if;
+ j:=app_private.podcast_fenced(p_job,p_claim,p_generation);
+ if j.origin<>'generated' then raise exception 'invalid_provider_route'; end if;
+ select coalesce(array_agg((c->>'attempt_id')::uuid order by o),'{}') into given from jsonb_array_elements(p_chunks) with ordinality x(c,o);
+ select coalesce(array_agg(attempt_id order by ordinal),'{}') into prior_ids from app_private.podcast_job_attempts where job_id=j.id and route='podcast_speech';
+ if cardinality(prior_ids)>0 then
+  return jsonb_build_object('granted',false,'reason',case when prior_ids=given then 'attempt_replayed' else 'route_used' end);
+ end if;
+ refused:=app_private.podcast_grant_gate(j,'podcast_speech');
+ if refused is not null then return refused; end if;
+ spec:=app_private.podcast_job_spec(j);
+ n:=jsonb_array_length(p_chunks);
+ if n>coalesce((spec->'speech'->>'max_calls')::integer,1) or (select count(distinct x) from unnest(given) x)<>n then raise exception 'invalid_provider_attempt'; end if;
+ for chunk in select c from jsonb_array_elements(p_chunks) c loop
+  if jsonb_typeof(chunk)<>'object' or chunk->>'attempt_id' !~ '^[0-9a-f-]{36}$' or chunk->>'request_sha256' !~ '^[0-9a-f]{64}$'
+   or jsonb_typeof(chunk->'audio_tokens')<>'number' or (chunk->>'audio_tokens') !~ '^[1-9][0-9]{0,5}$'
+   or (chunk->>'audio_tokens')::bigint>(spec->'speech'->>'max_output_tokens')::bigint then raise exception 'invalid_provider_attempt'; end if;
+  total:=total+(chunk->>'audio_tokens')::bigint;
+ end loop;
+ if total>coalesce((spec->'speech'->>'max_audio_tokens')::bigint,(spec->'speech'->>'max_output_tokens')::bigint) then raise exception 'invalid_provider_attempt'; end if;
+ update app_private.podcast_jobs set speech_calls=n,lease_until=clock_timestamp()+interval '15 minutes' where id=j.id returning * into j;
+ for chunk in select c from jsonb_array_elements(p_chunks) c loop
+  admission:=app_private.podcast_grant(j,spec,(chunk->>'attempt_id')::uuid,'podcast_speech',decode(chunk->>'request_sha256','hex'),i,(chunk->>'audio_tokens')::bigint);
+  if not (admission->>'granted')::boolean then
+   for g in select value from jsonb_array_elements(granted) loop
+    perform public.worker_provider_attempt_finish((g->>'account_id')::uuid,(g->>'operation_id')::uuid,(g->>'attempt_id')::uuid,'rejected',null,0,'{}','speech_batch_refused');
+   end loop;
+   j:=app_private.podcast_settle(j,'failed','provider_admission_refused');
+   return jsonb_build_object('granted',false,'reason',admission->'reason','ordinal',i);
+  end if;
+  granted:=granted||jsonb_build_array(admission);
+  i:=i+1;
+ end loop;
+ return jsonb_build_object('granted',true,'attempts',granted);
+end $$;
+
+-- Staged jobs: after a paid script pass whose result was recorded, keep its output
+-- (the draft, or the reviewed script the checker accepted) and release the claim so
+-- the next stage runs in a fresh worker request with its full time budget.
+create function public.worker_podcast_checkpoint(p_job uuid,p_claim uuid,p_generation bigint,p_stage text,p_document jsonb) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare j app_private.podcast_jobs; next_state text;
+begin
+ if p_stage is null or p_stage not in ('draft','script') or p_document is null or jsonb_typeof(p_document)<>'object'
+  or octet_length(p_document::text)>1048576 then raise exception 'invalid_podcast_checkpoint'; end if;
+ j:=app_private.podcast_fenced(p_job,p_claim,p_generation);
+ if j.cancel_requested then
+  j:=app_private.podcast_settle(j,'canceled','canceled_by_owner'); return jsonb_build_object('state',j.state,'canceled',true);
+ end if;
+ if j.origin<>'generated' or not coalesce((app_private.podcast_job_spec(j)->>'staged')::boolean,false) then raise exception 'invalid_podcast_stage'; end if;
+ if p_stage='draft' then
+  if j.state<>'scripting' or not app_private.podcast_route_succeeded(j.id,'podcast_script')
+   or exists(select 1 from app_private.podcast_job_attempts where job_id=j.id and route<>'podcast_script') then raise exception 'invalid_podcast_stage'; end if;
+  next_state:='checking';
+ else
+  if j.state<>'checking' or not app_private.podcast_route_succeeded(j.id,'podcast_review')
+   or not exists(select 1 from app_private.podcast_job_checkpoints where job_id=j.id and stage='draft')
+   or exists(select 1 from app_private.podcast_job_attempts where job_id=j.id and route='podcast_speech') then raise exception 'invalid_podcast_stage'; end if;
+  next_state:='synthesizing';
+ end if;
+ insert into app_private.podcast_job_checkpoints(job_id,stage,document,sha256)
+  values(j.id,p_stage,p_document,sha256(convert_to(p_document::text,'UTF8')));
+ j:=app_private.podcast_park(j,next_state,'checkpoint_'||p_stage);
+ update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id;
+ perform app_private.podcast_kick();
+ return jsonb_build_object('state',next_state,'canceled',false);
+end $$;
+
+-- A worker that cannot fit the next paid call in what remains of its request hands
+-- the job back at the last safe point instead of failing it (only where no paid
+-- result would be lost).
+create function public.worker_podcast_yield(p_job uuid,p_claim uuid,p_generation bigint) returns jsonb
+language plpgsql security definer set search_path='' as $$
+declare j app_private.podcast_jobs; resume text;
+begin
+ j:=app_private.podcast_fenced(p_job,p_claim,p_generation);
+ if j.cancel_requested then
+  j:=app_private.podcast_settle(j,'canceled','canceled_by_owner'); return jsonb_build_object('state',j.state,'canceled',true);
+ end if;
+ if exists(select 1 from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id
+  where ja.job_id=j.id and pa.state='admitted') then raise exception 'invalid_podcast_stage'; end if;
+ resume:=app_private.podcast_resume_state(j);
+ if resume is null or (resume<>'queued' and resume<>j.state) then raise exception 'invalid_podcast_stage'; end if;
+ j:=app_private.podcast_park(j,resume,'request_deadline');
+ update app_private.podcast_jobs set kicked_at=clock_timestamp() where id=j.id;
+ perform app_private.podcast_kick();
+ return jsonb_build_object('state',j.state,'canceled',false);
 end $$;
 
 -- Terminal failure. Unrecorded attempts become unknown liabilities first.
@@ -1929,7 +2267,8 @@ begin
  perform 1 from app_private.podcast_policy where singleton for share;
  for j in select x.* from app_private.podcast_jobs x where x.operation_account_id=p_account_id and x.finished_at is null
   and x.state not in ('unknown_provider','quarantined') order by x.id for update loop
-  if j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id) then
+  if (j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id))
+   or (j.claim_id is null and j.state in ('checking','synthesizing')) then
    perform app_private.podcast_settle(j,'canceled','owner_deleted'); canceled:=canceled+1;
   else
    if not j.cancel_requested then update app_private.podcast_jobs set cancel_requested=true where id=j.id; end if;
@@ -1957,7 +2296,8 @@ begin
  perform 1 from app_private.provider_spending_policy where singleton for update;
  perform 1 from app_private.podcast_policy where singleton for share;
  for j in select x.* from app_private.podcast_jobs x where x.operation_account_id=p_account_id and x.finished_at is null order by x.id for update loop
-  if j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id) then
+  if (j.state='queued' and j.claim_id is null and not exists(select 1 from app_private.podcast_job_attempts where job_id=j.id))
+   or (j.claim_id is null and j.state in ('checking','synthesizing')) then
    perform app_private.podcast_settle(j,'canceled','owner_deleted');
   elsif j.state not in ('unknown_provider','quarantined') then
    update app_private.podcast_jobs set cancel_requested=true where id=j.id;
@@ -2018,14 +2358,17 @@ language sql stable security definer set search_path='' as $$
  select jsonb_build_object('policy',(select to_jsonb(p) from app_private.podcast_policy p where singleton),
   'inventory_certified',app_private.podcast_inventory_certified(),
   'profile',app_private.podcast_spec(),
+  'lengths',app_private.podcast_lengths(),
   'seed_periods',coalesce((select jsonb_agg(to_jsonb(s)||jsonb_build_object('committed_microusd',app_private.podcast_seed_committed(s.period),
     'episodes',app_private.podcast_seed_episodes(s.period)) order by s.period desc)
    from app_private.podcast_seed_periods s),'[]'::jsonb),
   'jobs',coalesce((select jsonb_object_agg(state,n) from (select state,count(*) n from app_private.podcast_jobs group by state) x),'{}'::jsonb),
   'recent_jobs',coalesce((select jsonb_agg(jsonb_build_object('id',j.id,'state',j.state,'origin',j.origin,'funding',j.funding_kind,'failure',j.failure_code,
+    'profile',(select k.profile_id from app_private.podcast_episode_keys k where k.id=j.episode_id),'speech_calls',j.speech_calls,
+    'parked',j.claim_id is null and j.state in ('checking','synthesizing'),
     'created_at',j.created_at,'finished_at',j.finished_at,'charged_credits',j.charged_credits,'quality_loss_microusd',j.quality_loss_microusd,
     'release_id',(select r.id from app_private.podcast_releases r where r.job_id=j.id),
-    'attempts',(select coalesce(jsonb_agg(jsonb_build_object('route',ja.route,'state',pa.state,'ceiling_microusd',pa.ceiling_microusd,
+    'attempts',(select coalesce(jsonb_agg(jsonb_build_object('route',ja.route,'ordinal',ja.ordinal,'state',pa.state,'ceiling_microusd',pa.ceiling_microusd,
       'actual_microusd',pa.actual_microusd,'units',pa.actual_units,'model',pa.model,'provider_request_id',pa.provider_request_id) order by pa.created_at),'[]'::jsonb)
      from app_private.podcast_job_attempts ja join app_private.provider_attempts pa on pa.id=ja.attempt_id where ja.job_id=j.id)) order by j.created_at desc)
    from (select * from app_private.podcast_jobs order by created_at desc limit 20) j),'[]'::jsonb),
@@ -2044,14 +2387,15 @@ begin
  foreach t in array array['podcast_profiles','podcast_policy','podcast_policy_events','podcast_seed_periods','podcast_episode_keys','podcast_sources',
   'podcast_rights','podcast_rights_events','podcast_quotes','podcast_jobs','podcast_requests','podcast_job_events','podcast_job_attempts','podcast_scripts',
   'podcast_releases','podcast_release_objects','podcast_asset_holds','podcast_asset_uploads','podcast_asset_upload_members','podcast_asset_writes',
-  'podcast_delivery_grants','podcast_delivery_redemptions'] loop
+  'podcast_delivery_grants','podcast_delivery_redemptions','podcast_job_checkpoints'] loop
   execute format('alter table app_private.%I enable row level security',t);
   execute format('revoke all on app_private.%I from public,anon,authenticated,service_role',t);
  end loop;
  revoke all on sequence app_private.podcast_publication_seq from public,anon,authenticated,service_role;
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public'
   and p.proname in ('worker_podcast_policy_set','worker_podcast_seed_period','worker_podcast_seed_admit','worker_podcast_review','worker_podcast_rights',
-   'worker_podcast_recover','worker_podcast_claim','worker_podcast_advance','worker_podcast_attempt_begin','worker_podcast_fail','worker_podcast_asset_plan',
+   'worker_podcast_recover','worker_podcast_claim','worker_podcast_advance','worker_podcast_attempt_begin','worker_podcast_speech_begin',
+   'worker_podcast_checkpoint','worker_podcast_yield','worker_podcast_fail','worker_podcast_asset_plan',
    'worker_podcast_asset_write','worker_podcast_asset_written','worker_podcast_publish','worker_podcast_release','worker_podcast_delivery_expire',
    'worker_podcast_delivery_create','worker_podcast_delivery_redeem','worker_podcast_delivery_observed','worker_podcast_cleanup','worker_podcast_cleanup_confirm',
    'worker_podcast_status','worker_podcast_kick_due','worker_podcast_seed_candidates','worker_podcast_write_resolve','worker_podcast_account_closing','worker_delete_account_begin','worker_delete_account_finish','worker_provider_attempt_begin',

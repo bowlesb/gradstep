@@ -1,7 +1,7 @@
 // Gradstep podcast worker entry (docs/architecture/PAPER_PODCASTS.md). The HTTP
 // parent (server.ts, POST /podcast) runs this in a worker thread with the same
 // hard deadline as the paper pipeline and awaits it before replying: no detached
-// work under request-based billing. One job per request.
+// work under request-based billing. One job (or one stage of a staged job) per request.
 import { parentPort, workerData } from 'node:worker_threads';
 import { createHash, randomUUID } from 'node:crypto';
 import { createAnthropicClient } from '../../supabase/functions/_shared/anthropic.ts';
@@ -23,8 +23,9 @@ export function podcastDeps(): PodcastDeps & { generated: boolean } {
   if (!url || !key) throw new Error('service_unavailable');
   const anthropicKey = runtimeEnv('ANTHROPIC_API_KEY');
   const speechAccount = runtimeEnv('PODCAST_SPEECH_SERVICE_ACCOUNT'), project = runtimeEnv('PODCAST_GCP_PROJECT') ?? 'gradstep';
-  const script = anthropicKey ? anthropicScriptProvider(createAnthropicClient({ apiKey: anthropicKey, maxRetries: 0, timeout: 300_000 })) : null;
-  const speech = speechAccount ? vertexSpeechProvider({ project, tokens: impersonatedTokenSource(speechAccount) }) : null;
+  // Each call's own window (AbortSignal) bounds it: up to 680 s for a staged twenty-minute draft, inside this request's budget.
+  const script = anthropicKey ? anthropicScriptProvider(createAnthropicClient({ apiKey: anthropicKey, maxRetries: 0, timeout: PODCAST_BUDGET_MS })) : null;
+  const speech = speechAccount ? vertexSpeechProvider({ project, tokens: impersonatedTokenSource(speechAccount), timeoutMs: PODCAST_BUDGET_MS }) : null;
   return {
     generated: !!(script && speech),
     rpc: rpcAdapter(service),

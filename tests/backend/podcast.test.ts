@@ -9,8 +9,8 @@ import { PassThrough } from 'node:stream';
 import { writeFileSync } from 'node:fs';
 import { checkScript, draftRequest, fitsInput, fixtureScript, parseScript, requestBytes, reviewRequest, scriptCost, scriptDocument,
   type Script, type ScriptCallResult, type ScriptProvider } from '../../supabase/functions/_shared/podcast-script.ts';
-import { alignSegments, fixtureAudio, impersonatedTokenSource, parseWav, speechCost, speechRequest, verifyAudio, vertexSpeechProvider,
-  wavBytes, type SpeechProvider } from '../../supabase/functions/_shared/podcast-speech.ts';
+import { alignSegments, fixtureAudio, impersonatedTokenSource, joinChunks, parseWav, planSpeechChunks, speechCost, speechRequest, verifyAudio,
+  vertexSpeechProvider, wavBytes, type SpeechProvider, type SpeechRequest } from '../../supabase/functions/_shared/podcast-speech.ts';
 import { runPodcast, type PodcastDeps } from '../../supabase/functions/_shared/podcast-worker.ts';
 import { handlePodcast, podcastError, type PodcastAPIDeps } from '../../supabase/functions/_shared/podcast-api.ts';
 import { deliverPodcastMember } from '../../supabase/functions/_shared/podcast-delivery.ts';
@@ -227,7 +227,8 @@ const PAPER_BYTES = new TextEncoder().encode(PAPER);
 const OWNER = '46000000-0000-4000-8000-00000000000a';
 
 function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' | 'private'; script?: Partial<ScriptProvider>; speech?: SpeechProvider | null;
-  failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: Script[]; claimed?: boolean } = {}) {
+  failRpc?: (name: string, n: number) => Error | null; uploadFails?: 'lost_but_written' | 'missing'; scripts?: Script[]; claimed?: boolean;
+  spec?: Record<string, unknown>; resume?: Record<string, unknown> | null; speechRefused?: boolean } = {}) {
   const calls: { name: string; params: Record<string, unknown> }[] = [], logs: unknown[] = [], uploads = new Map<string, Uint8Array>();
   let n = 0, attempts = 0, claimed = false;
   const queue = [...(options.scripts ?? [(() => { const s = goodScript(); delete s.review; return s; })(), goodScript()])];
@@ -244,12 +245,21 @@ function harness(options: { origin?: 'generated' | 'fixture'; scope?: 'shared' |
           claimed = true;
           return { claimed: true, job_id: '46000000-0000-4000-8000-000000000101', claim_id: String(params.p_claim_id), generation: 1,
             origin: options.origin ?? 'generated', funding_kind: 'platform_seed', scope: options.scope ?? 'shared', owner_id: options.scope === 'private' ? OWNER : null,
-            episode_id: '46000000-0000-4000-8000-000000000201', spec: SPEC, metadata: { title: 'Sparse Mixture Routing' },
+            episode_id: '46000000-0000-4000-8000-000000000201', spec: options.spec ?? SPEC, metadata: { title: 'Sparse Mixture Routing' },
+            resume: options.resume ?? null,
             source: { document_id: '46000000-0000-4000-8000-000000000301', bucket: 'paper-assets', path: 'raw/x/standalone.mmd', sha256: sha(PAPER_BYTES),
               bytes: PAPER_BYTES.byteLength, normalization_version: 'mathpix-standalone-mmd-v1' } } as T;
         case 'worker_podcast_advance': return { state: params.p_state, canceled: false } as T;
         case 'worker_podcast_attempt_begin': return { granted: true, attempt_id: params.p_attempt_id, account_id: OWNER,
           operation_id: '46000000-0000-4000-8000-000000000401', ceiling_microusd: 1 } as T;
+        case 'worker_podcast_speech_begin': {
+          const chunks = params.p_chunks as { attempt_id: string; audio_tokens: number }[];
+          if (options.speechRefused) return { granted: false, reason: 'operation_ceiling', ordinal: 1 } as T;
+          return { granted: true, attempts: chunks.map((c, i) => ({ granted: true, attempt_id: c.attempt_id, account_id: OWNER, ordinal: i,
+            operation_id: '46000000-0000-4000-8000-000000000401', ceiling_microusd: 8192 + c.audio_tokens * 18 })) } as T;
+        }
+        case 'worker_podcast_checkpoint': return { state: params.p_stage === 'draft' ? 'checking' : 'synthesizing', canceled: false } as T;
+        case 'worker_podcast_yield': return { state: (options.resume as { stage?: string } | null | undefined)?.stage === 'review' ? 'checking' : 'queued', canceled: false } as T;
         case 'worker_provider_attempt_finish': return null as T;
         case 'worker_podcast_asset_plan': return { objects: (params.p_objects as { role: string; path: string }[]).map((o, i) => ({ role: o.role, id: `obj-${i}`, path: o.path, verified: false })) } as T;
         case 'worker_podcast_asset_write': {
@@ -291,7 +301,13 @@ test('generated job: grants precede each paid call, usage recorded, exact invent
   assert.deepEqual(result, { processed: 1, recovered: 0, state: 'ready', failure: null });
   const names = h.names();
   const begins = h.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route);
-  assert.deepEqual(begins, ['podcast_script', 'podcast_review', 'podcast_speech']);
+  assert.deepEqual(begins, ['podcast_script', 'podcast_review']);
+  // Five minutes is one speech call at the full per-call cap: the same 303,104 micro-USD grant as before chunking.
+  const speech = h.calls.filter(c => c.name === 'worker_podcast_speech_begin');
+  assert.equal(speech.length, 1);
+  assert.deepEqual((speech[0].params.p_chunks as { audio_tokens: number }[]).map(c => c.audio_tokens), [16384]);
+  assert.ok(names.indexOf('worker_podcast_speech_begin') < names.indexOf('worker_provider_attempt_finish', names.indexOf('worker_podcast_speech_begin')));
+  assert.ok(!names.includes('worker_podcast_checkpoint'), 'five minutes runs in one request');
   const finishes = h.calls.filter(c => c.name === 'worker_provider_attempt_finish');
   assert.deepEqual(finishes.map(f => [f.params.p_state, f.params.p_actual_microusd]), [['succeeded', 70000], ['succeeded', 70000], ['succeeded', 69000]]);
   assert.deepEqual(finishes[2].params.p_actual_units, { text_input_tokens: 1500, audio_output_tokens: 3750, audio_ms: 150000 });
@@ -441,6 +457,179 @@ test('without provider credentials generated jobs are not claimed', async () => 
 });
 
 // ---------------------------------------------------------------------------
+// Lengths: chunked speech and staged (checkpointed) ten/twenty-minute jobs
+// ---------------------------------------------------------------------------
+const TEN = { ...SPEC, id: 'podcast-10min-v1', target_seconds: 600, min_seconds: 300, max_seconds: 1080, staged: true,
+  shape: { duration: 'about ten minutes', words: [1350, 1650], chapters: [6, 8], segments: [30, 80] },
+  checker: { words: [900, 2000], chapters: [4, 12], segments: [16, 160], max_spoken_characters: 12500, min_evidenced: 10 },
+  script: { model: 'claude-sonnet-5-5', calls: [{ route: 'podcast_script', max_input_tokens: 80000, max_output_tokens: 12000, window_seconds: 420 },
+    { route: 'podcast_review', max_input_tokens: 93000, max_output_tokens: 10000, window_seconds: 360 }] },
+  speech: { ...SPEC.speech, max_calls: 3, max_audio_tokens: 27000, window_seconds: 420 },
+  storage: { audio_bytes: 12582912, transcript_bytes: 4194304, manifest_bytes: 262144 } };
+const QUOTES = ['Dense models scale poorly with expert count because every token visits every expert.',
+  'Each token is routed to the top 2 of 64 experts by a learned gate', 'The load-balancing loss keeps expert utilization within 5% of uniform.',
+  'Sparse routing reaches 41.2 perplexity on the benchmark versus 43.9 for the dense baseline.', 'Training throughput improves by 1.8x at equal compute.',
+  'We only evaluate English text and models up to 1.3B parameters'];
+
+/** A faithful ten-minute script: 6 chapters x 8 segments, ~1,700 words, every other segment evidenced (no digits spoken). */
+function tenMinuteScript(review = true): Script {
+  const filler = ' The two hosts slow down here and walk through what the passage says, what it assumes and why a careful reader should care about it.';
+  const segments = Array.from({ length: 48 }, (_, i) => ({ id: `s${i + 1}`, chapter: `c${Math.floor(i / 8) + 1}`,
+    speaker: (i % 2 ? 'skeptic' : 'explainer') as 'explainer' | 'skeptic', style: 'curious, measured',
+    text: (i % 2 ? 'The skeptic asks whether that claim really holds up.' : 'The paper reports a specific result on this point.') + filler,
+    claim_type: (i % 2 ? 'context' : 'paper_result') as Script['segments'][number]['claim_type'],
+    evidence: i % 2 ? [] : [{ quote: QUOTES[(i / 2) % QUOTES.length], section: '' }], math: [] }));
+  return { title: 'Sparse routing, at length', limitations: ['Only English text was evaluated.'],
+    chapters: Array.from({ length: 6 }, (_, i) => ({ id: `c${i + 1}`, title: `Part ${['one', 'two', 'three', 'four', 'five', 'six'][i]}` })), segments,
+    ...(review ? { review: { verdict: 'accept' as const, issues: [] } } : {}) };
+}
+
+/** Speech fake: a take of ~0.4 s per word (150 wpm) with 300 ms of silence at each edge; louder or quieter per call. */
+function wordTake(request: SpeechRequest, gain = 1): Uint8Array {
+  const parts = ((request.body.contents as { parts: { text: string }[] }[])[0]).parts;
+  const words = parts.reduce((n, p) => n + p.text.split(/\s+/).filter(Boolean).length, 0);
+  const rate = 24_000, edge = Math.round(rate * 0.3), voiced = Math.round(words * 0.4 * rate);
+  const samples = new Int16Array(voiced + 2 * edge);
+  for (let i = 0; i < voiced; i++) samples[edge + i] = Math.round(Math.sin(2 * Math.PI * 180 * i / rate) * 4000 * gain * ((i / rate) % 6 < 5.6 ? 1 : 0.05));
+  return wavBytes(samples);
+}
+
+test('speech plan: one call at the full cap for five minutes; long scripts split at chapter starts within every limit', () => {
+  const five = checkScript(goodScript(), PAPER);
+  assert.ok(five.ok);
+  if (!five.ok) return;
+  assert.deepEqual(planSpeechChunks(five.script.segments, { maxInputTokens: 8192, maxCalls: 1, perCallOutputTokens: 16384, maxAudioTokens: 16384 })
+    ?.map(c => [c.start, c.end, c.audioTokens]), [[0, 15, 16384]]);
+  const ten = checkScript(tenMinuteScript(), PAPER, { bounds: TEN.checker as never });
+  assert.ok(ten.ok, ten.ok ? '' : ten.problems.join(','));
+  if (!ten.ok) return;
+  const limits = { maxInputTokens: 8192, maxCalls: 3, perCallOutputTokens: 16384, maxAudioTokens: 27000 };
+  const plan = planSpeechChunks(ten.script.segments, limits)!;
+  assert.ok(plan.length >= 2 && plan.length <= 3, `chunks: ${plan.length}`);
+  assert.equal(plan[0].start, 0); assert.equal(plan.at(-1)!.end, 48);
+  for (let i = 1; i < plan.length; i++) assert.equal(plan[i].start, plan[i - 1].end, 'contiguous, every segment once');
+  for (const c of plan) {
+    assert.ok(c.bytes <= 8192, 'each request within the input limit');
+    assert.equal(speechRequest({ segments: ten.script.segments.slice(c.start, c.end) }, SPEC.speech.voices, c.audioTokens).bytes, c.bytes, 'same bound as the request');
+    assert.ok(c.audioTokens <= 16384 && c.audioTokens >= c.words * 12.5, 'each chunk can finish at a slow pace');
+    if (c.start > 0) assert.notEqual(ten.script.segments[c.start].chapter, ten.script.segments[c.start - 1].chapter, 'seams fall where a chapter starts');
+  }
+  assert.ok(plan.reduce((n, c) => n + c.audioTokens, 0) <= 27000, 'total audio within the profile');
+  assert.equal(planSpeechChunks(ten.script.segments, { ...limits, maxCalls: 1 }), null, 'more calls than the profile allows: refused before any speech');
+  assert.equal(planSpeechChunks(ten.script.segments, { ...limits, maxAudioTokens: 5000 }), null, 'an allowance too small to finish is refused');
+});
+
+test('chunk join: one take untouched; several trimmed, level-matched and joined at a natural pause with exact spans', () => {
+  const one = parseWav(tone(3));
+  assert.equal(joinChunks([one]).pcm, one);
+  // 0.75 vs 1.25 is a 4.4 dB difference: within the ±6 dB the join corrects.
+  const quiet = parseWav(wordTake({ body: { contents: [{ parts: [{ text: 'word '.repeat(60) }] }] }, bytes: 0 }, 0.75));
+  const loud = parseWav(wordTake({ body: { contents: [{ parts: [{ text: 'word '.repeat(80) }] }] }, bytes: 0 }, 1.25));
+  const joined = joinChunks([quiet, loud]);
+  assert.equal(joined.spans.length, 2);
+  const gap = joined.spans[1].start_ms - joined.spans[0].end_ms;
+  assert.ok(gap >= 440 && gap <= 460, `pause ${gap} ms`);
+  // Edge silence trimmed to ~120 ms each side: the take is shorter than the two inputs plus the pause.
+  assert.ok(joined.pcm.durationMs < quiet.durationMs + loud.durationMs);
+  assert.equal(verifyAudio(joined.pcm, { minMs: 1_000, maxMs: 120_000 }), null, 'no dead air or silence at the seam');
+  const rms = (p: { samples: Int16Array }) => { let s = 0, n = 0; for (const v of p.samples) if (Math.abs(v) > 200) { s += v * v; n++; } return Math.sqrt(s / Math.max(1, n)); };
+  const ratio = rms(joined.parts[0]) / rms(joined.parts[1]);
+  assert.ok(ratio > 0.9 && ratio < 1.1, `levels matched (${ratio.toFixed(2)})`);
+  assert.equal(joined.parts[0].samples[0], 0, 'faded in, no click');
+});
+
+test('ten minutes runs in stages: draft and reviewed script are checkpointed, speech chunks are granted together and sent together', async () => {
+  // Request 1: the draft only, then a checkpoint that releases the claim.
+  const first = harness({ spec: TEN, scripts: [tenMinuteScript(false)] });
+  assert.deepEqual(await runPodcast(first.deps, Date.now() + 780_000), { processed: 1, recovered: 0, state: 'checking', failure: null });
+  assert.deepEqual(first.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_script']);
+  const draft = first.calls.find(c => c.name === 'worker_podcast_checkpoint')!;
+  assert.equal(draft.params.p_stage, 'draft');
+  assert.ok(!first.names().includes('worker_podcast_advance'), 'parked by the checkpoint, not advanced');
+  assert.match(JSON.stringify(first.calls.find(c => c.name === 'worker_podcast_attempt_begin')), /podcast_script/);
+  // Request 2: resumes at the review with the stored draft.
+  const second = harness({ spec: TEN, scripts: [tenMinuteScript()], resume: { stage: 'review', document: draft.params.p_document } });
+  assert.equal((await runPodcast(second.deps, Date.now() + 780_000)).state, 'synthesizing');
+  assert.deepEqual(second.calls.filter(c => c.name === 'worker_podcast_attempt_begin').map(c => c.params.p_route), ['podcast_review']);
+  const script = second.calls.find(c => c.name === 'worker_podcast_checkpoint')!;
+  assert.equal(script.params.p_stage, 'script');
+  assert.equal((script.params.p_document as { draft_sha256: string }).draft_sha256, (draft.params.p_document as { draft_sha256: string }).draft_sha256);
+  // Request 3: every chunk granted in one call, all sent before any returns, then joined, encoded and published.
+  let inFlight = 0, peak = 0;
+  const third = harness({ spec: TEN, resume: { stage: 'speech', document: script.params.p_document }, speech: { generate: async request => {
+    inFlight++; peak = Math.max(peak, inFlight); await new Promise(r => setTimeout(r, 20)); inFlight--;
+    return { state: 'succeeded', requestID: `resp-${peak}`, model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio: wordTake(request, 0.8 + Math.random() * 0.4),
+      mimeType: 'audio/wav', usage: { text_input_tokens: 2000, audio_output_tokens: 7000 }, failure: null };
+  } } });
+  assert.equal((await runPodcast(third.deps, Date.now() + 780_000)).state, 'ready');
+  assert.ok(!third.names().includes('worker_podcast_attempt_begin'), 'no script calls are bought again');
+  const grant = third.calls.find(c => c.name === 'worker_podcast_speech_begin')!.params.p_chunks as { audio_tokens: number }[];
+  assert.ok(grant.length >= 2 && grant.length <= 3);
+  assert.equal(peak, grant.length, 'chunks are sent together');
+  assert.ok(grant.reduce((n, c) => n + c.audio_tokens, 0) <= 27000);
+  assert.equal(third.calls.filter(c => c.name === 'worker_provider_attempt_finish').length, grant.length, 'every chunk result recorded');
+  assert.deepEqual(third.calls.filter(c => c.name === 'worker_podcast_advance').map(c => c.params.p_state), ['verifying', 'publishing']);
+  const plan = third.calls.find(c => c.name === 'worker_podcast_asset_plan')!.params.p_objects as { path: string }[];
+  const transcript = JSON.parse(new TextDecoder().decode(third.uploads.get(plan[1].path)!));
+  assert.equal(transcript.segments.length, 48);
+  for (let i = 1; i < 48; i++) assert.ok(transcript.segments[i].start_ms >= transcript.segments[i - 1].end_ms - 1, `segment ${i} in order`);
+  // Chapters begin exactly where their first segment begins, in the joined take.
+  for (const chapter of transcript.chapters) {
+    const firstSegment = transcript.segments.find((s: { chapter: string }) => s.chapter === chapter.id);
+    assert.equal(chapter.start_ms, firstSegment.start_ms);
+  }
+  const manifest = JSON.parse(new TextDecoder().decode(third.uploads.get(plan[2].path)!));
+  assert.equal(manifest.identity.speech_calls, grant.length);
+  assert.equal(manifest.identity.profile, 'podcast-10min-v1:1');
+  assert.ok(manifest.duration_ms >= 300_000 && manifest.duration_ms <= 1_080_000);
+});
+
+test('a stage that cannot fit the rest of the request is handed back, never started', async () => {
+  const draft = { format: 1, draft: tenMinuteScript(false), draft_sha256: 'a'.repeat(64), models: { podcast_script: 'claude-sonnet-5-5' } };
+  const h = harness({ spec: TEN, resume: { stage: 'review', document: draft } });
+  const result = await runPodcast(h.deps, Date.now() + 200_000);
+  assert.deepEqual(result, { processed: 1, recovered: 0, state: 'checking', failure: null });
+  assert.ok(h.names().includes('worker_podcast_yield'));
+  assert.ok(!h.names().includes('worker_podcast_attempt_begin'), 'no grant, no POST');
+  assert.ok(!h.names().includes('worker_podcast_fail'));
+});
+
+test('chunked speech: a refused batch sends nothing; one unknown chunk keeps its liability after every result is recorded', async () => {
+  const script = { format: 1, final: tenMinuteScript(), draft_sha256: 'a'.repeat(64), models: {} };
+  let sent = 0;
+  const refused = harness({ spec: TEN, resume: { stage: 'speech', document: script }, speechRefused: true,
+    speech: { generate: async () => { sent++; throw new Error('must not send'); } } });
+  assert.equal((await runPodcast(refused.deps, Date.now() + 780_000)).failure, 'provider_admission_refused');
+  assert.equal(sent, 0);
+  let n = 0;
+  const partial = harness({ spec: TEN, resume: { stage: 'speech', document: script }, speech: { generate: async request => (n++ === 0
+    ? { state: 'unknown', requestID: null, model: null, finishReason: null, audio: null, mimeType: null, usage: null, failure: 'transport_unknown' }
+    : { state: 'succeeded', requestID: 'r2', model: 'gemini-3.8-flash-tts', finishReason: 'STOP', audio: wordTake(request), mimeType: 'audio/wav',
+      usage: { text_input_tokens: 1000, audio_output_tokens: 7000 }, failure: null }) } });
+  assert.equal((await runPodcast(partial.deps, Date.now() + 780_000)).failure, 'speech_outcome_unknown');
+  const finishes = partial.calls.filter(c => c.name === 'worker_provider_attempt_finish').map(c => c.params.p_state).sort();
+  assert.deepEqual(finishes, ['succeeded', 'unknown'].concat(Array(finishes.length - 2).fill('succeeded')).sort());
+  assert.ok(!partial.names().includes('worker_podcast_asset_plan'));
+});
+
+test('a paper that fits the draft but not the review (paper + draft) is refused before any paid call', async () => {
+  const h = harness({ script: { countTokens: async () => 72_000 } });
+  const padded = new TextEncoder().encode(PAPER + 'x'.repeat(70_000));
+  const original = h.deps.storage.download;
+  h.deps.storage.download = async (bucket, path, maximum) => bucket === 'paper-assets' ? padded : original(bucket, path, maximum);
+  h.deps.rpc = (inner => async <T>(name: string, params: Record<string, unknown>) => {
+    const value = await inner<T>(name, params);
+    if (name === 'worker_podcast_claim' && (value as { claimed?: boolean }).claimed) {
+      const claim = value as unknown as { source: { sha256: string; bytes: number } };
+      claim.source.sha256 = sha(padded); claim.source.bytes = padded.byteLength;
+    }
+    return value;
+  })(h.deps.rpc);
+  assert.equal((await runPodcast(h.deps, Date.now() + 600_000)).failure, 'source_too_large');
+  assert.ok(!h.names().includes('worker_podcast_attempt_begin'), 'no grant: the review could not have fit');
+});
+
+// ---------------------------------------------------------------------------
 // Encoder
 // ---------------------------------------------------------------------------
 test('encoder: escaped chapter metadata, fixed mono AAC arguments and a strict probe', async () => {
@@ -515,6 +704,12 @@ test('Edge API: customer RPCs, validated inputs, transcript integrity and single
   await assert.rejects(handlePodcast(req('?action=paper&item_id=nope'), h.deps, headers), /invalid_id/);
   const quote = await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT }) }), h.deps, headers);
   assert.equal((await quote.json()).ok, 'v1_podcast_quote');
+  assert.equal(h.calls.at(-1)!.params.p_profile, undefined, 'no length means the default (five minutes)');
+  await handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'podcast-10min-v1' }) }), h.deps, headers);
+  assert.equal(h.calls.at(-1)!.params.p_profile, 'podcast-10min-v1');
+  await assert.rejects(handlePodcast(req('?action=quote', { method: 'POST', body: JSON.stringify({ item_id: RELEASE, request_id: ACCOUNT, profile: 'Long!' }) }), h.deps, headers),
+    /podcast_profile_unavailable/);
+  assert.equal(podcastError('podcast_profile_unavailable').status, 400);
   await assert.rejects(handlePodcast(req('?action=start', { method: 'POST', body: JSON.stringify({ quote_id: RELEASE, request_id: ACCOUNT }) }), h.deps, headers), /consent_required/);
   const episode = await (await handlePodcast(req(`?action=episode&release_id=${RELEASE}`), h.deps, headers)).json();
   assert.equal(episode.episode.chapters[0].title, 'Intro');
